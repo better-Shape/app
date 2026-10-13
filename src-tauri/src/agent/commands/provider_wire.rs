@@ -635,11 +635,12 @@ fn stop_reason_anthropic(reason: &str) -> String {
 }
 
 fn stop_reason_google(reason: &str) -> String {
+    let lowered = reason.to_ascii_lowercase();
     match reason.to_ascii_uppercase().as_str() {
         "STOP" => "stop",
         "MAX_TOKENS" => "length",
         "SAFETY" | "RECITATION" | "BLOCKLIST" | "PROHIBITED_CONTENT" => "content_filter",
-        other => &other.to_ascii_lowercase(),
+        _ => lowered.as_str(),
     }
     .to_string()
 }

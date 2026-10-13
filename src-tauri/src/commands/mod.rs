@@ -5,7 +5,6 @@ pub mod git;
 pub mod github_auth;
 pub mod history;
 pub mod ipc;
-pub mod ipc;
 pub mod lint;
 pub mod open;
 pub mod packages;

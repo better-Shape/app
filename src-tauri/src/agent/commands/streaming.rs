@@ -18,7 +18,19 @@ use super::provider_wire;
 use super::tool_call_leak_parser::{LeakedToolCallParser, ParsedLeakCall};
 use crate::core::ai_providers::{resolve_model, ResolvedProvider};
 use crate::core::error::AppError;
-use crate::core::error::AppError;
+
+/// Largest byte index at or below `max` that sits on a char boundary.
+/// Kept local so the crate builds on any toolchain, stable or not.
+pub(crate) fn floor_char_boundary(s: &str, max: usize) -> usize {
+    if max >= s.len() {
+        return s.len();
+    }
+    let mut i = max;
+    while i > 0 && !s.is_char_boundary(i) {
+        i -= 1;
+    }
+    i
+}
 
 /// Resolve the configured provider + provider-native model slug for a request.
 pub fn resolve_provider(model: &str) -> Result<(ResolvedProvider, String), AppError> {
@@ -1253,6 +1265,7 @@ mod tests {
                     label: "OpenAI".to_string(),
                     api_key: "sk-test".to_string(),
                     base_url: String::new(),
+                    models: Vec::new(),
                     enabled: true,
                 },
                 ProviderEntry {
@@ -1261,6 +1274,7 @@ mod tests {
                     label: "Anthropic".to_string(),
                     api_key: "sk-ant".to_string(),
                     base_url: String::new(),
+                    models: Vec::new(),
                     enabled: true,
                 },
             ],

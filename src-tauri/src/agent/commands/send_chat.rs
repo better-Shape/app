@@ -12,9 +12,6 @@ use super::titles::{
 use crate::agent::context::{
     build_context_breakdown, build_context_with_options, context_options_for_query,
 };
-use crate::agent::context::{
-    build_context_breakdown, build_context_with_options, context_options_for_query,
-};
 use crate::agent::model_router;
 use crate::agent::models::{AgentState, AutoRunMode, ChatMessage, TurnPolicy};
 use crate::agent::prompts;
@@ -527,7 +524,7 @@ pub async fn send_chat_message(
     if !state.incognito() && view_tokens >= compaction::fill_line_tokens(&model_to_use) {
         let mut req = compaction::CompactRequest::new(
             &client,
-            &auth_token,
+            "",
             proxy_base.clone(),
             &model_to_use,
             "auto",
@@ -597,7 +594,7 @@ pub async fn send_chat_message(
     let tools = schema::apply_steer_packs(schema::stable_tools(family), &steer);
     let mcp_tokens: u64 = 0;
 
-    let summarized = turn_summary.clone();
+    let summarized = state.current_summary();
     let conversation_json =
         serde_json::to_string(&messages::build_api_history(&history_snapshot)).unwrap_or_default();
     let mut breakdown = build_context_breakdown(
@@ -933,7 +930,7 @@ pub async fn send_chat_message(
         if compaction::should_auto_compact(&view, &model_used) {
             let mut req = compaction::CompactRequest::new(
                 &client,
-                &auth_token,
+                "",
                 proxy_base.clone(),
                 &model_used,
                 "auto",

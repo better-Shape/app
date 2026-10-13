@@ -1,7 +1,6 @@
 //! Plan, todos, finish, design, and MCP tools.
 
 use base64::Engine;
-use base64::Engine;
 use serde_json::{json, Value};
 use tauri::{Emitter, Manager};
 

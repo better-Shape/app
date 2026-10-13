@@ -413,6 +413,26 @@ pub fn assert_ipc_path_allowed(path: &str) -> Result<(), AppError> {
     )))
 }
 
+/// Canonicalize `path` and reject credential targets.
+pub fn canonicalize_ipc_path(path: &str) -> Result<PathBuf, AppError> {
+    let resolved = PathBuf::from(path).canonicalize().map_err(AppError::Io)?;
+    assert_ipc_path_allowed(&resolved.to_string_lossy())?;
+    Ok(resolved)
+}
+
+/// `path` must already be canonical. Rejects siblings that only share a prefix
+/// (`…/skills-extra` is not inside `…/skills`).
+pub fn assert_resolved_within(path: &Path, root: &Path) -> Result<(), AppError> {
+    if path.starts_with(root) {
+        return Ok(());
+    }
+    Err(AppError::Message(format!(
+        "Access denied: '{}' is outside '{}'.",
+        path.display(),
+        root.display()
+    )))
+}
+
 /// Validate a path for read operations. Ensures it's within project and not sensitive.
 pub fn validate_read_path(user_path: &str, project_root: &str) -> Result<PathBuf, AppError> {
     let resolved = resolve_safe_path(user_path, project_root)?;
