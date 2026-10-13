@@ -16,6 +16,11 @@ session) works against the same rules. They are read by Claude Code from
 | `antislop-copywriting` | 3.2.20 | MIT | Interface copy: labels, empty states, errors, marketing lines. |
 | `antislop-human` | 3.2.20 | MIT | Contrast and readability checks (ships `contrast-check.py`). |
 | `antislop-layoutmobile` | 3.2.20 | MIT | Responsive and small-screen behaviour. |
+| `frontend-design` | — | Apache-2.0 | Anthropic's official guidance for distinctive visual direction, typography and choices that do not read as templated defaults. Source: [anthropics/skills](https://github.com/anthropics/skills), `skills/frontend-design`. |
+| `frontend-ui-engineering` | — | MIT | Production-quality, accessible, responsive interface work. Source: [addyosmani/agent-skills](https://github.com/addyosmani/agent-skills). |
+| `webapp-testing` | — | Apache-2.0 | Playwright toolkit for driving and screenshotting a locally served app. Used to compare our UI against the core build. Source: [anthropics/skills](https://github.com/anthropics/skills), `skills/webapp-testing`. |
+| `browser-testing-with-devtools` | — | MIT | Chrome DevTools protocol techniques for browser-side verification. Source: [addyosmani/agent-skills](https://github.com/addyosmani/agent-skills). |
+| `skill-creator` | — | Apache-2.0 | Scaffold, evaluate and refine new skills, including description tuning. Source: [anthropics/skills](https://github.com/anthropics/skills), `skills/skill-creator`. |
 | `unslop` | — | in-repo | Edits user-facing prose to remove formulaic AI phrasing. Invoked explicitly (`disable-model-invocation: true`). |
 
 The antislop skills are a set: `antislop` is the core, the others reference its
