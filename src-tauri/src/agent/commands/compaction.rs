@@ -1755,6 +1755,7 @@ pub async fn maybe_shrink_payload(
     req: CompactRequest<'_>,
 ) -> Result<Option<CompactionRecord>, AppError> {
     let tokens = api_messages_tokens(api_messages);
+    let now = now_f64();
     let held = {
         let Ok(guard) = state.compaction.lock() else {
             return Ok(None);
@@ -1776,6 +1777,25 @@ pub async fn maybe_shrink_payload(
             return Ok(None);
         }
         MidTurnDecision::Fold | MidTurnDecision::Forced => {}
+    }
+
+    // A pass that just ran is still being read by the model, so an ordinary fold
+    // waits its turn. Without this, a payload whose tail alone fills the window
+    // would summarize on every loop of the turn. The ceiling is not ordinary and
+    // skips the wait.
+    if decision == MidTurnDecision::Fold {
+        let just_ran = state
+            .compaction
+            .lock()
+            .map(|guard| {
+                guard.last_compacted_at > 0.0
+                    && now - guard.last_compacted_at < MIN_PASS_INTERVAL_SECS
+            })
+            .unwrap_or(false);
+        if just_ran {
+            logging::debug("compaction", "Mid-turn fold skipped: a pass just ran");
+            return Ok(None);
+        }
     }
 
     let Some(fold_end) = api_tail_start(api_messages, API_TAIL_MESSAGES) else {
