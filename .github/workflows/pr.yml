@@ -83,7 +83,13 @@ jobs:
           PRIVATE_KEY_PATTERN="${P1}${P2}${P3}${P4}"
           # Do NOT filter out lines containing private key markers - we want to detect them
           # Only filter out this workflow's own pattern construction to avoid self-match
-          if echo "$FILTERED" | grep -v "P1=" | grep -v "P2=" | grep -v "P3=" | grep -v "P4=" | grep -v "PRIVATE_KEY_PATTERN=" | grep -Ei "(${PRIVATE_KEY_PATTERN}|sk-ant-[a-zA-Z0-9-]{20,}|sk-proj-[a-zA-Z0-9-]{20,}|ghp_[a-zA-Z0-9]{36}|gho_[a-zA-Z0-9]{36}|AKIA[0-9A-Z]{16})" | grep -v "example" | grep -v ".gitignore"; then
+          # A regex that *describes* the PEM marker (e.g. the scrubber in
+          # lib/diagnostics/scrub.ts writes -----BEGIN [A-Z ]+PRIVATE KEY-----[\s\S]*?)
+          # is not a key. A real block has a base64 body and no metacharacters.
+          # Excluding those pattern definitions keeps the check honest instead of
+          # forcing the scrubber to hide the marker it exists to find.
+          DESC_RE='PRIVATE KEY-----.{0,3}\[|BEGIN \[A-Z'
+          if echo "$FILTERED" | grep -v "P1=" | grep -v "P2=" | grep -v "P3=" | grep -v "P4=" | grep -v "PRIVATE_KEY_PATTERN=" | grep -vE "$DESC_RE" | grep -Ei "(${PRIVATE_KEY_PATTERN}|sk-ant-[a-zA-Z0-9-]{20,}|sk-proj-[a-zA-Z0-9-]{20,}|ghp_[a-zA-Z0-9]{36}|gho_[a-zA-Z0-9]{36}|AKIA[0-9A-Z]{16})" | grep -v "example" | grep -v ".gitignore"; then
             echo "::error::Potential secret value detected in diff - please review"
             echo "If this is a false positive (e.g. docs), add 'example' comment or adjust filter"
             exit 1
