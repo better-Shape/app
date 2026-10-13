@@ -37,11 +37,55 @@ impl HttpMcpClient {
     ) -> Result<Self, String> {
         // A dead endpoint must not hold a tool call open forever, and the
         // handshake must fail fast enough to leave a clear error.
+        // A configured credential rides in a header, and reqwest only strips
+        // `Authorization` and `Cookie` when a redirect leaves the origin. An
+        // `X-Api-Key` would follow a redirect to whoever answered, so follow a
+        // hop only when it stays on the same origin.
         let client = reqwest::Client::builder()
             .connect_timeout(std::time::Duration::from_secs(15))
             .timeout(std::time::Duration::from_secs(300))
+            .redirect(reqwest::redirect::Policy::custom(|attempt| {
+                if attempt.previous().len() >= 5 {
+                    return attempt.error("too many redirects");
+                }
+                let same_origin = attempt
+                    .previous()
+                    .first()
+                    .map(|first| {
+                        first.scheme() == attempt.url().scheme()
+                            && first.host_str() == attempt.url().host_str()
+                            && first.port_or_known_default()
+                                == attempt.url().port_or_known_default()
+                    })
+                    .unwrap_or(false);
+                if same_origin {
+                    attempt.follow()
+                } else {
+                    attempt.error("cross-origin redirect refused: configured credentials would travel with it")
+                }
+            }))
             .build()
             .map_err(|e| format!("Could not build the MCP HTTP client: {e}"))?;
+
+        // Plain http is fine for a server on this machine. Anywhere else it
+        // would put the key or token on the wire in the clear.
+        if let Ok(parsed) = reqwest::Url::parse(url) {
+            if parsed.scheme() == "http" {
+                let host = parsed.host_str().unwrap_or_default();
+                let local = host == "localhost"
+                    || host == "127.0.0.1"
+                    || host == "::1"
+                    || host == "0.0.0.0"
+                    || host.ends_with(".localhost");
+                let carries_credentials =
+                    !headers.is_empty() || static_bearer.is_some() || auth != McpAuthType::None;
+                if !local && carries_credentials {
+                    return Err(format!(
+                        "Refusing to send credentials to {url} over plain http. Use an https URL, or keep the server on localhost."
+                    ));
+                }
+            }
+        }
         let mut http = Self {
             server_id: server_id.to_string(),
             server_name: server_name.to_string(),

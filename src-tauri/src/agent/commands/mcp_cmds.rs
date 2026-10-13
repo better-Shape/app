@@ -216,7 +216,11 @@ pub fn mcp_reload_from_file(
     // A server the file used to provide and no longer does was deleted there, so
     // it must not survive as a runtime-only entry. Settings servers were never
     // in the file and are kept.
-    let previously_file_sourced = mcp_state.file_sourced_ids();
+    // Ids the file provided at the last reload, plus everything this app has ever
+    // written there. A server saved since the last reload is covered by the
+    // second set, so deleting it from the file still drops the live copy.
+    let mut previously_file_sourced = mcp_state.file_sourced_ids();
+    previously_file_sourced.extend(crate::mcp::admin::written_ids_snapshot());
     let mut servers: Vec<McpServerConfig> = file_servers;
     servers.extend(mcp_state.configs_snapshot().into_iter().filter(|s| {
         !file_ids.contains(&s.id) && !previously_file_sourced.contains(&s.id)

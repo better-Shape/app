@@ -42,10 +42,10 @@ Want every summary to carry something specific? An API shape, a set of migration
 
 ## When the agent slows compaction down
 
-Automatic compaction picks its moment from a token count, and a token count cannot tell whether the agent is half-way through a rename across six files. When it is, the agent can hold the automatic pass. It does that on its own, with a one-line reason:
+Automatic compaction picks its moment from a token count, and a token count cannot tell whether the agent is half-way through a rename across six files. When it is, the agent can hold the automatic pass. It calls `compact_context` on its own, with a one-line reason:
 
 ```json
-{ "action": "defer", "reason": "half-way through the rename across six files" }
+compact_context { "action": "defer", "reason": "half-way through the rename across six files" }
 ```
 
 That call is the hold, not a summary of the work. The reason is pinned into the next summary, so the thing it was protecting survives the fold.

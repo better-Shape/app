@@ -1540,6 +1540,7 @@ pub async fn compact_api_messages(
     } else {
         None
     };
+    let owned_conversation = current_conversation_id(state);
     let previous = state.history_summary.lock().ok().and_then(|g| g.clone());
     let pins = state
         .compaction
@@ -1637,6 +1638,17 @@ pub async fn compact_api_messages(
     record.folded_end = fold_end;
     record.summary_chars = stored.chars().count();
     record.spill_path = spill_path.clone();
+
+    // The summarize call is open for a while, and the user can switch chats in
+    // it. The pass history and backoff live on shared state, so a record that
+    // belongs to the chat we left must not land there.
+    if current_conversation_id(state) != owned_conversation {
+        logging::info(
+            "compaction",
+            "Conversation changed while summarizing — the payload pass was not recorded",
+        );
+        return Ok(None);
+    }
 
     if let Ok(mut guard) = state.compaction.lock() {
         guard.mark_success_payload_only(record.clone());

@@ -77,7 +77,37 @@ pub fn write_raw(content: &str) -> Result<(), String> {
 
 fn write_doc_unlocked(doc: &Value) -> Result<(), String> {
     let body = serde_json::to_string_pretty(doc).map_err(|e| e.to_string())?;
+    note_written_ids(doc);
     write_text(&format!("{body}\n"))
+}
+
+/// Ids this process has put into `mcp.json`, whatever path wrote them.
+///
+/// A reload needs to tell "the user deleted this from the file" apart from "this
+/// never lived in the file" so it can drop the first and keep the second. The
+/// file alone cannot answer that once the entry is gone, so remember it here.
+fn written_ids() -> &'static std::sync::Mutex<std::collections::HashSet<String>> {
+    static IDS: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<String>>> =
+        std::sync::OnceLock::new();
+    IDS.get_or_init(|| std::sync::Mutex::new(std::collections::HashSet::new()))
+}
+
+fn note_written_ids(doc: &Value) {
+    let ids: Vec<String> = doc
+        .get("mcpServers")
+        .and_then(|v| v.as_object())
+        .map(|map| map.keys().cloned().collect())
+        .unwrap_or_default();
+    if let Ok(mut guard) = written_ids().lock() {
+        for id in ids {
+            guard.insert(id);
+        }
+    }
+}
+
+/// Ids this process has written into `mcp.json`, ever.
+pub fn written_ids_snapshot() -> std::collections::HashSet<String> {
+    written_ids().lock().map(|g| g.clone()).unwrap_or_default()
 }
 
 /// Temp file + rename, plus a `.bak`. The temp name carries the pid so two
@@ -139,6 +169,12 @@ pub fn entry_json(cfg: &McpServerConfig) -> Value {
             }
             if !cfg.headers.is_empty() {
                 obj.insert("headers".into(), json!(cfg.headers));
+            }
+            // `parse_entry` reads `env` for HTTP too (`env.AUTHORIZATION` is the
+            // bearer), so dropping it here would delete a working credential the
+            // next time anything rewrites this entry.
+            if !cfg.env.is_empty() {
+                obj.insert("env".into(), json!(cfg.env));
             }
             obj.insert("auth".into(), json!(cfg.auth));
         }
