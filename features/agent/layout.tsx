@@ -9,6 +9,7 @@ import { OverlayRootProvider } from "@/lib/ui/overlay-root";
 import { AgentSidebar, AGENT_SIDEBAR_NAV_SLOT } from "./sidebar";
 import { ChatList } from "./sidebar/chats";
 import { AgentChrome } from "./chrome";
+import { Status } from "./workbench/status";
 import { AgentWorkspace } from "./workspace";
 import { AgentOverlayView, type AgentOverlay } from "./overlay";
 import { DevRunHost } from "@/features/terminal/dev-run-host";
@@ -665,6 +666,7 @@ src="/logos/logo.png"
                     </>
                 ) : null}
                 </div>
+                {project_path ? <Status /> : null}
             </div>
             <WindowControls
                 isMaximized={isMaximized}
