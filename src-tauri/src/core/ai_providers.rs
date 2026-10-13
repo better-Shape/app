@@ -64,7 +64,6 @@ pub struct ProviderEntry {
     /// Studio, vLLM) and gateways with a free tier. Without this the app could
     /// not route to a keyless connection at all.
     #[serde(default)]
-    pub keyless: bool,
     /// Extra headers to send with every request to this provider. Gateways put
     /// attribution or their own tokens here; the frontend merges the preset's
     /// defaults in before pushing the config.
@@ -207,8 +206,6 @@ pub struct ResolvedProvider {
     pub label: String,
     pub api_key: String,
     pub base_url: String,
-    /// Requests may go out without credentials.
-    pub keyless: bool,
     /// Connection headers, merged over the app's defaults.
     pub headers: HashMap<String, String>,
     /// `"api-key"`, `"x-api-key"`, `"bearer"`, `"none"`, or empty for the wire
@@ -319,7 +316,6 @@ fn from_entry(entry: &ProviderEntry) -> ResolvedProvider {
         },
         api_key: entry.api_key.trim().to_string(),
         base_url: base_url_for(entry),
-        keyless: entry.keyless,
         headers: entry.headers.clone(),
         auth_style: entry.auth_style.trim().to_ascii_lowercase(),
     }
@@ -945,7 +941,6 @@ mod tests {
             label: "Azure".into(),
             api_key: "az-key".into(),
             base_url: "https://example.openai.azure.com/openai/v1".into(),
-            keyless: false,
             headers: HashMap::new(),
             auth_style: String::new(),
         };
@@ -992,7 +987,6 @@ mod tests {
         // A keyless connection has nothing to send.
         let keyless = ResolvedProvider {
             api_key: String::new(),
-            keyless: true,
             ..base
         };
         assert_eq!(auth_header(&keyless), None);
@@ -1006,7 +1000,6 @@ mod tests {
             label: "OpenCode Zen".into(),
             api_key: "oc_sk_x".into(),
             base_url: "https://opencode.ai/inference/v1".into(),
-            keyless: false,
             headers: HashMap::new(),
             auth_style: String::new(),
         };
@@ -1080,7 +1073,6 @@ mod tests {
             label: "NVIDIA NIM".into(),
             api_key: "nvapi-x".into(),
             base_url: "https://integrate.api.nvidia.com/v1".into(),
-            keyless: false,
             headers,
             auth_style: String::new(),
         };
@@ -1131,7 +1123,6 @@ mod tests {
             label: "OpenAI".into(),
             api_key: "k".into(),
             base_url: "https://api.openai.com/v1".into(),
-            keyless: false,
             headers: HashMap::new(),
             auth_style: String::new(),
         };

@@ -86,7 +86,6 @@ fn resolve_target(
                 label: id.to_string(),
                 api_key: String::new(),
                 base_url: base,
-                keyless: false,
                 headers: HashMap::new(),
                 auth_style: String::new(),
             }
