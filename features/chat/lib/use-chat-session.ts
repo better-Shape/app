@@ -32,6 +32,7 @@ import { getSettings } from "@/lib/settings";
 import { getVisibleModels, resolveChatModels, sanitizeEnabledModels, subagentModelsForSend } from "@/lib/settings/models";
 import { getCatalogDefaultEnabledIds, getCatalogModels, useBetterShapeCatalog } from "@/lib/catalog/store";
 import { hasAnyUsableProvider as hasUsableProvider } from "@/lib/ai/providers";
+import { matchSlashCommand } from "@/lib/chat/workflows";
 import { notify } from "@/features/notifications";
 import { captureTelemetry, captureTelemetryError } from "@/lib/telemetry";
 import {
@@ -1221,6 +1222,23 @@ export function useChatSession(
     const handleSendMessage = async (overrideContent?: string): Promise<boolean> => {
         const messageContent = typeof overrideContent === "string" ? overrideContent : inputValue;
         const fromQueue = typeof overrideContent === "string";
+
+        // Built-in commands are handled here and never reach the model as text.
+        const slash = fromQueue ? null : matchSlashCommand(messageContent);
+        if (slash?.command.token === "/compact") {
+            setInputValue("");
+            try {
+                localStorage.removeItem("bettershape-chat-input");
+            } catch {
+                /* ignore */
+            }
+            if (isLoading) {
+                notify.info("Wait for this reply to finish, then run /compact.");
+                return false;
+            }
+            await runCompactCommand(slash.argument);
+            return true;
+        }
 
         if (!fromQueue && isLoading) {
             if (!messageContent.trim() && uploadedFiles.length === 0) return false;

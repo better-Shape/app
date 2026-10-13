@@ -17,6 +17,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const backend = vi.hoisted(() => ({
     current: null as string | null,
     sent: [] as { message: string; conversationId: string | null }[],
+    compacted: [] as Array<string | undefined>,
     pendingSends: [] as Array<() => void>,
     failNextSend: false,
     nextId: 1,
@@ -64,6 +65,17 @@ vi.mock("@/lib/backend", () => ({
         getChatGenerationState: vi.fn(async () => ({ isGenerating: false })),
         stopChatMessage: vi.fn(async () => {}),
         clearChatHistory: vi.fn(async () => {}),
+        compactChat: vi.fn(async (opts?: { focus?: string }) => {
+            backend.compacted.push(opts?.focus);
+            return {
+                record: { messagesBefore: 8, messagesAfter: 3, tokensSaved: 900 },
+                messages: 3,
+                tokensBefore: 4000,
+                tokensAfter: 1200,
+                alreadySmall: false,
+                error: null,
+            };
+        }),
     },
 }));
 
@@ -198,7 +210,7 @@ vi.mock("@/lib/catalog/store", () => ({
 vi.mock("@/lib/ai/providers", () => ({
     hasAnyUsableProvider: () => true,
 }));
-vi.mock("@/features/notifications", () => ({ notify: { error: vi.fn() } }));
+vi.mock("@/features/notifications", () => ({ notify: { error: vi.fn(), info: vi.fn(), success: vi.fn() } }));
 vi.mock("@/lib/telemetry", () => ({
     captureTelemetry: vi.fn(async () => {}),
     captureTelemetryError: vi.fn(),
@@ -214,11 +226,15 @@ vi.mock("@/lib/chat/mentions", () => ({
     mentionRanges: () => [],
 }));
 vi.mock("@/lib/chat/continue-action", () => ({ buildPlanBuildMessage: (p: string) => p }));
-vi.mock("@/lib/chat/workflows", () => ({
-    applyWorkflows: (m: string) => m,
-    matchWorkflows: () => [],
-    workflowAllowKeys: () => [],
-}));
+vi.mock("@/lib/chat/workflows", async (importOriginal) => {
+    const actual = await importOriginal<typeof import("@/lib/chat/workflows")>();
+    return {
+        ...actual,
+        applyWorkflows: (m: string) => m,
+        matchWorkflows: () => [],
+        workflowAllowKeys: () => [],
+    };
+});
 vi.mock("@/lib/workspace/rules", () => ({
     listProjectRuleFiles: async () => [],
     loadProjectRules: async () => "",
@@ -348,6 +364,7 @@ function sentMessages() {
 beforeEach(async () => {
     backend.current = "X";
     backend.sent = [];
+    backend.compacted = [];
     backend.pendingSends = [];
     backend.failNextSend = false;
     backend.nextId = 1;
@@ -547,5 +564,30 @@ describe("a build from a plan goes to the chat the plan was made in", () => {
         await settle();
         expect(sentMessages()).toEqual(["A@X"]);
         expect(session.messageQueue.map((m) => m.conversationId)).toEqual(["X"]);
+    });
+});
+
+describe("built-in slash commands run instead of being sent as text", () => {
+    it("compacts the chat when /compact is typed, with the focus passed through", async () => {
+        await typeAndSend("/compact keep the failing tests");
+        await settle();
+
+        expect(backend.compacted).toEqual(["keep the failing tests"]);
+        expect(sentMessages()).toEqual([]); // never reaches the model as a message
+        expect(session.inputValue).toBe(""); // composer cleared, like any other send
+    });
+
+    it("still runs bare /compact, with no focus", async () => {
+        await typeAndSend("/compact");
+        await settle();
+
+        expect(backend.compacted).toEqual([undefined]);
+        expect(sentMessages()).toEqual([]);
+    });
+
+    it("leaves a message that merely mentions /compact alone", async () => {
+        await startTurn("why is /compact not running?");
+        expect(sentMessages()).toEqual(["why is /compact not running?@X"]);
+        expect(backend.compacted).toEqual([]);
     });
 });

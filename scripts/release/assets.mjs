@@ -8,7 +8,7 @@
  *   node scripts/release/assets.mjs --arch x86_64
  *   node scripts/release/assets.mjs --arch aarch64 --out-dir dist/release
  */
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import {
     copyFileSync,
     existsSync,
@@ -88,7 +88,8 @@ function zipWindows(paths, outZip) {
     if (existsSync(outZip)) rmSync(outZip);
     const list = paths.map((p) => `'${p.replace(/'/g, "''")}'`).join(", ");
     const ps = `Compress-Archive -Path @(${list}) -DestinationPath '${outZip.replace(/'/g, "''")}' -Force`;
-    execSync(`powershell -NoProfile -Command "${ps}"`, { stdio: "inherit" });
+    // Arguments are passed straight to PowerShell: no shell parses these paths.
+    execFileSync("powershell", ["-NoProfile", "-Command", ps], { stdio: "inherit" });
 }
 
 function main() {

@@ -3,7 +3,6 @@
 import React, { useMemo } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
-import { toTimestampMs } from "@/lib/ui/timestamp";
 import { useChatSession } from "../lib/use-chat-session";
 import { ChatTitlebar, resolveChatCrumbTitle } from "./shell/titlebar";
 import { ChatInput } from "./composer/input";
@@ -180,7 +179,6 @@ export default function Chat({
         // A subagent is stamped with the time of the message that mentions it (no clock read in render).
         const seen = new Map<string, ReturnType<typeof extractSubagentsFromText>[number] & { updatedAt: number }>();
         for (const m of session.messages) {
-            const updatedAt = toTimestampMs(m.timestamp);
             for (const item of extractSubagentsFromText(m.content || "", parentId)) {
                 seen.set(item.id, { ...item, updatedAt: m.timestamp });
             }

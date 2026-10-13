@@ -51,7 +51,6 @@ import {
 } from "@/lib/window/updater";
 import { HostedSidebarBack } from "@/features/agent/sidebar/hosted-nav";
 import { Icon } from "@/components/ui/icon";
-import { BetterShapeLogo } from "@/components/ui/bettershape-logo";
 import { SETTINGS_NAV, allSettingsLeaves, type SettingsNavLeaf } from "./shared/nav";
 import { KeyboardShortcutsView } from "./sections/shortcuts";
 import { PluginsSettingsView } from "./sections/plugins";
