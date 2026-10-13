@@ -3,6 +3,7 @@
 import { ArrowLeft20Regular } from "@fluentui/react-icons/headless/svg/arrow-left";
 import { Circle20Filled } from "@fluentui/react-icons/headless/svg/circle";
 import { Dismiss20Regular } from "@fluentui/react-icons/headless/svg/dismiss";
+import { Document20Regular } from "@fluentui/react-icons/headless/svg/document";
 import { LayoutColumnTwo20Regular } from "@fluentui/react-icons/headless/svg/layout-column-two";
 import { LayoutRowTwo20Regular } from "@fluentui/react-icons/headless/svg/layout-row-two";
 
@@ -81,65 +82,64 @@ export function GraphDetailPanel({
     const log = selection?.log ?? null;
     const file = !forceCommit && selection?.kind === "file" ? selection.file : null;
 
+    const [original, setOriginal] = useState("");
+    const [modified, setModified] = useState("");
+    const [loadingDiff, setLoadingDiff] = useState(false);
     const [sideBySide, setSideBySide] = useState(false);
-    // Diff and file results are tagged with the commit/file they were loaded for.
-    // A different selection makes them stale, so they are treated as empty until loaded.
-    const [diffState, setDiffState] = useState<{ key: string; original: string; modified: string }>({
-        key: "",
-        original: "",
-        modified: "",
-    });
-    const [filesState, setFilesState] = useState<{
-        key: string;
-        files: GitFileParams[];
-        /** The request failed. Shown as an error, not as an empty commit. */
-        failed?: boolean;
-    }>({
-        key: "",
-        files: [],
-    });
-    const diffKey = file && log && repoPath ? `${repoPath}\u0000${log.hash}\u0000${file.path}` : null;
-    const filesKey = log && repoPath && !file ? `${repoPath}\u0000${log.hash}` : null;
-    const original = diffState.key === diffKey ? diffState.original : "";
-    const modified = diffState.key === diffKey ? diffState.modified : "";
-    const loadingDiff = diffKey !== null && diffState.key !== diffKey;
-    const commitFiles = filesState.key === filesKey ? filesState.files : [];
-    const filesFailed = filesState.key === filesKey && Boolean(filesState.failed);
-    const filesLoading = filesKey !== null && filesState.key !== filesKey;
+    const [commitFiles, setCommitFiles] = useState<GitFileParams[]>([]);
+    const [filesLoading, setFilesLoading] = useState(false);
 
     useEffect(() => {
-        if (!filesKey || !log || !repoPath) return;
+        if (!log || !repoPath || file) {
+            if (!log) setCommitFiles([]);
+            return;
+        }
         let cancelled = false;
+        setFilesLoading(true);
         void commands
             .gitCommitFiles(repoPath, log.hash)
             .then((files) => {
-                if (!cancelled) setFilesState({ key: filesKey, files });
+                if (!cancelled) setCommitFiles(files);
             })
             .catch(() => {
-                if (!cancelled) setFilesState({ key: filesKey, files: [], failed: true });
+                if (!cancelled) setCommitFiles([]);
+            })
+            .finally(() => {
+                if (!cancelled) setFilesLoading(false);
             });
         return () => {
             cancelled = true;
         };
-    }, [filesKey, log, repoPath]);
+    }, [log, repoPath, file]);
 
     useEffect(() => {
-        if (!diffKey || !file || !log || !repoPath) return;
+        if (!file || !log || !repoPath) {
+            setOriginal("");
+            setModified("");
+            return;
+        }
         let cancelled = false;
+        setLoadingDiff(true);
         void commands
             .gitGetCommitFileContent(repoPath, file.path, log.hash)
             .then(([orig, mod]) => {
-                if (!cancelled) setDiffState({ key: diffKey, original: orig, modified: mod });
+                if (cancelled) return;
+                setOriginal(orig);
+                setModified(mod);
             })
             .catch((e) => {
                 if (cancelled) return;
                 notify.error("Git", e instanceof Error ? e.message : String(e));
-                setDiffState({ key: diffKey, original: "", modified: "" });
+                setOriginal("");
+                setModified("");
+            })
+            .finally(() => {
+                if (!cancelled) setLoadingDiff(false);
             });
         return () => {
             cancelled = true;
         };
-    }, [diffKey, file, log, repoPath]);
+    }, [file, log, repoPath]);
 
     const diffStats = useMemo(
         () => (file ? countDiffLines(original, modified) : null),
@@ -276,10 +276,6 @@ export function GraphDetailPanel({
                 <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
                     {filesLoading ? (
                         <div className="px-2 py-6 text-center text-sm text-text-muted">Loading files…</div>
-                    ) : filesFailed ? (
-                        <div className="px-2 py-6 text-center text-sm text-text-muted">
-                            Couldn’t load the changed files.
-                        </div>
                     ) : commitFiles.length === 0 ? (
                         <div className="px-2 py-6 text-center text-sm text-text-muted">No file changes</div>
                     ) : (

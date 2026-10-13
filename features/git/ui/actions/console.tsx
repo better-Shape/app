@@ -1,4 +1,3 @@
-/* eslint-disable @next/next/no-img-element -- plain <img> is intentional: dynamic or data-URL sources in a static export, where next/image needs fixed dimensions */
 "use client";
 
 import { ArrowDownload20Regular } from "@fluentui/react-icons/headless/svg/arrow-download";
@@ -75,6 +74,7 @@ export function ActionsConsole({ focus }: { focus: ActionsFocus }) {
     const [runs, setRuns] = useState<WorkflowRun[]>([]);
     const [workflows, setWorkflows] = useState<WorkflowDef[]>([]);
     const [selectedRunId, setSelectedRunId] = useState<number | null>(null);
+    const [selectedWorkflowId, setSelectedWorkflowId] = useState<number | null>(null);
     const [jobs, setJobs] = useState<WorkflowJob[]>([]);
     const [artifacts, setArtifacts] = useState<Artifact[]>([]);
     const [selectedJobId, setSelectedJobId] = useState<number | null>(null);
@@ -132,9 +132,27 @@ export function ActionsConsole({ focus }: { focus: ActionsFocus }) {
         return filtered;
     }, [logHighlight, logs, stepFilterActive]);
 
+    const filteredWorkflows = useMemo(() => {
+        const q = query.trim().toLowerCase();
+        if (!q) return workflows;
+        return workflows.filter((w) =>
+            [w.name, w.path, w.state].join(" ").toLowerCase().includes(q),
+        );
+    }, [query, workflows]);
+
     const filteredRuns = useMemo(() => {
         const q = query.trim().toLowerCase();
         return runs.filter((run) => {
+            if (selectedWorkflowId != null) {
+                const wf = workflows.find((w) => w.id === selectedWorkflowId);
+                if (wf) {
+                    const match =
+                        run.workflow_id === wf.id ||
+                        run.path === wf.path ||
+                        run.name === wf.name;
+                    if (!match) return false;
+                }
+            }
             if (statusFilter === "in_progress") {
                 if (run.status !== "in_progress" && run.status !== "queued") return false;
             } else if (statusFilter === "completed") {
@@ -156,19 +174,12 @@ export function ActionsConsole({ focus }: { focus: ActionsFocus }) {
                 .toLowerCase();
             return hay.includes(q);
         });
-    }, [query, runs, statusFilter]);
+    }, [query, runs, selectedWorkflowId, statusFilter, workflows]);
 
-
-    const runsRequestRef = useRef(0);
     const loadRuns = useCallback(async () => {
-        // Each call gets a sequence number. A slower, older call must not overwrite the
-        // runs of a newer project or filter after it has finished.
-        const seq = ++runsRequestRef.current;
-        const isStale = () => seq !== runsRequestRef.current;
         setLoadingRuns(true);
         try {
             const resolved = await resolveOwnerRepo(project_path);
-            if (isStale()) return;
             setRepo(resolved);
             if (!resolved) {
                 setRuns([]);
@@ -203,7 +214,6 @@ export function ActionsConsole({ focus }: { focus: ActionsFocus }) {
                     const tb = b.updated_at ? Date.parse(b.updated_at) : 0;
                     return tb - ta;
                 });
-                if (isStale()) return;
                 setWorkflows(
                     ((workflowsRaw as { workflows?: WorkflowDef[] }).workflows ?? []).map((w) => ({
                         ...w,
@@ -224,7 +234,6 @@ export function ActionsConsole({ focus }: { focus: ActionsFocus }) {
                 nextRuns = ((runsRaw as { workflow_runs?: WorkflowRun[] }).workflow_runs ?? []).map(
                     (r) => ({ ...r, id: Number(r.id) }),
                 );
-                if (isStale()) return;
                 setWorkflows(
                     ((workflowsRaw as { workflows?: WorkflowDef[] }).workflows ?? []).map((w) => ({
                         ...w,
@@ -233,20 +242,18 @@ export function ActionsConsole({ focus }: { focus: ActionsFocus }) {
                 );
             }
 
-            if (isStale()) return;
             setRuns(nextRuns);
             setSelectedRunId((prev) => {
                 if (prev && nextRuns.some((r) => r.id === prev)) return prev;
                 return nextRuns[0]?.id ?? null;
             });
         } catch (e) {
-            if (isStale()) return;
             reportActionsError(e);
             setRuns([]);
         } finally {
-            if (!isStale()) setLoadingRuns(false);
+            setLoadingRuns(false);
         }
-    }, [auth.loggedIn, project_path, statusFilter]);
+    }, [auth.loggedIn, focus, project_path, statusFilter]);
 
     const loadRunDetail = useCallback(
         async (runId: number) => {
@@ -326,7 +333,7 @@ export function ActionsConsole({ focus }: { focus: ActionsFocus }) {
                             // Approximate scroll by line
                             const before = (el.textContent ?? "").slice(0, idx);
                             const line = before.split("\n").length;
-                            if (parent) parent.scrollTop = Math.max(0, (line - 3) * 14);
+                            parent && (parent.scrollTop = Math.max(0, (line - 3) * 14));
                         }
                     }
                 });
@@ -537,8 +544,10 @@ export function ActionsConsole({ focus }: { focus: ActionsFocus }) {
         </li>
     );
 
+    const showWorkflowList = false;
     const jobsMode = "jobs" as const;
     const logsPreferred = 200;
+    const jobsPreferred = 220;
 
     if (!auth.loggedIn) {
         return (
@@ -554,6 +563,82 @@ export function ActionsConsole({ focus }: { focus: ActionsFocus }) {
         );
     }
 
+    const workflowsListPane = (
+        <div className="workbench-panel flex h-full min-h-0 flex-col overflow-hidden border border-border-subtle bg-panel">
+            <div className="shrink-0 px-2 py-1.5 text-xs font-medium text-text-muted">
+                Workflows {loadingRuns ? "…" : `(${filteredWorkflows.length})`}
+            </div>
+            <ScrollArea className="min-h-0 flex-1 p-1">
+                {filteredWorkflows.length === 0 ? (
+                    <p className="px-2 py-3 text-sm text-text-muted">No workflow definitions.</p>
+                ) : (
+                    <ul className="flex flex-col gap-0.5">
+                        {filteredWorkflows.map((wf) => (
+                            <li key={wf.id}>
+                                <div
+                                    className={cn(
+                                        "flex flex-col gap-1 rounded-lg px-2 py-2",
+                                        selectedWorkflowId === wf.id
+                                            ? "bg-panel-hover"
+                                            : "hover:bg-panel-hover/60",
+                                    )}
+                                >
+                                    <button
+                                        type="button"
+                                        className="flex w-full flex-col gap-0.5 text-left"
+                                        onClick={() => {
+                                            setSelectedWorkflowId(wf.id);
+                                            setDetailTab("jobs");
+                                            const match = runs.find(
+                                                (r) =>
+                                                    r.workflow_id === wf.id ||
+                                                    r.path === wf.path ||
+                                                    r.name === wf.name,
+                                            );
+                                            if (match) setSelectedRunId(match.id);
+                                        }}
+                                    >
+                                        <div className="flex items-center justify-between gap-2">
+                                            <span className="truncate text-sm text-text-primary">
+                                                {wf.name}
+                                            </span>
+                                            <span className="shrink-0 text-2xs capitalize text-text-muted">
+                                                {wf.state}
+                                            </span>
+                                        </div>
+                                        <span className="truncate text-xs text-text-muted">
+                                            {wf.path}
+                                        </span>
+                                    </button>
+                                    <div className="flex gap-1">
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="h-6 px-2 text-2xs"
+                                            disabled={dispatchBusy}
+                                            onClick={() => void openDispatch(wf)}
+                                        >
+                                            Run workflow…
+                                        </Button>
+                                        {wf.html_url ? (
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                className="h-6 px-2 text-2xs"
+                                                onClick={() => openUrl(wf.html_url)}
+                                            >
+                                                GitHub
+                                            </Button>
+                                        ) : null}
+                                    </div>
+                                </div>
+                            </li>
+                        ))}
+                    </ul>
+                )}
+            </ScrollArea>
+        </div>
+    );
 
     const jobsLogsSplit = (
         <Panel
@@ -792,7 +877,13 @@ export function ActionsConsole({ focus }: { focus: ActionsFocus }) {
                                                                     w.path === selectedRun!.path ||
                                                                     w.name === selectedRun!.name,
                                                             ) ??
-                                                            undefined;
+                                                            (selectedWorkflowId != null
+                                                                ? workflows.find(
+                                                                      (w) =>
+                                                                          w.id ===
+                                                                          selectedWorkflowId,
+                                                                  )
+                                                                : undefined);
                                                         if (!wf) {
                                                             notify.error(
                                                                 "Run again",

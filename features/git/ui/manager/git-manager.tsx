@@ -1,14 +1,6 @@
 "use client";
 
-import React, {
-    createContext,
-    useCallback,
-    useContext,
-    useEffect,
-    useMemo,
-    useState,
-    useSyncExternalStore,
-} from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import Image from "next/image";
 import { usePathname, useSearchParams } from "next/navigation";
@@ -92,40 +84,32 @@ function initialSection(pathname: string | null, query: string | null): GitSecti
 
 type GitEmptyReason = "no-project" | "no-repo" | "no-commits";
 
-function gitProbeKey(projectPath: string | null, repoPath: string | null, token: number): string {
-    return `${projectPath ?? ""}\u0000${repoPath ?? ""}\u0000${token}`;
-}
-
 const INTRO_SEEN_KEY = "bettershape-git-manager-intro-seen";
 
-const subscribeNone = () => () => {};
-
-function readIntroSeen(): boolean {
-    try {
-        return sessionStorage.getItem(INTRO_SEEN_KEY) === "1";
-    } catch {
-        return false;
-    }
-}
-
 function GitManagerIntro({ children }: { children: React.ReactNode }) {
-    // The server snapshot is `false`, so SSR and the first client render match.
-    // A previously seen intro is read from sessionStorage after hydration.
-    const seenBefore = useSyncExternalStore(subscribeNone, readIntroSeen, () => false);
-    const [introDone, setIntroDone] = useState(false);
+    // Always start false so SSR + first paint match; skip splash after mount if already seen.
+    const [ready, setReady] = useState(false);
     const [visible, setVisible] = useState(false);
-    const ready = seenBefore || introDone;
 
     useEffect(() => {
-        if (seenBefore) return;
         let cancelled = false;
+        let t1: number | undefined;
         let t2: number | undefined;
+
+        try {
+            if (sessionStorage.getItem(INTRO_SEEN_KEY) === "1") {
+                setReady(true);
+                return;
+            }
+        } catch {
+            /* ignore */
+        }
 
         const fadeIn = requestAnimationFrame(() => {
             if (!cancelled) setVisible(true);
         });
 
-        const t1 = window.setTimeout(() => {
+        t1 = window.setTimeout(() => {
             if (cancelled) return;
             setVisible(false);
             t2 = window.setTimeout(() => {
@@ -135,17 +119,17 @@ function GitManagerIntro({ children }: { children: React.ReactNode }) {
                 } catch {
                     /* ignore */
                 }
-                setIntroDone(true);
+                setReady(true);
             }, 450);
         }, 1200);
 
         return () => {
             cancelled = true;
             cancelAnimationFrame(fadeIn);
-            window.clearTimeout(t1);
+            if (t1 !== undefined) window.clearTimeout(t1);
             if (t2 !== undefined) window.clearTimeout(t2);
         };
-    }, [seenBefore]);
+    }, []);
 
     if (!ready) {
         return (
@@ -219,38 +203,16 @@ function GitEmbedNavChrome() {
     );
 }
 
-/**
- * Keyed by project: a project switch remounts the gate, so its probe state,
- * refresh token and repo state never carry over from the previous project.
- */
 function GitManagerGate() {
-    const { project_path } = useProjectState();
-    return <GitManagerGateInner key={project_path ?? ""} />;
-}
-
-function GitManagerGateInner() {
     const { project_path } = useProjectState();
     const { repos, activeRepoPath, loading } = useGitRepos(project_path);
     const { navPortalTarget } = useContext(GitEmbedCtx);
+    const [emptyReason, setEmptyReason] = useState<GitEmptyReason | null>(null);
+    const [checking, setChecking] = useState(true);
     const [refreshToken, setRefreshToken] = useState(0);
-    // The `git log` probe result is tagged with the inputs it was run for. A project switch
-    // (or any input change) makes the tag stale, so the old result is never shown.
-    const [probe, setProbe] = useState<{ key: string; reason: GitEmptyReason | null }>({
-        key: "",
-        reason: null,
-    });
 
     const repoPath = activeRepoPath ?? repos[0]?.path ?? null;
     const embedded = Boolean(navPortalTarget);
-    const probeKey = gitProbeKey(project_path, repoPath, refreshToken);
-    const probeReason = probe.key === probeKey ? probe.reason : null;
-    const emptyReason: GitEmptyReason | null = !project_path
-        ? "no-project"
-        : loading
-          ? null
-          : !repoPath
-            ? "no-repo"
-            : probeReason;
 
     useEffect(() => {
         const onRefresh = () => setRefreshToken((n) => n + 1);
@@ -259,23 +221,49 @@ function GitManagerGateInner() {
     }, []);
 
     useEffect(() => {
-        // Only the commit probe is async. The shell shows as soon as a repo is known.
-        if (!project_path || loading || !repoPath) return;
         let cancelled = false;
-        const key = gitProbeKey(project_path, repoPath, refreshToken);
-        // One cheap `git log -1` — avoid starting a full unbounded stream just to probe.
-        commands
-            .gitLog(repoPath, 1)
-            .then((logs) => {
-                if (!cancelled) setProbe({ key, reason: logs.length === 0 ? "no-commits" : null });
-            })
-            .catch((err: unknown) => {
-                if (cancelled) return;
-                // Only a real "not a repository" answer means no repo. Permission or backend
-                // errors are unknown, so they must not show the no-repo empty state.
-                const message = err instanceof Error ? err.message : String(err);
-                setProbe({ key, reason: /not a git repository/i.test(message) ? "no-repo" : null });
-            });
+
+        async function check() {
+            if (!project_path) {
+                if (!cancelled) {
+                    setEmptyReason("no-project");
+                    setChecking(false);
+                }
+                return;
+            }
+            if (loading) {
+                if (!cancelled) {
+                    setChecking(true);
+                    setEmptyReason(null);
+                }
+                return;
+            }
+            if (!repoPath) {
+                if (!cancelled) {
+                    setEmptyReason("no-repo");
+                    setChecking(false);
+                }
+                return;
+            }
+
+            // Show the shell immediately once we have a repo — don't wait on log I/O.
+            if (!cancelled) {
+                setEmptyReason(null);
+                setChecking(false);
+            }
+
+            try {
+                // One cheap `git log -1` — avoid starting a full unbounded stream just to probe.
+                const logs = await commands.gitLog(repoPath, 1);
+                if (!cancelled && logs.length === 0) {
+                    setEmptyReason("no-commits");
+                }
+            } catch {
+                if (!cancelled) setEmptyReason("no-repo");
+            }
+        }
+
+        void check();
         return () => {
             cancelled = true;
         };
@@ -290,7 +278,7 @@ function GitManagerGateInner() {
         );
     }
 
-    if (loading || !project_path) {
+    if (checking || loading || !project_path) {
         return (
             <>
                 {embedded ? <GitEmbedNavChrome /> : null}
@@ -305,7 +293,7 @@ function GitManagerGateInner() {
 function ManagerShell() {
     const search = useSearchParams();
     const pathname = usePathname();
-    useProjectState();
+    const { project_path } = useProjectState();
     const { section, setSection } = useFilter();
     const { resetLoading } = useLoading();
     const { navPortalTarget, sidebarExpanded = true, onClose } = useContext(GitEmbedCtx);

@@ -2,6 +2,7 @@
 
 import { Checkmark20Regular } from "@fluentui/react-icons/headless/svg/checkmark";
 import { Clipboard20Regular } from "@fluentui/react-icons/headless/svg/clipboard";
+import { DataTrending20Regular } from "@fluentui/react-icons/headless/svg/data-trending";
 
 
 
@@ -287,17 +288,21 @@ function createMarkdownComponents(options?: { nested?: boolean }) {
 function useRevealText(full: string, live: boolean): string {
     const len = full.length;
     const [shown, setShown] = useState(() => (live ? Math.min(24, len) : len));
-    // Set once the message has streamed in this mount. A message that never streamed is shown in full.
-    const [everLive, setEverLive] = useState(live);
-    if (live && !everLive) setEverLive(true);
     const shownRef = useRef(shown);
-    useEffect(() => {
-        shownRef.current = shown;
-    });
+    shownRef.current = shown;
+    const wasLive = useRef(live);
+    if (live) wasLive.current = true;
 
-    const revealing = shown < len;
     useEffect(() => {
-        if (!live && !everLive) return;
+        // Finished message that never streamed in this mount — show fully.
+        if (!live && !wasLive.current) {
+            setShown(len);
+            return;
+        }
+        if (shownRef.current > len) {
+            setShown(len);
+            return;
+        }
         if (shownRef.current >= len) return;
 
         let raf = 0;
@@ -321,10 +326,9 @@ function useRevealText(full: string, live: boolean): string {
         };
         raf = requestAnimationFrame(tick);
         return () => cancelAnimationFrame(raf);
-    }, [len, live, everLive, revealing]);
+    }, [len, live, shown < len]);
 
-    if (!live && !everLive) return full;
-    return full.slice(0, Math.min(shown, len));
+    return full.slice(0, shown);
 }
 
 export const ChatMarkdown = React.memo(({
@@ -339,20 +343,16 @@ export const ChatMarkdown = React.memo(({
     isLast?: boolean;
 }) => {
     // Keep revealing briefly after generation ends so a late dump still types in.
-    // `holdOn` turns on as the generation ends and turns off 700ms later.
-    const generatingLast = Boolean(isGenerating && isLast);
-    const [holdOn, setHoldOn] = useState(false);
+    const [hold, setHold] = useState(false);
     useEffect(() => {
-        if (!generatingLast) return;
-        // Leaving the generating state (the cleanup) starts the hold window.
-        return () => setHoldOn(true);
-    }, [generatingLast]);
-    useEffect(() => {
-        if (!holdOn) return;
-        const t = window.setTimeout(() => setHoldOn(false), 700);
+        if (isGenerating && isLast) {
+            setHold(true);
+            return;
+        }
+        if (!hold) return;
+        const t = window.setTimeout(() => setHold(false), 700);
         return () => window.clearTimeout(t);
-    }, [holdOn]);
-    const hold = generatingLast || holdOn;
+    }, [isGenerating, isLast, hold]);
 
     const live = !nested && !!isLast && (!!isGenerating || hold);
     const visible = useRevealText(content, live);
