@@ -75,13 +75,11 @@ jobs:
             exit 1
           fi
 
-      - name: Post the log as a PR comment
+      - name: Post the log as a commit comment
         if: always()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          PR=$(gh api "repos/${{ github.repository }}/pulls?head=${{ github.repository_owner }}:${{ github.ref_name }}&state=open" --jq '.[0].number')
-          if [ -z "$PR" ] || [ "$PR" = "null" ]; then echo "no open PR"; exit 0; fi
           {
             echo "<!-- cargo-diagnostic -->"
             echo "### diagnostics"
@@ -94,4 +92,7 @@ jobs:
             if [ -f /tmp/tail.log ]; then cat /tmp/tail.log; else echo "Cargo did not run: an earlier step failed."; fi
             echo '```'
           } > /tmp/body.md
-          gh pr comment "$PR" --repo "${{ github.repository }}" --body-file /tmp/body.md
+          # A commit comment, not a PR comment: the branch may have no open PR
+          # (or the PR may be closed), and a commit comment always has a home.
+          gh api --method POST "repos/${{ github.repository }}/commits/${{ github.sha }}/comments" \
+            -f body="$(cat /tmp/body.md)" --jq '.html_url'
