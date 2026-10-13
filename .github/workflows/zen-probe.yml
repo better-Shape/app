@@ -1,9 +1,11 @@
 name: Zen Probe
 
 # Temporary diagnostic: find the exact headers OpenCode Zen's free tier needs.
-# Manual only, deleted once the contract is known.
+# Runs only when this file itself changes, and is deleted once the contract is known.
 on:
-  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/zen-probe.yml"
 
 permissions:
   contents: read
@@ -16,6 +18,7 @@ jobs:
       - name: Probe
         run: |
           set -uo pipefail
+          exec > >(tee /tmp/probe.txt) 2>&1
           BASE=https://opencode.ai/zen/v1
           TOOLS='[{"type":"function","function":{"name":"read_file","description":"Read a file","parameters":{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}}}]'
 
@@ -68,3 +71,11 @@ jobs:
             -H "x-opencode-session: ses_$(openssl rand -hex 16)" \
             -d '{"model":"ling-3.1-flash-free","messages":[{"role":"user","content":"Reply with the single word: pong"}],"stream":true,"max_tokens":32}' \
             | head -20 || true
+
+      - name: Upload probe output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zen-probe
+          path: /tmp/probe.txt
+          if-no-files-found: warn
