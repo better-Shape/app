@@ -30,7 +30,7 @@ pub struct HttpMcpClient {
 fn carries_credentials(
     headers: &[(String, String)],
     static_bearer: &Option<String>,
-    auth: McpAuthType,
+    auth: &McpAuthType,
 ) -> bool {
     !headers.is_empty()
         || static_bearer.as_ref().map(|t| !t.trim().is_empty()).unwrap_or(false)
@@ -104,7 +104,8 @@ impl HttpMcpClient {
         // would put the key or token on the wire in the clear.
         if let Ok(parsed) = reqwest::Url::parse(url) {
             if parsed.scheme() == "http" {
-                if !is_loopback_host(&parsed) && carries_credentials(&headers, &static_bearer, auth)
+                if !is_loopback_host(&parsed)
+                    && carries_credentials(&headers, &static_bearer, &auth)
                 {
                     return Err(format!(
                         "Refusing to send credentials to {url} over plain http. Use an https URL, or keep the server on localhost."
@@ -400,19 +401,19 @@ mod tests {
     #[test]
     fn credentials_are_seen_in_any_of_the_three_places() {
         let none: Vec<(String, String)> = Vec::new();
-        assert!(!carries_credentials(&none, &None, McpAuthType::None));
+        assert!(!carries_credentials(&none, &None, &McpAuthType::None));
         assert!(carries_credentials(
             &[("X-Api-Key".into(), "k".into())],
             &None,
-            McpAuthType::None
+            &McpAuthType::None
         ));
         assert!(carries_credentials(
             &none,
             &Some("token".into()),
-            McpAuthType::None
+            &McpAuthType::None
         ));
-        assert!(carries_credentials(&none, &None, McpAuthType::Oauth));
+        assert!(carries_credentials(&none, &None, &McpAuthType::Oauth));
         // An empty bearer is not a credential.
-        assert!(!carries_credentials(&none, &Some("   ".into()), McpAuthType::None));
+        assert!(!carries_credentials(&none, &Some("   ".into()), &McpAuthType::None));
     }
 }
