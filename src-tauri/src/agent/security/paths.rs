@@ -367,10 +367,7 @@ mod tests {
 
     #[test]
     fn resolved_file_must_stay_inside_its_root() {
-        let temp = std::env::temp_dir().join(format!(
-            "shape-skill-root-{}",
-            std::process::id()
-        ));
+        let temp = std::env::temp_dir().join(format!("shape-skill-root-{}", std::process::id()));
         let root = temp.join("skills");
         let sibling = temp.join("skills-extra");
         let _ = std::fs::remove_dir_all(&temp);
