@@ -1,0 +1,70 @@
+name: Zen Probe
+
+# Temporary diagnostic: find the exact headers OpenCode Zen's free tier needs.
+# Manual only, deleted once the contract is known.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Probe
+        run: |
+          set -uo pipefail
+          BASE=https://opencode.ai/zen/v1
+          TOOLS='[{"type":"function","function":{"name":"read_file","description":"Read a file","parameters":{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}}}]'
+
+          probe() {
+            local name="$1"; shift
+            local out
+            out=$(curl -sS -o /tmp/body -w '%{http_code}' -X POST "$BASE/chat/completions" \
+              -H 'Content-Type: application/json' "$@" \
+              -d "{\"model\":\"$MODEL\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a coding agent.\"},{\"role\":\"user\",\"content\":\"List one file.\"}],\"stream\":true,\"tools\":$TOOLS}" 2>/tmp/err || true)
+            echo "=== $name -> HTTP $out"
+            if [ -s /tmp/err ]; then echo "   curl: $(head -c 200 /tmp/err)"; fi
+            head -c 400 /tmp/body | tr -d '\r'; echo; echo
+          }
+
+          MODEL=ling-3.1-flash-free
+          echo "############ FREE MODEL: ling-3.1-flash-free"
+          probe "A bare (no headers)"
+          probe "B BetterShape UA + session" -H "User-Agent: BetterShape/1.0.0" -H "x-opencode-session: ses_$(openssl rand -hex 16)"
+          probe "C official UA + client cli + session" -H "User-Agent: opencode/latest/1.3.15/cli" -H "x-opencode-client: cli" -H "x-opencode-session: ses_$(openssl rand -hex 16)"
+          probe "D official UA + session (no client)" -H "User-Agent: opencode/latest/1.3.15/cli" -H "x-opencode-session: ses_$(openssl rand -hex 16)"
+          probe "E full header set" \
+            -H "User-Agent: opencode/latest/1.3.15/cli" \
+            -H "x-opencode-client: cli" \
+            -H "x-opencode-session: ses_$(openssl rand -hex 32)" \
+            -H "x-opencode-session-id: ses_$(openssl rand -hex 32)" \
+            -H "x-session-affinity: ses_$(openssl rand -hex 32)" \
+            -H "X-Session-Id: ses_$(openssl rand -hex 32)" \
+            -H "x-opencode-project: probe"
+
+          echo "############ key 'public'"
+          MODEL=ling-3.1-flash-free
+          probe "F key=public + official UA" -H "Authorization: Bearer public" -H "User-Agent: opencode/latest/1.3.15/cli" -H "x-opencode-session: ses_$(openssl rand -hex 16)"
+
+          echo "############ paid model, anonymous"
+          MODEL=claude-haiku-4-5
+          probe "G paid model, no key" -H "User-Agent: opencode/latest/1.3.15/cli" -H "x-opencode-session: ses_$(openssl rand -hex 16)"
+
+          echo "############ go endpoint"
+          go_out=$(curl -sS -o /tmp/gobody -w '%{http_code}' https://opencode.ai/zen/go/v1/models || true)
+          echo "go models -> $go_out"; head -c 200 /tmp/gobody; echo
+
+      - name: Streaming check
+        run: |
+          set -uo pipefail
+          echo "=== free model, streamed body (first 20 lines)"
+          curl -sS -N -X POST https://opencode.ai/zen/v1/chat/completions \
+            -H 'Content-Type: application/json' \
+            -H 'User-Agent: opencode/latest/1.3.15/cli' \
+            -H 'x-opencode-client: cli' \
+            -H "x-opencode-session: ses_$(openssl rand -hex 16)" \
+            -d '{"model":"ling-3.1-flash-free","messages":[{"role":"user","content":"Reply with the single word: pong"}],"stream":true,"max_tokens":32}' \
+            | head -20 || true
