@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { EditorState, Compartment } from "@codemirror/state";
+import { EditorSelection, EditorState, Compartment } from "@codemirror/state";
 import { LanguageDescription } from "@codemirror/language";
 import { languages } from "@codemirror/language-data";
 import {
@@ -43,7 +43,7 @@ import {
     completionKeymap,
 } from "@codemirror/autocomplete";
 import { indentationMarkers } from "@replit/codemirror-indentation-markers";
-import { commands } from "@/lib/backend";
+import { commands, getProjectPath } from "@/lib/backend";
 import { languageForPath } from "./lang";
 import { betterShapeSyntaxLinter } from "./syntax-lint";
 import { BETTERSHAPE_CLIP_CODE, rememberBetterShapeClip } from "@/features/chat/lib/bettershape-clip";
@@ -56,6 +56,12 @@ import {
     ContextMenuSeparator,
     ContextMenuTrigger,
 } from "@/components/ui/context";
+
+/**
+ * The most recently focused CodeMirror view. Menu/shortcut "editor actions"
+ * target this one, so a split view never edits the wrong buffer.
+ */
+let activeView: EditorView | null = null;
 
 export function CodeMirrorEditor({
     path,
@@ -86,6 +92,8 @@ export function CodeMirrorEditor({
 
         const lang = languageForPath(path);
         const langCompartment = new Compartment();
+        const wrapCompartment = new Compartment();
+        let wrapEnabled = false;
         const state = EditorState.create({
             doc: content,
             extensions: [
@@ -132,7 +140,9 @@ export function CodeMirrorEditor({
                 keymap.of([
                     ...closeBracketsKeymap,
                     ...defaultKeymap,
-                    ...searchKeymap.filter((binding) => binding.key !== "Mod-f"),
+                    // Ctrl+F opens CodeMirror's search panel (the global shortcut
+                    // handler leaves "Find" to the focused surface).
+                    ...searchKeymap,
                     ...historyKeymap,
                     ...foldKeymap,
                     ...completionKeymap,
@@ -140,6 +150,7 @@ export function CodeMirrorEditor({
                     { key: "Mod-]", run: indentMore },
                     { key: "Mod-[", run: indentLess },
                 ]),
+                wrapCompartment.of([]),
                 langCompartment.of(lang ? [lang, betterShapeSyntaxLinter(path), lintGutter()] : []),
                 EditorView.updateListener.of((update) => {
                     if (!update.docChanged) return;
@@ -229,6 +240,83 @@ export function CodeMirrorEditor({
             );
         };
         window.addEventListener("bettershape-editor-search", onSearch as EventListener);
+
+        const jumpToPosition = (v: EditorView, line: number, column = 1) => {
+            const total = v.state.doc.lines;
+            const target = Math.min(Math.max(Math.trunc(line) || 1, 1), total);
+            const info = v.state.doc.line(target);
+            const offset = Math.max(0, Math.trunc(column) - 1);
+            const pos = Math.min(info.from + offset, info.to);
+            v.dispatch({
+                selection: EditorSelection.cursor(pos),
+                effects: EditorView.scrollIntoView(pos, { y: "center" }),
+            });
+            v.focus();
+        };
+
+        const onJump = (event: Event) => {
+            const v = viewRef.current;
+            if (!v || activeView !== v) return;
+            const detail = (event as CustomEvent<{ path?: string; line?: number; column?: number }>).detail;
+            if (!detail || (detail.path && detail.path !== pathRef.current)) return;
+            if (typeof detail.line !== "number") return;
+            jumpToPosition(v, detail.line, detail.column ?? 1);
+        };
+
+        const onEditorAction = (event: Event) => {
+            const v = viewRef.current;
+            if (!v || activeView !== v) return;
+            const detail = (event as CustomEvent<{ action?: string; line?: number; column?: number }>).detail;
+            switch (detail?.action) {
+                case "undo":
+                    undo(v);
+                    break;
+                case "redo":
+                    redo(v);
+                    break;
+                case "selectAll":
+                    selectAll(v);
+                    break;
+                case "jumpToPosition":
+                    jumpToPosition(v, detail.line ?? 1, detail.column ?? 1);
+                    break;
+                case "toggleWordWrap":
+                    wrapEnabled = !wrapEnabled;
+                    v.dispatch({
+                        effects: wrapCompartment.reconfigure(
+                            wrapEnabled ? EditorView.lineWrapping : [],
+                        ),
+                    });
+                    break;
+                case "format":
+                case "formatSelection": {
+                    // Prettier formats whole documents; selection formatting falls back to it.
+                    const source = v.state.doc.toString();
+                    void commands
+                        .prettierFormatFile(getProjectPath() ?? "", pathRef.current, source)
+                        .then((formatted) => {
+                            const live = viewRef.current;
+                            if (!live || typeof formatted !== "string" || !formatted || formatted === source) return;
+                            live.dispatch({
+                                changes: { from: 0, to: live.state.doc.length, insert: formatted },
+                            });
+                        })
+                        .catch(() => undefined);
+                    break;
+                }
+                default:
+                    break;
+            }
+        };
+
+        const markActive = () => {
+            activeView = view;
+        };
+        if (!activeView) activeView = view;
+        view.dom.addEventListener("focusin", markActive);
+        view.dom.addEventListener("pointerdown", markActive);
+        window.addEventListener("bettershape-editor-action", onEditorAction as EventListener);
+        window.addEventListener("bettershape-editor-jump", onJump as EventListener);
         if (isFirstLoadRef.current) {
             isFirstLoadRef.current = false;
             savedContentRef.current = content;
@@ -236,6 +324,11 @@ export function CodeMirrorEditor({
 
         return () => {
             window.removeEventListener("bettershape-editor-search", onSearch as EventListener);
+            window.removeEventListener("bettershape-editor-action", onEditorAction as EventListener);
+            window.removeEventListener("bettershape-editor-jump", onJump as EventListener);
+            view.dom.removeEventListener("focusin", markActive);
+            view.dom.removeEventListener("pointerdown", markActive);
+            if (activeView === view) activeView = null;
             view.destroy();
             viewRef.current = null;
         };

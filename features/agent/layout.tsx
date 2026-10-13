@@ -17,6 +17,7 @@ import { ProjectQuickPickHost } from "@/features/chat/ui/shell/project-pick";
 import { startAgentBackgroundExitToasts } from "@/features/chat/lib/agent-terminal-notify";
 import { useWindowControls } from "@/features/agent/workbench/titlebar/hooks/use-window-controls";
 import { WindowControls } from "@/features/agent/workbench/titlebar/ui/window-controls";
+import { NewFilePromptHost } from "./workspace/new-file-prompt";
 
 const MIN_WORKSPACE = 360;
 const MIN_WORKSPACE_SOFT = 280;
@@ -28,6 +29,7 @@ const WINDOW_MIN_WIDTH = 1000;
 const MAX_WORKSPACE_RATIO = 0.72;
 const MAX_WORKSPACE_PX = 1200;
 const SPLASH_KEY = "bettershape-agent-splash-seen";
+const ZEN_KEY = "bettershape-zen-mode";
 
 function layoutMinWidth(sidebarOpen: boolean, workspaceOpen: boolean) {
     const sidebar = sidebarOpen ? SIDEBAR_EXPANDED : 0;
@@ -104,6 +106,7 @@ export function AgentLayout({ children }: { children: React.ReactNode }) {
     const { project_path, active_file } = useProjectState();
     const [sidebarOpen, setSidebarOpen] = useState(true);
     const [workspaceOpen, setWorkspaceOpen] = useState(true);
+    const [zenMode, setZenMode] = useState(false);
     const [overlay, setOverlay] = useState<AgentOverlay>(null);
     const [workspaceWidth, setWorkspaceWidth] = useState(560);
     const [workspaceFits, setWorkspaceFits] = useState(true);
@@ -125,6 +128,7 @@ export function AgentLayout({ children }: { children: React.ReactNode }) {
             }
             setWorkspaceOpen(localStorage.getItem("bettershape-agent-workspace") !== "false");
             setSidebarOpen(localStorage.getItem("bettershape-agent-sidebar") !== "false");
+            setZenMode(localStorage.getItem(ZEN_KEY) === "1");
             if (sessionStorage.getItem(SPLASH_KEY) !== "1") {
                 setSplash(true);
             }
@@ -482,15 +486,34 @@ export function AgentLayout({ children }: { children: React.ReactNode }) {
         };
     }, [openWorkspaceTerminal]);
 
+    useEffect(() => {
+        const onZen = () => {
+            setZenMode((prev) => {
+                const next = !prev;
+                try {
+                    localStorage.setItem(ZEN_KEY, next ? "1" : "0");
+                } catch {
+                    /* ignore */
+                }
+                return next;
+            });
+        };
+        window.addEventListener("bettershape-toggle-zen-mode", onZen);
+        return () => window.removeEventListener("bettershape-toggle-zen-mode", onZen);
+    }, []);
+
     const overlayOpen = overlay != null;
     const showWorkspace = Boolean(project_path) && !overlayOpen;
-    const rightExpanded = workspaceOpen && showWorkspace && workspaceFits;
+    // Zen mode hides the side panes without touching the persisted layout prefs.
+    const rightExpanded = workspaceOpen && showWorkspace && workspaceFits && !zenMode;
+    const sidebarShown = sidebarOpen && !zenMode;
     const { isMaximized, minimize, toggleMaximize, close } = useWindowControls();
 
     return (
         <div className="relative flex h-full min-h-0 w-full overflow-hidden bg-sidebar">
             <DevRunHost />
             <ProjectQuickPickHost />
+            <NewFilePromptHost />
             {splash ? (
                 <div
                     className={cn(
@@ -517,7 +540,7 @@ export function AgentLayout({ children }: { children: React.ReactNode }) {
 
             <AgentSidebar
                 expanded
-                open={sidebarOpen}
+                open={sidebarShown}
                 overlay={overlay}
                 onToggleSidebar={toggleSidebar}
                 onSearch={() => {
@@ -528,7 +551,7 @@ export function AgentLayout({ children }: { children: React.ReactNode }) {
                     );
                 }}
             />
-            {sidebarOpen ? null : (
+            {sidebarShown ? null : (
                 <SidebarPeek shown={sidebarFlyout} onEnter={openSidebarFlyout} onLeave={closeSidebarFlyout} />
             )}
 

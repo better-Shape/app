@@ -29,6 +29,24 @@ function gitMark(status: string | undefined): { letter: string; className: strin
     return { letter: raw[0] ?? "", className: "text-text-muted" };
 }
 
+/** Normalize for path comparisons (case-insensitive, slash-agnostic). */
+function pathKey(filePath: string): string {
+    return filePath.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+}
+
+function parentDir(filePath: string): string {
+    const normalized = filePath.replace(/\\/g, "/").replace(/\/+$/, "");
+    const idx = normalized.lastIndexOf("/");
+    return idx <= 0 ? "" : normalized.slice(0, idx);
+}
+
+/** True when `candidate` is `prefix` or lives underneath it. */
+function isWithin(prefix: string, candidate: string): boolean {
+    const a = pathKey(prefix);
+    const b = pathKey(candidate);
+    return b === a || b.startsWith(`${a}/`);
+}
+
 function sortEntries(list: FileEntry[]) {
     return [...list].sort((a, b) => {
         if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;
@@ -43,6 +61,8 @@ function TreeNode({
     query,
     onOpenFile,
     statusFor,
+    revealDir,
+    revealPath,
 }: {
     entry: FileEntry;
     depth: number;
@@ -50,11 +70,22 @@ function TreeNode({
     query: string;
     onOpenFile: (path: string) => void;
     statusFor: (path: string) => string | undefined;
+    revealDir?: string;
+    revealPath?: string | null;
 }) {
     const [open, setOpen] = useState(false);
     const [children, setChildren] = useState<FileEntry[] | null>(null);
     const seq = useRef(0);
-    const isExpanded = open || Boolean(query.trim() && entry.is_dir);
+    const nodeRef = useRef<HTMLButtonElement | null>(null);
+    // "Reveal in Explorer" force-expands every directory on the way to the target.
+    const inRevealTrace = Boolean(entry.is_dir && revealDir && isWithin(entry.path, revealDir));
+    const revealed = Boolean(revealPath && pathKey(entry.path) === pathKey(revealPath));
+    const isExpanded = open || Boolean(query.trim() && entry.is_dir) || inRevealTrace;
+
+    useEffect(() => {
+        if (!revealed) return;
+        nodeRef.current?.scrollIntoView({ block: "nearest" });
+    }, [revealed]);
 
     const load = useCallback(async () => {
         if (!entry.is_dir) return;
@@ -98,9 +129,13 @@ function TreeNode({
                 <ContextMenu>
                     <ContextMenuTrigger asChild>
                 <button
+                    ref={nodeRef}
                     type="button"
                     onClick={() => setOpen((v) => !v)}
-                    className="flex h-6 w-full items-center gap-1 rounded-md pr-2 text-left text-sm text-text-secondary hover:bg-panel-hover hover:text-text-primary"
+                    className={cn(
+                        "flex h-6 w-full items-center gap-1 rounded-md pr-2 text-left text-sm text-text-secondary hover:bg-panel-hover hover:text-text-primary",
+                        revealed && "bg-panel-active text-text-primary",
+                    )}
                     style={{ paddingLeft: pad }}
                 >
                     <Icon
@@ -127,6 +162,8 @@ function TreeNode({
                             query={query}
                             onOpenFile={onOpenFile}
                             statusFor={statusFor}
+                            revealDir={revealDir}
+                            revealPath={revealPath}
                         />
                         ))}
                     </div>
@@ -145,11 +182,12 @@ function TreeNode({
         <ContextMenu>
             <ContextMenuTrigger asChild>
         <button
+            ref={nodeRef}
             type="button"
             onClick={() => onOpenFile(entry.path)}
             className={cn(
                 "flex h-6 w-full items-center gap-1.5 rounded-md pr-2 text-left text-sm",
-                active
+                active || revealed
                     ? "bg-panel-active text-text-primary"
                     : "text-text-secondary hover:bg-panel-hover hover:text-text-primary",
             )}
@@ -208,6 +246,18 @@ export function FileTree({
         return () => window.removeEventListener("bettershape-files-changed", b);
     }, []);
 
+    // "Reveal in Explorer" (editor breadcrumb, command palette, chat files).
+    const [revealPath, setRevealPath] = useState<string | null>(null);
+    useEffect(() => {
+        const onReveal = (e: Event) => {
+            const target = (e as CustomEvent<{ path?: string }>).detail?.path?.trim();
+            if (target) setRevealPath(target);
+        };
+        window.addEventListener("bettershape-reveal-in-explorer", onReveal);
+        return () => window.removeEventListener("bettershape-reveal-in-explorer", onReveal);
+    }, []);
+    const revealDir = useMemo(() => (revealPath ? parentDir(revealPath) : ""), [revealPath]);
+
     useEffect(() => {
         let cancelled = false;
         void (async () => {
@@ -257,7 +307,10 @@ export function FileTree({
     // Padding on the wrapper (not margin on the island) keeps the flex parent
     // from shifting — the island sits inset without pushing layout sideways.
     return (
-        <div className="box-border flex h-full min-h-0 w-full flex-col bg-transparent">
+        <div
+            data-explorer-root="true"
+            className="box-border flex h-full min-h-0 w-full flex-col bg-transparent"
+        >
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
                 <div className="px-2 pb-1 pt-2">
                     <div className="flex h-8 items-center gap-2 rounded-lg bg-panel-hover px-2">
@@ -283,6 +336,8 @@ export function FileTree({
                             query={query}
                             onOpenFile={onOpenFile}
                             statusFor={statusFor}
+                            revealDir={revealDir}
+                            revealPath={revealPath}
                         />
                     ))}
                 </div>

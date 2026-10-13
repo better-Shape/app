@@ -256,6 +256,12 @@ export function eventToKeyChord(e: KeyboardEvent): string | null {
 }
 
 /**
+ * Shortcuts the focused surface owns: the global handler must not
+ * preventDefault them (Find belongs to the editor / browser).
+ */
+const SURFACE_OWNED_SHORTCUTS = new Set(["Find"]);
+
+/**
  * React hook that registers global keyboard shortcuts from the built-in config.
  */
 export function useKeyboardShortcuts() {
@@ -345,6 +351,9 @@ export function useKeyboardShortcuts() {
                 if (isInput && inputIgnored.includes(fullShortcut)) {
                     return;
                 }
+
+                // Find (Ctrl+F) opens the editor's search panel — never swallow it.
+                if (SURFACE_OWNED_SHORTCUTS.has(binding.label)) return;
 
                 e.preventDefault();
                 if (!dispatchShortcutAction(binding.label, binding.key)) {

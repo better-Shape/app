@@ -10,28 +10,60 @@ import { saveLastProject, loadLastProject } from "@/lib/workspace/last-project";
 import { clearClosedTabs } from "@/lib/workspace/closed-tabs";
 import { isMainTauriWindow, isTauriRuntime } from "@/lib/window/tauri-window";
 
+/** Native menu / global-shortcut actions that never reach a JS keydown handler. */
 function TauriShortcutBridge() {
     useEffect(() => {
-        let unlistenFind: (() => void) | undefined;
-        let unlistenReplace: (() => void) | undefined;
-        let unlistenSaveAll: (() => void) | undefined;
+        let disposed = false;
+        const unlisteners: Array<() => void> = [];
 
         void import("@tauri-apps/api/event").then(({ listen }) => {
-            void listen("open-find-in-files", () => {
+            const register = (event: string, handler: (payload: unknown) => void) => {
+                void listen(event, (e) => handler(e.payload)).then((fn) => {
+                    // Unmount can win the race against `listen`; never leak the listener.
+                    if (disposed) fn();
+                    else unlisteners.push(fn);
+                });
+            };
+            register("open-find-in-files", () => {
                 dispatchShortcutAction("Find in Files", "Ctrl+Shift+F");
-            }).then((fn) => { unlistenFind = fn; });
-            void listen("open-replace-in-files", () => {
+            });
+            register("open-replace-in-files", () => {
                 dispatchShortcutAction("Replace in Files", "Ctrl+H");
-            }).then((fn) => { unlistenReplace = fn; });
-            void listen("save-all-request", () => {
+            });
+            register("save-all-request", () => {
                 window.dispatchEvent(new Event("save-all-request"));
-            }).then((fn) => { unlistenSaveAll = fn; });
+            });
+            // File menu / Ctrl+S, Ctrl+O, Ctrl+N from the native menu.
+            register("save-request", () => {
+                window.dispatchEvent(new Event("save-request"));
+            });
+            register("open-file-request", () => {
+                window.dispatchEvent(new Event("open-file-request"));
+            });
+            register("new-file", () => {
+                window.dispatchEvent(new CustomEvent("bettershape-explorer-create", { detail: { type: "file" } }));
+            });
+            // F12 / Alt+Shift+F — the backend forwards the raw accelerator.
+            register("editor-shortcut", (payload) => {
+                const key = typeof payload === "string" ? payload : "";
+                const action = key === "F12" ? "definition" : key === "Alt+Shift+F" ? "format" : "";
+                if (!action) return;
+                window.dispatchEvent(new CustomEvent("bettershape-editor-action", { detail: { action } }));
+            });
+            register("toggle-zen-mode", () => {
+                window.dispatchEvent(new Event("bettershape-toggle-zen-mode"));
+            });
+            // Ctrl+E / Recent Files from the native menu.
+            register("bettershape-command-palette", (payload) => {
+                const detail = payload && typeof payload === "object" ? payload : { mode: "files" };
+                window.dispatchEvent(new CustomEvent("bettershape-command-palette", { detail }));
+            });
         });
 
         return () => {
-            unlistenFind?.();
-            unlistenReplace?.();
-            unlistenSaveAll?.();
+            disposed = true;
+            for (const fn of unlisteners) fn();
+            unlisteners.length = 0;
         };
     }, []);
 
