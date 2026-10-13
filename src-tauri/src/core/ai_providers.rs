@@ -64,6 +64,7 @@ pub struct ProviderEntry {
     /// Studio, vLLM) and gateways with a free tier. Without this the app could
     /// not route to a keyless connection at all.
     #[serde(default)]
+    pub keyless: bool,
     /// Extra headers to send with every request to this provider. Gateways put
     /// attribution or their own tokens here; the frontend merges the preset's
     /// defaults in before pushing the config.
