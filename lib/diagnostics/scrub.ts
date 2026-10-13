@@ -1,4 +1,10 @@
-/** Privacy filter applied before anything is sent to Sentry or analytics. */
+/**
+ * Privacy filter for user-visible text: problem reports, copied logs, and any
+ * transcript snippet the app hands to the user.
+ *
+ * BetterShape ships no analytics and no error-reporting backend, so this runs on
+ * content that stays on the machine.
+ */
 
 const EMAIL_RE = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
 const HOME_PATH_RE =
@@ -36,17 +42,4 @@ export function redactChatForReport(
     if (used >= maxChars) break;
   }
   return out;
-}
-
-export function sentryBeforeSend<T extends { request?: unknown; extra?: unknown }>(event: T): T | null {
-  if (event.request && typeof event.request === "object") {
-    const req = event.request as { headers?: Record<string, string>; cookies?: unknown };
-    if (req.headers) {
-      for (const key of Object.keys(req.headers)) {
-        if (/authorization|cookie|token|secret/i.test(key)) req.headers[key] = "[redacted]";
-      }
-    }
-    delete req.cookies;
-  }
-  return event;
 }
