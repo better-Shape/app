@@ -425,6 +425,7 @@ mod tests {
     fn render_lists_packages_and_says_how_to_run_them() {
         let results = vec![RegistryServer {
             name: "io.github.acme/files".into(),
+            id: id_from_name("io.github.acme/files"),
             description: "File tools".into(),
             version: "1.2.3".into(),
             registry_type: "npm".into(),
