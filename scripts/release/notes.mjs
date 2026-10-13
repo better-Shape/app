@@ -60,7 +60,9 @@ const SKIP_SUBJECT_RE =
     /^(sync\s+cargo\.lock|bump\s+.*cargo\.lock|sync\s+.*app\s+version|cargo\.lock)/i;
 
 
-const DEFAULT_REPO = "useshape/Shape";
+// Release notes link to the repo that produced them: GitHub Actions sets
+// GITHUB_REPOSITORY, so a fork (BetterShape) no longer links to upstream.
+const DEFAULT_REPO = process.env.GITHUB_REPOSITORY || "Owie6789/Shape";
 
 const CO_AUTHOR_RE =
     /^Co-authored-by:\s*(.+?)\s*<([^>]+)>\s*$/gim;

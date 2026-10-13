@@ -2,19 +2,19 @@
 # https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
 
 # Default owner for everything
-* @useshape/maintainers
+* @Owie6789
 
 # CI/CD and release are critical - require maintainer review
-/.github/workflows/ @useshape/maintainers
-/.github/actions/ @useshape/maintainers
-/scripts/release/ @useshape/maintainers
-/src-tauri/tauri.conf.json @useshape/maintainers
-/src-tauri/Cargo.toml @useshape/maintainers
+/.github/workflows/ @Owie6789
+/.github/actions/ @Owie6789
+/scripts/release/ @Owie6789
+/src-tauri/tauri.conf.json @Owie6789
+/src-tauri/Cargo.toml @Owie6789
 
 # Security-sensitive areas
-/src-tauri/src/ @useshape/maintainers
-/src-tauri/capabilities/ @useshape/maintainers
-/src-tauri/build.rs @useshape/maintainers
+/src-tauri/src/ @Owie6789
+/src-tauri/capabilities/ @Owie6789
+/src-tauri/build.rs @Owie6789
 
 # Docs can be reviewed more broadly
-/docs/ @useshape/maintainers
+/docs/ @Owie6789

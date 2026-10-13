@@ -1,9 +1,7 @@
 name: Nightly
 
+# Manual only: no schedule, so a nightly build never runs unattended.
 on:
-  schedule:
-    # Daily at 02:00 UTC
-    - cron: "0 2 * * *"
   workflow_dispatch:
     inputs:
       prerelease:
@@ -231,7 +229,7 @@ jobs:
             --target "${{ github.sha }}" \
             --repo "${{ github.repository }}" \
             --title "Nightly ${{ steps.version.outputs.version }}" \
-            --notes "Automated nightly build from ${{ github.sha }}. Not for production use." \
+            --notes "Manual nightly build from ${{ github.sha }}. Not for production use." \
             --prerelease \
             --draft \
             "${EXES[@]}"

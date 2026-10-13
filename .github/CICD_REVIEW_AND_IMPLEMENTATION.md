@@ -171,7 +171,7 @@ Triggers: PR to main, actor dependabot[bot]
 
 ### 9. CODEOWNERS (`.github/CODEOWNERS`) - New
 
-- Default @useshape/maintainers
+- Default @Owie6789
 - Critical paths: workflows, actions, release scripts, tauri.conf.json, Cargo.toml, src-tauri/src, capabilities, build.rs require maintainers
 
 ### 10. Workflows README (`.github/workflows/README.md`) - New
