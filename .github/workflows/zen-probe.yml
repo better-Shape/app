@@ -9,8 +9,9 @@ on:
       - ".github/workflows/zen-probe.yml"
 
 permissions:
-  contents: read
+  contents: write
   issues: write
+  pull-requests: write
 
 jobs:
   probe:
@@ -84,14 +85,16 @@ jobs:
             | head -12 || true
           echo '```'
 
-      - name: Post findings
+      - name: Publish findings
         if: always()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -uo pipefail
-          {
-            echo "<!-- zen-probe -->"
-            cat /tmp/probe.txt
-          } > /tmp/comment.md
-          gh api -X POST "repos/${{ github.repository }}/issues/7/comments" -F body=@/tmp/comment.md >/dev/null && echo "posted"
+          B64=$(base64 -w0 /tmp/probe.txt)
+          gh api --method PUT "repos/${{ github.repository }}/contents/zen-probe-output.txt" \
+            --field message="chore: zen probe output" \
+            --field branch="${{ github.ref_name }}" \
+            --field content="$B64" >/dev/null && echo "file written" || echo "file write failed"
+          gh pr comment 7 --repo "${{ github.repository }}" --body-file /tmp/probe.txt || echo "comment failed"
+          exit 0
