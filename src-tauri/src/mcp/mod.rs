@@ -122,15 +122,19 @@ impl McpState {
     }
 
     pub fn sync_servers(&self, servers: Vec<McpServerConfig>) -> Result<Vec<McpStatusEntry>, String> {
+        // This replaces every config and every connection at once, so it must not
+        // interleave with a single-server upsert, restart or removal.
+        let _connecting = self.connecting.lock().map_err(|e| e.to_string())?;
         {
             let mut configs = self.configs.lock().map_err(|e| e.to_string())?;
             *configs = servers.clone();
         }
 
-        let mut clients = self.clients.lock().map_err(|e| e.to_string())?;
-        clients.clear();
-
         let mut statuses = Vec::new();
+        // Built aside and swapped in at the end: the old connections keep
+        // answering while the new ones handshake, instead of every server going
+        // dark for the length of the sync.
+        let mut fresh: HashMap<String, Arc<Mutex<ConnectedClient>>> = HashMap::new();
 
         for server in servers {
             if !server.enabled {
@@ -156,7 +160,7 @@ impl McpState {
                         error: client.last_error(),
                         auth: server.auth.clone(),
                     });
-                    clients.insert(server.id.clone(), Arc::new(Mutex::new(client)));
+                    fresh.insert(server.id.clone(), Arc::new(Mutex::new(client)));
                 }
                 Err(e) if e == "NEEDS_AUTH" => {
                     statuses.push(McpStatusEntry {
@@ -180,6 +184,11 @@ impl McpState {
                     });
                 }
             }
+        }
+
+        {
+            let mut clients = self.clients.lock().map_err(|e| e.to_string())?;
+            *clients = fresh;
         }
 
         Ok(statuses)
