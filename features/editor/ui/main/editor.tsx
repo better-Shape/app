@@ -246,13 +246,13 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
             }
         };
 
-        window.addEventListener("shape-proposed-edits-changed", handleProposedChange);
-        window.addEventListener("shape-editor-preview-diff", handlePreviewDiff as EventListener);
-        window.addEventListener("shape-dismiss-diff", handleDismissDiff as EventListener);
+        window.addEventListener("bettershape-proposed-edits-changed", handleProposedChange);
+        window.addEventListener("bettershape-editor-preview-diff", handlePreviewDiff as EventListener);
+        window.addEventListener("bettershape-dismiss-diff", handleDismissDiff as EventListener);
         return () => {
-            window.removeEventListener("shape-proposed-edits-changed", handleProposedChange);
-            window.removeEventListener("shape-editor-preview-diff", handlePreviewDiff as EventListener);
-            window.removeEventListener("shape-dismiss-diff", handleDismissDiff as EventListener);
+            window.removeEventListener("bettershape-proposed-edits-changed", handleProposedChange);
+            window.removeEventListener("bettershape-editor-preview-diff", handlePreviewDiff as EventListener);
+            window.removeEventListener("bettershape-dismiss-diff", handleDismissDiff as EventListener);
         };
     }, [path, content]);
 
@@ -330,10 +330,10 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
         };
 
         window.addEventListener("save-request", handleSave);
-        window.addEventListener("shape-editor-action", handleEditorAction as EventListener);
+        window.addEventListener("bettershape-editor-action", handleEditorAction as EventListener);
         return () => {
             window.removeEventListener("save-request", handleSave);
-            window.removeEventListener("shape-editor-action", handleEditorAction as EventListener);
+            window.removeEventListener("bettershape-editor-action", handleEditorAction as EventListener);
         };
     }, [isMarkdown, mode, path, content, setContent]);
 
@@ -417,7 +417,7 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
                                     size="xs"
                                     onClick={async () => {
                                         try {
-                                            window.dispatchEvent(new CustomEvent('shape-editor-edit-action', {
+                                            window.dispatchEvent(new CustomEvent('bettershape-editor-edit-action', {
                                                 detail: {
                                                     path: diffState.path,
                                                     action: 'rejected',
@@ -430,7 +430,7 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
                                                 diffState.baseline || diffState.snippetOriginal,
                                             );
                                             clearProposedEdit(diffState.path);
-                                            window.dispatchEvent(new CustomEvent('shape-dismiss-diff', {
+                                            window.dispatchEvent(new CustomEvent('bettershape-dismiss-diff', {
                                                 detail: { path: diffState.path, rawPath: diffState.path }
                                             }));
                                             setDiffState(null);
@@ -443,7 +443,7 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
                                     variant="default"
                                     size="xs"
                                     onClick={() => {
-                                        window.dispatchEvent(new CustomEvent('shape-editor-edit-action', {
+                                        window.dispatchEvent(new CustomEvent('bettershape-editor-edit-action', {
                                             detail: {
                                                 path: diffState.path,
                                                 action: 'applied',
@@ -451,7 +451,7 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
                                             }
                                         }));
                                         clearProposedEdit(diffState.path);
-                                        window.dispatchEvent(new CustomEvent('shape-dismiss-diff', {
+                                        window.dispatchEvent(new CustomEvent('bettershape-dismiss-diff', {
                                             detail: { path: diffState.path, rawPath: diffState.path }
                                         }));
                                         setDiffState(null);

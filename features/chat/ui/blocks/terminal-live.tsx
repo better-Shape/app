@@ -285,7 +285,6 @@ function TerminalCommandRow({
     statusLabel,
     output,
     isRunning,
-    failed,
     defaultOpen = false,
     notice,
 }: {
@@ -302,9 +301,13 @@ function TerminalCommandRow({
     const hasOutput = Boolean(output.trim() || notice);
     const canExpand = hasOutput || Boolean(command.trim());
 
-    useEffect(() => {
-        if (isRunning && hasOutput) setExpanded(true);
-    }, [isRunning, hasOutput]);
+    // Output arriving while the command runs opens the block once.
+    const expandWanted = Boolean(isRunning && hasOutput);
+    const [seenExpandWanted, setSeenExpandWanted] = useState(expandWanted);
+    if (expandWanted !== seenExpandWanted) {
+        setSeenExpandWanted(expandWanted);
+        if (expandWanted) setExpanded(true);
+    }
 
     if (!summary && !statusLabel) return null;
 

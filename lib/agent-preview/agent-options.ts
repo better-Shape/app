@@ -16,7 +16,7 @@ export const DEFAULT_DESIGN_AGENT_OPTIONS: DesignAgentOptions = {
     accessibilityPass: false,
 };
 
-const STORAGE_KEY = "shape-design-agent-options";
+const STORAGE_KEY = "bettershape-design-agent-options";
 
 export function loadDesignAgentOptions(): DesignAgentOptions {
     try {

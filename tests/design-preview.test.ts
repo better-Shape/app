@@ -42,7 +42,7 @@ describe("buildReactSandboxHtml", () => {
         expect(html).not.toContain("unpkg.com");
         expect(html).not.toContain("cdn.tailwindcss.com");
         expect(html).not.toContain("esm.sh");
-        expect(html).toContain("ShapePreviewRuntime.mountPreview");
+        expect(html).toContain("BetterShapePreviewRuntime.mountPreview");
         expect(html).toContain("Classic");
         expect(html).toContain(`src="${PREVIEW_BUNDLE_FILENAME}"`);
         expect(html).toContain(`src="${PREVIEW_TAILWIND_FILENAME}"`);
@@ -68,7 +68,6 @@ describe("buildReactSandboxHtml", () => {
 
 async function runPreviewReadyScript(script: string) {
     const trimmed = script.trim().replace(/;\s*$/, "");
-    // eslint-disable-next-line no-new-func
     await new Function(`return ${trimmed}`)();
 }
 
@@ -86,7 +85,7 @@ describe("buildPreviewReadyScript", () => {
     it("sets title suffix and ready global without helper", async () => {
         const script = buildPreviewReadyScript();
         delete (globalThis as typeof globalThis & Record<string, unknown>)[PREVIEW_EMIT_FN];
-        Object.defineProperty(document, "title", { value: "shape-preview-test", writable: true });
+        Object.defineProperty(document, "title", { value: "bettershape-preview-test", writable: true });
         await runPreviewReadyScript(script);
         expect(document.title.endsWith(PREVIEW_READY_TITLE_SUFFIX)).toBe(true);
         expect((globalThis as typeof globalThis & Record<string, unknown>)[PREVIEW_READY_GLOBAL]).toBe(
@@ -113,7 +112,7 @@ describe("buildBodyPreviewHtml", () => {
 
     it("signals parent iframe when static preview is ready", () => {
         const html = buildBodyPreviewHtml("<main>Preview</main>");
-        expect(html).toContain("shape-preview-ready");
+        expect(html).toContain("bettershape-preview-ready");
         expect(html).toContain("postMessage");
     });
 });
@@ -171,7 +170,7 @@ describe("parseMessageContent design_previews", () => {
 
 describe("preview runtime bundle", () => {
     it("ships offline React and Tailwind browser artifacts for Rust include_str", () => {
-        expect(runtimeBundle).toContain("ShapePreviewRuntime");
+        expect(runtimeBundle).toContain("BetterShapePreviewRuntime");
         expect(runtimeBundle).toContain("mountPreview");
         const tailwindBundle = readFileSync(
             join(process.cwd(), "src-tauri", "runtime", "tailwind-browser.js"),

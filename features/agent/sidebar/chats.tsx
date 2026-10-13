@@ -72,11 +72,12 @@ import {
     type SubagentCard,
 } from "@/features/agent/subagents/store";
 import { listen } from "@tauri-apps/api/event";
+import { useChatStreamOptional } from "@/features/chat/lib/chat-stream-store";
 import { ScrollArea } from "@/components/ui/scroll";
 type ChatSort = "recent" | "oldest" | "name-asc" | "name-desc";
 type ChatFilter = "all" | "pinned" | "unread";
 
-const SORT_KEY = "shape-sidebar-chat-sort";
+const SORT_KEY = "bettershape-sidebar-chat-sort";
 const FILTER_OPTIONS: { value: ChatFilter; label: string }[] = [
     { value: "all", label: "All sessions" },
     { value: "pinned", label: "Pinned" },
@@ -150,7 +151,6 @@ function ChatRow({
     unread,
     color,
     subagents,
-    edge = "none",
     selecting = false,
     selected = false,
     onToggleSelect,
@@ -174,17 +174,13 @@ function ChatRow({
     const [draft, setDraft] = useState(title);
     const [expanded, setExpanded] = useState(false);
     const nestedCount = subagents.length;
-    const workerCount = useRef(0);
-    if (workerCount.current !== nestedCount) {
-        const appeared = workerCount.current === 0 && nestedCount > 0;
-        workerCount.current = nestedCount;
-        if (appeared) setExpanded(true);
+    // Expand the row the first time its subagents appear. Tracked during render, not in an effect.
+    const [seenWorkers, setSeenWorkers] = useState(0);
+    if (seenWorkers !== nestedCount) {
+        setSeenWorkers(nestedCount);
+        if (seenWorkers === 0 && nestedCount > 0) setExpanded(true);
     }
     const inputRef = useRef<HTMLInputElement>(null);
-
-    useEffect(() => {
-        if (!renaming) setDraft(title);
-    }, [title, renaming]);
 
     useEffect(() => {
         if (!renaming) return;
@@ -194,7 +190,7 @@ function ChatRow({
 
     const openChat = () => {
         clearChatUnread(id);
-        window.dispatchEvent(new CustomEvent("shape-chat-load", { detail: { id } }));
+        window.dispatchEvent(new CustomEvent("bettershape-chat-load", { detail: { id } }));
     };
 
     const commitRename = () => {
@@ -205,23 +201,23 @@ function ChatRow({
             return;
         }
         window.dispatchEvent(
-            new CustomEvent("shape-chat-rename", { detail: { id, title: next } }),
+            new CustomEvent("bettershape-chat-rename", { detail: { id, title: next } }),
         );
-        window.dispatchEvent(new CustomEvent("shape-chat-refresh"));
+        window.dispatchEvent(new CustomEvent("bettershape-chat-refresh"));
     };
 
     const remove = () => {
         void commands.deleteConversation(id).catch(() => {});
-        window.dispatchEvent(new CustomEvent("shape-chat-close-tab", { detail: { id } }));
-        window.dispatchEvent(new CustomEvent("shape-chat-refresh"));
+        window.dispatchEvent(new CustomEvent("bettershape-chat-close-tab", { detail: { id } }));
+        window.dispatchEvent(new CustomEvent("bettershape-chat-refresh"));
     };
 
     const archive = () => {
         void commands
             .setConversationArchived(id, true)
-            .then(() => window.dispatchEvent(new CustomEvent("shape-chat-refresh")))
+            .then(() => window.dispatchEvent(new CustomEvent("bettershape-chat-refresh")))
             .catch(() => {});
-        window.dispatchEvent(new CustomEvent("shape-chat-close-tab", { detail: { id } }));
+        window.dispatchEvent(new CustomEvent("bettershape-chat-close-tab", { detail: { id } }));
     };
 
     const startRename = () => {
@@ -233,7 +229,7 @@ function ChatRow({
         { key: "open", label: "Open", icon: Open20Regular, run: openChat },
         { key: "pin", label: pinned ? "Unpin" : "Pin", icon: Pin20Regular, run: () => setChatPinned(id, !pinned) },
         { key: "rename", label: "Rename", icon: Edit20Regular, run: startRename },
-        { key: "new", label: "New Chat", icon: Add20Regular, run: () => window.dispatchEvent(new CustomEvent("shape-chat-new")) },
+        { key: "new", label: "New Chat", icon: Add20Regular, run: () => window.dispatchEvent(new CustomEvent("bettershape-chat-new")) },
         { key: "copy", label: "Copy Title", icon: Copy20Regular, sep: true, run: () => void navigator.clipboard.writeText(title) },
         ...(path
             ? [{ key: "reveal", label: "Reveal Folder", icon: FolderOpen20Regular, run: () => void commands.revealPath(path).catch(() => {}) }]
@@ -426,7 +422,7 @@ function ChatRow({
                             type="button"
                             onClick={() => {
                                 clearChatUnread(id);
-                                window.dispatchEvent(new CustomEvent("shape-chat-load", { detail: { id } }));
+                                window.dispatchEvent(new CustomEvent("bettershape-chat-load", { detail: { id } }));
                                 openSubagent(card.id);
                             }}
                             className={cn(
@@ -555,13 +551,13 @@ export function ChatList({
     useEffect(() => {
         void loadChats();
         const onRefresh = () => void loadChats();
-        window.addEventListener("shape-chat-refresh", onRefresh);
-        window.addEventListener("shape-chats-changed", onRefresh);
-        window.addEventListener("shape-chat-active", onRefresh);
+        window.addEventListener("bettershape-chat-refresh", onRefresh);
+        window.addEventListener("bettershape-chats-changed", onRefresh);
+        window.addEventListener("bettershape-chat-active", onRefresh);
         return () => {
-            window.removeEventListener("shape-chat-refresh", onRefresh);
-            window.removeEventListener("shape-chats-changed", onRefresh);
-            window.removeEventListener("shape-chat-active", onRefresh);
+            window.removeEventListener("bettershape-chat-refresh", onRefresh);
+            window.removeEventListener("bettershape-chats-changed", onRefresh);
+            window.removeEventListener("bettershape-chat-active", onRefresh);
         };
     }, [loadChats]);
 
@@ -572,8 +568,8 @@ export function ChatList({
             setActiveId(next);
             if (next) clearChatUnread(next);
         };
-        window.addEventListener("shape-chat-active", onActive as EventListener);
-        return () => window.removeEventListener("shape-chat-active", onActive as EventListener);
+        window.addEventListener("bettershape-chat-active", onActive as EventListener);
+        return () => window.removeEventListener("bettershape-chat-active", onActive as EventListener);
     }, []);
 
     useEffect(() => {
@@ -583,22 +579,16 @@ export function ChatList({
             if (!id || detail?.generating) return;
             if (id !== activeId) markChatUnread(id);
         };
-        window.addEventListener("shape-chat-generating", onGenerating as EventListener);
-        return () => window.removeEventListener("shape-chat-generating", onGenerating as EventListener);
+        window.addEventListener("bettershape-chat-generating", onGenerating as EventListener);
+        return () => window.removeEventListener("bettershape-chat-generating", onGenerating as EventListener);
     }, [activeId]);
 
+    // Highlight the chat on screen. The backend's current chat can be another one while a
+    // background chat runs, so it is not used here.
+    const viewedChatId = useChatStreamOptional().viewedConversationId;
     useEffect(() => {
-        let cancelled = false;
-        void commands
-            .getCurrentConversationId()
-            .then((id) => {
-                if (!cancelled && id) setActiveId(id);
-            })
-            .catch(() => {});
-        return () => {
-            cancelled = true;
-        };
-    }, [project_path]);
+        setActiveId(viewedChatId);
+    }, [viewedChatId]);
 
     const visible = useMemo(() => {
         const live = chats.filter((c) => !c.archived);
@@ -650,7 +640,7 @@ export function ChatList({
 
     const openCommandPalette = () => {
         window.dispatchEvent(
-            new CustomEvent("shape-command-palette", {
+            new CustomEvent("bettershape-command-palette", {
                 detail: { placeholder: "Search…" },
             }),
         );
@@ -712,7 +702,7 @@ export function ChatList({
                 {!project_path ? (
                     <button
                         type="button"
-                        onClick={() => window.dispatchEvent(new Event("shape-new-project"))}
+                        onClick={() => window.dispatchEvent(new Event("bettershape-new-project"))}
                         className="mt-1 flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm text-text-muted hover:bg-panel-hover hover:text-text-secondary"
                     >
                         <Icon icon={FolderOpen20Regular} />

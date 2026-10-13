@@ -63,7 +63,7 @@ When inventing a system:
 - Hierarchy via weight and size — not uppercase + tracking on normal UI text
 - Uppercase only for tiny labels when the existing system already does that
 
-## 5) Shape, spacing, and depth
+## 5) BetterShape, spacing, and depth
 
 Match the project’s radius system. Prefer modest rounding over soft oversized cards.
 

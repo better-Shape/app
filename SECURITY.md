@@ -20,14 +20,14 @@ Report security issues privately using one of the following:
    [Open a private advisory](https://github.com/useshape/Shape/security/advisories/new) on this repository.
 
 2. **Email**  
-   Send details to [hello@useshape.org](mailto:hello@useshape.org) with the subject line `Shape Security Report`.
+   Send details to [hello@useshape.org](mailto:hello@useshape.org) with the subject line `BetterShape Security Report`.
 
 Include as much detail as possible:
 
 - Description of the issue and potential impact
 - Steps to reproduce, or proof-of-concept if available
 - Affected version or commit
-- Your environment (OS, Shape build type) if relevant
+- Your environment (OS, BetterShape build type) if relevant
 
 ## What to expect
 
@@ -41,9 +41,9 @@ We may ask for additional information to reproduce or validate the report.
 
 In scope:
 
-- Shape desktop application (Tauri) and bundled web UI
+- BetterShape desktop application (Tauri) and bundled web UI
 - Rust backend commands, agent tooling, and IPC boundaries
-- Supply-chain or dependency issues that affect Shape installs built from this repo
+- Supply-chain or dependency issues that affect BetterShape installs built from this repo
 
 Out of scope:
 

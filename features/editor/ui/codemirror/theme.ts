@@ -302,7 +302,7 @@ function isLightTheme(): boolean {
 }
 
 /** Shared look for the main editor and merge/diff views. */
-export function shapeEditorChrome(): Extension[] {
+export function betterShapeEditorChrome(): Extension[] {
     const light = isLightTheme();
     return [
         chromeTheme(!light),

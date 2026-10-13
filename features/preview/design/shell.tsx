@@ -243,7 +243,7 @@ export function DesignStudio({
         const onMessage = (event: MessageEvent) => {
             const data = event.data;
             if (!data || typeof data !== "object") return;
-            if ((data as { type?: string }).type !== "shape-preview-navigate") return;
+            if ((data as { type?: string }).type !== "bettershape-preview-navigate") return;
             const url = (data as { url?: string }).url;
             if (typeof url !== "string" || !url.trim()) return;
             applyTabLocation(url);
@@ -421,7 +421,7 @@ export function DesignStudio({
                     throw new Error("Could not find this element in the project source.");
                 }
                 if (!isUserSourcePath(resolved.file)) {
-                    throw new Error("Shape will not edit third-party or generated files.");
+                    throw new Error("BetterShape will not edit third-party or generated files.");
                 }
                 const abs = joinProjectPath(designerRoot, resolved.file);
                 if (resolved.file.replace(/\\/g, "/").toLowerCase().endsWith(".astro")) {
@@ -488,7 +488,7 @@ export function DesignStudio({
                 const resolved = await resolveElement(element);
                 if (!resolved) throw new Error("Could not find this element in the project source.");
                 if (!isUserSourcePath(resolved.file)) {
-                    throw new Error("Shape will not edit third-party or generated files.");
+                    throw new Error("BetterShape will not edit third-party or generated files.");
                 }
                 const abs = joinProjectPath(designerRoot, resolved.file);
                 const source = await commands.readFileFromDisk(abs);
@@ -645,19 +645,19 @@ export function DesignStudio({
                 attributes?: Record<string, string>;
                 themeTokens?: Array<{ name: string; value: string }>;
             };
-            if (data.type === "shape-design-ready") {
+            if (data.type === "bettershape-design-ready") {
                 setReady(true);
                 setBooting(false);
                 if (Array.isArray(data.themeTokens)) setThemeTokens(data.themeTokens);
                 iframeRef.current?.contentWindow?.postMessage(
-                    { type: "shape-design-set-mode", mode: toolModeRef.current, projectRoot: designerRootRef.current },
+                    { type: "bettershape-design-set-mode", mode: toolModeRef.current, projectRoot: designerRootRef.current },
                     "*",
                 );
-            } else if (data.type === "shape-design-tokens" && Array.isArray(data.themeTokens)) {
+            } else if (data.type === "bettershape-design-tokens" && Array.isArray(data.themeTokens)) {
                 setThemeTokens(data.themeTokens);
-            } else if (data.type === "shape-design-tree" && Array.isArray(data.layers)) {
+            } else if (data.type === "bettershape-design-tree" && Array.isArray(data.layers)) {
                 setLayers(data.layers);
-            } else if (data.type === "shape-design-selection") {
+            } else if (data.type === "bettershape-design-selection") {
                 if (data.element) {
                     setSelected(data.element);
                     setPromptOpen(false);
@@ -665,18 +665,18 @@ export function DesignStudio({
                     if (data.addToChat) {
                         const label = data.element.component?.name || data.element.component?.tag || data.element.tag;
                         window.dispatchEvent(
-                            new CustomEvent("shape-composer-insert-mention", {
+                            new CustomEvent("bettershape-composer-insert-mention", {
                                 detail: { kind: "design", id: data.element.key, label },
                             }),
                         );
-                        window.dispatchEvent(new Event("shape-chat-focus-input"));
+                        window.dispatchEvent(new Event("bettershape-chat-focus-input"));
                     }
                 } else {
                     setSelected(null);
                     setTarget(null);
                     setPromptOpen(false);
                 }
-            } else if (data.type === "shape-design-commit-styles" && data.element && data.styles) {
+            } else if (data.type === "bettershape-design-commit-styles" && data.element && data.styles) {
                 setSelected(data.element);
                 void (async () => {
                     setSaved(false);
@@ -691,7 +691,7 @@ export function DesignStudio({
                         setSaved(true);
                     }
                 })();
-            } else if (data.type === "shape-design-commit-text" && data.element) {
+            } else if (data.type === "bettershape-design-commit-text" && data.element) {
                 void (async () => {
                     setSaved(false);
                     try {
@@ -705,7 +705,7 @@ export function DesignStudio({
                         setSaved(true);
                     }
                 })();
-            } else if (data.type === "shape-design-commit-attr" && data.element && data.attributes) {
+            } else if (data.type === "bettershape-design-commit-attr" && data.element && data.attributes) {
                 void (async () => {
                     setSaved(false);
                     try {
@@ -719,7 +719,7 @@ export function DesignStudio({
                         setSaved(true);
                     }
                 })();
-            } else if (data.type === "shape-design-reorder" && data.element) {
+            } else if (data.type === "bettershape-design-reorder" && data.element) {
                 void (async () => {
                     setSaved(false);
                     try {
@@ -734,7 +734,7 @@ export function DesignStudio({
                     }
                 })();
             } else if (
-                (data.type === "shape-design-delete" || data.type === "shape-design-duplicate")
+                (data.type === "bettershape-design-delete" || data.type === "bettershape-design-duplicate")
                 && data.element
             ) {
                 void (async () => {
@@ -750,7 +750,7 @@ export function DesignStudio({
                         await commands.applyDesignSourcePatch({
                             projectPath: designerRoot,
                             target: resolved,
-                            operation: data.type === "shape-design-delete" ? "delete" : "duplicate",
+                            operation: data.type === "bettershape-design-delete" ? "delete" : "duplicate",
                         });
                         setSelected(null);
                         setTarget(null);
@@ -773,7 +773,7 @@ export function DesignStudio({
         const key = selected?.key;
         if (frame) {
             frame.postMessage(
-                { type: "shape-design-apply-preview", styles, key },
+                { type: "bettershape-design-apply-preview", styles, key },
                 "*",
             );
         }
@@ -784,7 +784,7 @@ export function DesignStudio({
 
     useEffect(() => {
         iframeRef.current?.contentWindow?.postMessage(
-            { type: "shape-design-set-mode", mode: toolMode, projectRoot: designerRoot },
+            { type: "bettershape-design-set-mode", mode: toolMode, projectRoot: designerRoot },
             "*",
         );
     }, [toolMode, ready, iframeSrc, designerRoot]);
@@ -792,7 +792,7 @@ export function DesignStudio({
     useEffect(() => {
         if (!ready) return;
         iframeRef.current?.contentWindow?.postMessage(
-            { type: "shape-design-config", projectRoot: designerRoot },
+            { type: "bettershape-design-config", projectRoot: designerRoot },
             "*",
         );
     }, [ready, designerRoot, iframeSrc]);
@@ -803,7 +803,7 @@ export function DesignStudio({
             if (result.file && result.content != null) {
                 commands.primeFileCache(result.file, result.content);
             }
-            iframeRef.current?.contentWindow?.postMessage({ type: "shape-design-refresh" }, "*");
+            iframeRef.current?.contentWindow?.postMessage({ type: "bettershape-design-refresh" }, "*");
         },
         [],
     );
@@ -847,8 +847,8 @@ export function DesignStudio({
         const onToggleInspect = () => {
             setToolMode((mode) => (mode === "normal" ? "select" : "normal"));
         };
-        window.addEventListener("shape-toggle-browser-design-mode", onToggleInspect);
-        return () => window.removeEventListener("shape-toggle-browser-design-mode", onToggleInspect);
+        window.addEventListener("bettershape-toggle-browser-design-mode", onToggleInspect);
+        return () => window.removeEventListener("bettershape-toggle-browser-design-mode", onToggleInspect);
     }, []);
 
     useEffect(() => {
@@ -870,7 +870,7 @@ export function DesignStudio({
             if (!current) return;
             // Keep the canvas updated even if source mapping fails.
             iframeRef.current?.contentWindow?.postMessage(
-                { type: "shape-design-apply-preview", styles, key: current.key },
+                { type: "bettershape-design-apply-preview", styles, key: current.key },
                 "*",
             );
             setSaved(false);
@@ -915,7 +915,7 @@ export function DesignStudio({
             const current = selected;
             if (!current) return;
             iframeRef.current?.contentWindow?.postMessage(
-                { type: "shape-design-set-text", key: current.key, text },
+                { type: "bettershape-design-set-text", key: current.key, text },
                 "*",
             );
             setSelected({ ...current, text });
@@ -937,7 +937,7 @@ export function DesignStudio({
             const current = selected;
             if (!current) return;
             iframeRef.current?.contentWindow?.postMessage(
-                { type: "shape-design-set-attr", key: current.key, name, value },
+                { type: "bettershape-design-set-attr", key: current.key, name, value },
                 "*",
             );
             setSelected({
@@ -976,7 +976,7 @@ export function DesignStudio({
             return { ...now, component: { ...now.component, properties } };
         });
         if (patch.field === "text") {
-            frame?.postMessage({ type: "shape-design-set-text", key: patch.key, text: String(patch.value) }, "*");
+            frame?.postMessage({ type: "bettershape-design-set-text", key: patch.key, text: String(patch.value) }, "*");
             void persistJsx(current, { text: String(patch.value) });
             return;
         }
@@ -1039,13 +1039,13 @@ export function DesignStudio({
                     width?: number;
                     height?: number;
                 };
-                if (data.type !== "shape-design-export-result" || data.requestId !== requestId) return;
+                if (data.type !== "bettershape-design-export-result" || data.requestId !== requestId) return;
                 window.clearTimeout(timer);
                 window.removeEventListener("message", onMessage);
                 resolve(data);
             };
             window.addEventListener("message", onMessage);
-            frame.postMessage({ type: "shape-design-export", requestId, scale }, "*");
+            frame.postMessage({ type: "bettershape-design-export", requestId, scale }, "*");
         });
         if (!result.dataUrl) return;
         const image = await loadImage(result.dataUrl);
@@ -1088,6 +1088,7 @@ export function DesignStudio({
             filters: [{ name: ext.toUpperCase(), extensions: [ext] }],
         });
         if (typeof path !== "string") return;
+        await commands.grantIpcPath(path).catch(() => undefined);
         await commands.saveFileBytes(path, Array.from(bytes));
     }, []);
 
@@ -1207,13 +1208,13 @@ export function DesignStudio({
                                             const frame = iframeRef.current?.contentWindow;
                                             frame?.postMessage(
                                                 {
-                                                    type: "shape-design-set-mode",
+                                                    type: "bettershape-design-set-mode",
                                                     mode: toolModeRef.current,
                                                     projectRoot: designerRootRef.current,
                                                 },
                                                 "*",
                                             );
-                                            frame?.postMessage({ type: "shape-design-refresh" }, "*");
+                                            frame?.postMessage({ type: "bettershape-design-refresh" }, "*");
                                             try {
                                                 const href = frame?.location?.href;
                                                 if (href && href !== "about:blank") {
@@ -1296,7 +1297,7 @@ export function DesignStudio({
                             onOpenSource={openSource}
                             onAlign={(alignment: "center" | "center-x" | "center-y") =>
                                 iframeRef.current?.contentWindow?.postMessage(
-                                    { type: "shape-design-align", alignment },
+                                    { type: "bettershape-design-align", alignment },
                                     "*",
                                 )
                             }

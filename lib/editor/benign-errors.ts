@@ -1,5 +1,5 @@
 /**
- * Errors that are safe to suppress in the Shape IDE shell (Monaco tab lifecycle, LSP noise, etc.).
+ * Errors that are safe to suppress in the BetterShape IDE shell (Monaco tab lifecycle, LSP noise, etc.).
  */
 
 function errorMessage(err: unknown): string {
@@ -177,10 +177,10 @@ export function isSuppressedRejection(reason: unknown): boolean {
 /** Install global filters as early as possible (instrumentation-client + client-layout). */
 export function installBenignErrorFilters(): void {
     if (typeof window === "undefined") return;
-    if ((window as unknown as { __shapeBenignErrorsInstalled?: boolean }).__shapeBenignErrorsInstalled) {
+    if ((window as unknown as { __bettershapeBenignErrorsInstalled?: boolean }).__bettershapeBenignErrorsInstalled) {
         return;
     }
-    (window as unknown as { __shapeBenignErrorsInstalled?: boolean }).__shapeBenignErrorsInstalled = true;
+    (window as unknown as { __bettershapeBenignErrorsInstalled?: boolean }).__bettershapeBenignErrorsInstalled = true;
 
     const originalConsoleError = console.error.bind(console);
     const originalConsoleWarn = console.warn.bind(console);

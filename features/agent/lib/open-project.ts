@@ -1,12 +1,15 @@
 import { commands, getProjectSnapshot } from "@/lib/backend";
 import { clearExtraWorkspaceFolders } from "@/lib/workspace/folders";
-import { notifyWorkspaceOpened } from "@/lib/workspace/trust";
+import { ensureWorkspaceTrust, notifyWorkspaceOpened } from "@/lib/workspace/trust";
+
+const isWinPath = (p: string) => /^[a-zA-Z]:[\\/]/.test(p) || p.startsWith("\\\\");
 
 export function normalizeProjectPath(path: string): string {
-    return path
-        .trim()
-        .replace(/[\\/]+$/, "")
-        .replace(/\//g, "\\");
+    if (!path.trim()) return "";
+    const t = path.startsWith("/") ? path : path.trim();
+    if (!isWinPath(t)) return t.replace(/\/+$/, "") || "/";
+    const s = t.replace(/[\\/]+$/, "");
+    return /^[a-zA-Z]:$/.test(s) ? `${s}\\` : s.replace(/\//g, "\\");
 }
 
 export function projectPathsEqual(
@@ -14,7 +17,8 @@ export function projectPathsEqual(
     b: string | null | undefined,
 ): boolean {
     if (!a || !b) return false;
-    return normalizeProjectPath(a).toLowerCase() === normalizeProjectPath(b).toLowerCase();
+    const [na, nb] = [normalizeProjectPath(a), normalizeProjectPath(b)];
+    return isWinPath(na) || isWinPath(nb) ? na.toLowerCase() === nb.toLowerCase() : na === nb;
 }
 
 export function projectLeaf(path: string | null | undefined): string {
@@ -24,15 +28,20 @@ export function projectLeaf(path: string | null | undefined): string {
 }
 
 /** Always-safe project switch — owned by the Agent View host, not Home. */
-export async function openProject(path: string): Promise<boolean> {
+export async function openProject(path: string, options?: { promptTrust?: boolean }): Promise<boolean> {
     const normalized = normalizeProjectPath(path);
     if (!normalized) return false;
 
     const current = getProjectSnapshot().project_path;
-    if (projectPathsEqual(current, normalized)) return true;
+    if (projectPathsEqual(current, normalized)) {
+        if (options?.promptTrust !== false) await ensureWorkspaceTrust(normalized);
+        return true;
+    }
 
-    clearExtraWorkspaceFolders();
+    commands.invalidateAllFileCaches();
     await commands.setProjectPath(normalized);
+    await clearExtraWorkspaceFolders();
+    if (options?.promptTrust !== false) await ensureWorkspaceTrust(normalized);
     notifyWorkspaceOpened(normalized);
     return true;
 }

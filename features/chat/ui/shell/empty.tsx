@@ -1,3 +1,4 @@
+/* eslint-disable @next/next/no-img-element -- plain <img> is intentional: dynamic or data-URL sources in a static export, where next/image needs fixed dimensions */
 "use client";
 
 export function ChatEmptyState({

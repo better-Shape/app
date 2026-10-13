@@ -102,7 +102,12 @@ pub async fn execute_grep(query: &str, project_path: &Option<String>, opts: Grep
         for glob in crate::agent::security::paths::SENSITIVE_RG_GLOBS {
             cmd.arg("--glob").arg(glob);
         }
-        if let Some(g) = opts.glob.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        if let Some(g) = opts
+            .glob
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
             cmd.arg("--glob").arg(g);
         }
         if context > 0 {
@@ -119,8 +124,8 @@ pub async fn execute_grep(query: &str, project_path: &Option<String>, opts: Grep
 
     let mut rg_out = run_rg(false);
     if let Ok(out) = &rg_out {
-        let pattern_error = !out.status.success()
-            && !String::from_utf8_lossy(&out.stderr).trim().is_empty();
+        let pattern_error =
+            !out.status.success() && !String::from_utf8_lossy(&out.stderr).trim().is_empty();
         if pattern_error {
             rg_out = run_rg(true);
         }
@@ -276,13 +281,15 @@ pub async fn execute_file_search(query: &str, project_path: &Option<String>) -> 
 
     let mut results = Vec::new();
     let q_lower = query.to_lowercase();
-    
-    let walk_dir = walkdir::WalkDir::new(path)
-        .into_iter()
-        .filter_entry(|e| {
-            let name = e.file_name().to_string_lossy();
-            !name.starts_with('.') && name != "node_modules" && name != "target" && name != "dist" && name != "build"
-        });
+
+    let walk_dir = walkdir::WalkDir::new(path).into_iter().filter_entry(|e| {
+        let name = e.file_name().to_string_lossy();
+        !name.starts_with('.')
+            && name != "node_modules"
+            && name != "target"
+            && name != "dist"
+            && name != "build"
+    });
 
     for entry in walk_dir.filter_map(|e| e.ok()) {
         if entry.file_type().is_file() {
@@ -305,40 +312,138 @@ pub async fn execute_file_search(query: &str, project_path: &Option<String>) -> 
     }
 }
 
-pub async fn execute_web_search(query: &str, access_token: &str) -> String {
-    let base = crate::core::website_url::shape_website_base();
-    let url = format!("{}/api/tools/web-search", base.trim_end_matches('/'));
+/// Web search via the user's own search API (Tavily or Brave).
+pub async fn execute_web_search(query: &str, _api_key: &str) -> String {
+    let config = crate::core::ai_providers::search_config();
+    let provider = config.provider.trim().to_ascii_lowercase();
+    if config.api_key.trim().is_empty() || provider.is_empty() || provider == "none" {
+        return "Web search is off. Add a Tavily or Brave API key in Settings → Providers to let the agent search the web."
+            .to_string();
+    }
 
-    let client = reqwest::Client::new();
-    match client
-        .post(&url)
-        .header("Authorization", format!("Bearer {}", access_token))
-        .header("Content-Type", "application/json")
-        .json(&json!({ "query": query }))
-        .send()
-        .await
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
     {
-        Ok(resp) => {
-            if resp.status().as_u16() == 401 {
-                return "Error: Sign in to Shape to use web search.".to_string();
-            }
-            if !resp.status().is_success() {
-                let text = resp.text().await.unwrap_or_default();
-                return format!(
-                    "Web search error: {}",
-                    text.chars().take(400).collect::<String>()
-                );
-            }
-            match resp.json::<Value>().await {
-                Ok(data) => data
-                    .get("formatted")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("No web results found.")
-                    .to_string(),
-                Err(e) => format!("Failed to parse web search response: {}", e),
-            }
+        Ok(c) => c,
+        Err(e) => return format!("Web search request failed: {e}"),
+    };
+
+    match provider.as_str() {
+        "tavily" => tavily_search(&client, &config.api_key, query).await,
+        "brave" => brave_search(&client, &config.api_key, query).await,
+        other => format!(
+            "Unknown web search provider '{other}'. Use 'tavily' or 'brave' in Settings → Providers."
+        ),
+    }
+}
+
+async fn tavily_search(client: &reqwest::Client, api_key: &str, query: &str) -> String {
+    let resp = client
+        .post("https://api.tavily.com/search")
+        .header("Content-Type", "application/json")
+        .json(&json!({
+            "api_key": api_key,
+            "query": query,
+            "max_results": 6,
+            "include_answer": true,
+            "search_depth": "basic",
+        }))
+        .send()
+        .await;
+
+    let resp = match resp {
+        Ok(r) => r,
+        Err(e) => return format!("Web search request failed: {e}"),
+    };
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        return format!(
+            "Web search error {status}: {}",
+            text.chars().take(300).collect::<String>()
+        );
+    }
+    let data: Value = match resp.json().await {
+        Ok(v) => v,
+        Err(e) => return format!("Failed to parse web search response: {e}"),
+    };
+
+    let mut out = String::new();
+    if let Some(answer) = data.get("answer").and_then(|a| a.as_str()) {
+        if !answer.trim().is_empty() {
+            out.push_str(&format!("Answer: {}\n\n", answer.trim()));
         }
-        Err(e) => format!("Web search request failed: {}", e),
+    }
+    if let Some(results) = data.get("results").and_then(|r| r.as_array()) {
+        for (i, item) in results.iter().enumerate() {
+            let title = item.get("title").and_then(|t| t.as_str()).unwrap_or("Untitled");
+            let url = item.get("url").and_then(|u| u.as_str()).unwrap_or("");
+            let content = item.get("content").and_then(|c| c.as_str()).unwrap_or("");
+            out.push_str(&format!(
+                "{}. {title}\n   {url}\n   {}\n\n",
+                i + 1,
+                content.chars().take(400).collect::<String>()
+            ));
+        }
+    }
+    if out.trim().is_empty() {
+        "No web results found.".to_string()
+    } else {
+        out.trim_end().to_string()
+    }
+}
+
+async fn brave_search(client: &reqwest::Client, api_key: &str, query: &str) -> String {
+    let resp = client
+        .get("https://api.search.brave.com/res/v1/web/search")
+        .query(&[("q", query), ("count", "6")])
+        .header("Accept", "application/json")
+        .header("X-Subscription-Token", api_key)
+        .send()
+        .await;
+
+    let resp = match resp {
+        Ok(r) => r,
+        Err(e) => return format!("Web search request failed: {e}"),
+    };
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        return format!(
+            "Web search error {status}: {}",
+            text.chars().take(300).collect::<String>()
+        );
+    }
+    let data: Value = match resp.json().await {
+        Ok(v) => v,
+        Err(e) => return format!("Failed to parse web search response: {e}"),
+    };
+
+    let mut out = String::new();
+    if let Some(results) = data
+        .get("web")
+        .and_then(|w| w.get("results"))
+        .and_then(|r| r.as_array())
+    {
+        for (i, item) in results.iter().enumerate() {
+            let title = item.get("title").and_then(|t| t.as_str()).unwrap_or("Untitled");
+            let url = item.get("url").and_then(|u| u.as_str()).unwrap_or("");
+            let description = item
+                .get("description")
+                .and_then(|d| d.as_str())
+                .unwrap_or("");
+            out.push_str(&format!(
+                "{}. {title}\n   {url}\n   {}\n\n",
+                i + 1,
+                strip_html(description).chars().take(400).collect::<String>()
+            ));
+        }
+    }
+    if out.trim().is_empty() {
+        "No web results found.".to_string()
+    } else {
+        out.trim_end().to_string()
     }
 }
 
@@ -350,60 +455,59 @@ pub struct VisitUrlResult {
     pub host: String,
 }
 
-pub async fn execute_visit_url(url: &str, access_token: &str) -> Result<VisitUrlResult, String> {
-    let base = crate::core::website_url::shape_website_base();
-    let endpoint = format!("{}/api/tools/visit-url", base.trim_end_matches('/'));
+/// Fetch a page directly (no server round-trip) and reduce it to readable text.
+pub async fn execute_visit_url(url: &str, _api_key: &str) -> Result<VisitUrlResult, String> {
+    let parsed = url::Url::parse(url).map_err(|e| format!("Invalid URL: {e}"))?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err("Only http(s) URLs can be opened.".to_string());
+    }
 
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .user_agent("Mozilla/5.0 (compatible; BetterShape/1.0)")
+        .build()
+        .map_err(|e| format!("Visit URL request failed: {e}"))?;
+
     let resp = client
-        .post(&endpoint)
-        .header("Authorization", format!("Bearer {}", access_token))
-        .header("Content-Type", "application/json")
-        .json(&json!({ "url": url }))
+        .get(parsed.clone())
         .send()
         .await
-        .map_err(|e| format!("Visit URL request failed: {}", e))?;
+        .map_err(|e| format!("Visit URL request failed: {e}"))?;
 
-    if resp.status().as_u16() == 401 {
-        return Err("Sign in to Shape to visit websites.".to_string());
+    let status = resp.status();
+    if !status.is_success() {
+        return Err(format!("Visit URL error {status}"));
     }
-    if !resp.status().is_success() {
-        let text = resp.text().await.unwrap_or_default();
-        return Err(format!(
-            "Visit URL error: {}",
-            text.chars().take(400).collect::<String>()
-        ));
-    }
-
-    let data: Value = resp
-        .json()
+    let final_url = resp.url().to_string();
+    let content_type = resp
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    let body = resp
+        .text()
         .await
-        .map_err(|e| format!("Failed to parse visit URL response: {}", e))?;
+        .map_err(|e| format!("Could not read page body: {e}"))?;
 
-    if let Some(err) = data.get("error").and_then(|v| v.as_str()) {
-        return Err(err.to_string());
+    let title = extract_title(&body);
+    let (formatted, host) = if content_type.contains("json") {
+        (
+            body.chars().take(60_000).collect::<String>(),
+            parsed.host_str().unwrap_or("").to_string(),
+        )
+    } else if content_type.contains("html") || body.contains('<') {
+        (
+            html_to_text(&body),
+            parsed.host_str().unwrap_or("").to_string(),
+        )
+    } else {
+        (body.chars().take(60_000).collect::<String>(), parsed.host_str().unwrap_or("").to_string())
+    };
+
+    if formatted.trim().is_empty() {
+        return Err("No page content extracted.".to_string());
     }
-
-    let formatted = data
-        .get("formatted")
-        .and_then(|v| v.as_str())
-        .unwrap_or("No page content extracted.")
-        .to_string();
-    let title = data
-        .get("title")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-    let final_url = data
-        .get("url")
-        .and_then(|v| v.as_str())
-        .unwrap_or(url)
-        .to_string();
-    let host = data
-        .get("host")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
 
     Ok(VisitUrlResult {
         formatted,
@@ -411,4 +515,134 @@ pub async fn execute_visit_url(url: &str, access_token: &str) -> Result<VisitUrl
         url: final_url,
         host,
     })
+}
+
+fn extract_title(html: &str) -> String {
+    let lower = html.to_ascii_lowercase();
+    let Some(start) = lower.find("<title") else {
+        return String::new();
+    };
+    let Some(open_end) = lower[start..].find('>') else {
+        return String::new();
+    };
+    let body_start = start + open_end + 1;
+    let Some(close) = lower[body_start..].find("</title>") else {
+        return String::new();
+    };
+    decode_entities(html[body_start..body_start + close].trim())
+}
+
+/// Strip markup down to readable text. Dependency-free on purpose: this runs on
+/// the agent's hot path and only needs to feed a model, not render a page.
+fn html_to_text(html: &str) -> String {
+    let without_blocks = remove_blocks(html, &["script", "style", "noscript", "svg", "head"]);
+
+    let mut out = String::with_capacity(without_blocks.len());
+    let mut in_tag = false;
+    let mut last_was_space = true;
+    for ch in without_blocks.chars() {
+        match ch {
+            '<' => {
+                in_tag = true;
+                if !last_was_space {
+                    out.push(' ');
+                    last_was_space = true;
+                }
+            }
+            '>' => in_tag = false,
+            _ if in_tag => {}
+            '\n' | '\r' | '\t' => {
+                if !last_was_space {
+                    out.push(' ');
+                    last_was_space = true;
+                }
+            }
+            _ => {
+                let is_space = ch == ' ';
+                if !(is_space && last_was_space) {
+                    out.push(ch);
+                    last_was_space = is_space;
+                }
+            }
+        }
+    }
+
+    decode_entities(out.trim())
+        .chars()
+        .take(60_000)
+        .collect::<String>()
+}
+
+/// Remove every `<tag>…</tag>` block (case-insensitive), plus unclosed openings.
+fn remove_blocks(html: &str, tags: &[&str]) -> String {
+    let mut current = html.to_string();
+    for tag in tags {
+        let open = format!("<{tag}");
+        let close = format!("</{tag}>");
+        // Tags are rare enough that a bounded number of passes is fine.
+        for _ in 0..64 {
+            let lower = current.to_ascii_lowercase();
+            let Some(start) = lower.find(&open) else {
+                break;
+            };
+            let Some(close_start) = lower[start..].find(&close) else {
+                current.truncate(start);
+                break;
+            };
+            let end = start + close_start + close.len();
+            current.replace_range(start..end, " ");
+        }
+    }
+    current
+}
+
+fn strip_html(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut in_tag = false;
+    for ch in text.chars() {
+        match ch {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if in_tag => {}
+            _ => out.push(ch),
+        }
+    }
+    decode_entities(out.trim())
+}
+
+fn decode_entities(text: &str) -> String {
+    text.replace("&nbsp;", " ")
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&apos;", "'")
+        .replace("&mdash;", "—")
+        .replace("&ndash;", "–")
+        .replace("&hellip;", "…")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn html_becomes_readable_text() {
+        let html = r#"<html><head><title>Docs</title><style>.a{color:red}</style></head>
+            <body><h1>Hello</h1><script>alert(1)</script><p>World &amp; friends</p></body></html>"#;
+        assert_eq!(extract_title(html), "Docs");
+        let text = html_to_text(html);
+        assert!(text.contains("Hello"));
+        assert!(text.contains("World & friends"));
+        assert!(!text.contains("alert"));
+        assert!(!text.contains("color:red"));
+        assert!(!text.contains("<h1>"));
+    }
+
+    #[test]
+    fn search_without_a_key_explains_itself() {
+        let text = futures::executor::block_on(execute_web_search("rust", ""));
+        assert!(text.contains("Settings"));
+    }
 }

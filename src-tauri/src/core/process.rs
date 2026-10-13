@@ -44,6 +44,7 @@ pub fn ensure_hidden_console_for_conpty() {
 pub fn ensure_hidden_console_for_conpty() {}
 
 /// On Windows, disable resolving executables from the process current directory.
+#[allow(unused_variables)]
 pub fn apply_trusted_binary_env(cmd: &mut std::process::Command) {
     #[cfg(windows)]
     {

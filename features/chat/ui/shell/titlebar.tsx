@@ -6,6 +6,7 @@ import { People20Filled } from "@fluentui/react-icons/headless/svg/people";
 
 
 import { useEffect, useState, useSyncExternalStore } from "react";
+import { useStoredFlag } from "@/lib/ui/use-stored-flag";
 import { createPortal } from "react-dom";
 import { Icon } from "@/components/ui/icon";
 
@@ -101,7 +102,6 @@ function chatSubagents(parentId: string | null, extra: SubagentCard[]): Subagent
 export function ChatTitlebar({
     title,
     conversationId,
-    onSelect,
     subagentTitle,
     subagentModel,
     onCloseSubagent,
@@ -120,7 +120,7 @@ export function ChatTitlebar({
     const { project_path } = useProjectState();
     const repo = project_path ? getRepoName(project_path) : null;
     const [actionsSlot, setActionsSlot] = useState<HTMLElement | null>(null);
-    const [terminalOpen, setTerminalOpen] = useState(false);
+    const terminalOpen = useStoredFlag("bettershape-agent-terminal-open", "bettershape-terminal-open");
     useSyncExternalStore(subscribeSubagents, getSubagents, getSubagents);
     const subagents = chatSubagents(conversationId, extractedSubagents);
 
@@ -138,23 +138,9 @@ export function ChatTitlebar({
         };
     }, []);
 
-    useEffect(() => {
-        try {
-            setTerminalOpen(localStorage.getItem("shape-agent-terminal-open") === "true");
-        } catch {
-            /* ignore */
-        }
-        const onOpen = (e: Event) => {
-            const open = (e as CustomEvent<{ open?: boolean }>).detail?.open;
-            if (typeof open === "boolean") setTerminalOpen(open);
-        };
-        window.addEventListener("shape-terminal-open", onOpen as EventListener);
-        return () => window.removeEventListener("shape-terminal-open", onOpen as EventListener);
-    }, []);
-
     const toggleTerminal = () => {
         window.dispatchEvent(
-            new CustomEvent("shape-layout-toggle", {
+            new CustomEvent("bettershape-layout-toggle", {
                 detail: { id: "terminal", value: !terminalOpen },
             }),
         );
@@ -228,7 +214,7 @@ export function ChatTitlebar({
         <div className="flex h-full min-w-0 flex-1 items-center overflow-hidden pl-1">
             <Breadcrumb className="w-auto min-w-0 max-w-full overflow-hidden" aria-label="Project">
                 {repo ? (
-                    <BreadcrumbItem onClick={() => window.dispatchEvent(new Event("shape-open-project-pick"))}>
+                    <BreadcrumbItem onClick={() => window.dispatchEvent(new Event("bettershape-open-project-pick"))}>
                         {repo}
                     </BreadcrumbItem>
                 ) : null}

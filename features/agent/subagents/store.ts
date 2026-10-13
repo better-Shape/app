@@ -44,7 +44,7 @@ export function openSubagent(id: string) {
     if (!id) return;
     activeId = id;
     emit();
-    window.dispatchEvent(new CustomEvent("shape-subagent-open", { detail: { id } }));
+    window.dispatchEvent(new CustomEvent("bettershape-subagent-open", { detail: { id } }));
 }
 
 export function closeSubagent() {

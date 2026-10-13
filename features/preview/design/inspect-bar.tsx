@@ -50,24 +50,31 @@ export function DesignInspectOverlay({
 }) {
     const { project_path } = useProjectState();
     const [selected, setSelected] = useState<DesignElementSnapshot | null>(null);
+    const [frameSize, setFrameSize] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
     const [tab, setTab] = useState<Tab>("radius");
     const [radius, setRadius] = useState(8);
     const [padding, setPadding] = useState(12);
     const [gap, setGap] = useState(8);
     const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+    // Turning design mode off clears the selection (adjusting state during render, no effect).
+    const [seenEnabled, setSeenEnabled] = useState(enabled);
+    if (enabled !== seenEnabled) {
+        setSeenEnabled(enabled);
+        if (!enabled) setSelected(null);
+    }
+
     useEffect(() => {
         if (!enabled) {
-            setSelected(null);
             iframeRef.current?.contentWindow?.postMessage(
-                { type: "shape-design-set-mode", mode: "normal", projectRoot: project_path },
+                { type: "bettershape-design-set-mode", mode: "normal", projectRoot: project_path },
                 "*",
             );
             return;
         }
         void commands.registerDesignBridge(DESIGN_BRIDGE_SCRIPT).then(() => {
             iframeRef.current?.contentWindow?.postMessage(
-                { type: "shape-design-set-mode", mode: "select", projectRoot: project_path },
+                { type: "bettershape-design-set-mode", mode: "select", projectRoot: project_path },
                 "*",
             );
         });
@@ -78,16 +85,19 @@ export function DesignInspectOverlay({
         const onMessage = (event: MessageEvent) => {
             const data = event.data;
             if (!data || typeof data !== "object") return;
-            if (data.type === "shape-design-ready") {
+            if (data.type === "bettershape-design-ready") {
                 iframeRef.current?.contentWindow?.postMessage(
-                    { type: "shape-design-set-mode", mode: "select", projectRoot: project_path },
+                    { type: "bettershape-design-set-mode", mode: "select", projectRoot: project_path },
                     "*",
                 );
                 return;
             }
-            if (data.type !== "shape-design-selection") return;
+            if (data.type !== "bettershape-design-selection") return;
             const el = data.element as DesignElementSnapshot | null;
             setSelected(el);
+            // Remember the frame size at selection time, so the bar can be kept inside it.
+            const frame = iframeRef.current;
+            setFrameSize({ w: frame?.clientWidth ?? 0, h: frame?.clientHeight ?? 0 });
             if (el?.styles) {
                 setRadius(parsePx(el.styles.borderRadius || el.styles.borderTopLeftRadius));
                 setPadding(parsePx(el.styles.padding || el.styles.paddingTop));
@@ -103,7 +113,7 @@ export function DesignInspectOverlay({
             const key = selected?.key;
             if (!key) return;
             iframeRef.current?.contentWindow?.postMessage(
-                { type: "shape-design-apply-preview", styles, key },
+                { type: "bettershape-design-apply-preview", styles, key },
                 "*",
             );
             if (persistTimer.current) clearTimeout(persistTimer.current);
@@ -116,11 +126,18 @@ export function DesignInspectOverlay({
 
     if (!enabled || !selected) return null;
 
-    const iframe = iframeRef.current;
-    const frame = iframe?.getBoundingClientRect();
+    // A selection only arrives from the iframe, so its rect is already frame-relative.
     const rect = selected.rect;
-    const top = frame ? rect.y + rect.height + 8 : 8;
-    const left = frame ? Math.max(8, rect.x + rect.width / 2 - 160) : 8;
+    const BAR_W = 320;
+    const BAR_H = 44;
+    const EDGE = 8;
+    // Keep the bar inside the frame: clamp on both sides, and flip above the element when
+    // there is no room below it. A zero frame size (not measured yet) skips the clamp.
+    const maxLeft = frameSize.w > 0 ? frameSize.w - BAR_W - EDGE : Infinity;
+    const left = Math.min(Math.max(EDGE, rect.x + rect.width / 2 - BAR_W / 2), maxLeft);
+    const belowTop = rect.y + rect.height + EDGE;
+    const fitsBelow = frameSize.h <= 0 || belowTop + BAR_H <= frameSize.h - EDGE;
+    const top = fitsBelow ? belowTop : Math.max(EDGE, rect.y - BAR_H - EDGE);
 
     return (
         <div

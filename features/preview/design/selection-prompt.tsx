@@ -29,9 +29,12 @@ export function DesignSelectionPrompt({
     const inputRef = useRef<HTMLInputElement>(null);
     const rect = selected.rect;
 
-    useEffect(() => {
+    // A new element (or re-opening) starts with an empty draft.
+    const [seenTarget, setSeenTarget] = useState({ key: selected.key, open });
+    if (seenTarget.key !== selected.key || seenTarget.open !== open) {
+        setSeenTarget({ key: selected.key, open });
         setDraft("");
-    }, [selected.key, open]);
+    }
 
     useEffect(() => {
         if (!open) return;
@@ -48,12 +51,12 @@ export function DesignSelectionPrompt({
         });
         const prompt = `${token}${draft.trim() ? ` ${draft.trim()}` : ""}`;
         window.dispatchEvent(
-            new CustomEvent("shape-chat-insert-prompt", {
+            new CustomEvent("bettershape-chat-insert-prompt", {
                 detail: { prompt, send: submit && Boolean(draft.trim()) },
             }),
         );
         if (!submit || !draft.trim()) {
-            window.dispatchEvent(new Event("shape-chat-focus-input"));
+            window.dispatchEvent(new Event("bettershape-chat-focus-input"));
         }
         onClose();
     };

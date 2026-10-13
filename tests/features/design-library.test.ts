@@ -103,7 +103,7 @@ describe("library grouping", () => {
 describe("design bridge payload", () => {
     it("still ships the fields the host tree editor reads", () => {
         expect(DESIGN_BRIDGE_SCRIPT).toContain("ariaLabel");
-        expect(DESIGN_BRIDGE_SCRIPT).toContain("shape-design-set-text");
+        expect(DESIGN_BRIDGE_SCRIPT).toContain("bettershape-design-set-text");
         expect(DESIGN_BRIDGE_SCRIPT).toContain("guessFromChunk");
         expect(DESIGN_BRIDGE_SCRIPT).not.toContain("This element has no source mapping");
     });

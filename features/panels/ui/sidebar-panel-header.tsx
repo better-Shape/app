@@ -57,7 +57,6 @@ export function SidebarPanelHeaderFrame({
 }
 
 export function SidebarPanelActionButton({
-    className,
     children,
     ...props
 }: ButtonProps) {

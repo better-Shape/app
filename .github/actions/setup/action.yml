@@ -1,0 +1,73 @@
+name: Setup Environment
+description: Composite action to setup Node.js, Rust, system dependencies and caches for BetterShape
+
+inputs:
+  node-version:
+    description: Node.js version
+    required: false
+    default: "22"
+  install-rust:
+    description: Whether to install Rust toolchain
+    required: false
+    default: "true"
+  rust-targets:
+    description: Additional Rust targets (comma separated)
+    required: false
+    default: ""
+  rust-components:
+    description: Rust components to install (e.g. rustfmt,clippy)
+    required: false
+    default: ""
+  install-system-deps:
+    description: Whether to install Tauri system dependencies (Linux)
+    required: false
+    default: "false"
+  cache-key:
+    description: Extra cache key suffix for rust-cache
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: npm
+        cache-dependency-path: package-lock.json
+
+    - name: Install system dependencies (Linux)
+      if: ${{ inputs.install-system-deps == 'true' && runner.os == 'Linux' }}
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          libwebkit2gtk-4.1-dev \
+          libappindicator3-dev \
+          librsvg2-dev \
+          patchelf
+
+    - name: Install Rust toolchain
+      if: ${{ inputs.install-rust == 'true' }}
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: ${{ inputs.rust-targets }}
+        components: ${{ inputs.rust-components }}
+
+    - name: Rust cache
+      if: ${{ inputs.install-rust == 'true' }}
+      uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: src-tauri -> target
+        key: ${{ inputs.cache-key }}
+        save-if: ${{ github.event_name != 'pull_request' || true }}
+
+    - name: Cache Next.js
+      uses: actions/cache@v4
+      with:
+        path: .next/cache
+        key: ${{ runner.os }}-nextjs-${{ hashFiles('package-lock.json') }}-${{ inputs.cache-key }}
+        restore-keys: |
+          ${{ runner.os }}-nextjs-${{ hashFiles('package-lock.json') }}-
+          ${{ runner.os }}-nextjs-

@@ -7,9 +7,9 @@ describe("git branch integration", () => {
         const handler = vi.fn();
         mockIPC(() => {}, { shouldMockEvents: true });
         const unlisten = await import("@tauri-apps/api/event").then(({ listen }) =>
-            listen("shape-git-refresh", handler),
+            listen("bettershape-git-refresh", handler),
         );
-        await emit("shape-git-refresh", {});
+        await emit("bettershape-git-refresh", {});
         expect(handler).toHaveBeenCalled();
         if (typeof unlisten === "function") await unlisten();
     });

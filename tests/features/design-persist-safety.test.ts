@@ -132,7 +132,7 @@ export default function RootLayout() {
     );
 });
 
-describe("design persist across stacks Shape does not control", () => {
+describe("design persist across stacks BetterShape does not control", () => {
     it("allows third-party call sites in user files, not package sources", () => {
         const page = `import { Button } from "@radix-ui/themes";
 export default function Page() {

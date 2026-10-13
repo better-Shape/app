@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/context";
 
 export function swapSidebars() {
-    window.dispatchEvent(new Event("shape-swap-sidebars"));
+    window.dispatchEvent(new Event("bettershape-swap-sidebars"));
 }
 
 /** Radix submenu items to swap left/right sidebar positions. */

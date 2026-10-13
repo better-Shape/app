@@ -10,12 +10,12 @@ function openInline(detail: {
     section?: string;
     path?: string;
 }) {
-    window.dispatchEvent(new CustomEvent("shape-agent-overlay", { detail }));
+    window.dispatchEvent(new CustomEvent("bettershape-agent-overlay", { detail }));
 }
 
 /**
  * Open Settings in the main agent shell (inline). Falls back to a window only
- * when not running inside the main Shape window.
+ * when not running inside the main BetterShape window.
  */
 export async function openSettingsWindow(options?: {
     category?: string;
@@ -66,9 +66,9 @@ export async function openSettingsWindow(options?: {
             await existing.setFocus();
             if (hasDeepLink) {
                 if (options?.path) {
-                    await emit("shape-settings-navigate", { path: targetPath });
+                    await emit("bettershape-settings-navigate", { path: targetPath });
                 } else {
-                    await emit("shape-settings-navigate", {
+                    await emit("bettershape-settings-navigate", {
                         category: options?.category ?? "",
                         section: options?.section ?? "",
                     });

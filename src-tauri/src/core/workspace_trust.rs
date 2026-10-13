@@ -9,11 +9,12 @@ impl WorkspaceTrustState {
     }
 
     pub fn normalize(path: &str) -> String {
-        let mut normalized = path.trim().replace('\\', "/");
+        let win = cfg!(windows) || matches!(path.trim().as_bytes(), [b, b':', ..] if b.is_ascii_alphabetic());
+        let mut normalized = if win { path.trim().replace('\\', "/").to_lowercase() } else { path.trim().to_string() };
         while normalized.ends_with('/') && normalized.len() > 1 {
             normalized.pop();
         }
-        normalized.to_lowercase()
+        normalized
     }
 
     pub fn is_trusted(&self, path: &str) -> bool {

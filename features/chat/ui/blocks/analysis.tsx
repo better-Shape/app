@@ -1,8 +1,6 @@
 "use client";
 
 import { ChevronDown20Regular } from "@fluentui/react-icons/headless/svg/chevron-down";
-import { Document20Regular } from "@fluentui/react-icons/headless/svg/document";
-import { Folder20Filled } from "@fluentui/react-icons/headless/svg/folder";
 
 
 

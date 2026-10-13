@@ -69,28 +69,35 @@ describe("sanitizeSubagentModels", () => {
 
 describe("subagentModelsForSend", () => {
     const catalog = ["auto", "anthropic/claude-opus-5.5", "google/gemini-3.8-flash"];
-    const allow = (id: string) => id !== "gone";
 
-    it("stays on Auto when credits are gone even if Opus is enabled", () => {
-        expect(
-            subagentModelsForSend(["auto", "anthropic/claude-opus-5.5"], catalog, {
-                creditsRemaining: 0,
-                modelAllowed: allow,
-                defaultModel: "anthropic/claude-opus-5.5",
-            }),
-        ).toEqual({ models: ["auto"], defaultModel: "auto" });
-    });
-
-    it("keeps a paid model when credits remain and the catalog allows it", () => {
+    it("keeps the enabled allowlist and its default model", () => {
         expect(
             subagentModelsForSend(["auto", "google/gemini-3.8-flash"], catalog, {
-                creditsRemaining: 12,
-                modelAllowed: allow,
                 defaultModel: "google/gemini-3.8-flash",
             }),
         ).toEqual({
             models: ["auto", "google/gemini-3.8-flash"],
             defaultModel: "google/gemini-3.8-flash",
+        });
+        expect(
+            subagentModelsForSend(["auto", "anthropic/claude-opus-5.5"], catalog, {
+                defaultModel: "anthropic/claude-opus-5.5",
+            }),
+        ).toEqual({
+            models: ["auto", "anthropic/claude-opus-5.5"],
+            defaultModel: "anthropic/claude-opus-5.5",
+        });
+    });
+
+    it("falls back to Auto when the default model is not in the allowlist", () => {
+        expect(
+            subagentModelsForSend(["auto", "google/gemini-3.8-flash"], catalog, {
+                defaultModel: "anthropic/claude-opus-5.5",
+            }),
+        ).toEqual({ models: ["auto", "google/gemini-3.8-flash"], defaultModel: "auto" });
+        expect(subagentModelsForSend([], catalog, { defaultModel: "gone/model" })).toEqual({
+            models: ["auto"],
+            defaultModel: "auto",
         });
     });
 });

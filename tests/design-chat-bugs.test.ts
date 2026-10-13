@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { parseShapeContinueAction } from "@/lib/chat/continue-action";
+import { parseBetterShapeContinueAction } from "@/lib/chat/continue-action";
 import { parseMessageContent } from "@/features/chat/ui/md/renderer";
 
-describe("parseShapeContinueAction", () => {
+describe("parseBetterShapeContinueAction", () => {
     it("still parses plan_build continue actions", () => {
         const content = [
-            '<shape_action type="plan_build" path="PLAN.md" title="Ship it" />',
+            '<betterbetterbetterbettershape_action type="plan_build" path="PLAN.md" title="Ship it" />',
             "Continue.",
         ].join("\n");
-        const parsed = parseShapeContinueAction(content);
+        const parsed = parseBetterShapeContinueAction(content);
         expect(parsed.action).toMatchObject({
             type: "plan_build",
             path: "PLAN.md",

@@ -41,7 +41,9 @@ pub(super) async fn tool_spawn_subagent(args: &Value, ctx: &ToolCtx<'_>) -> Tool
     .await;
     if crate::agent::tools::plugins::gate_action(&gate) == "skip" {
         return ToolOutcome {
-            tool_result: "Do this yourself with the listed tools. It is not an independent parallel subtask.".into(),
+            tool_result:
+                "Do this yourself with the listed tools. It is not an independent parallel subtask."
+                    .into(),
             ui_chunk: String::new(),
             side_effect: None,
         };
@@ -74,7 +76,8 @@ pub(super) async fn tool_spawn_subagent(args: &Value, ctx: &ToolCtx<'_>) -> Tool
             iso = isolation.as_str(),
             note = match isolation {
                 Isolation::Shared => "Shared checkout: avoid editing the same files it will touch.",
-                Isolation::Worktree => "Isolated worktree: it will not merge into the user's branch.",
+                Isolation::Worktree =>
+                    "Isolated worktree: it will not merge into the user's branch.",
             }
         ),
         ui_chunk: running_ui,

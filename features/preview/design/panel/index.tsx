@@ -15,7 +15,6 @@ import { Code20Regular } from "@fluentui/react-icons/headless/svg/code";
 import { Delete20Filled } from "@fluentui/react-icons/headless/svg/delete";
 import { Eye20Regular } from "@fluentui/react-icons/headless/svg/eye";
 import { EyeOff20Regular } from "@fluentui/react-icons/headless/svg/eye-off";
-import { Filter20Regular } from "@fluentui/react-icons/headless/svg/filter";
 import { LayoutRowTwo20Regular } from "@fluentui/react-icons/headless/svg/layout-row-two";
 import { MoreHorizontal20Regular } from "@fluentui/react-icons/headless/svg/more-horizontal";
 import { SquareShadow20Regular } from "@fluentui/react-icons/headless/svg/square-shadow";
@@ -75,7 +74,6 @@ import { PanelSection } from "./section";
 import { css, type Styles, type ThemeToken } from "./types";
 
 function FrameSizeMenu({
-    device,
     onDeviceChange,
 }: {
     device: DesignDevice;

@@ -1,6 +1,6 @@
 "use client";
 
-const STYLE_ID = "shape-custom-editor-fonts";
+const STYLE_ID = "bettershape-custom-editor-fonts";
 const loadedFamilies = new Set<string>();
 
 function ensureStyleSheet(): HTMLStyleElement {
@@ -29,7 +29,7 @@ export async function loadCustomEditorFont(file: File): Promise<string> {
         throw new Error("Supported font formats: .ttf, .otf, .woff, .woff2");
     }
 
-    const family = `ShapeCustom-${file.name.replace(/\.[^.]+$/, "").replace(/\W+/g, "") || "Font"}`;
+    const family = `BetterShapeCustom-${file.name.replace(/\.[^.]+$/, "").replace(/\W+/g, "") || "Font"}`;
     if (loadedFamilies.has(family)) {
         return `'${family}', monospace`;
     }

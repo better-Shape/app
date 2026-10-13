@@ -2,11 +2,11 @@
 
 import { useCallback, useState } from "react";
 import { commands } from "@/lib/backend/commands";
-import { checkUsage } from "@/lib/cloud/api";
-import { getShapeAccessToken, refreshShapeAuth, useShapeAuth } from "@/lib/cloud/store";
 import { notificationStore } from "@/features/notifications";
 import { captureTelemetry, captureTelemetryError } from "@/lib/telemetry";
 import { messageLengthBucket } from "@/lib/telemetry/sanitize";
+import { hasAnyUsableProvider } from "@/lib/ai/providers";
+import { getSettings } from "@/lib/settings";
 
 export type TextRewriteAction =
     | "rewrite"
@@ -33,38 +33,29 @@ function stripAssistantResponse(raw: string): string {
 }
 
 export function useTextRewrite(model = "auto") {
-    const shapeAuth = useShapeAuth();
     const [loading, setLoading] = useState(false);
 
     const rewrite = useCallback(async (text: string, action: TextRewriteAction): Promise<string | null> => {
-        if (!shapeAuth.loggedIn) {
-            notificationStore.add("Sign in to use AI", "warning", undefined, { autoHide: true });
-            return null;
-        }
-
-        const token = shapeAuth.accessToken ?? (await getShapeAccessToken());
-        if (!token) {
-            notificationStore.add("Sign in to use AI", "warning", undefined, { autoHide: true });
+        if (!hasAnyUsableProvider(getSettings().ai.providers)) {
+            notificationStore.add(
+                "Add an API key in Settings → Providers",
+                "warning",
+                undefined,
+                { autoHide: true },
+            );
             return null;
         }
 
         setLoading(true);
         try {
-            const usageCheck = await checkUsage(token, model);
-            if (!usageCheck.allowed) {
-                notificationStore.add(usageCheck.reason ?? "Usage not allowed", "error", undefined, { autoHide: true });
-                return null;
-            }
-
             const prompt = `${ACTION_PROMPTS[action]}\n\n${text}`;
             void captureTelemetry("ai_rewrite_started", {
                 action,
                 model,
                 selection_length_bucket: messageLengthBucket(text.length),
             });
-            const response = await commands.rewriteText(token, prompt);
+            const response = await commands.rewriteText(prompt);
 
-            await refreshShapeAuth();
             void captureTelemetry("ai_rewrite_complete", { action, model });
             return stripAssistantResponse(response);
         } catch (err) {
@@ -75,9 +66,10 @@ export function useTextRewrite(model = "auto") {
         } finally {
             setLoading(false);
         }
-    }, [model, shapeAuth.accessToken, shapeAuth.loggedIn]);
+    }, [model]);
 
-    return { rewrite, loading, loggedIn: shapeAuth.loggedIn };
+    // Everything runs on the user's own keys, so the feature is always "signed in".
+    return { rewrite, loading, loggedIn: true };
 }
 
 /** @deprecated use useTextRewrite */

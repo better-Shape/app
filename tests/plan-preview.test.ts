@@ -58,10 +58,10 @@ Implement the authorization code flow.
             { label: "Store session", done: true },
         ]);
         expect(file).not.toMatch(/##\s*Todos/i);
-        expect(file).toContain("<!--shape-todos");
+        expect(file).toContain("<!--bettershape-todos");
         const split = splitPlanDocument(file);
         expect(split.body).toContain("## Goal");
-        expect(split.body).not.toContain("shape-todos");
+        expect(split.body).not.toContain("bettershape-todos");
         expect(split.todos).toEqual([
             { label: "Add callback route", done: false },
             { label: "Store session", done: true },

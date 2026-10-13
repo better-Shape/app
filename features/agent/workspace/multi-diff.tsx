@@ -15,7 +15,7 @@ import { openProjectFile } from "@/lib/window/open-project-file";
 import { DiffView } from "@/features/editor/ui/diff/diff-view";
 import { Button } from "@/components/ui/button";
 
-export const ALL_CHANGES_TAB_PATH = "shape://all-changes";
+export const ALL_CHANGES_TAB_PATH = "bettershape://all-changes";
 export const ALL_CHANGES_TAB_ID = "__all_changes__";
 
 function fileName(path: string) {
@@ -114,7 +114,7 @@ function LazyFileDiff({
         try {
             if (file.staged) await commands.gitUnstage(repo, file.path);
             else await commands.gitStage(repo, file.path);
-            window.dispatchEvent(new Event("shape-git-refresh"));
+            window.dispatchEvent(new Event("bettershape-git-refresh"));
         } catch (err) {
             notify.gitError(err);
         }
@@ -123,7 +123,7 @@ function LazyFileDiff({
     const discard = async () => {
         try {
             await commands.gitDiscardChanges(repo, file.path);
-            window.dispatchEvent(new Event("shape-git-refresh"));
+            window.dispatchEvent(new Event("bettershape-git-refresh"));
         } catch (err) {
             notify.error("Git", err instanceof Error ? err.message : String(err));
         }
@@ -254,8 +254,8 @@ export function MultiDiffEditor({
     useEffect(() => {
         void refresh();
         const on = () => void refresh();
-        window.addEventListener("shape-git-refresh", on);
-        return () => window.removeEventListener("shape-git-refresh", on);
+        window.addEventListener("bettershape-git-refresh", on);
+        return () => window.removeEventListener("bettershape-git-refresh", on);
     }, [refresh]);
 
     useEffect(() => {
@@ -271,7 +271,7 @@ export function MultiDiffEditor({
         setBusy(true);
         try {
             await commands.gitStageAll(repo);
-            window.dispatchEvent(new Event("shape-git-refresh"));
+            window.dispatchEvent(new Event("bettershape-git-refresh"));
             await refresh();
         } catch (err) {
             notify.gitError(err);
@@ -287,7 +287,7 @@ export function MultiDiffEditor({
             for (const f of files.filter((x) => x.staged)) {
                 await commands.gitUnstage(repo, f.path);
             }
-            window.dispatchEvent(new Event("shape-git-refresh"));
+            window.dispatchEvent(new Event("bettershape-git-refresh"));
             await refresh();
         } catch (err) {
             notify.gitError(err);
@@ -305,7 +305,7 @@ export function MultiDiffEditor({
             const message =
                 files.length === 1 ? `Update ${name}` : `Update ${files.length} files`;
             await commands.gitCommit(repo, message);
-            window.dispatchEvent(new Event("shape-git-refresh"));
+            window.dispatchEvent(new Event("bettershape-git-refresh"));
             await refresh();
         } catch (err) {
             notify.gitError(err);
@@ -397,10 +397,10 @@ export function MultiDiffEditor({
 export function openAllChangesTab(focusPath?: string) {
     if (focusPath) {
         try {
-            sessionStorage.setItem("shape-all-changes-focus", focusPath);
+            sessionStorage.setItem("bettershape-all-changes-focus", focusPath);
         } catch {
             /* ignore */
         }
     }
-    window.dispatchEvent(new CustomEvent("shape-center-view", { detail: "all-changes" }));
+    window.dispatchEvent(new CustomEvent("bettershape-center-view", { detail: "all-changes" }));
 }

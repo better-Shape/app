@@ -1,6 +1,5 @@
 "use client";
 
-import { Document20Regular } from "@fluentui/react-icons/headless/svg/document";
 
 import React, { useEffect, useMemo } from "react";
 import { cn } from "@/lib/utils";
@@ -545,7 +544,7 @@ function unescapeXml(s: string): string {
             { type: 'subagent', start: '<subagent', end: '</subagent>' },
             { type: 'terminal_command', start: '<terminal_command', end: '</terminal_command>' },
             { type: 'git_operation', start: '<git_operation', end: '</git_operation>' },
-            // Hidden tool/result scaffolding (Shape UI + cross-model leak grammars).
+            // Hidden tool/result scaffolding (BetterShape UI + cross-model leak grammars).
             // Defense-in-depth with stripLeakedToolCode — never render as prose.
             { type: 'tool_result', start: '<tool_result', end: '</tool_result>' },
             { type: 'tool_result', start: '<terminal_read', end: '</terminal_read>' },
@@ -988,7 +987,6 @@ export function MessageRenderer({
     content,
     isGenerating,
     activityLabel,
-    isFileEditResolved,
     durationMs,
     skipSubagentSync,
 }: {

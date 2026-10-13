@@ -3,14 +3,13 @@
 /// `original` file and return the full merged file. We then run sanity checks before
 /// trusting the output (no ellipsis markers leaked through, file didn't collapse to
 /// nothing, the model didn't drop a huge chunk silently).
-
 use reqwest::Client;
 use serde_json::{json, Value};
 
-use crate::core::error::AppError;
 use super::super::commands::logging;
+use crate::core::error::AppError;
 
-/// Default fast-apply fallback chain. Configurable via env `SHAPE_APPLY_MODEL`.
+/// Default fast-apply fallback chain. Configurable via env `BETTERSHAPE_APPLY_MODEL`.
 ///
 /// `x-ai/grok-4-fast` used to be the default here, but OpenRouter now returns 404 for it.
 /// Keep a small ordered chain so one provider deprecation does not break every edit.
@@ -44,9 +43,12 @@ pub async fn fast_apply(
         code_edit
     );
 
-    let mut models: Vec<String> = match std::env::var("SHAPE_APPLY_MODEL") {
+    let mut models: Vec<String> = match std::env::var("BETTERSHAPE_APPLY_MODEL") {
         Ok(model) if !model.trim().is_empty() => vec![model],
-        _ => DEFAULT_APPLY_MODELS.iter().map(|m| (*m).to_string()).collect(),
+        _ => DEFAULT_APPLY_MODELS
+            .iter()
+            .map(|m| (*m).to_string())
+            .collect(),
     };
 
     // If the user configured the old deprecated model, transparently append the safe
@@ -117,14 +119,11 @@ async fn call_fast_apply_model(
         "temperature": 0.0,
     });
 
-    let resp = super::super::commands::streaming::shape_proxy_request(
-        client,
-        api_key,
-        &super::super::commands::streaming::ProxyContext::new("fast_apply"),
-    )
-        .header("HTTP-Referer", "https://shape-ide.local")
-        .json(&body)
-        .send()
+    let _ = api_key;
+    let (provider, provider_model) = crate::agent::commands::streaming::resolve_provider(model)?;
+    let resp =
+        crate::agent::commands::streaming::provider_request(client, "", &provider, &provider_model, &body, false)
+            .send()
         .await
         .map_err(|e| AppError::Message(format!("fast-apply request failed: {}", e)))?;
 
@@ -142,6 +141,7 @@ async fn call_fast_apply_model(
         .json()
         .await
         .map_err(|e| AppError::Message(format!("fast-apply parse: {}", e)))?;
+    let parsed = crate::agent::commands::provider_wire::normalize_completion(provider.kind, parsed);
 
     parsed["choices"][0]["message"]["content"]
         .as_str()

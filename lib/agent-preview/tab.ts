@@ -1,4 +1,4 @@
-export const DESIGN_PREVIEW_TAB_PREFIX = "shape://design-preview/";
+export const DESIGN_PREVIEW_TAB_PREFIX = "bettershape://design-preview/";
 export const DESIGN_PREVIEW_TAB_NAME = "Design concepts";
 
 export function designPreviewTabPath(sessionId: string): string {

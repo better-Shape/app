@@ -18,7 +18,7 @@ describe("describeUpdateStatus", () => {
 
     it("tells you to restart only after the download finished", () => {
         expect(describeUpdateStatus({ kind: "ready", version: "1.0.1" })).toBe(
-            "1.0.1 is downloaded. Restart Shape to finish.",
+            "1.0.1 is downloaded. Restart BetterShape to finish.",
         );
         expect(
             describeUpdateStatus({

@@ -18,7 +18,6 @@ import { GitListSkeleton } from "@/features/git/ui/shared/skeletons";
 function JobStatusIcon({
     status,
     conclusion,
-    size = 14,
 }: {
     status?: string;
     conclusion?: string | null;

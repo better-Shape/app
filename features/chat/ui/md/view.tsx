@@ -2,14 +2,13 @@
 
 import { Checkmark20Regular } from "@fluentui/react-icons/headless/svg/checkmark";
 import { Clipboard20Regular } from "@fluentui/react-icons/headless/svg/clipboard";
-import { DataTrending20Regular } from "@fluentui/react-icons/headless/svg/data-trending";
 
 
 
 import React, { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { getShapeSyntaxTheme } from "@/lib/ui/syntax-theme";
+import { getBetterShapeSyntaxTheme } from "@/lib/ui/syntax-theme";
 import { FileIcon } from "@/components/ui/file-icon";
 import { openProjectFile } from "@/lib/window/open-project-file";
 import { Icon } from "@/components/ui/icon";
@@ -120,7 +119,7 @@ function CodeBlock({ language, code, ...rest }: { language: string; code: string
                 </Button>
             </div>
             <SyntaxHighlighter
-                    style={getShapeSyntaxTheme()}
+                    style={getBetterShapeSyntaxTheme()}
                     language={language}
                     PreTag="div"
                     customStyle={{ margin: 0, padding: "0 0.75rem 0.75rem", background: "transparent" }}
@@ -288,21 +287,17 @@ function createMarkdownComponents(options?: { nested?: boolean }) {
 function useRevealText(full: string, live: boolean): string {
     const len = full.length;
     const [shown, setShown] = useState(() => (live ? Math.min(24, len) : len));
+    // Set once the message has streamed in this mount. A message that never streamed is shown in full.
+    const [everLive, setEverLive] = useState(live);
+    if (live && !everLive) setEverLive(true);
     const shownRef = useRef(shown);
-    shownRef.current = shown;
-    const wasLive = useRef(live);
-    if (live) wasLive.current = true;
-
     useEffect(() => {
-        // Finished message that never streamed in this mount — show fully.
-        if (!live && !wasLive.current) {
-            setShown(len);
-            return;
-        }
-        if (shownRef.current > len) {
-            setShown(len);
-            return;
-        }
+        shownRef.current = shown;
+    });
+
+    const revealing = shown < len;
+    useEffect(() => {
+        if (!live && !everLive) return;
         if (shownRef.current >= len) return;
 
         let raf = 0;
@@ -326,9 +321,10 @@ function useRevealText(full: string, live: boolean): string {
         };
         raf = requestAnimationFrame(tick);
         return () => cancelAnimationFrame(raf);
-    }, [len, live, shown < len]);
+    }, [len, live, everLive, revealing]);
 
-    return full.slice(0, shown);
+    if (!live && !everLive) return full;
+    return full.slice(0, Math.min(shown, len));
 }
 
 export const ChatMarkdown = React.memo(({
@@ -343,16 +339,20 @@ export const ChatMarkdown = React.memo(({
     isLast?: boolean;
 }) => {
     // Keep revealing briefly after generation ends so a late dump still types in.
-    const [hold, setHold] = useState(false);
+    // `holdOn` turns on as the generation ends and turns off 700ms later.
+    const generatingLast = Boolean(isGenerating && isLast);
+    const [holdOn, setHoldOn] = useState(false);
     useEffect(() => {
-        if (isGenerating && isLast) {
-            setHold(true);
-            return;
-        }
-        if (!hold) return;
-        const t = window.setTimeout(() => setHold(false), 700);
+        if (!generatingLast) return;
+        // Leaving the generating state (the cleanup) starts the hold window.
+        return () => setHoldOn(true);
+    }, [generatingLast]);
+    useEffect(() => {
+        if (!holdOn) return;
+        const t = window.setTimeout(() => setHoldOn(false), 700);
         return () => window.clearTimeout(t);
-    }, [isGenerating, isLast, hold]);
+    }, [holdOn]);
+    const hold = generatingLast || holdOn;
 
     const live = !nested && !!isLast && (!!isGenerating || hold);
     const visible = useRevealText(content, live);

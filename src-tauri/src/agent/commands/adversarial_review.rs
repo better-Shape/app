@@ -40,7 +40,9 @@ fn edit_payload_chars(hay: &str) -> usize {
     let mut rest = hay;
     while let Some(start) = rest.find("<edit") {
         let after = &rest[start..];
-        let close = after.find("</edit>").or_else(|| after.find("</edit_pending>"));
+        let close = after
+            .find("</edit>")
+            .or_else(|| after.find("</edit_pending>"));
         match close {
             Some(end) => {
                 total = total.saturating_add(end);
@@ -86,15 +88,9 @@ pub async fn run_adversarial_review(
         REVIEW_SYNTHESIS_MD, implementer_output, critic_a, critic_b
     );
 
-    let synthesis = streaming::complete_chat(
-        client,
-        api_key,
-        &synth_prompt,
-        CRITIC_MODEL,
-        proxy,
-    )
-    .await
-    .unwrap_or_else(|e| format!("Synthesis failed: {e}"));
+    let synthesis = streaming::complete_chat(client, api_key, &synth_prompt, CRITIC_MODEL, proxy)
+        .await
+        .unwrap_or_else(|e| format!("Synthesis failed: {e}"));
 
     logging::info("review", "Adversarial review synthesis complete");
 

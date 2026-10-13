@@ -20,6 +20,7 @@ import { freezeActiveSteps, todoCountLabel } from "@/lib/chat/planning-block";
 import { Button } from "@/components/ui/button";
 import { Collapse } from "./collapse";
 import { CalendarCheckmark24Filled } from "@fluentui/react-icons";
+import { recordPlanOrigin, resolveProjectPlanPath } from "@/features/chat/lib/plan-origin";
 
 type PlanStep = {
     label: string;
@@ -112,7 +113,7 @@ export function PlanSavedBlock({
     markdown?: string;
 }) {
     const { project_path } = useProjectState();
-    const { isLoading } = useChatStream();
+    const { isLoading, viewedConversationId } = useChatStream();
     const [missing, setMissing] = React.useState(false);
     const [checking, setChecking] = React.useState(false);
     const [preview, setPreview] = React.useState<PlanPreview | null>(() =>
@@ -128,14 +129,14 @@ export function PlanSavedBlock({
         setBody(splitPlanDocument(content).body);
     };
 
-    const resolvePath = (filePath: string) => {
-        if (/^[a-zA-Z]:[\\\/]/.test(filePath) || filePath.startsWith("/")) return filePath;
-        if (!project_path) return filePath;
-        return `${project_path.replace(/\\/g, "/")}/${filePath.replace(/\\/g, "/")}`.replace(/\/+/g, "/");
-    };
-
     const displayTitle = displayPlanName(title, preview?.title);
-    const absPath = resolvePath(path);
+    const absPath = resolveProjectPlanPath(path, project_path);
+
+    // The chat this plan is shown in is the chat it was made in. Recorded once: the first
+    // chat to show the plan keeps it, so reopening it elsewhere does not move Build.
+    React.useEffect(() => {
+        recordPlanOrigin(absPath, viewedConversationId);
+    }, [absPath, viewedConversationId]);
 
     React.useEffect(() => {
         let cancelled = false;
@@ -177,8 +178,10 @@ export function PlanSavedBlock({
         setChecking(true);
         try {
             if (!(await ensurePlanFile())) return;
-            window.dispatchEvent(new CustomEvent("shape-build-plan", {
-                detail: { path, title },
+            // Build goes to the chat this plan was shown in, not whichever chat is active then.
+            recordPlanOrigin(absPath, viewedConversationId);
+            window.dispatchEvent(new CustomEvent("bettershape-build-plan", {
+                detail: { path, title, conversationId: viewedConversationId },
             }));
         } finally {
             setChecking(false);

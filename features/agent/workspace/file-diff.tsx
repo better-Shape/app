@@ -94,7 +94,11 @@ async function loadSides(
 export function SingleFileDiffEditor({ tab }: { tab: FileDiffTabInfo }) {
     const [original, setOriginal] = useState("");
     const [current, setCurrent] = useState("");
-    const [loading, setLoading] = useState(true);
+    // Loading is tied to the request for this exact file: the flag clears only when that
+    // request's sides arrive, so a switch shows loading straight away without an effect.
+    const loadKey = [tab.repo, tab.path, tab.staged, tab.commit, tab.parent].join("\0");
+    const [loadedKey, setLoadedKey] = useState<string | null>(null);
+    const loading = loadedKey !== loadKey;
     const [split, setSplit] = useState(false);
     const name = fileName(tab.path);
     const isCommit = Boolean(tab.commit);
@@ -103,23 +107,22 @@ export function SingleFileDiffEditor({ tab }: { tab: FileDiffTabInfo }) {
 
     useEffect(() => {
         let cancelled = false;
-        setLoading(true);
         void loadSides(tab.repo, tab.path, tab.commit, tab.parent).then((sides) => {
             if (cancelled) return;
             setOriginal(sides.original);
             setCurrent(sides.current);
-            setLoading(false);
+            setLoadedKey(loadKey);
         });
         return () => {
             cancelled = true;
         };
-    }, [tab.repo, tab.path, tab.staged, tab.commit, tab.parent]);
+    }, [loadKey, tab.repo, tab.path, tab.commit, tab.parent]);
 
     const toggleStage = async () => {
         try {
             if (tab.staged) await commands.gitUnstage(tab.repo, tab.path);
             else await commands.gitStage(tab.repo, tab.path);
-            window.dispatchEvent(new Event("shape-git-refresh"));
+            window.dispatchEvent(new Event("bettershape-git-refresh"));
         } catch (err) {
             notify.gitError(err);
         }
@@ -128,7 +131,7 @@ export function SingleFileDiffEditor({ tab }: { tab: FileDiffTabInfo }) {
     const discard = async () => {
         try {
             await commands.gitDiscardChanges(tab.repo, tab.path);
-            window.dispatchEvent(new Event("shape-git-refresh"));
+            window.dispatchEvent(new Event("bettershape-git-refresh"));
         } catch (err) {
             notify.error("Git", err instanceof Error ? err.message : String(err));
         }
@@ -223,7 +226,7 @@ export function SingleFileDiffEditor({ tab }: { tab: FileDiffTabInfo }) {
 /** Open a single-file diff tab in the right workspace panel. */
 export function openFileDiffTab(file: GitFileParams, repo: string) {
     window.dispatchEvent(
-        new CustomEvent("shape-open-file-diff", {
+        new CustomEvent("bettershape-open-file-diff", {
             detail: {
                 id: fileDiffTabId(file),
                 path: file.path,
@@ -244,7 +247,7 @@ export function openCommitFileDiffTab(opts: {
     parent?: string;
 }) {
     window.dispatchEvent(
-        new CustomEvent("shape-open-file-diff", {
+        new CustomEvent("bettershape-open-file-diff", {
             detail: {
                 id: commitFileDiffTabId(opts.path, opts.commit),
                 path: opts.path,

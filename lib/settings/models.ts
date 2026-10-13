@@ -1,4 +1,17 @@
-/** Model display shape. Catalog data is fetched from the website at runtime. */
+/**
+ * Model display helpers.
+ *
+ * Models come from the user's BYOK connections (`lib/ai/providers`), never from
+ * a server catalog. Costs are whatever the user's own account charges, so the
+ * UI shows provider + context instead of pretend credit prices.
+ */
+
+import { AUTO_MODEL, providerLabelForModel } from "@/lib/catalog";
+import {
+  modelOption,
+  type ProvidersSettings,
+} from "@/lib/ai/providers";
+
 export interface ModelInfo {
     id: string;
     name: string;
@@ -11,59 +24,62 @@ export interface ModelInfo {
     releaseDate: string;
     tags?: { label: string }[];
     tier?: "flagship" | "balanced" | "fast";
-    viaApi?: boolean;
+    /** True when the model accepts image input. */
+    vision?: boolean;
 }
 
-const AUTO_MODEL: ModelInfo = {
-    id: "auto",
-    name: "Auto",
-    description: "Picks a model for the task.",
-    provider: "Auto",
-    inputCost: 0,
-    cachedInputCost: 0,
-    outputCost: 0,
-    contextWindow: "200K",
-    releaseDate: "Rolling",
-};
-
-export function isApiModel(model: { id: string; viaApi?: boolean }): boolean {
-    if (model.id === "auto" || model.id === "openrouter/auto") return false;
-    return Boolean(model.viaApi);
-}
-
-export function resolveChatModels(catalog: ModelInfo[]): ModelInfo[] {
-    const byId = new Map<string, ModelInfo>();
-    const add = (model: ModelInfo) => {
-        if (!byId.has(model.id)) byId.set(model.id, model);
-    };
-
-    add(catalog.find((m) => m.id === "auto") ?? AUTO_MODEL);
-
-    for (const model of catalog) {
-        if (model.id === "auto" || model.id === "openrouter/auto") continue;
-        add(model);
+/** Build the picker list from local settings, Auto first. */
+export function modelsFromProviders(settings: ProvidersSettings, usable: string[]): ModelInfo[] {
+    const out: ModelInfo[] = [AUTO_MODEL];
+    for (const id of usable) {
+        const option = modelOption(id);
+        out.push({
+            id: option.id,
+            name: option.name,
+            description: `${option.provider}${option.contextWindow ? ` · ${option.contextWindow} context` : ""}`,
+            provider: option.provider,
+            inputCost: 0,
+            cachedInputCost: 0,
+            outputCost: 0,
+            contextWindow: option.contextWindow,
+            releaseDate: "Rolling",
+            vision: option.vision,
+        });
     }
+    return out;
+}
 
+export function isApiModel(_model: { id: string; viaApi?: boolean }): boolean {
+    return false;
+}
+
+export function resolveChatModels(models: ModelInfo[]): ModelInfo[] {
+    const byId = new Map<string, ModelInfo>();
+    byId.set(AUTO_MODEL.id, models.find((m) => m.id === AUTO_MODEL.id) ?? AUTO_MODEL);
+    for (const model of models) {
+        if (model.id === AUTO_MODEL.id) continue;
+        if (!byId.has(model.id)) byId.set(model.id, model);
+    }
     return [...byId.values()];
 }
 
 function isAutoId(id: string): boolean {
-    return id === "auto" || id === "openrouter/auto";
+    return id === "auto";
 }
 
-/** Drop catalog ids that no longer exist. Empty means “all models”. */
+/** Drop ids nobody can route any more. Empty means "all models". */
 export function sanitizeEnabledModels(
     enabled: string[],
-    catalogIds: string[],
+    knownIds: string[],
     _defaults: string[] = [],
 ): string[] {
     if (enabled.length === 0) return [];
-    const known = new Set(catalogIds);
+    const known = new Set(knownIds);
     const kept = enabled.filter((id) => isAutoId(id) || known.has(id));
     const keptReal = kept.filter((id) => !isAutoId(id));
     if (keptReal.length === 0) return [];
-    const catalogReal = catalogIds.filter((id) => !isAutoId(id));
-    if (catalogReal.length > 0 && catalogReal.every((id) => keptReal.includes(id))) return [];
+    const knownReal = knownIds.filter((id) => !isAutoId(id));
+    if (knownReal.length > 0 && knownReal.every((id) => keptReal.includes(id))) return [];
     return kept;
 }
 
@@ -82,16 +98,14 @@ export function isModelEnabled(modelId: string, enabledModels: string[]): boolea
 }
 
 export function getVisibleModels(allModels: ModelInfo[], enabledModels: string[]): ModelInfo[] {
-    return allModels.filter(
-        (m) => m.id === "auto" || isModelEnabled(m.id, enabledModels),
-    );
+    return allModels.filter((m) => m.id === "auto" || isModelEnabled(m.id, enabledModels));
 }
 
 /** Subagents never inherit the parent chat model. Empty / unknown → Auto only. */
 export const DEFAULT_SUBAGENT_MODELS = ["auto"];
 
-export function sanitizeSubagentModels(enabled: string[] | undefined, catalogIds: string[]): string[] {
-    const known = new Set(catalogIds);
+export function sanitizeSubagentModels(enabled: string[] | undefined, knownIds: string[]): string[] {
+    const known = new Set(knownIds);
     const kept: string[] = [];
     const seen = new Set<string>();
     for (const raw of enabled ?? []) {
@@ -118,27 +132,19 @@ export function resolveSubagentDefaultModel(defaultModel: string | undefined, al
 }
 
 /**
- * Drop paid ids when the user cannot bill them (free plan, or paid plan with 0 credits).
- * Auto always remains so a nested agent cannot spend credits the parent no longer has.
+ * What the composer sends to `send_chat_message`. There are no credits to
+ * budget any more: everything the user enabled and can route is allowed.
  */
 export function subagentModelsForSend(
     enabled: string[] | undefined,
-    catalogIds: string[],
-    opts: {
-        creditsRemaining: number;
-        modelAllowed: (id: string) => boolean;
-        defaultModel?: string;
-    },
+    knownIds: string[],
+    opts?: { defaultModel?: string },
 ): { models: string[]; defaultModel: string } {
-    const allowed = sanitizeSubagentModels(enabled, catalogIds);
-    const canBillPaid = opts.creditsRemaining > 0;
-    const models = allowed.filter((id) => {
-        if (isAutoId(id)) return true;
-        return canBillPaid && opts.modelAllowed(id);
-    });
-    const next = models.length > 0 ? models : [...DEFAULT_SUBAGENT_MODELS];
+    const models = sanitizeSubagentModels(enabled, knownIds);
     return {
-        models: next,
-        defaultModel: resolveSubagentDefaultModel(opts.defaultModel, next),
+        models,
+        defaultModel: resolveSubagentDefaultModel(opts?.defaultModel, models),
     };
 }
+
+export { providerLabelForModel };

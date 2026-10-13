@@ -23,7 +23,7 @@ pub struct MediaEntry {
 }
 
 fn app_data_dir() -> Option<PathBuf> {
-    dirs::data_local_dir().map(|d| d.join("Shape").join("media"))
+    dirs::data_local_dir().map(|d| d.join("BetterShape").join("media"))
 }
 
 fn ensure_dir(conversation_id: Option<&str>) -> Result<PathBuf, String> {

@@ -11,7 +11,7 @@ type ResolvedEntry = {
     contentHash?: string;
 };
 
-const RESOLVED_FILES_KEY = "shape-resolved-files";
+const RESOLVED_FILES_KEY = "bettershape-resolved-files";
 
 let proposedEdits: Record<string, ProposedEdit> = {};
 let currentConversationId: string | null = null;
@@ -179,7 +179,7 @@ export function setProposedEdit(path: string, edit: ProposedEdit) {
         ...edit,
         baseline: edit.baseline ?? edit.original,
     };
-    window.dispatchEvent(new CustomEvent("shape-proposed-edits-changed", {
+    window.dispatchEvent(new CustomEvent("bettershape-proposed-edits-changed", {
         detail: { path: normalizedPath },
     }));
 }
@@ -203,14 +203,14 @@ export function clearProposedEdit(path: string) {
             delete proposedEdits[key];
         }
     }
-    window.dispatchEvent(new CustomEvent("shape-proposed-edits-changed", {
+    window.dispatchEvent(new CustomEvent("bettershape-proposed-edits-changed", {
         detail: { path: n },
     }));
 }
 
 export function clearAllProposedEdits() {
     proposedEdits = {};
-    window.dispatchEvent(new CustomEvent("shape-proposed-edits-changed", {
+    window.dispatchEvent(new CustomEvent("bettershape-proposed-edits-changed", {
         detail: { all: true },
     }));
 }

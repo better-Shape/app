@@ -60,7 +60,7 @@ Call it when the bug is about a live page: failed fetches, blank screens, hydrat
 - CLIs, compilers, headless HTTP APIs, background workers
 - Native games (Unity, Godot, Unreal) unless the product is explicitly an Electron/Tauri/Wails shell around a web UI
 
-If the user opens an impossible repo (a Swift app, a WinUI desktop, a Go CLI, a GTK tool), say so in one sentence: there is no Network tab, console, or DOM to attach to. Do not pretend you inspected it. Do not invent localhost URLs for Shape itself.
+If the user opens an impossible repo (a Swift app, a WinUI desktop, a Go CLI, a GTK tool), say so in one sentence: there is no Network tab, console, or DOM to attach to. Do not pretend you inspected it. Do not invent localhost URLs for BetterShape itself.
 
 `screenshot_page` is a picture of the page. `inspect_runtime` is the Network/console evidence. A clean inspect is not proof the product is correct — only that this load had no obvious runtime faults.
 

@@ -39,11 +39,11 @@ pub fn pin_to_taskbar() -> Result<(), AppError> {
         let script = format!(
             "$exe = '{exe_str}'; \
              $shell = New-Object -ComObject WScript.Shell; \
-             $start = Join-Path $env:APPDATA 'Microsoft\\Windows\\Start Menu\\Programs\\Shape.lnk'; \
+             $start = Join-Path $env:APPDATA 'Microsoft\\Windows\\Start Menu\\Programs\\BetterShape.lnk'; \
              $s = $shell.CreateShortcut($start); $s.TargetPath = $exe; $s.WorkingDirectory = (Split-Path $exe); $s.Save(); \
              $pinDir = Join-Path $env:APPDATA 'Microsoft\\Internet Explorer\\Quick Launch\\User Pinned\\TaskBar'; \
              New-Item -ItemType Directory -Force -Path $pinDir | Out-Null; \
-             $pin = Join-Path $pinDir 'Shape.lnk'; \
+             $pin = Join-Path $pinDir 'BetterShape.lnk'; \
              $p = $shell.CreateShortcut($pin); $p.TargetPath = $exe; $p.WorkingDirectory = (Split-Path $exe); $p.Save();"
         );
         std::process::Command::new("powershell")
@@ -63,7 +63,7 @@ pub fn pin_to_taskbar() -> Result<(), AppError> {
 mod tests {
     #[test]
     fn oauth_url_stays_one_cmd_argument() {
-        let url = "https://example.com/oauth/authorize?redirect_uri=shape://x&state=abc&scope=openid&code_challenge=xyz&code_challenge_method=S256";
+        let url = "https://example.com/oauth/authorize?redirect_uri=bettershape://x&state=abc&scope=openid&code_challenge=xyz&code_challenge_method=S256";
         let safe = url.replace('"', "");
         let cmdline = format!("/c start \"\" \"{safe}\"");
         assert!(cmdline.contains("&state=abc"));

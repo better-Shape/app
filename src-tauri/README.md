@@ -1,4 +1,4 @@
-# Shape native (`src-tauri`)
+# BetterShape native (`src-tauri`)
 
 Rust side of the desktop app (Tauri 2). The Next.js UI lives in `shape/` and talks to this crate over IPC.
 

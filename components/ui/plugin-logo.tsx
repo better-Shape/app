@@ -1,13 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { ShapeLogo } from "@/components/ui/shape-logo";
-import { isShapePluginMeta, pluginLogoCandidates } from "@/lib/plugins/logos";
+import { BetterShapeLogo } from "@/components/ui/bettershape-logo";
+import { isBetterShapePluginMeta, pluginLogoCandidates } from "@/lib/plugins/logos";
 import { cn } from "@/lib/utils";
 
 export function PluginLogo({
     toolkit,
-    name,
     logo,
     size = 32,
     className,
@@ -21,8 +20,8 @@ export function PluginLogo({
     slug?: string;
 }) {
     const [failedAt, setFailedAt] = useState(0);
-    if (isShapePluginMeta(toolkit, slug)) {
-        return <ShapeLogo size={size} className={className} />;
+    if (isBetterShapePluginMeta(toolkit, slug)) {
+        return <BetterShapeLogo size={size} className={className} />;
     }
     const candidates = pluginLogoCandidates(toolkit, true, logo);
     const src = candidates[failedAt] ?? null;

@@ -14,10 +14,10 @@ import mistral from "thesvg/mistral-ai";
 import meta from "thesvg/meta";
 import cohere from "thesvg/cohere";
 import zhipu from "thesvg/zhipu";
-import { ShapeLogo } from "@/components/ui/shape-logo";
+import { BetterShapeLogo } from "@/components/ui/bettershape-logo";
 
 type Provider =
-    | "shape"
+    | "bettershape"
     | "anthropic"
     | "openai"
     | "google"
@@ -31,7 +31,7 @@ type Provider =
     | "meta"
     | "cohere";
 
-const BRANDS: Record<Exclude<Provider, "shape">, IconModule> = {
+const BRANDS: Record<Exclude<Provider, "bettershape">, IconModule> = {
     anthropic,
     openai,
     google: gemini,
@@ -47,7 +47,7 @@ const BRANDS: Record<Exclude<Provider, "shape">, IconModule> = {
 };
 
 function providerFromModelId(modelId: string): Provider {
-    if (modelId === "auto" || modelId === "openrouter/auto") return "shape";
+    if (modelId === "auto" || modelId === "openrouter/auto") return "bettershape";
     const prefix = modelId.split("/")[0]?.toLowerCase();
     if (prefix === "meta-llama") return "meta";
     if (
@@ -57,7 +57,7 @@ function providerFromModelId(modelId: string): Provider {
     ) {
         return prefix;
     }
-    return "shape";
+    return "bettershape";
 }
 
 function BrandIcon({ icon, size }: { icon: IconModule; size: number }) {
@@ -72,19 +72,19 @@ function BrandIcon({ icon, size }: { icon: IconModule; size: number }) {
     );
 }
 
-export function ShapeAutoIcon({
+export function BetterShapeAutoIcon({
     size = 16,
     className,
 }: {
     size?: number;
     className?: string;
 }) {
-    return <ShapeLogo size={size} className={className} />;
+    return <BetterShapeLogo size={size} className={className} />;
 }
 
 export function providerIcon(modelId: string, size = 16): React.ReactNode {
     const provider = providerFromModelId(modelId);
-    if (provider === "shape") return <ShapeAutoIcon size={size} />;
+    if (provider === "bettershape") return <BetterShapeAutoIcon size={size} />;
     return <BrandIcon icon={BRANDS[provider]} size={size} />;
 }
 
@@ -102,6 +102,6 @@ export function providerLabel(modelId: string): string {
         case "mistralai": return "Mistral";
         case "meta": return "Meta";
         case "cohere": return "Cohere";
-        default: return "Shape";
+        default: return "BetterShape";
     }
 }

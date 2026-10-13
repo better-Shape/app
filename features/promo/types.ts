@@ -19,7 +19,7 @@ export type PromoCardDef = {
     action: PromoAction;
 };
 
-const SEEN_KEY = "shape-promo-seen";
+const SEEN_KEY = "bettershape-promo-seen";
 
 export function loadSeenPromoIds(): string[] {
     try {

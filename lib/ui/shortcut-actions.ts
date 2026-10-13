@@ -2,11 +2,11 @@ import { commands } from "@/lib/backend/commands";
 import { isPopoutPath } from "@/lib/window/tauri-window";
 
 function openSearchSidebar(_mode: "search" | "replace") {
-    window.dispatchEvent(new CustomEvent("shape-command-palette", { detail: { mode: "files", placeholder: "Search files…" } }));
+    window.dispatchEvent(new CustomEvent("bettershape-command-palette", { detail: { mode: "files", placeholder: "Search files…" } }));
 }
 
 function dispatchEditorAction(action: string) {
-    window.dispatchEvent(new CustomEvent("shape-editor-action", { detail: { action } }));
+    window.dispatchEvent(new CustomEvent("bettershape-editor-action", { detail: { action } }));
 }
 
 function isExplorerFocused(): boolean {
@@ -25,19 +25,19 @@ export function dispatchShortcutAction(label: string, key: string): boolean {
             return true;
         case "Go to File":
         case "Go to File...":
-            window.dispatchEvent(new CustomEvent("shape-command-palette", { detail: { mode: "files" } }));
+            window.dispatchEvent(new CustomEvent("bettershape-command-palette", { detail: { mode: "files" } }));
             return true;
         case "Find":
             return false;
         case "Command Palette":
         case "Command Palette...":
-            window.dispatchEvent(new CustomEvent("shape-command-palette"));
+            window.dispatchEvent(new CustomEvent("bettershape-command-palette"));
             return true;
         case "Save All":
             window.dispatchEvent(new Event("save-all-request"));
             return true;
         case "Close Folder":
-            window.dispatchEvent(new Event("shape-design-exit"));
+            window.dispatchEvent(new Event("bettershape-design-exit"));
             void import("@/lib/workspace/last-project").then(({ saveLastProject }) => saveLastProject(null));
             void commands.setProjectPath(null);
             return true;
@@ -45,39 +45,39 @@ export function dispatchShortcutAction(label: string, key: string): boolean {
             void commands.newWindow();
             return true;
         case "Explorer":
-            window.dispatchEvent(new CustomEvent("shape-set-active-tab", { detail: "files" }));
+            window.dispatchEvent(new CustomEvent("bettershape-set-active-tab", { detail: "files" }));
             return true;
         case "Search":
             openSearchSidebar("search");
             return true;
         case "Source Control":
-            window.dispatchEvent(new CustomEvent("shape-set-active-tab", { detail: "source" }));
-            window.dispatchEvent(new CustomEvent("shape-layout-toggle", { detail: { id: "primary-sidebar", value: true } }));
+            window.dispatchEvent(new CustomEvent("bettershape-set-active-tab", { detail: "source" }));
+            window.dispatchEvent(new CustomEvent("bettershape-layout-toggle", { detail: { id: "primary-sidebar", value: true } }));
             return true;
         case "Terminal":
-            window.dispatchEvent(new CustomEvent("shape-layout-toggle", { detail: { id: "panel", value: true } }));
-            window.dispatchEvent(new CustomEvent("shape-terminal-shortcut", { detail: { action: "open" } }));
+            window.dispatchEvent(new CustomEvent("bettershape-layout-toggle", { detail: { id: "panel", value: true } }));
+            window.dispatchEvent(new CustomEvent("bettershape-terminal-shortcut", { detail: { action: "open" } }));
             return true;
         case "New Terminal":
-            window.dispatchEvent(new CustomEvent("shape-layout-toggle", { detail: { id: "panel", value: true } }));
-            window.dispatchEvent(new CustomEvent("shape-terminal-shortcut", { detail: { action: "new" } }));
+            window.dispatchEvent(new CustomEvent("bettershape-layout-toggle", { detail: { id: "panel", value: true } }));
+            window.dispatchEvent(new CustomEvent("bettershape-terminal-shortcut", { detail: { action: "new" } }));
             return true;
         case "Settings":
             void import("@/lib/window/open-settings").then(({ openSettingsWindow }) => openSettingsWindow());
             return true;
         case "AI Chat":
             window.dispatchEvent(
-                new CustomEvent("shape-layout-toggle", { detail: { id: "secondary-sidebar", value: true } }),
+                new CustomEvent("bettershape-layout-toggle", { detail: { id: "secondary-sidebar", value: true } }),
             );
             return true;
         case "Toggle Design Mode":
-            window.dispatchEvent(new CustomEvent("shape-set-active-tab", { detail: "browser" }));
+            window.dispatchEvent(new CustomEvent("bettershape-set-active-tab", { detail: "browser" }));
             window.dispatchEvent(
-                new CustomEvent("shape-layout-toggle", { detail: { id: "agent-workspace", value: true } }),
+                new CustomEvent("bettershape-layout-toggle", { detail: { id: "agent-workspace", value: true } }),
             );
             return true;
         case "Go to Line/Column...":
-            window.dispatchEvent(new CustomEvent("shape-command-palette", {
+            window.dispatchEvent(new CustomEvent("bettershape-command-palette", {
                 detail: { mode: "goto_line", placeholder: "Line : Column" },
             }));
             return true;
@@ -98,7 +98,7 @@ export function dispatchShortcutAction(label: string, key: string): boolean {
                 isExplorerFocused()
             ) {
                 window.dispatchEvent(
-                    new CustomEvent("shape-explorer-action", {
+                    new CustomEvent("bettershape-explorer-action", {
                         detail: { action: label.toLowerCase() },
                     }),
                 );
@@ -124,13 +124,13 @@ export function dispatchShortcutAction(label: string, key: string): boolean {
             window.dispatchEvent(new Event("save-request"));
             return true;
         case "New Text File":
-            window.dispatchEvent(new CustomEvent("shape-explorer-create", { detail: { type: "file" } }));
+            window.dispatchEvent(new CustomEvent("bettershape-explorer-create", { detail: { type: "file" } }));
             return true;
         case "Open File":
             window.dispatchEvent(new Event("open-file-request"));
             return true;
         case "Open Folder":
-            window.dispatchEvent(new Event("shape-open-project-pick"));
+            window.dispatchEvent(new Event("bettershape-open-project-pick"));
             return true;
         case "Save As":
             void (async () => {
@@ -153,12 +153,13 @@ export function dispatchShortcutAction(label: string, key: string): boolean {
                 });
                 if (typeof selected !== "string") return;
                 const content = await commands.readFile(active);
+                await commands.grantIpcPath(selected).catch(() => undefined);
                 await commands.saveFile(selected, content);
                 await commands.openFile(selected, selected.split(/[\\/]/).pop() || selected);
             })();
             return true;
         case "Recent Files":
-            window.dispatchEvent(new CustomEvent("shape-command-palette", {
+            window.dispatchEvent(new CustomEvent("bettershape-command-palette", {
                 detail: { mode: "files", recent: true, placeholder: "Recent files..." },
             }));
             return true;
@@ -169,16 +170,16 @@ export function dispatchShortcutAction(label: string, key: string): boolean {
             return true;
         case "Zen Mode":
             if (isPopoutPath()) return true;
-            window.dispatchEvent(new Event("shape-toggle-zen-mode"));
+            window.dispatchEvent(new Event("bettershape-toggle-zen-mode"));
             return true;
         case "Inline Edit":
             dispatchEditorAction("inlineEdit");
             return true;
         case "New Chat":
-            window.dispatchEvent(new Event("shape-chat-new"));
+            window.dispatchEvent(new Event("bettershape-chat-new"));
             return true;
         case "Cycle Chat Mode":
-            window.dispatchEvent(new Event("shape-chat-cycle-mode"));
+            window.dispatchEvent(new Event("bettershape-chat-cycle-mode"));
             return true;
         case "Toggle Word Wrap":
             dispatchEditorAction("toggleWordWrap");
@@ -196,8 +197,8 @@ export function dispatchShortcutAction(label: string, key: string): boolean {
             dispatchEditorAction("formatSelection");
             return true;
         case "Problems":
-            window.dispatchEvent(new CustomEvent("shape-layout-toggle", { detail: { id: "panel", value: true } }));
-            window.dispatchEvent(new CustomEvent("shape-set-panel-tab", { detail: "problems" }));
+            window.dispatchEvent(new CustomEvent("bettershape-layout-toggle", { detail: { id: "panel", value: true } }));
+            window.dispatchEvent(new CustomEvent("bettershape-set-panel-tab", { detail: "problems" }));
             return true;
         default:
             return false;

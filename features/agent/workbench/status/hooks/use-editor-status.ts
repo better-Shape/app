@@ -12,8 +12,8 @@ export function useEditorStatus() {
             const version = (e as CustomEvent<string>).detail;
             if (version) setTypescriptVersion(version);
         };
-        window.addEventListener("shape-typescript-version", onTs as EventListener);
-        return () => window.removeEventListener("shape-typescript-version", onTs as EventListener);
+        window.addEventListener("bettershape-typescript-version", onTs as EventListener);
+        return () => window.removeEventListener("bettershape-typescript-version", onTs as EventListener);
     }, []);
 
     useEffect(() => {
@@ -21,15 +21,15 @@ export function useEditorStatus() {
             const detail = (event as CustomEvent<Partial<EditorStatus>>).detail;
             if (detail) setEditorStatus((prev) => ({ ...prev, ...detail }));
         };
-        window.addEventListener("shape-editor-status", onUpdate as EventListener);
-        return () => window.removeEventListener("shape-editor-status", onUpdate as EventListener);
+        window.addEventListener("bettershape-editor-status", onUpdate as EventListener);
+        return () => window.removeEventListener("bettershape-editor-status", onUpdate as EventListener);
     }, []);
 
     return { editorStatus, typescriptVersion };
 }
 
 export function dispatchEditorAction(action: string, detail?: Record<string, unknown>) {
-    window.dispatchEvent(new CustomEvent("shape-editor-action", { detail: { action, ...detail } }));
+    window.dispatchEvent(new CustomEvent("bettershape-editor-action", { detail: { action, ...detail } }));
 }
 
 export function openStatusPalette(
@@ -37,7 +37,7 @@ export function openStatusPalette(
     actions: { id: string; label: string; icon?: string; run: () => void }[],
 ) {
     window.dispatchEvent(
-        new CustomEvent("shape-command-palette", {
+        new CustomEvent("bettershape-command-palette", {
             detail: {
                 placeholder,
                 actions: actions.map((action) => ({ ...action, shortcut: "" })),

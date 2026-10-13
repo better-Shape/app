@@ -46,8 +46,8 @@ export function parseUserAttachments(content: string): {
             const dataUrl = trimmed.startsWith("data:") ? trimmed : undefined;
 
             let kind: ParsedUserAttachment["kind"] = "file";
-            if (mimeType === "text/x-shape-terminal") kind = "terminal";
-            else if (mimeType === "text/x-shape-code") kind = "code";
+            if (mimeType === "text/x-bettershape-terminal") kind = "terminal";
+            else if (mimeType === "text/x-bettershape-code") kind = "code";
             else if (tag === "image" || mimeType.startsWith("image/")) kind = "image";
             else if (mimeType.startsWith("audio/") || tag === "file" && /audio/i.test(mimeType)) {
                 kind = "audio";

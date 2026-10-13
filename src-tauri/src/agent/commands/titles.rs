@@ -12,8 +12,10 @@ const MODEL_TITLE_GEN: &str = "auto";
 fn attachment_block_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(r#"(?s)<attached_(?:image|file|asset)\b[^>]*>.*?</attached_(?:image|file|asset)>"#)
-            .expect("attachment strip regex")
+        Regex::new(
+            r#"(?s)<attached_(?:image|file|asset)\b[^>]*>.*?</attached_(?:image|file|asset)>"#,
+        )
+        .expect("attachment strip regex")
     })
 }
 
@@ -88,11 +90,7 @@ pub(crate) fn title_from_message(message: &str) -> String {
         }
     }
 
-    let sentence = line
-        .split(['.', '?', '!'])
-        .next()
-        .unwrap_or(line)
-        .trim();
+    let sentence = line.split(['.', '?', '!']).next().unwrap_or(line).trim();
 
     const STOP: &[&str] = &[
         "a", "an", "the", "my", "me", "and", "or", "to", "for", "of", "in", "on", "with", "about",
@@ -137,20 +135,17 @@ pub(crate) fn first_title_prompt(user_text: &str) -> String {
 
 async fn request_model_title(
     client: &Client,
-    auth_token: &str,
     title_source: &str,
-    provider: &streaming::LlmProvider,
     turn_id: &str,
     conversation_id: &str,
 ) -> Option<String> {
     for attempt in 0..2 {
         match streaming::complete_chat(
             client,
-            auth_token,
+            "",
             &first_title_prompt(title_source),
             MODEL_TITLE_GEN,
             &streaming::ProxyContext::new("title")
-                .with_provider(provider.clone())
                 .with_turn(Some(turn_id.to_string()), Some(conversation_id.to_string())),
         )
         .await
@@ -158,7 +153,11 @@ async fn request_model_title(
             Ok(text) if parse_model_title(&text).is_some() => return Some(text),
             Ok(text) => logging::warn(
                 "title",
-                &format!("Title attempt {} was not a title: {}", attempt + 1, text.chars().take(80).collect::<String>()),
+                &format!(
+                    "Title attempt {} was not a title: {}",
+                    attempt + 1,
+                    text.chars().take(80).collect::<String>()
+                ),
             ),
             Err(err) => logging::warn(
                 "title",
@@ -179,7 +178,10 @@ fn parse_model_title(raw: &str) -> Option<String> {
         .trim();
     let first_line = title.lines().next().unwrap_or(title).trim();
     let words: Vec<&str> = first_line.split_whitespace().take(5).collect();
-    let title = words.join(" ").trim_matches(|c: char| c == '.' || c == ',').to_string();
+    let title = words
+        .join(" ")
+        .trim_matches(|c: char| c == '.' || c == ',')
+        .to_string();
     let word_count = title.split_whitespace().count();
     let lower = title.to_lowercase();
     let alpha_count = title.chars().filter(|c| c.is_alphabetic()).count();
@@ -205,11 +207,9 @@ fn parse_model_title(raw: &str) -> Option<String> {
 pub(crate) async fn apply_generated_title(
     app: tauri::AppHandle,
     client: Client,
-    auth_token: String,
     turn_id: String,
     conversation_id: String,
     title_source: String,
-    provider: streaming::LlmProvider,
     cancel: tokio_util::sync::CancellationToken,
     project_path: Option<String>,
 ) {
@@ -218,11 +218,14 @@ pub(crate) async fn apply_generated_title(
     }
     // Own lifetime: the chat turn's cancel token dies when the user hits Stop,
     // and that was leaving the chopped first-line placeholder on the chat forever.
-    let raw = request_model_title(&client, &auth_token, &title_source, &provider, &turn_id, &conversation_id).await;
+    let raw = request_model_title(&client, &title_source, &turn_id, &conversation_id).await;
     let Some(state) = app.try_state::<AgentState>() else {
         return;
     };
-    if state.title_locked.load(std::sync::atomic::Ordering::Relaxed) {
+    if state
+        .title_locked
+        .load(std::sync::atomic::Ordering::Relaxed)
+    {
         let current = state
             .current_conversation_id
             .lock()
@@ -240,7 +243,10 @@ pub(crate) async fn apply_generated_title(
         return;
     };
     if title.eq_ignore_ascii_case(&title_from_message(&title_source)) {
-        logging::warn("title", "Title model echoed the user message; keeping placeholder");
+        logging::warn(
+            "title",
+            "Title model echoed the user message; keeping placeholder",
+        );
         return;
     }
     let user_turns = state
@@ -258,7 +264,10 @@ pub(crate) async fn apply_generated_title(
         .as_deref()
         == Some(conversation_id.as_str());
     if still_viewing {
-        if state.title_locked.load(std::sync::atomic::Ordering::Relaxed) {
+        if state
+            .title_locked
+            .load(std::sync::atomic::Ordering::Relaxed)
+        {
             return;
         }
         if let Ok(mut t) = state.title.lock() {
@@ -303,12 +312,14 @@ pub(crate) async fn maybe_regenerate_title(
     app_handle: &tauri::AppHandle,
     state: &tauri::State<'_, AgentState>,
     client: &Client,
-    auth_token: &str,
     turn_id: &str,
     conversation_id: Option<&str>,
     assistant_content: &str,
 ) -> String {
-    if state.title_locked.load(std::sync::atomic::Ordering::Relaxed) {
+    if state
+        .title_locked
+        .load(std::sync::atomic::Ordering::Relaxed)
+    {
         return assistant_content.to_string();
     }
     let user_count = state
@@ -317,11 +328,7 @@ pub(crate) async fn maybe_regenerate_title(
         .ok()
         .map(|h| h.iter().filter(|m| m.role == "user").count() as u32)
         .unwrap_or(0);
-    let anchor = state
-        .title_anchor_turns
-        .lock()
-        .map(|g| *g)
-        .unwrap_or(0);
+    let anchor = state.title_anchor_turns.lock().map(|g| *g).unwrap_or(0);
     // The opening title stands until ten later user messages exist to judge.
     if user_count < anchor.saturating_add(10) {
         return assistant_content.to_string();
@@ -339,7 +346,12 @@ pub(crate) async fn maybe_regenerate_title(
             .filter(|m| m.role == "user")
             .map(|m| text_for_title(&m.content).chars().take(280).collect())
             .collect();
-        let opening = user_msgs.iter().take(2).cloned().collect::<Vec<_>>().join("\n---\n");
+        let opening = user_msgs
+            .iter()
+            .take(2)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n---\n");
         let recent = user_msgs
             .iter()
             .rev()
@@ -365,11 +377,13 @@ pub(crate) async fn maybe_regenerate_title(
 
     let Ok(raw) = streaming::complete_chat(
         client,
-        auth_token,
+        "",
         &prompt,
         MODEL_TITLE_GEN,
-        &streaming::ProxyContext::new("title")
-            .with_turn(Some(turn_id.to_string()), conversation_id.map(|s| s.to_string())),
+        &streaming::ProxyContext::new("title").with_turn(
+            Some(turn_id.to_string()),
+            conversation_id.map(|s| s.to_string()),
+        ),
     )
     .await
     else {
@@ -438,7 +452,10 @@ pub(crate) fn sanitize_generated_title(raw: &str, fallback_message: &str) -> Str
 
     let first_line = title.lines().next().unwrap_or(title).trim();
     let words: Vec<&str> = first_line.split_whitespace().take(5).collect();
-    let title = words.join(" ").trim_matches(|c: char| c == '.' || c == ',').to_string();
+    let title = words
+        .join(" ")
+        .trim_matches(|c: char| c == '.' || c == ',')
+        .to_string();
     let word_count = title.split_whitespace().count();
     let lower = title.to_lowercase();
     let alpha_count = title.chars().filter(|c| c.is_alphabetic()).count();
@@ -470,4 +487,3 @@ pub(crate) fn short_fallback_title(message: &str) -> String {
         message.to_string()
     }
 }
-

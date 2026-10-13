@@ -158,9 +158,10 @@ pub(super) fn latest_user_task(ctx: &ToolCtx<'_>) -> String {
         .lock()
         .ok()
         .and_then(|h| {
-            h.iter().rev().find(|m| m.role == "user").map(|m| {
-                m.content.chars().take(1500).collect::<String>()
-            })
+            h.iter()
+                .rev()
+                .find(|m| m.role == "user")
+                .map(|m| m.content.chars().take(1500).collect::<String>())
         })
         .unwrap_or_default()
 }
@@ -208,7 +209,11 @@ pub(super) fn clip(text: &str, limit: usize) -> String {
         return text.to_string();
     }
     let trimmed: String = text.chars().take(limit).collect();
-    format!("{}\n... [truncated, {} chars total]", trimmed, text.chars().count())
+    format!(
+        "{}\n... [truncated, {} chars total]",
+        trimmed,
+        text.chars().count()
+    )
 }
 
 pub(super) fn escape_xml_attr(s: &str) -> String {
@@ -244,8 +249,8 @@ pub(super) fn record_tool_event(name: &str, outcome: &ToolOutcome, project_path:
         "delete_file" => "ai_file_deletes",
         "rename_file" => "ai_file_renames",
         "search_files" | "grep" | "search_codebase" | "web_search" | "visit_url"
-        | "plugin_list" | "plugin_search" | "plugin_tools" | "plugin_run"
-        | "inspect_runtime" | "generate_svg" | "generate_image" | "save_media" => "ai_searches",
+        | "plugin_list" | "plugin_search" | "plugin_tools" | "plugin_run" | "inspect_runtime"
+        | "generate_svg" | "generate_image" | "save_media" => "ai_searches",
         "read_file" | "list_dir" | "read_terminal" | "list_terminals" | "send_file" => "ai_reads",
         "git_commit" => "ai_git_commits",
         "git_fetch" => "ai_git_fetches",

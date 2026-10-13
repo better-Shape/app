@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { applyAppearanceSettings, DEFAULT_SETTINGS, type ShapeSettings } from "@/lib/settings";
+import { applyAppearanceSettings, DEFAULT_SETTINGS, type BetterShapeSettings } from "@/lib/settings";
 import { COLOR_THEMES, isColorThemeId, normalizeColorTheme } from "@/lib/settings/themes";
 
-function withColorTheme(colorTheme: unknown): ShapeSettings {
+function withColorTheme(colorTheme: unknown): BetterShapeSettings {
     return {
         ...DEFAULT_SETTINGS,
-        appearance: { ...DEFAULT_SETTINGS.appearance, colorTheme } as ShapeSettings["appearance"],
+        appearance: { ...DEFAULT_SETTINGS.appearance, colorTheme } as BetterShapeSettings["appearance"],
     };
 }
 

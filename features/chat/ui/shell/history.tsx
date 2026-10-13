@@ -22,7 +22,7 @@ import type { Conversation } from "@/lib/backend/types";
 import { toTimestampMs } from "@/lib/ui/timestamp";
 import { cn } from "@/lib/utils";
 
-export const CHAT_HISTORY_OPEN_EVENT = "shape-chat-open-history";
+export const CHAT_HISTORY_OPEN_EVENT = "bettershape-chat-open-history";
 
 function formatConversationDate(timestamp: number): string {
     return new Date(toTimestampMs(timestamp)).toLocaleDateString(undefined, {
@@ -33,7 +33,7 @@ function formatConversationDate(timestamp: number): string {
 
 export function openChatHistoryMenu() {
     window.dispatchEvent(
-        new CustomEvent("shape-command-palette", {
+        new CustomEvent("bettershape-command-palette", {
             detail: {
                 placeholder: "Search agents, files, actions...",
             },
@@ -101,19 +101,18 @@ export function ChatHistoryMenu({
                 onSelectConversation(conversation.id, conversation);
                 return;
             }
-            await commands.loadConversation(
-                conversation.id,
-                conversation.project_path ?? projectPath ?? undefined,
+            // The chat view opens it (and activates it in the backend).
+            window.dispatchEvent(
+                new CustomEvent("bettershape-chat-load", { detail: { id: conversation.id } }),
             );
-            window.dispatchEvent(new CustomEvent("shape-chat-refresh"));
         },
-        [onSelectConversation, projectPath],
+        [onSelectConversation],
     );
 
     const handleDelete = useCallback(async (conversationId: string) => {
         await commands.deleteConversation(conversationId);
         setConversations((prev) => prev.filter((conv) => conv.id !== conversationId));
-        window.dispatchEvent(new CustomEvent("shape-chat-refresh"));
+        window.dispatchEvent(new CustomEvent("bettershape-chat-refresh"));
     }, []);
 
     const trigger =
@@ -145,7 +144,7 @@ export function ChatHistoryMenu({
                         placeholder="Search history"
                         onKeyDown={(e) => e.stopPropagation()}
                         onClick={(e) => e.stopPropagation()}
-                        className="shape-menu__search"
+                        className="bettershape-menu__search"
                         autoFocus
                     />
                 </div>

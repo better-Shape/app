@@ -61,10 +61,8 @@ fn sanitize_slug(slug: &str) -> String {
     for ch in slug.chars().flat_map(|c| c.to_lowercase()) {
         if ch.is_ascii_alphanumeric() {
             out.push(ch);
-        } else if ch == '-' || ch == '_' || ch.is_whitespace() {
-            if !out.ends_with('-') {
-                out.push('-');
-            }
+        } else if (ch == '-' || ch == '_' || ch.is_whitespace()) && !out.ends_with('-') {
+            out.push('-');
         }
         if out.len() >= 24 {
             break;
@@ -89,10 +87,7 @@ fn add_worktree(repo: &str, slug: &str) -> Result<Checkout, String> {
         .unwrap_or(0);
     let slug = sanitize_slug(slug);
     let branch = format!("shape/{slug}-{millis}");
-    let folder = root
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("repo");
+    let folder = root.file_name().and_then(|n| n.to_str()).unwrap_or("repo");
     let parent = root.parent().unwrap_or(root);
     let dest = parent.join(format!("{folder}-{}", branch.replace('/', "-")));
     let dest_str = dest.to_string_lossy().to_string();

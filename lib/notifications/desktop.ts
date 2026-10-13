@@ -41,7 +41,7 @@ export async function ensureNotificationPermission(): Promise<boolean> {
     }
 }
 
-/** True when the Shape window is in the foreground (Tauri is reliable; document.focus is not in WebView2). */
+/** True when the BetterShape window is in the foreground (Tauri is reliable; document.focus is not in WebView2). */
 export async function isAppFocused(): Promise<boolean> {
     try {
         const { getCurrentWindow } = await import("@tauri-apps/api/window");
@@ -53,7 +53,7 @@ export async function isAppFocused(): Promise<boolean> {
     return !document.hidden && document.hasFocus();
 }
 
-/** OS desktop notification. Respects Settings → Notifications. Never toasts OS-side while Shape is focused. */
+/** OS desktop notification. Respects Settings → Notifications. Never toasts OS-side while BetterShape is focused. */
 export async function showDesktopNotification(
     kind: DesktopNotificationKind,
     title: string,
@@ -64,7 +64,7 @@ export async function showDesktopNotification(
     if (await isAppFocused()) return;
 
     const cleanBody = body.replace(/\u2014/g, "-").replace(/\s+/g, " ").trim();
-    const cleanTitle = title.trim() || "Shape";
+    const cleanTitle = title.trim() || "BetterShape";
 
     try {
         const { commands } = await import("@/lib/backend");

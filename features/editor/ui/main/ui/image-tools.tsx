@@ -71,28 +71,30 @@ export function ImageAdjustmentsPanel({
     open: boolean;
     children: React.ReactNode;
 }) {
+    // Shown while open, and for a short exit animation after closing.
     const [mounted, setMounted] = useState(open);
-    const [state, setState] = useState<"open" | "closed">(open ? "open" : "closed");
+    // Entering is confirmed one frame after opening, so the CSS transition has a start state.
+    const [entered, setEntered] = useState(false);
+    // Opening from closed must mark the panel mounted too, so a later close runs its exit.
+    if (open && !mounted) setMounted(true);
+    const showing = open || mounted;
+    const state = open && entered ? "open" : "closed";
 
     useEffect(() => {
         if (open) {
-            setMounted(true);
-            const frame = requestAnimationFrame(() => setState("open"));
+            const frame = requestAnimationFrame(() => setEntered(true));
             return () => cancelAnimationFrame(frame);
         }
-
-        setState("closed");
         const timer = window.setTimeout(() => setMounted(false), 75);
         return () => window.clearTimeout(timer);
     }, [open]);
 
-    if (!open && !mounted) return null;
-    if (!mounted) return null;
+    if (!showing) return null;
 
     return (
         <div
             data-state={state}
-            className="image-adjustments-panel shape-popover-content shape-popover-content--from-right pointer-events-auto absolute top-2 right-2 z-30 flex max-h-[calc(100%-1rem)] w-[280px] flex-col overflow-hidden"
+            className="image-adjustments-panel bettershape-popover-content bettershape-popover-content--from-right pointer-events-auto absolute top-2 right-2 z-30 flex max-h-[calc(100%-1rem)] w-[280px] flex-col overflow-hidden"
             onMouseDown={(e) => e.stopPropagation()}
             onWheel={(e) => e.stopPropagation()}
         >

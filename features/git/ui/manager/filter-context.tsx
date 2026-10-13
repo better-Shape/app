@@ -4,9 +4,9 @@ import {
     createContext,
     useCallback,
     useContext,
-    useEffect,
     useMemo,
     useState,
+    useSyncExternalStore,
     type ReactNode,
 } from "react";
 import type { GitSectionId } from "@/features/git/types";
@@ -35,7 +35,17 @@ export const GIT_SECTION_TITLES: Record<GitSectionId, string> = {
     jobs: "Jobs",
 };
 
-const SECTION_STORAGE_KEY = "shape-git-manager-section";
+const SECTION_STORAGE_KEY = "bettershape-git-manager-section";
+const SECTION_CHANGED_EVENT = "bettershape-git-section-changed";
+
+function subscribeStoredSection(onChange: () => void): () => void {
+    window.addEventListener("storage", onChange);
+    window.addEventListener(SECTION_CHANGED_EVENT, onChange);
+    return () => {
+        window.removeEventListener("storage", onChange);
+        window.removeEventListener(SECTION_CHANGED_EVENT, onChange);
+    };
+}
 
 const KNOWN_SECTIONS = new Set<string>(Object.keys(PLACEHOLDERS));
 
@@ -85,12 +95,15 @@ export function persistGitSection(id: GitSectionId) {
     }
     try {
         const url = new URL(window.location.href);
-        if (url.searchParams.get("section") === id) return;
-        url.searchParams.set("section", id);
-        window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+        if (url.searchParams.get("section") !== id) {
+            url.searchParams.set("section", id);
+            window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+        }
     } catch {
         /* ignore */
     }
+    // Same-tab listeners do not get a `storage` event, so notify them explicitly.
+    window.dispatchEvent(new Event(SECTION_CHANGED_EVENT));
 }
 
 type FilterContextValue = {
@@ -113,24 +126,31 @@ export function FilterProvider({
     initialSection?: GitSectionId;
 }) {
     const [query, setQueryState] = useState("");
-    const [section, setSectionState] = useState<GitSectionId>(initialSection);
-    const [hydrated, setHydrated] = useState(false);
-
-    useEffect(() => {
-        const stored = readStoredGitSection();
-        if (stored) setSectionState(stored);
-        setHydrated(true);
-    }, []);
+    // The stored section is read after hydration (server snapshot = null, so SSR matches).
+    const storedSection = useSyncExternalStore(subscribeStoredSection, readStoredGitSection, () => null);
+    // A section picked here wins only until the stored value changes again.
+    const [picked, setPicked] = useState<{ value: GitSectionId; basedOn: GitSectionId | null } | null>(null);
+    const section: GitSectionId =
+        picked && picked.basedOn === storedSection
+            ? picked.value
+            : (storedSection ?? initialSection);
+    const setSectionState = useCallback(
+        (id: GitSectionId) => setPicked({ value: id, basedOn: storedSection }),
+        [storedSection],
+    );
 
     const setQuery = useCallback((value: string) => {
         setQueryState(value);
     }, []);
 
-    const setSection = useCallback((id: GitSectionId) => {
-        setSectionState(id);
-        persistGitSection(id);
-        setQueryState("");
-    }, []);
+    const setSection = useCallback(
+        (id: GitSectionId) => {
+            setSectionState(id);
+            persistGitSection(id);
+            setQueryState("");
+        },
+        [setSectionState],
+    );
 
     const value = useMemo<FilterContextValue>(
         () => ({
@@ -144,10 +164,6 @@ export function FilterProvider({
         }),
         [query, section, setQuery, setSection],
     );
-
-    if (!hydrated) {
-        return <FilterContext.Provider value={value}>{children}</FilterContext.Provider>;
-    }
 
     return <FilterContext.Provider value={value}>{children}</FilterContext.Provider>;
 }

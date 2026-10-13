@@ -62,7 +62,10 @@ fn write_temp_file(file_path: &str, content: &str) -> Result<PathBuf, String> {
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("lint");
-    let temp_dir = std::env::temp_dir().join("shape-lint");
+    let ext: String = ext.chars().filter(|c| c.is_ascii_alphanumeric()).take(12).collect();
+    let stem: String = stem.chars().filter(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-')).take(48).collect();
+    let (ext, stem) = (if ext.is_empty() { "txt" } else { &ext }, if stem.is_empty() { "lint" } else { &stem });
+    let temp_dir = std::env::temp_dir().join("bettershape-lint");
     std::fs::create_dir_all(&temp_dir).map_err(|e| e.to_string())?;
     let temp_path = temp_dir.join(format!("{}-{}.{}", stem, uuid_like(), ext));
     std::fs::write(&temp_path, content).map_err(|e| e.to_string())?;
@@ -136,11 +139,12 @@ pub fn eslint_lint_file(
 
     let mut cmd = Command::new(npx_command());
     cmd.current_dir(&project_path)
-        .arg("--yes")
+        .arg("--no-install")
         .arg("eslint")
         .arg("--format")
         .arg("json")
         .arg("--no-error-on-unmatched-pattern");
+    crate::core::process::apply_trusted_binary_env(&mut cmd);
     crate::core::process::hide_console(&mut cmd);
 
     if apply_fix {
@@ -149,7 +153,7 @@ pub fn eslint_lint_file(
 
     cmd.arg(&temp_display);
 
-    let output = cmd.output().map_err(|e| format!("Failed to run eslint: {e}"))?;
+    let output = cmd.output().map_err(|e| { let _ = std::fs::remove_file(&temp_path); format!("Failed to run eslint: {e}") })?;
     let stdout = String::from_utf8_lossy(&output.stdout);
     let diagnostics = parse_eslint_json(&stdout);
 
@@ -174,13 +178,14 @@ pub fn prettier_format_file(
 ) -> Result<String, String> {
     let mut cmd = Command::new(npx_command());
     cmd.current_dir(&project_path)
-        .arg("--yes")
+        .arg("--no-install")
         .arg("prettier")
         .arg("--stdin-filepath")
         .arg(&file_path)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    crate::core::process::apply_trusted_binary_env(&mut cmd);
     crate::core::process::hide_console(&mut cmd);
     let mut child = cmd
         .spawn()

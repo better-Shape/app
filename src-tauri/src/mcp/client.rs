@@ -2,11 +2,11 @@ use crate::mcp::types::{CallToolResult, McpToolInfo, ToolContent};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-#[cfg(windows)]
-use std::os::windows::process::CommandExt;
 
 static REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -42,7 +42,9 @@ impl McpClient {
         #[cfg(windows)]
         cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
 
-        let mut child = cmd.spawn().map_err(|e| format!("Failed to spawn MCP server: {}", e))?;
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| format!("Failed to spawn MCP server: {}", e))?;
         let stdin = child.stdin.take().ok_or("No stdin")?;
         let stdout = child.stdout.take().ok_or("No stdout")?;
 
@@ -57,7 +59,12 @@ impl McpClient {
                 let mut headers = String::new();
                 loop {
                     let mut line = String::new();
-                    if reader.read_line(&mut line).ok().filter(|n| *n > 0).is_none() {
+                    if reader
+                        .read_line(&mut line)
+                        .ok()
+                        .filter(|n| *n > 0)
+                        .is_none()
+                    {
                         return;
                     }
                     if line == "\r\n" || line == "\n" {
@@ -148,7 +155,9 @@ impl McpClient {
         let body = serde_json::to_string(msg).map_err(|e| e.to_string())?;
         let frame = format!("Content-Length: {}\r\n\r\n{}", body.len(), body);
         let mut stdin = self.stdin.lock().map_err(|e| e.to_string())?;
-        stdin.write_all(frame.as_bytes()).map_err(|e| e.to_string())?;
+        stdin
+            .write_all(frame.as_bytes())
+            .map_err(|e| e.to_string())?;
         stdin.flush().map_err(|e| e.to_string())
     }
 
@@ -158,7 +167,7 @@ impl McpClient {
             json!({
                 "protocolVersion": "2024-11-05",
                 "capabilities": {},
-                "clientInfo": { "name": "shape", "version": "0.1.0" }
+                "clientInfo": { "name": "bettershape", "version": "0.1.0" }
             }),
         )?;
         if result.is_null() {
@@ -195,7 +204,11 @@ impl McpClient {
                     .unwrap_or("")
                     .to_string();
                 let input_schema = t.get("inputSchema").cloned().unwrap_or(json!({}));
-                let qualified = format!("mcp_{}_{}", sanitize_name(&self.server_name), sanitize_name(&name));
+                let qualified = format!(
+                    "mcp_{}_{}",
+                    sanitize_name(&self.server_name),
+                    sanitize_name(&name)
+                );
                 Some(McpToolInfo {
                     server_id: self.server_id.clone(),
                     server_name: self.server_name.clone(),
@@ -209,13 +222,20 @@ impl McpClient {
         Ok(())
     }
 
-    pub fn call_tool(&mut self, tool_name: &str, arguments: Value) -> Result<CallToolResult, String> {
+    pub fn call_tool(
+        &mut self,
+        tool_name: &str,
+        arguments: Value,
+    ) -> Result<CallToolResult, String> {
         let result = self.request(
             "tools/call",
             json!({ "name": tool_name, "arguments": arguments }),
         )?;
 
-        let is_error = result.get("isError").and_then(|v| v.as_bool()).unwrap_or(false);
+        let is_error = result
+            .get("isError")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
         let content: Vec<ToolContent> = result
             .get("content")
             .and_then(|c| c.as_array())
@@ -244,7 +264,13 @@ impl Drop for McpClient {
 
 pub fn sanitize_name(s: &str) -> String {
     s.chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '_'
+            }
+        })
         .collect::<String>()
         .trim_matches('_')
         .to_string()

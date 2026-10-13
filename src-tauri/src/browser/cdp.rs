@@ -9,10 +9,13 @@ use tokio::time::timeout;
 use tokio_tungstenite::tungstenite::Message;
 
 pub async fn call(ws_url: &str, method: &str, params: Value) -> Result<Value, String> {
-    let (mut ws, _) = timeout(Duration::from_secs(8), tokio_tungstenite::connect_async(ws_url))
-        .await
-        .map_err(|_| "DevTools websocket timed out".to_string())?
-        .map_err(|e| format!("DevTools websocket: {e}"))?;
+    let (mut ws, _) = timeout(
+        Duration::from_secs(8),
+        tokio_tungstenite::connect_async(ws_url),
+    )
+    .await
+    .map_err(|_| "DevTools websocket timed out".to_string())?
+    .map_err(|e| format!("DevTools websocket: {e}"))?;
     let body = json!({"id": 1, "method": method, "params": params}).to_string();
     ws.send(Message::Text(body.into()))
         .await
@@ -47,12 +50,16 @@ pub async fn call_all(ws_url: &str, calls: Vec<(&str, Value)>) -> Result<Vec<Val
     if calls.is_empty() {
         return Ok(Vec::new());
     }
-    let (mut ws, _) = timeout(Duration::from_secs(8), tokio_tungstenite::connect_async(ws_url))
-        .await
-        .map_err(|_| "DevTools websocket timed out".to_string())?
-        .map_err(|e| format!("DevTools websocket: {e}"))?;
+    let (mut ws, _) = timeout(
+        Duration::from_secs(8),
+        tokio_tungstenite::connect_async(ws_url),
+    )
+    .await
+    .map_err(|_| "DevTools websocket timed out".to_string())?
+    .map_err(|e| format!("DevTools websocket: {e}"))?;
     for (index, (method, params)) in calls.iter().enumerate() {
-        let body = json!({"id": (index as u64) + 1, "method": method, "params": params}).to_string();
+        let body =
+            json!({"id": (index as u64) + 1, "method": method, "params": params}).to_string();
         ws.send(Message::Text(body.into()))
             .await
             .map_err(|e| e.to_string())?;
@@ -79,7 +86,9 @@ pub async fn call_all(ws_url: &str, calls: Vec<(&str, Value)>) -> Result<Vec<Val
     if results.len() < calls.len() {
         return Err("DevTools timed out.".into());
     }
-    Ok((1..=calls.len() as u64).filter_map(|id| results.remove(&id)).collect())
+    Ok((1..=calls.len() as u64)
+        .filter_map(|id| results.remove(&id))
+        .collect())
 }
 
 /// Evaluate an expression and return its value as a string (JSON for objects).

@@ -3,7 +3,13 @@
 import { ChevronLeft20Regular } from "@fluentui/react-icons/headless/svg/chevron-left";
 
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useSyncExternalStore } from "react";
+
+const subscribeWindowResize = (onChange: () => void) => {
+    window.addEventListener("resize", onChange);
+    return () => window.removeEventListener("resize", onChange);
+};
+const getWindowWidth = () => window.innerWidth;
 import Image from "next/image";
 import { Icon } from "@/components/ui/icon";
 
@@ -29,7 +35,7 @@ export default function Titlebar({ onboarding, settings, focus, title, onBack }:
     const { active_file, project_path, open_files } = useProjectState();
     const isCompact = Boolean(onboarding || settings);
     const isFocus = Boolean(focus);
-    const [windowWidth, setWindowWidth] = useState(1200);
+    const windowWidth = useSyncExternalStore(subscribeWindowResize, getWindowWidth, () => 1200);
 
     const { isMaximized, minimize, toggleMaximize, close, closeWindow } = useWindowControls();
     const { repoHistory, clearHistory } = useRepoHistory(project_path);
@@ -46,13 +52,6 @@ export default function Titlebar({ onboarding, settings, focus, title, onBack }:
             }),
         [project_path, active_file, open_files, readLatestContent, closeWindow],
     );
-
-    useEffect(() => {
-        setWindowWidth(window.innerWidth);
-        const onResize = () => setWindowWidth(window.innerWidth);
-        window.addEventListener("resize", onResize);
-        return () => window.removeEventListener("resize", onResize);
-    }, []);
 
     useEffect(() => {
         const onSaveAll = () => void handleMenuClick("Save All");

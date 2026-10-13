@@ -4,7 +4,7 @@ import { mockInvoke, invokeMocked } from "../helpers/tauri";
 
 describe("shortcut fallback integration", () => {
     it("invokes handle_shortcut when action returns false", async () => {
-        const handler = vi.fn((cmd, args) => {
+        const handler = vi.fn((cmd, _args) => {
             if (cmd === "handle_shortcut") return null;
         });
         mockInvoke(handler);

@@ -188,8 +188,8 @@ async function captureLivePage(req: CaptureRequestPayload, container: HTMLDivEle
             try {
                 iframe.contentWindow?.postMessage(
                     {
-                        source: "shape-design-host",
-                        type: "shape-preview-screenshot",
+                        source: "bettershape-design-host",
+                        type: "bettershape-preview-screenshot",
                         req: req.requestId,
                         maxWidth: req.width,
                         maxHeight: req.height,
@@ -207,7 +207,7 @@ async function captureLivePage(req: CaptureRequestPayload, container: HTMLDivEle
         const data = event.data;
         if (!data || typeof data !== "object") return;
         const type = (data as { type?: string }).type;
-        if (type === "shape-preview-screenshot-result" && (data as { req?: string }).req === req.requestId) {
+        if (type === "bettershape-preview-screenshot-result" && (data as { req?: string }).req === req.requestId) {
             const err = (data as { error?: string }).error;
             const dataUrl = (data as { dataUrl?: string }).dataUrl;
             if (err || !dataUrl) {
@@ -218,7 +218,7 @@ async function captureLivePage(req: CaptureRequestPayload, container: HTMLDivEle
             void finish(dataUrl);
             return;
         }
-        if (type === "shape-design-ready" || type === "shape-preview-ready") {
+        if (type === "bettershape-design-ready" || type === "bettershape-preview-ready") {
             ask();
         }
     };
@@ -291,8 +291,9 @@ export function DesignPreviewCaptureHost() {
     );
 
     React.useEffect(() => {
+        const activeEntries = activeRef.current;
         const onMessage = (event: MessageEvent) => {
-            if (!event.data || (event.data.type !== "shape-preview-ready" && event.data.type !== "shape-design-ready")) return;
+            if (!event.data || (event.data.type !== "bettershape-preview-ready" && event.data.type !== "bettershape-design-ready")) return;
             for (const [requestId, entry] of activeRef.current) {
                 if (!entry.settled && entry.iframe.contentWindow === event.source) {
                     void handleReady(requestId);
@@ -342,11 +343,11 @@ export function DesignPreviewCaptureHost() {
             window.removeEventListener("message", onMessage);
             void unlistenCapture.then((fn) => fn()).catch(() => { });
             void unlistenAbort.then((fn) => fn()).catch(() => { });
-            for (const entry of activeRef.current.values()) {
+            for (const entry of activeEntries.values()) {
                 clearTimeout(entry.timeoutId);
                 entry.iframe.remove();
             }
-            activeRef.current.clear();
+            activeEntries.clear();
         };
     }, [handleReady, settle]);
 

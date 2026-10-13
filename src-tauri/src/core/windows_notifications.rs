@@ -1,4 +1,4 @@
-//! Windows toast notifications that show as "Shape" instead of PowerShell.
+//! Windows toast notifications that show as "BetterShape" instead of PowerShell.
 //!
 //! `tauri-plugin-notification` skips setting AppUserModelID when the exe lives
 //! under `target/debug` or `target/release`, so Action Center attributes the
@@ -7,9 +7,9 @@
 use tauri_winrt_notification::{IconCrop, Toast};
 
 const APP_ID: &str = "com.shape.app";
-const DISPLAY_NAME: &str = "Shape";
+const DISPLAY_NAME: &str = "BetterShape";
 
-/// Register process AUMID + HKCU display name so toasts attribute to Shape.
+/// Register process AUMID + HKCU display name so toasts attribute to BetterShape.
 pub fn init() {
     set_process_aumid();
     register_aumid_display_name();
@@ -49,7 +49,7 @@ fn register_aumid_display_name() {
     }
 }
 
-/// Show a desktop toast attributed to Shape.
+/// Show a desktop toast attributed to BetterShape.
 pub fn show(title: &str, body: &str) -> Result<(), String> {
     let mut toast = Toast::new(APP_ID).title(title).text1(body);
     if let Some(icon) = toast_icon_path() {

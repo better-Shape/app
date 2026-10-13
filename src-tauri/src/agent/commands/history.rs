@@ -1,19 +1,18 @@
-/// Conversation persistence: save/load/manage chat history to disk.
-
-use std::time::{SystemTime, UNIX_EPOCH};
-use crate::core::error::AppError;
 use super::super::models::{AgentState, ChatMessage, Conversation};
 use super::logging;
+use crate::core::error::AppError;
+/// Conversation persistence: save/load/manage chat history to disk.
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn now_f64() -> f64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or_default()
         .as_secs_f64()
 }
 
 pub fn normalize_project_path(path: &str) -> String {
-    path.replace('\\', "/").trim_end_matches('/').to_lowercase()
+    crate::core::project_key::normalize_project_path_for_key(path)
 }
 
 pub fn project_paths_equal(a: &Option<String>, b: &Option<String>) -> bool {
@@ -29,24 +28,29 @@ pub fn get_chat_history_path(proj_path: &str) -> std::path::PathBuf {
     use std::hash::{Hash, Hasher};
     let mut hasher = DefaultHasher::new();
     proj_path.hash(&mut hasher);
-    let hash = hasher.finish();
+    let _ = hasher.finish();
 
     let mut path = dirs::data_local_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
-    path.push("Shape");
+    path.push("BetterShape");
     path.push("chat_history");
     let _ = std::fs::create_dir_all(&path);
-    path.push(format!("{:x}.json", hash));
+    path.push(format!("{}.json", crate::core::project_key::stable_project_key(&normalize_project_path(proj_path))));
     path
 }
 
 pub fn load_conversations(proj_path: &str) -> Vec<Conversation> {
     let file_path = get_chat_history_path(proj_path);
+    let l = file_path.with_file_name(format!("{:x}.json", crate::core::project_key::legacy_sip_hash(proj_path)));
+    let file_path = if !file_path.exists() && l.exists() { l } else { file_path };
     logging::debug("history", &format!("Loading conversations from {:?}", file_path));
     if let Ok(content) = std::fs::read_to_string(&file_path) {
         if let Ok(convs) = serde_json::from_str(&content) {
             return convs;
         } else {
-            logging::warn("history", "Failed to parse conversation file, returning empty");
+            logging::warn(
+                "history",
+                "Failed to parse conversation file, returning empty",
+            );
         }
     }
     Vec::new()
@@ -68,7 +72,12 @@ pub fn save_conversations_removing(proj_path: &str, convs: &[Conversation], remo
     save_conversations_inner(proj_path, convs, &[removed], true);
 }
 
-fn save_conversations_inner(proj_path: &str, convs: &[Conversation], removed: &[&str], merge_disk: bool) {
+fn save_conversations_inner(
+    proj_path: &str,
+    convs: &[Conversation],
+    removed: &[&str],
+    merge_disk: bool,
+) {
     let file_path = get_chat_history_path(proj_path);
     let mut lock_path = file_path.clone();
     lock_path.set_extension("lock");
@@ -108,14 +117,22 @@ fn save_conversations_inner(proj_path: &str, convs: &[Conversation], removed: &[
     }
 }
 
-fn histories_compatible_prefix(a: &[crate::agent::models::ChatMessage], b: &[crate::agent::models::ChatMessage]) -> bool {
+fn histories_compatible_prefix(
+    a: &[crate::agent::models::ChatMessage],
+    b: &[crate::agent::models::ChatMessage],
+) -> bool {
     let (short, long) = if a.len() <= b.len() { (a, b) } else { (b, a) };
-    short.iter().zip(long.iter()).all(|(left, right)| {
-        left.role == right.role && left.content == right.content
-    })
+    short
+        .iter()
+        .zip(long.iter())
+        .all(|(left, right)| left.role == right.role && left.content == right.content)
 }
 
-fn merge_with_disk(proj_path: &str, incoming: &[Conversation], removed: &[&str]) -> Vec<Conversation> {
+fn merge_with_disk(
+    proj_path: &str,
+    incoming: &[Conversation],
+    removed: &[&str],
+) -> Vec<Conversation> {
     let mut merged = load_conversations(proj_path);
     for id in removed {
         merged.retain(|c| c.id != *id);
@@ -140,7 +157,10 @@ fn merge_with_disk(proj_path: &str, incoming: &[Conversation], removed: &[&str])
 }
 
 /// Locate a conversation by id, optionally preferring a project file first.
-pub fn find_conversation_by_id(id: &str, preferred_proj: Option<&str>) -> Option<(String, Conversation)> {
+pub fn find_conversation_by_id(
+    id: &str,
+    preferred_proj: Option<&str>,
+) -> Option<(String, Conversation)> {
     if let Some(proj) = preferred_proj.filter(|p| !p.is_empty()) {
         let list = load_conversations(proj);
         if let Some(conv) = list.into_iter().find(|c| c.id == id) {
@@ -149,7 +169,7 @@ pub fn find_conversation_by_id(id: &str, preferred_proj: Option<&str>) -> Option
     }
 
     let mut root = dirs::data_local_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
-    root.push("Shape");
+    root.push("BetterShape");
     root.push("chat_history");
 
     let Ok(entries) = std::fs::read_dir(root) else {
@@ -172,6 +192,12 @@ pub fn find_conversation_by_id(id: &str, preferred_proj: Option<&str>) -> Option
     }
 
     None
+}
+
+/// Id for a brand-new chat. Second-resolution timestamps let two chats created in the
+/// same second share one id, which merged unrelated conversations together.
+pub fn new_conversation_id() -> String {
+    uuid::Uuid::new_v4().to_string()
 }
 
 pub fn save_current_conversation(state: &AgentState, proj_path: &str) -> Result<(), AppError> {
@@ -209,9 +235,7 @@ fn save_current_conversation_inner(
     let title = title.unwrap_or_else(|| "Untitled".to_string());
 
     let mut conv_id_guard = state.current_conversation_id.lock()?;
-    let id = conv_id_guard
-        .clone()
-        .unwrap_or_else(|| format!("{}", now_f64() as u64));
+    let id = conv_id_guard.clone().unwrap_or_else(new_conversation_id);
     *conv_id_guard = Some(id.clone());
 
     let mut convs = state.conversations.lock()?;
@@ -222,14 +246,20 @@ fn save_current_conversation_inner(
         .ok()
         .and_then(|g| g.clone())
         .unwrap_or_else(|| "chat".to_string());
+    let summary = state.current_summary();
+    let fold_end = state.summary_fold_end();
     if let Some(existing) = list.iter_mut().find(|c| c.id == id) {
         existing.history = history;
         existing.title = title;
         existing.timestamp = now_f64();
+        existing.summary = summary.clone();
+        existing.summary_fold_end = fold_end;
         let (locked, anchor) = state.title_meta();
         existing.title_locked = locked;
         existing.title_anchor_turns = anchor;
-        if existing.kind.trim().is_empty() || existing.kind == "chat" || existing.kind == "multiwork"
+        if existing.kind.trim().is_empty()
+            || existing.kind == "chat"
+            || existing.kind == "multiwork"
         {
             existing.kind = if kind == "multiwork" {
                 "chat".to_string()
@@ -250,6 +280,8 @@ fn save_current_conversation_inner(
             title_anchor_turns: anchor,
             archived: false,
             kind,
+            summary,
+            summary_fold_end: fold_end,
         });
         if let Some(last) = list.last_mut() {
             collapse_duplicate_assistants(&mut last.history);
@@ -279,10 +311,23 @@ pub fn upsert_conversation_snapshot(
     }
     let mut convs = state.conversations.lock()?;
     let list = project_conversation_list(&mut convs, proj_path);
+    // Background turns land here while the user is looking at another chat, and
+    // that chat's summary is not this conversation's summary.
+    let is_live = state
+        .current_conversation_id
+        .lock()
+        .map(|c| c.as_deref() == Some(id))
+        .unwrap_or(false);
+    let summary = if is_live { state.current_summary() } else { None };
+    let fold_end = if is_live { state.summary_fold_end() } else { 0 };
     if let Some(existing) = list.iter_mut().find(|c| c.id == id) {
         existing.history = history;
         existing.title = title.to_string();
         existing.timestamp = now_f64();
+        if summary.is_some() {
+            existing.summary = summary.clone();
+            existing.summary_fold_end = fold_end;
+        }
         collapse_duplicate_assistants(&mut existing.history);
     } else {
         list.push(Conversation {
@@ -295,6 +340,8 @@ pub fn upsert_conversation_snapshot(
             title_anchor_turns: 0,
             archived: false,
             kind: "chat".to_string(),
+            summary,
+            summary_fold_end: fold_end,
         });
         if let Some(last) = list.last_mut() {
             collapse_duplicate_assistants(&mut last.history);

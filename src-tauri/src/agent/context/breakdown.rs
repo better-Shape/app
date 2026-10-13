@@ -52,7 +52,7 @@ fn tokens_of_json(value: &Value) -> u64 {
     tokens_of(&value.to_string())
 }
 
-/// Build a JSON breakdown for the `X-Shape-Context-Breakdown` header.
+/// Build a JSON breakdown for the `X-BetterShape-Context-Breakdown` header.
 pub fn build_context_breakdown(
     system_base: &str,
     family_prompt: &str,

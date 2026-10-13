@@ -3,7 +3,9 @@ use crate::core::state::{AppState, FileInfo, ProjectState};
 use crate::domain::filesystem::service;
 use tauri::{AppHandle, State};
 
-pub use crate::commands::fs::{ContentSearchResult, FileEntry, ReplaceResult, SearchOptions, SearchResult};
+pub use crate::commands::fs::{
+    ContentSearchResult, FileEntry, ReplaceResult, SearchOptions, SearchResult,
+};
 
 #[tauri::command]
 pub async fn ls_dir(path: String) -> Result<Vec<FileEntry>, AppError> {
@@ -11,8 +13,23 @@ pub async fn ls_dir(path: String) -> Result<Vec<FileEntry>, AppError> {
 }
 
 #[tauri::command]
+pub fn home_dir() -> Option<String> {
+    service::home_dir()
+}
+
+#[tauri::command]
 pub async fn read_file(path: String) -> Result<String, AppError> {
     service::read_file(path).await
+}
+
+#[tauri::command]
+pub async fn read_file_within(path: String, root: String) -> Result<String, AppError> {
+    service::read_file_within(path, root).await
+}
+
+#[tauri::command]
+pub fn ensure_path_within(path: String, root: String) -> Result<(), AppError> {
+    service::ensure_path_within(path, root)
 }
 
 #[tauri::command]
@@ -70,10 +87,7 @@ pub async fn close_to_right(
 }
 
 #[tauri::command]
-pub async fn close_saved(
-    app: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<(), AppError> {
+pub async fn close_saved(app: AppHandle, state: State<'_, AppState>) -> Result<(), AppError> {
     service::close_saved(app, state).await
 }
 
@@ -93,17 +107,29 @@ pub async fn open_in_app(app: String, path: String) -> Result<(), AppError> {
 }
 
 #[tauri::command]
-pub async fn save_file(app: tauri::AppHandle, path: String, content: String) -> Result<(), AppError> {
+pub async fn save_file(
+    app: tauri::AppHandle,
+    path: String,
+    content: String,
+) -> Result<(), AppError> {
     service::save_file(app, path, content).await
 }
 
 #[tauri::command]
-pub async fn save_file_bytes(app: tauri::AppHandle, path: String, bytes: Vec<u8>) -> Result<(), AppError> {
+pub async fn save_file_bytes(
+    app: tauri::AppHandle,
+    path: String,
+    bytes: Vec<u8>,
+) -> Result<(), AppError> {
     service::save_file_bytes(app, path, bytes).await
 }
 
 #[tauri::command]
-pub async fn mark_file_dirty(app: tauri::AppHandle, path: String, dirty: bool) -> Result<(), AppError> {
+pub async fn mark_file_dirty(
+    app: tauri::AppHandle,
+    path: String,
+    dirty: bool,
+) -> Result<(), AppError> {
     service::mark_file_dirty(app, path, dirty).await
 }
 
@@ -118,6 +144,18 @@ pub async fn set_project_path(
 }
 
 #[tauri::command]
+pub fn set_extra_workspace_folders(window: tauri::WebviewWindow, folders: Vec<String>) -> Result<(), AppError> {
+    if window.label() != "main" { return Err(AppError::Message("Denied.".into())); }
+    crate::agent::security::paths::set_ipc_extra_roots(folders)
+}
+
+#[tauri::command]
+pub fn grant_ipc_path(window: tauri::WebviewWindow, path: String) -> Result<(), AppError> {
+    if window.label() != "main" { return Err(AppError::Message("Denied.".into())); }
+    crate::agent::security::paths::grant_ipc_path(&path)
+}
+
+#[tauri::command]
 pub async fn open_file(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -128,7 +166,11 @@ pub async fn open_file(
 }
 
 #[tauri::command]
-pub async fn close_file(app: AppHandle, state: State<'_, AppState>, path: String) -> Result<(), AppError> {
+pub async fn close_file(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<(), AppError> {
     service::close_file(app, state, path).await
 }
 

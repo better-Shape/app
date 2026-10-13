@@ -47,8 +47,8 @@ export function ComposerRepoMenu({
             setRecents(all);
         };
         sync();
-        window.addEventListener("shape-repo-history-changed", sync);
-        return () => window.removeEventListener("shape-repo-history-changed", sync);
+        window.addEventListener("bettershape-repo-history-changed", sync);
+        return () => window.removeEventListener("bettershape-repo-history-changed", sync);
     }, []);
 
     const filteredRepos = useMemo(() => {
@@ -84,7 +84,7 @@ export function ComposerRepoMenu({
                         key={r.path}
                         onClick={() => {
                             window.dispatchEvent(
-                                new CustomEvent("shape-open-project", {
+                                new CustomEvent("bettershape-open-project", {
                                     detail: { path: r.path },
                                 }),
                             );
@@ -105,7 +105,7 @@ export function ComposerRepoMenu({
                 ) : null}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
-                    onClick={() => window.dispatchEvent(new Event("shape-open-project-pick"))}
+                    onClick={() => window.dispatchEvent(new Event("bettershape-open-project-pick"))}
                     className="gap-2 pb-2! pl-2.5"
                 >
                     <span className="text-md text-text-muted!">Open Explorer</span>

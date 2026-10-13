@@ -3,7 +3,7 @@
 import * as React from "react";
 import * as AlertDialogPrimitive from "@radix-ui/react-alert-dialog";
 import { cn } from "@/lib/utils";
-import { SHAPE_MODAL_PANEL_CLASS, SHAPE_OVERLAY_CLASS, SHAPE_OVERLAY_CONTENT_CLASS } from "@/lib/ui/modal-overlay";
+import { BETTERSHAPE_MODAL_PANEL_CLASS, BETTERSHAPE_OVERLAY_CLASS, BETTERSHAPE_OVERLAY_CONTENT_CLASS } from "@/lib/ui/modal-overlay";
 import { useOverlayRoot } from "@/lib/ui/overlay-root";
 
 const AlertDialog = AlertDialogPrimitive.Root;
@@ -18,7 +18,7 @@ const AlertDialogOverlay = React.forwardRef<
 >(({ className, ...props }, ref) => (
     <AlertDialogPrimitive.Overlay
         ref={ref}
-        className={cn(SHAPE_OVERLAY_CLASS, className)}
+        className={cn(BETTERSHAPE_OVERLAY_CLASS, className)}
         {...props}
     />
 ));
@@ -38,8 +38,8 @@ const AlertDialogContent = React.forwardRef<
         <AlertDialogPrimitive.Content
             ref={ref}
             className={cn(
-                SHAPE_OVERLAY_CONTENT_CLASS,
-                SHAPE_MODAL_PANEL_CLASS,
+                BETTERSHAPE_OVERLAY_CONTENT_CLASS,
+                BETTERSHAPE_MODAL_PANEL_CLASS,
                 "absolute top-1/2 left-1/2 z-1001 w-[min(100%,calc(100%-2rem))] -translate-x-1/2 -translate-y-1/2 overflow-visible p-1",
                 sizeClassName,
                 className,

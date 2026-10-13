@@ -4,7 +4,6 @@ import { ArrowMinimize20Regular } from "@fluentui/react-icons/headless/svg/arrow
 import { ArrowSync20Regular } from "@fluentui/react-icons/headless/svg/arrow-sync";
 import { ArrowUpload20Regular } from "@fluentui/react-icons/headless/svg/arrow-upload";
 import { CloudOff20Regular } from "@fluentui/react-icons/headless/svg/cloud-off";
-import { Document20Regular } from "@fluentui/react-icons/headless/svg/document";
 import { Filter20Regular } from "@fluentui/react-icons/headless/svg/filter";
 import { Target20Regular } from "@fluentui/react-icons/headless/svg/target";
 
@@ -19,7 +18,6 @@ import {
     DropdownMenuContent,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown";
-import { Input } from "@/components/ui/input";
 import {
     commands,
     useProjectState,
@@ -114,7 +112,6 @@ export default function Graph({
     useEffect(() => {
         if (!cacheKey) return;
         if (gitLogs.length > 0) {
-            const prev = graphCache[cacheKey];
             const logs =
                 gitLogs.length > GRAPH_LOG_SOFT_CAP
                     ? gitLogs.slice(0, GRAPH_LOG_SOFT_CAP)
@@ -301,19 +298,6 @@ export default function Graph({
         return Array.from(set).sort((a, b) => a.localeCompare(b));
     }, [gitLogs]);
 
-    const branchHints = useMemo(() => {
-        const set = new Set<string>();
-        const limit = Math.min(gitLogs.length, 2_000);
-        for (let i = 0; i < limit; i++) {
-            for (const ref of gitLogs[i].refs ?? []) {
-                const cleaned = ref.replace(/HEAD -> /g, "").replace(/^tag: /, "").trim();
-                if (!cleaned || cleaned.toLowerCase() === "head") continue;
-                set.add(cleaned);
-            }
-            if (set.size >= 80) break;
-        }
-        return Array.from(set).sort((a, b) => a.localeCompare(b)).slice(0, 80);
-    }, [gitLogs]);
 
     /** Match predicate — used to mute rows, not drop them (preserves lane topology). */
     const commitMatchesFilter = useCallback((log: GitLogEntry) => {
@@ -546,6 +530,7 @@ export default function Graph({
         }
     }, [isLoadingNext, appendLogs, cacheKey]);
 
+    const hasGitLogs = gitLogs.length > 0;
     // Keep viewport height accurate on resize (sidebar drag, manager split).
     useEffect(() => {
         const node = scrollContainerRef.current;
@@ -557,7 +542,7 @@ export default function Graph({
         ro.observe(node);
         setContainerHeight(node.clientHeight);
         return () => ro.disconnect();
-    }, [gitLogs.length > 0]);
+    }, [hasGitLogs]);
 
     // When filters change and the current selection is muted, snap to the next match.
     const filterKey = `${authorFilter}\0${branchFilter}\0${kindFilter}\0${refKindFilter}\0${dateFilter}\0${rich ? (deferredLocalSearch || deferredCommitSearch) : deferredCommitSearch}`;

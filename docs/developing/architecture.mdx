@@ -17,7 +17,7 @@ Secondary windows (settings, agent, branch, popout editor) load their own routes
 
 UI actions go through typed wrappers in `lib/backend`, which invoke Tauri commands. Rust does privileged work and emits events the frontend listens for (chat chunks, PTY output, Git refresh, and similar).
 
-AI chat does not call model providers from the browser. The Rust agent attaches the Shape OAuth token and posts to the website completions proxy. Usage and entitlements are decided on that server. See [Client trust](/docs/developing/client-trust).
+AI chat does not call model providers from the browser. The Rust agent reads your provider keys from Settings → Providers and calls OpenAI, Anthropic, Google, or any OpenAI-compatible endpoint directly. Nothing is proxied through a server we run, and there are no usage limits to enforce. See [Client trust](/docs/developing/client-trust).
 
 ## Related
 

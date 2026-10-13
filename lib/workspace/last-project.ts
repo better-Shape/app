@@ -1,6 +1,6 @@
 const LAST_PROJECT_KEY = "shape:last-project";
 
-/** Path restored when Shape is reopened (not when New Window is used). */
+/** Path restored when BetterShape is reopened (not when New Window is used). */
 export function loadLastProject(): string | null {
     if (typeof window === "undefined") return null;
     try {

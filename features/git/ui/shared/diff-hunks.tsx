@@ -88,7 +88,7 @@ export function DiffHunkToolbar({
         } else {
           await commands.gitRestoreHunk(repoPath, filePath, hunk.index, lines);
         }
-        window.dispatchEvent(new Event("shape-git-refresh"));
+        window.dispatchEvent(new Event("bettershape-git-refresh"));
         onDone();
       } catch (err) {
         notify.error(
@@ -227,11 +227,11 @@ export function useDiffHunkState(
 
   const reload = useCallback(() => setReloadToken((t) => t + 1), []);
 
+  // Without a repo or mode there is nothing to show. Cleared during render, not in an effect.
+  if ((!repoPath || !mode) && hunks.length > 0) setHunks([]);
+
   useEffect(() => {
-    if (!repoPath || !mode) {
-      setHunks([]);
-      return;
-    }
+    if (!repoPath || !mode) return;
     let cancelled = false;
     void commands
       .gitListHunks(repoPath, filePath, mode === "staged")
@@ -252,8 +252,8 @@ export function useDiffHunkState(
 
   useEffect(() => {
     const onRefresh = () => reload();
-    window.addEventListener("shape-git-refresh", onRefresh);
-    return () => window.removeEventListener("shape-git-refresh", onRefresh);
+    window.addEventListener("bettershape-git-refresh", onRefresh);
+    return () => window.removeEventListener("bettershape-git-refresh", onRefresh);
   }, [reload]);
 
   useEffect(() => {

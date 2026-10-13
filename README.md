@@ -1,9 +1,9 @@
 
-If you're using version 1.0.0 or 1.0.1, we recommend manually updating to 1.0.2 for fixed performance and a fix for the updater.
+If you're using version 1.0.0, 1.0.1, or 1.0.2, we recommend manually updating to 1.0.3.
 
-# Shape
+# BetterShape
 
-<img src="./docs/logo/icon.svg" width="36" alt="Shape">
+<img src="./docs/logo/icon.svg" width="36" alt="BetterShape">
 
 A desktop agent for all your coding needs, plus so much more.
 
@@ -56,4 +56,4 @@ TypeScript, React, Next.js App Router, Tauri 2, Rust.
 
 [Business Source License 1.1](./LICENSE). Code you send is under the same license.
 
-Copyright © 2026 Shape.
+Copyright © 2026 BetterShape.

@@ -2,6 +2,7 @@
 
 import { ArrowLeft20Regular } from "@fluentui/react-icons/headless/svg/arrow-left";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { SearchInput } from "@/components/ui/search";
@@ -9,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { commands } from "@/lib/backend";
 import type { McpStatusEntry, McpToolInfo } from "@/lib/backend/types";
 import { notify } from "@/features/notifications";
-import { fetchComposioSkillHint } from "@/lib/mcp/composio-skill";
+import { fetchComposioSkillHint } from "@/lib/plugins/api";
 import { openMcpConfig } from "@/lib/mcp/config";
 import { humanizeToolName } from "@/lib/mcp/oauth";
 import { parseMcpPaste } from "@/lib/mcp/parse";
@@ -145,7 +146,7 @@ function AddMcpDialog({
                 <AlertDialogHeader>
                     <AlertDialogTitle>Add MCP server</AlertDialogTitle>
                     <AlertDialogDescription>
-                        Paste a server URL or a JSON config. This stays in Shape and is not written to mcp.json.
+                        Paste a server URL or a JSON config. This stays in BetterShape and is not written to mcp.json.
                     </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogBody>
@@ -374,9 +375,42 @@ export function McpSettingsView() {
         }
     }, []);
 
+    // The agent changed one server. `refresh` would reconnect every configured
+    // server and drop unrelated sessions, so read the list and the status the
+    // agent already reports instead.
+    const refreshFromAgent = useCallback(async () => {
+        try {
+            setServers(await listMcpServers());
+            setStatuses(await commands.getMcpStatus());
+        } catch (err) {
+            notify.error(err instanceof Error ? err.message : "Could not load MCP servers.");
+        }
+    }, []);
+
     useEffect(() => {
         void refresh();
-    }, [refresh]);
+        // The agent can add, edit, enable or test servers through mcp_manage.
+        // Those changes land in mcp.json, so re-read instead of guessing.
+        let unlisten: (() => void) | undefined;
+        let disposed = false;
+        void listen<{ action?: string }>("mcp-servers-changed", () => {
+            void refreshFromAgent();
+        })
+            .then((fn) => {
+                if (disposed) {
+                    fn();
+                    return;
+                }
+                unlisten = fn;
+            })
+            .catch(() => {
+                /* not in a Tauri window */
+            });
+        return () => {
+            disposed = true;
+            unlisten?.();
+        };
+    }, [refresh, refreshFromAgent]);
 
     const filtered = useMemo(() => {
         const q = query.trim().toLowerCase();

@@ -34,7 +34,9 @@ export function useFileContent(
             setLoading(true);
         }
 
+        let loadSeq = 0;
         const loadFile = async (showLoading = true) => {
+            const seq = ++loadSeq;
             if (showLoading) setLoading(true);
             setError(null);
             try {
@@ -141,14 +143,15 @@ export function useFileContent(
                         mod = fallback;
                     }
 
-                    if (cancelled) return;
+                    if (cancelled || seq !== loadSeq) return;
                     setOriginalContent(orig);
                     setContent(mod);
                     currentContent = mod;
                 } else {
                     const data = await commands.readFile(path);
-                    if (cancelled) return;
+                    if (cancelled || seq !== loadSeq) return;
                     const { loadDirtyBuffer } = await import("@/lib/workspace/dirty-buffers");
+                    if (cancelled || seq !== loadSeq) return;
                     const dirty = loadDirtyBuffer(path);
                     if (dirty && dirty.content !== data) {
                         setContent(dirty.content);
@@ -172,7 +175,7 @@ export function useFileContent(
                     bufferVersionRef.current += 1;
                     const ext = path.split(".").pop()?.toLowerCase() || "";
                     window.dispatchEvent(
-                        new CustomEvent("shape-editor-buffer", {
+                        new CustomEvent("bettershape-editor-buffer", {
                             detail: {
                                 path,
                                 content: currentContent,
@@ -213,7 +216,7 @@ export function useFileContent(
 
         loadFile(cached === undefined);
 
-        const unlistenPromise = listen<string>("shape-file-edited", (event) => {
+        const unlistenPromise = listen<string>("bettershape-file-edited", (event) => {
             const cleanPayload = event.payload.replace(/\\/g, '/').toLowerCase();
             const cleanPath = path.replace(/\\/g, '/').toLowerCase();
             if (cleanPayload === cleanPath) {
@@ -233,16 +236,25 @@ export function useFileContent(
             }
         });
 
+        const norm = (r: string) => { const s = r.replace(/\\/g, "/").replace(/\/+$/, ""); return /^[a-zA-Z]:[\\/]/.test(r) || r.includes("\\") ? s.toLowerCase() : s; };
+        const unlistenChangedPromise = listen<string[]>("bettershape-files-changed", (event) => {
+            commands.invalidateAllFileCaches();
+            if (!(Array.isArray(event.payload) ? event.payload : []).some((p) => typeof p === "string" && norm(p) === norm(path))) return;
+            commands.invalidateFileCache(path);
+            void import("@/lib/workspace/dirty-buffers").then(({ loadDirtyBuffer }) => { if (!loadDirtyBuffer(path)) loadFile(false); });
+        });
+
         const onGitRefresh = () => {
             if (!isDiff) return;
             loadFile(false);
         };
-        window.addEventListener("shape-git-refresh", onGitRefresh);
+        window.addEventListener("bettershape-git-refresh", onGitRefresh);
 
         return () => {
             cancelled = true;
             unlistenPromise.then(u => u()).catch(() => { });
-            window.removeEventListener("shape-git-refresh", onGitRefresh);
+            unlistenChangedPromise.then(u => u()).catch(() => { });
+            window.removeEventListener("bettershape-git-refresh", onGitRefresh);
         };
     }, [path, skipTextLoad, isDiff, project_path, savedContentRef, bufferVersionRef]);
 

@@ -115,7 +115,7 @@ export function WelcomeCloneDialog({
         try {
             const clonedPath = await commands.gitClone(repoUrl, parentDir);
             invalidateGitRepoCache();
-            window.dispatchEvent(new Event("shape-git-refresh"));
+            window.dispatchEvent(new Event("bettershape-git-refresh"));
             notify.success("Git", "Repository cloned.");
             onCloned(clonedPath);
         } catch (err) {
@@ -243,13 +243,13 @@ export function WelcomeSshDialog({
             return;
         }
         window.dispatchEvent(
-            new CustomEvent("shape-layout-toggle", { detail: { id: "panel", value: true } }),
+            new CustomEvent("bettershape-layout-toggle", { detail: { id: "panel", value: true } }),
         );
         window.dispatchEvent(
-            new CustomEvent("shape-terminal-shortcut", { detail: { action: "new" } }),
+            new CustomEvent("bettershape-terminal-shortcut", { detail: { action: "new" } }),
         );
         window.dispatchEvent(
-            new CustomEvent("shape-terminal-run", {
+            new CustomEvent("bettershape-terminal-run", {
                 detail: { command: `ssh ${trimmed}` },
             }),
         );

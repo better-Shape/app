@@ -113,9 +113,7 @@ export async function warmProjectAnalysis(
             void (async () => {
                 try {
                     const { commands } = await import("@/lib/backend");
-                    const { getShapeAccessToken } = await import("@/lib/cloud/store");
-                    const token = getShapeAccessToken();
-                    if (token) await commands.indexProject(projectPath, token);
+                    await commands.indexProject(projectPath);
                 } catch {
                     /* optional */
                 }

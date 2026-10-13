@@ -62,7 +62,7 @@ export function WorkspaceBranchSwitch() {
         void commands
             .gitSwitchBranch(repoPath, name)
             .then(() => {
-                window.dispatchEvent(new Event("shape-git-refresh"));
+                window.dispatchEvent(new Event("bettershape-git-refresh"));
             })
             .catch((err) => {
                 void import("@/features/notifications").then(({ notify }) => notify.gitError(err));

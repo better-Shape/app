@@ -7,7 +7,6 @@ import { Code20Regular } from "@fluentui/react-icons/headless/svg/code";
 import { useMemo } from "react";
 import { Icon } from "@/components/ui/icon";
 
-import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
 import { FileIcon } from "@/components/ui/file-icon";
 import { useProjectState, commands } from "@/lib/backend";
@@ -133,7 +132,7 @@ export default function Status() {
                             label="Go to Line/Column"
                             onClick={() => {
                                 window.dispatchEvent(
-                                    new CustomEvent("shape-command-palette", {
+                                    new CustomEvent("bettershape-command-palette", {
                                         detail: { mode: "goto_line", placeholder: "Line : Column" },
                                     }),
                                 );

@@ -15,9 +15,26 @@ pub fn loopback_redirect_uri(port: u16) -> String {
     format!("http://127.0.0.1:{port}/callback")
 }
 
-/// Client ID Metadata Document (CIMD) — industry approach for native MCP clients
-/// when the AS does not offer DCR or DCR is unavailable.
-const SHAPE_CIMD_CLIENT_ID: &str = "https://www.useshape.org/oauth/mcp-client.json";
+/// Client ID Metadata Document (CIMD) — served by our own loopback listener so
+/// the app never depends on a hosted document. Auth servers that require an
+/// HTTPS client_id should be given an explicit client id in the server config.
+fn cimd_client_id(port: u16) -> String {
+    format!("http://127.0.0.1:{port}/oauth/mcp-client.json")
+}
+
+/// Body of the local CIMD document. `redirect_uris` must list the loopback
+/// callback we actually listen on, exactly as the spec requires.
+fn cimd_document(port: u16) -> serde_json::Value {
+    serde_json::json!({
+        "client_id": cimd_client_id(port),
+        "client_name": "BetterShape",
+        "client_uri": "https://github.com/shape-ide/shape",
+        "redirect_uris": [loopback_redirect_uri(port)],
+        "grant_types": ["authorization_code", "refresh_token"],
+        "response_types": ["code"],
+        "token_endpoint_auth_method": "none",
+    })
+}
 
 const REFRESH_SKEW_SECS: i64 = 60;
 const MAX_SCOPE_CHARS: usize = 400;
@@ -65,10 +82,7 @@ fn now_epoch() -> i64 {
 
 fn pkce_challenge(verifier: &str) -> String {
     let digest = Sha256::digest(verifier.as_bytes());
-    base64::Engine::encode(
-        &base64::engine::general_purpose::URL_SAFE_NO_PAD,
-        digest,
-    )
+    base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, digest)
 }
 
 fn random_urlsafe(len: usize) -> String {
@@ -160,7 +174,7 @@ pub async fn refresh_access_token(server_id: &str) -> Result<StoredMcpTokens, St
     let client_id = existing
         .client_id
         .clone()
-        .unwrap_or_else(|| "shape-desktop".to_string());
+        .unwrap_or_else(|| "bettershape-desktop".to_string());
 
     let mut form: Vec<(&str, &str)> = vec![
         ("grant_type", "refresh_token"),
@@ -236,7 +250,7 @@ async fn try_dynamic_client_registration(
         .post(registration_endpoint)
         .header("Content-Type", "application/json")
         .json(&serde_json::json!({
-            "client_name": "Shape",
+            "client_name": "BetterShape",
             // Register both loopback forms — IdPs disagree on localhost vs 127.0.0.1.
             "redirect_uris": [redirect_uri, redirect_localhost],
             "grant_types": ["authorization_code", "refresh_token"],
@@ -295,7 +309,7 @@ fn resolve_oauth_client(
     if as_advertises_cimd(as_meta) {
         return ResolveClientStrategy::Cimd;
     }
-    // Some ASs omit both; try CIMD last so we never invent a fake client_id.
+    // Some ASs omit both; our own metadata document is the last resort.
     ResolveClientStrategy::Cimd
 }
 
@@ -322,7 +336,14 @@ pub fn scopes_from_meta(prm: &serde_json::Value, as_meta: &serde_json::Value) ->
     if raw.len() <= MAX_SCOPE_CHARS {
         return raw;
     }
-    let preferred = ["openid", "offline_access", "read", "write", "mcp:connect", "default"];
+    let preferred = [
+        "openid",
+        "offline_access",
+        "read",
+        "write",
+        "mcp:connect",
+        "default",
+    ];
     let available: Vec<&str> = raw.split_whitespace().collect();
     let mut picked: Vec<&str> = preferred
         .iter()
@@ -418,39 +439,70 @@ async fn fetch_json_ok(client: &reqwest::Client, url: &str) -> Option<serde_json
 }
 
 /// Bind an ephemeral loopback port and wait for the browser redirect.
+///
+/// The auth server may fetch our client metadata document from the same
+/// listener before it redirects, so we answer metadata requests and keep
+/// waiting until the real `/callback` request arrives.
 async fn wait_loopback_callback(listener: TcpListener) -> Result<String, String> {
-    let (mut socket, _) = timeout(OAUTH_TIMEOUT, listener.accept())
-        .await
-        .map_err(|_| "OAuth timed out — approve in the browser, then try Connect again.".to_string())?
-        .map_err(|e| format!("OAuth callback accept failed: {e}"))?;
+    let deadline = std::time::Instant::now() + OAUTH_TIMEOUT;
+    loop {
+        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+        if remaining.is_zero() {
+            return Err(
+                "OAuth timed out — approve in the browser, then try Connect again.".to_string(),
+            );
+        }
+        let (mut socket, _) = timeout(remaining, listener.accept())
+            .await
+            .map_err(|_| {
+                "OAuth timed out — approve in the browser, then try Connect again.".to_string()
+            })?
+            .map_err(|e| format!("OAuth callback accept failed: {e}"))?;
 
-    let mut buf = vec![0u8; 16_384];
-    let n = timeout(Duration::from_secs(10), socket.read(&mut buf))
-        .await
-        .map_err(|_| "OAuth callback read timed out".to_string())?
-        .map_err(|e| format!("OAuth callback read failed: {e}"))?;
-    let req = String::from_utf8_lossy(&buf[..n]);
-    let first_line = req.lines().next().unwrap_or("");
-    // GET /callback?code=...&state=... HTTP/1.1
-    let path = first_line
-        .split_whitespace()
-        .nth(1)
-        .ok_or("Malformed OAuth callback request")?;
-    let callback_url = format!("http://127.0.0.1{path}");
+        let mut buf = vec![0u8; 16_384];
+        let n = match timeout(Duration::from_secs(10), socket.read(&mut buf)).await {
+            Ok(Ok(n)) => n,
+            Ok(Err(e)) => return Err(format!("OAuth callback read failed: {e}")),
+            Err(_) => return Err("OAuth callback read timed out".to_string()),
+        };
+        let req = String::from_utf8_lossy(&buf[..n]).to_string();
+        let first_line = req.lines().next().unwrap_or("");
+        // GET /callback?code=...&state=... HTTP/1.1
+        let path = first_line
+            .split_whitespace()
+            .nth(1)
+            .ok_or("Malformed OAuth callback request")?
+            .to_string();
 
-    let body = r#"<!doctype html><html><head><meta charset="utf-8"><title>Shape</title>
+        if path.starts_with("/oauth/mcp-client.json") {
+            let port = socket.local_addr().map(|a| a.port()).unwrap_or_default();
+            let body = cimd_document(port).to_string();
+            let resp = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            let _ = socket.write_all(resp.as_bytes()).await;
+            let _ = socket.shutdown().await;
+            continue;
+        }
+
+        let callback_url = format!("http://127.0.0.1{path}");
+
+        let body = r#"<!doctype html><html><head><meta charset="utf-8"><title>BetterShape</title>
 <style>body{font-family:system-ui,sans-serif;background:#111;color:#eee;display:flex;align-items:center;justify-content:center;height:100vh;margin:0}
 main{text-align:center}h1{font-size:18px;font-weight:600}p{color:#888;font-size:13px}</style></head>
-<body><main><h1>Connected</h1><p>You can close this tab and return to Shape.</p></main></body></html>"#;
-    let resp = format!(
-        "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-        body.len(),
-        body
-    );
-    let _ = socket.write_all(resp.as_bytes()).await;
-    let _ = socket.shutdown().await;
+<body><main><h1>Connected</h1><p>You can close this tab and return to BetterShape.</p></main></body></html>"#;
+        let resp = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let _ = socket.write_all(resp.as_bytes()).await;
+        let _ = socket.shutdown().await;
 
-    Ok(callback_url)
+        return Ok(callback_url);
+    }
 }
 
 /// Start OAuth, wait for loopback approve, exchange tokens. Returns server_id.
@@ -480,7 +532,7 @@ pub async fn start_oauth(
             "params": {
                 "protocolVersion": "2024-11-05",
                 "capabilities": {},
-                "clientInfo": { "name": "shape", "version": "1.0.0" }
+                "clientInfo": { "name": "bettershape", "version": "1.0.0" }
             }
         }))
         .send()
@@ -556,15 +608,16 @@ pub async fn start_oauth(
     let (client_id, client_secret) = match resolve_oauth_client(&static_client_id, &as_meta) {
         ResolveClientStrategy::Static(id) => (id, None),
         ResolveClientStrategy::Cimd => {
-            // Hosted CIMD must be reachable — a 404 client_id makes browsers
-            // "sign in" then never redirect back to our loopback port.
-            if fetch_json_ok(&client, SHAPE_CIMD_CLIENT_ID).await.is_none() {
-                return Err(
-                    "OAuth client metadata is not published yet (CIMD 404). This server requires Dynamic Client Registration."
-                        .to_string(),
-                );
+            // We serve the metadata document ourselves from the loopback
+            // listener; no hosted client id is involved.
+            let doc = cimd_document(port);
+            if doc.get("redirect_uris").is_none() {
+                return Err("Local OAuth client metadata is malformed".to_string());
             }
-            (SHAPE_CIMD_CLIENT_ID.to_string(), None)
+            (
+                cimd_client_id(port),
+                None,
+            )
         }
         ResolveClientStrategy::Dcr(reg) => {
             try_dynamic_client_registration(&client, &reg, auth_method, &redirect_uri).await?

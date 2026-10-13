@@ -45,9 +45,9 @@ import {
 import { indentationMarkers } from "@replit/codemirror-indentation-markers";
 import { commands } from "@/lib/backend";
 import { languageForPath } from "./lang";
-import { shapeSyntaxLinter } from "./syntax-lint";
-import { SHAPE_CLIP_CODE, rememberShapeClip } from "@/features/chat/lib/shape-clip";
-import { shapeEditorChrome } from "./theme";
+import { betterShapeSyntaxLinter } from "./syntax-lint";
+import { BETTERSHAPE_CLIP_CODE, rememberBetterShapeClip } from "@/features/chat/lib/bettershape-clip";
+import { betterShapeEditorChrome } from "./theme";
 import { lintGutter } from "@codemirror/lint";
 import {
     ContextMenu,
@@ -89,7 +89,7 @@ export function CodeMirrorEditor({
         const state = EditorState.create({
             doc: content,
             extensions: [
-                ...shapeEditorChrome(),
+                ...betterShapeEditorChrome(),
                 search({ top: false }),
                 lineNumbers(),
                 highlightActiveLineGutter(),
@@ -140,7 +140,7 @@ export function CodeMirrorEditor({
                     { key: "Mod-]", run: indentMore },
                     { key: "Mod-[", run: indentLess },
                 ]),
-                langCompartment.of(lang ? [lang, shapeSyntaxLinter(path), lintGutter()] : []),
+                langCompartment.of(lang ? [lang, betterShapeSyntaxLinter(path), lintGutter()] : []),
                 EditorView.updateListener.of((update) => {
                     if (!update.docChanged) return;
                     const next = update.state.doc.toString();
@@ -158,11 +158,11 @@ export function CodeMirrorEditor({
                         if (!text) return false;
                         const path = pathRef.current;
                         event.dataTransfer?.setData(
-                            SHAPE_CLIP_CODE,
+                            BETTERSHAPE_CLIP_CODE,
                             JSON.stringify({ path, text }),
                         );
                         event.dataTransfer?.setData("text/plain", text);
-                        rememberShapeClip({ kind: "code", text, label: path });
+                        rememberBetterShapeClip({ kind: "code", text, label: path });
                         return false;
                     },
                     keydown(e) {
@@ -198,7 +198,7 @@ export function CodeMirrorEditor({
             void described.load().then((support) => {
                 if (viewRef.current !== view) return;
                 view.dispatch({
-                    effects: langCompartment.reconfigure([support, shapeSyntaxLinter(path), lintGutter()]),
+                    effects: langCompartment.reconfigure([support, betterShapeSyntaxLinter(path), lintGutter()]),
                 });
             }).catch(() => {});
         }
@@ -225,17 +225,17 @@ export function CodeMirrorEditor({
                 for (let step = cursor.next(); !step.done; step = cursor.next()) count += 1;
             }
             window.dispatchEvent(
-                new CustomEvent("shape-editor-search-count", { detail: { path: pathRef.current, count } }),
+                new CustomEvent("bettershape-editor-search-count", { detail: { path: pathRef.current, count } }),
             );
         };
-        window.addEventListener("shape-editor-search", onSearch as EventListener);
+        window.addEventListener("bettershape-editor-search", onSearch as EventListener);
         if (isFirstLoadRef.current) {
             isFirstLoadRef.current = false;
             savedContentRef.current = content;
         }
 
         return () => {
-            window.removeEventListener("shape-editor-search", onSearch as EventListener);
+            window.removeEventListener("bettershape-editor-search", onSearch as EventListener);
             view.destroy();
             viewRef.current = null;
         };

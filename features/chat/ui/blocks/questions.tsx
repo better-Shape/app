@@ -7,7 +7,7 @@ import { Dismiss20Regular } from "@fluentui/react-icons/headless/svg/dismiss";
 
 
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { Icon } from "@/components/ui/icon";
 
 
@@ -79,9 +79,12 @@ export function QuestionsCard({
     const current = questions[index];
     const answered = status === "answered" || (!pending && Boolean(initialAnswers));
 
-    useEffect(() => {
+    // New saved answers replace the picks shown. Compared during render.
+    const [seenAnswers, setSeenAnswers] = useState(initialAnswers);
+    if (initialAnswers !== seenAnswers) {
+        setSeenAnswers(initialAnswers);
         if (initialAnswers) setPicked(initialAnswers);
-    }, [initialAnswers]);
+    }
 
     const recap = useMemo(() => {
         if (!answered && pending) return null;

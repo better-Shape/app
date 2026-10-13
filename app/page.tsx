@@ -10,7 +10,6 @@ import {
 } from "./welcome-dialogs";
 import { WelcomeScreen, useRecentFolders } from "./welcome-screen";
 import { loginGitHub } from "@/lib/github/store";
-import { getProjectSnapshot } from "@/lib/backend";
 
 /**
  * Agent window home — welcome when idle.
@@ -21,17 +20,14 @@ export default function Home() {
     const [cloneOpen, setCloneOpen] = useState(false);
     const [sshOpen, setSshOpen] = useState(false);
     const recentFolders = useRecentFolders();
-    const [restoringProject, setRestoringProject] = useState(
-        () => !getProjectSnapshot().project_path,
-    );
-
-    useEffect(() => {
-        if (project_path) setRestoringProject(false);
-    }, [project_path]);
+    // Restoring only lasts until Main's restore brings a project, or a short grace period
+    // passes. Both are derived here rather than written from an effect.
+    const [restoreTimedOut, setRestoreTimedOut] = useState(false);
+    const restoringProject = !restoreTimedOut && !project_path;
 
     useEffect(() => {
         // Brief wait for Main's restore; then show welcome if still empty.
-        const t = window.setTimeout(() => setRestoringProject(false), 800);
+        const t = window.setTimeout(() => setRestoreTimedOut(true), 800);
         return () => window.clearTimeout(t);
     }, []);
 
@@ -69,7 +65,7 @@ export default function Home() {
             <WelcomeScreen
                 recentFolders={recentFolders}
                 onOpenProject={handleOpen}
-                onPickFolder={() => window.dispatchEvent(new Event("shape-open-project-pick"))}
+                onPickFolder={() => window.dispatchEvent(new Event("bettershape-open-project-pick"))}
                 onClone={() => setCloneOpen(true)}
                 onSsh={() => setSshOpen(true)}
                 onConnectGitHub={() => void loginGitHub()}

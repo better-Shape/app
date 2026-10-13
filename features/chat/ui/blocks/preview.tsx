@@ -20,7 +20,8 @@ function resolvePreviewSrc(path: string): string {
 /** Optional editor-hosted preview (legacy path). Primary UX is the in-chat canvas. */
 export function DesignPreviewView({ sessionId }: { sessionId: string }) {
     const session = useDesignPreviewSession(sessionId);
-    const items = session?.items ?? [];
+    const sessionItems = session?.items;
+    const items = useMemo(() => sessionItems ?? [], [sessionItems]);
     const item = useMemo(() => items[0], [items]);
 
     if (!items.length || !item) {

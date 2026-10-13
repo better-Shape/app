@@ -48,7 +48,7 @@ export function FrameworkMark({
     );
 }
 
-export function CursorMark({ size = 16 }: { size?: number }) {
+export function CursorMark(_props: { size?: number }) {
     return (
         <Icon
             icon={Cursor20Filled}

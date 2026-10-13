@@ -28,7 +28,7 @@ try {{
   var h = String(loc.hostname || "");
   var port = String(loc.port || "");
   if (h !== "localhost" && h !== "127.0.0.1" && h !== "[::1]" && h !== "::1") return;
-  // Never inject into the Shape IDE itself (nested / HMR iframes on 48921).
+  // Never inject into the BetterShape IDE itself (nested / HMR iframes on 48921).
   if (port === "48921" || port === "1420") return;
   var path = String(loc.pathname || "");
   if (path.indexOf("/_next") === 0 || path.indexOf("/onboarding") === 0) return;
@@ -88,7 +88,7 @@ pub fn register_design_bridge(app: AppHandle, script: String) -> Result<(), AppE
     .map_err(|e| AppError::Message(e.to_string()))
 }
 
-/// Print design-mode diagnostics to the Shape log target only — never the project PTY.
+/// Print design-mode diagnostics to the BetterShape log target only — never the project PTY.
 #[tauri::command]
 pub fn design_mode_log(level: String, message: String) {
     match level.to_ascii_uppercase().as_str() {
@@ -115,8 +115,8 @@ fn install_on_windows(
         if let Some(id) = previous_id {
             let _ = core.RemoveScriptToExecuteOnDocumentCreated(&HSTRING::from(id));
         }
-        let handler = AddScriptToExecuteOnDocumentCreatedCompletedHandler::create(Box::new(
-            |_hr, id| {
+        let handler =
+            AddScriptToExecuteOnDocumentCreatedCompletedHandler::create(Box::new(|_hr, id| {
                 let script_id = id.to_string();
                 if !script_id.is_empty() {
                     if let Ok(mut guard) = INSTALL.lock() {
@@ -126,8 +126,7 @@ fn install_on_windows(
                     }
                 }
                 Ok(())
-            },
-        ));
+            }));
         core.AddScriptToExecuteOnDocumentCreated(&HSTRING::from(script), &handler)
             .map_err(|e| e.to_string())?;
     }
@@ -135,10 +134,7 @@ fn install_on_windows(
 }
 
 #[cfg(target_os = "macos")]
-fn install_on_macos(
-    webview: &tauri::webview::PlatformWebview,
-    script: &str,
-) -> Result<(), String> {
+fn install_on_macos(webview: &tauri::webview::PlatformWebview, script: &str) -> Result<(), String> {
     // WKWebView counterpart to WebView2 AddScriptToExecuteOnDocumentCreated.
     // The injected script itself guards to localhost iframe documents only.
     let _ = webview;

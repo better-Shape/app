@@ -68,11 +68,11 @@ export type DesignLayerSnapshot = {
  */
 export const DESIGN_BRIDGE_SCRIPT = String.raw`
 (function () {
-  if (window.__shapeDesignBridge) {
-    try { window.__shapeDesignBridge.refresh(); } catch (_) {}
+  if (window.__bettershapeDesignBridge) {
+    try { window.__bettershapeDesignBridge.refresh(); } catch (_) {}
     try {
       window.parent.postMessage({
-        type: "shape-design-ready",
+        type: "bettershape-design-ready",
         title: document.title,
         url: location.href
       }, "*");
@@ -80,7 +80,7 @@ export const DESIGN_BRIDGE_SCRIPT = String.raw`
     return;
   }
 
-  var PREFIX = "__shape_design_";
+  var PREFIX = "__betterbetterbetterbettershape_design_";
   var selected = null;
   var hovered = null;
   var mode = "normal";
@@ -397,7 +397,7 @@ export const DESIGN_BRIDGE_SCRIPT = String.raw`
     if (!node || !node.getAttribute) return null;
     var attrLoc = locFromValue(
       node.getAttribute("data-insp-path") ||
-      node.getAttribute("data-shape-loc") ||
+      node.getAttribute("data-bettershape-loc") ||
       node.getAttribute("data-loc") ||
       node.getAttribute("data-source-loc") ||
       node.getAttribute("data-locatorjs") ||
@@ -548,10 +548,10 @@ export const DESIGN_BRIDGE_SCRIPT = String.raw`
   }
   function unpin() {
     if (!pinnedRoot) return;
-    pinnedRoot.removeAttribute("data-shape-pin-open");
+    pinnedRoot.removeAttribute("data-bettershape-pin-open");
     var menu = relatedMenu(pinnedRoot);
     if (menu) {
-      menu.removeAttribute("data-shape-pin-open");
+      menu.removeAttribute("data-bettershape-pin-open");
       if (menu._shapePinDisplay) {
         menu.style.display = menu._shapePinDisplay;
         delete menu._shapePinDisplay;
@@ -576,7 +576,7 @@ export const DESIGN_BRIDGE_SCRIPT = String.raw`
     }
     if (pinnedRoot && pinnedRoot !== root) unpin();
     pinnedRoot = root;
-    root.setAttribute("data-shape-pin-open", "1");
+    root.setAttribute("data-bettershape-pin-open", "1");
     if (root.hasAttribute("aria-expanded") || root.getAttribute("aria-haspopup")) {
       root.setAttribute("aria-expanded", "true");
     }
@@ -584,7 +584,7 @@ export const DESIGN_BRIDGE_SCRIPT = String.raw`
     if (root.tagName === "SELECT") root.size = Math.min(Math.max(root.options.length, 2), 8);
     var menu = relatedMenu(root);
     if (menu) {
-      menu.setAttribute("data-shape-pin-open", "1");
+      menu.setAttribute("data-bettershape-pin-open", "1");
       menu._shapePinDisplay = menu.style.display;
       menu.style.setProperty("display", "block", "important");
       menu.style.setProperty("opacity", "1", "important");
@@ -609,7 +609,7 @@ export const DESIGN_BRIDGE_SCRIPT = String.raw`
     var list = el.classList || [];
     for (var i = 0; i < list.length; i++) {
       var name = String(list[i] || "");
-      if (!name || name.indexOf("__shape") === 0) continue;
+      if (!name || name.indexOf("__bettershape") === 0) continue;
       if (!/^(sm:|md:|lg:|xl:|2xl:|hover:|focus:|dark:)?[a-z]+-/.test(name) && name.length > 2) return name;
     }
     return "";
@@ -791,7 +791,7 @@ export const DESIGN_BRIDGE_SCRIPT = String.raw`
     "." + PREFIX + "guide{position:fixed;display:none;background:#ff4d9d;box-shadow:0 0 0 1px rgba(0,0,0,.18);z-index:2147483647}" +
     "." + PREFIX + "guide-x{top:0;bottom:0;width:2px}." + PREFIX + "guide-y{left:0;right:0;height:2px}" +
     "." + PREFIX + "insert{position:fixed;display:none;background:#0d99ff;border-radius:999px;z-index:2147483647;pointer-events:none;box-shadow:0 0 0 1px rgba(13,153,255,.35)}" +
-    "[data-shape-pin-open]{visibility:visible!important;pointer-events:auto!important}";
+    "[data-bettershape-pin-open]{visibility:visible!important;pointer-events:auto!important}";
   document.documentElement.appendChild(style);
 
   var overlay = document.createElement("div");
@@ -1006,9 +1006,9 @@ export const DESIGN_BRIDGE_SCRIPT = String.raw`
         selected = null;
         hovered = null;
         hideInsert();
-        post("shape-design-selection", { element: null });
+        post("bettershape-design-selection", { element: null });
       } else {
-        post("shape-design-selection", { element: snapshot(recovered) });
+        post("bettershape-design-selection", { element: snapshot(recovered) });
       }
     }
     if (mode === "normal") {
@@ -1094,7 +1094,7 @@ export const DESIGN_BRIDGE_SCRIPT = String.raw`
       Array.prototype.forEach.call(el.children, function (child) { walk(child, depth + 1); });
     }
     walk(root, 0);
-    post("shape-design-tree", { layers: layers });
+    post("bettershape-design-tree", { layers: layers });
   }
   function select(el) {
     if (!el || isEditorNode(el)) return;
@@ -1110,7 +1110,7 @@ export const DESIGN_BRIDGE_SCRIPT = String.raw`
       if (selected !== token) return;
       var addToChat = pendingAddToChat;
       pendingAddToChat = false;
-      post("shape-design-selection", { element: snapshot(el, source), addToChat: addToChat });
+      post("bettershape-design-selection", { element: snapshot(el, source), addToChat: addToChat });
     });
   }
 
@@ -1359,7 +1359,7 @@ export const DESIGN_BRIDGE_SCRIPT = String.raw`
       hideInsert();
       refresh();
       if (moved) {
-        post("shape-design-reorder", {
+        post("bettershape-design-reorder", {
           element: snapshot(drag.el),
           before: drag.before ? snapshot(drag.before) : null
         });
@@ -1381,7 +1381,7 @@ export const DESIGN_BRIDGE_SCRIPT = String.raw`
       if (drag.handle.indexOf("n") >= 0) styles.top = drag.el.style.top;
       styles.position = drag.el.style.position;
     }
-    post("shape-design-commit-styles", { element: snapshot(drag.el), styles: styles });
+    post("bettershape-design-commit-styles", { element: snapshot(drag.el), styles: styles });
     drag = null;
   }, true);
 
@@ -1397,7 +1397,7 @@ export const DESIGN_BRIDGE_SCRIPT = String.raw`
       el.contentEditable = "false";
       el.removeEventListener("blur", finish);
       if ((el.textContent || "") !== before) {
-        post("shape-design-commit-text", { element: snapshot(el), text: el.textContent || "" });
+        post("bettershape-design-commit-text", { element: snapshot(el), text: el.textContent || "" });
       }
     };
     el.addEventListener("blur", finish);
@@ -1410,12 +1410,12 @@ export const DESIGN_BRIDGE_SCRIPT = String.raw`
     var editing = event.target && (event.target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName));
     if (editing) return;
     if (event.key === "Delete" || event.key === "Backspace") {
-      post("shape-design-delete", { element: snapshot(selected) });
+      post("bettershape-design-delete", { element: snapshot(selected) });
       event.preventDefault();
       return;
     }
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "d") {
-      post("shape-design-duplicate", { element: snapshot(selected) });
+      post("bettershape-design-duplicate", { element: snapshot(selected) });
       event.preventDefault();
       return;
     }
@@ -1431,7 +1431,7 @@ export const DESIGN_BRIDGE_SCRIPT = String.raw`
           refresh();
           var afterSibs = layoutSiblings(selected);
           var idx = afterSibs.indexOf(selected);
-          post("shape-design-reorder", {
+          post("bettershape-design-reorder", {
             element: snapshot(selected),
             before: idx >= 0 && idx + 1 < afterSibs.length ? snapshot(afterSibs[idx + 1]) : null
           });
@@ -1451,7 +1451,7 @@ export const DESIGN_BRIDGE_SCRIPT = String.raw`
       selected.style.left = left + "px";
       selected.style.top = top + "px";
       refresh();
-      post("shape-design-commit-styles", {
+      post("bettershape-design-commit-styles", {
         element: snapshot(selected),
         styles: { position: selected.style.position || computed.position, left: selected.style.left, top: selected.style.top }
       });
@@ -1489,7 +1489,7 @@ export const DESIGN_BRIDGE_SCRIPT = String.raw`
     return css;
   }
   function exportNode(scale, requestId, resultType) {
-    var type = resultType || "shape-design-export-result";
+    var type = resultType || "bettershape-design-export-result";
     try {
       var el = selected || document.documentElement;
       var rect = el.getBoundingClientRect();
@@ -1570,11 +1570,11 @@ export const DESIGN_BRIDGE_SCRIPT = String.raw`
     var styles = { position: selected.style.position || computed.position };
     if (alignment === "center" || alignment === "center-x") styles.left = selected.style.left;
     if (alignment === "center" || alignment === "center-y") styles.top = selected.style.top;
-    post("shape-design-commit-styles", { element: snapshot(selected), styles: styles });
+    post("bettershape-design-commit-styles", { element: snapshot(selected), styles: styles });
   }
   window.addEventListener("message", function (event) {
     var data = event.data || {};
-    if (data.type === "shape-design-set-mode") {
+    if (data.type === "bettershape-design-set-mode") {
       if (typeof data.mode === "string" && data.mode) mode = data.mode;
       if (typeof data.projectRoot === "string") projectRoot = data.projectRoot;
       if (mode === "normal") {
@@ -1585,36 +1585,36 @@ export const DESIGN_BRIDGE_SCRIPT = String.raw`
       }
       refresh();
     }
-    if (data.type === "shape-design-config") {
+    if (data.type === "bettershape-design-config") {
       if (typeof data.projectRoot === "string") projectRoot = data.projectRoot;
     }
-    if (data.type === "shape-design-select-key") {
+    if (data.type === "bettershape-design-select-key") {
       var all = document.body ? document.body.querySelectorAll("*") : [];
       for (var i = 0; i < all.length; i++) if (keyFor(all[i]) === data.key) { select(all[i]); break; }
     }
-    if (data.type === "shape-design-refresh") {
+    if (data.type === "bettershape-design-refresh") {
       refresh();
       sendTree();
-      post("shape-design-tokens", { themeTokens: collectThemeTokens() });
+      post("bettershape-design-tokens", { themeTokens: collectThemeTokens() });
     }
-    if (data.type === "shape-design-align") alignSelected(data.alignment);
-    if (data.type === "shape-design-export") exportNode(data.scale || 2, data.requestId);
-    if (data.type === "shape-preview-screenshot") {
-      exportNode(1, data.req || data.requestId, "shape-preview-screenshot-result");
+    if (data.type === "bettershape-design-align") alignSelected(data.alignment);
+    if (data.type === "bettershape-design-export") exportNode(data.scale || 2, data.requestId);
+    if (data.type === "bettershape-preview-screenshot") {
+      exportNode(1, data.req || data.requestId, "bettershape-preview-screenshot-result");
     }
-    if (data.type === "shape-design-set-text" && data.key) {
+    if (data.type === "bettershape-design-set-text" && data.key) {
       var textNodes = document.body ? document.body.querySelectorAll("*") : [];
       for (var ti = 0; ti < textNodes.length; ti++) {
         if (keyFor(textNodes[ti]) === data.key) {
           textNodes[ti].textContent = data.text || "";
           select(textNodes[ti]);
-          post("shape-design-commit-text", { element: snapshot(textNodes[ti]), text: textNodes[ti].textContent || "" });
+          post("bettershape-design-commit-text", { element: snapshot(textNodes[ti]), text: textNodes[ti].textContent || "" });
           sendTree();
           break;
         }
       }
     }
-    if (data.type === "shape-design-set-open") {
+    if (data.type === "bettershape-design-set-open") {
       var openNodes = document.body ? document.body.querySelectorAll("*") : [];
       for (var oi = 0; oi < openNodes.length; oi++) {
         if (keyFor(openNodes[oi]) === data.key) {
@@ -1625,7 +1625,7 @@ export const DESIGN_BRIDGE_SCRIPT = String.raw`
         }
       }
     }
-    if (data.type === "shape-design-set-attr" && data.key && data.name) {
+    if (data.type === "bettershape-design-set-attr" && data.key && data.name) {
       var attrNodes = document.body ? document.body.querySelectorAll("*") : [];
       for (var ai = 0; ai < attrNodes.length; ai++) {
         if (keyFor(attrNodes[ai]) === data.key) {
@@ -1636,17 +1636,17 @@ export const DESIGN_BRIDGE_SCRIPT = String.raw`
           if (!unknownDomAttr(attrNodes[ai], attrName)) {
             attrNodes[ai].setAttribute(attrName, data.value || "");
           }
-          post("shape-design-commit-attr", {
+          post("bettershape-design-commit-attr", {
             element: snapshot(attrNodes[ai]),
             attributes: (function () { var o = {}; o[attrName] = data.value || ""; return o; })()
           });
-          if (selected) post("shape-design-selection", { element: snapshot(selected) });
+          if (selected) post("bettershape-design-selection", { element: snapshot(selected) });
           sendTree();
           break;
         }
       }
     }
-    if (data.type === "shape-design-apply-preview" && data.styles) {
+    if (data.type === "bettershape-design-apply-preview" && data.styles) {
       if (data.key) {
         if (!selected || !selected.isConnected || keyFor(selected) !== data.key) {
           selected = null;
@@ -1678,7 +1678,7 @@ export const DESIGN_BRIDGE_SCRIPT = String.raw`
         drop.forEach(function (cls) { classList.remove(cls); });
       }
       refresh();
-      post("shape-design-selection", { element: snapshot(selected) });
+      post("bettershape-design-selection", { element: snapshot(selected) });
     }
   });
 
@@ -1692,10 +1692,10 @@ export const DESIGN_BRIDGE_SCRIPT = String.raw`
     }
   });
   if (document.body) observer.observe(document.body, { childList: true, subtree: true });
-  window.__shapeDesignBridge = { refresh: refresh, select: select };
+  window.__bettershapeDesignBridge = { refresh: refresh, select: select };
   setTimeout(function () {
     sendTree();
-    post("shape-design-ready", {
+    post("bettershape-design-ready", {
       title: document.title,
       url: location.href,
       themeTokens: collectThemeTokens()

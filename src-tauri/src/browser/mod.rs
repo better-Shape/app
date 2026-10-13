@@ -174,10 +174,10 @@ async fn ensure_host() -> Result<(u16, String), String> {
     }
     shutdown();
     let browser = find_chromium().ok_or_else(|| {
-        "No Chrome or Edge found. Install one to use the browser inside Shape.".to_string()
+        "No Chrome or Edge found. Install one to use the browser inside BetterShape.".to_string()
     })?;
     let port = free_port().ok_or_else(|| "Could not find a free debug port.".to_string())?;
-    let data_dir = std::env::temp_dir().join(format!("shape-browser-{port}"));
+    let data_dir = std::env::temp_dir().join(format!("bettershape-browser-{port}"));
     let _ = std::fs::create_dir_all(&data_dir);
     let mut cmd = Command::new(&browser);
     cmd.args([
@@ -190,6 +190,8 @@ async fn ensure_host() -> Result<(u16, String), String> {
         &format!("--window-size={VIEW_W},{VIEW_H}"),
         "--force-device-scale-factor=1",
         &format!("--remote-debugging-port={port}"),
+        // WP-10: pin the DevTools socket to loopback explicitly.
+        "--remote-debugging-address=127.0.0.1",
         &format!("--user-data-dir={}", data_dir.display()),
         "about:blank",
     ])
@@ -295,7 +297,10 @@ async fn create_target(
                     "scale": 1
                 }),
             ),
-            ("Emulation.setFocusEmulationEnabled", json!({ "enabled": true })),
+            (
+                "Emulation.setFocusEmulationEnabled",
+                json!({ "enabled": true }),
+            ),
         ],
     )
     .await;
@@ -436,7 +441,7 @@ pub(crate) fn record_history(url: &str, title: &str) {
 
 fn history_path() -> PathBuf {
     let mut path = dirs::data_local_dir().unwrap_or_else(|| PathBuf::from("."));
-    path.push("Shape");
+    path.push("BetterShape");
     let _ = std::fs::create_dir_all(&path);
     path.push("browser_history.json");
     path
@@ -475,10 +480,21 @@ async fn refresh_tab(app: &tauri::AppHandle, id: &str) -> bool {
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or(Value::Null);
-    let href = state.get("href").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let title = state.get("title").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let href = state
+        .get("href")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let title = state
+        .get("title")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
     let ready = state.get("ready").and_then(|v| v.as_str()).unwrap_or("");
-    let failed = state.get("failed").and_then(|v| v.as_bool()).unwrap_or(false);
+    let failed = state
+        .get("failed")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     let icon = state
         .get("icon")
         .and_then(|v| v.as_str())
@@ -524,7 +540,11 @@ async fn refresh_tab(app: &tauri::AppHandle, id: &str) -> bool {
         }
     });
     if complete && !failed && !href.is_empty() {
-        let title_for_history = if title.is_empty() { short_host(&href) } else { title.clone() };
+        let title_for_history = if title.is_empty() {
+            short_host(&href)
+        } else {
+            title.clone()
+        };
         if changed_url || !title.is_empty() {
             record_history(&href, &title_for_history);
         }
@@ -624,10 +644,13 @@ fn start_cast(app: tauri::AppHandle, id: String) {
 
 async fn run_cast(app: &tauri::AppHandle, id: &str, gen: u64) -> Result<(), String> {
     let ws_url = tab_ws(id)?;
-    let (mut ws, _) = timeout(Duration::from_secs(8), tokio_tungstenite::connect_async(&ws_url))
-        .await
-        .map_err(|_| "DevTools websocket timed out".to_string())?
-        .map_err(|e| format!("DevTools websocket: {e}"))?;
+    let (mut ws, _) = timeout(
+        Duration::from_secs(8),
+        tokio_tungstenite::connect_async(&ws_url),
+    )
+    .await
+    .map_err(|_| "DevTools websocket timed out".to_string())?
+    .map_err(|e| format!("DevTools websocket: {e}"))?;
     let start = json!({
         "id": 1,
         "method": "Page.startScreencast",
@@ -663,7 +686,10 @@ async fn run_cast(app: &tauri::AppHandle, id: &str, gen: u64) -> Result<(), Stri
                 if v.get("method").and_then(|m| m.as_str()) != Some("Page.screencastFrame") {
                     continue;
                 }
-                let session_id = v.pointer("/params/sessionId").cloned().unwrap_or(Value::Null);
+                let session_id = v
+                    .pointer("/params/sessionId")
+                    .cloned()
+                    .unwrap_or(Value::Null);
                 ack_id += 1;
                 let ack = json!({
                     "id": ack_id,
@@ -768,7 +794,12 @@ pub async fn browser_close_tab(app: tauri::AppHandle, id: String) -> Result<(), 
     }
     emit_tabs(&app);
     if let (Some(target_id), Some((_, browser_ws))) = (target, host_alive()) {
-        let _ = cdp::call(&browser_ws, "Target.closeTarget", json!({ "targetId": target_id })).await;
+        let _ = cdp::call(
+            &browser_ws,
+            "Target.closeTarget",
+            json!({ "targetId": target_id }),
+        )
+        .await;
     }
     Ok(())
 }
@@ -784,7 +815,11 @@ pub async fn browser_activate_tab(app: tauri::AppHandle, id: String) -> Result<(
 }
 
 #[tauri::command]
-pub async fn browser_navigate(app: tauri::AppHandle, id: String, url: String) -> Result<(), String> {
+pub async fn browser_navigate(
+    app: tauri::AppHandle,
+    id: String,
+    url: String,
+) -> Result<(), String> {
     navigate_tab(&app, &id, url.trim()).await
 }
 
@@ -801,15 +836,26 @@ pub async fn browser_forward(app: tauri::AppHandle, id: String) -> Result<(), St
 async fn history_step(app: &tauri::AppHandle, id: &str, delta: i64) -> Result<(), String> {
     let ws = tab_ws(id)?;
     let nav = cdp::call(&ws, "Page.getNavigationHistory", json!({})).await?;
-    let index = nav.get("currentIndex").and_then(|i| i.as_i64()).unwrap_or(0);
-    let entries = nav.get("entries").and_then(|e| e.as_array()).cloned().unwrap_or_default();
+    let index = nav
+        .get("currentIndex")
+        .and_then(|i| i.as_i64())
+        .unwrap_or(0);
+    let entries = nav
+        .get("entries")
+        .and_then(|e| e.as_array())
+        .cloned()
+        .unwrap_or_default();
     let target = index + delta;
     if target < 0 || target >= entries.len() as i64 {
         return Ok(());
     }
     let entry = &entries[target as usize];
     let entry_id = entry.get("id").and_then(|i| i.as_i64()).unwrap_or(0);
-    let url = entry.get("url").and_then(|u| u.as_str()).unwrap_or("").to_string();
+    let url = entry
+        .get("url")
+        .and_then(|u| u.as_str())
+        .unwrap_or("")
+        .to_string();
     update_tab(id, |info| {
         info.loading = true;
         info.error = None;
@@ -818,13 +864,22 @@ async fn history_step(app: &tauri::AppHandle, id: &str, delta: i64) -> Result<()
         }
     });
     emit_tabs(app);
-    cdp::call(&ws, "Page.navigateToHistoryEntry", json!({ "entryId": entry_id })).await?;
+    cdp::call(
+        &ws,
+        "Page.navigateToHistoryEntry",
+        json!({ "entryId": entry_id }),
+    )
+    .await?;
     settle_tab(app.clone(), id.to_string());
     Ok(())
 }
 
 #[tauri::command]
-pub async fn browser_reload(app: tauri::AppHandle, id: String, hard: Option<bool>) -> Result<(), String> {
+pub async fn browser_reload(
+    app: tauri::AppHandle,
+    id: String,
+    hard: Option<bool>,
+) -> Result<(), String> {
     let ws = tab_ws(&id)?;
     let has_error = lock_tabs()
         .iter()
@@ -846,7 +901,12 @@ pub async fn browser_reload(app: tauri::AppHandle, id: String, hard: Option<bool
         info.error = None;
     });
     emit_tabs(&app);
-    cdp::call(&ws, "Page.reload", json!({ "ignoreCache": hard.unwrap_or(false) })).await?;
+    cdp::call(
+        &ws,
+        "Page.reload",
+        json!({ "ignoreCache": hard.unwrap_or(false) }),
+    )
+    .await?;
     settle_tab(app.clone(), id);
     Ok(())
 }
@@ -917,7 +977,11 @@ pub async fn browser_input(id: String, event: Value) -> Result<(), String> {
             .await?;
         }
         "down" | "up" => {
-            let ty = if kind == "down" { "mousePressed" } else { "mouseReleased" };
+            let ty = if kind == "down" {
+                "mousePressed"
+            } else {
+                "mouseReleased"
+            };
             cdp::call(
                 &ws,
                 "Input.dispatchMouseEvent",
@@ -968,7 +1032,10 @@ pub async fn browser_input(id: String, event: Value) -> Result<(), String> {
         "key" => {
             let key = event.get("key").and_then(|k| k.as_str()).unwrap_or("");
             let code = event.get("code").and_then(|c| c.as_str()).unwrap_or("");
-            let ty = event.get("type").and_then(|t| t.as_str()).unwrap_or("keyDown");
+            let ty = event
+                .get("type")
+                .and_then(|t| t.as_str())
+                .unwrap_or("keyDown");
             let mut params = json!({
                 "type": ty,
                 "key": key,
@@ -1056,7 +1123,12 @@ const PICK_JS: &str = r##"(function(x, y, commit){
 
 /// Element under a point. `commit` adds text, HTML and computed styles.
 #[tauri::command]
-pub async fn browser_pick(id: String, x: f64, y: f64, commit: Option<bool>) -> Result<Value, String> {
+pub async fn browser_pick(
+    id: String,
+    x: f64,
+    y: f64,
+    commit: Option<bool>,
+) -> Result<Value, String> {
     let ws = tab_ws(&id)?;
     let (px, py) = percent_to_px(x, y);
     let expr = format!("{PICK_JS}({px}, {py}, {})", commit.unwrap_or(false));
@@ -1077,7 +1149,7 @@ pub async fn browser_screenshot(id: String) -> Result<String, String> {
         .or_else(dirs::home_dir)
         .ok_or_else(|| "No folder to save into.".to_string())?;
     let stamp = chrono_like_stamp();
-    dir.push(format!("Shape screenshot {stamp}.png"));
+    dir.push(format!("BetterShape screenshot {stamp}.png"));
     std::fs::write(&dir, bytes).map_err(|e| format!("Could not save screenshot: {e}"))?;
     Ok(dir.to_string_lossy().into_owned())
 }
@@ -1119,7 +1191,10 @@ fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
             _ => None,
         }
     }
-    let bytes: Vec<u8> = input.bytes().filter(|b| !b.is_ascii_whitespace() && *b != b'=').collect();
+    let bytes: Vec<u8> = input
+        .bytes()
+        .filter(|b| !b.is_ascii_whitespace() && *b != b'=')
+        .collect();
     let mut out = Vec::with_capacity(bytes.len() * 3 / 4);
     let mut buf = 0u32;
     let mut bits = 0u32;
@@ -1153,9 +1228,12 @@ pub async fn browser_clear(kind: String) -> Result<(), String> {
             } else {
                 "Network.clearBrowserCache"
             };
-            cdp::call_all(&ws, vec![("Network.enable", json!({})), (method, json!({}))])
-                .await
-                .map(|_| ())
+            cdp::call_all(
+                &ws,
+                vec![("Network.enable", json!({})), (method, json!({}))],
+            )
+            .await
+            .map(|_| ())
         }
         other => Err(format!("Unknown data kind '{other}'.")),
     }

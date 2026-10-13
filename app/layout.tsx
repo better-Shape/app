@@ -5,7 +5,7 @@ import "./globals.css";
 import ClientLayout from "@/app/client-layout";
 
 export const metadata: Metadata = {
-  title: "Shape",
+  title: "BetterShape",
   description: "Agent workspace",
   icons: {
     icon: "/logos/app_icon.svg",

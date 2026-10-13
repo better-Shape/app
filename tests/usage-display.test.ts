@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+    LAST_TURN_TTL_MS,
     formatMessageModelLabel,
     formatMessageUsageLine,
     formatModelLabel,
@@ -48,16 +49,15 @@ describe("usage-display", () => {
         expect(formatMessageUsageLine({ usedAuto: true }, "auto")).toBe("");
     });
 
-    it("formats credit usage lines without tokens", () => {
-        expect(
-            formatMessageUsageLine({ creditsCharged: 1.25 }, "anthropic/claude-sonnet-4"),
-        ).toBe("1.25");
+    it("joins the fields it has and omits empty ones", () => {
+        expect(formatMessageUsageLine(undefined, "anthropic/claude-sonnet-4")).toBe("");
+        expect(formatMessageUsageLine({}, "anthropic/claude-sonnet-4")).toBe("");
         expect(
             formatMessageUsageLine(
-                { creditsCharged: 1.25, tokens: 3400 },
+                { tokens: 3400, inputTokens: 3000, outputTokens: 400 },
                 "anthropic/claude-sonnet-4",
             ),
-        ).toBe("1.25");
+        ).toBe("3,400 · 3,000 · 400");
     });
 
     it("splits usage into separate rows and omits empty fields", async () => {
@@ -76,62 +76,78 @@ describe("usage-display", () => {
         expect(formatMessageUsageRows(undefined, "auto")).toEqual([]);
     });
 
-    it("resolves chat ring from monthly Auto or credits usage", () => {
-        expect(
-            resolveChatUsageDisplay(
-                "auto",
-                {
-                    loggedIn: true,
-                    tier: "pro",
-                    freeAutoPercent: 18,
-                    creditsIncluded: 1500,
-                    creditsRemaining: 1200,
-                },
-                null,
-            ),
-        ).toMatchObject({
-            mode: "auto",
-            percent: 18,
-            title: "18% used",
-            tooltip: "18% used this month (Auto)",
-        });
+    const NOW = 1_700_000_000_000;
 
+    it("keeps the ring empty until a turn finishes", () => {
+        expect(resolveChatUsageDisplay("auto", null)).toMatchObject({
+            mode: "tokens",
+            percent: 0,
+            title: "",
+            tooltip: "Token usage appears after the first reply",
+        });
         expect(
             resolveChatUsageDisplay(
-                "auto",
-                {
-                    loggedIn: true,
-                    tier: "pro",
-                    freeAutoPercent: 18,
-                    creditsIncluded: 1500,
-                    creditsRemaining: 1200,
-                },
-                { tokens: 100_000, creditsCharged: 0, usedAuto: true, at: 1 },
+                "openai/gpt-5",
+                { tokens: 0, inputTokens: 0, usedAuto: false, at: NOW },
+                NOW,
             ),
-        ).toMatchObject({
-            mode: "auto",
-            percent: 18,
-            title: "18% used",
-            tooltip: "18% used this month (Auto)",
-        });
+        ).toMatchObject({ percent: 0, title: "" });
+    });
 
+    it("measures the last turn against the model's context window", () => {
         expect(
             resolveChatUsageDisplay(
-                "anthropic/claude-sonnet-4",
+                "openai/gpt-5",
                 {
-                    loggedIn: true,
-                    tier: "pro",
-                    freeAutoPercent: 18,
-                    creditsIncluded: 1500,
-                    creditsRemaining: 1200,
+                    tokens: 40_000,
+                    inputTokens: 38_000,
+                    usedAuto: false,
+                    at: NOW,
                 },
-                { tokens: 0, creditsCharged: 75, usedAuto: false, at: 1 },
+                NOW,
             ),
         ).toMatchObject({
-            mode: "credits",
-            percent: 20,
-            title: "300.00 out of 1,500.00",
-            tooltip: "300.00 out of 1,500.00 this month",
+            mode: "tokens",
+            percent: 10,
+            title: "40,000 tokens",
+            tooltip: "40,000 tokens · 10% of the 400K context window",
         });
+    });
+
+    it("still reports tokens for models BetterShape has no window for", () => {
+        expect(
+            resolveChatUsageDisplay(
+                "custom/local-model",
+                {
+                    tokens: 1200,
+                    inputTokens: 1200,
+                    usedAuto: false,
+                    at: NOW,
+                },
+                NOW,
+            ),
+        ).toMatchObject({
+            mode: "tokens",
+            percent: 0,
+            title: "1,200 tokens",
+            tooltip: "1,200 tokens in the last turn",
+        });
+    });
+
+    it("drops a last turn once it is older than the TTL", () => {
+        const stale = {
+            tokens: 40_000,
+            inputTokens: 38_000,
+            usedAuto: false,
+            at: NOW - LAST_TURN_TTL_MS - 1,
+        };
+        expect(resolveChatUsageDisplay("openai/gpt-5", stale, NOW)).toMatchObject({
+            percent: 0,
+            title: "",
+            tooltip: "Token usage appears after the first reply",
+        });
+        expect(
+            resolveChatUsageDisplay("openai/gpt-5", { ...stale, at: NOW - LAST_TURN_TTL_MS }, NOW),
+        ).toMatchObject({ percent: 10, title: "40,000 tokens" });
     });
 });

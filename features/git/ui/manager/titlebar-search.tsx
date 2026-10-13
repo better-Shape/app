@@ -17,11 +17,8 @@ export function TitlebarSearch() {
     const inputRef = useRef<HTMLInputElement>(null);
     const wrapRef = useRef<HTMLDivElement>(null);
 
-    useEffect(() => {
-        if (!searchEnabled) {
-            setExpanded(false);
-        }
-    }, [searchEnabled]);
+    // Collapse as soon as search is switched off, during render, so it re-opens closed.
+    if (!searchEnabled && expanded) setExpanded(false);
 
     useEffect(() => {
         if (expanded) {

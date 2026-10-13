@@ -42,8 +42,8 @@ describe("integration commands", () => {
         mockInvoke(() => {}, { shouldMockEvents: true });
         const handler = vi.fn();
         const { listen } = await import("@tauri-apps/api/event");
-        const unlisten = await listen("shape-git-refresh", handler);
-        await emit("shape-git-refresh", {});
+        const unlisten = await listen("bettershape-git-refresh", handler);
+        await emit("bettershape-git-refresh", {});
         expect(handler).toHaveBeenCalled();
         if (typeof unlisten === "function") await unlisten();
     });

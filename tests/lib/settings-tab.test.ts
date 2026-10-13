@@ -8,13 +8,13 @@ import {
 describe("settings-tab", () => {
     it("detects settings tab", () => {
         expect(isSettingsTab(SETTINGS_TAB_PATH)).toBe(true);
-        expect(isSettingsTab("shape://other")).toBe(false);
+        expect(isSettingsTab("bettershape://other")).toBe(false);
     });
 
     it("detects virtual editor tabs", () => {
         expect(isVirtualEditorTab(SETTINGS_TAB_PATH)).toBe(true);
-        expect(isVirtualEditorTab("shape://design-preview/abc")).toBe(true);
-        expect(isVirtualEditorTab("shape://browser")).toBe(true);
-        expect(isVirtualEditorTab("shape://subagent/abc")).toBe(false);
+        expect(isVirtualEditorTab("bettershape://design-preview/abc")).toBe(true);
+        expect(isVirtualEditorTab("bettershape://browser")).toBe(true);
+        expect(isVirtualEditorTab("bettershape://subagent/abc")).toBe(false);
     });
 });

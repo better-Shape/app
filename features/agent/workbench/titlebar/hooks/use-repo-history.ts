@@ -5,18 +5,21 @@ import { loadRepoHistory, clearRepoHistory } from "@/lib/workspace/repo-history"
 import type { RepoHistoryEntry } from "@/lib/workspace/repo-history";
 
 export function useRepoHistory(projectPath: string | null) {
-    const [repoHistory, setRepoHistory] = useState<RepoHistoryEntry[]>([]);
+    const [repoHistory, setRepoHistory] = useState<RepoHistoryEntry[]>(() => loadRepoHistory());
+    // Re-read when the project changes. Compared during render, so the list is right on the
+    // first frame after a switch and no effect has to write it.
+    const [forPath, setForPath] = useState(projectPath);
+    if (forPath !== projectPath) {
+        setForPath(projectPath);
+        setRepoHistory(loadRepoHistory());
+    }
 
     useEffect(() => {
-        setRepoHistory(loadRepoHistory());
+        // Only the event subscription lives in an effect; the handler runs later, not during it.
         const refresh = () => setRepoHistory(loadRepoHistory());
-        window.addEventListener("shape-open-project", refresh);
-        return () => window.removeEventListener("shape-open-project", refresh);
+        window.addEventListener("bettershape-open-project", refresh);
+        return () => window.removeEventListener("bettershape-open-project", refresh);
     }, []);
-
-    useEffect(() => {
-        setRepoHistory(loadRepoHistory());
-    }, [projectPath]);
 
     return {
         repoHistory,

@@ -1,6 +1,10 @@
-/// SSE streaming for chat completions through the Shape website proxy.
+/// SSE streaming for chat completions against the user's own model provider.
 /// Reasoning deltas are shown in the UI as `<think>` blocks and attached to the
 /// assistant message so the next request in the same turn can continue from them.
+///
+/// Every request is built in OpenAI's chat-completions shape and translated by
+/// [`super::provider_wire`] to whatever wire format the selected provider
+/// speaks (OpenAI-compatible, Anthropic Messages, or Google Gemini).
 
 use futures::StreamExt;
 use reqwest::Client;
@@ -10,66 +14,28 @@ use std::time::Instant;
 use tauri::Emitter;
 use tauri::Manager;
 
+use crate::core::ai_providers::{resolve_model, ResolvedProvider};
 use crate::core::error::AppError;
 use super::logging;
+use super::provider_wire;
 use super::tool_call_leak_parser::{LeakedToolCallParser, ParsedLeakCall};
+use crate::core::error::AppError;
 
-pub fn completions_url() -> String {
-    let base = crate::core::website_url::shape_website_base();
-    format!("{}/api/ai/chat/completions", base)
+/// Resolve the configured provider + provider-native model slug for a request.
+pub fn resolve_provider(model: &str) -> Result<(ResolvedProvider, String), AppError> {
+    resolve_model(model)
 }
 
-/// Chat completions go through the Shape website proxy.
-#[derive(Debug, Clone)]
-pub enum LlmProvider {
-    Shape,
-}
-
-impl LlmProvider {
-    pub fn api_key<'a>(&'a self, shape_token: &'a str) -> &'a str {
-        match self {
-            Self::Shape => shape_token,
-        }
-    }
-
-    pub fn completions_url(&self) -> String {
-        match self {
-            Self::Shape => completions_url(),
-        }
-    }
-
-    pub fn label(&self) -> &'static str {
-        match self {
-            Self::Shape => "Shape",
-        }
-    }
-}
-
-fn llm_http_error(provider: &LlmProvider, status: reqwest::StatusCode, text: &str) -> String {
+fn llm_http_error(provider: &ResolvedProvider, status: reqwest::StatusCode, text: &str) -> String {
     format!(
         "{} API error {}: {}",
-        provider.label(),
+        provider.label_or_id(),
         status,
-        &text[..text.floor_char_boundary(800)]
+        &text[..floor_char_boundary(text, 800)]
     )
 }
 
-/// Map catalog / Auto model ids onto the provider's expected slug.
-/// `model` should already be normalized (including Auto → fast/vision).
-pub fn rewrite_model_for_provider(model: &str, provider: &LlmProvider) -> Result<String, AppError> {
-    let m = crate::agent::model_router::normalize_model(model);
-    match provider {
-        // Shape Cloud picks Auto's included model — never substitute a catalog slug.
-        LlmProvider::Shape => {
-            if crate::agent::model_router::is_auto_selection(model) {
-                return Ok(crate::agent::model_router::proxy_model_id(model));
-            }
-            Ok(m)
-        }
-    }
-}
-
-/// Billing / usage metadata sent with every proxied LLM request.
+/// Per-request metadata (feature tag, turn ids, reasoning knobs).
 #[derive(Debug, Clone)]
 pub struct ProxyContext {
     pub feature: String,
@@ -77,13 +43,12 @@ pub struct ProxyContext {
     pub conversation_id: Option<String>,
     pub request_id: Option<String>,
     pub project_path: Option<String>,
-    /// Serialized JSON context composition for usage analytics.
+    /// Serialized JSON context composition (local diagnostics only).
     pub context_breakdown: Option<String>,
     /// User-selected reasoning effort: `low` | `high` | `ultra` | `max`.
     pub reasoning_effort: Option<String>,
-    /// OpenRouter service tier (`priority` / `fast`) — speed, not reasoning depth.
+    /// Provider service tier (`priority` / `flex`) where supported.
     pub service_tier: Option<String>,
-    pub provider: LlmProvider,
 }
 
 impl Default for ProxyContext {
@@ -103,13 +68,7 @@ impl ProxyContext {
             context_breakdown: None,
             reasoning_effort: None,
             service_tier: None,
-            provider: LlmProvider::Shape,
         }
-    }
-
-    pub fn with_provider(mut self, provider: LlmProvider) -> Self {
-        self.provider = provider;
-        self
     }
 
     pub fn with_feature(mut self, feature: &str) -> Self {
@@ -208,7 +167,7 @@ pub(crate) fn is_brief_checkpoint(text: &str) -> bool {
         return false;
     }
     let len = trimmed.chars().count();
-    if len < 160 || len > 900 {
+    if !(160..=900).contains(&len) {
         return false;
     }
     let lines = trimmed.lines().filter(|l| !l.trim().is_empty()).count();
@@ -218,52 +177,16 @@ pub(crate) fn is_brief_checkpoint(text: &str) -> bool {
     true
 }
 
-pub(crate) fn shape_proxy_request(
+/// Build the provider request for an OpenAI-shaped body.
+pub(crate) fn provider_request(
     client: &Client,
-    api_key: &str,
-    ctx: &ProxyContext,
+    _api_key: &str,
+    provider: &ResolvedProvider,
+    model: &str,
+    body: &Value,
+    stream: bool,
 ) -> reqwest::RequestBuilder {
-    let bearer = ctx.provider.api_key(api_key);
-    let mut builder = client
-        .post(ctx.provider.completions_url())
-        .header("Authorization", format!("Bearer {}", bearer))
-        .header("Content-Type", "application/json");
-
-    if matches!(ctx.provider, LlmProvider::Shape) {
-        builder = builder
-            .header("X-Shape-Feature", &ctx.feature)
-            .header(
-                "X-Shape-Client-Version",
-                crate::core::build_attestation::client_version(),
-            );
-        if let Some(turn_id) = &ctx.turn_id {
-            builder = builder.header("X-Shape-Turn-Id", turn_id);
-        }
-        if let Some(conv_id) = &ctx.conversation_id {
-            builder = builder.header("X-Shape-Conversation-Id", conv_id);
-        }
-        if let Some(request_id) = &ctx.request_id {
-            builder = builder.header("X-Shape-Request-Id", request_id);
-        }
-        if let Some(breakdown) = &ctx.context_breakdown {
-            if breakdown.len() < 8_000 {
-                builder = builder.header("X-Shape-Context-Breakdown", breakdown);
-            }
-        }
-        let device_id = crate::commands::device_id::get_device_id()
-            .ok()
-            .filter(|id| !id.is_empty())
-            .unwrap_or_default();
-        if !device_id.is_empty() {
-            builder = builder.header("X-Shape-Device-Id", &device_id);
-        }
-        if let Some(attestation) =
-            crate::core::build_attestation::build_attestation_header(&device_id)
-        {
-            builder = builder.header("X-Shape-Build-Attestation", attestation);
-        }
-    }
-    builder
+    provider_wire::request(client, provider, model, body, stream)
 }
 
 fn content_delta_piece(accumulated: &str, delta_text: &str) -> String {
@@ -314,6 +237,7 @@ pub struct StreamOutcome {
 /// Emits `chat_token` events to the UI for both regular content and `<think>` blocks
 /// (the latter wraps streamed reasoning tokens). Returns the accumulated content,
 /// any structured tool calls, and the finish reason.
+#[allow(clippy::too_many_arguments)]
 pub async fn stream_chat(
     client: &Client,
     api_key: &str,
@@ -324,34 +248,33 @@ pub async fn stream_chat(
     model: &str,
     proxy_ctx: &ProxyContext,
 ) -> Result<StreamOutcome, AppError> {
+    let (provider, provider_model) = resolve_provider(model)?;
+
     logging::info(
         "stream",
         &format!(
-            "Starting stream: provider={}, url={}, model={}, messages={}, tools={}",
-            proxy_ctx.provider.label(),
-            proxy_ctx.provider.completions_url(),
-            model,
+            "Starting stream: provider={} model={} messages={}, tools={}",
+            provider.label_or_id(),
+            provider_model,
             messages.len(),
             tools.len()
         ),
     );
 
-    let max_tokens = get_model_max_tokens(model);
-    logging::debug("stream", &format!("Using max_tokens={} for model={}", max_tokens, model));
-
-    let model = rewrite_model_for_provider(model, &proxy_ctx.provider)?;
+    let max_tokens = get_model_max_tokens(&provider_model);
+    logging::debug("stream", &format!("Using max_tokens={} for model={}", max_tokens, provider_model));
 
     let mut body = json!({
-        "model": model,
+        "model": provider_model,
         "messages": messages,
         "stream": true,
         "max_tokens": max_tokens,
     });
 
     // Sticky routing + prompt caching: pinning the provider per conversation lets
-    // OpenRouter reuse the cached prompt prefix across the many round-trips of a
-    // single agent turn (system prompt + tool schemas + earlier messages), which is
-    // the bulk of the input-token cost.
+    // routers such as OpenRouter reuse the cached prompt prefix across the many
+    // round-trips of a single agent turn (system prompt + tool schemas +
+    // earlier messages), which is the bulk of the input-token cost.
     {
         if let Some(session) = proxy_ctx
             .conversation_id
@@ -360,21 +283,21 @@ pub async fn stream_chat(
         {
             body["session_id"] = json!(session);
         }
-        // Anthropic requires an explicit cache marker; OpenRouter's top-level
-        // `cache_control` enables automatic breakpoint placement for multi-turn chats.
-        if model.starts_with("anthropic/") {
+        if provider.id.eq_ignore_ascii_case("openrouter") && provider_model.starts_with("anthropic/") {
+            // OpenRouter's top-level cache_control enables automatic breakpoint
+            // placement for multi-turn chats.
             body["cache_control"] = json!({ "type": "ephemeral" });
         }
 
-        // OpenRouter leaves Gemini thinking off unless requested. Without this, Flash
-        // dumps plans into normal `content` instead of the reasoning channel (think UI).
+        // Routers leave Gemini/Anthropic thinking off unless requested. Without
+        // this, models dump plans into `content` instead of the reasoning channel.
         if let Some(reasoning) =
-            reasoning_config_for_model(&model, proxy_ctx.reasoning_effort.as_deref())
+            reasoning_config_for_model(&provider_model, proxy_ctx.reasoning_effort.as_deref())
         {
             body["reasoning"] = reasoning;
         }
 
-        // Fast mode = OpenRouter priority / service_tier — independent of reasoning effort.
+        // Fast mode = provider priority tier — independent of reasoning effort.
         if let Some(tier) = proxy_ctx.service_tier.as_deref() {
             let t = tier.trim().to_ascii_lowercase();
             if t == "priority" || t == "fast" || t == "flex" {
@@ -402,8 +325,10 @@ pub async fn stream_chat(
         ),
     );
 
-    let mut retry_strategy = backoff::ExponentialBackoff::default();
-    retry_strategy.max_elapsed_time = Some(std::time::Duration::from_secs(30));
+    let retry_strategy = backoff::ExponentialBackoff {
+        max_elapsed_time: Some(std::time::Duration::from_secs(30)),
+        ..Default::default()
+    };
 
     let resp = backoff::future::retry(retry_strategy, || async {
         if token.is_cancelled() {
@@ -418,9 +343,7 @@ pub async fn stream_chat(
                     "Cancelled".to_string(),
                 )))
             }
-            result = shape_proxy_request(client, api_key, proxy_ctx)
-                .header("HTTP-Referer", "https://shape-ide.local")
-                .json(&body)
+            result = provider_request(client, api_key, &provider, &provider_model, &body, true)
                 .send() => {
                 result.map_err(|e| {
                     logging::warn("stream", &format!("Request failed (will retry): {}", e));
@@ -456,7 +379,7 @@ pub async fn stream_chat(
             &format!(
                 "API error {}: {}",
                 status,
-                &text[..text.floor_char_boundary(500)]
+                &text[..floor_char_boundary(&text, 500)]
             ),
         );
 
@@ -471,17 +394,13 @@ pub async fn stream_chat(
                 || lower.contains("does not support");
             if mentions_tools {
                 return Err(AppError::Message(format!(
-                    "The model '{}' does not support tool/function calling, which Shape requires. Switch to a tool-capable model such as `anthropic/claude-sonnet-4`, `openai/gpt-5`, or `google/gemini-2.5-pro` in the model picker, then try again.",
-                    model
+                    "The model '{}' does not support tool/function calling, which the agent requires. Switch to a tool-capable model such as `anthropic/claude-sonnet-4.5`, `openai/gpt-5`, or `google/gemini-2.5-pro` in the model picker, then try again.",
+                    provider_model
                 )));
             }
         }
 
-        return Err(AppError::Message(llm_http_error(
-            &proxy_ctx.provider,
-            status,
-            &text,
-        )));
+        return Err(AppError::Message(llm_http_error(&provider, status, &text)));
     }
 
     logging::debug("stream", "SSE stream connected");
@@ -503,6 +422,10 @@ pub async fn stream_chat(
     let mut reasoning_acc = String::new();
     let mut reasoning_details_acc: Vec<Value> = Vec::new();
     let mut finish_reason: Option<String> = None;
+    // Providers that don't emit OpenAI-shaped deltas keep per-stream state here
+    // (Anthropic content-block → tool slot mapping, Gemini function-call slots).
+    let mut wire_state = provider_wire::WireState::new();
+
     // Stream reply text live. Only start deferring once tool-call deltas appear
     // (Gemini often narrates into `content` while tooling — that chatter stays out).
     // Previously we deferred whenever tools were *registered*, which meant every
@@ -516,27 +439,25 @@ pub async fn stream_chat(
     let mut leaked_calls: Vec<ParsedLeakCall> = Vec::new();
     let mut announced_tool_name: Option<String> = None;
 
-    while let Some(chunk_result) = {
-        tokio::select! {
-            biased;
-            _ = token.cancelled() => {
-                logging::info("stream", "Cancelled by user during stream");
-                return Ok(StreamOutcome {
-                    content,
-                    tool_calls: Vec::new(),
-                    finish_reason,
-                    token_count,
-                    input_tokens,
-                    output_tokens,
-                    had_reasoning,
-                    reasoning: nonempty_string(reasoning_acc.clone()),
-                    reasoning_details: nonempty_details(&reasoning_details_acc),
-                });
-            }
-            next = stream.next() => next,
+    while let Some(chunk_result) = tokio::select! {
+        biased;
+        _ = token.cancelled() => {
+            logging::info("stream", "Cancelled by user during stream");
+            return Ok(StreamOutcome {
+                content,
+                tool_calls: Vec::new(),
+                finish_reason,
+                token_count,
+                input_tokens,
+                output_tokens,
+                had_reasoning,
+                reasoning: nonempty_string(reasoning_acc.clone()),
+                reasoning_details: nonempty_details(&reasoning_details_acc),
+            });
         }
+        next = stream.next() => next,
     } {
-            if token.is_cancelled() {
+        if token.is_cancelled() {
             logging::info("stream", "Cancelled by user during stream");
             if !defer_content_emit && !token_buffer.is_empty() {
                 emit_stream_token(app_handle, proxy_ctx, token_buffer);
@@ -566,10 +487,7 @@ pub async fn stream_chat(
                 {
                     logging::warn(
                         "stream",
-                        &format!(
-                            "Stream body closed after usable data (ignoring): {}",
-                            e
-                        ),
+                        &format!("Stream body closed after usable data (ignoring): {}", e),
                     );
                     break;
                 }
@@ -603,7 +521,9 @@ pub async fn stream_chat(
                 continue;
             }
 
-            let Some(data) = line.strip_prefix("data: ") else { continue };
+            let Some(data) = line.strip_prefix("data: ") else {
+                continue;
+            };
             if data.trim() == "[DONE]" {
                 continue;
             }
@@ -618,6 +538,10 @@ pub async fn stream_chat(
                     continue;
                 }
             };
+
+            // Translate provider-native events (Anthropic / Gemini) into the
+            // OpenAI-shaped chunk handled below.
+            let parsed = provider_wire::normalize_sse_event(provider.kind, parsed, &mut wire_state);
 
             if let Some(err) = parsed.get("error") {
                 let err_msg = err
@@ -744,14 +668,11 @@ pub async fn stream_chat(
                 }
 
                 // Long tool-arg streams (esp. render_design_previews) produce no chat tokens.
-                let primary = tool_call_buf
-                    .iter()
-                    .find(|t| !t.name.is_empty())
-                    .cloned();
+                let primary = tool_call_buf.iter().find(|t| !t.name.is_empty()).cloned();
                 if let Some(primary) = primary {
                     let name = primary.name.clone();
-                    let should_announce = name != "decide"
-                        && announced_tool_name.as_deref() != Some(name.as_str());
+                    let should_announce =
+                        name != "decide" && announced_tool_name.as_deref() != Some(name.as_str());
                     if should_announce {
                         announced_tool_name = Some(name.clone());
                         let label = if name == "render_design_previews" {
@@ -761,7 +682,9 @@ pub async fn stream_chat(
                             let mut chars = pretty.chars();
                             match chars.next() {
                                 None => pretty,
-                                Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+                                Some(first) => {
+                                    first.to_uppercase().collect::<String>() + chars.as_str()
+                                }
                             }
                         };
                         emit_chat_status(
@@ -860,9 +783,7 @@ pub async fn stream_chat(
         );
     }
 
-    if !tool_calls.is_empty()
-        && finish_reason.as_deref() == Some("stop")
-    {
+    if !tool_calls.is_empty() && finish_reason.as_deref() == Some("stop") {
         finish_reason = Some("tool_calls".to_string());
     }
     let (final_input, final_output) = if input_tokens > 0 || output_tokens > 0 {
@@ -933,6 +854,7 @@ fn nonempty_details(details: &[Value]) -> Option<Value> {
 /// OpenRouter occasionally returns a 200 with zero content and zero tool_calls (transient
 /// upstream hiccup). The pre-refactor code treated this as "model is done" and silently
 /// ended the conversation — masking the failure. We retry once before bubbling up.
+#[allow(clippy::too_many_arguments)]
 pub async fn stream_chat_with_retry(
     client: &Client,
     api_key: &str,
@@ -969,14 +891,7 @@ pub async fn stream_chat_with_retry(
         "Empty response received, retrying once before bailing",
     );
     let second = stream_chat(
-        client,
-        api_key,
-        messages,
-        tools,
-        app_handle,
-        token,
-        model,
-        proxy_ctx,
+        client, api_key, messages, tools, app_handle, token, model, proxy_ctx,
     )
     .await?;
     Ok(second)
@@ -1053,17 +968,21 @@ pub async fn complete_chat_cancellable(
 ) -> Result<String, AppError> {
     logging::debug(
         "complete",
-        &format!("Non-streaming call: model={}, prompt_len={}", model, prompt.len()),
+        &format!(
+            "Non-streaming call: model={}, prompt_len={}",
+            model,
+            prompt.len()
+        ),
     );
 
     if cancel.is_some_and(|t| t.is_cancelled()) {
         return Err(AppError::Message("Cancelled".to_string()));
     }
 
-    let model = rewrite_model_for_provider(model, &proxy_ctx.provider)?;
+    let (provider, provider_model) = resolve_provider(model)?;
 
     let mut body = json!({
-        "model": model,
+        "model": provider_model,
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": if proxy_ctx.feature == "title" { 80 } else { 30 },
     });
@@ -1073,9 +992,7 @@ pub async fn complete_chat_cancellable(
         body["reasoning"] = json!({ "enabled": false, "exclude": true });
     }
 
-    let send_fut = shape_proxy_request(client, api_key, proxy_ctx)
-        .json(&body)
-        .send();
+    let send_fut = provider_request(client, api_key, &provider, &provider_model, &body, false).send();
 
     let resp = match cancel {
         Some(token) => {
@@ -1095,7 +1012,8 @@ pub async fn complete_chat_cancellable(
         return Err(AppError::Message("Cancelled".to_string()));
     }
 
-    let json = completion_json(resp, &proxy_ctx.provider).await?;
+    let json = completion_json(resp, &provider).await?;
+    let json = provider_wire::normalize_completion(provider.kind, json);
     let content = completion_message_text(&json);
     if content.is_empty() {
         return Err(AppError::Message(
@@ -1105,7 +1023,7 @@ pub async fn complete_chat_cancellable(
 
     logging::debug(
         "complete",
-        &format!("Result: {}", &content[..content.floor_char_boundary(80)]),
+        &format!("Result: {}", &content[..floor_char_boundary(&content, 80)]),
     );
     Ok(content)
 }
@@ -1124,16 +1042,14 @@ pub async fn complete_chat_messages(
         return Err(AppError::Message("Cancelled".to_string()));
     }
 
-    let model = rewrite_model_for_provider(model, &proxy_ctx.provider)?;
+    let (provider, provider_model) = resolve_provider(model)?;
     let body = json!({
-        "model": model,
+        "model": provider_model,
         "messages": messages,
         "max_tokens": max_tokens,
     });
 
-    let send_fut = shape_proxy_request(client, api_key, proxy_ctx)
-        .json(&body)
-        .send();
+    let send_fut = provider_request(client, api_key, &provider, &provider_model, &body, false).send();
 
     let resp = match cancel {
         Some(token) => {
@@ -1153,7 +1069,8 @@ pub async fn complete_chat_messages(
         return Err(AppError::Message("Cancelled".to_string()));
     }
 
-    let json = completion_json(resp, &proxy_ctx.provider).await?;
+    let json = completion_json(resp, &provider).await?;
+    let json = provider_wire::normalize_completion(provider.kind, json);
     let content = json["choices"][0]["message"]["content"]
         .as_str()
         .unwrap_or("")
@@ -1177,7 +1094,7 @@ fn api_error_message(json: &Value, fallback: &str) -> String {
 
 async fn completion_json(
     resp: reqwest::Response,
-    provider: &LlmProvider,
+    provider: &ResolvedProvider,
 ) -> Result<Value, AppError> {
     let status = resp.status();
     let text = resp.text().await.map_err(|e| e.to_string())?;
@@ -1185,9 +1102,9 @@ async fn completion_json(
     if !status.is_success() {
         let msg = api_error_message(&json, &text);
         return Err(AppError::Message(if msg.is_empty() {
-            format!("{} API error ({status})", provider.label())
+            format!("{} API error ({status})", provider.label_or_id())
         } else {
-            format!("{} API error {}: {}", provider.label(), status, msg)
+            format!("{} API error {}: {}", provider.label_or_id(), status, msg)
         }));
     }
     Ok(json)
@@ -1201,9 +1118,9 @@ pub async fn complete_chat_with_max_tokens(
     max_tokens: u32,
     proxy_ctx: &ProxyContext,
 ) -> Result<(String, usize, usize), AppError> {
-    let model = rewrite_model_for_provider(model, &proxy_ctx.provider)?;
+    let (provider, provider_model) = resolve_provider(model)?;
     let mut body = json!({
-        "model": model,
+        "model": provider_model,
         "messages": [{"role": "user", "content": message}],
         "max_tokens": max_tokens,
     });
@@ -1214,17 +1131,31 @@ pub async fn complete_chat_with_max_tokens(
         body["reasoning"] = json!({ "enabled": false, "exclude": true });
     }
 
-    let resp = shape_proxy_request(client, api_key, proxy_ctx)
-        .json(&body)
+    let resp = provider_request(client, api_key, &provider, &provider_model, &body, false)
         .send()
         .await
         .map_err(|e| AppError::Message(format!("Completion failed: {}", e)))?;
 
-    let json = completion_json(resp, &proxy_ctx.provider).await?;
+    let json = completion_json(resp, &provider).await?;
+    let json = provider_wire::normalize_completion(provider.kind, json);
     let content = completion_message_text(&json);
     let input_tokens = json["usage"]["prompt_tokens"].as_u64().unwrap_or(0) as usize;
     let output_tokens = json["usage"]["completion_tokens"].as_u64().unwrap_or(0) as usize;
     Ok((content, input_tokens, output_tokens))
+}
+
+/// One-shot completion on the user's default model. Used by agent tools that
+/// need a small judgement call (choose, gate, summarise) without a server.
+pub async fn quick_complete(
+    prompt: &str,
+    feature: &str,
+    max_tokens: u32,
+) -> Result<String, AppError> {
+    let client = Client::new();
+    let ctx = ProxyContext::new(feature);
+    let (text, _, _) =
+        complete_chat_with_max_tokens(&client, "", prompt, "auto", max_tokens, &ctx).await?;
+    Ok(text)
 }
 
 /// Returns appropriate max_tokens for a given model to avoid credit waste.
@@ -1244,7 +1175,10 @@ fn get_model_max_tokens(model: &str) -> u32 {
 
 /// UI effort (`low` | `high` | `ultra` | `max` | `super`) → OpenRouter effort string.
 fn openrouter_effort(user_effort: Option<&str>) -> &'static str {
-    match user_effort.map(|s| s.trim().to_ascii_lowercase()).as_deref() {
+    match user_effort
+        .map(|s| s.trim().to_ascii_lowercase())
+        .as_deref()
+    {
         Some("super") | Some("max") | Some("ultra") | Some("xhigh") => "xhigh",
         Some("high") | Some("medium") => "high",
         // fast / low / missing
@@ -1253,7 +1187,7 @@ fn openrouter_effort(user_effort: Option<&str>) -> &'static str {
 }
 
 /// OpenRouter reasoning config so thinking-capable models stream into the
-/// `reasoning` channel (Shape `<think>` UI) instead of dumping plans into content.
+/// `reasoning` channel (BetterShape `<think>` UI) instead of dumping plans into content.
 fn reasoning_config_for_model(model: &str, user_effort: Option<&str>) -> Option<Value> {
     let m = model.to_lowercase();
     let effort = openrouter_effort(user_effort);
@@ -1272,7 +1206,13 @@ fn reasoning_config_for_model(model: &str, user_effort: Option<&str>) -> Option<
         Some(json!({ "max_tokens": gemini_budget }))
     } else if m.contains("anthropic/") || m.contains("claude") {
         // Anthropic via OpenRouter: low | medium | high (no xhigh) — map ultra → high
-        let anth = if effort == "xhigh" { "high" } else if effort == "high" { "high" } else { "low" };
+        let anth = if effort == "xhigh" {
+            "high"
+        } else if effort == "high" {
+            "high"
+        } else {
+            "low"
+        };
         Some(json!({ "effort": anth }))
     } else if m.contains("gpt-5") && !m.contains("nano") {
         Some(json!({ "effort": effort }))
@@ -1293,14 +1233,59 @@ fn reasoning_config_for_model(model: &str, user_effort: Option<&str>) -> Option<
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::ai_providers::{AiProviderConfig, ProviderEntry, ProviderKind};
+
+    fn configure() {
+        crate::core::ai_providers::set_config(AiProviderConfig {
+            providers: vec![
+                ProviderEntry {
+                    id: "openai".to_string(),
+                    kind: ProviderKind::OpenAi,
+                    label: "OpenAI".to_string(),
+                    api_key: "sk-test".to_string(),
+                    base_url: String::new(),
+                    enabled: true,
+                },
+                ProviderEntry {
+                    id: "anthropic".to_string(),
+                    kind: ProviderKind::Anthropic,
+                    label: "Anthropic".to_string(),
+                    api_key: "sk-ant".to_string(),
+                    base_url: String::new(),
+                    enabled: true,
+                },
+            ],
+            default_model: "anthropic/claude-sonnet-4.5".to_string(),
+            ..Default::default()
+        });
+    }
 
     #[test]
-    fn shape_auto_stays_auto_for_cloud() {
-        let shape = LlmProvider::Shape;
-        assert_eq!(rewrite_model_for_provider("auto", &shape).unwrap(), "auto");
-        assert_eq!(
-            rewrite_model_for_provider("openrouter/auto", &shape).unwrap(),
-            "auto"
-        );
+    fn resolves_auto_to_the_configured_default() {
+        configure();
+        let (provider, model) = resolve_provider("auto").unwrap();
+        assert_eq!(provider.id, "anthropic");
+        assert_eq!(model, "claude-sonnet-4.5");
+
+        // Legacy alias resolves the same way.
+        let (provider, model) = resolve_provider("openrouter/auto").unwrap();
+        assert_eq!(provider.id, "anthropic");
+        assert_eq!(model, "claude-sonnet-4.5");
+    }
+
+    #[test]
+    fn resolves_explicit_provider_prefixes() {
+        configure();
+        let (provider, model) = resolve_provider("openai/gpt-5").unwrap();
+        assert_eq!(provider.id, "openai");
+        assert_eq!(model, "gpt-5");
+        assert_eq!(provider.base_url, "https://api.openai.com/v1");
+    }
+
+    #[test]
+    fn unconfigured_provider_surfaces_actionable_error() {
+        crate::core::ai_providers::set_config(AiProviderConfig::default());
+        let err = resolve_provider("auto").unwrap_err().to_string();
+        assert!(err.contains("Settings"), "unexpected error: {err}");
     }
 }

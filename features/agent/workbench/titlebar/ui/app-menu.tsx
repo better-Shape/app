@@ -84,7 +84,7 @@ function MenuItems({
                                                 <MenubarItem
                                                     onClick={() =>
                                                         window.dispatchEvent(
-                                                            new CustomEvent("shape-open-project", {
+                                                            new CustomEvent("bettershape-open-project", {
                                                                 detail: { path: repoHistory[0].path },
                                                             }),
                                                         )
@@ -98,7 +98,7 @@ function MenuItems({
                                                         key={entry.path}
                                                         onClick={() =>
                                                             window.dispatchEvent(
-                                                                new CustomEvent("shape-open-project", {
+                                                                new CustomEvent("bettershape-open-project", {
                                                                     detail: { path: entry.path },
                                                                 }),
                                                             )

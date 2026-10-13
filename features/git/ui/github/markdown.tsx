@@ -1,11 +1,11 @@
 "use client";
 
-import { AlignTop20Regular } from "@fluentui/react-icons/headless/svg/align-top";
-
 import type { ReactNode } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
+import rehypeSanitize from "rehype-sanitize";
+import { GIT_SANITIZE_SCHEMA } from "@/lib/ui/markdown-sanitize";
 import { cn } from "@/lib/utils";
 import { commands } from "@/lib/backend";
 import { openProjectFile } from "@/lib/window/open-project-file";
@@ -313,7 +313,7 @@ export function GitMarkdown({
         >
             <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
-                rehypePlugins={[rehypeRaw]}
+                rehypePlugins={[rehypeRaw, [rehypeSanitize, GIT_SANITIZE_SCHEMA]]}
                 components={createComponents(ctx)}
             >
                 {cleaned}

@@ -86,7 +86,7 @@ async function signalPreviewReady() {
     }
     try {
         if (window.parent !== window) {
-            window.parent.postMessage({ type: "shape-preview-ready" }, "*");
+            window.parent.postMessage({ type: "bettershape-preview-ready" }, "*");
         }
     } catch {
         // ignore
@@ -141,7 +141,6 @@ export async function mountPreview(userCode: string, projectCss = "") {
     injectBaseLayoutCss();
     injectTailwindTheme(projectCss);
     const wrapped = compileUserCode(userCode);
-    // eslint-disable-next-line no-new-func
     const App = new Function("React", wrapped)(React) as React.ComponentType;
     const root = document.getElementById("root");
     if (!root) throw new Error("Missing #root");
@@ -156,6 +155,6 @@ export async function mountPreview(userCode: string, projectCss = "") {
     await signalPreviewReady();
 }
 
-(window as Window & { ShapePreviewRuntime?: { mountPreview: typeof mountPreview } }).ShapePreviewRuntime = {
+(window as Window & { BetterShapePreviewRuntime?: { mountPreview: typeof mountPreview } }).BetterShapePreviewRuntime = {
     mountPreview,
 };

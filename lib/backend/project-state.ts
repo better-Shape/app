@@ -22,16 +22,16 @@ type ProjectStateStore = {
  */
 function getStore(): ProjectStateStore {
     const g = globalThis as typeof globalThis & {
-        __shapeProjectState?: ProjectStateStore;
+        __bettershapeProjectState?: ProjectStateStore;
     };
-    if (!g.__shapeProjectState) {
-        g.__shapeProjectState = {
+    if (!g.__bettershapeProjectState) {
+        g.__bettershapeProjectState = {
             currentState: initialState,
             subscribers: new Set(),
             initialized: false,
         };
     }
-    return g.__shapeProjectState;
+    return g.__bettershapeProjectState;
 }
 
 function emitState() {
@@ -42,7 +42,8 @@ function emitState() {
 function pathsEqual(a: string | null | undefined, b: string | null | undefined): boolean {
     if (a == null && b == null) return true;
     if (a == null || b == null) return false;
-    return a.replace(/\//g, "\\").toLowerCase() === b.replace(/\//g, "\\").toLowerCase();
+    const [na, nb] = [a.replace(/\\/g, "/").replace(/\/+$/, ""), b.replace(/\\/g, "/").replace(/\/+$/, "")];
+    return /^[a-zA-Z]:[\\/]/.test(a) || a.includes("\\") || /^[a-zA-Z]:[\\/]/.test(b) || b.includes("\\") ? na.toLowerCase() === nb.toLowerCase() : na === nb;
 }
 
 function initializeStateBridge() {
@@ -57,6 +58,11 @@ function initializeStateBridge() {
             emitState();
         })
         .catch(console.error);
+
+    listen<string[]>("bettershape-files-changed", (event) => {
+        commands.invalidateAllFileCaches();
+        window.dispatchEvent(new CustomEvent("bettershape-files-changed", { detail: Array.isArray(event.payload) ? event.payload : [] }));
+    }).catch(() => {});
 
     listen<ProjectState>("project-state-update", (event) => {
         const next = event.payload;

@@ -28,7 +28,7 @@ async function downloadDiagnostics() {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `shape-diagnostics-${Date.now()}.json`;
+    anchor.download = `bettershape-diagnostics-${Date.now()}.json`;
     anchor.click();
     URL.revokeObjectURL(url);
     notify.success("Diagnostics", "Diagnostic bundle downloaded.");
@@ -47,7 +47,7 @@ export function ChatMoreMenu() {
                     className="gap-2.5"
                     onClick={() => {
                         window.dispatchEvent(
-                            new CustomEvent("shape-command-palette", {
+                            new CustomEvent("bettershape-command-palette", {
                                 detail: {
                                     filter: "agents",
                                     placeholder: "Search agents, files, actions...",

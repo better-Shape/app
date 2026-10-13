@@ -33,7 +33,7 @@ export async function setIncognitoChat(enabled: boolean): Promise<void> {
         /* ignore */
     }
     window.dispatchEvent(
-        new CustomEvent("shape-chat-incognito", { detail: { enabled } }),
+        new CustomEvent("bettershape-chat-incognito", { detail: { enabled } }),
     );
 }
 

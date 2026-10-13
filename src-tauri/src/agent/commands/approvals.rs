@@ -10,22 +10,32 @@ use tauri::{Emitter, Manager};
 
 #[tauri::command]
 pub async fn stop_chat_message(
+    conversation_id: Option<String>,
     app: tauri::AppHandle,
     state: tauri::State<'_, AgentState>,
     pty_state: tauri::State<'_, crate::commands::pty::PtyState>,
 ) -> Result<(), AppError> {
-    let current_id = state
+    // Stop ends only the chat it was pressed in. Other chats that are still generating
+    // keep running. With no id, it falls back to the live chat.
+    let live_id = state
         .current_conversation_id
         .lock()
         .map_err(|e| AppError::Poison(e.to_string()))?
         .clone();
-    let already_cancelled = current_id
-        .as_deref()
-        .and_then(|id| state.conversation_cancel_token(id))
+    let target = conversation_id
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .or_else(|| live_id.clone());
+    let Some(target) = target else {
+        return Ok(());
+    };
+
+    let is_live = live_id.as_deref() == Some(target.as_str());
+    let already_cancelled = state
+        .conversation_cancel_token(&target)
         .map(|token| token.is_cancelled())
         .unwrap_or(false);
-    let generating = state.generation_state().is_generating;
-    if !generating {
+    if !state.is_generating_conversation(&target) {
         // Idle / launch remounts used to call stop and still abort captures +
         // kill PTYs below, which tore down WebView2 frames and reloaded the UI.
         return Ok(());
@@ -36,58 +46,76 @@ pub async fn stop_chat_message(
     }
 
     logging::info("chat", "Stop requested by user");
-    let _ = crate::agent::tools::browse::finish_browse_markup(String::new()).await;
-    crate::agent::tools::browse::stop_session();
-    let _ = app.emit("agent-browse", serde_json::json!({"id": "live", "status": "stopped"}));
+    // The browser session, preview capture, and terminals belong to the chat on screen.
+    // Tearing them down for a background chat would break whichever chat is live.
+    if is_live {
+        let _ = crate::agent::tools::browse::finish_browse_markup(String::new()).await;
+        crate::agent::tools::browse::stop_session();
+        let _ = app.emit(
+            "agent-browse",
+            serde_json::json!({"id": "live", "status": "stopped"}),
+        );
+    }
     // Cancel first so waiters observe Stop instead of a fake Reject (which
     // used to look like accepted edits were undone).
-    if let Ok(map) = state.cancel_tokens.lock() {
-        for token in map.values() {
-            token.cancel();
-        }
+    if let Some(token) = state.conversation_cancel_token(&target) {
+        token.cancel();
     }
-    state.dismiss_unresolved_approvals();
+    if is_live {
+        // Approval prompts carry no chat id; only the chat on screen can own them.
+        state.dismiss_unresolved_approvals();
+    }
 
-    // Unlock the UI immediately — title gen / long HTTP must not leave the
-    // sidebar spinning until the upstream request finishes.
+    let project_path = state.current_project.lock().ok().and_then(|p| p.clone());
     let aborted = {
-        let turn_id = state.in_flight_turn_id();
-        let conv_id = state
-            .in_flight_conversation_id()
-            .or_else(|| state.current_conversation_id.lock().ok().and_then(|g| g.clone()));
-        let project_path = state.current_project.lock().ok().and_then(|p| p.clone());
+        let turn_id = state.in_flight_for(&target).map(|f| f.turn_id);
         if let Some(ref project) = project_path {
             crate::commands::stats::bump_event(project, "chat_stops");
         }
-        if let (Some(turn_id), Some(conv_id)) = (turn_id.clone(), conv_id.clone()) {
+        if let Some(ref tid) = turn_id {
             journals::save_turn_journal(&journals::TurnJournal {
-                conversation_id: conv_id.clone(),
-                turn_id: turn_id.clone(),
-                project_path,
+                conversation_id: target.clone(),
+                turn_id: tid.clone(),
+                project_path: project_path.clone(),
                 status: "interrupted".to_string(),
                 updated_at: history::now_f64(),
                 subagent_ids: Vec::new(),
                 note: Some("Stopped by user".to_string()),
             });
         }
-        turn_id.zip(conv_id)
+        turn_id.map(|tid| (tid, target.clone()))
     };
-    // Commit streamed assistant text into history *before* clearing in-flight.
-    // Otherwise Stop + frontend history resync wipes the bubble the user saw.
-    if let Ok(mut merged) = state.history_for_persistence() {
-        if let Some(last) = merged.last_mut() {
-            if last.role == "assistant" && last.content.contains("<browse_session") {
-                last.content = crate::agent::tools::browse::seal_browse_markup(&last.content);
+
+    // Commit streamed text into the chat's own record before releasing the turn, so Stop
+    // never wipes the bubble the user was reading.
+    if is_live {
+        if let Ok(mut merged) = state.history_for_persistence() {
+            if let Some(last) = merged.last_mut() {
+                if last.role == "assistant" && last.content.contains("<browse_session") {
+                    last.content = crate::agent::tools::browse::seal_browse_markup(&last.content);
+                }
+            }
+            if let Ok(mut hist) = state.history.lock() {
+                *hist = merged;
             }
         }
-        if let Ok(mut hist) = state.history.lock() {
-            *hist = merged;
+        if let Some(path) = project_path.as_deref() {
+            let _ = history::save_current_conversation(&state, path);
+        }
+    } else if let Some(path) = project_path.as_deref() {
+        // Background chat: its partial text goes to its stored record, not the live chat.
+        // Save into the chat's own project, which can differ from the active one.
+        if let Some((owner, conv)) = history::find_conversation_by_id(&target, Some(path)) {
+            let merged =
+                state.merge_in_flight_into_history_for(conv.history, Some(target.as_str()));
+            let _ =
+                history::upsert_conversation_snapshot(&state, &owner, &target, &conv.title, merged);
         }
     }
-    if let Some(path) = state.current_project.lock().ok().and_then(|p| p.clone()) {
-        let _ = history::save_current_conversation(&state, &path);
-    }
-    state.clear_in_flight();
+    // The in-flight slot is NOT released here. The cancelled turn still unwinds and clears its
+    // own slot when it finishes (`clear_in_flight_if`). Freeing it now let a new send start
+    // while the old turn was still running in the same chat.
+
     if let Some((turn_id, conv_id)) = aborted {
         let _ = app.emit(
             "chat_complete",
@@ -103,11 +131,13 @@ pub async fn stop_chat_message(
     // capture host a moment to tear down its offscreen iframe *before* we
     // kill the PTY. Doing this concurrently raced WebView2 teardown against
     // process teardown and surfaced as "invalid window handle" on Windows.
-    app.state::<PreviewCaptureState>()
-        .abort_and_drain(&app, "Preview capture cancelled")
-        .await;
+    if is_live {
+        app.state::<PreviewCaptureState>()
+            .abort_and_drain(&app, "Preview capture cancelled")
+            .await;
 
-    state.kill_active_terminal(&pty_state).await;
+        state.kill_active_terminal(&pty_state).await;
+    }
     Ok(())
 }
 
@@ -138,7 +168,9 @@ pub async fn apply_file_edit(
     // For manual edits from the UI we use a deterministic full-overwrite path: if the
     // caller provided an `original` block we honour it (search-and-replace), otherwise
     // we treat `replacement` as the full new content. No LLM round-trip needed.
-    let current = tokio::fs::read_to_string(&abs_path).await.unwrap_or_default();
+    let current = tokio::fs::read_to_string(&abs_path)
+        .await
+        .unwrap_or_default();
     let new_content = if original.trim().is_empty() {
         replacement
     } else {
@@ -148,13 +180,9 @@ pub async fn apply_file_edit(
     if let Some(parent) = std::path::Path::new(&abs_path).parent() {
         let _ = tokio::fs::create_dir_all(parent).await;
     }
-    crate::domain::filesystem::service::save_file(
-        app.clone(),
-        abs_path.clone(),
-        new_content,
-    )
-    .await?;
-    let _ = app.emit("shape-file-edited", abs_path);
+    crate::domain::filesystem::service::save_file(app.clone(), abs_path.clone(), new_content)
+        .await?;
+    let _ = app.emit("bettershape-file-edited", abs_path);
     Ok(())
 }
 
@@ -199,7 +227,11 @@ pub fn resolve_edit_approval(
 ) -> Result<(), AppError> {
     logging::info(
         "editing",
-        &format!("Edit {}: {}", if approved { "approved" } else { "rejected" }, id),
+        &format!(
+            "Edit {}: {}",
+            if approved { "approved" } else { "rejected" },
+            id
+        ),
     );
     if !state.pending_edits.lock()?.contains_key(&id) {
         return Err(AppError::Message(
@@ -279,4 +311,3 @@ pub fn select_design_preview(
     state.design_pick_answers.lock()?.insert(id, payload);
     Ok(())
 }
-

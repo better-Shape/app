@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { parseMessageContent } from "@/features/chat/ui/md/renderer";
 import {
     buildPlanBuildMessage,
-    parseShapeContinueAction,
+    parseBetterShapeContinueAction,
 } from "@/lib/chat/continue-action";
 
 describe("parseMessageContent todos", () => {
@@ -44,11 +44,11 @@ Working…
 
 describe("buildPlanBuildMessage", () => {
     it("embeds plan_build action and update_todos instructions", () => {
-        const msg = buildPlanBuildMessage(".shape/plans/auth.md", "Auth");
-        const parsed = parseShapeContinueAction(msg);
+        const msg = buildPlanBuildMessage(".bettershape/plans/auth.md", "Auth");
+        const parsed = parseBetterShapeContinueAction(msg);
         expect(parsed.action).toEqual({
             type: "plan_build",
-            path: ".shape/plans/auth.md",
+            path: ".bettershape/plans/auth.md",
             title: "Auth",
         });
         expect(msg).toContain("update_todos");

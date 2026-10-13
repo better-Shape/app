@@ -9,8 +9,8 @@ const Terminal = lazy(() => import("@/features/terminal/ui/terminal"));
 
 const MIN_H = 140;
 const DEFAULT_H = 220;
-const HEIGHT_KEY = "shape-agent-terminal-height";
-const OPEN_KEY = "shape-agent-terminal-open";
+const HEIGHT_KEY = "bettershape-agent-terminal-height";
+const OPEN_KEY = "bettershape-agent-terminal-open";
 
 function clearBodyResize() {
     document.body.style.cursor = "";
@@ -60,7 +60,7 @@ export function TerminalDock() {
         } catch {
             /* ignore */
         }
-        window.dispatchEvent(new CustomEvent("shape-terminal-open", { detail: { open: next } }));
+        window.dispatchEvent(new CustomEvent("bettershape-terminal-open", { detail: { open: next } }));
     }, []);
 
     useEffect(() => {
@@ -68,7 +68,7 @@ export function TerminalDock() {
         let cancelled = false;
         void import("@tauri-apps/api/event").then(({ listen }) =>
             listen<{ type: string; command?: string; sessionId?: number }>(
-                "shape-terminal-ai-action",
+                "bettershape-terminal-ai-action",
                 (event) => {
                     if (cancelled) return;
                     if (event.payload.type !== "start" || event.payload.sessionId == null) return;
@@ -83,7 +83,7 @@ export function TerminalDock() {
                         boundPtyId: event.payload.sessionId,
                     });
                     window.dispatchEvent(
-                        new CustomEvent("shape-layout-toggle", { detail: { id: "panel", value: true } }),
+                        new CustomEvent("bettershape-layout-toggle", { detail: { id: "panel", value: true } }),
                     );
                     persistOpen(true);
                 },
@@ -116,15 +116,15 @@ export function TerminalDock() {
             const tabId = (e as CustomEvent<string>).detail?.toLowerCase();
             if (tabId === "terminal") persistOpen(true);
         };
-        window.addEventListener("shape-layout-toggle", onToggle as EventListener);
-        window.addEventListener("shape-open-workspace-terminal", onOpen);
-        window.addEventListener("shape-terminal-shortcut", onShortcut as EventListener);
-        window.addEventListener("shape-set-active-tab", onTab as EventListener);
+        window.addEventListener("bettershape-layout-toggle", onToggle as EventListener);
+        window.addEventListener("bettershape-open-workspace-terminal", onOpen);
+        window.addEventListener("bettershape-terminal-shortcut", onShortcut as EventListener);
+        window.addEventListener("bettershape-set-active-tab", onTab as EventListener);
         return () => {
-            window.removeEventListener("shape-layout-toggle", onToggle as EventListener);
-            window.removeEventListener("shape-open-workspace-terminal", onOpen);
-            window.removeEventListener("shape-terminal-shortcut", onShortcut as EventListener);
-            window.removeEventListener("shape-set-active-tab", onTab as EventListener);
+            window.removeEventListener("bettershape-layout-toggle", onToggle as EventListener);
+            window.removeEventListener("bettershape-open-workspace-terminal", onOpen);
+            window.removeEventListener("bettershape-terminal-shortcut", onShortcut as EventListener);
+            window.removeEventListener("bettershape-set-active-tab", onTab as EventListener);
         };
     }, [open, persistOpen]);
 
@@ -185,18 +185,16 @@ export function TerminalDock() {
     return (
         <div
             className={cn(
-                "relative z-20 shrink-0 border border-border m-3 squircle-2xl",
-                open ? "px-2 pb-2" : "pointer-events-none",
+                "relative z-20 shrink-0 overflow-hidden",
+                "transition-[height,margin] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
+                open ? "m-3" : "pointer-events-none m-0",
+                resizing && "transition-none",
             )}
+            style={{ height: open ? height + 10 : 0 }}
             aria-hidden={!open}
         >
             <div
-                className={cn(
-                    "relative flex flex-col overflow-hidden rounded-xl bg-sidebar",
-                    "transition-[height] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
-                    resizing && "transition-none",
-                )}
-                style={{ height: open ? height : 0 }}
+                className="relative flex h-full flex-col overflow-hidden rounded-xl squircle-2xl border border-border bg-panel px-2 pb-2"
             >
                 {open ? (
                     <div
@@ -215,7 +213,7 @@ export function TerminalDock() {
                     />
                 ) : null}
                 <div className={cn("min-h-0 flex-1 overflow-hidden", resizing && "pointer-events-none")}>
-                    <Suspense fallback={<div className="h-full w-full bg-sidebar" />}>
+                    <Suspense fallback={<div className="h-full w-full bg-panel" />}>
                         <Terminal terminalOnly isOpen={open} onClose={() => persistOpen(false)} />
                     </Suspense>
                 </div>

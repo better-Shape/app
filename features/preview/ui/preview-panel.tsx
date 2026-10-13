@@ -49,7 +49,10 @@ export default function PreviewPanel({
     const inputRef = useRef<HTMLInputElement>(null);
     const iframeRef = useRef<HTMLIFrameElement>(null);
     const { project_path } = useProjectState();
-    const [webProject, setWebProject] = useState<boolean | null>(null);
+    // Whether the project is a web app, keyed to the path it was checked for, so a stale
+    // answer from a previous project is never shown.
+    const [webAnswer, setWebAnswer] = useState<{ path: string; web: boolean } | null>(null);
+    const webProject = project_path && webAnswer?.path === project_path ? webAnswer.web : null;
     const [designLocal, setDesignLocal] = useState(false);
     const designModeFlag = useRuntimeFlag("design_mode", true);
     const designOn = design ?? designLocal;
@@ -77,11 +80,16 @@ export default function PreviewPanel({
     }, []);
 
     useEffect(() => {
-        if (!project_path) {
-            setWebProject(null);
-            return;
-        }
-        void isWebProject(project_path).then(setWebProject).catch(() => setWebProject(false));
+        if (!project_path) return;
+        const path = project_path;
+        // A late answer for a previous project must not replace the current project's answer.
+        let current = true;
+        isWebProject(path)
+            .then((web) => current && setWebAnswer({ path, web }))
+            .catch(() => current && setWebAnswer({ path, web: false }));
+        return () => {
+            current = false;
+        };
     }, [project_path]);
 
     const localSite = isLocalPreviewUrl(currentUrl);
@@ -95,9 +103,6 @@ export default function PreviewPanel({
               : designOn
                 ? "Exit design mode"
                 : "Design mode";
-    useEffect(() => {
-        if (!designReady && designOn) setDesignOn(false);
-    }, [designReady, designOn, setDesignOn]);
 
     // Track cross-origin iframe document loads via Resource Timing when we can't read location.
     useEffect(() => {
@@ -133,7 +138,7 @@ export default function PreviewPanel({
         const onMessage = (event: MessageEvent) => {
             const data = event.data;
             if (!data || typeof data !== "object") return;
-            if ((data as { type?: string }).type !== "shape-preview-navigate") return;
+            if ((data as { type?: string }).type !== "bettershape-preview-navigate") return;
             const url = (data as { url?: string }).url;
             if (typeof url !== "string" || !url.trim()) return;
             if (!isLocalPreviewUrl(url)) return;

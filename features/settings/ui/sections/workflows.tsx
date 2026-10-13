@@ -217,7 +217,7 @@ function WorkflowDialog({
                         {existing.some((x) => x.id === draft.id) ? "Edit workflow" : "New workflow"}
                     </AlertDialogTitle>
                     <AlertDialogDescription>
-                        Tell Shape what to do when this routine runs. Use / to mention it in chat.
+                        Tell BetterShape what to do when this routine runs. Use / to mention it in chat.
                     </AlertDialogDescription>
                 </AlertDialogHeader>
                 <div className="flex max-h-[min(70vh,560px)] flex-col gap-3 overflow-y-auto px-1 pb-2">
@@ -266,7 +266,7 @@ function WorkflowDialog({
                         <Textarea
                             value={draft.prompt}
                             onChange={(e) => setDraft({ ...draft, prompt: e.target.value })}
-                            placeholder="Tell Shape what to do when this routine runs."
+                            placeholder="Tell BetterShape what to do when this routine runs."
                             className="min-h-28 bg-panel-hover"
                         />
                     </Field>

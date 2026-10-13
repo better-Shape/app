@@ -1,0 +1,237 @@
+name: Nightly
+
+on:
+  schedule:
+    # Daily at 02:00 UTC
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+    inputs:
+      prerelease:
+        description: "Publish as prerelease?"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-check:
+    name: Nightly Build Check (Windows ${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+            arch: x86_64
+            target: ""
+          - runner: windows-11-arm
+            arch: aarch64
+            target: aarch64-pc-windows-msvc
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup
+        uses: ./.github/actions/setup
+        with:
+          install-rust: "true"
+          rust-targets: ${{ matrix.target }}
+          install-system-deps: "false"
+          cache-key: nightly-${{ matrix.arch }}
+
+      - run: npm ci
+
+      - name: Generate nightly version (for build)
+        id: nightly-version
+        shell: bash
+        run: |
+          BASE=$(node -p "require('./package.json').version")
+          NIGHTLY="${BASE}-nightly.$(date +%Y%m%d).${GITHUB_RUN_NUMBER}"
+          echo "version=$NIGHTLY" >> "$GITHUB_OUTPUT"
+          echo "Nightly version: $NIGHTLY"
+          # Save version to file for publish job to use (avoids midnight crossing mismatch)
+          mkdir -p dist
+          echo "$NIGHTLY" > dist/version.txt
+          echo "$NIGHTLY" > dist/nightly-version.txt
+          # Set package.json to nightly version so installers embed correct version
+          node -e "
+            const fs=require('fs');
+            const pkg=JSON.parse(fs.readFileSync('package.json','utf8'));
+            pkg.version='${NIGHTLY}';
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2)+'\n');
+          "
+          echo "Updated package.json to $NIGHTLY"
+
+      - name: Sync version
+        run: npm run sync-version
+
+      - name: Build runtime
+        run: npm run build:runtime
+
+      - name: Build Tauri (NSIS)
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          # Skip build if secrets missing (nightly placeholder case) - but don't hide real failures
+          if [ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ] || [ -z "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" ]; then
+            echo "::warning::Secrets missing, skipping nightly build (expected for forks without secrets)"
+            mkdir -p dist/nightly-placeholder
+            echo "No secrets - build skipped" > dist/nightly-placeholder/README.txt
+            exit 0
+          fi
+          if [ -n "${{ matrix.target }}" ]; then
+            npm run tauri -- build --bundles nsis --target "${{ matrix.target }}"
+          else
+            npm run tauri -- build --bundles nsis
+          fi
+
+      - name: Verify build output exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -d "dist/nightly-placeholder" ]; then
+            echo "Build was skipped due to missing secrets - placeholder exists"
+            exit 0
+          fi
+          # Check for expected installer
+          if ! find src-tauri/target -name "*.exe" -path "*/bundle/nsis/*" | grep -q .; then
+            echo "::error::No NSIS installer found after build"
+            find src-tauri/target -type f -name "*.exe" | head -n 20 || true
+            exit 1
+          fi
+          echo "✓ Installer found"
+
+      - name: Upload nightly artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-${{ matrix.arch }}
+          path: |
+            src-tauri/target/**/bundle/nsis/*.exe
+            dist/nightly-placeholder/
+            dist/version.txt
+            dist/nightly-version.txt
+          if-no-files-found: error
+          retention-days: 3
+
+  # Optional: Create nightly prerelease if manually triggered
+  publish-nightly:
+    name: Publish Nightly Prerelease
+    if: github.event_name == 'workflow_dispatch' && inputs.prerelease
+    needs: build-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - run: npm ci
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist/nightly
+          merge-multiple: true
+
+      - name: Determine nightly version from artifacts
+        id: version
+        run: |
+          set -euo pipefail
+          BASE=$(node -p "require('./package.json').version")
+          # Look for version file in multiple possible locations (artifacts may be nested)
+          VERSION_FILE=""
+          for candidate in \
+            "dist/nightly/version.txt" \
+            "dist/nightly/dist/version.txt" \
+            "dist/nightly/nightly-version.txt" \
+            "dist/nightly/dist/nightly-version.txt" \
+            "dist/version.txt" \
+            "dist/nightly-version.txt"; do
+            if [ -f "$candidate" ]; then
+              VERSION_FILE="$candidate"
+              break
+            fi
+          done
+          # Also search recursively
+          if [ -z "$VERSION_FILE" ]; then
+            FOUND=$(find dist/nightly -name "version.txt" -o -name "nightly-version.txt" 2>/dev/null | head -n1 || true)
+            if [ -n "$FOUND" ]; then
+              VERSION_FILE="$FOUND"
+            fi
+          fi
+          if [ -n "$VERSION_FILE" ] && [ -f "$VERSION_FILE" ]; then
+            NIGHTLY=$(cat "$VERSION_FILE")
+            echo "Using version from artifact $VERSION_FILE: $NIGHTLY"
+          else
+            # Fallback: use date, but warn about midnight crossing risk
+            NIGHTLY="${BASE}-nightly.$(date +%Y%m%d).${GITHUB_RUN_NUMBER}"
+            echo "::warning::No version.txt found in artifacts (searched dist/nightly), using recomputed $NIGHTLY - may mismatch installers if crossing midnight"
+            echo "Searched: dist/nightly/version.txt, dist/version.txt, and recursive find"
+            ls -R dist/nightly 2>/dev/null | head -n 50 || true
+          fi
+          echo "version=$NIGHTLY" >> "$GITHUB_OUTPUT"
+          echo "Nightly version: $NIGHTLY"
+
+      - name: List artifacts
+        run: |
+          find dist/nightly -type f -exec ls -lh {} \; 2>/dev/null || echo "No artifacts"
+          if [ -f "dist/nightly/README.txt" ]; then
+            echo "Placeholder build detected - skipping publish"
+          fi
+
+      - name: Publish nightly release (draft)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Skip if placeholder (no real build)
+          if [ -f "dist/nightly/README.txt" ]; then
+            echo "Placeholder build - no real artifacts, skipping publish"
+            exit 0
+          fi
+          if [ -z "$(find dist/nightly -mindepth 1 -print -quit 2>/dev/null)" ]; then
+            echo "No artifacts to publish - skipping"
+            exit 0
+          fi
+          # Ensure we have actual installers (recursive search, not just top-level)
+          if ! find dist/nightly -name "*.exe" | grep -q .; then
+            echo "::error::No exe installers found in artifacts"
+            find dist/nightly -type f | head -n 20 || true
+            exit 1
+          fi
+          TAG="v${{ steps.version.outputs.version }}"
+          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "Release $TAG already exists - skipping"
+            exit 0
+          fi
+          # Use recursive glob to find installers in nested directories (artifacts retain structure)
+          mapfile -t EXES < <(find dist/nightly -name "*.exe" -type f)
+          if [ ${#EXES[@]} -eq 0 ]; then
+            echo "::error::No exe files found"
+            exit 1
+          fi
+          echo "Found ${#EXES[@]} exe files: ${EXES[*]}"
+          gh release create "$TAG" \
+            --target "${{ github.sha }}" \
+            --repo "${{ github.repository }}" \
+            --title "Nightly ${{ steps.version.outputs.version }}" \
+            --notes "Automated nightly build from ${{ github.sha }}. Not for production use." \
+            --prerelease \
+            --draft \
+            "${EXES[@]}"

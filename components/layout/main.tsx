@@ -53,8 +53,8 @@ function ProjectOpenHost() {
             const custom = e as CustomEvent<{ path: string }>;
             if (custom.detail?.path) void openProject(custom.detail.path);
         };
-        window.addEventListener("shape-open-project", handleEvent);
-        return () => window.removeEventListener("shape-open-project", handleEvent);
+        window.addEventListener("bettershape-open-project", handleEvent);
+        return () => window.removeEventListener("bettershape-open-project", handleEvent);
     }, []);
 
     useEffect(() => {
@@ -69,7 +69,7 @@ function ProjectOpenHost() {
                 if (fresh || cancelled) return;
                 const last = loadLastProject();
                 if (!last || cancelled) return;
-                await openProject(last);
+                await openProject(last, { promptTrust: false });
             } catch {
                 /* ignore */
             }
@@ -94,19 +94,20 @@ export default function Main({ children }: { children: React.ReactNode }) {
             const selected = await open({ directory: false, multiple: false });
             if (typeof selected === "string") {
                 const name = selected.split(/[\\/]/).pop() || selected;
+                await commands.grantIpcPath(selected).catch(() => undefined);
                 await commands.openFile(selected, name);
             }
         };
         const handleOpenFolderRequest = () => {
-            window.dispatchEvent(new Event("shape-open-project-pick"));
+            window.dispatchEvent(new Event("bettershape-open-project-pick"));
         };
 
-        window.addEventListener("shape-open-settings", handleOpenSettings);
+        window.addEventListener("bettershape-open-settings", handleOpenSettings);
         window.addEventListener("open-file-request", handleOpenFileRequest);
         window.addEventListener("open-folder-request", handleOpenFolderRequest);
 
         return () => {
-            window.removeEventListener("shape-open-settings", handleOpenSettings);
+            window.removeEventListener("bettershape-open-settings", handleOpenSettings);
             window.removeEventListener("open-file-request", handleOpenFileRequest);
             window.removeEventListener("open-folder-request", handleOpenFolderRequest);
         };

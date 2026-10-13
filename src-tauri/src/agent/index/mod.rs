@@ -20,9 +20,9 @@ use tauri::Emitter;
 use walkdir::WalkDir;
 
 const INDEXABLE_EXTENSIONS: &[&str] = &[
-    "rs", "ts", "tsx", "js", "jsx", "py", "go", "java", "c", "cpp", "h", "hpp", "cs", "rb",
-    "php", "swift", "kt", "scala", "md", "json", "yaml", "yml", "toml", "xml", "html", "css",
-    "scss", "sql", "sh", "bash", "zsh", "ps1", "vue", "svelte", "astro", "lua", "r", "dart",
+    "rs", "ts", "tsx", "js", "jsx", "py", "go", "java", "c", "cpp", "h", "hpp", "cs", "rb", "php",
+    "swift", "kt", "scala", "md", "json", "yaml", "yml", "toml", "xml", "html", "css", "scss",
+    "sql", "sh", "bash", "zsh", "ps1", "vue", "svelte", "astro", "lua", "r", "dart",
 ];
 
 const SKIP_DIRS: &[&str] = &[
@@ -110,7 +110,11 @@ impl IndexManager {
             Bm25Index::default()
         };
 
-        let mut embeddings = EmbeddingStore::default();
+        let embeddings_path = index_dir.join("embeddings.bin");
+        let mut embeddings = std::fs::read(&embeddings_path)
+            .ok()
+            .and_then(|bytes| bincode::deserialize::<EmbeddingStore>(&bytes).ok())
+            .unwrap_or_default();
         embeddings.enabled = embeddings_enabled;
 
         Ok(Self {
@@ -129,7 +133,7 @@ impl IndexManager {
             files_indexed: self.manifest.files.len(),
             total_files: self.manifest.files.len(),
             chunks: self.index.chunks.len(),
-            vectors: self.embeddings.server_vectors,
+            vectors: self.embeddings.len(),
             last_indexed_at: self.manifest.last_indexed_at,
             project_path: Some(self.project_path.to_string_lossy().to_string()),
             indexing,
@@ -154,7 +158,10 @@ impl IndexManager {
         self.remote.set_context(ctx);
     }
 
-    pub fn index_project_with_progress<F>(&mut self, mut on_progress: F) -> std::io::Result<IndexStatus>
+    pub fn index_project_with_progress<F>(
+        &mut self,
+        mut on_progress: F,
+    ) -> std::io::Result<IndexStatus>
     where
         F: FnMut(IndexProgress),
     {
@@ -283,9 +290,7 @@ impl IndexManager {
         self.flush_embeddings(&mut pending_embed);
 
         if self.embeddings_enabled && (!removed.is_empty() || total_to_index > 0) {
-            if let Ok(vectors) = self.sync_all_chunks_to_server(true) {
-                self.embeddings.server_vectors = vectors;
-            }
+            let _ = self.rebuild_embeddings();
         }
 
         on_progress(IndexProgress {
@@ -297,7 +302,7 @@ impl IndexManager {
 
         self.manifest.files = current_files;
         self.manifest.last_indexed_at =
-            Some(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs_f64());
+            Some(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs_f64() * 1000.0);
 
         self.persist()?;
         Ok(self.status(false))
@@ -312,27 +317,31 @@ impl IndexManager {
         use crate::agent::index::embeddings::SyncChunkPayload;
         let chunks: Vec<SyncChunkPayload> = pending
             .drain(..)
-            .map(|(chunk_index, file_path, start_line, end_line, text)| SyncChunkPayload {
-                chunk_index,
-                file_path,
-                start_line,
-                end_line,
-                text,
-            })
+            .map(
+                |(chunk_index, file_path, start_line, end_line, text)| SyncChunkPayload {
+                    chunk_index,
+                    file_path,
+                    start_line,
+                    end_line,
+                    text,
+                },
+            )
             .collect();
 
-        if let Ok(vectors) = self.remote.sync_chunks(chunks, false) {
-            self.embeddings.server_vectors = vectors;
+        if let Ok(_stored) = self.remote.sync_chunks(&mut self.embeddings, chunks, false) {
+            // Vector count comes straight from the local store.
         }
     }
 
-    fn sync_all_chunks_to_server(&self, full_replace: bool) -> Result<usize, String> {
+    /// Re-embed the whole index into the local vector store.
+    fn rebuild_embeddings(&mut self) -> Result<usize, String> {
         use crate::agent::index::embeddings::SyncChunkPayload;
-        if !self.embeddings_enabled {
+        if !self.embeddings_enabled || !self.remote.is_available() {
             return Ok(0);
         }
 
-        let mut vectors = 0usize;
+        let mut stored = 0usize;
+        let first = true;
         let mut batch: Vec<SyncChunkPayload> = Vec::with_capacity(EMBED_BATCH);
 
         for (chunk_index, chunk) in self.index.chunks.iter().enumerate() {
@@ -344,38 +353,51 @@ impl IndexManager {
                 text: chunk.text.clone(),
             });
             if batch.len() >= EMBED_BATCH {
-                vectors = self.remote.sync_chunks(batch, full_replace && vectors == 0)?;
+                stored = self
+                    .remote
+                    .sync_chunks(&mut self.embeddings, std::mem::take(&mut batch), first)?;
                 batch = Vec::with_capacity(EMBED_BATCH);
             }
         }
 
+        let full_replace = first;
         if !batch.is_empty() {
-            vectors = self.remote.sync_chunks(batch, full_replace && vectors == 0)?;
+            stored = self.remote.sync_chunks(&mut self.embeddings, batch, full_replace)?;
         } else if full_replace {
-            vectors = self.remote.sync_chunks(vec![], true)?;
+            self.embeddings.clear();
+            stored = 0;
         }
 
-        Ok(vectors)
+        // Drop vectors for files that are gone.
+        let keep: HashSet<String> = self
+            .index
+            .chunks
+            .iter()
+            .map(|c| c.path.clone())
+            .collect();
+        self.embeddings.retain_files(&keep);
+
+        Ok(stored)
     }
 
     fn persist(&self) -> std::io::Result<()> {
         let manifest_path = self.index_dir.join("manifest.json");
         let index_path = self.index_dir.join("index.bin");
+        let embeddings_path = self.index_dir.join("embeddings.bin");
         self.manifest.save(&manifest_path)?;
         let bytes = bincode::serialize(&self.index).unwrap_or_default();
-        std::fs::write(index_path, bytes)
+        std::fs::write(index_path, bytes)?;
+        let vectors = bincode::serialize(&self.embeddings).unwrap_or_default();
+        std::fs::write(embeddings_path, vectors)
     }
 }
 
 fn index_storage_dir(project_path: &str) -> PathBuf {
-    let mut hash: u64 = 5381;
-    for b in project_path.bytes() {
-        hash = hash.wrapping_mul(33).wrapping_add(b as u64);
-    }
+    let hash = crate::core::project_key::betterbetterbetterbettershape_index_key(project_path);
     dirs::data_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join("shape-index")
-        .join(format!("{:016x}", hash))
+        .join("bettershape-index")
+        .join(hash)
 }
 
 fn should_skip_entry(path: &Path, project_root: &Path) -> bool {
@@ -421,8 +443,7 @@ impl IndexStateInner {
         let needs_load = guard
             .as_ref()
             .map(|m| {
-                m.project_path.to_string_lossy() != project_path
-                    || m.embeddings_enabled != emb
+                m.project_path.to_string_lossy() != project_path || m.embeddings_enabled != emb
             })
             .unwrap_or(true);
         if needs_load {
@@ -460,26 +481,25 @@ impl IndexState {
 
     pub fn set_api_context(
         &self,
-        token: Option<String>,
+        model: Option<String>,
         turn_id: Option<String>,
         conversation_id: Option<String>,
     ) {
-        let token_changed = {
+        let model_changed = {
             let Ok(mut guard) = self.inner.api_context.lock() else {
                 return;
             };
-            let changed = guard.token != token;
-            guard.token = token;
+            let changed = guard.model != model;
+            guard.model = model;
             guard.turn_id = turn_id;
             guard.conversation_id = conversation_id;
             changed
         };
         // Turn/conversation ids are per-request metadata; update the loaded
-        // manager in place. Only a token change (sign-in/out) invalidates the
-        // in-memory index — dropping it every turn forced a disk reload of
-        // index.bin on each search.
+        // manager in place. Only a model change invalidates the in-memory index —
+        // dropping it every turn forced a disk reload of index.bin on each search.
         if let Ok(mut current) = self.inner.current.lock() {
-            if token_changed {
+            if model_changed {
                 *current = None;
             } else if let Some(manager) = current.as_mut() {
                 manager.set_api_context(self.inner.api_context());
@@ -490,7 +510,11 @@ impl IndexState {
     /// Enable/disable semantic embeddings for codebase search. Persisted by the
     /// frontend settings store and pushed here on startup and on change.
     pub fn set_embeddings_enabled(&self, enabled: bool) {
-        let changed = self.inner.embeddings_enabled.swap(enabled, Ordering::SeqCst) != enabled;
+        let changed = self
+            .inner
+            .embeddings_enabled
+            .swap(enabled, Ordering::SeqCst)
+            != enabled;
         if changed {
             // Force a reload so the manager picks up the new mode lazily.
             if let Ok(mut current) = self.inner.current.lock() {
@@ -536,42 +560,41 @@ impl IndexState {
 
         let inner = self.inner.clone();
         let spawned = std::thread::Builder::new()
-            .name("shape-index".into())
+            .name("bettershape-index".into())
             .spawn(move || {
-            let emb = inner.embeddings_enabled.load(Ordering::SeqCst);
-            let ctx = inner.api_context();
-            let run = || -> Result<(IndexManager, IndexStatus), String> {
-                let mut manager =
-                    IndexManager::for_project_with_opts(&project_path, emb, ctx)
+                let emb = inner.embeddings_enabled.load(Ordering::SeqCst);
+                let ctx = inner.api_context();
+                let run = || -> Result<(IndexManager, IndexStatus), String> {
+                    let mut manager = IndexManager::for_project_with_opts(&project_path, emb, ctx)
                         .map_err(|e| e.to_string())?;
-                let status = manager
-                    .index_project_with_progress(|progress| {
-                        if let Ok(mut snap) = inner.progress.lock() {
-                            *snap = Some(progress.clone());
+                    let status = manager
+                        .index_project_with_progress(|progress| {
+                            if let Ok(mut snap) = inner.progress.lock() {
+                                *snap = Some(progress.clone());
+                            }
+                            let _ = app.emit("codebase-index-progress", &progress);
+                        })
+                        .map_err(|e| e.to_string())?;
+                    Ok((manager, status))
+                };
+
+                match run() {
+                    Ok((manager, status)) => {
+                        if let Ok(mut guard) = inner.current.lock() {
+                            *guard = Some(manager);
                         }
-                        let _ = app.emit("codebase-index-progress", &progress);
-                    })
-                    .map_err(|e| e.to_string())?;
-                Ok((manager, status))
-            };
-
-            match run() {
-                Ok((manager, status)) => {
-                    if let Ok(mut guard) = inner.current.lock() {
-                        *guard = Some(manager);
+                        let _ = app.emit("codebase-index-complete", &status);
                     }
-                    let _ = app.emit("codebase-index-complete", &status);
+                    Err(err) => {
+                        let _ = app.emit("codebase-index-error", err);
+                    }
                 }
-                Err(err) => {
-                    let _ = app.emit("codebase-index-error", err);
-                }
-            }
 
-            inner.indexing.store(false, Ordering::SeqCst);
-            if let Ok(mut snap) = inner.progress.lock() {
-                *snap = None;
-            }
-        });
+                inner.indexing.store(false, Ordering::SeqCst);
+                if let Ok(mut snap) = inner.progress.lock() {
+                    *snap = None;
+                }
+            });
 
         if spawned.is_err() {
             self.inner.indexing.store(false, Ordering::SeqCst);

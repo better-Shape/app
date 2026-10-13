@@ -1,6 +1,8 @@
 //! WebView2 DevTools endpoint for the in-app inspector.
 //! Loopback only, one port per process, and not open to every website origin.
 
+#![allow(dead_code)]
+
 use std::sync::OnceLock;
 
 static PORT: OnceLock<u16> = OnceLock::new();
@@ -33,7 +35,8 @@ pub fn install_env() {
             "--remote-debugging-address=127.0.0.1",
             "--site-per-process",
         ];
-        let mut existing = std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS").unwrap_or_default();
+        let mut existing =
+            std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS").unwrap_or_default();
         for flag in flags {
             let present = if flag.starts_with("--remote-debugging-port=") {
                 existing.contains("remote-debugging-port")

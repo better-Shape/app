@@ -86,12 +86,12 @@ function useBreadcrumbOutline(path: string, enabled = true) {
             }
         };
 
-        window.addEventListener("shape-editor-buffer", handleBuffer);
-        window.addEventListener("shape-editor-status", handleStatus);
+        window.addEventListener("bettershape-editor-buffer", handleBuffer);
+        window.addEventListener("bettershape-editor-status", handleStatus);
 
         return () => {
-            window.removeEventListener("shape-editor-buffer", handleBuffer);
-            window.removeEventListener("shape-editor-status", handleStatus);
+            window.removeEventListener("bettershape-editor-buffer", handleBuffer);
+            window.removeEventListener("bettershape-editor-status", handleStatus);
         };
     }, [enabled]);
 
@@ -210,7 +210,7 @@ function FolderSubMenu({ name, folderPath, isSelected, gitStatuses, gitModifiedD
 
 function handleJump(path: string, symbol: OutlineSymbol) {
     window.dispatchEvent(
-        new CustomEvent("shape-editor-jump", {
+        new CustomEvent("bettershape-editor-jump", {
             detail: {
                 path,
                 line: symbol.start_line,

@@ -3,10 +3,15 @@ use crate::core::error::AppError;
 
 pub use crate::commands::packages::PackageInfo;
 
-pub async fn get_package_info(project_path: String, package_manager: Option<String>) -> Result<PackageInfo, AppError> {
-    tauri::async_runtime::spawn_blocking(move || packages::get_package_info(project_path, package_manager))
-        .await
-        .map_err(|e| AppError::Message(e.to_string()))?
+pub async fn get_package_info(
+    project_path: String,
+    package_manager: Option<String>,
+) -> Result<PackageInfo, AppError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        packages::get_package_info(project_path, package_manager)
+    })
+    .await
+    .map_err(|e| AppError::Message(e.to_string()))?
 }
 
 pub async fn npm_install(
@@ -46,7 +51,10 @@ pub async fn npm_update(
     .map_err(|e| AppError::Message(e.to_string()))?
 }
 
-pub async fn run_install_all(project_path: String, package_manager: Option<String>) -> Result<(), AppError> {
+pub async fn run_install_all(
+    project_path: String,
+    package_manager: Option<String>,
+) -> Result<(), AppError> {
     tauri::async_runtime::spawn_blocking(move || {
         packages::run_install_all(project_path, package_manager)
     })

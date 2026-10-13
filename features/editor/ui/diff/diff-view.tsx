@@ -6,13 +6,13 @@ import { EditorView, lineNumbers } from "@codemirror/view";
 import { MergeView, unifiedMergeView } from "@codemirror/merge";
 import { bracketMatching } from "@codemirror/language";
 import { languageForPath } from "@/features/editor/ui/codemirror/lang";
-import { shapeEditorChrome } from "@/features/editor/ui/codemirror/theme";
+import { betterShapeEditorChrome } from "@/features/editor/ui/codemirror/theme";
 import { cn } from "@/lib/utils";
 
 function baseExtensions(path: string) {
     const lang = languageForPath(path);
     return [
-        ...shapeEditorChrome(),
+        ...betterShapeEditorChrome(),
         lineNumbers(),
         bracketMatching(),
         EditorView.editable.of(false),

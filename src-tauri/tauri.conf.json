@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "Shape",
-  "version": "1.0.2",
+  "productName": "BetterShape",
+  "version": "1.0.3",
   "identifier": "com.shape.app",
   "build": {
     "frontendDist": "../out",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Shape",
+        "title": "BetterShape",
         "visible": false,
         "width": 1000,
         "height": 800,
@@ -24,25 +24,15 @@
         "decorations": false,
         "transparent": true,
         "dragDropEnabled": false
-      },
-      {
-        "label": "onboarding",
-        "title": "Welcome to Shape",
-        "url": "/onboarding/",
-        "width": 900,
-        "height": 600,
-        "maximizable": false,
-        "resizable": false,
-        "decorations": false,
-        "transparent": true,
-        "center": true,
-        "visible": false
       }
     ],
     "security": {
       "csp": {
         "default-src": "'self' asset:",
-        "connect-src": "ipc: http://ipc.localhost https://ipc.localhost http://tauri.localhost https://tauri.localhost http://asset.localhost https://asset.localhost http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:* wss: https: http://ipc.localhost",
+        "base-uri": "'self'",
+        "object-src": "'none'",
+        "frame-ancestors": "'self'",
+        "connect-src": "ipc: http://ipc.localhost https://ipc.localhost http://tauri.localhost https://tauri.localhost http://asset.localhost https://asset.localhost http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:* wss: https:",
         "font-src": "'self' data: https://fonts.gstatic.com http://localhost:* http://127.0.0.1:*",
         "img-src": "'self' asset: http://asset.localhost https://asset.localhost blob: data: https: http://localhost:* http://127.0.0.1:*",
         "style-src": "'unsafe-inline' 'self' https://fonts.googleapis.com http://localhost:* http://127.0.0.1:*",
@@ -74,15 +64,9 @@
     "deep-link": {
       "desktop": {
         "schemes": [
-          "shape"
+          "bettershape"
         ]
       }
-    },
-    "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDVFNTYxRTA2OTk5NjY4MjIKUldRaWFKYVpCaDVXWGcyRjUzZENZUDgvbm9zaEFnOHZvNmQ5cHBzQ3J6VytIajR3U3A5U1lOTEgK",
-      "endpoints": [
-        "https://www.useshape.org/api/updates/desktop"
-      ]
     }
   },
   "bundle": {

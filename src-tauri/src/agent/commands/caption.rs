@@ -4,14 +4,14 @@
 //! screenshots so DeepSeek (or any text-only model) can act on them without
 //! running the whole agent turn on Gemini Flash.
 
-use regex::Regex;
-use serde_json::{json, Value};
+use super::super::models::ChatMessage;
 use super::logging;
 use super::streaming::{self, ProxyContext};
-use super::super::models::ChatMessage;
 use crate::agent::model_router::{self};
 use crate::core::error::AppError;
+use regex::Regex;
 use reqwest::Client;
+use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::{Mutex, OnceLock};
@@ -118,7 +118,7 @@ async fn describe_urls(
         client,
         api_key,
         vec![json!({ "role": "user", "content": parts })],
-        "auto",
+        &crate::core::ai_providers::vision_model(),
         CAPTION_MAX_TOKENS,
         &caption_ctx,
         cancel,
@@ -194,7 +194,8 @@ mod tests {
 
     #[test]
     fn extracts_named_data_urls() {
-        let content = r#"see <attached_image name="shot.png">data:image/png;base64,abc</attached_image>"#;
+        let content =
+            r#"see <attached_image name="shot.png">data:image/png;base64,abc</attached_image>"#;
         let images = content_data_urls(content);
         assert_eq!(images.len(), 1);
         assert_eq!(images[0].0, "shot.png");
@@ -213,12 +214,12 @@ mod tests {
 
     #[test]
     fn captions_text_only_models() {
-        assert!(should_caption(model_router::MODEL_FAST, true));
-        assert!(!should_caption(model_router::MODEL_IMAGE_CAPTION, true));
+        assert!(should_caption("deepseek/deepseek-chat", true));
+        assert!(!should_caption("google/gemini-2.5-flash", true));
         assert!(!should_caption("anthropic/claude-sonnet-4", true));
         assert!(!should_caption("openai/gpt-5.4", true));
         assert!(!should_caption("google/gemini-3.1-pro-preview", true));
         assert!(!should_caption("x-ai/grok-4.3", true));
-        assert!(!should_caption(model_router::MODEL_FAST, false));
+        assert!(!should_caption("deepseek/deepseek-chat", false));
     }
 }

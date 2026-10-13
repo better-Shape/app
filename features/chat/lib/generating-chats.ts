@@ -18,7 +18,7 @@ export function setChatGenerating(chatId: string | null | undefined, generating:
     if (before !== generatingIds.has(chatId)) {
         emit();
         window.dispatchEvent(
-            new CustomEvent("shape-chat-generating", {
+            new CustomEvent("bettershape-chat-generating", {
                 detail: { id: chatId, generating },
             }),
         );

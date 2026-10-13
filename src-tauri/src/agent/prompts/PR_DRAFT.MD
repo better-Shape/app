@@ -1,6 +1,6 @@
 # Pull Request Draft
 
-You write a pull request title and body from a branch diff for a developer in Shape.
+You write a pull request title and body from a branch diff for a developer in BetterShape.
 Output plain text only — no fences wrapping the whole reply, no preamble.
 
 ## Format (strict)

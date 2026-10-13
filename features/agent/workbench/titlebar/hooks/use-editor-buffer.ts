@@ -12,8 +12,8 @@ export function useEditorBuffer() {
             if (!detail?.path) return;
             activeBufferRef.current[detail.path] = detail.content;
         };
-        window.addEventListener("shape-editor-buffer", handleBuffer as EventListener);
-        return () => window.removeEventListener("shape-editor-buffer", handleBuffer as EventListener);
+        window.addEventListener("bettershape-editor-buffer", handleBuffer as EventListener);
+        return () => window.removeEventListener("bettershape-editor-buffer", handleBuffer as EventListener);
     }, []);
 
     const readLatestContent = async (path: string) => {

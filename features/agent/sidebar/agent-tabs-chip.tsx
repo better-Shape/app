@@ -23,8 +23,8 @@ export function AgentTabsChip() {
             const id = (e as CustomEvent<{ id?: string }>).detail?.id;
             setParentId(id && id !== NEW_CHAT_TAB_ID ? id : null);
         };
-        window.addEventListener("shape-chat-active", onActive as EventListener);
-        return () => window.removeEventListener("shape-chat-active", onActive as EventListener);
+        window.addEventListener("bettershape-chat-active", onActive as EventListener);
+        return () => window.removeEventListener("bettershape-chat-active", onActive as EventListener);
     }, []);
 
     const cards = useMemo(() => {

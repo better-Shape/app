@@ -5,7 +5,7 @@ use crate::core::error::AppError;
 #[allow(dead_code)]
 pub const PREVIEW_READY_GLOBAL: &str = "__SHAPE_PREVIEW_READY__";
 #[allow(dead_code)]
-pub const PREVIEW_EMIT_FN: &str = "__shapeSignalPreviewReady";
+pub const PREVIEW_EMIT_FN: &str = "__bettershapeSignalPreviewReady";
 #[allow(dead_code)]
 pub const PREVIEW_READY_TITLE_SUFFIX: &str = "|ready";
 
@@ -15,8 +15,10 @@ pub const PREVIEW_TAILWIND_FILENAME: &str = "tailwind-browser.js";
 static RUNTIME_BUNDLE: &str =
     include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/runtime/bundle.js"));
 
-static RUNTIME_TAILWIND_BROWSER: &str =
-    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/runtime/tailwind-browser.js"));
+static RUNTIME_TAILWIND_BROWSER: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/runtime/tailwind-browser.js"
+));
 
 #[allow(dead_code)]
 pub fn runtime_bundle_bytes() -> &'static str {
@@ -41,9 +43,8 @@ pub fn ensure_runtime_bundle(dir: &Path) -> Result<(), AppError> {
         Err(_) => true,
     };
     if needs_tailwind {
-        std::fs::write(&tailwind_path, RUNTIME_TAILWIND_BROWSER).map_err(|e| {
-            AppError::Env(format!("Failed to write preview tailwind browser: {e}"))
-        })?;
+        std::fs::write(&tailwind_path, RUNTIME_TAILWIND_BROWSER)
+            .map_err(|e| AppError::Env(format!("Failed to write preview tailwind browser: {e}")))?;
     }
     Ok(())
 }
@@ -51,7 +52,7 @@ pub fn ensure_runtime_bundle(dir: &Path) -> Result<(), AppError> {
 /// Injected before page scripts so preview windows can emit `preview-ready`.
 #[allow(dead_code)]
 pub const PREVIEW_INITIALIZATION_SCRIPT: &str = r#"(function () {
-  window.__shapeSignalPreviewReady = function signalPreviewReady() {
+  window.__bettershapeSignalPreviewReady = function signalPreviewReady() {
     window.__SHAPE_PREVIEW_READY__ = true;
     try {
       var base = document.title || "";
@@ -74,7 +75,7 @@ pub const PREVIEW_INITIALIZATION_SCRIPT: &str = r#"(function () {
 })();"#;
 
 pub fn sandbox_root() -> PathBuf {
-    std::env::temp_dir().join("shape-design-sandbox")
+    std::env::temp_dir().join("bettershape-design-sandbox")
 }
 
 pub fn session_dir(session_id: &str) -> PathBuf {
@@ -150,7 +151,10 @@ pub fn write_concept_document(
     html: &str,
 ) -> Result<PathBuf, AppError> {
     let dir = ensure_session_dir(session_id)?;
-    let path = dir.join(format!("concept-{}.html", sanitize_path_segment(concept_id)));
+    let path = dir.join(format!(
+        "concept-{}.html",
+        sanitize_path_segment(concept_id)
+    ));
     std::fs::write(&path, html)
         .map_err(|e| AppError::Env(format!("Failed to write concept preview html: {e}")))?;
     Ok(path)
@@ -228,7 +232,9 @@ enum PreviewDocumentKind<'a> {
         bundle_src: &'a str,
         tailwind_src: &'a str,
     },
-    StaticBody { body_html: String },
+    StaticBody {
+        body_html: String,
+    },
 }
 
 fn preview_document_head(tailwind_src: &str, project_css: &str) -> String {
@@ -249,7 +255,7 @@ fn preview_document_head(tailwind_src: &str, project_css: &str) -> String {
         r#"<meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="icon" href="data:," />
-  <title>shape-preview-doc</title>
+  <title>bettershape-preview-doc</title>
   <script src="{tailwind_src_attr}"></script>{theme_block}"#
     )
 }
@@ -274,10 +280,7 @@ fn build_offline_preview_document(kind: PreviewDocumentKind<'_>, project_css: &s
     };
 
     let body = match kind {
-        PreviewDocumentKind::React {
-            bundle_src,
-            ..
-        } => {
+        PreviewDocumentKind::React { bundle_src, .. } => {
             let bundle_src_attr = html_attr_escape(bundle_src);
             format!(
                 r#"<div id="root"></div>
@@ -285,24 +288,24 @@ fn build_offline_preview_document(kind: PreviewDocumentKind<'_>, project_css: &s
 <script>
   (async () => {{
     try {{
-      if (typeof ShapePreviewRuntime === "undefined" || !ShapePreviewRuntime.mountPreview) {{
+      if (typeof BetterShapePreviewRuntime === "undefined" || !BetterShapePreviewRuntime.mountPreview) {{
         throw new Error("Preview runtime failed to load from {bundle_src_attr}");
       }}
-      await ShapePreviewRuntime.mountPreview({user_code_json}, {project_css_json});
+      await BetterShapePreviewRuntime.mountPreview({user_code_json}, {project_css_json});
     }} catch (error) {{
       const root = document.getElementById("root");
       if (root) {{
         root.innerHTML = '<pre style="color:#fca5a5;padding:16px;white-space:pre-wrap;">' + String(error) + '</pre>';
       }}
-      if (typeof window.__shapeSignalPreviewReady === "function") {{
-        await window.__shapeSignalPreviewReady();
+      if (typeof window.__bettershapeSignalPreviewReady === "function") {{
+        await window.__bettershapeSignalPreviewReady();
       }} else {{
         window.__SHAPE_PREVIEW_READY__ = true;
         document.title = (document.title || "") + "|ready";
       }}
       try {{
         if (window.parent !== window) {{
-          window.parent.postMessage({{ type: "shape-preview-ready" }}, "*");
+          window.parent.postMessage({{ type: "bettershape-preview-ready" }}, "*");
         }}
       }} catch (_) {{}}
     }}
@@ -321,11 +324,11 @@ fn build_offline_preview_document(kind: PreviewDocumentKind<'_>, project_css: &s
     }} catch (_) {{}}
     try {{
       if (window.parent !== window) {{
-        window.parent.postMessage({{ type: "shape-preview-ready" }}, "*");
+        window.parent.postMessage({{ type: "bettershape-preview-ready" }}, "*");
       }}
     }} catch (_) {{}}
-    if (typeof window.__shapeSignalPreviewReady === "function") {{
-      await window.__shapeSignalPreviewReady();
+    if (typeof window.__bettershapeSignalPreviewReady === "function") {{
+      await window.__bettershapeSignalPreviewReady();
     }} else {{
       window.__SHAPE_PREVIEW_READY__ = true;
       document.title = (document.title || "") + "|ready";
@@ -378,14 +381,14 @@ fn build_offline_preview_document(kind: PreviewDocumentKind<'_>, project_css: &s
 #[allow(dead_code)]
 pub fn build_preview_ready_script(_max_wait_ms: u64) -> String {
     r#"(async () => {
-  if (typeof window.__shapeSignalPreviewReady === "function") {
-    await window.__shapeSignalPreviewReady();
+  if (typeof window.__bettershapeSignalPreviewReady === "function") {
+    await window.__bettershapeSignalPreviewReady();
   } else {
     window.__SHAPE_PREVIEW_READY__ = true;
     document.title = (document.title || "") + "|ready";
   }
 })();"#
-    .to_string()
+        .to_string()
 }
 
 fn load_project_css(project_path: Option<&str>) -> String {
@@ -395,7 +398,10 @@ fn load_project_css(project_path: Option<&str>) -> String {
     let candidates = [
         Path::new(root).join("app").join("globals.css"),
         Path::new(root).join("src").join("app").join("globals.css"),
-        Path::new(root).join("shape").join("app").join("globals.css"),
+        Path::new(root)
+            .join("bettershape")
+            .join("app")
+            .join("globals.css"),
         Path::new(root).join("globals.css"),
     ];
     for path in candidates {
@@ -453,11 +459,13 @@ mod tests {
         let inlined = inline_runtime_scripts(&shell);
         assert!(!inlined.contains(r#"src="bundle.js""#));
         assert!(!inlined.contains(r#"src="tailwind-browser.js""#));
-        assert!(inlined.contains("ShapePreviewRuntime"));
+        assert!(inlined.contains("BetterShapePreviewRuntime"));
         assert!(inlined.len() > 100_000);
         // HTML must not declare @import in a style tag; the browser bundle may mention it in JS.
-        assert!(!inlined.contains(r#"type="text/tailwindcss">
-@import "tailwindcss""#));
+        assert!(!inlined.contains(
+            r#"type="text/tailwindcss">
+@import "tailwindcss""#
+        ));
     }
 
     #[test]
@@ -470,7 +478,7 @@ mod tests {
         assert!(!html.contains("unpkg.com"));
         assert!(!html.contains("cdn.tailwindcss.com"));
         assert!(!html.contains("esm.sh"));
-        assert!(html.contains("ShapePreviewRuntime.mountPreview"));
+        assert!(html.contains("BetterShapePreviewRuntime.mountPreview"));
         assert!(html.contains("function App"));
         assert!(html.contains(r#"src="bundle.js""#));
         assert!(html.contains(r#"src="tailwind-browser.js""#));
@@ -489,15 +497,15 @@ mod tests {
     #[test]
     fn static_document_signals_ready_without_network() {
         let html = build_static_preview_html("<main>Preview</main>", "");
-        assert!(html.contains("__shapeSignalPreviewReady"));
+        assert!(html.contains("__bettershapeSignalPreviewReady"));
         assert!(html.contains("<main>Preview</main>"));
-        assert!(html.contains("shape-preview-ready"));
+        assert!(html.contains("bettershape-preview-ready"));
         assert!(html.contains("postMessage"));
     }
 
     #[test]
     fn bundle_is_embedded() {
-        assert!(RUNTIME_BUNDLE.contains("ShapePreviewRuntime"));
+        assert!(RUNTIME_BUNDLE.contains("BetterShapePreviewRuntime"));
         assert!(RUNTIME_TAILWIND_BROWSER.contains("tailwindcss"));
     }
 

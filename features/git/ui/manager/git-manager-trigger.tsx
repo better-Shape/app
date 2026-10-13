@@ -1,7 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { ShapeLogo } from "@/components/ui/shape-logo";
+import { BetterShapeLogo } from "@/components/ui/bettershape-logo";
 import { Tooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
@@ -18,7 +18,7 @@ export function GitManagerTrigger({ className }: { className?: string }) {
                 onClick={() => void import("@/lib/window/open-git-window").then(({ openGitWindow }) => openGitWindow())}
             >
                 {/* Never max-h/w-full here — padded icon buttons shrink that to 0 and the logo vanishes. */}
-                <ShapeLogo size={14} className="pointer-events-none" />
+                <BetterShapeLogo size={14} className="pointer-events-none" />
             </Button>
         </Tooltip>
     );

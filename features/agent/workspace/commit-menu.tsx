@@ -1,7 +1,6 @@
 "use client";
 
 import { GithubMark } from "@/components/ui/github-mark";
-import { Checkmark20Regular } from "@fluentui/react-icons/headless/svg/checkmark";
 import { Branch20Regular } from "@fluentui/react-icons/headless/svg/branch";
 import { ChevronDown20Regular } from "@fluentui/react-icons/headless/svg/chevron-down";
 
@@ -41,7 +40,6 @@ import {
 } from "@/features/chat/ui/shell/project-pick";
 import { discoverGitRepos, invalidateGitRepoCache, pickDefaultRepo } from "@/lib/git/repos";
 import { loginGitHub, useGitHubAuth } from "@/lib/github/store";
-import { getShapeAccessToken } from "@/lib/cloud/store";
 import { getSettings } from "@/lib/settings";
 import { cn } from "@/lib/utils";
 import {
@@ -87,12 +85,15 @@ function GitSetupPick({
     const [cloneKind, setCloneKind] = useState<CloneKind>("git");
     const [query, setQuery] = useState("");
 
-    useEffect(() => {
+    // Reset the dialog when it closes (adjusting state during render, no effect).
+    const [seenOpen, setSeenOpen] = useState(open);
+    if (open !== seenOpen) {
+        setSeenOpen(open);
         if (!open) {
             setStep("setup");
             setQuery("");
         }
-    }, [open]);
+    }
 
     const close = () => onOpenChange(false);
 
@@ -104,7 +105,7 @@ function GitSetupPick({
         try {
             await commands.gitInit(projectPath);
             invalidateGitRepoCache();
-            window.dispatchEvent(new Event("shape-git-refresh"));
+            window.dispatchEvent(new Event("bettershape-git-refresh"));
             notify.success("Git", "Repository initialized.");
             close();
         } catch (err) {
@@ -119,10 +120,10 @@ function GitSetupPick({
         try {
             const clonedPath = await commands.gitClone(repoUrl, parent);
             invalidateGitRepoCache();
-            window.dispatchEvent(new Event("shape-git-refresh"));
+            window.dispatchEvent(new Event("bettershape-git-refresh"));
             notify.success("Git", "Repository cloned.");
             close();
-            window.dispatchEvent(new CustomEvent("shape-open-project", { detail: { path: clonedPath } }));
+            window.dispatchEvent(new CustomEvent("bettershape-open-project", { detail: { path: clonedPath } }));
         } catch (err) {
             notify.error("Git", err instanceof Error ? err.message : String(err));
         }
@@ -314,8 +315,8 @@ export function CommitMenu({ projectPath }: { projectPath: string }) {
     useEffect(() => {
         void refresh();
         const on = () => void refresh();
-        window.addEventListener("shape-git-refresh", on);
-        return () => window.removeEventListener("shape-git-refresh", on);
+        window.addEventListener("bettershape-git-refresh", on);
+        return () => window.removeEventListener("bettershape-git-refresh", on);
     }, [refresh]);
 
     const totals = useMemo(() => {
@@ -400,7 +401,7 @@ export function CommitMenu({ projectPath }: { projectPath: string }) {
             }
             if (amend) await commands.gitCommitAmend(repo, message);
             else await commands.gitCommit(repo, message);
-            window.dispatchEvent(new Event("shape-git-refresh"));
+            window.dispatchEvent(new Event("bettershape-git-refresh"));
             notify.success("Git", amend ? "Commit amended" : "Committed");
             setTitle("");
             setDescription("");
@@ -440,7 +441,7 @@ export function CommitMenu({ projectPath }: { projectPath: string }) {
         setBusy(true);
         try {
             await commands.gitPush(repo);
-            window.dispatchEvent(new Event("shape-git-refresh"));
+            window.dispatchEvent(new Event("bettershape-git-refresh"));
             notify.success("Git", "Pushed");
             await refresh();
         } catch (err) {
@@ -455,7 +456,7 @@ export function CommitMenu({ projectPath }: { projectPath: string }) {
         setBusy(true);
         try {
             await commands.gitStageAll(repo);
-            window.dispatchEvent(new Event("shape-git-refresh"));
+            window.dispatchEvent(new Event("bettershape-git-refresh"));
             await refresh();
         } catch (err) {
             notify.gitError(err);
@@ -469,7 +470,7 @@ export function CommitMenu({ projectPath }: { projectPath: string }) {
         setBusy(true);
         try {
             await task();
-            window.dispatchEvent(new Event("shape-git-refresh"));
+            window.dispatchEvent(new Event("bettershape-git-refresh"));
             notify.success("Git", label);
             await refresh();
         } catch (err) {
@@ -505,15 +506,10 @@ export function CommitMenu({ projectPath }: { projectPath: string }) {
 
     const suggest = async () => {
         if (!repo) return;
-        const token = getShapeAccessToken();
-        if (!token) {
-            notify.error("Git", "Sign in to Shape to write a commit message.");
-            return;
-        }
         setBusy(true);
         try {
             await commands.gitStageAll(repo);
-            const message = await commands.generateCommitMessage(token, repo);
+            const message = await commands.generateCommitMessage(repo);
             const lines = message.trim().split("\n");
             setTitle(lines[0] ?? "");
             setDescription(lines.slice(1).join("\n").trim());
@@ -753,7 +749,7 @@ function PublishRepoDialog({
         try {
             await commands.gitAddRemote(repo, "origin", remoteUrl);
             await commands.gitPush(repo);
-            window.dispatchEvent(new Event("shape-git-refresh"));
+            window.dispatchEvent(new Event("bettershape-git-refresh"));
             notify.success("Git", "Repository published");
             onPublished();
         } catch (err) {

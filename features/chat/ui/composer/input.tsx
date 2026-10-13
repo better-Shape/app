@@ -66,13 +66,13 @@ import { ComposerAttachments, isImageFile, isAudioFile, type ComposerAttachment 
 import { MediaLightbox } from "../blocks/lightbox";
 import { formatMentionToken, mentionRanges, shortenMentionTokensInText } from "@/lib/chat/mentions";
 import {
-    SHAPE_CLIP_CODE,
+    BETTERSHAPE_CLIP_CODE,
     codeAttachmentFile,
     matchRememberedClip,
     pasteIsLarge,
     pastedTextFile,
     terminalAttachmentFile,
-} from "@/features/chat/lib/shape-clip";
+} from "@/features/chat/lib/bettershape-clip";
 import type { BrowserPickedElement } from "@/lib/backend/types";
 import { registerElementMention } from "@/lib/chat/element-mentions";
 import { slashCommandRanges } from "@/lib/chat/workflows";
@@ -81,15 +81,15 @@ import { listSkills, subscribeSkills, type Skill } from "@/lib/chat/skills";
 import { fetchPlugins, peekPluginsCache, type PluginRow } from "@/lib/plugins/api";
 import { PluginLogo } from "@/components/ui/plugin-logo";
 import { getVisibleModels, isApiModel, resolveChatModels, sanitizeEnabledModels, type ModelInfo } from "@/lib/settings/models";
+import { hasAnyUsableProvider } from "@/lib/ai/providers";
 import {
     getCatalogDefaultEnabledIds,
     getCatalogModels,
     getCatalogProviderOrder,
     isCatalogModelAllowed,
-    useShapeCatalog,
+    useBetterShapeCatalog,
 } from "@/lib/catalog/store";
 import { useSettings } from "@/lib/settings";
-import { useShapeAuth } from "@/lib/cloud/store";
 import { SearchInput } from "@/components/ui/search";
 import { effortDisplayLabel, modelSupportsSuperThinking, type ReasoningEffort } from "./reasoning-effort";
 import { ThinkingEffortControl } from "./thinking-bar";
@@ -319,7 +319,7 @@ const CHAT_MODES = [
 const COMPOSER_HINTS = [
     "Ask a task. @ for files. / for a workflow.",
     "Escape stops the current turn.",
-    "Queue a follow-up while Shape is working.",
+    "Queue a follow-up while BetterShape is working.",
     "Visual: ask to see a few button styles first",
     "Drop a screenshot to redesign",
     "Paste a stack trace to debug",
@@ -562,9 +562,13 @@ export function ChatInput({
 }: Omit<ChatInputProps, "webSearch" | "setWebSearch" | "handleFileUpload">) {
 
     const settings = useSettings();
-    const shapeAuth = useShapeAuth();
-    const { catalog } = useShapeCatalog();
-    const allModels = resolveChatModels(getCatalogModels());
+    // Chat needs at least one BYOK provider; everything else is local.
+    const needsSignIn = !hasAnyUsableProvider(settings.ai.providers);
+    const { catalog } = useBetterShapeCatalog();
+    const allModels = React.useMemo(() => {
+        void catalog;
+        return resolveChatModels(getCatalogModels());
+    }, [catalog]);
     const textareaRef = React.useRef<HTMLTextAreaElement>(null);
     const mentionOverlayRef = React.useRef<HTMLDivElement>(null);
     const composerBoxRef = React.useRef<HTMLDivElement>(null);
@@ -706,8 +710,8 @@ export function ChatInput({
 
     React.useEffect(() => {
         const onFocusInput = () => textareaRef.current?.focus();
-        window.addEventListener("shape-chat-focus-input", onFocusInput);
-        return () => window.removeEventListener("shape-chat-focus-input", onFocusInput);
+        window.addEventListener("bettershape-chat-focus-input", onFocusInput);
+        return () => window.removeEventListener("bettershape-chat-focus-input", onFocusInput);
     }, []);
 
     React.useEffect(() => {
@@ -752,14 +756,14 @@ export function ChatInput({
         const text = e.clipboardData.getData("text/plain");
         if (!text) return;
         const remembered = matchRememberedClip(text);
-        if (e.clipboardData.types.includes("application/x-shape-terminal") || remembered?.kind === "terminal") {
+        if (e.clipboardData.types.includes("application/x-bettershape-terminal") || remembered?.kind === "terminal") {
             e.preventDefault();
             addUploadedFiles([terminalAttachmentFile(text, remembered?.label)]);
             return;
         }
-        if (e.clipboardData.types.includes(SHAPE_CLIP_CODE) || remembered?.kind === "code") {
+        if (e.clipboardData.types.includes(BETTERSHAPE_CLIP_CODE) || remembered?.kind === "code") {
             e.preventDefault();
-            const raw = e.clipboardData.getData(SHAPE_CLIP_CODE);
+            const raw = e.clipboardData.getData(BETTERSHAPE_CLIP_CODE);
             let path = remembered?.label || "selection.ts";
             try {
                 const parsed = JSON.parse(raw) as { path?: string };
@@ -784,7 +788,7 @@ export function ChatInput({
         e.stopPropagation();
         dragDepth.current = 0;
         setDragOver(false);
-        const codePayload = e.dataTransfer.getData(SHAPE_CLIP_CODE);
+        const codePayload = e.dataTransfer.getData(BETTERSHAPE_CLIP_CODE);
         if (codePayload) {
             try {
                 const parsed = JSON.parse(codePayload) as { path?: string; text?: string };
@@ -807,7 +811,7 @@ export function ChatInput({
         e.stopPropagation();
         dragDepth.current += 1;
         const types = e.dataTransfer.types;
-        if (types.includes("Files") || types.includes(SHAPE_CLIP_CODE)) setDragOver(true);
+        if (types.includes("Files") || types.includes(BETTERSHAPE_CLIP_CODE)) setDragOver(true);
     }, []);
 
     const handleDragLeave = React.useCallback((e: React.DragEvent) => {
@@ -843,8 +847,8 @@ export function ChatInput({
                 textarea?.setSelectionRange(pos, pos);
             });
         };
-        window.addEventListener("shape-chat-attach-element", onElement as EventListener);
-        return () => window.removeEventListener("shape-chat-attach-element", onElement as EventListener);
+        window.addEventListener("bettershape-chat-attach-element", onElement as EventListener);
+        return () => window.removeEventListener("bettershape-chat-attach-element", onElement as EventListener);
     }, [inputValue, onInputChange]);
 
     // Filter file uploads to only allowed types
@@ -911,7 +915,6 @@ export function ChatInput({
             m.provider.toLowerCase().includes(modelSearch)
         );
     };
-    const needsSignIn = !shapeAuth.isLoading && !shapeAuth.loggedIn;
 
     const [plusPlugins, setPlusPlugins] = React.useState<PluginRow[]>(() => peekPluginsCache()?.plugins ?? []);
     const [pluginQuery, setPluginQuery] = React.useState("");
@@ -955,9 +958,9 @@ export function ChatInput({
                 kind: detail.kind || "image",
             });
         };
-        window.addEventListener("shape-open-media", onOpen as EventListener);
+        window.addEventListener("bettershape-open-media", onOpen as EventListener);
         return () => {
-            window.removeEventListener("shape-open-media", onOpen as EventListener);
+            window.removeEventListener("bettershape-open-media", onOpen as EventListener);
         };
     }, []);
 
@@ -1204,7 +1207,7 @@ export function ChatInput({
                             <RotatingComposerHint paused={false} />
                         ) : needsSignIn && !inputValue ? (
                             <div className="pointer-events-none absolute inset-0 z-0 flex items-center pl-3 text-sm font-medium leading-6 text-text-muted">
-                                Sign in to use the chat
+                                Add an API key in Settings → Providers to chat
                             </div>
                         ) : null}
                         <div
@@ -1283,7 +1286,7 @@ export function ChatInput({
                                     placeholder=""
                                     aria-label={
                                         needsSignIn
-                                            ? "Sign in to use the chat"
+                                            ? "Add an API key in Settings → Providers to chat"
                                             : COMPOSER_HINTS[0]
                                     }
                                     rows={1}
@@ -1459,9 +1462,9 @@ export function ChatInput({
                                                             {provider}
                                                         </DropdownMenuLabel>
                                                         {providerModels.map((m) => {
-                                                            const allowed =
-                                                                Boolean(shapeAuth.loggedIn && !shapeAuth.offline) &&
-                                                                (isCatalogModelAllowed(m.id) || isApiModel(m));
+                                                            // Every listed model is usable: it comes from a
+                                                            // provider the user configured, or from local search.
+                                                            const allowed = true;
                                                             if (multiSelectModels) {
                                                                 const inPool =
                                                                     selectedModel === m.id

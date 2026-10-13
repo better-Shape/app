@@ -38,7 +38,7 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown";
-import { shapeEditorChrome } from "../codemirror/theme";
+import { betterShapeEditorChrome } from "../codemirror/theme";
 
 /*
  * Markdown that reads like a document while you type: markup is hidden on
@@ -368,7 +368,7 @@ function liveMarkdownExtensions(onChange: (doc: string) => void, raw: boolean): 
         history(),
         drawSelection({ cursorBlinkRate: 1100 }),
         EditorView.lineWrapping,
-        ...(raw ? shapeEditorChrome() : [livePreview, proseTheme, syntaxHighlighting(proseHighlight)]),
+        ...(raw ? betterShapeEditorChrome() : [livePreview, proseTheme, syntaxHighlighting(proseHighlight)]),
         keymap.of([
             ...markdownKeymap,
             ...defaultKeymap,
@@ -404,7 +404,9 @@ export function MarkdownLiveEditor({
     const onChangeRef = useRef(onChange);
     const lastEmitted = useRef(content);
     const contentRef = useRef(content);
-    contentRef.current = content;
+    useEffect(() => {
+        contentRef.current = content;
+    }, [content]);
     const [bubble, setBubble] = useState<Bubble | null>(null);
     useEffect(() => {
         onChangeRef.current = onChange;

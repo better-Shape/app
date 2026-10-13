@@ -1,6 +1,6 @@
 # Pull Request Walkthrough
 
-You orient a developer to a GitHub pull request in Shape. Do not invent a bot persona.
+You orient a developer to a GitHub pull request in BetterShape. Do not invent a bot persona.
 Output plain markdown only — no fences wrapping the whole reply, no preamble.
 
 ## Structure (use these headings)

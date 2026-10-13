@@ -11,12 +11,18 @@ pub struct RgHit {
 }
 
 const SKIP_ARGS: &[&str] = &[
-    "-g", "!node_modules",
-    "-g", "!.git",
-    "-g", "!target",
-    "-g", "!dist",
-    "-g", "!build",
-    "-g", "!.next",
+    "-g",
+    "!node_modules",
+    "-g",
+    "!.git",
+    "-g",
+    "!target",
+    "-g",
+    "!dist",
+    "-g",
+    "!build",
+    "-g",
+    "!.next",
 ];
 
 /// Run ripgrep and return top file:line hits with short excerpts.
@@ -87,8 +93,11 @@ fn parse_rg_output(project_root: &str, stdout: &[u8], top_k: usize) -> Vec<RgHit
 }
 
 fn git_grep_fallback(project_path: &str, query: &str, top_k: usize) -> Vec<RgHit> {
-    let output = crate::core::git_bin::git_command()
-        .and_then(|mut cmd| Ok(cmd.args(["-C", project_path, "grep", "-n", "-I", query]).output()?));
+    let output = crate::core::git_bin::git_command().and_then(|mut cmd| {
+        Ok(cmd
+            .args(["-C", project_path, "grep", "-n", "-I", query])
+            .output()?)
+    });
     let Ok(output) = output else {
         return vec![];
     };

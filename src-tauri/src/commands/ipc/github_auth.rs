@@ -14,10 +14,7 @@ pub async fn github_auth_login(app: AppHandle) -> Result<GitHubAuthLoginResult, 
 }
 
 #[tauri::command]
-pub async fn github_auth_logout(
-    app: AppHandle,
-    username: Option<String>,
-) -> Result<(), AppError> {
+pub async fn github_auth_logout(app: AppHandle, username: Option<String>) -> Result<(), AppError> {
     github_auth::logout(username)?;
     let status = github_auth::get_status()?;
     let _ = app.emit("github-auth-changed", status);

@@ -1,6 +1,5 @@
 "use client";
 
-import { ArrowEnter20Regular } from "@fluentui/react-icons/headless/svg/arrow-enter";
 import { ArrowExit20Regular } from "@fluentui/react-icons/headless/svg/arrow-exit";
 import { Compose20Regular } from "@fluentui/react-icons/headless/svg/compose";
 import { FolderOpen20Regular } from "@fluentui/react-icons/headless/svg/folder-open";
@@ -10,11 +9,8 @@ import { Settings20Regular } from "@fluentui/react-icons/headless/svg/settings";
 
 import { useCallback, useState, type ReactNode } from "react";
 import { Icon } from "@/components/ui/icon";
-import { logoutShape, useShapeAuth } from "@/lib/cloud/store";
-import { requestShapeLogin } from "@/features/agent/workbench/ui/login-prompt-dialog";
 import { useGitHubAuth } from "@/lib/github/store";
 import { openSettingsWindow } from "@/lib/window/open-settings";
-import { SHAPE_API_BASE, dashboardUrl } from "@/lib/cloud/api";
 import { commands, useProjectState } from "@/lib/backend";
 import {
     DropdownMenu,
@@ -26,21 +22,16 @@ import {
 
 export function ProfileAvatar({
     gitAvatarUrl,
-    shapeUserId,
-    offline,
     name,
     size = 28,
 }: {
+    /** Avatar from the connected GitHub account, when there is one. */
     gitAvatarUrl: string | null;
-    shapeUserId: string | null;
-    offline: boolean;
     name: string;
     size?: number;
 }) {
     const [failed, setFailed] = useState(false);
-    const imageSrc =
-        gitAvatarUrl
-        ?? (shapeUserId && !offline ? `${SHAPE_API_BASE}/api/avatar/${shapeUserId}` : null);
+    const imageSrc = gitAvatarUrl;
 
     if (!imageSrc || failed) return null;
 
@@ -65,18 +56,15 @@ export function AccountMenu({
     children: ReactNode;
     side?: "top" | "bottom";
 }) {
-    const shapeAuth = useShapeAuth();
     const githubAuth = useGitHubAuth();
     const { project_path } = useProjectState();
 
     const displayName =
-        (shapeAuth.name && !/^n\/?a$/i.test(shapeAuth.name.trim()) ? shapeAuth.name.trim() : null)
-        ?? (githubAuth.loggedIn && githubAuth.username ? githubAuth.username : null)
-        ?? "Sign in";
+        (githubAuth.loggedIn && githubAuth.username ? githubAuth.username : null) ?? "Personal";
 
     const newChat = useCallback(() => {
-        window.dispatchEvent(new Event("shape-chat-new"));
-        window.dispatchEvent(new Event("shape-chat-focus-input"));
+        window.dispatchEvent(new Event("bettershape-chat-new"));
+        window.dispatchEvent(new Event("bettershape-chat-focus-input"));
     }, []);
 
     return (
@@ -87,8 +75,6 @@ export function AccountMenu({
                     <ProfileAvatar
                         size={22}
                         gitAvatarUrl={githubAuth.loggedIn ? githubAuth.avatarUrl : null}
-                        shapeUserId={shapeAuth.userId}
-                        offline={Boolean(shapeAuth.offline)}
                         name={displayName}
                     />
                     <div className="min-w-0 flex-1">
@@ -98,16 +84,6 @@ export function AccountMenu({
                     </div>
                 </div>
 
-                {shapeAuth.loggedIn && !shapeAuth.offline && shapeAuth.tier === "free" ? (
-                    <button
-                        type="button"
-                        className="mx-1 mt-0.5 flex w-[calc(100%-0.5rem)] flex-col gap-0.5 rounded-lg bg-surface-2 px-2.5 py-2 text-left hover:bg-panel-hover"
-                        onClick={() => void commands.openUrlExternal(`${dashboardUrl()}/settings/billing`)}
-                    >
-                        <span className="text-sm font-medium text-text-primary">Get Plus</span>
-                        <span className="text-xs text-text-muted">Higher limits for this account</span>
-                    </button>
-                ) : null}
 
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => void openSettingsWindow()}>
@@ -115,7 +91,7 @@ export function AccountMenu({
                     Settings
                 </DropdownMenuItem>
                 <DropdownMenuItem
-                    onClick={() => window.dispatchEvent(new Event("shape-open-project-pick"))}
+                    onClick={() => window.dispatchEvent(new Event("bettershape-open-project-pick"))}
                 >
                     <Icon icon={FolderOpen20Regular} />
                     Open folder
@@ -129,7 +105,7 @@ export function AccountMenu({
                 <DropdownMenuItem
                     onClick={() =>
                         window.dispatchEvent(
-                            new CustomEvent("shape-command-palette", {
+                            new CustomEvent("bettershape-command-palette", {
                                 detail: { placeholder: "Search…" },
                             }),
                         )
@@ -143,20 +119,6 @@ export function AccountMenu({
                     New chat
                 </DropdownMenuItem>
 
-                {shapeAuth.loggedIn ? (
-                    <DropdownMenuItem
-                        className="cursor-pointer text-danger hover:text-danger hover:bg-danger/10"
-                        onClick={() => void logoutShape()}
-                    >
-                        <Icon icon={ArrowExit20Regular} />
-                        Sign out
-                    </DropdownMenuItem>
-                ) : (
-                    <DropdownMenuItem onClick={() => requestShapeLogin()}>
-                        <Icon icon={ArrowEnter20Regular} />
-                        Sign in
-                    </DropdownMenuItem>
-                )}
             </DropdownMenuContent>
         </DropdownMenu>
     );

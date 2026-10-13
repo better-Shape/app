@@ -2,7 +2,6 @@ use crate::agent::security::paths;
 use crate::core::error::AppError;
 use std::fs;
 
-
 const LIST_DIR_MAX_ENTRIES: usize = 250;
 const NOISY_DIR_NAMES: &[&str] = &[
     "node_modules",
@@ -71,9 +70,7 @@ pub fn list_files(path: &str, project_path: &str) -> Result<String, AppError> {
 }
 
 fn is_noisy_dir(name: &str) -> bool {
-    NOISY_DIR_NAMES
-        .iter()
-        .any(|n| name.eq_ignore_ascii_case(n))
+    NOISY_DIR_NAMES.iter().any(|n| name.eq_ignore_ascii_case(n))
 }
 
 /// Default window for a plain `read_file`. Larger files must be paged with
@@ -134,24 +131,22 @@ pub struct SentFile {
 }
 
 fn mime_for_name(name: &str) -> String {
-    image_mime(name)
-        .map(|m| m.to_string())
-        .unwrap_or_else(|| {
-            let ext = name.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
-            match ext.as_str() {
-                "txt" | "md" | "log" => "text/plain".into(),
-                "json" => "application/json".into(),
-                "pdf" => "application/pdf".into(),
-                "csv" => "text/csv".into(),
-                "html" | "htm" => "text/html".into(),
-                "js" | "mjs" | "cjs" | "ts" | "tsx" | "jsx" => "text/plain".into(),
-                "zip" => "application/zip".into(),
-                "mp3" => "audio/mpeg".into(),
-                "wav" => "audio/wav".into(),
-                "mp4" => "video/mp4".into(),
-                _ => "application/octet-stream".into(),
-            }
-        })
+    image_mime(name).map(|m| m.to_string()).unwrap_or_else(|| {
+        let ext = name.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
+        match ext.as_str() {
+            "txt" | "md" | "log" => "text/plain".into(),
+            "json" => "application/json".into(),
+            "pdf" => "application/pdf".into(),
+            "csv" => "text/csv".into(),
+            "html" | "htm" => "text/html".into(),
+            "js" | "mjs" | "cjs" | "ts" | "tsx" | "jsx" => "text/plain".into(),
+            "zip" => "application/zip".into(),
+            "mp3" => "audio/mpeg".into(),
+            "wav" => "audio/wav".into(),
+            "mp4" => "video/mp4".into(),
+            _ => "application/octet-stream".into(),
+        }
+    })
 }
 
 /// Bytes of a project file, capped, for handing the user a download in chat.
@@ -325,7 +320,7 @@ mod tests {
 
     #[test]
     fn read_range_numbers_lines_and_pages() {
-        let dir = std::env::temp_dir().join(format!("shape-read-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("bettershape-read-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("sample.rs");
         let body: String = (1..=20).map(|i| format!("line{i}\n")).collect();
@@ -341,19 +336,14 @@ mod tests {
     /// Mock model script: create / read / list real files the way an agent turn would.
     #[test]
     fn mock_agent_tool_loop_stays_on_real_files() {
-        let dir = std::env::temp_dir().join(format!("shape-mock-agent-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("bettershape-mock-agent-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("src")).unwrap();
         std::fs::create_dir_all(dir.join("node_modules").join("left-pad")).unwrap();
         let root = dir.to_str().unwrap();
 
         let script: Vec<(&str, String)> = (0..40)
-            .map(|i| {
-                (
-                    "create_file",
-                    format!("src/mod{i}.rs"),
-                )
-            })
+            .map(|i| ("create_file", format!("src/mod{i}.rs")))
             .collect();
 
         for (i, (_tool, path)) in script.iter().enumerate() {
@@ -372,11 +362,7 @@ mod tests {
         assert!(noisy.contains("generated"));
 
         let cache_total: usize = (0..40)
-            .map(|i| {
-                read_file(&format!("src/mod{i}.rs"), root)
-                    .unwrap()
-                    .len()
-            })
+            .map(|i| read_file(&format!("src/mod{i}.rs"), root).unwrap().len())
             .sum();
         assert!(
             cache_total < 512_000,

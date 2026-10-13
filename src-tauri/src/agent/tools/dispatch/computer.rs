@@ -5,7 +5,7 @@ use serde_json::{json, Value};
 use super::common::{error_outcome, get_str};
 use super::{ToolCtx, ToolOutcome};
 
-pub(super) async fn tool_decide(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutcome {
+pub(super) async fn tool_decide(args: &Value, _ctx: &ToolCtx<'_>) -> ToolOutcome {
     let state = match get_str(args, "state") {
         Ok(s) => s,
         Err(e) => return error_outcome("decide", &e),
@@ -26,17 +26,23 @@ pub(super) async fn tool_decide(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutcome 
     if options.len() < 2 {
         return error_outcome("decide", "options needs at least two choices.");
     }
-    match crate::agent::tools::plugins::plugin_request(
-        "POST",
-        "/api/agent/decide",
-        ctx.api_key,
-        Some(json!({ "state": state, "prompt": prompt, "options": options })),
-        ctx.turn_id.as_deref(),
-        ctx.conversation_id.as_deref(),
-    )
-    .await
-    {
-        Ok(data) => {
+    let decision_prompt = format!(
+        "Choose one option for the situation below. Reply with exactly one option, verbatim, and nothing else.\n\nSituation:\n{state}\n\nQuestion:\n{prompt}\n\nOptions:\n{}",
+        options
+            .iter()
+            .map(|option| format!("- {option}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+    match crate::agent::commands::streaming::quick_complete(&decision_prompt, "decide", 100).await {
+        Ok(text) => {
+            let cleaned = text.trim().trim_matches(|c: char| c == '"' || c == '`' || c == '.');
+            let choice = options
+                .iter()
+                .find(|option| option.eq_ignore_ascii_case(cleaned))
+                .cloned()
+                .unwrap_or_else(|| cleaned.to_string());
+            let data = json!({ "choice": choice });
             let text = serde_json::to_string_pretty(&data).unwrap_or_else(|_| data.to_string());
             ToolOutcome {
                 tool_result: text,
@@ -44,7 +50,7 @@ pub(super) async fn tool_decide(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutcome 
                 side_effect: None,
             }
         }
-        Err(e) => error_outcome("decide", &e),
+        Err(e) => error_outcome("decide", &e.to_string()),
     }
 }
 
@@ -60,7 +66,10 @@ fn evidence_ok(claim: &str, evidence: &str) -> Result<(), String> {
     let bare = evidence
         .trim_matches(|c: char| c.is_ascii_punctuation() || c.is_whitespace())
         .to_ascii_lowercase();
-    if matches!(bare.as_str(), "done" | "completed" | "success" | "it works" | "fixed") {
+    if matches!(
+        bare.as_str(),
+        "done" | "completed" | "success" | "it works" | "fixed"
+    ) {
         return Err("That is a label, not evidence.".into());
     }
     Ok(())
@@ -105,7 +114,9 @@ pub(super) async fn tool_check_done(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutc
         };
     }
     ToolOutcome {
-        tool_result: "PASS. The evidence is concrete. You may tell the user, and mention what you checked.".into(),
+        tool_result:
+            "PASS. The evidence is concrete. You may tell the user, and mention what you checked."
+                .into(),
         ui_chunk: "\n<insight_card title=\"Checked\">PASS</insight_card>\n".into(),
         side_effect: None,
     }

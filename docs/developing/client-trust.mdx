@@ -1,20 +1,25 @@
 ---
-title: Client trust and usage
-description: Why Cloud AI is enforced on the server.
+title: Client trust and provider keys
+description: Where your API keys live, and who talks to the model.
 order: 8
 icon: ri-shield-check-line
 ---
 
-The desktop app runs on the user's machine. Only the authenticated account on Shape Cloud decides whether an AI request is allowed.
+BetterShape runs on your machine and calls model providers directly with the keys you add. There is no account, no proxy, and no server that decides whether a request is allowed.
 
-## Official builds
+## Where keys live
 
-Shape Cloud AI requires an official release. Local editing still works in any build. Contributors building from source can work without Cloud AI. See [Troubleshooting](/docs/help/troubleshooting).
+Keys are stored locally through the settings store and handed to the Rust agent when you send a message. They are never sent anywhere except the provider endpoint you configured (OpenAI, Anthropic, Google, or your own OpenAI-compatible base URL).
 
 ## Rules of thumb
 
 | Kind | Meaning |
 | --- | --- |
-| **Display** | Client may show cached usage for UX. Never the authority. |
-| **Client gate** | Client may require sign-in before sending. Not the only check. |
-| **Server authoritative** | Server allows or denies against real account state. |
+| **Local only** | Provider keys, chat history, and indexes stay on this machine. |
+| **Provider authoritative** | Your provider decides rate limits and billing, not us. |
+| **No gate** | Nothing in the app requires a sign-in. Chat needs a configured provider key, and says so when one is missing. |
+
+## Related
+
+- [Models](/docs/get-started/models)
+- [Local development](/docs/developing/local-development)

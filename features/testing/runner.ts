@@ -40,6 +40,10 @@ function normalizeFramework(value: string): TestFramework {
     const lower = value.toLowerCase();
     if (lower === "vitest") return "vitest";
     if (lower === "jest") return "jest";
+    if (lower === "playwright") return "playwright";
+    if (lower === "cargo") return "cargo";
+    if (lower === "pytest") return "pytest";
+    if (lower === "go") return "go";
     return "none";
 }
 

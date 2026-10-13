@@ -126,9 +126,9 @@ export function PlanTabView({ path, markdown }: { path: string; markdown?: strin
         const content = joinPlanDocument(body, todos);
         if (!project_path || !content.trim()) return;
         const name = absPath.split(/[\\/]/).pop() || "plan.md";
-        const dest = `${project_path.replace(/\\/g, "/")}/.shape/plans/${name}`.replace(/\/+/g, "/");
+        const dest = `${project_path.replace(/\\/g, "/")}/.bettershape/plans/${name}`.replace(/\/+/g, "/");
         try {
-            await commands.createDir(`${project_path.replace(/\\/g, "/")}/.shape/plans`);
+            await commands.createDir(`${project_path.replace(/\\/g, "/")}/.bettershape/plans`);
         } catch {
             /* exists */
         }
@@ -139,7 +139,7 @@ export function PlanTabView({ path, markdown }: { path: string; markdown?: strin
         }
         await commands.saveFile(dest, content);
         window.dispatchEvent(
-            new CustomEvent("shape-open-workspace-plan", {
+            new CustomEvent("bettershape-open-workspace-plan", {
                 detail: { path: dest, title: name, markdown: content },
             }),
         );

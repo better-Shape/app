@@ -1,7 +1,7 @@
 import { commands } from "@/lib/backend";
 import { HELP_LINKS } from "@/lib/errors/help-links";
 import { isPopoutPath } from "@/lib/window/tauri-window";
-import { notifyWorkspaceClosed, notifyWorkspaceOpened } from "@/lib/workspace/trust";
+import { ensureWorkspaceTrust, notifyWorkspaceClosed, notifyWorkspaceOpened } from "@/lib/workspace/trust";
 import { clearExtraWorkspaceFolders } from "@/lib/workspace/folders";
 import type { MenuActionContext } from "./types";
 import { getFileExtension, isImageExtension, isFontExtension } from "@/features/editor/lib/image-types";
@@ -52,8 +52,8 @@ export function createMenuActionHandler(ctx: MenuActionContext) {
                 await commands.newWindow();
                 break;
             case "New Chat":
-                window.dispatchEvent(new CustomEvent("shape-chat-new"));
-                window.dispatchEvent(new CustomEvent("shape-chat-focus-input"));
+                window.dispatchEvent(new CustomEvent("bettershape-chat-new"));
+                window.dispatchEvent(new CustomEvent("bettershape-chat-focus-input"));
                 break;
             case "Open File": {
                 const { open } = await import("@tauri-apps/plugin-dialog");
@@ -65,16 +65,18 @@ export function createMenuActionHandler(ctx: MenuActionContext) {
                 if (typeof selected === "string") {
                     const selectedDir = getDirectoryName(selected);
                     if (!ctx.projectPath && selectedDir) {
-                        clearExtraWorkspaceFolders();
                         await commands.setProjectPath(selectedDir);
+                        await clearExtraWorkspaceFolders();
+                        await ensureWorkspaceTrust(selectedDir);
                         notifyWorkspaceOpened(selectedDir);
                     }
+                    await commands.grantIpcPath(selected).catch(() => undefined);
                     await commands.openFile(selected, getFileName(selected));
                 }
                 break;
             }
             case "Open Folder":
-                window.dispatchEvent(new Event("shape-open-project-pick"));
+                window.dispatchEvent(new Event("bettershape-open-project-pick"));
                 break;
             case "Add Folder to Workspace": {
                 const { open } = await import("@tauri-apps/plugin-dialog");
@@ -82,12 +84,12 @@ export function createMenuActionHandler(ctx: MenuActionContext) {
                 if (selected && typeof selected === "string") {
                     const { addWorkspaceFolder } = await import("@/lib/workspace/folders");
                     addWorkspaceFolder(selected);
-                    window.dispatchEvent(new Event("shape-workspace-folders-changed"));
+                    window.dispatchEvent(new Event("bettershape-workspace-folders-changed"));
                 }
                 break;
             }
             case "Close Folder":
-                window.dispatchEvent(new Event("shape-design-exit"));
+                window.dispatchEvent(new Event("bettershape-design-exit"));
                 await commands.closeAllFiles();
                 const { saveLastProject } = await import("@/lib/workspace/last-project");
                 saveLastProject(null);
@@ -101,7 +103,7 @@ export function createMenuActionHandler(ctx: MenuActionContext) {
                 commands.closeAllFiles();
                 break;
             case "New Text File":
-                window.dispatchEvent(new CustomEvent("shape-explorer-create", { detail: { type: "file" } }));
+                window.dispatchEvent(new CustomEvent("bettershape-explorer-create", { detail: { type: "file" } }));
                 break;
             case "Save":
                 window.dispatchEvent(new Event("save-request"));
@@ -121,6 +123,7 @@ export function createMenuActionHandler(ctx: MenuActionContext) {
                 });
                 if (typeof selected === "string") {
                     const content = await ctx.readLatestContent(ctx.activeFile);
+                    await commands.grantIpcPath(selected).catch(() => undefined);
                     await commands.saveFile(selected, content);
                     await commands.openFile(selected, getFileName(selected));
                 }
@@ -155,114 +158,114 @@ export function createMenuActionHandler(ctx: MenuActionContext) {
             case "Go to References": {
                 const action = EDITOR_ACTION_MAP[label];
                 if (action) {
-                    window.dispatchEvent(new CustomEvent("shape-editor-action", { detail: { action } }));
+                    window.dispatchEvent(new CustomEvent("bettershape-editor-action", { detail: { action } }));
                 }
                 break;
             }
             case "Word Wrap":
                 window.dispatchEvent(
-                    new CustomEvent("shape-editor-action", { detail: { action: "toggleWordWrap" } }),
+                    new CustomEvent("bettershape-editor-action", { detail: { action: "toggleWordWrap" } }),
                 );
                 break;
             case "Reset Layout":
                 window.dispatchEvent(
-                    new CustomEvent("shape-layout-toggle", { detail: { id: "primary-sidebar", value: true } }),
+                    new CustomEvent("bettershape-layout-toggle", { detail: { id: "primary-sidebar", value: true } }),
                 );
                 window.dispatchEvent(
-                    new CustomEvent("shape-layout-toggle", { detail: { id: "panel", value: true } }),
+                    new CustomEvent("bettershape-layout-toggle", { detail: { id: "panel", value: true } }),
                 );
                 window.dispatchEvent(
-                    new CustomEvent("shape-layout-toggle", {
+                    new CustomEvent("bettershape-layout-toggle", {
                         detail: { id: "secondary-sidebar", value: false },
                     }),
                 );
-                window.dispatchEvent(new Event("shape-layout-reset"));
+                window.dispatchEvent(new Event("bettershape-layout-reset"));
                 break;
             case "Git Graph":
-                window.dispatchEvent(new CustomEvent("shape-set-active-tab", { detail: "graph" }));
+                window.dispatchEvent(new CustomEvent("bettershape-set-active-tab", { detail: "graph" }));
                 break;
             case "AI Chat":
                 window.dispatchEvent(
-                    new CustomEvent("shape-layout-toggle", {
+                    new CustomEvent("bettershape-layout-toggle", {
                         detail: { id: "secondary-sidebar", value: true },
                     }),
                 );
                 break;
             case "Zen Mode":
                 if (!isPopoutPath()) {
-                    window.dispatchEvent(new Event("shape-toggle-zen-mode"));
+                    window.dispatchEvent(new Event("bettershape-toggle-zen-mode"));
                 }
                 break;
             case "Explorer":
-                window.dispatchEvent(new CustomEvent("shape-set-active-tab", { detail: "files" }));
+                window.dispatchEvent(new CustomEvent("bettershape-set-active-tab", { detail: "files" }));
                 break;
             case "Search":
                 window.dispatchEvent(
-                    new CustomEvent("shape-command-palette", {
+                    new CustomEvent("bettershape-command-palette", {
                         detail: { mode: "files", placeholder: "Search files…" },
                     }),
                 );
                 break;
             case "Git Manager":
                 window.dispatchEvent(
-                    new CustomEvent("shape-layout-toggle", {
+                    new CustomEvent("bettershape-layout-toggle", {
                         detail: { id: "secondary-sidebar", value: true },
                     }),
                 );
-                window.dispatchEvent(new CustomEvent("shape-set-active-tab", { detail: "graph" }));
+                window.dispatchEvent(new CustomEvent("bettershape-set-active-tab", { detail: "graph" }));
                 break;
             case "Open View...":
             case "Go to File...":
-                window.dispatchEvent(new CustomEvent("shape-command-palette", { detail: { mode: "files" } }));
+                window.dispatchEvent(new CustomEvent("bettershape-command-palette", { detail: { mode: "files" } }));
                 break;
             case "Preview":
-                window.dispatchEvent(new CustomEvent("shape-set-active-tab", { detail: "preview" }));
+                window.dispatchEvent(new CustomEvent("bettershape-set-active-tab", { detail: "preview" }));
                 break;
             case "Terminal":
                 window.dispatchEvent(
-                    new CustomEvent("shape-layout-toggle", { detail: { id: "panel", value: true } }),
+                    new CustomEvent("bettershape-layout-toggle", { detail: { id: "panel", value: true } }),
                 );
                 window.dispatchEvent(
-                    new CustomEvent("shape-terminal-shortcut", { detail: { action: "open" } }),
+                    new CustomEvent("bettershape-terminal-shortcut", { detail: { action: "open" } }),
                 );
                 break;
             case "Command Palette...":
-                window.dispatchEvent(new CustomEvent("shape-command-palette"));
+                window.dispatchEvent(new CustomEvent("bettershape-command-palette"));
                 break;
             case "Find in Files":
-                window.dispatchEvent(new CustomEvent("shape-set-active-tab", { detail: "search" }));
+                window.dispatchEvent(new CustomEvent("bettershape-set-active-tab", { detail: "search" }));
                 window.dispatchEvent(
-                    new CustomEvent("shape-layout-toggle", {
+                    new CustomEvent("bettershape-layout-toggle", {
                         detail: { id: "primary-sidebar", value: true },
                     }),
                 );
-                window.dispatchEvent(new CustomEvent("shape-search-mode", { detail: { mode: "search" } }));
+                window.dispatchEvent(new CustomEvent("bettershape-search-mode", { detail: { mode: "search" } }));
                 break;
             case "Replace in Files":
-                window.dispatchEvent(new CustomEvent("shape-set-active-tab", { detail: "search" }));
+                window.dispatchEvent(new CustomEvent("bettershape-set-active-tab", { detail: "search" }));
                 window.dispatchEvent(
-                    new CustomEvent("shape-layout-toggle", {
+                    new CustomEvent("bettershape-layout-toggle", {
                         detail: { id: "primary-sidebar", value: true },
                     }),
                 );
-                window.dispatchEvent(new CustomEvent("shape-search-mode", { detail: { mode: "replace" } }));
+                window.dispatchEvent(new CustomEvent("bettershape-search-mode", { detail: { mode: "replace" } }));
                 break;
             case "New Terminal":
                 window.dispatchEvent(
-                    new CustomEvent("shape-layout-toggle", { detail: { id: "panel", value: true } }),
+                    new CustomEvent("bettershape-layout-toggle", { detail: { id: "panel", value: true } }),
                 );
                 window.dispatchEvent(
-                    new CustomEvent("shape-terminal-shortcut", { detail: { action: "new" } }),
+                    new CustomEvent("bettershape-terminal-shortcut", { detail: { action: "new" } }),
                 );
                 break;
             case "Close Terminal":
                 window.dispatchEvent(
-                    new CustomEvent("shape-layout-toggle", { detail: { id: "panel", value: false } }),
+                    new CustomEvent("bettershape-layout-toggle", { detail: { id: "panel", value: false } }),
                 );
                 break;
             case "Kill Current Terminal":
                 window.dispatchEvent(
-                    new CustomEvent("shape-terminal-shortcut", { detail: { action: "close_tab" } }),
+                    new CustomEvent("bettershape-terminal-shortcut", { detail: { action: "close_tab" } }),
                 );
                 break;
             case "Toggle Full Screen": {
@@ -291,13 +294,13 @@ export function createMenuActionHandler(ctx: MenuActionContext) {
                 const status = await checkForAppUpdates({ force: true });
                 if (status.kind === "available") {
                     const confirmed = await ask(
-                        `Shape ${status.version} is available. Download and install now?`,
+                        `BetterShape ${status.version} is available. Download and install now?`,
                         { title: "Update available", kind: "info" },
                     );
                     if (confirmed) {
                         await downloadAndInstallUpdate();
                         if (getUpdateStatus().kind === "ready") {
-                            const restart = await ask("Update installed. Restart Shape now?", {
+                            const restart = await ask("Update installed. Restart BetterShape now?", {
                                 title: "Restart required",
                                 kind: "info",
                             });
@@ -309,7 +312,7 @@ export function createMenuActionHandler(ctx: MenuActionContext) {
                 } else if (status.kind === "error") {
                     await message(status.message, { title: "Check for Updates", kind: "error" });
                 } else if (status.kind === "ready") {
-                    const restart = await ask("An update is ready. Restart Shape now?", {
+                    const restart = await ask("An update is ready. Restart BetterShape now?", {
                         title: "Restart required",
                         kind: "info",
                     });
@@ -336,7 +339,7 @@ export function createMenuActionHandler(ctx: MenuActionContext) {
                         kind: "info",
                     });
                 } catch {
-                    await message("Shape\nVersion: 0.2.0", { title: "About", kind: "info" });
+                    await message("BetterShape\nVersion: 0.2.0", { title: "About", kind: "info" });
                 }
                 break;
             }

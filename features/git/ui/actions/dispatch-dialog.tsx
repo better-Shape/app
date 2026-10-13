@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -44,12 +44,15 @@ export function DispatchDialog({
     const [gitRef, setGitRef] = useState(defaultRef);
     const [values, setValues] = useState<Record<string, string>>(initial);
 
-    useEffect(() => {
+    // Reset the form when it opens (or the workflow it is for changes). Compared during render.
+    const [seenReset, setSeenReset] = useState({ open, defaultRef, initial });
+    if (seenReset.open !== open || seenReset.defaultRef !== defaultRef || seenReset.initial !== initial) {
+        setSeenReset({ open, defaultRef, initial });
         if (open) {
             setGitRef(defaultRef);
             setValues(initial);
         }
-    }, [open, defaultRef, initial]);
+    }
 
     const missingRequired = inputs.some(
         (inp) => inp.required && !(values[inp.name] ?? "").trim(),

@@ -3,12 +3,12 @@ import { BranchFork20Regular } from "@fluentui/react-icons/headless/svg/branch-f
 import { ChevronDown20Regular } from "@fluentui/react-icons/headless/svg/chevron-down";
 import { Clipboard20Regular } from "@fluentui/react-icons/headless/svg/clipboard";
 import { SelectAllOn20Regular } from "@fluentui/react-icons/headless/svg/select-all-on";
-import { Document20Regular } from "@fluentui/react-icons/headless/svg/document";
 import { Edit20Regular } from "@fluentui/react-icons/headless/svg/edit";
 import { Folder20Filled } from "@fluentui/react-icons/headless/svg/folder";
 import { MoreHorizontal20Regular } from "@fluentui/react-icons/headless/svg/more-horizontal";
 
 import React from "react";
+import { useChatStreamOptional } from "@/features/chat/lib/chat-stream-store";
 import { cn } from "@/lib/utils";
 import { toTimestampMs } from "@/lib/ui/timestamp";
 import { MessageRenderer, parseMessageContent, extractWebSearchResults } from "../md/renderer";
@@ -35,7 +35,7 @@ import {
     formatMessageModelLabel,
     type MessageUsageStats,
 } from "@/lib/chat/usage-display";
-import { parseShapeContinueAction } from "@/lib/chat/continue-action";
+import { parseBetterShapeContinueAction } from "@/lib/chat/continue-action";
 import { mentionRanges, mentionDisplayLabel } from "@/lib/chat/mentions";
 import { slashCommandRanges } from "@/lib/chat/workflows";
 import { useSettings } from "@/lib/settings";
@@ -46,7 +46,6 @@ import { UserMessageCard } from "./bubble";
 import { ContextChip, MentionChipIcon, WorkflowChipIcon } from "./context-chip";
 import { GeneratingIndicator } from "../blocks/generating";
 import { isAutoModelId } from "@/lib/chat/usage-display";
-import { commands } from "@/lib/backend/commands";
 import { parseUserAttachments } from "../../lib/user-attachments";
 import type { ParsedUserAttachment } from "../../lib/user-attachments";
 import { MessageAttachmentPill } from "../composer/attachments";
@@ -101,7 +100,7 @@ function MentionRichText({ text }: { text: string }) {
     const slashRs = slashCommandRanges(text, workflows);
     const ranges: (
         | { kind: "mention"; start: number; end: number; mention: (typeof mentionRs)[number]["mention"] }
-        | { kind: "slash"; start: number; end: number; workflow: (typeof slashRs)[number]["workflow"]; token: string }
+        | { kind: "slash"; start: number; end: number; workflow?: (typeof slashRs)[number]["workflow"]; token: string }
     )[] = [
         ...mentionRs.map((r) => ({ kind: "mention" as const, ...r })),
         ...slashRs.map((r) => ({ kind: "slash" as const, ...r })),
@@ -296,6 +295,7 @@ function ChatMessageItemInner({
     onFork,
     isFileEditResolved,
 }: ChatMessageItemProps) {
+    const viewedMessages = useChatStreamOptional().messages;
     const [expanded, setExpanded] = React.useState(false);
     const [forkOpen, setForkOpen] = React.useState(false);
     const [menuOpen, setMenuOpen] = React.useState(false);
@@ -359,11 +359,6 @@ function ChatMessageItemInner({
         }
     };
 
-    const isEditResolved = (filePath: string) => {
-        if (isFileEditResolved?.(filePath)) return true;
-        return false;
-    };
-
     const isUser = role === "user";
 
     const userParts = React.useMemo(
@@ -372,7 +367,7 @@ function ChatMessageItemInner({
     );
 
     const continueAction = React.useMemo(
-        () => (isUser ? parseShapeContinueAction(userParts?.text ?? content) : null),
+        () => (isUser ? parseBetterShapeContinueAction(userParts?.text ?? content) : null),
         [isUser, userParts?.text, content],
     );
 
@@ -510,7 +505,7 @@ function ChatMessageItemInner({
                                     onClick={() => {
                                         if (!forked.id) return;
                                         window.dispatchEvent(
-                                            new CustomEvent("shape-chat-load", { detail: { id: forked.id } }),
+                                            new CustomEvent("bettershape-chat-load", { detail: { id: forked.id } }),
                                         );
                                     }}
                                 >
@@ -550,12 +545,11 @@ function ChatMessageItemInner({
                             return;
                         }
                         if (typeof index !== "number" || index < 0) return;
-                        void commands.getChatHistory().then((history) => {
-                            const msg = history[index];
-                            if (!msg || msg.role !== "assistant") return;
+                        const msg = viewedMessages[index];
+                        if (msg && msg.role === "assistant") {
                             if (msg.stats) setMenuStats(msg.stats);
                             if (msg.model) setMenuModel(msg.model);
-                        }).catch(() => {});
+                        }
                     }}
                     >
                         <DropdownMenuTrigger asChild>

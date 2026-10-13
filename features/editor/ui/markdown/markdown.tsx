@@ -4,6 +4,8 @@ import React, { useCallback, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
+import rehypeSanitize from 'rehype-sanitize';
+import { EDITOR_SANITIZE_SCHEMA } from "@/lib/ui/markdown-sanitize";
 import { SyntaxHighlighter } from "@/lib/ui/syntax-highlight";
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { cn } from "@/lib/utils";
@@ -324,7 +326,7 @@ export const MarkdownPreview = React.forwardRef<HTMLDivElement, MarkdownPreviewP
                     ) : (
                     <ReactMarkdown
                         remarkPlugins={[remarkGfm, remarkSourcePositions]}
-                        rehypePlugins={[rehypeRaw]}
+                        rehypePlugins={[rehypeRaw, [rehypeSanitize, EDITOR_SANITIZE_SCHEMA]]}
                         components={{
                             // eslint-disable-next-line @typescript-eslint/no-explicit-any
                             code({ inline, className, children, ...props }: { inline?: boolean; className?: string; children?: React.ReactNode;[key: string]: any }) {

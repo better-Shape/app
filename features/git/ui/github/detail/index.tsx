@@ -24,7 +24,6 @@ import { GitMarkdown, type GitMarkdownCtx } from "../markdown";
 import { openProjectFile } from "@/lib/window/open-project-file";
 import { commands } from "@/lib/backend";
 import { notify } from "@/features/notifications";
-import { getShapeAccessToken } from "@/lib/cloud/store";
 import { Panel } from "@/features/panels";
 import { parsePrReview, type PrFinding } from "./parse-pr-review";
 import {
@@ -54,7 +53,7 @@ export type { GhListItem } from "./types";
 
 function sendToChat(prompt: string) {
     window.dispatchEvent(
-        new CustomEvent("shape-chat-insert-prompt", {
+        new CustomEvent("bettershape-chat-insert-prompt", {
             detail: { prompt, send: false },
         }),
     );
@@ -510,26 +509,11 @@ export function GitHubDetailPane({
 
     const runWalkthrough = async () => {
         if (!isPr || item?.number == null) return;
-        const token = getShapeAccessToken();
-        if (!token) {
-            notify.error("AI Error", "Sign in to Shape to walk through this pull request.");
-            return;
-        }
         setWalkthroughLoading(true);
         setTab("overview");
         try {
-            const text = await commands.walkthroughPullRequest(
-                owner,
-                repo,
-                item.number,
-                token,
-            );
+            const text = await commands.walkthroughPullRequest(owner, repo, item.number);
             setWalkthrough(text.trim());
-            void import("@/lib/cloud/store")
-                .then(({ refreshShapeAuth }) => {
-                    void refreshShapeAuth();
-                })
-                .catch(() => undefined);
         } catch (err) {
             notify.error("AI Error", err instanceof Error ? err.message : String(err));
         } finally {
@@ -539,26 +523,11 @@ export function GitHubDetailPane({
 
     const runFindIssues = async () => {
         if (!isPr || item?.number == null) return;
-        const token = getShapeAccessToken();
-        if (!token) {
-            notify.error("AI Error", "Sign in to Shape to find issues in this pull request.");
-            return;
-        }
         setFindingsLoading(true);
         try {
-            const text = await commands.reviewPullRequest(
-                owner,
-                repo,
-                item.number,
-                token,
-            );
+            const text = await commands.reviewPullRequest(owner, repo, item.number);
             setFindingsMd(text.trim());
             setTab("overview");
-            void import("@/lib/cloud/store")
-                .then(({ refreshShapeAuth }) => {
-                    void refreshShapeAuth();
-                })
-                .catch(() => undefined);
         } catch (err) {
             notify.error("AI Error", err instanceof Error ? err.message : String(err));
         } finally {

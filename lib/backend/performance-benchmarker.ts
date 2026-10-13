@@ -123,6 +123,6 @@ export const performanceBenchmarker = new PerformanceBenchmarker();
 
 if (typeof window !== "undefined") {
     const globalWindow = window as unknown as Record<string, unknown>;
-    globalWindow.shapePerformance = performanceBenchmarker;
+    globalWindow.betterShapePerformance = performanceBenchmarker;
     globalWindow.runPerformanceBenchmarks = () => performanceBenchmarker.runAutomatedBenchmarks();
 }

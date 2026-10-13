@@ -196,24 +196,24 @@ export function AgentWorkspace({
             if (!tab?.id || !tab.path) return;
             openDiff(tab);
         };
-        window.addEventListener("shape-set-active-tab", onTab as EventListener);
-        window.addEventListener("shape-open-workspace-plan", onOpenPlan as EventListener);
-        window.addEventListener("shape-open-workspace-file", onOpenFile as EventListener);
-        window.addEventListener("shape-open-file-diff", onOpenDiff as EventListener);
+        window.addEventListener("bettershape-set-active-tab", onTab as EventListener);
+        window.addEventListener("bettershape-open-workspace-plan", onOpenPlan as EventListener);
+        window.addEventListener("bettershape-open-workspace-file", onOpenFile as EventListener);
+        window.addEventListener("bettershape-open-file-diff", onOpenDiff as EventListener);
         let stopRustTab: (() => void) | undefined;
         void import("@tauri-apps/api/event").then(({ listen }) =>
-            listen<string>("shape-set-active-tab", (event) => {
-                window.dispatchEvent(new CustomEvent("shape-set-active-tab", { detail: event.payload }));
+            listen<string>("bettershape-set-active-tab", (event) => {
+                window.dispatchEvent(new CustomEvent("bettershape-set-active-tab", { detail: event.payload }));
             }).then((stop) => {
                 stopRustTab = stop;
             }),
         );
         return () => {
             stopRustTab?.();
-            window.removeEventListener("shape-set-active-tab", onTab as EventListener);
-            window.removeEventListener("shape-open-workspace-plan", onOpenPlan as EventListener);
-            window.removeEventListener("shape-open-workspace-file", onOpenFile as EventListener);
-            window.removeEventListener("shape-open-file-diff", onOpenDiff as EventListener);
+            window.removeEventListener("bettershape-set-active-tab", onTab as EventListener);
+            window.removeEventListener("bettershape-open-workspace-plan", onOpenPlan as EventListener);
+            window.removeEventListener("bettershape-open-workspace-file", onOpenFile as EventListener);
+            window.removeEventListener("bettershape-open-file-diff", onOpenDiff as EventListener);
         };
     }, [addTab, openDiff, openFile, openPlan]);
 
@@ -225,7 +225,7 @@ export function AgentWorkspace({
             addTab("files", { expand: true });
             return;
         }
-        if (active_file.startsWith("shape://")) return;
+        if (active_file.startsWith("bettershape://")) return;
         openFile(active_file);
     }, [active_file, addTab, openFile]);
 

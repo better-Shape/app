@@ -21,12 +21,12 @@ export function looksLikeLeakedToolCode(body: string): boolean {
 
 /**
  * XML / sentinel tags that models leak into `content` instead of structured
- * tool_calls. Cover Shape catalog families (Claude, GPT, Gemini/Auto, Grok,
- * DeepSeek) plus common OpenRouter proxies. Do NOT include intentional Shape
+ * tool_calls. Cover BetterShape catalog families (Claude, GPT, Gemini/Auto, Grok,
+ * DeepSeek) plus common OpenRouter proxies. Do NOT include intentional BetterShape
  * UI tags (`edit`, `terminal_command`, `todos`, …) — those are parsed separately.
  */
 export const LEAKED_TOOL_XML_TAGS = [
-    // Shape-internal tool UI that must never render as prose
+    // BetterShape-internal tool UI that must never render as prose
     "list_terminals",
     "terminal_input",
     "terminal_read",
@@ -54,7 +54,7 @@ export const LEAKED_TOOL_XML_TAGS = [
     "pre_dispatch_explanation",
 ] as const;
 
-/** Shape UI wrappers. Strip even when they contain markdown fences (edit_file excerpts). */
+/** BetterShape UI wrappers. Strip even when they contain markdown fences (edit_file excerpts). */
 const STRIP_ACROSS_FENCES = [
     "tool_result",
     "terminal_read",
@@ -77,7 +77,7 @@ function mapOutsideCodeFences(text: string, fn: (prose: string) => string): stri
  * Strip provider/model tool-call grammars that leaked into assistant text.
  * Surveyed shapes: DeepSeek DSML, Qwen/Hermes/GLM `<tool_call>`, MiniMax,
  * Kimi/Llama/Gemma `<|…|>` sentinels, Gemini `<function_calls>` / `tool_code`,
- * Mistral `[TOOL_CALLS]`, plus Shape terminal UI chunks.
+ * Mistral `[TOOL_CALLS]`, plus BetterShape terminal UI chunks.
  */
 export function stripLeakedToolMarkup(text: string): string {
     const fw = "\uFF5C"; // fullwidth ｜ used by DeepSeek DSML

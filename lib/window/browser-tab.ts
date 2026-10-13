@@ -1,4 +1,4 @@
-export const BROWSER_TAB_PATH = "shape://browser";
+export const BROWSER_TAB_PATH = "bettershape://browser";
 export const BROWSER_TAB_NAME = "Browser";
 
 export function isBrowserTab(path: string | null | undefined): boolean {

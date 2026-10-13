@@ -1,11 +1,10 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
+import { useEffect, useReducer, useSyncExternalStore } from "react";
 import { cn } from "@/lib/utils";
 import { Tooltip } from "@/components/ui/tooltip";
-import { useShapeAuth } from "@/lib/cloud/store";
 import { useSettings } from "@/lib/settings";
-import { resolveChatUsageDisplay } from "@/lib/chat/usage-display";
+import { LAST_TURN_TTL_MS, resolveChatUsageDisplay } from "@/lib/chat/usage-display";
 import { getLastTurnUsage, subscribeLastTurnUsage } from "@/lib/chat/last-turn-usage";
 
 export function UsageRing({
@@ -64,10 +63,22 @@ export function UsageRing({
 }
 
 export function ChatUsageButton({ compact = false }: { compact?: boolean }) {
-    const shapeAuth = useShapeAuth();
     const settings = useSettings();
     const lastTurnUsage = useSyncExternalStore(subscribeLastTurnUsage, getLastTurnUsage, getLastTurnUsage);
-    const usage = resolveChatUsageDisplay(settings.ai.defaultModel, shapeAuth, lastTurnUsage);
+    // The last-turn figure is only re-evaluated on render, so without this the
+    // ring keeps showing a turn that has already aged past its TTL.
+    const [tick, expireTick] = useReducer((n: number) => n + 1, 0);
+    const expiresAt = lastTurnUsage ? lastTurnUsage.at + LAST_TURN_TTL_MS : null;
+    useEffect(() => {
+        if (expiresAt === null) return;
+        const remaining = expiresAt - Date.now();
+        if (remaining <= 0) return;
+        const id = setTimeout(expireTick, remaining);
+        return () => clearTimeout(id);
+    }, [expiresAt]);
+    void tick;
+
+    const usage = resolveChatUsageDisplay(settings.ai.defaultModel, lastTurnUsage);
 
     return (
         <Tooltip content={usage.tooltip}>
@@ -76,13 +87,15 @@ export function ChatUsageButton({ compact = false }: { compact?: boolean }) {
                 className="flex h-7 shrink-0 items-center gap-1.5 rounded-md px-1.5 text-sm text-text-muted hover:bg-panel-hover hover:text-text-primary"
                 onClick={() =>
                     void import("@/lib/window/open-settings").then(({ openSettingsWindow }) =>
-                        openSettingsWindow({ category: "account" }),
+                        openSettingsWindow({ category: "providers" }),
                     )
                 }
                 aria-label={usage.tooltip || "Usage"}
             >
                 <UsageRing percent={usage.percent} size={16} />
-                {compact ? null : <span className="tabular-nums">{usage.percent}%</span>}
+                {compact ? null : (
+                    <span className="tabular-nums">{usage.tokens ? usage.title : ""}</span>
+                )}
             </button>
         </Tooltip>
     );

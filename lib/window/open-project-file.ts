@@ -12,7 +12,7 @@ async function revealFolder(resolved: string): Promise<boolean> {
         return false;
     }
     window.dispatchEvent(
-        new CustomEvent("shape-reveal-in-explorer", { detail: { path: resolved } }),
+        new CustomEvent("bettershape-reveal-in-explorer", { detail: { path: resolved } }),
     );
     return true;
 }

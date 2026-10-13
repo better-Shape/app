@@ -235,7 +235,7 @@ export function EditorSplitProvider({ children }: { children: React.ReactNode })
         if (prevKey === nextKey) return;
         prevPathsRef.current = openPaths;
         dispatch({ type: "SYNC_OPEN_FILES", paths: openPaths, backendActive: active_file });
-    }, [openPaths, split]);
+    }, [openPaths, split, active_file]);
 
     useEffect(() => {
         const handleSplit = (e: Event) => {
@@ -243,8 +243,8 @@ export function EditorSplitProvider({ children }: { children: React.ReactNode })
             if (action === "close") closeSplit();
             else if (action === "right") splitRight();
         };
-        window.addEventListener("shape-editor-split", handleSplit as EventListener);
-        return () => window.removeEventListener("shape-editor-split", handleSplit as EventListener);
+        window.addEventListener("bettershape-editor-split", handleSplit as EventListener);
+        return () => window.removeEventListener("bettershape-editor-split", handleSplit as EventListener);
     }, [splitRight, closeSplit]);
 
     const value = useMemo(

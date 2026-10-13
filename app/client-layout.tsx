@@ -10,18 +10,13 @@ import { GlobalContextMenu } from "@/core/providers/menu";
 import { ChatStreamProvider } from "@/features/chat/lib/chat-stream-store";
 import { initSettings } from "@/lib/settings";
 import { initGitHubAuth } from "@/lib/github/store";
-import { useShapeAuth } from "@/lib/cloud/store";
-import { LoginPromptDialog } from "@/features/agent/workbench/ui/login-prompt-dialog";
 import { CheckpointRestoreDialog } from "@/features/chat/ui/shell/checkpoint-restore-dialog";
-import { UpdateBootstrap } from "@/features/agent/workbench/update-bootstrap";
 import { installBenignErrorFilters } from "@/lib/editor/benign-errors";
 import { isMainTauriWindow, isTauriRuntime } from "@/lib/window/tauri-window";
 import { FilterProvider } from "@/features/git/ui/manager/filter-context";
 import { SuppressNativeTooltips } from "@/components/ui/suppress-native-tooltips";
 import { CommandPaletteBridge } from "@/features/agent/palette";
 import { cn } from "@/lib/utils";
-import Onboarding from "@/features/onboarding/ui/view";
-import { PromoCardHost } from "@/features/promo/host";
 import { DesignPreviewCaptureHost } from "@/features/chat/ui/design-capture";
 import { WebviewReconnect } from "@/components/layout/webview-reconnect";
 
@@ -33,18 +28,16 @@ function pathMatches(pathname: string | null, base: string) {
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
     const pathname = usePathname();
     // Prod static export uses trailing slashes (`/settings/`); match both forms.
-    const isOnboarding = pathMatches(pathname, "/onboarding");
     const isSettings = pathMatches(pathname, "/settings");
     const isBranch = pathMatches(pathname, "/branch") || pathMatches(pathname, "/git");
 
     const isPopout = pathMatches(pathname, "/popout");
-    const isPlayground = pathMatches(pathname, "/playground");
 
     useEffect(() => {
         const bootstrap = async () => {
             void initSettings();
             initGitHubAuth();
-            void import("@/lib/cloud/store").then(({ initShapeAuth }) => initShapeAuth());
+            void import("@/lib/ai/sync").then(({ initAiConfigSync }) => initAiConfigSync());
 
             // MCP: sync user mcp.json so the agent sees tools without visiting Settings.
             void (async () => {
@@ -58,10 +51,6 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
 
             const isMain = !isTauriRuntime() || await isMainTauriWindow();
             if (!isMain) return;
-            void import("@/lib/telemetry").then(({ initTelemetry, captureTelemetry }) => {
-                initTelemetry();
-                void captureTelemetry("agent_launched");
-            });
         };
 
         void bootstrap();
@@ -73,7 +62,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     }, []);
 
     useEffect(() => {
-        if (isOnboarding || isSettings || isBranch || isPopout || isPlayground) return;
+        if (isSettings || isBranch || isPopout) return;
         let unlisten: (() => void) | undefined;
         let cancelled = false;
 
@@ -130,7 +119,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
             cancelled = true;
             unlisten?.();
         };
-    }, [isOnboarding, isSettings, isBranch, isPopout, isPlayground]);
+    }, [isSettings, isBranch, isPopout]);
 
     // Block the native WebView context menu without breaking Radix menus.
     // Must be bubble phase: Radix opens on the target first; capture+preventDefault
@@ -144,25 +133,12 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     }, []);
 
     useEffect(() => {
-        if (isOnboarding) return;
-
         const init = async () => {
-            const { getCurrentWindow, getAllWindows } = await import("@tauri-apps/api/window");
+            const { getCurrentWindow } = await import("@tauri-apps/api/window");
 
             try {
                 const currentWindow = getCurrentWindow();
                 if (currentWindow.label !== "main") return;
-
-                // Prefer in-app onboarding — close the legacy onboarding webview if present.
-                const windows = await getAllWindows();
-                const onboarding = windows.find((w: { label: string | Promise<string> }) => w.label === "onboarding");
-                if (onboarding) {
-                    try {
-                        await onboarding.close();
-                    } catch {
-                        /* ignore */
-                    }
-                }
 
                 const { initSettings } = await import("@/lib/settings");
                 await initSettings();
@@ -172,17 +148,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
             }
         };
         void init();
-    }, [isOnboarding]);
-
-    if (isOnboarding) {
-        return (
-            <div className="w-full h-screen flex flex-col font-sans text-text-primary text-sm overflow-hidden">
-                <main className="flex-1 overflow-hidden min-h-0">
-                    {children}
-                </main>
-            </div>
-        );
-    }
+    }, []);
 
     if (isPopout) {
         return (
@@ -191,7 +157,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
                     <SuppressNativeTooltips />
                     <GlobalContextMenu>
                         <div
-                            id="shape-popout"
+                            id="bettershape-popout"
                             className="relative flex h-screen w-full flex-col overflow-hidden bg-titlebar font-sans text-sm text-text-primary select-none"
                         >
                             <Titlebar focus />
@@ -199,7 +165,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
                                 {children}
                             </main>
                             <CommandPaletteBridge />
-                            <div id="shape-overlays" />
+                            <div id="bettershape-overlays" />
                         </div>
                     </GlobalContextMenu>
                 </NotificationProvider>
@@ -207,24 +173,15 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
         );
     }
 
-    if (isPlayground) {
-        return (
-            <div className="flex h-screen w-full flex-col overflow-hidden bg-background font-sans text-sm text-text-primary">
-                <main className="min-h-0 flex-1 overflow-hidden">{children}</main>
-            </div>
-        );
-    }
-
     if (isSettings || isBranch) {
         const windowTitle = isBranch ? "Git" : "Settings";
         const body = (
-            <div id="shape-settings" className="relative flex h-screen w-full flex-col overflow-hidden bg-background font-sans text-sm text-text-primary select-none">
+            <div id="bettershape-settings" className="relative flex h-screen w-full flex-col overflow-hidden bg-background font-sans text-sm text-text-primary select-none">
                 <Titlebar settings title={windowTitle} />
                 <main className="min-h-0 flex-1 overflow-hidden bg-background">
                     {children}
                 </main>
-                <RequireShapeLogin />
-                <div id="shape-overlays" />
+                <div id="bettershape-overlays" />
             </div>
         );
         return (
@@ -253,46 +210,20 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     );
 }
 
-function RequireShapeLogin() {
-    const auth = useShapeAuth();
-    if (auth.loggedIn || auth.isLoading) return null;
-    return (
-        <div className="absolute inset-0 z-[80] bg-background">
-            <Onboarding />
-        </div>
-    );
-}
-
 function Content({ children }: { children: React.ReactNode }) {
-    const auth = useShapeAuth();
-    const needsLogin = !auth.loggedIn && !auth.isLoading;
-
     return (
         <div
-            id="shape-workbench"
+            id="bettershape-workbench"
             className="relative flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden bg-background select-none"
         >
-            <div
-                className={cn(
-                    "relative z-10 flex min-h-0 w-full flex-1 flex-col",
-                    needsLogin && "invisible",
-                )}
-            >
+            <div className="relative z-10 flex min-h-0 w-full flex-1 flex-col">
                 <Main>{children}</Main>
-                <LoginPromptDialog />
                 <CheckpointRestoreDialog />
-                <UpdateBootstrap />
                 <CommandPaletteBridge />
-                <PromoCardHost />
                 <DesignPreviewCaptureHost />
             </div>
             <WebviewReconnect />
-            {needsLogin ? (
-                <div className="absolute inset-0 z-[80] bg-background">
-                    <Onboarding />
-                </div>
-            ) : null}
-            <div id="shape-overlays" />
+            <div id="bettershape-overlays" />
         </div>
     );
 }

@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll";
 import { commands } from "@/lib/backend";
 import { notify } from "@/features/notifications";
-import { getShapeAccessToken } from "@/lib/cloud/store";
 import type { WorkflowJob } from "./types";
 
 export function LogsPanel({
@@ -71,8 +70,6 @@ export function LogsPanel({
         if (!jobFailed || !canExplain) return;
         const key = `${selectedRunId}:${selectedJob?.id}:${highlight ?? ""}:${stepFilterActive ? 1 : 0}`;
         if (autoKey.current === key) return;
-        const token = getShapeAccessToken();
-        if (!token) return;
         autoKey.current = key;
         let cancelled = false;
         setAiLoading(true);
@@ -85,17 +82,8 @@ export function LogsPanel({
                     highlight ? `Step focus: ${highlight}` : null,
                     selectedRunId != null ? `Run id: ${selectedRunId}` : null,
                 ].filter(Boolean);
-                const text = await commands.explainCiLog(
-                    logs,
-                    parts.join("\n") || null,
-                    token,
-                );
+                const text = await commands.explainCiLog(logs, parts.join("\n") || null);
                 if (!cancelled) setAiText(text.trim());
-                void import("@/lib/cloud/store")
-                    .then(({ refreshShapeAuth }) => {
-                        void refreshShapeAuth();
-                    })
-                    .catch(() => undefined);
             } catch (err) {
                 if (!cancelled) {
                     const msg = err instanceof Error ? err.message : String(err);

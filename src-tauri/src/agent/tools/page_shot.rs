@@ -67,8 +67,8 @@ fn rewrite_loopback_to_preview(url: &str) -> String {
     if !is_loopback(&preview) {
         return url.to_string();
     }
-    let same_port = parsed.port() == preview.port()
-        || (parsed.port().is_none() && preview.port().is_none());
+    let same_port =
+        parsed.port() == preview.port() || (parsed.port().is_none() && preview.port().is_none());
     if same_port && parsed.host_str() == preview.host_str() {
         return url.to_string();
     }
@@ -118,7 +118,10 @@ fn attached_image_re() -> Regex {
 
 fn extract_attached_images(body: &str) -> (String, Vec<String>) {
     let re = attached_image_re();
-    let tags: Vec<String> = re.find_iter(body).map(|m| m.as_str().trim().to_string()).collect();
+    let tags: Vec<String> = re
+        .find_iter(body)
+        .map(|m| m.as_str().trim().to_string())
+        .collect();
     let stripped = re.replace_all(body, "").to_string();
     (stripped, tags)
 }
@@ -262,7 +265,8 @@ mod tests {
 
     #[test]
     fn places_image_after_first_paragraph_not_the_end() {
-        let body = "Edits are in.\n\nThe pricing page is two columns now.\n\nAnnual is the default.";
+        let body =
+            "Edits are in.\n\nThe pricing page is two columns now.\n\nAnnual is the default.";
         let tag = "<attached_image name=\"p.png\" type=\"image/jpeg\">data:image/jpeg;base64,xx</attached_image>";
         let out = place_page_screenshots(body, &[tag.to_string()]);
         let img_at = out.find("<attached_image").unwrap();

@@ -19,7 +19,6 @@ import { Icon } from "@/components/ui/icon";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ShapeLogo } from "@/components/ui/shape-logo";
 import { FileIcon } from "@/components/ui/file-icon";
 import { cn } from "@/lib/utils";
 import { commands } from "@/lib/backend";
@@ -38,15 +37,14 @@ import { ManagerDiffEditor } from "@/features/git/ui/shared/manager-diff";
 import { useGitRepos } from "@/lib/git/repos";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import { QuickPick } from "@/components/ui/quick-pick";
-import { FadeTruncate } from "@/components/ui/fade-truncate";
 import { resolveGithubAvatarUrl } from "@/lib/git/github-avatar";
 import { Panel } from "@/features/panels";
 
 async function notifyGitRefresh() {
     try {
-        await emit("shape-git-refresh", {});
+        await emit("bettershape-git-refresh", {});
     } catch {
-        window.dispatchEvent(new Event("shape-git-refresh"));
+        window.dispatchEvent(new Event("bettershape-git-refresh"));
     }
 }
 

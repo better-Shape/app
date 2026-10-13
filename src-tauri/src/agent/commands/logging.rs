@@ -1,7 +1,6 @@
 /// Terminal-visible logging for the agent subsystem.
 /// All log output goes to the Tauri terminal (stdout) so you can see it
 /// in the dev console when running `cargo tauri dev`.
-
 use std::fmt;
 
 /// Log levels for agent operations

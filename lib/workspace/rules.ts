@@ -1,7 +1,7 @@
 import { commands } from "@/lib/backend/commands";
 
-const RULES_FILE = ".shape/rules.md";
-const RULES_DIR = ".shape/rules";
+const RULES_FILE = ".bettershape/rules.md";
+const RULES_DIR = ".bettershape/rules";
 
 async function readRulesFile(relativePath: string, projectPath: string): Promise<string | null> {
     const sep = projectPath.includes("\\") ? "\\" : "/";
@@ -56,7 +56,7 @@ export async function listProjectRuleFiles(projectPath: string | null): Promise<
     return names;
 }
 
-/** Load project rules from `.shape/rules.md` and `.shape/rules/*`. */
+/** Load project rules from `.bettershape/rules.md` and `.bettershape/rules/*`. */
 export async function loadProjectRules(projectPath: string | null): Promise<string> {
     if (!projectPath) return "";
 

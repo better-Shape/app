@@ -1,7 +1,10 @@
 use crate::core::error::AppError;
 use crate::domain::git::service;
 
-pub use crate::commands::git::{GitActivityPoint, GitFileParams, GitLogEntry, GitSyncStatus, BlameLine, GitStashEntry, GitRemoteInfo, GitBranchDetail, GitBranchGraph, GitRepoInfo, GitTagEntry, GitHunkList};
+pub use crate::commands::git::{
+    BlameLine, GitActivityPoint, GitBranchDetail, GitBranchGraph, GitFileParams, GitHunkList,
+    GitLogEntry, GitRemoteInfo, GitRepoInfo, GitStashEntry, GitSyncStatus, GitTagEntry,
+};
 
 #[tauri::command]
 pub async fn git_discover_repos(workspace_root: String) -> Result<Vec<GitRepoInfo>, AppError> {
@@ -199,7 +202,10 @@ pub async fn git_log_stream_start(
 }
 
 #[tauri::command]
-pub async fn git_log_stream_next(caller_id: String, limit: usize) -> Result<Vec<GitLogEntry>, AppError> {
+pub async fn git_log_stream_next(
+    caller_id: String,
+    limit: usize,
+) -> Result<Vec<GitLogEntry>, AppError> {
     service::git_log_stream_next(caller_id, limit).await
 }
 
@@ -262,7 +268,11 @@ pub async fn git_revert_commit(repo_path: String, hash: String) -> Result<(), Ap
 }
 
 #[tauri::command]
-pub async fn git_create_branch_from_commit(repo_path: String, branch_name: String, hash: String) -> Result<(), AppError> {
+pub async fn git_create_branch_from_commit(
+    repo_path: String,
+    branch_name: String,
+    hash: String,
+) -> Result<(), AppError> {
     service::git_create_branch_from_commit(repo_path, branch_name, hash).await
 }
 
@@ -320,7 +330,10 @@ pub async fn git_get_commit_file_content(
 }
 
 #[tauri::command]
-pub async fn git_blame_file(repo_path: String, file_path: String) -> Result<Vec<BlameLine>, AppError> {
+pub async fn git_blame_file(
+    repo_path: String,
+    file_path: String,
+) -> Result<Vec<BlameLine>, AppError> {
     service::git_blame_file(repo_path, file_path).await
 }
 
@@ -330,7 +343,11 @@ pub async fn git_stash_list(repo_path: String) -> Result<Vec<GitStashEntry>, App
 }
 
 #[tauri::command]
-pub async fn git_stash_save(repo_path: String, message: String, include_untracked: bool) -> Result<(), AppError> {
+pub async fn git_stash_save(
+    repo_path: String,
+    message: String,
+    include_untracked: bool,
+) -> Result<(), AppError> {
     service::git_stash_save(repo_path, message, include_untracked).await
 }
 

@@ -5,7 +5,7 @@ import { Checkmark20Regular } from "@fluentui/react-icons/headless/svg/checkmark
 import { ChevronRight20Regular } from "@fluentui/react-icons/headless/svg/chevron-right";
 
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
     AlertDialog,
     AlertDialogBody,
@@ -78,9 +78,12 @@ export function DesignDeploy({
     const stagingHost = `${name}-staging.example.com`;
     const productionHost = `${name}.example.com`;
 
-    useEffect(() => {
+    // Opening the dialog always starts at the unpublished step.
+    const [seenOpen, setSeenOpen] = useState(open);
+    if (open !== seenOpen) {
+        setSeenOpen(open);
         if (open) setStage("unpublished");
-    }, [open]);
+    }
 
     const title =
         stage === "unpublished" ? "Publish" : stage === "staged" ? "Staging" : "Production";

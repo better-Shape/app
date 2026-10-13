@@ -36,14 +36,12 @@ export function LocalTags() {
     const [tags, setTags] = useState<TagEntry[]>([]);
     const [newTagName, setNewTagName] = useState("");
     const [creating, setCreating] = useState(false);
-    const [loading, setLoading] = useState(false);
 
     const refresh = useCallback(async () => {
         if (!gitRepo) {
             setTags([]);
             return;
         }
-        setLoading(true);
         try {
             const list = await commands.gitListTags(gitRepo);
             setTags(list);
@@ -51,15 +49,14 @@ export function LocalTags() {
             setTags([]);
             notify.gitError(err, "Failed to load tags");
         } finally {
-            setLoading(false);
         }
     }, [gitRepo]);
 
     useEffect(() => {
         void refresh();
         const onRefresh = () => void refresh();
-        window.addEventListener("shape-git-refresh", onRefresh);
-        return () => window.removeEventListener("shape-git-refresh", onRefresh);
+        window.addEventListener("bettershape-git-refresh", onRefresh);
+        return () => window.removeEventListener("bettershape-git-refresh", onRefresh);
     }, [refresh]);
 
     const handleCreate = useCallback(async () => {
@@ -70,7 +67,7 @@ export function LocalTags() {
             await commands.gitCreateTag(gitRepo, name, "HEAD", null);
             notify.success("Git", `Created tag ${name}`);
             setNewTagName("");
-            window.dispatchEvent(new Event("shape-git-refresh"));
+            window.dispatchEvent(new Event("bettershape-git-refresh"));
             await refresh();
         } catch (err) {
             notify.gitError(err, "Failed to create tag");
@@ -92,7 +89,7 @@ export function LocalTags() {
             try {
                 await commands.gitDeleteTag(gitRepo, tag.name);
                 notify.success("Git", `Deleted tag ${tag.name}`);
-                window.dispatchEvent(new Event("shape-git-refresh"));
+                window.dispatchEvent(new Event("bettershape-git-refresh"));
                 await refresh();
             } catch (err) {
                 notify.gitError(err, "Failed to delete tag");
@@ -117,7 +114,7 @@ export function LocalTags() {
             try {
                 await commands.gitCheckoutCommit(gitRepo, tag.hash);
                 notify.success("Git", `Checked out ${tag.name}`);
-                window.dispatchEvent(new Event("shape-git-refresh"));
+                window.dispatchEvent(new Event("bettershape-git-refresh"));
             } catch (err) {
                 notify.gitError(err, "Failed to checkout tag");
             }

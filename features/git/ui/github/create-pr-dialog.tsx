@@ -13,7 +13,6 @@ import {
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { commands, useProjectState } from "@/lib/backend";
-import { getShapeAccessToken } from "@/lib/cloud/store";
 import { notify } from "@/features/notifications";
 import { loginGitHub, useGitHubAuth } from "@/lib/github/store";
 import {
@@ -83,17 +82,9 @@ export function CreatePullRequestDialog({
 
     const draft = async () => {
         if (!project_path || !head || !base) return;
-        const token = getShapeAccessToken();
-        if (!token) {
-            notify.error("AI Error", "Sign in to Shape to draft a pull request.");
-            return;
-        }
         setDrafting(true);
         try {
-            const raw = await commands.draftPullRequest(base, head, {
-                repoPath: project_path,
-                accessToken: token,
-            });
+            const raw = await commands.draftPullRequest(base, head, { repoPath: project_path });
             const next = parseDraft(raw);
             setTitle("");
             setBody("");
@@ -101,11 +92,6 @@ export function CreatePullRequestDialog({
             if (next.body) {
                 await streamTextInto(next.body, setBody, { msPerChar: 4 });
             }
-            void import("@/lib/cloud/store")
-                .then(({ refreshShapeAuth }) => {
-                    void refreshShapeAuth();
-                })
-                .catch(() => undefined);
         } catch (err) {
             notify.error("AI Error", err instanceof Error ? err.message : String(err));
         } finally {

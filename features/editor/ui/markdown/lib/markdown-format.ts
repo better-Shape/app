@@ -261,11 +261,6 @@ export function applyInlineMarkdownFormat(
     );
 }
 
-function lineBoundsAt(content: string, offset: number): { start: number; end: number } {
-    const start = content.lastIndexOf("\n", offset - 1) + 1;
-    const nl = content.indexOf("\n", offset);
-    return { start, end: nl === -1 ? content.length : nl };
-}
 
 function linesIntersectingRange(content: string, range: MarkdownSourceRange): { start: number; end: number }[] {
     const lines: { start: number; end: number }[] = [];

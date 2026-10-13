@@ -65,12 +65,7 @@ fn line_range(node: &Node) -> (usize, usize) {
     (start, end.max(start))
 }
 
-fn push_chunk_from_node(
-    path: &str,
-    node: Node,
-    source: &[u8],
-    out: &mut Vec<Chunk>,
-) {
+fn push_chunk_from_node(path: &str, node: Node, source: &[u8], out: &mut Vec<Chunk>) {
     let Some(text) = node_text(node, source) else {
         return;
     };
@@ -86,13 +81,7 @@ fn push_chunk_from_node(
     });
 }
 
-fn collect_ast_chunks(
-    path: &str,
-    node: Node,
-    source: &[u8],
-    budget: usize,
-    out: &mut Vec<Chunk>,
-) {
+fn collect_ast_chunks(path: &str, node: Node, source: &[u8], budget: usize, out: &mut Vec<Chunk>) {
     let kind = node.kind();
     if node.is_named() && is_chunk_root(kind) {
         let text = node_text(node, source).unwrap_or("");

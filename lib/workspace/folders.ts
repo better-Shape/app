@@ -1,4 +1,6 @@
-const STORAGE_KEY = "shape-workspace-folders";
+const STORAGE_KEY = "bettershape-workspace-folders";
+let initialSynced = false;
+let syncQueue = Promise.resolve();
 
 function normalizePath(path: string): string {
     return path.replace(/\\/g, "/").replace(/\/+$/, "");
@@ -11,22 +13,35 @@ export function getExtraWorkspaceFolders(): string[] {
         if (!raw) return [];
         const parsed = JSON.parse(raw) as unknown;
         if (!Array.isArray(parsed)) return [];
-        return parsed.filter((p): p is string => typeof p === "string" && p.length > 0);
+        const list = parsed.filter((p): p is string => typeof p === "string" && p.length > 0);
+        if (!initialSynced) { initialSynced = true; if (list.length > 0) void syncRustExtraFolders(list).catch(() => { initialSynced = false; }); }
+        return list;
     } catch {
         return [];
     }
 }
 
+export function syncRustExtraFolders(folders = getExtraWorkspaceFolders()): Promise<void> {
+    const run = syncQueue.then(() => import("@/lib/backend").then(({ commands }) => commands.setExtraWorkspaceFolders(folders).then(() => undefined)));
+    syncQueue = run.catch(() => {});
+    return run;
+}
+
 export function setExtraWorkspaceFolders(folders: string[]): void {
     const unique = [...new Set(folders.map(normalizePath))];
     localStorage.setItem(STORAGE_KEY, JSON.stringify(unique));
-    window.dispatchEvent(new Event("shape-workspace-folders-changed"));
+    initialSynced = true;
+    void syncRustExtraFolders(unique).catch(() => {});
+    window.dispatchEvent(new Event("bettershape-workspace-folders-changed"));
 }
 
-export function clearExtraWorkspaceFolders(): void {
-    if (typeof window === "undefined") return;
+export function clearExtraWorkspaceFolders(): Promise<void> {
+    if (typeof window === "undefined") return Promise.resolve();
     localStorage.removeItem(STORAGE_KEY);
-    window.dispatchEvent(new Event("shape-workspace-folders-changed"));
+    initialSynced = true;
+    const p = syncRustExtraFolders([]).catch(() => {});
+    window.dispatchEvent(new Event("bettershape-workspace-folders-changed"));
+    return p;
 }
 
 export function addWorkspaceFolder(path: string): void {

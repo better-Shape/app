@@ -6,16 +6,13 @@ use crate::core::error::AppError;
 pub fn index_project(
     app: tauri::AppHandle,
     project_path: Option<String>,
-    access_token: Option<String>,
     index_state: tauri::State<'_, IndexState>,
     app_state: tauri::State<'_, AppState>,
 ) -> Result<bool, AppError> {
     let path = project_path
         .or_else(|| app_state.0.lock().ok()?.project_path.clone())
         .ok_or_else(|| AppError::Message("No project path".to_string()))?;
-    if let Some(token) = access_token.filter(|t| !t.trim().is_empty()) {
-        index_state.set_api_context(Some(token), None, None);
-    }
+    index_state.set_api_context(Some(crate::core::ai_providers::default_model()), None, None);
     Ok(index_state.spawn_background_index(app, path))
 }
 
@@ -53,7 +50,7 @@ pub fn search_codebase(
                 })
                 .collect()
         })
-        .map_err(|e| AppError::Message(e))
+        .map_err(AppError::Message)
 }
 
 /// Toggle semantic embeddings for codebase search (BM25 keeps working either
@@ -86,7 +83,5 @@ pub fn get_index_status(
     let path = project_path
         .or_else(|| app_state.0.lock().ok()?.project_path.clone())
         .ok_or_else(|| AppError::Message("No project path".to_string()))?;
-    index_state
-        .status(&path)
-        .map_err(|e| AppError::Message(e))
+    index_state.status(&path).map_err(AppError::Message)
 }

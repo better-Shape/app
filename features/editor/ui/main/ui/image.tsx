@@ -103,27 +103,8 @@ export function ImageView({
         // eslint-disable-next-line react-hooks/exhaustive-deps -- path-only reset
     }, [path]);
 
-    const undo = useCallback(() => {
-        if (historyIndexRef.current <= 0) return;
-        historyIndexRef.current -= 1;
-        setAdjustments(cloneAdjustments(historyRef.current[historyIndexRef.current]));
-        bumpHistory();
-    }, [bumpHistory]);
 
-    const redo = useCallback(() => {
-        if (historyIndexRef.current >= historyRef.current.length - 1) return;
-        historyIndexRef.current += 1;
-        setAdjustments(cloneAdjustments(historyRef.current[historyIndexRef.current]));
-        bumpHistory();
-    }, [bumpHistory]);
 
-    const discard = useCallback(() => {
-        const baseline = cloneAdjustments(baselineRef.current);
-        setAdjustments(baseline);
-        historyRef.current = [baseline];
-        historyIndexRef.current = 0;
-        bumpHistory();
-    }, [bumpHistory]);
 
     const save = useCallback(async () => {
         if (savingRef.current) return;
@@ -160,10 +141,9 @@ export function ImageView({
     const isDirty = useMemo(() => {
         return historyIndexRef.current > 0
             || JSON.stringify(adjustments) !== JSON.stringify(baselineRef.current);
+    // historyVersion is not read here, but it must re-run this memo: history lives in refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- historyVersion invalidates the ref-backed history
     }, [adjustments, historyVersion]);
-
-    const canUndo = historyIndexRef.current > 0;
-    const canRedo = historyIndexRef.current < historyRef.current.length - 1;
 
     useEffect(() => {
         const onSaveRequest = () => {

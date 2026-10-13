@@ -13,7 +13,7 @@ function readSeededPath(): string | null {
         if (fromQuery) return fromQuery;
         for (let i = 0; i < localStorage.length; i++) {
             const key = localStorage.key(i);
-            if (key?.startsWith("shape-popout-file:")) {
+            if (key?.startsWith("bettershape-popout-file:")) {
                 const value = localStorage.getItem(key);
                 if (value) return value;
             }
@@ -28,10 +28,12 @@ export default function PopoutPage() {
     const searchParams = useSearchParams();
     const fileFromQuery = searchParams.get("file");
     const [file, setFile] = useState<string | null>(() => fileFromQuery || readSeededPath());
-
-    useEffect(() => {
+    // Adopt a new `?file=` while mounted. Done during render, so there is no extra pass.
+    const [seenQuery, setSeenQuery] = useState(fileFromQuery);
+    if (fileFromQuery !== seenQuery) {
+        setSeenQuery(fileFromQuery);
         if (fileFromQuery) setFile(fileFromQuery);
-    }, [fileFromQuery]);
+    }
 
     useEffect(() => {
         if (!file) return;

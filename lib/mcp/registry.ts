@@ -1,7 +1,7 @@
 import { commands } from "@/lib/backend";
 import type { McpServerConfig, McpStatusEntry } from "@/lib/backend/types";
 import { getSettings, updateSettingSection, type McpServerConfig as StoredMcp } from "@/lib/settings";
-import { fetchComposioSkillHint } from "@/lib/mcp/composio-skill";
+import { fetchComposioSkillHint } from "@/lib/plugins/api";
 import { loadMcpServersFromFile } from "@/lib/mcp/config";
 
 export type McpOrigin = "file" | "ui";
@@ -18,6 +18,7 @@ function asStored(server: StoredMcp): StoredMcp {
         env: server.env,
         url: server.url,
         auth: server.auth,
+        headers: server.headers,
         enabled: server.enabled,
         disabledTools: server.disabledTools,
         oauthClientId: server.oauthClientId,

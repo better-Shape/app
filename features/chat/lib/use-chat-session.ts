@@ -4,8 +4,10 @@ import React from "react";
 import { listen } from "@tauri-apps/api/event";
 import { commands, Conversation, useProjectState } from "@/lib/backend";
 import { useChatStream } from "./chat-stream-store";
-import { NEW_CHAT_TAB_ID, DEMO_CHAT_TAB_ID, isEphemeralChatTabId, type ChatTab } from "../ui/shell/tabs";
-import { buildDemoChatMessages, isDemoChatPinned, setDemoChatPinned } from "./demo-chat";
+import { isChatGenerating } from "./generating-chats";
+import { type ReasoningEffort } from "../ui/composer/reasoning-effort";
+import type { ChatMessage } from "@/lib/backend/types";
+import { NEW_CHAT_TAB_ID, isEphemeralChatTabId, type ChatTab } from "../ui/shell/tabs";
 import { openChatHistoryMenu } from "../ui/shell/history";
 import { parseMessageContent, type Chunk } from "../ui/md/renderer";
 import {
@@ -28,8 +30,8 @@ import {
 } from "./chat-session-utils";
 import { getSettings } from "@/lib/settings";
 import { getVisibleModels, resolveChatModels, sanitizeEnabledModels, subagentModelsForSend } from "@/lib/settings/models";
-import { getCatalogDefaultEnabledIds, getCatalogModels, isCatalogModelAllowed, useShapeCatalog } from "@/lib/catalog/store";
-import { useShapeAuth } from "@/lib/cloud/store";
+import { getCatalogDefaultEnabledIds, getCatalogModels, useBetterShapeCatalog } from "@/lib/catalog/store";
+import { hasAnyUsableProvider as hasUsableProvider } from "@/lib/ai/providers";
 import { notify } from "@/features/notifications";
 import { captureTelemetry, captureTelemetryError } from "@/lib/telemetry";
 import {
@@ -48,10 +50,18 @@ import {
     processAttachment,
     type ComposerAttachment,
 } from "@/features/chat/ui/composer/attachments";
+import {
+    adoptDraftQueuedMessages,
+    canDrainQueue,
+    needsBackendPin,
+    queueForConversation,
+    takeNextQueuedMessage,
+    type QueuedChatMessage,
+} from "./message-queue";
 
 function chatTabsStorageKey(projectPath: string | null | undefined) {
     const norm = (projectPath || "").replace(/\\/g, "/").toLowerCase();
-    return `shape-chat-open-tabs:${norm || "__none__"}`;
+    return `bettershape-chat-open-tabs:${norm || "__none__"}`;
 }
 
 function readPersistedChatTabs(projectPath: string | null | undefined): {
@@ -85,7 +95,7 @@ function writePersistedChatTabs(
 ) {
     try {
         const persistable = tabs.filter(
-            (t) => t.id !== DEMO_CHAT_TAB_ID && (!isEphemeralChatTabId(t.id) || t.id === NEW_CHAT_TAB_ID),
+            (t) => !isEphemeralChatTabId(t.id) || t.id === NEW_CHAT_TAB_ID,
         );
         const nextActive = persistable.some((tab) => tab.id === activeId)
             ? activeId
@@ -99,7 +109,7 @@ function writePersistedChatTabs(
     }
 }
 
-const COMPOSER_PREFS_KEY = "shape-composer";
+const COMPOSER_PREFS_KEY = "bettershape-composer";
 
 type ComposerEffort = "low" | "high" | "ultra" | "max" | "super";
 type ComposerPrefs = { model?: string; effort?: ComposerEffort; fast?: boolean };
@@ -137,7 +147,14 @@ function writeComposerPrefs(prefs: ComposerPrefs) {
     }
 }
 
-export function useChatSession() {
+/**
+ * The scroll refs are created by the caller, not returned from this hook. Keeping refs out of the
+ * returned session object lets components read session values during render.
+ */
+export function useChatSession(
+    messagesEndRef: React.RefObject<HTMLDivElement | null>,
+    scrollContainerRef: React.RefObject<HTMLDivElement | null>,
+) {
     const [uploadedFiles, setUploadedFiles] = React.useState<ComposerAttachment[]>([]);
 
     const addUploadedFiles = React.useCallback((files: File[], peaks?: number[][]) => {
@@ -154,14 +171,17 @@ export function useChatSession() {
     uploadedFilesRef.current = uploadedFiles;
     const [inputValue, setInputValue] = React.useState(() => {
         try {
-            return localStorage.getItem("shape-chat-input") || "";
+            return localStorage.getItem("bettershape-chat-input") || "";
         } catch {
             return "";
         }
     });
-    const [messageQueue, setMessageQueue] = React.useState<{ id: string; content: string }[]>([]);
+    /** Every queued follow-up, across chats. Each one is bound to its `conversationId`. */
+    const [messageQueue, setMessageQueue] = React.useState<QueuedChatMessage[]>([]);
     const messageQueueRef = React.useRef(messageQueue);
     messageQueueRef.current = messageQueue;
+    /** Bumped when a send is delivered so the queue drains the next message for this chat. */
+    const [queueDrainTick, setQueueDrainTick] = React.useState(0);
     const [projectRuleFiles, setProjectRuleFiles] = React.useState<string[]>([]);
     const editingQueueIdRef = React.useRef<string | null>(null);
     const {
@@ -173,13 +193,19 @@ export function useChatSession() {
         setSendError,
         contextSummarized,
         setContextSummarized,
-        syncFromBackend,
+        viewedConversationId,
+        showConversation,
+        isCurrentView,
+        reloadViewedMessages,
+        setDraftAdopter,
+        getViewedConversationId,
+        getDraftConversationId,
         appendUserOptimistic,
-        setViewingConversation,
-        resumeLiveConversation,
         stopLiveTurn,
         startDraftChat,
+        hasLiveTurn,
     } = useChatStream();
+    const refreshMetadataRef = React.useRef<() => Promise<void>>(async () => {});
     const [recentConvs, setRecentConvs] = React.useState<Conversation[]>([]);
     const [chatTitle, setChatTitle] = React.useState<string>("New Chat");
     const [openChatTabs, setOpenChatTabs] = React.useState<ChatTab[]>([
@@ -196,7 +222,7 @@ export function useChatSession() {
     const [selectedMode, setSelectedMode] = React.useState("Code");
     const selectedModeRef = React.useRef(selectedMode);
     selectedModeRef.current = selectedMode;
-    const [reasoningEffort, setReasoningEffort] = React.useState<"low" | "high" | "ultra" | "max">(
+    const [reasoningEffort, setReasoningEffort] = React.useState<ReasoningEffort>(
         () => readComposerPrefs().effort || "low",
     );
     const [fastMode, setFastMode] = React.useState(() => readComposerPrefs().fast ?? true);
@@ -211,30 +237,29 @@ export function useChatSession() {
                   : mode,
         );
     }, []);
-    const [conversationId, setConversationId] = React.useState<string | null>(null);
+    // The chat on screen. It follows the user's choice only, never the backend pointer.
+    const conversationId = viewedConversationId;
 
-    const syncOpenTabs = React.useCallback((convId: string | null, title: string) => {
+    /** Keep the tab strip in step. Does not move the view (see the view effect below). */
+    const syncOpenTabs = React.useCallback((convId: string | null, title?: string) => {
         if (!convId) {
-            setActiveChatTabId(NEW_CHAT_TAB_ID);
             setOpenChatTabs((prev) => {
                 const hasDraft = prev.some((tab) => tab.id === NEW_CHAT_TAB_ID);
                 if (hasDraft) {
                     return prev.map((tab) =>
-                        tab.id === NEW_CHAT_TAB_ID ? { ...tab, title: title || "New Chat" } : tab,
+                        tab.id === NEW_CHAT_TAB_ID && title ? { ...tab, title } : tab,
                     );
                 }
                 return [{ id: NEW_CHAT_TAB_ID, title: title || "New Chat" }, ...prev];
             });
             return;
         }
-
-        setActiveChatTabId(convId);
         setOpenChatTabs((prev) => {
             const withoutDraft = prev.filter((tab) => tab.id !== NEW_CHAT_TAB_ID);
             const existing = withoutDraft.find((tab) => tab.id === convId);
             if (existing) {
                 return withoutDraft.map((tab) =>
-                    tab.id === convId ? { ...tab, title: title || tab.title } : tab,
+                    tab.id === convId && title ? { ...tab, title } : tab,
                 );
             }
             return [...withoutDraft, { id: convId, title: title || "Chat" }];
@@ -245,10 +270,22 @@ export function useChatSession() {
     /** Bumped on every Keep/Undo so pendingEdits recomputes after localStorage resolve. */
     const [resolveRevision, setResolveRevision] = React.useState(0);
 
+    /** Side data derived from a transcript of the chat on screen. */
+    const hydrateViewedExtras = React.useCallback(
+        (id: string | null, msgs: ChatMessage[] | null) => {
+            if (!id || !msgs) return;
+            syncProposedEditsFromMessages(msgs, id);
+            const persisted = getResolvedFiles(id);
+            setResolvedFiles(new Set(Object.keys(persisted)));
+        },
+        [],
+    );
+
     const { project_path } = useProjectState();
-    const shapeAuth = useShapeAuth();
-    const { catalog } = useShapeCatalog();
+    const { catalog } = useBetterShapeCatalog();
     const [tabsReady, setTabsReady] = React.useState(false);
+    // The project the tabs were last hydrated for. `undefined` only before the first run.
+    const hydratedProjectRef = React.useRef<string | null | undefined>(undefined);
 
     // Restore open chat tabs per repo so switching projects keeps your session strip.
     React.useEffect(() => {
@@ -256,38 +293,55 @@ export function useChatSession() {
         setTabsReady(false);
         const key = chatTabsStorageKey(project_path);
         tabsHydratedForRef.current = key;
+        const switchedProject =
+            hydratedProjectRef.current !== undefined && hydratedProjectRef.current !== project_path;
+        hydratedProjectRef.current = project_path;
 
         void (async () => {
             const persisted = readPersistedChatTabs(project_path);
             if (persisted) {
-                const tabs = persisted.tabs.filter((t) => t.id !== DEMO_CHAT_TAB_ID);
+                const tabs = persisted.tabs.filter((t) => t.id !== "__demo_chat__");
                 if (!tabs.some((t) => t.id === NEW_CHAT_TAB_ID)) {
                     tabs.unshift({ id: NEW_CHAT_TAB_ID, title: "New Chat" });
                 }
-                const activeId = persisted.activeId === DEMO_CHAT_TAB_ID ? NEW_CHAT_TAB_ID : persisted.activeId;
+                const activeId = persisted.activeId === "__demo_chat__" ? NEW_CHAT_TAB_ID : persisted.activeId;
                 setOpenChatTabs(tabs);
                 setActiveChatTabId(activeId);
-                if (activeId !== NEW_CHAT_TAB_ID && !isEphemeralChatTabId(activeId)) {
+                if (activeId === NEW_CHAT_TAB_ID) {
+                    showConversation(null);
+                } else if (!isEphemeralChatTabId(activeId)) {
+                    const seq = showConversation(activeId);
                     try {
-                        await commands.loadConversation(
-                            activeId,
-                            project_path ?? undefined,
-                        );
+                        await commands.loadConversation(activeId, project_path ?? undefined);
                         if (!cancelled) {
                             clearAllDesignPreviewSessions();
                             setContextSummarized(false);
+                            const msgs = await reloadViewedMessages(seq);
+                            hydrateViewedExtras(activeId, msgs);
                         }
                     } catch (err) {
-                        // Ephemeral / deleted tabs — fall back to a draft quietly.
-                        if (!cancelled) {
+                        if (cancelled || !isCurrentView(seq)) return;
+                        // A tab whose conversation is gone is expected: it was ephemeral,
+                        // or deleted from another window. Drop the strip back to a draft.
+                        //
+                        // Anything else is a backend failure, and the saved tabs are still
+                        // good. Keep them and move the active tab to a draft, rather than
+                        // throwing the whole session strip away over one unreadable chat.
+                        if (!String(err).includes("Conversation not found")) {
+                            console.error("Could not restore conversation", activeId, err);
+                        } else {
                             setOpenChatTabs([{ id: NEW_CHAT_TAB_ID, title: "New Chat" }]);
-                            setActiveChatTabId(NEW_CHAT_TAB_ID);
                         }
+                        setActiveChatTabId(NEW_CHAT_TAB_ID);
+                        showConversation(null);
                     }
                 }
             } else {
                 setOpenChatTabs([{ id: NEW_CHAT_TAB_ID, title: "New Chat" }]);
                 setActiveChatTabId(NEW_CHAT_TAB_ID);
+                // On a real project switch, drop the previous project's chat from the view.
+                // Skipped on first mount so the chat the backend already has open is kept.
+                if (switchedProject) showConversation(null);
             }
             if (!cancelled) setTabsReady(true);
         })();
@@ -295,7 +349,14 @@ export function useChatSession() {
         return () => {
             cancelled = true;
         };
-    }, [project_path, setContextSummarized]);
+    }, [
+        project_path,
+        setContextSummarized,
+        showConversation,
+        reloadViewedMessages,
+        hydrateViewedExtras,
+        isCurrentView,
+    ]);
 
     React.useEffect(() => {
         let cancelled = false;
@@ -318,7 +379,7 @@ export function useChatSession() {
 
     React.useEffect(() => {
         window.dispatchEvent(
-            new CustomEvent("shape-chat-active", { detail: { id: activeChatTabId } }),
+            new CustomEvent("bettershape-chat-active", { detail: { id: activeChatTabId } }),
         );
     }, [activeChatTabId]);
 
@@ -350,8 +411,8 @@ export function useChatSession() {
             const detail = (e as CustomEvent<SelectionSnapshot | null>).detail;
             selectionContextRef.current = detail ?? null;
         };
-        window.addEventListener("shape-editor-selection", handleSelection as EventListener);
-        return () => window.removeEventListener("shape-editor-selection", handleSelection as EventListener);
+        window.addEventListener("bettershape-editor-selection", handleSelection as EventListener);
+        return () => window.removeEventListener("bettershape-editor-selection", handleSelection as EventListener);
     }, []);
 
     const isEditResolved = React.useCallback(
@@ -377,14 +438,7 @@ export function useChatSession() {
                 s.add(n);
                 return s;
             });
-            let convId = conversationId;
-            if (!convId) {
-                convId = await commands.getCurrentConversationId();
-                if (convId) {
-                    setConversationId(convId);
-                    setCurrentConversationId(convId);
-                }
-            }
+            const convId = conversationId;
             if (convId) {
                 markFileResolved(convId, file, status, replacement);
             }
@@ -512,7 +566,7 @@ export function useChatSession() {
             await markEditResolved(edit.file, "applied", edit.replacement);
             const resolved = resolveChatFilePath(edit.file, project_path);
             window.dispatchEvent(
-                new CustomEvent("shape-dismiss-diff", {
+                new CustomEvent("bettershape-dismiss-diff", {
                     detail: { path: resolved, rawPath: edit.file },
                 }),
             );
@@ -531,7 +585,7 @@ export function useChatSession() {
             }
             await markEditResolved(edit.file, "rejected", edit.replacement);
             window.dispatchEvent(
-                new CustomEvent("shape-dismiss-diff", {
+                new CustomEvent("bettershape-dismiss-diff", {
                     detail: { path: resolved, rawPath: edit.file },
                 }),
             );
@@ -544,17 +598,17 @@ export function useChatSession() {
         }
     };
 
-    const handleAcceptEdit = async (editId: string) => {
+    const handleAcceptEdit = React.useCallback(async (editId: string) => {
         const edit = pendingEdits.find((e) => e.id === editId);
         if (!edit) return;
         await markEditResolved(edit.file, "applied", edit.replacement);
         const resolved = resolveChatFilePath(edit.file, project_path);
         window.dispatchEvent(
-            new CustomEvent("shape-dismiss-diff", {
+            new CustomEvent("bettershape-dismiss-diff", {
                 detail: { path: resolved, rawPath: edit.file },
             }),
         );
-    };
+    }, [pendingEdits, markEditResolved, project_path]);
 
     const handleRejectEdit = async (editId: string) => {
         const idx = pendingEdits.findIndex((e) => e.id === editId);
@@ -573,7 +627,7 @@ export function useChatSession() {
             }
             await markEditResolved(edit.file, "rejected", edit.replacement);
             window.dispatchEvent(
-                new CustomEvent("shape-dismiss-diff", {
+                new CustomEvent("bettershape-dismiss-diff", {
                     detail: { path: resolved, rawPath: edit.file },
                 }),
             );
@@ -591,7 +645,11 @@ export function useChatSession() {
                 : `The user rejected the pending edit to \`${first.file}\`. Redo that change if it is still needed.`;
         if (isLoadingRef.current) {
             setMessageQueue((prev) => [
-                { id: `q-reject-${Date.now()}`, content: notice },
+                {
+                    id: `q-reject-${Date.now()}`,
+                    content: notice,
+                    conversationId: conversationIdRef.current,
+                },
                 ...prev,
             ]);
         } else {
@@ -627,17 +685,21 @@ export function useChatSession() {
     const refreshMetadata = React.useCallback(async () => {
         try {
             const convs = await commands.getConversations(project_path ?? undefined);
-            const title = await commands.getChatTitle();
-            const convId = await commands.getCurrentConversationId();
             setRecentConvs(convs);
-            setChatTitle(title);
-            setConversationId(convId);
-            setCurrentConversationId(convId);
-            syncOpenTabs(convId, title);
+            const viewed = getViewedConversationId();
+            // The backend's current chat supplies the title only when it is the chat on screen.
+            const backendId = await commands.getCurrentConversationId();
+            if (backendId === viewed) {
+                const title = await commands.getChatTitle();
+                setChatTitle(title);
+                syncOpenTabs(viewed, title);
+            }
         } catch (err) {
             console.error("Failed to refresh chat metadata:", err);
         }
-    }, [project_path, syncOpenTabs]);
+    }, [project_path, syncOpenTabs, getViewedConversationId]);
+
+    refreshMetadataRef.current = refreshMetadata;
 
     const conversationIdRef = React.useRef(conversationId);
     React.useEffect(() => {
@@ -645,37 +707,25 @@ export function useChatSession() {
     }, [conversationId]);
 
     const refreshHistory = React.useCallback(
-        async (reloadConversation = false) => {
-            if (activeChatTabIdRef.current === DEMO_CHAT_TAB_ID || isDemoChatPinned()) return;
-            if (isLoadingRef.current && !reloadConversation) {
-                await syncFromBackend();
-                await refreshMetadata();
-                return;
-            }
+        async () => {
             try {
                 const convs = await commands.getConversations(project_path ?? undefined);
-                const title = await commands.getChatTitle();
-                const convId = await commands.getCurrentConversationId();
-
                 setRecentConvs(convs);
-                setChatTitle(title);
-                setConversationId(convId);
-                setCurrentConversationId(convId);
-                syncOpenTabs(convId, title);
-
-                await syncFromBackend();
-                const currentHistory = await commands.getChatHistory();
-                syncProposedEditsFromMessages(currentHistory, convId);
-
-                if (convId) {
-                    const persisted = getResolvedFiles(convId);
-                    setResolvedFiles(new Set(Object.keys(persisted)));
-                }
+                await refreshMetadata();
+                const viewed = getViewedConversationId();
+                const msgs = await reloadViewedMessages();
+                hydrateViewedExtras(viewed, msgs);
             } catch (err) {
                 console.error("Failed to load chat history:", err);
             }
         },
-        [project_path, refreshMetadata, syncFromBackend, syncOpenTabs],
+        [
+            project_path,
+            refreshMetadata,
+            reloadViewedMessages,
+            hydrateViewedExtras,
+            getViewedConversationId,
+        ],
     );
 
     React.useEffect(() => {
@@ -689,14 +739,33 @@ export function useChatSession() {
         }
     }, [project_path]);
 
+    // Mirror the view into the backend-facing store and the tab strip.
     React.useEffect(() => {
-        void syncFromBackend();
-    }, [syncFromBackend]);
+        setCurrentConversationId(viewedConversationId);
+    }, [viewedConversationId]);
 
     React.useEffect(() => {
-        const handleRefresh = () => refreshHistory(true);
-        window.addEventListener("shape-chat-refresh", handleRefresh);
-        return () => window.removeEventListener("shape-chat-refresh", handleRefresh);
+        if (!tabsReady) return;
+        setActiveChatTabId(viewedConversationId ?? NEW_CHAT_TAB_ID);
+        const conv = viewedConversationId
+            ? recentConvs.find((c) => c.id === viewedConversationId)
+            : undefined;
+        syncOpenTabs(viewedConversationId, conv?.title);
+    }, [viewedConversationId, tabsReady, recentConvs, syncOpenTabs]);
+
+    // A draft's turn just got its real id: its queued follow-ups now belong to that chat.
+    React.useEffect(() => {
+        setDraftAdopter((convId) => {
+            setMessageQueue((prev) => adoptDraftQueuedMessages(prev, convId));
+            window.dispatchEvent(new CustomEvent("bettershape-chats-changed"));
+        });
+        return () => setDraftAdopter(null);
+    }, [setDraftAdopter]);
+
+    React.useEffect(() => {
+        const handleRefresh = () => refreshHistory();
+        window.addEventListener("bettershape-chat-refresh", handleRefresh);
+        return () => window.removeEventListener("bettershape-chat-refresh", handleRefresh);
     }, [refreshHistory]);
 
     React.useEffect(() => {
@@ -722,9 +791,9 @@ export function useChatSession() {
             }
             clearProposedEdit(path);
         };
-        window.addEventListener("shape-editor-edit-action", handleEditorEditAction as EventListener);
+        window.addEventListener("bettershape-editor-edit-action", handleEditorEditAction as EventListener);
         return () =>
-            window.removeEventListener("shape-editor-edit-action", handleEditorEditAction as EventListener);
+            window.removeEventListener("bettershape-editor-edit-action", handleEditorEditAction as EventListener);
     }, []);
 
     const inputValueRef = React.useRef(inputValue);
@@ -735,7 +804,7 @@ export function useChatSession() {
     React.useEffect(() => {
         const persist = () => {
             try {
-                localStorage.setItem("shape-chat-input", inputValueRef.current);
+                localStorage.setItem("bettershape-chat-input", inputValueRef.current);
             } catch {
                 /* ignore */
             }
@@ -763,8 +832,8 @@ export function useChatSession() {
                 return "Code";
             });
         };
-        window.addEventListener("shape-chat-cycle-mode", onCycle);
-        return () => window.removeEventListener("shape-chat-cycle-mode", onCycle);
+        window.addEventListener("bettershape-chat-cycle-mode", onCycle);
+        return () => window.removeEventListener("bettershape-chat-cycle-mode", onCycle);
     }, []);
 
     const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -777,7 +846,7 @@ export function useChatSession() {
             );
         }
         try {
-            localStorage.setItem("shape-chat-input", val);
+            localStorage.setItem("bettershape-chat-input", val);
         } catch {
             /* ignore */
         }
@@ -786,57 +855,116 @@ export function useChatSession() {
 
     const handleSendMessageRef = React.useRef<(overrideContent?: string) => Promise<boolean>>(async () => false);
     const handleNewChatRef = React.useRef<() => Promise<void>>(async () => {});
-    const sendingInFlightRef = React.useRef(false);
+    const sendToChatRef = React.useRef<(content: string, target: string) => Promise<boolean>>(
+        async () => false,
+    );
+    /** Sends currently awaiting the backend. A counter, so overlapping sends cannot clear each other. */
+    const sendsInFlightRef = React.useRef(0);
     const skipQueueDrainRef = React.useRef(false);
+    // Set when a send to a chat failed. The queue for that chat then waits for the next
+    // successful send, so a failing message is not re-sent in a loop, while the view still
+    // ends its optimistic turn instead of showing a loading state forever.
+    const failedSendHoldRef = React.useRef<{ conversationId: string | null } | null>(null);
     const forceSendRef = React.useRef(false);
 
-    const handleSendMessage = async (overrideContent?: string): Promise<boolean> => {
-        const messageContent = typeof overrideContent === "string" ? overrideContent : inputValue;
-        const fromQueue = typeof overrideContent === "string";
+    /**
+     * Make `id` the backend's current chat. Only the backend-current operations (fork,
+     * restore checkpoint, redo, generation state) need this. Sends name their chat explicitly.
+     */
+    const activateBackend = React.useCallback(
+        async (id: string) => {
+            const backendId = await commands.getCurrentConversationId();
+            if (!needsBackendPin(backendId, id)) return;
+            const conv = recentConvs.find((c) => c.id === id);
+            await commands.loadConversation(id, conv?.project_path ?? project_path ?? undefined);
+            clearAllDesignPreviewSessions();
+            setContextSummarized(false);
+        },
+        [recentConvs, project_path, setContextSummarized],
+    );
 
-        if (!fromQueue && isLoading) {
-            if (!messageContent.trim() && uploadedFiles.length === 0) return false;
-            if (uploadedFiles.length > 0) return false;
-            const editingId = editingQueueIdRef.current;
-            if (editingId) {
-                setMessageQueue((prev) =>
-                    prev.map((m) =>
-                        m.id === editingId ? { ...m, content: messageContent.trim() } : m,
-                    ),
-                );
-                setInputValue("");
-                editingQueueIdRef.current = null;
-                try {
-                    localStorage.removeItem("shape-chat-input");
-                } catch {
-                    /* ignore */
-                }
-                return true;
-            }
-            const id = `q-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-            setMessageQueue((prev) => [...prev, { id, content: messageContent.trim() }]);
-            setInputValue("");
+    const activateViewedBackend = React.useCallback(async () => {
+        const id = getViewedConversationId();
+        if (id) await activateBackend(id);
+    }, [activateBackend, getViewedConversationId]);
+
+    /**
+     * Put chat `id` on screen at once, then activate it and load its transcript. A slower
+     * load for a chat the user has since left is dropped.
+     */
+    const openConversation = React.useCallback(
+        async (id: string, projectPath?: string | null) => {
+            const seq = showConversation(id);
+            setSendError(null);
             try {
-                localStorage.removeItem("shape-chat-input");
+                await commands.loadConversation(id, projectPath ?? null);
+            } catch (err) {
+                if (!isCurrentView(seq)) return;
+                const message = err instanceof Error ? err.message : String(err);
+                if (!message.includes("Conversation not found")) {
+                    console.error("Failed to load conversation:", err);
+                }
+                startDraftChat();
+                await refreshMetadataRef.current();
+                return;
+            }
+            if (!isCurrentView(seq)) return;
+            clearAllDesignPreviewSessions();
+            setContextSummarized(false);
+            const msgs = await reloadViewedMessages(seq);
+            hydrateViewedExtras(id, msgs);
+        },
+        [
+            showConversation,
+            isCurrentView,
+            setSendError,
+            startDraftChat,
+            setContextSummarized,
+            reloadViewedMessages,
+            hydrateViewedExtras,
+        ],
+    );
+
+    /** Queue a follow-up bound to `conversationId` (defaults to the chat on screen). */
+    const enqueueChatMessage = React.useCallback(
+        (content: string, conversationId?: string | null) => {
+            const id = `q-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+            const owner = conversationId === undefined ? conversationIdRef.current : conversationId;
+            setMessageQueue((prev) => [...prev, { id, content: content.trim(), conversationId: owner }]);
+        },
+        [],
+    );
+
+    /** Put a queued message that could not be delivered back at the front of its chat's queue. */
+    const restoreQueuedMessage = React.useCallback((item: QueuedChatMessage) => {
+        setMessageQueue((prev) => (prev.some((m) => m.id === item.id) ? prev : [item, ...prev]));
+    }, []);
+
+    /**
+     * Deliver one message. `fromQueue` sends leave the composer alone: the user may be
+     * typing a new message, and any pending attachments belong to that message, not the
+     * queued one.
+     */
+    const holdQueueAfterFailedSend = (conversationId: string | null) => {
+        failedSendHoldRef.current = { conversationId };
+        stopLiveTurn();
+    };
+
+    const sendMessageNow = async (
+        messageContent: string,
+        fromQueue: boolean,
+        targetId?: string | null,
+    ): Promise<boolean> => {
+        // The chat this message belongs to, fixed now: the user may switch chats mid-send.
+        const target = targetId !== undefined ? targetId : getViewedConversationId();
+        if (!fromQueue) {
+            setInputValue("");
+            editingQueueIdRef.current = null;
+            try {
+                localStorage.removeItem("bettershape-chat-input");
             } catch {
                 /* ignore */
             }
-            return true;
-        }
-
-        if (
-            (!messageContent.trim() && uploadedFiles.length === 0) ||
-            (!forceSendRef.current && (isLoading || sendingInFlightRef.current))
-        ) {
-            return false;
-        }
-        sendingInFlightRef.current = true;
-        setInputValue("");
-        editingQueueIdRef.current = null;
-        try {
-            localStorage.removeItem("shape-chat-input");
-        } catch {
-            /* ignore */
         }
 
         const waitForAttachments = async () => {
@@ -848,7 +976,7 @@ export function useChatSession() {
             }
             return uploadedFilesRef.current;
         };
-        const readyFiles = await waitForAttachments();
+        const readyFiles = fromQueue ? [] : await waitForAttachments();
 
         let userMsg = messageContent;
         const attachmentBlocks: string[] = [];
@@ -927,12 +1055,16 @@ export function useChatSession() {
             }
 
         setSendError(null);
-        appendUserOptimistic(userMsg);
-        setUploadedFiles([]);
+        // Lets the backend's chat_started name this send, so a draft binds only to its own turn.
+        const clientRequestId = crypto.randomUUID();
+        appendUserOptimistic(userMsg, target, clientRequestId);
+        if (!fromQueue) setUploadedFiles([]);
 
         try {
-            if (!shapeAuth.loggedIn || !shapeAuth.accessToken) {
-                setSendError("Sign in to Shape to chat.");
+            if (!hasUsableProvider(getSettings().ai.providers)) {
+                setSendError("Add an API key in Settings → Providers to chat.");
+                // The optimistic turn was opened above; no backend turn will ever close it.
+                holdQueueAfterFailedSend(target);
                 setMessages((prev) => {
                     const last = prev[prev.length - 1];
                     if (last?.role === "assistant" && !last.content.trim()) {
@@ -942,8 +1074,6 @@ export function useChatSession() {
                 });
                 return false;
             }
-
-            const token = shapeAuth.accessToken ?? undefined;
 
             const attachmentKinds = [
                 ...new Set(
@@ -994,8 +1124,6 @@ export function useChatSession() {
             const modeToSend = selectedModeRef.current;
             const catalogIds = getCatalogModels().map((m) => m.id);
             const subagentSend = subagentModelsForSend(settings.ai.subagentModels, catalogIds, {
-                creditsRemaining: shapeAuth.creditsRemaining,
-                modelAllowed: isCatalogModelAllowed,
                 defaultModel: settings.ai.subagentDefaultModel,
             });
 
@@ -1004,7 +1132,6 @@ export function useChatSession() {
                 modelToSend,
                 modeToSend,
                 mergedRules,
-                token,
                 undefined,
                 settings.ai.reviewAdversarialEnabled,
                 {
@@ -1017,14 +1144,18 @@ export function useChatSession() {
                     pluginAutoAllow,
                 },
                 reasoningEffort,
-                priorityTierForCredits(shapeAuth.creditsRemaining, shapeAuth.creditsIncluded),
+                undefined,
                 userMsg,
                 undefined,
                 undefined,
                 subagentSend.models,
                 subagentSend.defaultModel,
+                settings.ai.compactInstructions || undefined,
+                target,
+                clientRequestId,
             );
             await refreshMetadata();
+            failedSendHoldRef.current = null;
             return true;
         } catch (err) {
             console.error("Failed to send message:", err);
@@ -1035,6 +1166,8 @@ export function useChatSession() {
             });
             const errMsg = err instanceof Error ? err.message : String(err);
             setSendError(errMsg);
+            // The send failed before any backend turn closed the optimistic one.
+            holdQueueAfterFailedSend(target);
             setMessages((prev) => {
                 if (prev.length < 1) return prev;
                 const last = prev[prev.length - 1];
@@ -1044,24 +1177,136 @@ export function useChatSession() {
                 return prev;
             });
             return false;
+        }
+    };
+
+    /**
+     * Deliver `content` to chat `target`. A busy target queues it there. The chat on screen
+     * uses the composer path. A background chat is sent to directly, so the view stays put.
+     */
+    const sendToChat = async (content: string, target: string): Promise<boolean> => {
+        // The chat the build belongs to comes on screen first. `openConversation` puts it on
+        // screen synchronously; its transcript load continues in the background.
+        if (target !== getViewedConversationId()) void openConversation(target);
+        // Busy means a turn is running in the target, or (for the chat on screen) a composer
+        // send is still in flight. Read from the store, not from a possibly stale closure.
+        const busy =
+            hasLiveTurn(target) ||
+            isChatGenerating(target) ||
+            (target === getViewedConversationId() && sendsInFlightRef.current > 0);
+        if (busy) {
+            enqueueChatMessage(content, target);
+            return true;
+        }
+        sendsInFlightRef.current += 1;
+        let sent = false;
+        try {
+            sent = await sendMessageNow(content, true, target);
+            return sent;
         } finally {
-            sendingInFlightRef.current = false;
+            sendsInFlightRef.current -= 1;
+            if (sent) {
+                setQueueDrainTick((t) => t + 1);
+            } else {
+                // A failed delivery goes back to the front of its own chat's queue.
+                restoreQueuedMessage({
+                    id: `q-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                    content,
+                    conversationId: target,
+                });
+            }
+        }
+    };
+
+    const handleSendMessage = async (overrideContent?: string): Promise<boolean> => {
+        const messageContent = typeof overrideContent === "string" ? overrideContent : inputValue;
+        const fromQueue = typeof overrideContent === "string";
+
+        if (!fromQueue && isLoading) {
+            if (!messageContent.trim() && uploadedFiles.length === 0) return false;
+            if (uploadedFiles.length > 0) return false;
+            const editingId = editingQueueIdRef.current;
+            if (editingId) {
+                setMessageQueue((prev) =>
+                    prev.map((m) =>
+                        m.id === editingId ? { ...m, content: messageContent.trim() } : m,
+                    ),
+                );
+                setInputValue("");
+                editingQueueIdRef.current = null;
+                try {
+                    localStorage.removeItem("bettershape-chat-input");
+                } catch {
+                    /* ignore */
+                }
+                return true;
+            }
+            enqueueChatMessage(messageContent);
+            setInputValue("");
+            try {
+                localStorage.removeItem("bettershape-chat-input");
+            } catch {
+                /* ignore */
+            }
+            return true;
+        }
+
+        if (
+            (!messageContent.trim() && uploadedFiles.length === 0) ||
+            (!forceSendRef.current && (isLoading || sendsInFlightRef.current > 0))
+        ) {
+            return false;
+        }
+
+        sendsInFlightRef.current += 1;
+        let sent = false;
+        try {
+            sent = await sendMessageNow(messageContent, fromQueue);
+            return sent;
+        } finally {
+            sendsInFlightRef.current -= 1;
+            // Only a delivered send frees the next queued message. A failed one is restored
+            // to the queue instead, so a persistent failure cannot spin the drain forever.
+            if (sent) setQueueDrainTick((t) => t + 1);
         }
     };
 
     React.useEffect(() => {
         handleSendMessageRef.current = handleSendMessage;
+        sendToChatRef.current = sendToChat;
     });
 
+    // Drain only the queue of the chat on screen, and only once it is idle with no send
+    // pending. The send's own completion bumps `queueDrainTick`, so a finished turn can
+    // never race its successor and drop the queued follow-up.
     React.useEffect(() => {
-        if (isLoading) return;
-        if (skipQueueDrainRef.current) return;
-        const q = messageQueueRef.current;
-        if (q.length === 0) return;
-        const [next, ...rest] = q;
-        setMessageQueue(rest);
-        void handleSendMessageRef.current(next.content);
-    }, [isLoading]);
+        if (
+            !canDrainQueue({
+                isLoading,
+                sendsInFlight: sendsInFlightRef.current,
+                skipDrain:
+                    skipQueueDrainRef.current ||
+                    (failedSendHoldRef.current !== null &&
+                        failedSendHoldRef.current.conversationId === conversationId),
+            })
+        ) {
+            return;
+        }
+        const taken = takeNextQueuedMessage(messageQueueRef.current, conversationId);
+        if (!taken) return;
+        messageQueueRef.current = taken.rest;
+        setMessageQueue(taken.rest);
+        const item = taken.item;
+        void handleSendMessageRef.current(item.content).then(
+            (sent) => {
+                if (!sent) restoreQueuedMessage(item);
+            },
+            (err) => {
+                console.error("Failed to send queued message:", err);
+                restoreQueuedMessage(item);
+            },
+        );
+    }, [isLoading, conversationId, queueDrainTick, restoreQueuedMessage]);
 
     const handleEditQueuedMessage = React.useCallback((id: string) => {
         setMessageQueue((prev) => {
@@ -1070,7 +1315,7 @@ export function useChatSession() {
                 setInputValue(item.content);
                 editingQueueIdRef.current = id;
                 try {
-                    localStorage.setItem("shape-chat-input", item.content);
+                    localStorage.setItem("bettershape-chat-input", item.content);
                 } catch {
                     /* ignore */
                 }
@@ -1084,7 +1329,7 @@ export function useChatSession() {
             editingQueueIdRef.current = null;
             setInputValue("");
             try {
-                localStorage.removeItem("shape-chat-input");
+                localStorage.removeItem("bettershape-chat-input");
             } catch {
                 /* ignore */
             }
@@ -1100,17 +1345,26 @@ export function useChatSession() {
 
     React.useEffect(() => {
         const handleBuildPlan = (e: Event) => {
-            const custom = e as CustomEvent<{ path: string; title?: string }>;
+            const custom = e as CustomEvent<{
+                path: string;
+                title?: string;
+                conversationId?: string | null;
+            }>;
             if (!custom.detail?.path) return;
-            if (isLoadingRef.current) return;
+            const message = buildPlanBuildMessage(custom.detail.path, custom.detail.title);
             setSelectedMode("Code");
-            void handleSendMessageRef.current(
-                buildPlanBuildMessage(custom.detail.path, custom.detail.title),
-            );
+            // The plan names the chat it was created in. Without a name, use the chat on screen.
+            const target = custom.detail.conversationId || getViewedConversationId();
+            if (!target) {
+                if (isLoadingRef.current) enqueueChatMessage(message, null);
+                else void handleSendMessageRef.current(message);
+                return;
+            }
+            void sendToChatRef.current(message, target);
         };
-        window.addEventListener("shape-build-plan", handleBuildPlan);
-        return () => window.removeEventListener("shape-build-plan", handleBuildPlan);
-    }, []);
+        window.addEventListener("bettershape-build-plan", handleBuildPlan);
+        return () => window.removeEventListener("bettershape-build-plan", handleBuildPlan);
+    }, [enqueueChatMessage, getViewedConversationId]);
 
     React.useEffect(() => {
         const handleInsertPrompt = (e: Event) => {
@@ -1118,29 +1372,28 @@ export function useChatSession() {
             if (!detail?.prompt) return;
             setInputValue(detail.prompt);
             try {
-                localStorage.setItem("shape-chat-input", detail.prompt);
+                localStorage.setItem("bettershape-chat-input", detail.prompt);
             } catch {
                 /* ignore */
             }
             window.dispatchEvent(
-                new CustomEvent("shape-layout-toggle", { detail: { id: "secondary-sidebar", value: true } }),
+                new CustomEvent("bettershape-layout-toggle", { detail: { id: "secondary-sidebar", value: true } }),
             );
             if (detail.send) {
-                void handleSendMessageRef.current(detail.prompt);
+                if (isLoadingRef.current) enqueueChatMessage(detail.prompt);
+                else void handleSendMessageRef.current(detail.prompt);
             }
         };
-        window.addEventListener("shape-chat-insert-prompt", handleInsertPrompt as EventListener);
+        window.addEventListener("bettershape-chat-insert-prompt", handleInsertPrompt as EventListener);
         return () =>
-            window.removeEventListener("shape-chat-insert-prompt", handleInsertPrompt as EventListener);
-    }, []);
+            window.removeEventListener("bettershape-chat-insert-prompt", handleInsertPrompt as EventListener);
+    }, [enqueueChatMessage]);
 
     const messagesRef = React.useRef(messages);
     React.useEffect(() => {
         messagesRef.current = messages;
     }, [messages]);
 
-    const messagesEndRef = React.useRef<HTMLDivElement>(null);
-    const scrollContainerRef = React.useRef<HTMLDivElement>(null);
     const [scrolledFromTop, setScrolledFromTop] = React.useState(false);
     const [scrolledFromBottom, setScrolledFromBottom] = React.useState(false);
     const isNearBottomRef = React.useRef(true);
@@ -1169,6 +1422,8 @@ export function useChatSession() {
                     const parsed = parseUserAttachments(msg.content);
                     const files = await attachmentsToComposer(parsed.attachments);
 
+                    await activateViewedBackend();
+
                     await commands.restoreCheckpoint(msgIdx);
                     clearAllDesignPreviewSessions();
                     const convId = conversationIdRef.current;
@@ -1183,7 +1438,7 @@ export function useChatSession() {
                     setInputValue(parsed.text);
                     setUploadedFiles(files);
                     try {
-                        localStorage.setItem("shape-chat-input", parsed.text);
+                        localStorage.setItem("bettershape-chat-input", parsed.text);
                     } catch {
                         /* ignore */
                     }
@@ -1196,12 +1451,14 @@ export function useChatSession() {
                 } = await import("@/features/chat/lib/user-attachments");
                 const parsed = parseUserAttachments(msg.content);
 
+                await activateViewedBackend();
+
                 await commands.restoreCheckpoint(msgIdx);
                 clearAllDesignPreviewSessions();
                 setInputValue(parsed.text);
                 setUploadedFiles(await attachmentsToComposer(parsed.attachments));
                 try {
-                    localStorage.setItem("shape-chat-input", parsed.text);
+                    localStorage.setItem("bettershape-chat-input", parsed.text);
                 } catch {
                     /* ignore */
                 }
@@ -1213,7 +1470,7 @@ export function useChatSession() {
                 console.error("Failed to restore checkpoint:", err);
             }
         },
-        [refreshHistory],
+        [refreshHistory, activateViewedBackend, messagesEndRef],
     );
 
     const handleRedo = React.useCallback(
@@ -1233,10 +1490,11 @@ export function useChatSession() {
                 const userContent = msgs[userMsgIdx].content;
                 // restore_checkpoint cancels any in-flight turn; wait until the
                 // slot is free so the resent message is not silently dropped.
+                await activateViewedBackend();
                 await commands.restoreCheckpoint(userMsgIdx);
                 clearAllDesignPreviewSessions();
                 for (let i = 0; i < 40; i++) {
-                    const gen = await commands.getChatGenerationState();
+                    const gen = await commands.getChatGenerationState(getViewedConversationId());
                     if (!gen.isGenerating) break;
                     await new Promise((r) => setTimeout(r, 50));
                 }
@@ -1246,26 +1504,32 @@ export function useChatSession() {
                 console.error("Failed to redo message:", err);
             }
         },
-        [refreshHistory],
+        [refreshHistory, activateViewedBackend, getViewedConversationId],
     );
 
     const handleForkChat = React.useCallback(
         async (msgIdx: number) => {
             try {
+                await activateViewedBackend();
                 const res = await commands.forkConversation(msgIdx);
-                const history = await commands.getChatHistory();
-                setMessages(history);
-                setConversationId(res.id);
-                setCurrentConversationId(res.id);
+                const seq = showConversation(res.id);
                 setChatTitle(res.title);
-                setViewingConversation(res.id);
                 syncOpenTabs(res.id, res.title);
-                await refreshHistory(true);
+                const msgs = await reloadViewedMessages(seq);
+                hydrateViewedExtras(res.id, msgs);
+                void refreshHistory();
             } catch (err) {
                 console.error("Failed to fork chat:", err);
             }
         },
-        [refreshHistory, setMessages, setConversationId, setCurrentConversationId, setChatTitle, setViewingConversation, syncOpenTabs],
+        [
+            activateViewedBackend,
+            showConversation,
+            reloadViewedMessages,
+            hydrateViewedExtras,
+            syncOpenTabs,
+            refreshHistory,
+        ],
     );
 
     React.useEffect(() => {
@@ -1283,8 +1547,8 @@ export function useChatSession() {
             if (idx < 0) return;
             void handleForkChat(idx);
         };
-        window.addEventListener("shape-chat-fork", onFork);
-        return () => window.removeEventListener("shape-chat-fork", onFork);
+        window.addEventListener("bettershape-chat-fork", onFork);
+        return () => window.removeEventListener("bettershape-chat-fork", onFork);
     }, [handleForkChat]);
 
     React.useEffect(() => {
@@ -1324,7 +1588,7 @@ export function useChatSession() {
         let disposed = false;
         let unlisten: (() => void) | undefined;
         void import("@tauri-apps/api/event").then(({ listen }) => {
-            void listen<{ path?: string }>("shape-design-preview-close", (event) => {
+            void listen<{ path?: string }>("bettershape-design-preview-close", (event) => {
                 const path = event.payload?.path;
                 if (!path) return;
                 void commands.closeFile(path).catch(() => { /* already closed */ });
@@ -1355,18 +1619,16 @@ export function useChatSession() {
                 const message = event.payload?.message;
                 if (!cid || !message) return;
                 void (async () => {
-                    if (conversationIdRef.current !== cid) {
-                        try {
-                            await commands.loadConversation(cid);
-                            setConversationId(cid);
-                            setCurrentConversationId(cid);
-                            setActiveChatTabId(cid);
-                        } catch {
-                            return;
-                        }
+                    if (getViewedConversationId() !== cid) await openConversation(cid);
+                    if (isChatGenerating(cid)) {
+                        enqueueChatMessage(message, cid);
+                        return;
                     }
-                    if (isLoadingRef.current) return;
-                    await handleSendMessageRef.current(message);
+                    if (getViewedConversationId() === cid) {
+                        await handleSendMessageRef.current(message);
+                    } else {
+                        await sendToChatRef.current(message, cid);
+                    }
                 })();
             }),
         );
@@ -1377,14 +1639,8 @@ export function useChatSession() {
                 const convId = event.payload?.conversationId?.trim();
                 if (!title || !convId) return;
                 syncOpenTabs(convId, title);
-                window.dispatchEvent(new CustomEvent("shape-chats-changed"));
-                const current = conversationIdRef.current;
-                // Never steal a background chat's id/title onto an idle New Chat draft.
-                if (current && current !== convId) return;
-                if (!current && !isLoadingRef.current) return;
-                setChatTitle(title);
-                setConversationId(convId);
-                setCurrentConversationId(convId);
+                window.dispatchEvent(new CustomEvent("bettershape-chats-changed"));
+                if (getViewedConversationId() === convId) setChatTitle(title);
             }),
         );
 
@@ -1392,47 +1648,51 @@ export function useChatSession() {
             disposed = true;
             unlisteners.forEach((fn) => fn());
         };
-    }, [syncOpenTabs]);
+    }, [syncOpenTabs, enqueueChatMessage, openConversation, getViewedConversationId]);
 
-    const openDemoChat = React.useCallback(() => {
-        setDemoChatPinned(true);
-        setSendError(null);
-        clearAllDesignPreviewSessions();
-        setContextSummarized(false);
-        setMessages(buildDemoChatMessages());
-        setChatTitle("Demo");
-        setConversationId(DEMO_CHAT_TAB_ID);
-        setCurrentConversationId(DEMO_CHAT_TAB_ID);
-        setActiveChatTabId(DEMO_CHAT_TAB_ID);
-        setOpenChatTabs((prev) => {
-            const others = prev.filter((tab) => tab.id !== DEMO_CHAT_TAB_ID && tab.id !== NEW_CHAT_TAB_ID);
-            return [{ id: DEMO_CHAT_TAB_ID, title: "Demo" }, ...others];
-        });
-        window.dispatchEvent(new Event("shape-chat-focus-input"));
-    }, [setMessages, setContextSummarized]);
-
-    React.useEffect(() => {
-        const onDemo = () => openDemoChat();
-        window.addEventListener("shape-demo-chat", onDemo);
-        return () => window.removeEventListener("shape-demo-chat", onDemo);
-    }, [openDemoChat]);
+    /** `/compact [focus]` — summarize older turns without sending a chat turn. */
+    const runCompactCommand = async (focus: string): Promise<void> => {
+        if (isIncognitoChat()) {
+            notify.info("Incognito chats are not summarized.");
+            return;
+        }
+        try {
+            const result = await commands.compactChat({
+                focus: focus || undefined,
+                instructions: getSettings().ai.compactInstructions || undefined,
+                model: selectedModelRef.current || undefined,
+            });
+            if (result.error) {
+                notify.error("Could not compact this chat.", result.error);
+                return;
+            }
+            if (result.alreadySmall || !result.record) {
+                notify.info("Nothing to compact yet. This chat is still small.");
+                return;
+            }
+            setContextSummarized(true);
+            notify.success(
+                `Compacted ${result.record.messagesBefore - result.record.messagesAfter} older messages.`,
+                `Saved about ${result.record.tokensSaved.toLocaleString()} tokens. The full transcript stays in this chat.`,
+            );
+        } catch (err) {
+            notify.error("Could not compact this chat.", err instanceof Error ? err.message : String(err));
+        }
+    };
 
     const handleNewChat = async () => {
         try {
             // Do not stop background generation; only the Stop button cancels.
-            setDemoChatPinned(false);
             startDraftChat();
             await commands.newChat();
             if (!isIncognitoChat()) void captureTelemetry("chat_new");
             clearAllDesignPreviewSessions();
             setSendError(null);
-            setMessages([]);
             setContextSummarized(false);
             void import("@/features/agent/subagents/store").then(({ resetSubagentsForParent }) => {
                 resetSubagentsForParent(conversationIdRef.current);
             });
             setChatTitle("New Chat");
-            setConversationId(null);
             setResolvedFiles(new Set());
             clearAllProposedEdits();
             setOpenChatTabs((prev) => {
@@ -1440,7 +1700,7 @@ export function useChatSession() {
                 return [{ id: NEW_CHAT_TAB_ID, title: "New Chat" }, ...others];
             });
             setActiveChatTabId(NEW_CHAT_TAB_ID);
-            await refreshHistory(true);
+            void refreshHistory();
         } catch (err) {
             console.error("Failed to start new chat:", err);
         }
@@ -1457,33 +1717,16 @@ export function useChatSession() {
             await handleNewChat();
             return;
         }
-        if (tabId === DEMO_CHAT_TAB_ID) {
-            openDemoChat();
-            return;
-        }
-        setDemoChatPinned(false);
-        if (resumeLiveConversation(tabId)) {
-            setConversationId(tabId);
-            setCurrentConversationId(tabId);
-            const conv = recentConvs.find((c) => c.id === tabId);
-            syncOpenTabs(tabId, conv?.title || "Chat");
-            return;
-        }
         try {
-            const conv = recentConvs.find((c) => c.id === tabId);
-            setViewingConversation(tabId);
             await setIncognitoChat(false);
-            await commands.loadConversation(tabId, conv?.project_path ?? project_path);
-            clearAllDesignPreviewSessions();
-            setContextSummarized(false);
-            await refreshHistory(true);
-        } catch (err) {
-            console.error("Failed to switch chat tab:", err);
+        } catch {
+            /* ignore */
         }
+        const conv = recentConvs.find((c) => c.id === tabId);
+        await openConversation(tabId, conv?.project_path ?? project_path);
     };
 
     const handleCloseChatTab = async (tabId: string) => {
-        if (tabId === DEMO_CHAT_TAB_ID) setDemoChatPinned(false);
         if (isIncognitoChat() && tabId === conversationIdRef.current) {
             await purgeIncognitoConversation(tabId);
             await setIncognitoChat(false);
@@ -1492,11 +1735,10 @@ export function useChatSession() {
         if (remaining.length === 0) {
             setOpenChatTabs([{ id: NEW_CHAT_TAB_ID, title: "New Chat" }]);
             setActiveChatTabId(NEW_CHAT_TAB_ID);
-            setMessages([]);
-            setConversationId(null);
+            startDraftChat();
             setChatTitle("New Chat");
             window.dispatchEvent(
-                new CustomEvent("shape-layout-toggle", {
+                new CustomEvent("bettershape-layout-toggle", {
                     detail: { id: "secondary-sidebar", value: false },
                 }),
             );
@@ -1523,7 +1765,7 @@ export function useChatSession() {
         isNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
         setScrolledFromTop(el.scrollTop > 4);
         setScrolledFromBottom(!isNearBottomRef.current);
-    }, []);
+    }, [scrollContainerRef]);
 
     React.useEffect(() => {
         if (isNearBottomRef.current) {
@@ -1539,45 +1781,21 @@ export function useChatSession() {
                 el.scrollHeight - el.scrollTop - el.clientHeight >= 150,
             );
         }
-    }, [messages, isLoading]);
+    }, [messages, isLoading, messagesEndRef, scrollContainerRef]);
 
     const handleLoadConversation = React.useCallback(
         async (id: string, options?: { force?: boolean }) => {
-            if (id !== DEMO_CHAT_TAB_ID) setDemoChatPinned(false);
-            const isSameConversation = id === conversationIdRef.current;
+            const isSameConversation = id === getViewedConversationId();
             const hasVisibleMessages = messagesRef.current.length > 0;
-            if (resumeLiveConversation(id)) {
-                setConversationId(id);
-                setCurrentConversationId(id);
-                const liveConv = recentConvs.find((c) => c.id === id);
-                syncOpenTabs(id, liveConv?.title || "Chat");
-                return;
-            }
             if (!options?.force && isSameConversation && hasVisibleMessages) return;
-
             const conv =
                 recentConvs.find((c) => c.id === id)
                 ?? (project_path
                     ? null
                     : (await commands.getConversations()).find((c) => c.id === id));
-
-            try {
-                setViewingConversation(id);
-                await commands.loadConversation(id, conv?.project_path ?? project_path);
-                clearAllDesignPreviewSessions();
-                setContextSummarized(false);
-                const history = await commands.getChatHistory();
-                setMessages(history);
-                await refreshHistory(true);
-            } catch (err) {
-                const message = err instanceof Error ? err.message : String(err);
-                if (!message.includes("Conversation not found")) {
-                    console.error("Failed to load conversation:", err);
-                }
-                await refreshMetadata();
-            }
+            await openConversation(id, conv?.project_path ?? project_path);
         },
-        [refreshHistory, recentConvs, project_path, refreshMetadata, setMessages, setContextSummarized, resumeLiveConversation, setViewingConversation, syncOpenTabs],
+        [recentConvs, project_path, openConversation, getViewedConversationId],
     );
 
     React.useEffect(() => {
@@ -1586,8 +1804,8 @@ export function useChatSession() {
             if (!id) return;
             void handleLoadConversation(id, { force: true });
         };
-        window.addEventListener("shape-chat-load", onLoad as EventListener);
-        return () => window.removeEventListener("shape-chat-load", onLoad as EventListener);
+        window.addEventListener("bettershape-chat-load", onLoad as EventListener);
+        return () => window.removeEventListener("bettershape-chat-load", onLoad as EventListener);
     }, [handleLoadConversation]);
 
     React.useEffect(() => {
@@ -1599,13 +1817,13 @@ export function useChatSession() {
             void commands.renameConversation(id, title).then(() => {
                 syncOpenTabs(id, title);
                 if (conversationIdRef.current === id) setChatTitle(title);
-                window.dispatchEvent(new CustomEvent("shape-chats-changed"));
+                window.dispatchEvent(new CustomEvent("bettershape-chats-changed"));
             }).catch((err) => {
                 console.error("Failed to rename chat:", err);
             });
         };
-        window.addEventListener("shape-chat-rename", onRename as EventListener);
-        return () => window.removeEventListener("shape-chat-rename", onRename as EventListener);
+        window.addEventListener("bettershape-chat-rename", onRename as EventListener);
+        return () => window.removeEventListener("bettershape-chat-rename", onRename as EventListener);
     }, [syncOpenTabs]);
 
     const handleViewAllHistory = React.useCallback(() => {
@@ -1625,8 +1843,8 @@ export function useChatSession() {
         stoppingRef.current = true;
         stopLiveTurn();
         try {
-            const convId = conversationIdRef.current;
-            await commands.stopChatMessage();
+            const convId = getViewedConversationId() ?? getDraftConversationId();
+            await commands.stopChatMessage(convId);
             if (convId) {
                 const { setChatGenerating } = await import("@/features/chat/lib/generating-chats");
                 setChatGenerating(convId, false);
@@ -1650,11 +1868,19 @@ export function useChatSession() {
         if (isLoadingRef.current) {
             await handleStopMessage();
         }
+        let delivered = false;
         try {
-            await handleSendMessageRef.current(item.content);
+            delivered = await handleSendMessageRef.current(item.content);
+            if (!delivered) restoreQueuedMessage(item);
+        } catch (err) {
+            console.error("Failed to send queued message:", err);
+            restoreQueuedMessage(item);
         } finally {
             forceSendRef.current = false;
             skipQueueDrainRef.current = false;
+            // Re-run the drain only now that skip is cleared, or the next queued
+            // message would be passed over until some unrelated state change.
+            if (delivered) setQueueDrainTick((t) => t + 1);
         }
     };
 
@@ -1689,8 +1915,6 @@ export function useChatSession() {
         project_path,
         openChatTabs,
         activeChatTabId,
-        messagesEndRef,
-        scrollContainerRef,
         handleScroll,
         scrolledFromTop,
         scrolledFromBottom,
@@ -1713,7 +1937,7 @@ export function useChatSession() {
         handleStopMessage,
         messageGroups,
         refreshHistory,
-        messageQueue,
+        messageQueue: queueForConversation(messageQueue, conversationId),
         handleEditQueuedMessage,
         handleRemoveQueuedMessage,
         handleSendQueuedNow,

@@ -5,7 +5,7 @@ export type NotificationType = "info" | "warning" | "error" | "success";
 
 export type NotifyOptions = {
     autoHide?: boolean;
-    /** Numeric Shape error code, shown as "Error N" with a docs link. */
+    /** Numeric BetterShape error code, shown as "Error N" with a docs link. */
     code?: number;
 };
 

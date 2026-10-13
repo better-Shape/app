@@ -3,8 +3,6 @@
  * before Next.js devtools registers its error overlay handlers.
  */
 import { installBenignErrorFilters } from "@/lib/editor/benign-errors";
-import { initDesktopSentry } from "@/lib/diagnostics/sentry";
 
 installBenignErrorFilters();
-initDesktopSentry();
 

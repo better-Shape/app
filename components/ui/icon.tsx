@@ -23,7 +23,7 @@ export function Icon({
 }) {
     return (
         <Glyph
-            className={cn("shape-icon shrink-0", className)}
+            className={cn("bettershape-icon shrink-0", className)}
             style={{
                 width: "var(--icon-size)",
                 height: "var(--icon-size)",

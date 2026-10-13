@@ -40,7 +40,6 @@ import TestPanel from "@/features/testing/ui/test-panel";
 import { Button } from "@/components/ui/button";
 import { getSettings, resolveDefaultTerminalShell } from "@/lib/settings";
 import { setLastDevUrl } from "@/features/preview/store";
-import { Input } from "@/components/ui/input";
 import {
     WORKBENCH_TAB_ACTION_BUTTON_CLASS,
     WORKBENCH_TAB_BAR_CLASS,
@@ -48,7 +47,7 @@ import {
     workbenchTabItemClass,
 } from "@/features/editor/ui/tabs/workbench-tab-styles";
 import { terminalSessionStore, type TerminalTab as SessionTab } from "@/features/terminal/session";
-import { rememberShapeClip } from "@/features/chat/lib/shape-clip";
+import { rememberBetterShapeClip } from "@/features/chat/lib/bettershape-clip";
 type TerminalShell = SessionTab["shell"];
 type TerminalGroupId = SessionTab["group"];
 type TerminalTab = SessionTab;
@@ -234,14 +233,14 @@ function TerminalInstance({ tab, isActive }: { tab: TerminalTab, isActive: boole
             const publishSelection = () => {
                 const selected = term?.getSelection();
                 if (!selected) return;
-                rememberShapeClip({ kind: "terminal", text: selected, label: tab.title || "Terminal" });
+                rememberBetterShapeClip({ kind: "terminal", text: selected, label: tab.title || "Terminal" });
             };
             term.onSelectionChange(() => {
                 if (!term?.hasSelection()) return;
                 publishSelection();
             });
             const copySelected = (selected: string) => {
-                rememberShapeClip({ kind: "terminal", text: selected, label: tab.title || "Terminal" });
+                rememberBetterShapeClip({ kind: "terminal", text: selected, label: tab.title || "Terminal" });
                 const area = document.createElement("textarea");
                 area.value = selected;
                 area.setAttribute("readonly", "");
@@ -258,7 +257,7 @@ function TerminalInstance({ tab, isActive }: { tab: TerminalTab, isActive: boole
                 if (!selected) return;
                 event.preventDefault();
                 event.clipboardData?.setData("text/plain", selected);
-                rememberShapeClip({ kind: "terminal", text: selected, label: tab.title || "Terminal" });
+                rememberBetterShapeClip({ kind: "terminal", text: selected, label: tab.title || "Terminal" });
             };
             const onCopyKey = (event: KeyboardEvent) => {
                 if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "c" || event.shiftKey) return;
@@ -288,7 +287,7 @@ function TerminalInstance({ tab, isActive }: { tab: TerminalTab, isActive: boole
 
             if (tab.shell === "ai" && tab.boundPtyId === undefined) {
                 term.write(`Agent Terminal\r\n\r\n`);
-                unlistenOutput = await listen<{ type: string; command?: string; data?: string; exitCode?: number }>("shape-terminal-ai-action", (e) => {
+                unlistenOutput = await listen<{ type: string; command?: string; data?: string; exitCode?: number }>("bettershape-terminal-ai-action", (e) => {
                     const pay = e.payload;
                     const ts = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
                     if (pay.type === "start") {
@@ -457,14 +456,14 @@ function TerminalInstance({ tab, isActive }: { tab: TerminalTab, isActive: boole
         });
         resObs.observe(terminalRef.current);
         const onRefit = () => scheduleFit(true);
-        window.addEventListener("shape-terminal-refit", onRefit);
+        window.addEventListener("bettershape-terminal-refit", onRefit);
 
         return () => {
             isMounted = false;
             detachCopy?.();
             if (fitTimer) clearTimeout(fitTimer);
             resObs.disconnect();
-            window.removeEventListener("shape-terminal-refit", onRefit);
+            window.removeEventListener("bettershape-terminal-refit", onRefit);
             if (term?.element?.parentNode) term.element.parentNode.removeChild(term.element);
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -480,8 +479,8 @@ function TerminalInstance({ tab, isActive }: { tab: TerminalTab, isActive: boole
             term.options.fontSize = ts.fontSize;
             term.options.scrollback = ts.scrollback;
         };
-        window.addEventListener("shape-settings-changed", applyTerminalSettings);
-        return () => window.removeEventListener("shape-settings-changed", applyTerminalSettings);
+        window.addEventListener("bettershape-settings-changed", applyTerminalSettings);
+        return () => window.removeEventListener("bettershape-settings-changed", applyTerminalSettings);
     }, []);
 
     useEffect(() => {
@@ -502,7 +501,7 @@ function TerminalInstance({ tab, isActive }: { tab: TerminalTab, isActive: boole
         const term = xtermRef.current;
         const selected = term?.getSelection();
         if (!term || !selected) return;
-        rememberShapeClip({ kind: "terminal", text: selected, label: tab.title || "Terminal" });
+        rememberBetterShapeClip({ kind: "terminal", text: selected, label: tab.title || "Terminal" });
         const area = document.createElement("textarea");
         area.value = selected;
         area.setAttribute("readonly", "");
@@ -568,7 +567,6 @@ export default function Terminal({
     const [projectActiveTabs, setProjectActiveTabs] = useState<Record<string, string | null>>(globalTerminalStore.activeProjectTabs);
     const [secondaryActiveTabs, setSecondaryActiveTabs] = useState<Record<string, string | null>>(globalTerminalStore.activeSecondaryTabs);
     const [focusedGroups, setFocusedGroups] = useState<Record<string, TerminalGroupId>>(globalTerminalStore.focusedGroup);
-    const [panelFilter, setPanelFilter] = useState("");
     const safeCwd = project_path || "global";
     const currentTabs = terminalTabs.filter(t => t.cwd === safeCwd);
     const leftTabs = currentTabs.filter((t) => (t.group ?? "left") === "left");
@@ -604,16 +602,16 @@ export default function Terminal({
     }, [project_path]);
 
     const ensurePanelOpen = useCallback(() => {
-        window.dispatchEvent(new CustomEvent("shape-layout-toggle", { detail: { id: "panel", value: true } }));
+        window.dispatchEvent(new CustomEvent("bettershape-layout-toggle", { detail: { id: "panel", value: true } }));
     }, []);
 
     useEffect(() => {
         const handleOpenBrowser = () => {
             void import("@/lib/window/browser-tab").then(({ openBrowserTab }) => openBrowserTab());
         };
-        window.addEventListener("shape-open-preview", handleOpenBrowser);
+        window.addEventListener("bettershape-open-preview", handleOpenBrowser);
         return () => {
-            window.removeEventListener("shape-open-preview", handleOpenBrowser);
+            window.removeEventListener("bettershape-open-preview", handleOpenBrowser);
         };
     }, []);
 
@@ -797,17 +795,17 @@ export default function Terminal({
             }
         };
 
-        window.addEventListener("shape-terminal-shortcut", handleTerminalShortcut as EventListener);
+        window.addEventListener("bettershape-terminal-shortcut", handleTerminalShortcut as EventListener);
         const handleTerminalView = (e: Event) => {
             const view = (e as CustomEvent<string>).detail;
             if (view === "tests" || view === "terminal") {
                 setActiveView(view);
             }
         };
-        window.addEventListener("shape-terminal-view", handleTerminalView as EventListener);
+        window.addEventListener("bettershape-terminal-view", handleTerminalView as EventListener);
         return () => {
-            window.removeEventListener("shape-terminal-shortcut", handleTerminalShortcut as EventListener);
-            window.removeEventListener("shape-terminal-view", handleTerminalView as EventListener);
+            window.removeEventListener("bettershape-terminal-shortcut", handleTerminalShortcut as EventListener);
+            window.removeEventListener("bettershape-terminal-view", handleTerminalView as EventListener);
         };
     }, [addTab, closeTab, onClose, safeCwd, activeTerminalId, secondaryTerminalId, focusedGroup, setActiveTerminalId, currentTabs, ensurePanelOpen, resolveAvailableDefaultShell, splitTerminal]);
 
@@ -942,7 +940,7 @@ export default function Terminal({
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                     onClick={() =>
-                        window.dispatchEvent(new Event("shape-open-settings"))
+                        window.dispatchEvent(new Event("bettershape-open-settings"))
                     }
                 >
                     Configure Terminal Settings

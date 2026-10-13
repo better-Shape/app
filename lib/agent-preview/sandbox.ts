@@ -4,7 +4,7 @@
  */
 
 export const PREVIEW_READY_GLOBAL = "__SHAPE_PREVIEW_READY__";
-export const PREVIEW_EMIT_FN = "__shapeSignalPreviewReady";
+export const PREVIEW_EMIT_FN = "__bettershapeSignalPreviewReady";
 export const PREVIEW_READY_TITLE_SUFFIX = "|ready";
 
 export function normalizePreviewJsx(jsx: string): string {
@@ -51,15 +51,18 @@ export const PREVIEW_INITIALIZATION_SCRIPT = `(function () {
   };
 })();`;
 
+const TWEAK_LISTENER_JS = `try{window.addEventListener("message",(e)=>{const d=e&&e.data;if(!d||d.type!=="bettershape-preview-tweaks"||!d.tweaks)return;const t=d.tweaks,r=document.getElementById("root")||(document.body&&document.body.firstElementChild);if(!r||!r.style)return;for(const[k,p]of[["radius","borderRadius"],["padding","padding"],["gap","gap"]])if(typeof t[k]==="number")r.style[p]=t[k]+"px";if(r.firstElementChild&&r.firstElementChild.style&&typeof t.radius==="number")r.firstElementChild.style.borderRadius=t.radius+"px";});}catch(_){}`;
+
 export function buildPreviewReadyScript(): string {
     return `(async () => {
+  ${TWEAK_LISTENER_JS}
   try {
     if (document.fonts && document.fonts.ready) await document.fonts.ready;
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
   } catch (_) {}
   try {
     if (window.parent !== window) {
-      window.parent.postMessage({ type: "shape-preview-ready" }, "*");
+      window.parent.postMessage({ type: "bettershape-preview-ready" }, "*");
     }
   } catch (_) {}
   if (typeof window.${PREVIEW_EMIT_FN} === "function") {
@@ -69,6 +72,10 @@ export function buildPreviewReadyScript(): string {
     document.title = (document.title || "") + "${PREVIEW_READY_TITLE_SUFFIX}";
   }
 })();`;
+}
+
+export function previewFrameSandbox(_hasSrcDoc?: boolean): string {
+    return "allow-scripts";
 }
 
 export const PREVIEW_BUNDLE_FILENAME = "bundle.js";
@@ -102,7 +109,7 @@ export function buildReactSandboxHtml(
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="icon" href="data:," />
-  <title>shape-preview-doc</title>
+  <title>bettershape-preview-doc</title>
   <script src="${tailwindSrcAttr}"></script>
 </head>
 <body>
@@ -110,11 +117,12 @@ export function buildReactSandboxHtml(
   <script src="${bundleSrcAttr}"></script>
   <script>
     (async () => {
+      ${TWEAK_LISTENER_JS}
       try {
-        if (typeof ShapePreviewRuntime === "undefined" || !ShapePreviewRuntime.mountPreview) {
+        if (typeof BetterShapePreviewRuntime === "undefined" || !BetterShapePreviewRuntime.mountPreview) {
           throw new Error("Preview runtime failed to load from ${bundleSrcAttr}");
         }
-        await ShapePreviewRuntime.mountPreview(${userCodeJson}, ${projectCssJson});
+        await BetterShapePreviewRuntime.mountPreview(${userCodeJson}, ${projectCssJson});
       } catch (error) {
         const root = document.getElementById("root");
         if (root) {
@@ -128,7 +136,7 @@ export function buildReactSandboxHtml(
         }
         try {
           if (window.parent !== window) {
-            window.parent.postMessage({ type: "shape-preview-ready" }, "*");
+            window.parent.postMessage({ type: "bettershape-preview-ready" }, "*");
           }
         } catch (_) {}
       }
@@ -171,7 +179,7 @@ ${sanitized}
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="icon" href="data:," />
-  <title>shape-preview-doc</title>
+  <title>bettershape-preview-doc</title>
   <script src="${tailwindSrcAttr}"></script>
   ${themeBlock}
 </head>

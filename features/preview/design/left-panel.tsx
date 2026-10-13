@@ -10,7 +10,6 @@ import { Document20Regular } from "@fluentui/react-icons/headless/svg/document";
 import { EyeOff20Regular } from "@fluentui/react-icons/headless/svg/eye-off";
 import { Grid20Regular } from "@fluentui/react-icons/headless/svg/grid";
 import { Link20Regular } from "@fluentui/react-icons/headless/svg/link";
-import { SquareShadow20Regular } from "@fluentui/react-icons/headless/svg/square-shadow";
 import { TextFontSize20Regular } from "@fluentui/react-icons/headless/svg/text-font-size";
 
 

@@ -15,7 +15,7 @@ export function AccountRow() {
                 type="button"
                 variant="ghost"
                 size="icon"
-                onClick={() => window.dispatchEvent(new Event("shape-open-pull-requests"))}
+                onClick={() => window.dispatchEvent(new Event("bettershape-open-pull-requests"))}
                 className="size-7 shrink-0 text-text-muted hover:text-text-primary"
                 aria-label="Pull requests"
             >

@@ -94,7 +94,7 @@ export function upsertRepoHistory(path: string) {
     }
     saveRepoHistory(next);
     if (typeof window !== "undefined") {
-        window.dispatchEvent(new Event("shape-repo-history-changed"));
+        window.dispatchEvent(new Event("bettershape-repo-history-changed"));
     }
     return next;
 }
@@ -111,5 +111,5 @@ export function removeFromRepoHistory(path: string) {
         (e) => e.path.replace(/\\/g, "/").toLowerCase() !== norm,
     );
     saveRepoHistory(next);
-    window.dispatchEvent(new Event("shape-repo-history-changed"));
+    window.dispatchEvent(new Event("bettershape-repo-history-changed"));
 }

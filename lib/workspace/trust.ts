@@ -1,8 +1,9 @@
-const STORAGE_KEY = "shape-trusted-workspaces";
+const STORAGE_KEY = "bettershape-trusted-workspaces";
 
 function normalizeWorkspacePath(path: string): string {
     const trimmed = path.trim().replace(/[\\/]+$/, "");
-    return trimmed.replace(/\\/g, "/").toLowerCase();
+    const slashed = trimmed.replace(/\\/g, "/");
+    return /^[a-zA-Z]:[\\/]/.test(path) || path.includes("\\") ? slashed.toLowerCase() : slashed;
 }
 
 function loadTrustedSet(): Set<string> {
@@ -23,6 +24,16 @@ function saveTrustedSet(set: Set<string>): void {
     localStorage.setItem(STORAGE_KEY, JSON.stringify([...set]));
 }
 
+const trustQueues = new Map<string, Promise<void>>();
+function syncRustTrust(path: string, trusted: boolean): Promise<void> {
+    const key = normalizeWorkspacePath(path);
+    const next = (trustQueues.get(key) ?? Promise.resolve()).then(() =>
+        import("@/lib/backend").then(({ commands }) => commands.setWorkspaceTrusted(path, trusted).then(() => undefined)).catch(() => {}),
+    );
+    trustQueues.set(key, next);
+    return next;
+}
+
 export function isWorkspaceTrusted(path: string | null | undefined): boolean {
     if (!path) return false;
     return loadTrustedSet().has(normalizeWorkspacePath(path));
@@ -32,8 +43,9 @@ export function trustWorkspace(path: string): void {
     const set = loadTrustedSet();
     set.add(normalizeWorkspacePath(path));
     saveTrustedSet(set);
+    void syncRustTrust(path, true);
     if (typeof window !== "undefined") {
-        window.dispatchEvent(new CustomEvent("shape-workspace-trusted", { detail: { path } }));
+        window.dispatchEvent(new CustomEvent("bettershape-workspace-trusted", { detail: { path } }));
     }
 }
 
@@ -41,24 +53,34 @@ export function untrustWorkspace(path: string): void {
     const set = loadTrustedSet();
     set.delete(normalizeWorkspacePath(path));
     saveTrustedSet(set);
+    void syncRustTrust(path, false);
+    if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("bettershape-workspace-untrusted", { detail: { path } }));
 }
 
 export function listTrustedWorkspaces(): string[] {
     return [...loadTrustedSet()];
 }
 
+export async function ensureWorkspaceTrust(path: string): Promise<boolean> {
+    if (isWorkspaceTrusted(path)) { await syncRustTrust(path, true); return true; }
+    try {
+        const { confirm } = await import("@tauri-apps/plugin-dialog");
+        if (await confirm(`Trust this workspace?\n\n${path}`, { title: "Trust workspace", kind: "warning", okLabel: "Trust", cancelLabel: "Open untrusted" })) { trustWorkspace(path); await syncRustTrust(path, true); return true; }
+    } catch {}
+    await syncRustTrust(path, false);
+    return false;
+}
+
 export function notifyWorkspaceOpened(path: string): void {
     if (typeof window === "undefined") return;
-    trustWorkspace(path);
-    window.dispatchEvent(new CustomEvent("shape-workspace-opened", { detail: { path } }));
-    void import("@/lib/backend").then(({ commands }) => {
-        void commands.setWorkspaceTrusted(path, true);
-    });
+    void syncRustTrust(path, isWorkspaceTrusted(path));
+    window.dispatchEvent(new CustomEvent("bettershape-workspace-opened", { detail: { path } }));
+    if (!isWorkspaceTrusted(path)) window.dispatchEvent(new CustomEvent("bettershape-workspace-trust-required", { detail: { path } }));
 }
 
 export function notifyWorkspaceClosed(): void {
     if (typeof window === "undefined") return;
-    window.dispatchEvent(new CustomEvent("shape-workspace-opened", { detail: { path: null } }));
+    window.dispatchEvent(new CustomEvent("bettershape-workspace-opened", { detail: { path: null } }));
 }
 
 export { normalizeWorkspacePath };

@@ -247,7 +247,9 @@ async fn attach_existing(target_url: &str) -> Result<String, String> {
     for port in ATTACH_PORTS {
         if let Ok(ws) = fetch_page_ws(*port).await {
             if let Ok(report) = cdp_session(*port, &ws, Some(target_url), true).await {
-                return Ok(format!("Attached to existing Chromium debug port {port}.\n{report}"));
+                return Ok(format!(
+                    "Attached to existing Chromium debug port {port}.\n{report}"
+                ));
             }
         }
     }
@@ -260,7 +262,7 @@ async fn spawn_and_inspect(target_url: &str) -> Result<String, String> {
             .to_string()
     })?;
     let port = free_port().ok_or_else(|| "Could not find a free debug port.".to_string())?;
-    let data_dir = std::env::temp_dir().join(format!("shape-inspect-{port}"));
+    let data_dir = std::env::temp_dir().join(format!("bettershape-inspect-{port}"));
     let _ = std::fs::create_dir_all(&data_dir);
     let mut cmd = Command::new(&browser);
     cmd.args([
@@ -302,6 +304,7 @@ async fn spawn_and_inspect(target_url: &str) -> Result<String, String> {
 }
 
 pub(crate) fn find_chromium() -> Option<String> {
+    #[allow(unused_mut)]
     let mut candidates: Vec<PathBuf> = Vec::new();
     #[cfg(windows)]
     {
@@ -398,16 +401,22 @@ async fn cdp_session(
     navigate: Option<&str>,
     already_open: bool,
 ) -> Result<String, String> {
-    let (mut ws, _) = timeout(Duration::from_secs(5), tokio_tungstenite::connect_async(ws_url))
-        .await
-        .map_err(|_| "DevTools websocket timed out".to_string())?
-        .map_err(|e| format!("DevTools websocket: {e}"))?;
+    let (mut ws, _) = timeout(
+        Duration::from_secs(5),
+        tokio_tungstenite::connect_async(ws_url),
+    )
+    .await
+    .map_err(|_| "DevTools websocket timed out".to_string())?
+    .map_err(|e| format!("DevTools websocket: {e}"))?;
 
     let mut next_id = 1u64;
     let mut send_cdp = |method: &str, params: Value| {
         let id = next_id;
         next_id += 1;
-        (id, json!({"id": id, "method": method, "params": params}).to_string())
+        (
+            id,
+            json!({"id": id, "method": method, "params": params}).to_string(),
+        )
     };
 
     for (method, params) in [
@@ -497,7 +506,12 @@ async fn cdp_session(
     ))
 }
 
-fn ingest_cdp_event(v: &Value, hits: &mut Vec<NetHit>, console: &mut Vec<String>, loaded: &mut bool) {
+fn ingest_cdp_event(
+    v: &Value,
+    hits: &mut Vec<NetHit>,
+    console: &mut Vec<String>,
+    loaded: &mut bool,
+) {
     let Some(method) = v.get("method").and_then(|m| m.as_str()) else {
         return;
     };
@@ -506,7 +520,11 @@ fn ingest_cdp_event(v: &Value, hits: &mut Vec<NetHit>, console: &mut Vec<String>
         "Network.responseReceived" => {
             if let Some(resp) = v.pointer("/params/response") {
                 hits.push(NetHit {
-                    url: resp.get("url").and_then(|u| u.as_str()).unwrap_or("").to_string(),
+                    url: resp
+                        .get("url")
+                        .and_then(|u| u.as_str())
+                        .unwrap_or("")
+                        .to_string(),
                     status: resp.get("status").and_then(|s| s.as_u64()).unwrap_or(0) as u16,
                     mime: resp
                         .get("mimeType")
@@ -554,7 +572,9 @@ fn ingest_cdp_event(v: &Value, hits: &mut Vec<NetHit>, console: &mut Vec<String>
                                     .and_then(|v| v.as_str())
                                     .map(|s| s.to_string())
                                     .or_else(|| {
-                                        a.get("description").and_then(|d| d.as_str()).map(|s| s.to_string())
+                                        a.get("description")
+                                            .and_then(|d| d.as_str())
+                                            .map(|s| s.to_string())
                                     })
                                     .or_else(|| a.get("value").map(|v| v.to_string()))
                             })
@@ -593,7 +613,10 @@ fn format_report(
     let mut out = String::new();
     out.push_str(&format!("Target: {target}\n"));
 
-    if let Some(result) = eval_result.and_then(|r| r.pointer("/result/value")).and_then(|v| v.as_str()) {
+    if let Some(result) = eval_result
+        .and_then(|r| r.pointer("/result/value"))
+        .and_then(|v| v.as_str())
+    {
         if let Ok(parsed) = serde_json::from_str::<Value>(result) {
             if let Some(title) = parsed.get("title").and_then(|t| t.as_str()) {
                 out.push_str(&format!("Title: {title}\n"));
@@ -652,14 +675,19 @@ fn format_report(
         }
     }
 
-    if let Some(result) = eval_result.and_then(|r| r.pointer("/result/value")).and_then(|v| v.as_str()) {
+    if let Some(result) = eval_result
+        .and_then(|r| r.pointer("/result/value"))
+        .and_then(|v| v.as_str())
+    {
         if let Ok(parsed) = serde_json::from_str::<Value>(result) {
             if let Some(resources) = parsed.get("resources").and_then(|r| r.as_array()) {
                 let mut slow: Vec<&Value> = resources
                     .iter()
                     .filter(|r| r.get("ms").and_then(|m| m.as_u64()).unwrap_or(0) >= 400)
                     .collect();
-                slow.sort_by_key(|r| std::cmp::Reverse(r.get("ms").and_then(|m| m.as_u64()).unwrap_or(0)));
+                slow.sort_by_key(|r| {
+                    std::cmp::Reverse(r.get("ms").and_then(|m| m.as_u64()).unwrap_or(0))
+                });
                 if !slow.is_empty() {
                     out.push_str("Slow resources (≥400ms):\n");
                     for r in slow.iter().take(8) {
@@ -692,7 +720,8 @@ mod tests {
     use std::fs;
 
     fn temp_project(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("shape-inspect-test-{name}-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("bettershape-inspect-test-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir
@@ -703,7 +732,10 @@ mod tests {
         let dir = temp_project("tauri");
         fs::create_dir_all(dir.join("src-tauri")).unwrap();
         fs::write(dir.join("src-tauri/tauri.conf.json"), "{}").unwrap();
-        assert_eq!(detect_runtime_kind(dir.to_str().unwrap()), RuntimeKind::Tauri);
+        assert_eq!(
+            detect_runtime_kind(dir.to_str().unwrap()),
+            RuntimeKind::Tauri
+        );
         let _ = fs::remove_dir_all(dir);
     }
 
@@ -715,7 +747,10 @@ mod tests {
             r#"{"devDependencies":{"electron":"33.0.0"}}"#,
         )
         .unwrap();
-        assert_eq!(detect_runtime_kind(dir.to_str().unwrap()), RuntimeKind::Electron);
+        assert_eq!(
+            detect_runtime_kind(dir.to_str().unwrap()),
+            RuntimeKind::Electron
+        );
         let _ = fs::remove_dir_all(dir);
     }
 
@@ -723,7 +758,10 @@ mod tests {
     fn detects_wails() {
         let dir = temp_project("wails");
         fs::write(dir.join("wails.json"), "{}").unwrap();
-        assert_eq!(detect_runtime_kind(dir.to_str().unwrap()), RuntimeKind::Wails);
+        assert_eq!(
+            detect_runtime_kind(dir.to_str().unwrap()),
+            RuntimeKind::Wails
+        );
         let _ = fs::remove_dir_all(dir);
     }
 
@@ -731,14 +769,21 @@ mod tests {
     fn detects_next_website() {
         let dir = temp_project("next");
         fs::write(dir.join("next.config.ts"), "export default {}").unwrap();
-        assert_eq!(detect_runtime_kind(dir.to_str().unwrap()), RuntimeKind::Website);
+        assert_eq!(
+            detect_runtime_kind(dir.to_str().unwrap()),
+            RuntimeKind::Website
+        );
         let _ = fs::remove_dir_all(dir);
     }
 
     #[test]
     fn rust_cli_is_unsupported() {
         let dir = temp_project("cli");
-        fs::write(dir.join("Cargo.toml"), "[package]\nname=\"cli\"\nversion=\"0.1.0\"\n").unwrap();
+        fs::write(
+            dir.join("Cargo.toml"),
+            "[package]\nname=\"cli\"\nversion=\"0.1.0\"\n",
+        )
+        .unwrap();
         let kind = detect_runtime_kind(dir.to_str().unwrap());
         assert!(!kind.inspectable());
         let _ = fs::remove_dir_all(dir);
@@ -765,7 +810,9 @@ mod tests {
 
     #[test]
     fn unsupported_message_is_honest() {
-        let msg = unsupported_message(&RuntimeKind::Unsupported("Go service / CLI (no Chromium webview)".into()));
+        let msg = unsupported_message(&RuntimeKind::Unsupported(
+            "Go service / CLI (no Chromium webview)".into(),
+        ));
         assert!(msg.contains("cannot attach DevTools"));
         assert!(msg.contains("Electron, Tauri, or Wails"));
     }

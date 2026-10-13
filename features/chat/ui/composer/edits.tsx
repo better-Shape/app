@@ -107,7 +107,7 @@ export function PendingEditsPanel({
                                     if (!ok) return;
                                     setTimeout(() => {
                                         window.dispatchEvent(
-                                            new CustomEvent("shape-editor-preview-diff", {
+                                            new CustomEvent("bettershape-editor-preview-diff", {
                                                 detail: {
                                                     path: resolved,
                                                     original: edit.original,

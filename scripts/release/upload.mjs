@@ -149,7 +149,7 @@ function createDraftViaApi(repo, tag, { notesFile, prerelease }) {
   };
 
   return withRetry("create draft", () => {
-    const dir = mkdtempSync(join(tmpdir(), "shape-release-"));
+    const dir = mkdtempSync(join(tmpdir(), "bettershape-release-"));
     const tmp = join(dir, "body.json");
     writeFileSync(tmp, JSON.stringify(body));
     try {

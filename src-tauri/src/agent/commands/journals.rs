@@ -1,6 +1,6 @@
+use super::logging;
 /// Durable turn journals so interrupted work can be inspected after restart.
 use serde::{Deserialize, Serialize};
-use super::logging;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -29,7 +29,7 @@ fn sanitize_id(id: &str) -> String {
 
 fn journals_root() -> std::path::PathBuf {
     let mut path = dirs::data_local_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
-    path.push("Shape");
+    path.push("BetterShape");
     path.push("journals");
     let _ = std::fs::create_dir_all(&path);
     path
@@ -88,6 +88,10 @@ pub fn list_open_turn_journals() -> Vec<TurnJournal> {
             }
         }
     }
-    out.sort_by(|a, b| b.updated_at.partial_cmp(&a.updated_at).unwrap_or(std::cmp::Ordering::Equal));
+    out.sort_by(|a, b| {
+        b.updated_at
+            .partial_cmp(&a.updated_at)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     out
 }

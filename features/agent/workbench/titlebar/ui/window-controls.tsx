@@ -1,6 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
+
+const subscribeNoop = () => () => {};
+const getDocumentBody = () => document.body;
+const getNoBody = () => null;
 import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
 
@@ -108,10 +112,7 @@ export function WindowControls({
     spacer?: boolean;
     floating?: boolean;
 }) {
-    const [host, setHost] = useState<HTMLElement | null>(null);
-    useEffect(() => {
-        setHost(document.body);
-    }, []);
+    const host = useSyncExternalStore(subscribeNoop, getDocumentBody, getNoBody);
 
     const buttons = (
         <WindowControlButtons

@@ -23,7 +23,7 @@ import windsurf from "thesvg/windsurf";
 import windows from "thesvg/windows";
 import zed from "thesvg/zed";
 
-import { useEffect } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { Icon } from "@/components/ui/icon";
 import { Tooltip } from "@/components/ui/tooltip";
 import {
@@ -86,6 +86,11 @@ export function OpenInMenu({ path }: { path?: string | null } = {}) {
         }
     };
 
+    const openRef = useRef(open);
+    useLayoutEffect(() => {
+        openRef.current = open;
+    });
+
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
             const t = e.target as HTMLElement | null;
@@ -93,7 +98,7 @@ export function OpenInMenu({ path }: { path?: string | null } = {}) {
             if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
             if (e.key.toLowerCase() !== "o") return;
             e.preventDefault();
-            void open("cursor");
+            void openRef.current("cursor");
         };
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);

@@ -50,7 +50,7 @@ const UTILITY_EXACT = new Set([
 
 export function isUtilityClass(name: string) {
     const value = name.trim();
-    if (!value || value.startsWith("__shape")) return true;
+    if (!value || value.startsWith("__bettershape")) return true;
     if (UTILITY_EXACT.has(value)) return true;
     return UTILITY.test(value);
 }
@@ -93,7 +93,7 @@ export function layerTitle(info: LayerInfo) {
     if ((kind === "text" || kind === "link" || kind === "button") && text) {
         return text.slice(0, 54);
     }
-    if (info.id && !/^[:_]/.test(info.id) && !info.id.startsWith("__shape")) {
+    if (info.id && !/^[:_]/.test(info.id) && !info.id.startsWith("__bettershape")) {
         return humanizeIdent(info.id).slice(0, 54);
     }
     const named = (info.classes || []).find((item) => !isUtilityClass(item));

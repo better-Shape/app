@@ -5,7 +5,7 @@ import { linter, type Diagnostic } from "@codemirror/lint";
 import type { Extension } from "@codemirror/state";
 import { commands } from "@/lib/backend";
 
-type ShapeDiag = {
+type BetterShapeDiag = {
     message: string;
     severity: string;
     line: number;
@@ -13,7 +13,7 @@ type ShapeDiag = {
 };
 
 /** Tree-sitter-style parse errors via the active language grammar + push to the agent. */
-export function shapeSyntaxLinter(path: string): Extension {
+export function betterShapeSyntaxLinter(path: string): Extension {
     return linter(
         (view) => {
             const diags: Diagnostic[] = [];
@@ -37,7 +37,7 @@ export function shapeSyntaxLinter(path: string): Extension {
                 },
             });
 
-            const payload: ShapeDiag[] = diags.map((d) => {
+            const payload: BetterShapeDiag[] = diags.map((d) => {
                 const line = view.state.doc.lineAt(d.from);
                 return {
                     message: d.message,

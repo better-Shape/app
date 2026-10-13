@@ -614,16 +614,16 @@ body {
 }
 
 /* Monaco editor surface — dark background, no default light border */
-.shape-editor-surface .monaco-editor,
-.shape-editor-surface .monaco-editor .margin,
-.shape-editor-surface .monaco-editor-background,
+.bettershape-editor-surface .monaco-editor,
+.bettershape-editor-surface .monaco-editor .margin,
+.bettershape-editor-surface .monaco-editor-background,
 .monaco-diff-editor .monaco-editor,
 .monaco-diff-editor .monaco-editor .margin,
 .monaco-diff-editor .monaco-editor-background {
   background-color: var(--editor, #141415) !important;
 }
 
-.shape-editor-surface .monaco-editor .overflow-guard,
+.bettershape-editor-surface .monaco-editor .overflow-guard,
 .monaco-diff-editor .monaco-editor .overflow-guard,
 .monaco-diff-editor .overflow-guard {
   border: none !important;
@@ -647,14 +647,14 @@ button:focus-visible,
 .monaco-editor.focused,
 .monaco-editor .overflow-guard,
 .monaco-editor .monaco-scrollable-element,
-.shape-editor-surface .monaco-editor,
-.shape-editor-surface .monaco-editor:focus,
-.shape-editor-surface .monaco-editor.focused {
+.bettershape-editor-surface .monaco-editor,
+.bettershape-editor-surface .monaco-editor:focus,
+.bettershape-editor-surface .monaco-editor.focused {
   outline: none !important;
   box-shadow: none !important;
 }
 
-.shape-editor-surface > section,
+.bettershape-editor-surface > section,
 .monaco-diff-editor > section {
   border: none !important;
   background: transparent !important;
@@ -671,7 +671,7 @@ button:focus-visible,
   font-feature-settings: normal;
 }
 
-.shape-icon {
+.bettershape-icon {
   width: var(--icon-size);
   height: var(--icon-size);
   min-width: var(--icon-size);
@@ -685,7 +685,7 @@ button:focus-visible,
 .icon-md { --icon-size: var(--icon-md); }
 .icon-lg { --icon-size: var(--icon-lg); }
 
-.shape-icon * {
+.bettershape-icon * {
   fill: currentColor;
   stroke: currentColor;
   stroke-width: var(--icon-stroke);
@@ -985,7 +985,7 @@ body[data-resizing] .xterm {
   color: var(--accent) !important;
   font-weight: bold !important;
 }
-.shape-menu {
+.bettershape-menu {
   box-sizing: border-box;
   min-width: var(--menu-min-w);
   border-radius: var(--menu-radius);
@@ -994,22 +994,22 @@ body[data-resizing] .xterm {
   box-shadow: var(--menu-shadow);
 }
 
-.shape-menu__inset {
+.bettershape-menu__inset {
   padding: var(--menu-pad);
 }
 
-.shape-menu__row {
+.bettershape-menu__row {
   gap: var(--menu-row-gap);
   border-radius: var(--menu-row-radius);
   padding-block: var(--menu-row-pad-y);
   padding-inline: var(--menu-row-pad-x);
 }
 
-.shape-menu__search {
+.bettershape-menu__search {
   width: 100%;
 }
 
-.shape-menu .shape-menu__icon {
+.bettershape-menu .bettershape-menu__icon {
   color: inherit;
   background: transparent !important;
   box-shadow: none !important;
@@ -1022,7 +1022,7 @@ body[data-resizing] .xterm {
 }
 
 /* Toast notifications — CSS transitions so stack moves stay interruptible (Sonner/shadcn). */
-.shape-toast {
+.bettershape-toast {
   opacity: 0;
   transform: translate3d(0, 14px, 0) scale(0.96);
   transition:
@@ -1031,19 +1031,19 @@ body[data-resizing] .xterm {
   will-change: opacity, transform;
 }
 
-.shape-toast[data-mounted="true"] {
+.bettershape-toast[data-mounted="true"] {
   opacity: var(--toast-opacity, 1);
   transform: translate3d(0, var(--toast-y, 0px), 0) scale(var(--toast-scale, 1));
 }
 
-.shape-toast[data-leaving="true"] {
+.bettershape-toast[data-leaving="true"] {
   opacity: 0;
   transform: translate3d(0, 10px, 0) scale(0.96);
   pointer-events: none;
 }
 
 /* Modals / command palette: pop-in without clobbering translate centering */
-@keyframes shape-modal-in {
+@keyframes bettershape-modal-in {
   from {
     opacity: 0;
     scale: 0.97;
@@ -1054,7 +1054,7 @@ body[data-resizing] .xterm {
   }
 }
 
-@keyframes shape-modal-out {
+@keyframes bettershape-modal-out {
   from {
     opacity: 1;
     scale: 1;
@@ -1065,63 +1065,63 @@ body[data-resizing] .xterm {
   }
 }
 
-@keyframes shape-overlay-in {
+@keyframes bettershape-overlay-in {
   from { opacity: 0; }
   to { opacity: 1; }
 }
 
-@keyframes shape-overlay-out {
+@keyframes bettershape-overlay-out {
   from { opacity: 1; }
   to { opacity: 0; }
 }
 
-.shape-modal-panel {
+.bettershape-modal-panel {
   transform-origin: center center;
   will-change: opacity, scale;
 }
 
-.shape-modal-panel[data-state="open"],
-.shape-modal-panel:not([data-state]) {
-  animation: shape-modal-in var(--transition-base) var(--ease-out);
+.bettershape-modal-panel[data-state="open"],
+.bettershape-modal-panel:not([data-state]) {
+  animation: bettershape-modal-in var(--transition-base) var(--ease-out);
 }
 
-.shape-modal-panel[data-state="closed"] {
-  animation: shape-modal-out var(--transition-fast) var(--ease-in);
+.bettershape-modal-panel[data-state="closed"] {
+  animation: bettershape-modal-out var(--transition-fast) var(--ease-in);
 }
 
-.shape-popover-content--from-right {
+.bettershape-popover-content--from-right {
   transform-origin: right center;
 }
 
 /* ── Modal overlays (global) ─────────────────────────────── */
-.shape-overlay {
+.bettershape-overlay {
   position: absolute;
   inset: 0;
   z-index: var(--z-overlay);
   background-color: var(--overlay-scrim);
   backdrop-filter: blur(3px);
   -webkit-backdrop-filter: blur(3px);
-  animation: shape-overlay-in var(--transition-base) var(--ease-out);
+  animation: bettershape-overlay-in var(--transition-base) var(--ease-out);
 }
 
-.shape-overlay[data-state="closed"] {
-  animation: shape-overlay-out var(--transition-fast) var(--ease-in);
+.bettershape-overlay[data-state="closed"] {
+  animation: bettershape-overlay-out var(--transition-fast) var(--ease-in);
 }
 
-.shape-overlay-content {
+.bettershape-overlay-content {
   position: absolute !important;
   z-index: var(--z-overlay-content);
 }
 
 /* Out-of-flow host so dialogs cannot become flex items and shove the app. */
-#shape-overlays {
+#bettershape-overlays {
   position: absolute;
   inset: 0;
   z-index: var(--z-overlay);
   overflow: hidden;
   pointer-events: none;
 }
-#shape-overlays > * {
+#bettershape-overlays > * {
   pointer-events: auto;
 }
 
@@ -1163,7 +1163,7 @@ body[data-resizing] .xterm {
 }
 
 /* Native window chrome — HWND is opaque and Windows owns snap/maximize rounding. */
-#shape-workbench {
+#bettershape-workbench {
   overflow: hidden;
 }
 
@@ -1701,7 +1701,7 @@ body[data-resizing] .xterm {
 }
 
 /* ── Tab appear (chat / editor / terminal) ───────────────── */
-@keyframes shape-tab-appear {
+@keyframes bettershape-tab-appear {
   from {
     opacity: 0;
     transform: translateY(3px) scale(0.96);
@@ -1716,11 +1716,11 @@ body[data-resizing] .xterm {
 .chat-tab-item {
   /* Do not retain the animation's final transform; sortable tabs need their
      inline transform while dragging. */
-  animation: shape-tab-appear 160ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  animation: bettershape-tab-appear 160ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
 }
 
 /* Panel / overlay fade */
-@keyframes shape-fade-in {
+@keyframes bettershape-fade-in {
   from {
     opacity: 0;
   }
@@ -1730,10 +1730,10 @@ body[data-resizing] .xterm {
 }
 
 .animate-in {
-  animation: shape-fade-in var(--transition-base) var(--ease-out) both;
+  animation: bettershape-fade-in var(--transition-base) var(--ease-out) both;
 }
 
-@keyframes shape-orb-breathe {
+@keyframes bettershape-orb-breathe {
   0%,
   100% {
     transform: translateX(-50%) scale(1);
@@ -1755,11 +1755,11 @@ body[data-resizing] .xterm {
   pointer-events: none;
   background: radial-gradient(circle, color-mix(in srgb, var(--accent) 85%, white) 0%, transparent 68%);
   filter: blur(72px);
-  animation: shape-orb-breathe 5.2s ease-in-out infinite;
+  animation: bettershape-orb-breathe 5.2s ease-in-out infinite;
 }
 
 /* Smooth editor scrolling (textarea + synced overlays) */
-.shape-smooth-scroll {
+.bettershape-smooth-scroll {
   scroll-behavior: smooth;
 }
 

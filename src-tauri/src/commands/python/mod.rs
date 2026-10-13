@@ -25,7 +25,10 @@ pub fn discover_python_interpreters(project_path: Option<String>) -> Vec<PythonI
         }
         let version = probe_version(&path);
         let label = match version.as_deref() {
-            Some(v) if kind.to_lowercase().contains("venv") || kind.to_lowercase().contains("conda") => {
+            Some(v)
+                if kind.to_lowercase().contains("venv")
+                    || kind.to_lowercase().contains("conda") =>
+            {
                 format!("Python {v} ({kind})")
             }
             Some(v) => format!("Python {v}"),
@@ -111,7 +114,10 @@ pub fn discover_python_interpreters(project_path: Option<String>) -> Vec<PythonI
 
 fn probe_version(path: &Path) -> Option<String> {
     let output = Command::new(path)
-        .args(["-c", "import sys; print('.'.join(map(str, sys.version_info[:3])))"])
+        .args([
+            "-c",
+            "import sys; print('.'.join(map(str, sys.version_info[:3])))",
+        ])
         .output()
         .ok()?;
     if !output.status.success() {

@@ -33,7 +33,7 @@ describe("dispatchShortcutAction", () => {
     });
 
     it("dispatches new text file", () => {
-        const create = listenCustomEvent<{ type: string }>("shape-explorer-create");
+        const create = listenCustomEvent<{ type: string }>("bettershape-explorer-create");
         expect(dispatchShortcutAction("New Text File", "Ctrl+N")).toBe(true);
         expect(create.events[0]?.detail).toEqual({ type: "file" });
         create.off();
@@ -56,14 +56,14 @@ describe("dispatchShortcutAction", () => {
     });
 
     it("handles open folder", () => {
-        const open = listenWindowEvent("shape-open-project-pick");
+        const open = listenWindowEvent("bettershape-open-project-pick");
         expect(dispatchShortcutAction("Open Folder", "Ctrl+K Ctrl+O")).toBe(true);
         expect(open.events).toHaveLength(1);
         open.off();
     });
 
     it("dispatches recent files palette", () => {
-        const palette = listenCustomEvent<{ mode?: string; recent?: boolean }>("shape-command-palette");
+        const palette = listenCustomEvent<{ mode?: string; recent?: boolean }>("bettershape-command-palette");
         expect(dispatchShortcutAction("Recent Files", "Ctrl+E")).toBe(true);
         expect(palette.events[0]?.detail).toEqual({
             mode: "files",
@@ -74,7 +74,7 @@ describe("dispatchShortcutAction", () => {
     });
 
     it("dispatches zen mode only for zen mode", () => {
-        const zen = listenWindowEvent("shape-toggle-zen-mode");
+        const zen = listenWindowEvent("bettershape-toggle-zen-mode");
         expect(dispatchShortcutAction("Zen Mode", "Ctrl+K Z")).toBe(true);
         expect(zen.events).toHaveLength(1);
         zen.off();
@@ -88,29 +88,29 @@ describe("dispatchShortcutAction", () => {
     });
 
     it("dispatches explorer", () => {
-        const tab = listenCustomEvent("shape-set-active-tab");
+        const tab = listenCustomEvent("bettershape-set-active-tab");
         expect(dispatchShortcutAction("Explorer", "Ctrl+Shift+E")).toBe(true);
         expect(tab.events[0]?.detail).toBe("files");
         tab.off();
     });
 
     it("dispatches search via command palette", () => {
-        const palette = listenCustomEvent("shape-command-palette");
+        const palette = listenCustomEvent("bettershape-command-palette");
         expect(dispatchShortcutAction("Search", "Ctrl+Shift+F")).toBe(true);
         expect(palette.events[0]?.detail).toMatchObject({ mode: "files" });
         palette.off();
     });
 
     it("dispatches source control", () => {
-        const tab = listenCustomEvent("shape-set-active-tab");
+        const tab = listenCustomEvent("bettershape-set-active-tab");
         expect(dispatchShortcutAction("Source Control", "Ctrl+Shift+G")).toBe(true);
         expect(tab.events[0]?.detail).toBe("source");
         tab.off();
     });
 
     it("opens problems panel", () => {
-        const layout = listenCustomEvent("shape-layout-toggle");
-        const panel = listenCustomEvent("shape-set-panel-tab");
+        const layout = listenCustomEvent("bettershape-layout-toggle");
+        const panel = listenCustomEvent("bettershape-set-panel-tab");
         expect(dispatchShortcutAction("Problems", "Ctrl+Shift+M")).toBe(true);
         expect(layout.events[0]?.detail).toMatchObject({ id: "panel", value: true });
         expect(panel.events[0]?.detail).toBe("problems");
@@ -119,21 +119,21 @@ describe("dispatchShortcutAction", () => {
     });
 
     it("dispatches find in files via command palette", () => {
-        const palette = listenCustomEvent("shape-command-palette");
+        const palette = listenCustomEvent("bettershape-command-palette");
         expect(dispatchShortcutAction("Find in Files", "Ctrl+Shift+F")).toBe(true);
         expect(palette.events[0]?.detail).toMatchObject({ mode: "files" });
         palette.off();
     });
 
     it("dispatches replace in files via command palette", () => {
-        const palette = listenCustomEvent("shape-command-palette");
+        const palette = listenCustomEvent("bettershape-command-palette");
         expect(dispatchShortcutAction("Replace in Files", "Ctrl+H")).toBe(true);
         expect(palette.events[0]?.detail).toMatchObject({ mode: "files" });
         palette.off();
     });
 
     it("dispatches command palette variants", () => {
-        const palette = listenCustomEvent("shape-command-palette");
+        const palette = listenCustomEvent("bettershape-command-palette");
         expect(dispatchShortcutAction("Command Palette", "Ctrl+Shift+P")).toBe(true);
         expect(dispatchShortcutAction("Command Palette...", "Ctrl+Shift+P")).toBe(true);
         expect(palette.events.length).toBe(2);
@@ -141,35 +141,35 @@ describe("dispatchShortcutAction", () => {
     });
 
     it("dispatches go to file palette", () => {
-        const palette = listenCustomEvent<{ mode?: string }>("shape-command-palette");
+        const palette = listenCustomEvent<{ mode?: string }>("bettershape-command-palette");
         expect(dispatchShortcutAction("Go to File...", "Ctrl+P")).toBe(true);
         expect(palette.events[0]?.detail).toEqual({ mode: "files" });
         palette.off();
     });
 
     it("dispatches go to line palette", () => {
-        const palette = listenCustomEvent<{ mode?: string }>("shape-command-palette");
+        const palette = listenCustomEvent<{ mode?: string }>("bettershape-command-palette");
         expect(dispatchShortcutAction("Go to Line/Column...", "Ctrl+G")).toBe(true);
         expect(palette.events[0]?.detail?.mode).toBe("goto_line");
         palette.off();
     });
 
     it("dispatches editor undo", () => {
-        const editor = listenCustomEvent<{ action: string }>("shape-editor-action");
+        const editor = listenCustomEvent<{ action: string }>("bettershape-editor-action");
         expect(dispatchShortcutAction("Undo", "Ctrl+Z")).toBe(true);
         expect(editor.events[0]?.detail).toEqual({ action: "undo" });
         editor.off();
     });
 
     it("dispatches format document", () => {
-        const editor = listenCustomEvent<{ action: string }>("shape-editor-action");
+        const editor = listenCustomEvent<{ action: string }>("bettershape-editor-action");
         expect(dispatchShortcutAction("Format Document", "Alt+Shift+F")).toBe(true);
         expect(editor.events[0]?.detail).toEqual({ action: "format" });
         editor.off();
     });
 
     it("dispatches go to definition", () => {
-        const editor = listenCustomEvent<{ action: string }>("shape-editor-action");
+        const editor = listenCustomEvent<{ action: string }>("bettershape-editor-action");
         expect(dispatchShortcutAction("Go to Definition", "F12")).toBe(true);
         expect(editor.events[0]?.detail).toEqual({ action: "definition" });
         editor.off();
@@ -186,7 +186,7 @@ describe("dispatchShortcutAction", () => {
     });
 
     it("dispatches terminal shortcuts", () => {
-        const terminal = listenCustomEvent<{ action: string }>("shape-terminal-shortcut");
+        const terminal = listenCustomEvent<{ action: string }>("bettershape-terminal-shortcut");
         expect(dispatchShortcutAction("Terminal", "Ctrl+`")).toBe(true);
         expect(dispatchShortcutAction("New Terminal", "Ctrl+Shift+`")).toBe(true);
         expect(terminal.events[0]?.detail).toEqual({ action: "open" });

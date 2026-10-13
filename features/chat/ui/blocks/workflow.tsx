@@ -57,18 +57,18 @@ function openFileEdit(file: string, original: string, replacement: string, isRes
     void openProjectFile(file, fileName).then((ok) => {
         if (!ok) return;
         window.dispatchEvent(
-            new CustomEvent("shape-layout-toggle", {
+            new CustomEvent("bettershape-layout-toggle", {
                 detail: { id: "agent-workspace", value: true },
             }),
         );
         if (isResolved) {
-            window.dispatchEvent(new CustomEvent("shape-dismiss-diff", {
+            window.dispatchEvent(new CustomEvent("bettershape-dismiss-diff", {
                 detail: { path: resolved, rawPath: file },
             }));
             return;
         }
         setTimeout(() => {
-            window.dispatchEvent(new CustomEvent("shape-editor-preview-diff", {
+            window.dispatchEvent(new CustomEvent("bettershape-editor-preview-diff", {
                 detail: { path: resolved, original, replacement },
             }));
         }, 100);

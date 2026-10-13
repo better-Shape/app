@@ -17,8 +17,8 @@ const ATTR_FIXES = [
 const DOMAIN_FIXES = [
     [/export type AttachmentKind = "image" \| "audio" \| RiFileLine \| "terminal" \| RiCodeLine/g,
         'export type AttachmentKind = "image" | "audio" | "file" | "terminal" | "code"'],
-    [/if \(file\.type === "text\/x-shape-code"\) return RiCodeLine/g,
-        'if (file.type === "text/x-shape-code") return "code"'],
+    [/if \(file\.type === "text\/x-bettershape-code"\) return RiCodeLine/g,
+        'if (file.type === "text/x-bettershape-code") return "code"'],
     [/return RiFileLine;/g, 'return "file";'],
     [/Record<Exclude<AttachmentKind, RiFileLine>/g, 'Record<Exclude<AttachmentKind, "file">'],
     [/if \(kind === RiFileLine\)/g, 'if (kind === "file")'],

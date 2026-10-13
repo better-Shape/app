@@ -1,9 +1,9 @@
 "use client";
 
-const PIN_KEY = "shape-sidebar-pinned-chats";
-const UNREAD_KEY = "shape-sidebar-unread-chats";
-const COLOR_KEY = "shape-sidebar-chat-colors";
-const COLLECTION_KEY = "shape-sidebar-collections";
+const PIN_KEY = "bettershape-sidebar-pinned-chats";
+const UNREAD_KEY = "bettershape-sidebar-unread-chats";
+const COLOR_KEY = "bettershape-sidebar-chat-colors";
+const COLLECTION_KEY = "bettershape-sidebar-collections";
 
 export const COLLECTION_ICONS = [
     "star",
@@ -130,7 +130,7 @@ export function setChatPinned(id: string, pinned: boolean) {
     writeSet(PIN_KEY, next);
     pinnedCache = next.size === 0 ? EMPTY : next;
     for (const l of pinListeners) l();
-    window.dispatchEvent(new CustomEvent("shape-chat-pins-changed"));
+    window.dispatchEvent(new CustomEvent("bettershape-chat-pins-changed"));
 }
 
 /** Stable snapshot for useSyncExternalStore. */

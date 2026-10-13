@@ -16,9 +16,9 @@ export async function openEditorPopout(filePath: string) {
     try {
         const label = popoutLabel(filePath);
         // Seed so the popout page can open the file before searchParams hydrate.
-        // localStorage is shared across Shape webviews; sessionStorage is not.
+        // localStorage is shared across BetterShape webviews; sessionStorage is not.
         try {
-            localStorage.setItem(`shape-popout-file:${label}`, filePath);
+            localStorage.setItem(`bettershape-popout-file:${label}`, filePath);
         } catch {
             /* ignore */
         }

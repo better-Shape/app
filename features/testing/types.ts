@@ -1,4 +1,4 @@
-export type TestFramework = "vitest" | "jest" | "none";
+export type TestFramework = "vitest" | "jest" | "playwright" | "cargo" | "pytest" | "go" | "none";
 
 export type TestStatus = "passed" | "failed" | "skipped" | "pending" | "running";
 

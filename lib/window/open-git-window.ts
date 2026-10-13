@@ -4,14 +4,14 @@
 export async function openGitWindow(_section?: string) {
     if (typeof window === "undefined") return;
 
-    window.dispatchEvent(new CustomEvent("shape-agent-overlay", { detail: null }));
+    window.dispatchEvent(new CustomEvent("bettershape-agent-overlay", { detail: null }));
     window.dispatchEvent(
-        new CustomEvent("shape-layout-toggle", {
+        new CustomEvent("bettershape-layout-toggle", {
             detail: { id: "secondary-sidebar", value: true },
         }),
     );
     window.setTimeout(() => {
-        window.dispatchEvent(new CustomEvent("shape-set-active-tab", { detail: "graph" }));
+        window.dispatchEvent(new CustomEvent("bettershape-set-active-tab", { detail: "graph" }));
     }, 80);
 }
 

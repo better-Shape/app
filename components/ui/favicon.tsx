@@ -3,7 +3,7 @@
 import { Globe20Regular } from "@fluentui/react-icons/headless/svg/globe";
 
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Icon } from "@/components/ui/icon";
 
 import { faviconUrl, hostnameOf } from "@/lib/ui/favicon";
@@ -30,10 +30,13 @@ export function Favicon({
         if (google) list.push(google);
         return list;
     }, [host, size, src, url]);
+    // Start again from the first source whenever the source list changes.
     const [index, setIndex] = useState(0);
-    useEffect(() => {
+    const [seenChain, setSeenChain] = useState(chain);
+    if (chain !== seenChain) {
+        setSeenChain(chain);
         setIndex(0);
-    }, [chain]);
+    }
 
     const current = chain[index];
     if (!current) {

@@ -3,12 +3,13 @@ use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use tauri::Emitter;
 
+use super::compaction;
 use super::logging;
 use super::streaming::{self, ProxyContext};
 use crate::agent::model_router;
 use crate::agent::models::AgentState;
-use crate::agent::tools::page_shot;
 use crate::agent::tools::dispatch::{self, SideEffect, ToolCtx, ToolOutcome};
+use crate::agent::tools::page_shot;
 use crate::commands::pty::PtyState;
 use crate::core::error::AppError;
 use crate::core::ram_debug;
@@ -32,7 +33,11 @@ const MAX_EDITS_PER_FILE_PER_TURN: usize = 6;
 /// Drop the largest cached file contents once this turn's cache exceeds the cap.
 pub(crate) const MAX_FILE_CACHE_BYTES: usize = 32 * 1024 * 1024;
 
-pub(crate) fn file_cache_insert(cache: &mut HashMap<String, String>, path: String, content: String) {
+pub(crate) fn file_cache_insert(
+    cache: &mut HashMap<String, String>,
+    path: String,
+    content: String,
+) {
     cache.insert(path.clone(), content);
     loop {
         let total: usize = cache.values().map(|s| s.len()).sum();
@@ -61,7 +66,8 @@ const MAX_CONSECUTIVE_EDIT_FAILURES: usize = 3;
 const SYNTHESIS_MIN_PROSE_CHARS: usize = 10;
 const SYNTHESIS_MAX_TOKENS: u32 = 900;
 
-const NUDGE_CONCISE_USER_REPLY: &str = "Stop calling tools. Give the user a short, concrete answer. \
+const NUDGE_CONCISE_USER_REPLY: &str =
+    "Stop calling tools. Give the user a short, concrete answer. \
 Plain prose; bullets only if listing distinct items. No section headers, no soft closes.";
 
 const NUDGE_CONTINUE_OR_FINISH: &str = "Continue the task. If you still need to read or edit files, \
@@ -168,7 +174,11 @@ fn read_file_range_args(arguments: &str) -> Option<(String, usize, usize)> {
     if path.is_empty() {
         return None;
     }
-    let start = args.get("start_line").and_then(|v| v.as_u64()).unwrap_or(1).max(1) as usize;
+    let start = args
+        .get("start_line")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(1)
+        .max(1) as usize;
     let end = args
         .get("end_line")
         .and_then(|v| v.as_u64())
@@ -327,7 +337,8 @@ fn tool_result_looks_failed(result: &str) -> bool {
         || lower.contains("enoent")
 }
 
-const PROMPT_SYNTHESIS_USER: &str = "Write a short answer for the user from the tool results below. \
+const PROMPT_SYNTHESIS_USER: &str =
+    "Write a short answer for the user from the tool results below. \
 Plain prose; bullets only if listing distinct items. No `##` headers or report formatting.";
 
 fn strip_tool_markup(content: &str) -> String {
@@ -361,9 +372,11 @@ fn has_written_summary(finished_signal: &Option<String>) -> bool {
 }
 
 fn record_usage(config: &AgentTurnConfig<'_>, input_tokens: usize, output_tokens: usize) {
-    config
-        .agent_state
-        .record_turn_usage(config.proxy_ctx.turn_id.as_deref(), input_tokens, output_tokens);
+    config.agent_state.record_turn_usage(
+        config.proxy_ctx.turn_id.as_deref(),
+        input_tokens,
+        output_tokens,
+    );
 }
 
 fn collect_tool_context(api_messages: &[Value]) -> String {
@@ -377,10 +390,7 @@ fn collect_tool_context(api_messages: &[Value]) -> String {
         .join("\n\n---\n\n")
 }
 
-async fn synthesize_from_tool_context(
-    config: &AgentTurnConfig<'_>,
-    instruction: &str,
-) -> String {
+async fn synthesize_from_tool_context(config: &AgentTurnConfig<'_>, instruction: &str) -> String {
     let tool_context = collect_tool_context(config.api_messages);
     if tool_context.trim().is_empty() {
         return "Exploration finished but no findings were captured. Try asking again with a narrower question."
@@ -439,7 +449,7 @@ async fn force_text_response(
         empty_tools,
         config.app_handle,
         config.cancel.clone(),
-        config.proxy_model,
+        config.model,
         &config.proxy_ctx,
     )
     .await
@@ -463,11 +473,7 @@ async fn force_text_response(
     }
 
     if !has_substantive_text(final_full_response) {
-        let fallback = synthesize_from_tool_context(
-            config,
-            PROMPT_SYNTHESIS_USER,
-        )
-        .await;
+        let fallback = synthesize_from_tool_context(config, PROMPT_SYNTHESIS_USER).await;
         if !fallback.trim().is_empty() {
             final_full_response.push_str(&fallback);
             emit_turn_chat_token(config, fallback.clone());
@@ -481,8 +487,6 @@ pub struct AgentTurnConfig<'a> {
     pub api_messages: &'a mut Vec<Value>,
     pub tools: &'a [Value],
     pub model: &'a str,
-    /// Model id sent to Shape Cloud (Auto stays `auto`; website resolves billing).
-    pub proxy_model: &'a str,
     pub mode: &'a str,
     pub project_path: &'a str,
     pub app_handle: &'a tauri::AppHandle,
@@ -494,6 +498,9 @@ pub struct AgentTurnConfig<'a> {
     pub proxy_ctx: ProxyContext,
     pub max_loops: usize,
     pub emit_complete: bool,
+    /// Standing compaction instructions from Settings, used when the model asks
+    /// for a fold mid-turn.
+    pub compact_instructions: Option<String>,
 }
 
 pub struct AgentTurnOutcome {
@@ -516,6 +523,150 @@ fn emit_turn_chat_token(config: &AgentTurnConfig<'_>, chunk: impl Into<String>) 
             "conversationId": config.proxy_ctx.conversation_id,
         }),
     );
+}
+
+/// Whether this turn is the one the user is looking at. `recent_files` and the
+/// stored summary describe that chat, so a background turn for another
+/// conversation must not rewrite them.
+fn owns_live_chat(config: &AgentTurnConfig<'_>, conversation_id: &Option<String>) -> bool {
+    let live = config
+        .agent_state
+        .current_conversation_id
+        .lock()
+        .ok()
+        .and_then(|c| c.clone());
+    match live {
+        Some(live) => conversation_id.as_deref() == Some(live.as_str()),
+        None => true,
+    }
+}
+
+/// Run a model-requested `compact_context` call once its own tool result is on
+/// the wire, so any replacement lands on that result and the pairing of calls
+/// to results stays valid.
+async fn handle_compact_context(
+    config: &mut AgentTurnConfig<'_>,
+    call: &streaming::ToolCall,
+    read_coverage: &mut HashMap<String, Vec<(usize, usize)>>,
+    executed_readonly_calls: &mut HashSet<String>,
+    read_paths: &mut HashSet<String>,
+) {
+    // `ToolCall.arguments` is the raw JSON string the model emitted.
+    let args = serde_json::from_str::<Value>(&call.arguments).unwrap_or(Value::Null);
+    if config.agent_state.incognito() {
+        compaction::replace_tool_result(
+            config.api_messages,
+            &call.id,
+            "Compaction is off in incognito chats: nothing here is summarized or written to disk. Continue the task.",
+        );
+        return;
+    }
+    let action = args
+        .get("action")
+        .and_then(|v| v.as_str())
+        .map(|a| a.trim().to_ascii_lowercase())
+        .unwrap_or_else(|| "compact".to_string());
+    let text_arg = |key: &str| {
+        args.get(key)
+            .and_then(|v| v.as_str())
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty())
+    };
+
+    // A hold on the automatic pass: the agent knows what it is half-way
+    // through, the token counter does not.
+    if matches!(action.as_str(), "defer" | "pause" | "hold") {
+        let reason = text_arg("reason").unwrap_or_else(|| {
+            "the agent asked for room to finish the current step".to_string()
+        });
+        let tokens_now = config
+            .agent_state
+            .history
+            .lock()
+            .map(|h| compaction::history_tokens(&h))
+            .unwrap_or(0);
+        let ack = compaction::pause_auto(
+            config.agent_state,
+            &reason,
+            tokens_now,
+            config.model,
+        );
+        let message = match ack {
+            Ok(ack) => format!(
+                "Automatic compaction is on hold while you finish this step. I kept your \
+                 note: \"{}\". A manual /compact still works, and the hold ends by itself \
+                 after ~{} minutes, {}k tokens of growth, or {} skipped passes; it is also \
+                 overridden if the window reaches {}k tokens. Call compact_context \
+                 action:resume when the step is done.",
+                ack.reason,
+                (compaction::PAUSE_MAX_SECS / 60.0).round() as i64,
+                ack.token_budget / 1000,
+                ack.skips,
+                ack.hard_ceiling_tokens / 1000,
+            ),
+            Err(e) => format!("Could not hold compaction: {e}. Continue the task."),
+        };
+        compaction::replace_tool_result(config.api_messages, &call.id, &message);
+        compaction::announce_pause(config.app_handle, config.agent_state, true);
+    } else if matches!(action.as_str(), "resume" | "unpause") {
+        let was_paused = compaction::resume_auto(config.agent_state).unwrap_or(false);
+        let message = if was_paused {
+            "Automatic compaction is active again; it will run at the next turn \
+             boundary if the window needs it. The note you pinned stays with the next \
+             summary. Continue the task."
+        } else {
+            "Automatic compaction was not on hold. Nothing to resume."
+        };
+        compaction::replace_tool_result(config.api_messages, &call.id, message);
+        compaction::announce_pause(config.app_handle, config.agent_state, false);
+    } else {
+    let focus = text_arg("focus");
+    let mut req = compaction::CompactRequest::new(
+        config.client,
+        config.api_key,
+        config.proxy_ctx.clone(),
+        config.model,
+        "tool",
+    );
+    req.focus = focus;
+    req.instructions = config.compact_instructions.clone();
+    req.project_path = config.project_path;
+    req.app_handle = Some(config.app_handle);
+    match compaction::compact_api_messages(
+        config.agent_state,
+        &mut *config.api_messages,
+        &call.id,
+        req,
+    )
+    .await
+    {
+        Ok(Some(record)) => {
+            // The transcript those caches referred to no longer exists,
+            // so previously-seen reads may be read again.
+            read_coverage.clear();
+            executed_readonly_calls.clear();
+            read_paths.clear();
+            logging::info(
+                "chat",
+                &format!("Model-triggered {}", record.describe()),
+            );
+        }
+        Ok(None) => {
+            compaction::replace_tool_result(
+                config.api_messages,
+                &call.id,
+                "Nothing to compact — this conversation is already small. Continue the task.",
+            );
+        }
+        Err(e) => {
+            compaction::replace_tool_result(
+                config.api_messages,
+                &call.id,
+                &format!("Compaction failed: {e}. Continue without it and keep responses focused."),
+            );
+        }
+    }
+    }
 }
 
 pub async fn run_agent_turn(mut config: AgentTurnConfig<'_>) -> Result<AgentTurnOutcome, AppError> {
@@ -606,7 +757,10 @@ pub async fn run_agent_turn(mut config: AgentTurnConfig<'_>) -> Result<AgentTurn
         if loop_count >= config.max_loops {
             logging::warn(
                 "chat",
-                &format!("Hit max tool-loop iterations ({}), pausing", config.max_loops),
+                &format!(
+                    "Hit max tool-loop iterations ({}), pausing",
+                    config.max_loops
+                ),
             );
             final_full_response.push_str(
                 "\n\nPaused after a long stretch of tool work (safety checkpoint). Say **continue** and I’ll pick up where I left off.\n",
@@ -641,10 +795,7 @@ pub async fn run_agent_turn(mut config: AgentTurnConfig<'_>) -> Result<AgentTurn
         }
 
         // Reset the UI activity label: we're back in the model, not a tool.
-        streaming::emit_chat_status(
-            &config.app_handle,
-            json!({ "phase": "model" }),
-        );
+        streaming::emit_chat_status(config.app_handle, json!({ "phase": "model" }));
 
         let outcome = match streaming::stream_chat_with_retry(
             config.client,
@@ -653,7 +804,7 @@ pub async fn run_agent_turn(mut config: AgentTurnConfig<'_>) -> Result<AgentTurn
             config.tools,
             config.app_handle,
             config.cancel.clone(),
-            config.proxy_model,
+            config.model,
             &config.proxy_ctx,
         )
         .await
@@ -696,7 +847,7 @@ pub async fn run_agent_turn(mut config: AgentTurnConfig<'_>) -> Result<AgentTurn
                     "Provider finish_reason=error with no tool calls — retrying once with tools",
                 );
                 streaming::emit_chat_status(
-                    &config.app_handle,
+                    config.app_handle,
                     json!({ "phase": "model", "label": "Retrying after model error" }),
                 );
                 continue;
@@ -711,17 +862,16 @@ pub async fn run_agent_turn(mut config: AgentTurnConfig<'_>) -> Result<AgentTurn
         if !outcome.content.is_empty() {
             // Final answers always land in the reply. Brief mid-tool checkpoints
             // (Cursor-style sanity notes) also surface; long essays stay API-only.
-            if outcome.tool_calls.is_empty() || streaming::is_brief_checkpoint(&outcome.content) {
-                if !is_repeat_prose(&final_full_response, &outcome.content)
-                    && !is_redundant_coda(&final_full_response, &outcome.content)
-                {
-                    if !outcome.tool_calls.is_empty() && !final_full_response.ends_with('\n') {
-                        final_full_response.push('\n');
-                    }
-                    final_full_response.push_str(&outcome.content);
-                    if !outcome.tool_calls.is_empty() {
-                        final_full_response.push_str("\n\n");
-                    }
+            if (outcome.tool_calls.is_empty() || streaming::is_brief_checkpoint(&outcome.content))
+                && !is_repeat_prose(&final_full_response, &outcome.content)
+                && !is_redundant_coda(&final_full_response, &outcome.content)
+            {
+                if !outcome.tool_calls.is_empty() && !final_full_response.ends_with('\n') {
+                    final_full_response.push('\n');
+                }
+                final_full_response.push_str(&outcome.content);
+                if !outcome.tool_calls.is_empty() {
+                    final_full_response.push_str("\n\n");
                 }
             }
         }
@@ -777,7 +927,7 @@ pub async fn run_agent_turn(mut config: AgentTurnConfig<'_>) -> Result<AgentTurn
                     "content": nudge,
                 }));
                 streaming::emit_chat_status(
-                    &config.app_handle,
+                    config.app_handle,
                     json!({ "phase": "model", "label": "Continuing" }),
                 );
                 continue;
@@ -828,10 +978,8 @@ pub async fn run_agent_turn(mut config: AgentTurnConfig<'_>) -> Result<AgentTurn
             if !incomplete_text_nudged
                 && loop_count > 1
                 && !config.cancel.is_cancelled()
-                && (
-                    looks_like_incomplete_work(content)
-                    || (last_round_failed && content.chars().count() < 280)
-                )
+                && (looks_like_incomplete_work(content)
+                    || (last_round_failed && content.chars().count() < 280))
             {
                 incomplete_text_nudged = true;
                 logging::info(
@@ -870,7 +1018,7 @@ pub async fn run_agent_turn(mut config: AgentTurnConfig<'_>) -> Result<AgentTurn
 
             if tool_calls[0].name != "decide" {
                 streaming::emit_chat_status(
-                    &config.app_handle,
+                    config.app_handle,
                     json!({ "phase": "tool", "tool": tool_calls[0].name }),
                 );
             }
@@ -946,8 +1094,7 @@ pub async fn run_agent_turn(mut config: AgentTurnConfig<'_>) -> Result<AgentTurn
             }))
             .await;
 
-            let mut results: Vec<Option<ToolOutcome>> =
-                tool_calls.iter().map(|_| None).collect();
+            let mut results: Vec<Option<ToolOutcome>> = tool_calls.iter().map(|_| None).collect();
             for (&i, out) in run_indices.iter().zip(executed) {
                 results[i] = Some(out);
             }
@@ -991,6 +1138,23 @@ pub async fn run_agent_turn(mut config: AgentTurnConfig<'_>) -> Result<AgentTurn
                     edit_counts.remove(&abs);
                     edit_fail_counts.remove(&abs);
                     needs_reread.remove(&abs);
+                    if owns_live_chat(&config, &conversation_id) {
+                        compaction::remember_recent_file(config.agent_state, &abs, "read");
+                    }
+                }
+                if let Some(SideEffect::FileWritten { path, .. }) = &tool_outcome.side_effect {
+                    let abs = resolve_abs(path, config.project_path);
+                    if owns_live_chat(&config, &conversation_id) {
+                        compaction::remember_recent_file(config.agent_state, &abs, "write");
+                    }
+                }
+                if let Some(SideEffect::FilesWritten { files }) = &tool_outcome.side_effect {
+                    for (path, _) in files {
+                        let abs = resolve_abs(path, config.project_path);
+                        if owns_live_chat(&config, &conversation_id) {
+                            compaction::remember_recent_file(config.agent_state, &abs, "write");
+                        }
+                    }
                 }
                 if let Some(SideEffect::PageScreenshot { tag }) = &tool_outcome.side_effect {
                     let tag = tag.clone();
@@ -1004,6 +1168,9 @@ pub async fn run_agent_turn(mut config: AgentTurnConfig<'_>) -> Result<AgentTurn
             // busts the cached prompt prefix (Claude Code uses cache_edits instead).
             if super::messages::clear_old_tool_results(config.api_messages) {
                 read_coverage.clear();
+                // The payloads those keys point at are gone, so a repeat read is
+                // legitimate again rather than "duplicate".
+                executed_readonly_calls.clear();
             }
 
             // Skip explore counting when every call was a duplicate or denied retry.
@@ -1033,7 +1200,9 @@ pub async fn run_agent_turn(mut config: AgentTurnConfig<'_>) -> Result<AgentTurn
                 }
                 break 'outer;
             }
-            if consecutive_readonly_rounds >= readonly_nudge_after(config.mode) && !explore_nudge_sent {
+            if consecutive_readonly_rounds >= readonly_nudge_after(config.mode)
+                && !explore_nudge_sent
+            {
                 explore_nudge_sent = true;
                 logging::info("chat", "Read-only thrash — nudging model toward editing");
                 config.api_messages.push(json!({
@@ -1062,7 +1231,7 @@ pub async fn run_agent_turn(mut config: AgentTurnConfig<'_>) -> Result<AgentTurn
                 } else {
                     json!({ "phase": "tool", "tool": call.name })
                 };
-                streaming::emit_chat_status(&config.app_handle, tool_status);
+                streaming::emit_chat_status(config.app_handle, tool_status);
             }
 
             if call.name == "read_file" {
@@ -1156,7 +1325,11 @@ pub async fn run_agent_turn(mut config: AgentTurnConfig<'_>) -> Result<AgentTurn
                                 "DUPLICATE READ BLOCKED: lines {}-{} of '{}' are already in this conversation and the file has not changed since. \
                                  Scroll back to the earlier read_file result, or read a range you have not seen yet.",
                                 start,
-                                if end == usize::MAX { "end".to_string() } else { end.to_string() },
+                                if end == usize::MAX {
+                                    "end".to_string()
+                                } else {
+                                    end.to_string()
+                                },
                                 path
                             );
                             push_tool_result(config.api_messages, &call.id, &call.name, &msg);
@@ -1195,10 +1368,14 @@ pub async fn run_agent_turn(mut config: AgentTurnConfig<'_>) -> Result<AgentTurn
                             let hint_msg = format!(
                                 "BLOCKED: edit_file on '{}' failed {} time(s) this turn. \
                                  Call read_file on it now (required), then retry with a unique SEARCH block from the latest content.",
-                                target, fails.max(1)
+                                target,
+                                fails.max(1)
                             );
                             push_tool_result(config.api_messages, &call.id, &call.name, &hint_msg);
-                            let ui = format!("\n<tool_result>\n[edit_file] {}\n</tool_result>\n", hint_msg);
+                            let ui = format!(
+                                "\n<tool_result>\n[edit_file] {}\n</tool_result>\n",
+                                hint_msg
+                            );
                             emit_turn_chat_token(&config, ui.clone());
                             final_full_response.push_str(&ui);
                             continue;
@@ -1213,7 +1390,10 @@ pub async fn run_agent_turn(mut config: AgentTurnConfig<'_>) -> Result<AgentTurn
                                 target, MAX_EDITS_PER_FILE_PER_TURN
                             );
                             push_tool_result(config.api_messages, &call.id, &call.name, &hint_msg);
-                            let ui = format!("\n<tool_result>\n[edit_file] {}\n</tool_result>\n", hint_msg);
+                            let ui = format!(
+                                "\n<tool_result>\n[edit_file] {}\n</tool_result>\n",
+                                hint_msg
+                            );
                             emit_turn_chat_token(&config, ui.clone());
                             final_full_response.push_str(&ui);
                             continue;
@@ -1232,8 +1412,8 @@ pub async fn run_agent_turn(mut config: AgentTurnConfig<'_>) -> Result<AgentTurn
             if call.name == "read_file" {
                 if let Ok(args_val) = serde_json::from_str::<Value>(&call.arguments) {
                     let path = args_val.get("path").and_then(|v| v.as_str()).unwrap_or("");
-                    let has_range = args_val.get("start_line").is_some()
-                        || args_val.get("end_line").is_some();
+                    let has_range =
+                        args_val.get("start_line").is_some() || args_val.get("end_line").is_some();
                     if !path.is_empty() && !has_range {
                         let abs = resolve_abs(path, config.project_path);
                         if !needs_reread.contains(&abs) {
@@ -1247,13 +1427,21 @@ pub async fn run_agent_turn(mut config: AgentTurnConfig<'_>) -> Result<AgentTurn
                                         head
                                     )
                                 } else {
-                                    format!("{}\n\n[served from turn cache — content unchanged since last read/write]", cached)
+                                    format!(
+                                        "{}\n\n[served from turn cache — content unchanged since last read/write]",
+                                        cached
+                                    )
                                 };
                                 let ui = format!("\n<cat>{}</cat>\n", path);
                                 upsert_terminal_ui_chunk(&mut final_full_response, &ui);
                                 emit_turn_chat_token(&config, ui.clone());
                                 track_stream_chunk(&config, &ui, None);
-                                push_tool_result(config.api_messages, &call.id, &call.name, &display);
+                                push_tool_result(
+                                    config.api_messages,
+                                    &call.id,
+                                    &call.name,
+                                    &display,
+                                );
                                 if let Some(range) = parse_read_result_range(cached) {
                                     read_coverage.entry(abs.clone()).or_default().push(range);
                                 }
@@ -1267,23 +1455,26 @@ pub async fn run_agent_turn(mut config: AgentTurnConfig<'_>) -> Result<AgentTurn
                 }
             }
 
-            let ctx = ToolCtx {
-                project_path: config.project_path,
-                mode: config.mode,
-                app_handle: config.app_handle,
-                agent_state: config.agent_state,
-                client: config.client,
-                api_key: config.api_key,
-                model: config.model,
-                cancel: config.cancel.clone(),
-                index_state: config.index_state,
-                mcp_state: config.mcp_state,
-                pty_state: config.pty_state,
-                turn_id: turn_id.clone(),
-                conversation_id: conversation_id.clone(),
+            // Scoped so the borrows it holds end here: the compaction handler
+            // below needs `&mut config`.
+            let tool_outcome = {
+                let ctx = ToolCtx {
+                    project_path: config.project_path,
+                    mode: config.mode,
+                    app_handle: config.app_handle,
+                    agent_state: config.agent_state,
+                    client: config.client,
+                    api_key: config.api_key,
+                    model: config.model,
+                    cancel: config.cancel.clone(),
+                    index_state: config.index_state,
+                    mcp_state: config.mcp_state,
+                    pty_state: config.pty_state,
+                    turn_id: turn_id.clone(),
+                    conversation_id: conversation_id.clone(),
+                };
+                dispatch::execute_tool(&call.name, &call.arguments, &ctx).await
             };
-
-            let tool_outcome = dispatch::execute_tool(&call.name, &call.arguments, &ctx).await;
 
             // Writing to disk can change what read-only tools would return, so repeated
             // reads become legitimate again.
@@ -1313,6 +1504,17 @@ pub async fn run_agent_turn(mut config: AgentTurnConfig<'_>) -> Result<AgentTurn
                 content = format!("{}\n\n{}", hint, content);
             }
             push_tool_result(config.api_messages, &call.id, &call.name, &content);
+
+            if call.name == "compact_context" {
+                handle_compact_context(
+                    &mut config,
+                    &call,
+                    &mut read_coverage,
+                    &mut executed_readonly_calls,
+                    &mut read_paths,
+                )
+                .await;
+            }
 
             if call.name == "read_file" && is_access_denied_result(&content) {
                 if let Some(path) = read_file_path_arg(&call.arguments) {
@@ -1353,7 +1555,10 @@ pub async fn run_agent_turn(mut config: AgentTurnConfig<'_>) -> Result<AgentTurn
 
             if let Some(effect) = tool_outcome.side_effect {
                 match effect {
-                    SideEffect::FileRead { path, content: file_content } => {
+                    SideEffect::FileRead {
+                        path,
+                        content: file_content,
+                    } => {
                         let abs = resolve_abs(&path, config.project_path);
                         read_paths.insert(abs.clone());
                         file_cache_insert(&mut file_cache, abs.clone(), file_content);
@@ -1362,13 +1567,19 @@ pub async fn run_agent_turn(mut config: AgentTurnConfig<'_>) -> Result<AgentTurn
                         edit_fail_counts.remove(&abs);
                         needs_reread.remove(&abs);
                     }
-                    SideEffect::FileWritten { path, content: file_content } => {
+                    SideEffect::FileWritten {
+                        path,
+                        content: file_content,
+                    } => {
                         wrote_files = true;
                         let abs = resolve_abs(&path, config.project_path);
                         read_paths.insert(abs.clone());
                         file_cache_insert(&mut file_cache, abs.clone(), file_content);
                         edit_fail_counts.remove(&abs);
                         needs_reread.remove(&abs);
+                        if owns_live_chat(&config, &conversation_id) {
+                            compaction::remember_recent_file(config.agent_state, &abs, "write");
+                        }
                     }
                     SideEffect::FilesWritten { files } => {
                         wrote_files = true;
@@ -1378,6 +1589,9 @@ pub async fn run_agent_turn(mut config: AgentTurnConfig<'_>) -> Result<AgentTurn
                             file_cache_insert(&mut file_cache, abs.clone(), file_content);
                             edit_fail_counts.remove(&abs);
                             needs_reread.remove(&abs);
+                            if owns_live_chat(&config, &conversation_id) {
+                                compaction::remember_recent_file(config.agent_state, &abs, "write");
+                            }
                         }
                     }
                     SideEffect::FileDeleted { path } => {
@@ -1391,6 +1605,17 @@ pub async fn run_agent_turn(mut config: AgentTurnConfig<'_>) -> Result<AgentTurn
                     }
                     SideEffect::Finished { summary } => {
                         finished_signal = Some(summary.unwrap_or_default());
+                        // A user-visible finish ends the work a hold protected.
+                        if let Ok(mut guard) = config.agent_state.compaction.lock() {
+                            if guard.resume_auto() {
+                                drop(guard);
+                                compaction::announce_pause(
+                                    config.app_handle,
+                                    config.agent_state,
+                                    false,
+                                );
+                            }
+                        }
                     }
                     SideEffect::PageScreenshot { tag } => {
                         drop_prior_page_shots(config.api_messages);
@@ -1407,7 +1632,10 @@ pub async fn run_agent_turn(mut config: AgentTurnConfig<'_>) -> Result<AgentTurn
             if last_round_failed && !incomplete_text_nudged && !config.cancel.is_cancelled() {
                 incomplete_text_nudged = true;
                 finished_signal = None;
-                logging::info("chat", "finish after a failed tool — nudging model to recover");
+                logging::info(
+                    "chat",
+                    "finish after a failed tool — nudging model to recover",
+                );
                 config.api_messages.push(json!({
                     "role": "user",
                     "content": "The last command failed. Do not finish yet. Recover from the error or explain the blocker, then continue the task.",
@@ -1444,7 +1672,9 @@ pub async fn run_agent_turn(mut config: AgentTurnConfig<'_>) -> Result<AgentTurn
                 }
                 break;
             }
-            if consecutive_readonly_rounds >= readonly_nudge_after(config.mode) && !explore_nudge_sent {
+            if consecutive_readonly_rounds >= readonly_nudge_after(config.mode)
+                && !explore_nudge_sent
+            {
                 explore_nudge_sent = true;
                 logging::info("chat", "Read-only thrash — nudging model toward editing");
                 config.api_messages.push(json!({
@@ -1475,15 +1705,15 @@ pub async fn run_agent_turn(mut config: AgentTurnConfig<'_>) -> Result<AgentTurn
         && interrupt_error.is_none()
         && !config.cancel.is_cancelled()
     {
-            logging::info("chat", "No written summary yet — forcing synthesis stream");
-            force_text_response(
-                &mut config,
-                &mut final_full_response,
-                &mut total_input_tokens,
-                &mut total_output_tokens,
-                NUDGE_CONCISE_USER_REPLY,
-            )
-            .await;
+        logging::info("chat", "No written summary yet — forcing synthesis stream");
+        force_text_response(
+            &mut config,
+            &mut final_full_response,
+            &mut total_input_tokens,
+            &mut total_output_tokens,
+            NUDGE_CONCISE_USER_REPLY,
+        )
+        .await;
     }
 
     if !page_shots.is_empty() {
@@ -1513,7 +1743,12 @@ pub async fn run_agent_turn(mut config: AgentTurnConfig<'_>) -> Result<AgentTurn
 }
 
 fn push_tool_result(api_messages: &mut Vec<Value>, id: &str, name: &str, content: &str) {
-    ram_debug::tool(name, id, content.len(), &content.chars().take(80).collect::<String>());
+    ram_debug::tool(
+        name,
+        id,
+        content.len(),
+        &content.chars().take(80).collect::<String>(),
+    );
     api_messages.push(json!({
         "role": "tool",
         "tool_call_id": id,
@@ -1595,14 +1830,12 @@ fn track_stream_chunk(config: &AgentTurnConfig<'_>, chunk: &str, activity_label:
     } else {
         Some(config.project_path)
     };
-    config
-        .agent_state
-        .append_in_flight(
-            chunk,
-            activity_label,
-            proj,
-            config.proxy_ctx.conversation_id.as_deref(),
-        );
+    config.agent_state.append_in_flight(
+        chunk,
+        activity_label,
+        proj,
+        config.proxy_ctx.conversation_id.as_deref(),
+    );
 }
 
 fn resolve_abs(path: &str, project_path: &str) -> String {
@@ -1688,7 +1921,6 @@ fn extract_xml_attr(chunk: &str, attr: &str) -> Option<String> {
     Some(rest[..end].to_string())
 }
 
-
 fn clip_text(text: &str, limit: usize) -> String {
     if text.chars().count() <= limit {
         return text.to_string();
@@ -1735,7 +1967,9 @@ This IDE has a few modes, and design work lives in Visual mode.\n\
 
     #[test]
     fn trailing_let_me_is_incomplete() {
-        assert!(looks_like_incomplete_work("Found the bug. Let me try the edit again"));
+        assert!(looks_like_incomplete_work(
+            "Found the bug. Let me try the edit again"
+        ));
     }
 
     #[test]

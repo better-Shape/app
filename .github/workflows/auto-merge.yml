@@ -1,0 +1,107 @@
+name: Auto-merge Dependabot
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+  checks: read
+
+jobs:
+  auto-merge:
+    name: Auto-merge Dependabot (patch/minor)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: github.actor == 'dependabot[bot]'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check PR metadata
+        id: meta
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          set -euo pipefail
+          echo "Title: $TITLE"
+          # Only auto-merge if it's a patch or minor update (not major)
+          # Dependabot titles like "chore(deps): bump X from 1.0.0 to 1.0.1"
+          # We allow patch and minor, block major
+          if echo "$TITLE" | grep -Eq "from [0-9]+\.[0-9]+\.[0-9]+ to [0-9]+\.[0-9]+\.[0-9]+"; then
+            FROM=$(echo "$TITLE" | sed -n 's/.*from \([0-9]*\)\.\([0-9]*\)\.\([0-9]*\) to.*/\1 \2 \3/p')
+            TO=$(echo "$TITLE" | sed -n 's/.*to \([0-9]*\)\.\([0-9]*\)\.\([0-9]*\)/\1 \2 \3/p')
+            echo "From: $FROM"
+            echo "To: $TO"
+            FROM_MAJOR=$(echo "$FROM" | cut -d' ' -f1)
+            FROM_MINOR=$(echo "$FROM" | cut -d' ' -f2)
+            TO_MAJOR=$(echo "$TO" | cut -d' ' -f1)
+            TO_MINOR=$(echo "$TO" | cut -d' ' -f2)
+            if [ "$FROM_MAJOR" != "$TO_MAJOR" ]; then
+              echo "Major version bump detected - requires manual review"
+              echo "automerge=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            # For 0.x, minor bump is breaking per semver (0.3.0 -> 0.4.0 can be breaking)
+            if [ "$FROM_MAJOR" = "0" ] && [ "$FROM_MINOR" != "$TO_MINOR" ]; then
+              echo "Breaking 0.x minor bump detected (0.$FROM_MINOR -> 0.$TO_MINOR) - requires manual review"
+              echo "automerge=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "Minor/patch bump - eligible for auto-merge"
+            echo "automerge=true" >> "$GITHUB_OUTPUT"
+          else
+            # For grouped updates or unknown format, don't auto-merge
+            echo "Unknown version format - requires manual review"
+            echo "automerge=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Wait for CI
+        id: wait-ci
+        if: steps.meta.outputs.automerge == 'true'
+        uses: lewagon/wait-on-check-action@v1.3.4
+        with:
+          # For pull_request events, github.sha is the test-merge commit where CI reports
+          # Use github.sha not head.sha to correctly wait for CI Success
+          ref: ${{ github.sha }}
+          check-name: "CI Success"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          wait-interval: 30
+          allowed-conclusions: success
+          verbose: true
+
+      - name: Verify CI success (fail closed)
+        if: steps.meta.outputs.automerge == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.wait-ci.outputs.conclusion }}" != "success" ]; then
+            echo "::error::CI did not succeed (conclusion: ${{ steps.wait-ci.outputs.conclusion }}), not auto-merging"
+            exit 1
+          fi
+          # Re-fetch current head SHA to prevent TOCTOU race - if Dependabot pushed during wait, original HEAD_SHA is stale
+          CURRENT_HEAD=$(gh pr view "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --json headRefOid --jq '.headRefOid')
+          ORIGINAL_HEAD="${{ github.event.pull_request.head.sha }}"
+          echo "Original head: $ORIGINAL_HEAD"
+          echo "Current head: $CURRENT_HEAD"
+          echo "Merge commit: ${{ github.sha }}"
+          if [ "$CURRENT_HEAD" != "$ORIGINAL_HEAD" ]; then
+            echo "::error::PR head changed during CI wait (from $ORIGINAL_HEAD to $CURRENT_HEAD) - aborting auto-merge, will retry on next push"
+            exit 1
+          fi
+          echo "✓ CI succeeded and head unchanged ($CURRENT_HEAD)"
+
+      - name: Enable auto-merge
+        if: steps.meta.outputs.automerge == 'true' && steps.wait-ci.outputs.conclusion == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          # Only auto-merge if CI is green - fail closed
+          if ! gh pr view "$PR" --repo "${{ github.repository }}" --json mergeable --jq '.mergeable' | grep -q "MERGEABLE"; then
+            echo "::warning::PR not mergeable, skipping auto-merge"
+            exit 0
+          fi
+          gh pr merge "$PR" --auto --squash --repo "${{ github.repository }}"

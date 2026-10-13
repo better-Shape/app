@@ -21,7 +21,7 @@ export function GitStatusButton() {
                 size="sm"
                 className="gap-1 text-text-primary font-light"
                 onClick={() =>
-                    window.dispatchEvent(new CustomEvent("shape-set-active-tab", { detail: "source" }))
+                    window.dispatchEvent(new CustomEvent("bettershape-set-active-tab", { detail: "source" }))
                 }
             >
                 <Icon icon={Branch20Regular} className="shrink-0" />

@@ -6,14 +6,14 @@ type CmdPaletteMod = { CommandPalette: ComponentType };
 
 function loadCommandPalette(): Promise<{ default: ComponentType }> {
     const g = globalThis as typeof globalThis & {
-        __shapeCmdPalettePromise?: Promise<{ default: ComponentType }>;
+        __bettershapeCmdPalettePromise?: Promise<{ default: ComponentType }>;
     };
-    if (!g.__shapeCmdPalettePromise) {
-        g.__shapeCmdPalettePromise = import("@/features/command-palette").then(
+    if (!g.__bettershapeCmdPalettePromise) {
+        g.__bettershapeCmdPalettePromise = import("@/features/command-palette").then(
             (m: CmdPaletteMod) => ({ default: m.CommandPalette }),
         );
     }
-    return g.__shapeCmdPalettePromise;
+    return g.__bettershapeCmdPalettePromise;
 }
 
 const CommandPalette = lazy(() => loadCommandPalette());

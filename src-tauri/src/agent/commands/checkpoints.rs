@@ -5,13 +5,19 @@ use super::logging;
 
 fn sanitize_id(id: &str) -> String {
     id.chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect()
 }
 
 pub fn get_checkpoints_path(conversation_id: &str) -> std::path::PathBuf {
     let mut path = dirs::data_local_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
-    path.push("Shape");
+    path.push("BetterShape");
     path.push("checkpoints");
     let _ = std::fs::create_dir_all(&path);
     path.push(format!("{}.json", sanitize_id(conversation_id)));
@@ -27,7 +33,10 @@ pub fn load_checkpoints(conversation_id: &str) -> Vec<TurnCheckpoint> {
         if let Ok(checkpoints) = serde_json::from_str(&content) {
             return checkpoints;
         }
-        logging::warn("checkpoints", "Failed to parse checkpoint file, returning empty");
+        logging::warn(
+            "checkpoints",
+            "Failed to parse checkpoint file, returning empty",
+        );
     }
     Vec::new()
 }

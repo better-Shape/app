@@ -16,7 +16,6 @@ import {
     DropdownMenuContent,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown";
-import { Icon } from "@/components/ui/icon";
 
 import { cn } from "@/lib/utils";
 import { sidebarEdgeOffset } from "./edge";

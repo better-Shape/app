@@ -64,28 +64,37 @@ async function loadViaAssetProtocol(path: string): Promise<string> {
     return src;
 }
 
+type ImageLoadState = { key: string; src: string | null; svg: string | null; error: string | null };
+const EMPTY_IMAGE_STATE: ImageLoadState = { key: "", src: null, svg: null, error: null };
+function imageLoadKey(path: string, isImage: boolean): string {
+    return `${isImage ? "image" : "none"}\u0000${path}`;
+}
+
 export function useImageLoader(path: string, isImage: boolean) {
-    const [imageSrc, setImageSrc] = useState<string | null>(null);
-    const [svgContent, setSvgContent] = useState<string | null>(null);
-    const [error, setError] = useState<string | null>(null);
+    // Results are tagged with the path they belong to. A path change makes them stale,
+    // so the previous image is never shown for the new path.
+    const [loadState, setLoadState] = useState<ImageLoadState>(EMPTY_IMAGE_STATE);
+    const key = imageLoadKey(path, isImage);
+    const current = loadState.key === key ? loadState : EMPTY_IMAGE_STATE;
+    const imageSrc = current.src;
+    const svgContent = current.svg;
+    const error = current.error;
     const blobUrlRef = useRef<string | null>(null);
 
     useEffect(() => {
-        if (!isImage) {
-            setImageSrc(null);
-            setSvgContent(null);
-            setError(null);
-            return;
-        }
+        if (!isImage) return;
 
         let cancelled = false;
         const actualPath = stripDiffPrefix(path);
         const ext = actualPath.split(".").pop()?.toLowerCase() ?? "";
 
         LOG("start", { path, actualPath, ext, isImage });
-        setError(null);
-        setImageSrc(null);
-        setSvgContent(null);
+        const patch = (next: Partial<Omit<ImageLoadState, "key">>) =>
+            setLoadState((prev) => ({
+                ...(prev.key === key ? prev : EMPTY_IMAGE_STATE),
+                ...next,
+                key,
+            }));
 
         const adoptSrc = (src: string, via: string) => {
             if (cancelled) {
@@ -97,8 +106,8 @@ export function useImageLoader(path: string, isImage: boolean) {
                 URL.revokeObjectURL(blobUrlRef.current);
             }
             blobUrlRef.current = src.startsWith("blob:") ? src : null;
-            setSvgContent(null);
-            setImageSrc(src);
+            // A successful load clears any error left by an earlier failed attempt.
+            patch({ svg: null, src, error: null });
             LOG("adopted src via", via, src.slice(0, 120));
         };
 
@@ -106,9 +115,7 @@ export function useImageLoader(path: string, isImage: boolean) {
             const message = err instanceof Error ? err.message : String(err);
             LOG("FAIL", stage, message);
             if (cancelled) return;
-            setImageSrc(null);
-            setSvgContent(null);
-            setError(message);
+            patch({ src: null, svg: null, error: message });
             notify.error("Image Error", message);
         };
 
@@ -117,8 +124,7 @@ export function useImageLoader(path: string, isImage: boolean) {
                 try {
                     const content = await commands.readFile(actualPath);
                     if (cancelled) return;
-                    setSvgContent(content);
-                    setImageSrc(null);
+                    patch({ svg: content, src: null, error: null });
                     LOG("svg loaded", content.length);
                 } catch (err) {
                     fail(err, "svg-read");
@@ -149,7 +155,7 @@ export function useImageLoader(path: string, isImage: boolean) {
             cancelled = true;
             LOG("cancel/cleanup", actualPath);
         };
-    }, [isImage, path]);
+    }, [isImage, path, key]);
 
     // Revoke blob on unmount only.
     useEffect(() => {

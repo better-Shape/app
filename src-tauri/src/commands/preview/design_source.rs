@@ -225,7 +225,11 @@ pub fn list_design_assets(project_path: String) -> Result<Vec<DesignAsset>, AppE
                     .to_string_lossy()
                     .replace('\\', "/")
                     .to_ascii_lowercase();
-                if rel.contains("/app/") && (rel.ends_with("/page.tsx") || rel.ends_with("/layout.tsx") || rel.ends_with("/page.jsx")) {
+                if rel.contains("/app/")
+                    && (rel.ends_with("/page.tsx")
+                        || rel.ends_with("/layout.tsx")
+                        || rel.ends_with("/page.jsx"))
+                {
                     continue;
                 }
                 if rel.contains("/components/") || rel.contains("/ui/") {
@@ -388,7 +392,7 @@ fn merge_opening_attribute(opening: &str, name: &str, value: &str) -> Result<Str
             let quote = rest.as_bytes().first().copied();
             if quote != Some(b'"') && quote != Some(b'\'') {
                 return Err(AppError::Message(
-                    "This link is bound to a variable, so Shape left the code unchanged.".into(),
+                    "This link is bound to a variable, so BetterShape left the code unchanged.".into(),
                 ));
             }
             let quote_at = opening.len() - rest.len();
@@ -402,14 +406,19 @@ fn merge_opening_attribute(opening: &str, name: &str, value: &str) -> Result<Str
             } else {
                 value.replace('\\', "\\\\").replace('\'', "\\'")
             };
-            return Ok(format!("{}{}{}", &opening[..quote_at + 1], inner, &opening[end..]));
+            return Ok(format!(
+                "{}{}{}",
+                &opening[..quote_at + 1],
+                inner,
+                &opening[end..]
+            ));
         }
         let quote = *bytes
             .get(cursor)
             .ok_or_else(|| AppError::Message(format!("Invalid {name} attribute.")))?;
         if quote != b'"' && quote != b'\'' {
             return Err(AppError::Message(
-                "This link is bound to a variable, so Shape left the code unchanged.".into(),
+                "This link is bound to a variable, so BetterShape left the code unchanged.".into(),
             ));
         }
         let end = bytes[cursor + 1..]
@@ -526,7 +535,10 @@ fn locate_source_path(root: &Path, raw: &str) -> Option<PathBuf> {
             cleaned = cleaned[start..].to_string();
         }
     }
-    let root_canon = root.canonicalize().ok().unwrap_or_else(|| root.to_path_buf());
+    let root_canon = root
+        .canonicalize()
+        .ok()
+        .unwrap_or_else(|| root.to_path_buf());
     let absolute = PathBuf::from(&cleaned);
     if absolute.is_absolute() {
         if let Ok(canon) = absolute.canonicalize() {
@@ -537,9 +549,7 @@ fn locate_source_path(root: &Path, raw: &str) -> Option<PathBuf> {
         let root_s = paths::spawn_cwd(&root_canon.to_string_lossy())
             .replace('\\', "/")
             .to_lowercase();
-        let file_s = paths::spawn_cwd(&cleaned)
-            .replace('\\', "/")
-            .to_lowercase();
+        let file_s = paths::spawn_cwd(&cleaned).replace('\\', "/").to_lowercase();
         if let Some(rest) = file_s.strip_prefix(root_s.trim_end_matches('/')) {
             let joined = root_canon.join(rest.trim_start_matches('/'));
             if joined.is_file() && supported_source(&joined) {
@@ -624,17 +634,10 @@ fn pick_opening<'a>(
     column: Option<usize>,
     classes: &[String],
 ) -> Option<&'a OpeningHit> {
-    let opening_of = |hit: &OpeningHit| -> &str {
-        source
-            .get(hit.opening_start..hit.opening_end)
-            .unwrap_or("")
-    };
+    let opening_of =
+        |hit: &OpeningHit| -> &str { source.get(hit.opening_start..hit.opening_end).unwrap_or("") };
     let score = |hit: &OpeningHit| -> (u8, u8, usize, usize, usize) {
-        let tag_penalty: u8 = if tags_compatible(&hit.tag, tag) {
-            0
-        } else {
-            2
-        };
+        let tag_penalty: u8 = if tags_compatible(&hit.tag, tag) { 0 } else { 2 };
         let class_penalty: u8 = if opening_has_classes(opening_of(hit), classes) {
             0
         } else {
@@ -811,18 +814,17 @@ pub fn resolve_design_element(
             "Design mode supports React + Vite, Next.js, Astro, and Remix projects.".into(),
         ));
     };
-    let Some(source_file) = query.source_file.as_deref().filter(|value| !value.is_empty()) else {
+    let Some(source_file) = query
+        .source_file
+        .as_deref()
+        .filter(|value| !value.is_empty())
+    else {
         return Ok(Vec::new());
     };
     let Some(path) = locate_source_path(&root, source_file) else {
         return Ok(Vec::new());
     };
-    if path
-        .metadata()
-        .map(|meta| meta.len())
-        .unwrap_or(u64::MAX)
-        > MAX_SOURCE_BYTES
-    {
+    if path.metadata().map(|meta| meta.len()).unwrap_or(u64::MAX) > MAX_SOURCE_BYTES {
         return Ok(Vec::new());
     }
     let Ok(source) = std::fs::read_to_string(&path) else {
@@ -964,7 +966,7 @@ fn merge_react_style(opening: &str, styles: &BTreeMap<String, String>) -> Result
         let literal_start = value_start + whitespace;
         if !opening[literal_start..].starts_with("{{") {
             return Err(AppError::Message(
-                "This element uses a dynamic style expression. Shape will not overwrite it.".into(),
+                "This element uses a dynamic style expression. BetterShape will not overwrite it.".into(),
             ));
         }
         let Some(close_rel) = opening[literal_start + 2..].find("}}") else {
@@ -1037,7 +1039,7 @@ fn merge_html_style(opening: &str, styles: &BTreeMap<String, String>) -> Result<
             .ok_or_else(|| AppError::Message("Invalid style attribute.".into()))?;
         if quote != b'"' && quote != b'\'' {
             return Err(AppError::Message(
-                "This element uses a dynamic style expression. Shape will not overwrite it.".into(),
+                "This element uses a dynamic style expression. BetterShape will not overwrite it.".into(),
             ));
         }
         let start = quote_at + 1;
@@ -1047,7 +1049,12 @@ fn merge_html_style(opening: &str, styles: &BTreeMap<String, String>) -> Result<
             .map(|v| start + v)
             .ok_or_else(|| AppError::Message("Invalid style attribute.".into()))?;
         let merged = merge_css_declarations(&opening[start..end], styles);
-        return Ok(format!("{}{}{}", &opening[..start], merged, &opening[end..]));
+        return Ok(format!(
+            "{}{}{}",
+            &opening[..start],
+            merged,
+            &opening[end..]
+        ));
     }
     let insert_at = opening
         .rfind("/>")
@@ -1078,7 +1085,7 @@ fn replace_direct_text(
     let direct = &body[..closing_at];
     if direct.contains('<') || direct.contains('{') {
         return Err(AppError::Message(
-            "This text is generated by nested or dynamic content, so Shape left the code unchanged."
+            "This text is generated by nested or dynamic content, so BetterShape left the code unchanged."
                 .into(),
         ));
     }
@@ -1111,7 +1118,7 @@ pub fn apply_design_source_patch(patch: DesignSourcePatch) -> Result<DesignPatch
     let source_path = canonical_inside(&root, &root.join(&patch.target.file))?;
     if skip_dir(&source_path) {
         return Err(AppError::Message(
-            "Shape will not edit third-party or generated files.".into(),
+            "BetterShape will not edit third-party or generated files.".into(),
         ));
     }
     let before = std::fs::read_to_string(&source_path)?;
@@ -1126,7 +1133,7 @@ pub fn apply_design_source_patch(patch: DesignSourcePatch) -> Result<DesignPatch
         let before_clean = syntax_is_clean(&source_path, &before);
         if before_clean && !syntax_is_clean(&source_path, content) {
             return Err(AppError::Message(
-                "Shape rejected this edit because it would make the source invalid.".into(),
+                "BetterShape rejected this edit because it would make the source invalid.".into(),
             ));
         }
         std::fs::write(&source_path, content)?;
@@ -1220,7 +1227,10 @@ pub fn apply_design_source_patch(patch: DesignSourcePatch) -> Result<DesignPatch
         let mut updated = current;
         for (name, value) in &patch.attributes {
             let key = name.trim();
-            if key.is_empty() || !key.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+            if key.is_empty()
+                || !key
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
             {
                 return Err(AppError::Message("Unsupported attribute name.".into()));
             }
@@ -1255,7 +1265,7 @@ pub fn apply_design_source_patch(patch: DesignSourcePatch) -> Result<DesignPatch
     let before_clean = syntax_is_clean(&source_path, &before);
     if before_clean && !syntax_is_clean(&source_path, &after) {
         return Err(AppError::Message(
-            "Shape rejected this edit because it would make the source invalid.".into(),
+            "BetterShape rejected this edit because it would make the source invalid.".into(),
         ));
     }
     std::fs::write(&source_path, &after)?;
@@ -1387,7 +1397,7 @@ mod tests {
     #[test]
     fn resolves_and_patches_a_vite_react_element() {
         let root =
-            std::env::temp_dir().join(format!("shape-design-source-{}", uuid::Uuid::new_v4()));
+            std::env::temp_dir().join(format!("bettershape-design-source-{}", uuid::Uuid::new_v4()));
         let src = root.join("src");
         std::fs::create_dir_all(&src).unwrap();
         std::fs::write(
@@ -1395,7 +1405,8 @@ mod tests {
             r#"{"dependencies":{"vite":"7","react":"19"}}"#,
         )
         .unwrap();
-        let source = r#"export function App(){return <main className="hero shell">Hello Shape</main>}"#;
+        let source =
+            r#"export function App(){return <main className="hero shell">Hello BetterShape</main>}"#;
         std::fs::write(src.join("App.tsx"), source).unwrap();
         let column = source.find("<main").unwrap() + 1;
 
@@ -1405,7 +1416,7 @@ mod tests {
                 tag: "main".into(),
                 id: None,
                 classes: vec!["hero".into(), "shell".into()],
-                text: Some("Hello Shape".into()),
+                text: Some("Hello BetterShape".into()),
                 route_source: Some("src/App.tsx".into()),
                 source_file: Some("src/App.tsx".into()),
                 source_line: Some(1),
@@ -1438,7 +1449,7 @@ mod tests {
     #[test]
     fn resolves_the_opening_tag_at_file_line_and_column() {
         let root =
-            std::env::temp_dir().join(format!("shape-design-source-{}", uuid::Uuid::new_v4()));
+            std::env::temp_dir().join(format!("bettershape-design-source-{}", uuid::Uuid::new_v4()));
         let src = root.join("src");
         std::fs::create_dir_all(&src).unwrap();
         std::fs::write(
@@ -1450,7 +1461,7 @@ mod tests {
         std::fs::write(src.join("App.tsx"), source).unwrap();
         let second = source.match_indices("<main").nth(1).unwrap().0;
         let line = source[..second].bytes().filter(|b| *b == b'\n').count() + 1;
-        let column = second - source[..second].rfind('\n').unwrap() ;
+        let column = second - source[..second].rfind('\n').unwrap();
 
         let matches = resolve_design_element(
             root.to_string_lossy().into_owned(),
@@ -1492,7 +1503,7 @@ mod tests {
     #[test]
     fn resolves_webpack_internal_paths_and_nearby_lines() {
         let root =
-            std::env::temp_dir().join(format!("shape-design-source-{}", uuid::Uuid::new_v4()));
+            std::env::temp_dir().join(format!("bettershape-design-source-{}", uuid::Uuid::new_v4()));
         let src = root.join("src");
         std::fs::create_dir_all(&src).unwrap();
         std::fs::write(
@@ -1526,8 +1537,7 @@ mod tests {
 
     #[test]
     fn resolves_next_chunk_url_to_app_page() {
-        let root =
-            std::env::temp_dir().join(format!("shape-design-next-{}", uuid::Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("bettershape-design-next-{}", uuid::Uuid::new_v4()));
         let app = root.join("app");
         std::fs::create_dir_all(&app).unwrap();
         std::fs::write(
@@ -1572,7 +1582,10 @@ mod tests {
             },
         )
         .unwrap();
-        assert!(miss.is_empty(), "bundler runtime chunks must not map to app/page.tsx");
+        assert!(
+            miss.is_empty(),
+            "bundler runtime chunks must not map to app/page.tsx"
+        );
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -1596,8 +1609,7 @@ mod tests {
 
     #[test]
     fn refuses_instance_props_on_html_and_skips_node_modules() {
-        let root =
-            std::env::temp_dir().join(format!("shape-design-safe-{}", uuid::Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("bettershape-design-safe-{}", uuid::Uuid::new_v4()));
         let src = root.join("src");
         let vendor = root.join("node_modules").join("ui");
         std::fs::create_dir_all(&src).unwrap();
@@ -1643,10 +1655,7 @@ export function App(){return <main><Header cartCount={1} label="Shop" /><div cla
             content: None,
         })
         .unwrap_err();
-        assert!(
-            format!("{err:?}").contains("cartCount"),
-            "{err:?}"
-        );
+        assert!(format!("{err:?}").contains("cartCount"), "{err:?}");
         assert!(!std::fs::read_to_string(src.join("App.tsx"))
             .unwrap()
             .contains("cartCount={9}"));

@@ -61,7 +61,7 @@ async function pickDirectory(title: string): Promise<string | null> {
 }
 
 function openProject(path: string) {
-    window.dispatchEvent(new CustomEvent("shape-open-project", { detail: { path } }));
+    window.dispatchEvent(new CustomEvent("bettershape-open-project", { detail: { path } }));
 }
 
 export function toCloneUrl(kind: CloneKind, value: string): string | null {
@@ -148,14 +148,21 @@ export function ProjectQuickPick({
     const [step, setStep] = useState<PickStep>(initialStep);
     const [cloneKind, setCloneKind] = useState<CloneKind>("github");
     const [query, setQuery] = useState("");
+    // Recents are re-read each time the picker opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `open` is the refresh trigger
     const recents = useMemo(() => loadRepoHistory().slice(0, 12), [open]);
 
-    useEffect(() => {
-        if (!open) return;
-        setStep(initialStep);
-        setQuery("");
-        setCloneKind("github");
-    }, [open, initialStep]);
+    // Each time the picker opens (or its starting step changes while open), start afresh.
+    const resetKey = open ? initialStep : null;
+    const [seenResetKey, setSeenResetKey] = useState(resetKey);
+    if (resetKey !== seenResetKey) {
+        setSeenResetKey(resetKey);
+        if (resetKey) {
+            setStep(resetKey);
+            setQuery("");
+            setCloneKind("github");
+        }
+    }
 
     const close = () => {
         setStep("projects");
@@ -255,7 +262,7 @@ export function ProjectQuickPick({
         try {
             const clonedPath = await commands.gitClone(repoUrl, parent);
             invalidateGitRepoCache();
-            window.dispatchEvent(new Event("shape-git-refresh"));
+            window.dispatchEvent(new Event("bettershape-git-refresh"));
             notify.success("Git", "Repository cloned.");
             close();
             openProject(clonedPath);
@@ -376,13 +383,13 @@ export function ProjectQuickPickHost() {
             if (!kind) return;
             void scaffoldDesignProject(kind);
         };
-        window.addEventListener("shape-new-project", onNew);
-        window.addEventListener("shape-open-project-pick", onPick);
-        window.addEventListener("shape-scaffold-project", onScaffold);
+        window.addEventListener("bettershape-new-project", onNew);
+        window.addEventListener("bettershape-open-project-pick", onPick);
+        window.addEventListener("bettershape-scaffold-project", onScaffold);
         return () => {
-            window.removeEventListener("shape-new-project", onNew);
-            window.removeEventListener("shape-open-project-pick", onPick);
-            window.removeEventListener("shape-scaffold-project", onScaffold);
+            window.removeEventListener("bettershape-new-project", onNew);
+            window.removeEventListener("bettershape-open-project-pick", onPick);
+            window.removeEventListener("bettershape-scaffold-project", onScaffold);
         };
     }, []);
 

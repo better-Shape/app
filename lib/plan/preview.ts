@@ -6,7 +6,7 @@ export type PlanPreview = {
     todos: string[];
 };
 
-const TODO_BLOCK = /(?:\n|^)<!--shape-todos\r?\n([\s\S]*?)-->\s*$/;
+const TODO_BLOCK = /(?:\n|^)<!--bettershape-todos\r?\n([\s\S]*?)-->\s*$/;
 
 function todoLabel(line: string): string | null {
     const trimmed = line.trim();
@@ -77,7 +77,7 @@ export function joinPlanDocument(body: string, todos: PlanTodo[]): string {
     const lines = todos
         .map((t) => `- [${t.done ? "x" : " "}] ${t.label}`)
         .join("\n");
-    return `${trimmed}\n\n<!--shape-todos\n${lines}\n-->\n`;
+    return `${trimmed}\n\n<!--bettershape-todos\n${lines}\n-->\n`;
 }
 
 /** Plan name from the document heading, otherwise a readable form of the slug or filename. */

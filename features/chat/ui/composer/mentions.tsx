@@ -29,12 +29,17 @@ import { cn } from "@/lib/utils";
 import { commands, useProjectState } from "@/lib/backend";
 import { formatMentionToken, type ChatMention } from "@/lib/chat/mentions";
 import { DESIGN_TOKEN_MENTIONS, designTokenById } from "@/lib/chat/design-mentions";
-import { workflowSlashToken, type AgentWorkflow } from "@/lib/chat/workflows";
+import {
+    BUILTIN_SLASH_COMMANDS,
+    workflowSlashToken,
+    type AgentWorkflow,
+} from "@/lib/chat/workflows";
 import { listDesignPreviewSessions, trySelectPendingDesignConcept } from "@/lib/agent-preview/store";
 import { hostnameOf } from "@/lib/ui/favicon";
 import { getPreviewCurrentUrl } from "@/features/preview/store";
 import { fetchPlugins, peekPluginsCache, type PluginRow } from "@/lib/plugins/api";
-import { listSkills, subscribeSkills, type Skill } from "@/lib/chat/skills";
+import { listSkills, skillIdFromName, subscribeSkills, type Skill } from "@/lib/chat/skills";
+import { ensureFreshScan, useSkillIndex } from "@/lib/chat/skill-index";
 import { PluginLogo } from "@/components/ui/plugin-logo";
 
 type CategoryId = "files" | "code" | "docs" | "terminals" | "chats" | "branch" | "browser" | "mcp" | "plugins" | "skills" | "design" | null;
@@ -92,6 +97,8 @@ export function MentionPicker({
     const [mcpServers, setMcpServers] = useState<{ id: string; name: string }[]>([]);
     const [plugins, setPlugins] = useState<PluginRow[]>(() => peekPluginsCache()?.plugins ?? []);
     const [skills, setSkills] = useState<Skill[]>(() => listSkills());
+    const { scan } = useSkillIndex();
+    const scanItems = scan?.items ?? [];
     const [activeCategory, setActiveCategory] = useState<CategoryId>(null);
     const [highlight, setHighlight] = useState(0);
     const [pos, setPos] = useState<{ left: number; top: number; width: number } | null>(null);
@@ -219,6 +226,10 @@ export function MentionPicker({
     }, [open]);
 
     useEffect(() => subscribeSkills(() => setSkills(listSkills())), []);
+    // Find skills sitting in the project's or the user's skill folders.
+    useEffect(() => {
+        if (open) ensureFreshScan();
+    }, [open]);
 
     const designItems: ChatMention[] = useMemo(() => {
         const tokens: ChatMention[] = DESIGN_TOKEN_MENTIONS.map((t) => ({
@@ -295,7 +306,7 @@ export function MentionPicker({
         }
         if (activeCategory === "plugins") return pluginMentions;
         if (activeCategory === "skills") {
-            return skills
+            const installed = skills
                 .filter((skill) => !q || skill.name.toLowerCase().includes(q) || skill.id.includes(q))
                 .map((skill) => ({
                     kind: "skill" as const,
@@ -303,6 +314,18 @@ export function MentionPicker({
                     path: skill.id,
                     label: skill.name,
                 }));
+            // Skills found in `.claude/skills`, `.agents/skills`, and the user's
+            // own folders can be mentioned without importing them first.
+            const installedIds = new Set(skills.map((skill) => skill.id));
+            const rows: ChatMention[] = [...installed];
+            for (const item of scanItems) {
+                if (item.projectPath !== (project_path ?? "")) continue;
+                const id = skillIdFromName(item.name);
+                if (installedIds.has(id)) continue;
+                if (q && !item.name.toLowerCase().includes(q) && !id.includes(q) && !item.relPath.toLowerCase().includes(q)) continue;
+                rows.push({ kind: "skill", id, path: item.relPath, label: `${item.name} · ${item.rootLabel}` });
+            }
+            return rows;
         }
         if (activeCategory === "chats") {
             return chats
@@ -358,30 +381,56 @@ export function MentionPicker({
             return items;
         }
         return [];
-    }, [activeCategory, fileMentions, files, chats, designItems, mcpServers, pluginMentions, skills, q, filter]);
+    }, [activeCategory, fileMentions, files, chats, designItems, mcpServers, pluginMentions, skills, scanItems, project_path, q, filter]);
 
     const rootItems = useMemo(() => {
         if (activeCategory) return categoryItems;
         return fileMentions.slice(0, 8);
     }, [activeCategory, categoryItems, fileMentions]);
 
+    // Built-in commands come first, then the user's saved workflows.
     const slashItems = useMemo(() => {
         const needle = q.replace(/^\//, "").toLowerCase();
-        return workflows
+        const score = (keys: string[]) => {
+            if (!needle) return 1;
+            if (keys.some((k) => k === needle)) return 4;
+            if (keys.some((k) => k.startsWith(needle))) return 3;
+            if (keys.some((k) => k.includes(needle))) return 2;
+            return 0;
+        };
+        const builtins = BUILTIN_SLASH_COMMANDS.map((command) => {
+            const token = command.token.replace(/^\/+/, "").toLowerCase();
+            return {
+                id: `builtin:${command.token}`,
+                token: command.token,
+                name: command.name,
+                description: command.description,
+                argsHint: command.argsHint,
+                workflow: undefined as AgentWorkflow | undefined,
+                score: score([token, command.name.toLowerCase()]) + 0.5,
+            };
+        });
+        const builtinTokens = new Set(
+            BUILTIN_SLASH_COMMANDS.map((command) => command.token.toLowerCase()),
+        );
+        const saved = workflows
+            .filter((w) => !builtinTokens.has(workflowSlashToken(w).toLowerCase()))
             .map((w) => {
                 const trigger = w.trigger.trim();
                 const triggerKey = trigger.replace(/^\/+/, "").toLowerCase();
-                const name = w.name.toLowerCase();
-                let score = 0;
-                if (!needle) score = 1;
-                else if (triggerKey === needle || trigger.toLowerCase() === `/${needle}`) score = 3;
-                else if (triggerKey.startsWith(needle) || name.startsWith(needle)) score = 2;
-                else if (triggerKey.includes(needle) || name.includes(needle)) score = 1;
-                return { w, score };
-            })
-            .filter((x) => x.score > 0)
+                return {
+                    id: `workflow:${w.id}`,
+                    token: workflowSlashToken(w),
+                    name: w.name,
+                    description: w.prompt,
+                    argsHint: undefined as string | undefined,
+                    workflow: w as AgentWorkflow | undefined,
+                    score: score([triggerKey, w.name.toLowerCase()]),
+                };
+            });
+        return [...builtins, ...saved]
+            .filter((item) => item.score > 0)
             .sort((a, b) => b.score - a.score)
-            .map((x) => x.w)
             .slice(0, 20);
     }, [workflows, q]);
 
@@ -406,8 +455,8 @@ export function MentionPicker({
         onClose();
     };
 
-    const pickSlash = (w: AgentWorkflow) => {
-        onPick(`${workflowSlashToken(w)} `);
+    const pickSlash = (item: { token: string }) => {
+        onPick(`${item.token} `);
         onClose();
     };
 
@@ -444,15 +493,15 @@ export function MentionPicker({
     return createPortal(
         <div
             ref={setMenuEl}
-            className="shape-popover-content fixed z-dropdown overflow-hidden squircle-2xl border border-border-secondary bg-surface-4/80 backdrop-blur-sm shadow-md"
+            className="bettershape-popover-content fixed z-dropdown overflow-hidden squircle-2xl border border-border-secondary bg-surface-4/80 backdrop-blur-sm shadow-md"
             style={{ left: pos.left, top: pos.top, width: pos.width }}
         >
             <SearchInput
                 borderless
                 value={filter}
                 onChange={(e) => setFilter(e.target.value)}
-                placeholder={mode === "slash" ? "Search workflows…" : "Add files, folders, docs..."}
-                aria-label={mode === "slash" ? "Search workflows" : "Search mentions"}
+                placeholder={mode === "slash" ? "Search commands…" : "Add files, folders, docs..."}
+                aria-label={mode === "slash" ? "Search commands" : "Search mentions"}
             />
 
             {mode === "mention" && activeCategory ? (
@@ -471,12 +520,12 @@ export function MentionPicker({
                 {mode === "slash" ? (
                     slashItems.length === 0 ? (
                         <div className="px-2.5 py-2 text-sm text-text-muted">
-                            No matching commands. Add workflows in Settings.
+                            No matching commands. Add workflows in Settings for your own.
                         </div>
                     ) : (
-                        slashItems.map((w, idx) => (
+                        slashItems.map((item, idx) => (
                             <button
-                                key={w.id}
+                                key={item.id}
                                 type="button"
                                 className={cn(
                                     "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm",
@@ -486,20 +535,25 @@ export function MentionPicker({
                                 )}
                                 onMouseDown={(e) => e.preventDefault()}
                                 onMouseEnter={() => setHighlight(idx)}
-                                onClick={() => pickSlash(w)}
+                                onClick={() => pickSlash(item)}
                             >
-                                {w.pluginToolkit ? (
+                                {item.workflow?.pluginToolkit ? (
                                     <PluginLogo
-                                        toolkit={w.pluginToolkit}
-                                        name={w.name}
+                                        toolkit={item.workflow.pluginToolkit}
+                                        name={item.name}
                                         size={14}
                                         className="rounded-sm"
                                     />
                                 ) : (
                                     <Icon icon={Code20Regular} className="shrink-0 text-text-muted" />
                                 )}
-                                <span className="min-w-0 flex-1 truncate font-medium">{workflowSlashToken(w)}</span>
-                                <span className="ml-auto max-w-[50%] truncate text-sm text-text-muted">{w.name}</span>
+                                <span className="min-w-0 flex-1 truncate font-medium">
+                                    {item.token}
+                                    {item.argsHint ? (
+                                        <span className="ml-1 text-text-muted">{item.argsHint}</span>
+                                    ) : null}
+                                </span>
+                                <span className="ml-auto max-w-[50%] truncate text-sm text-text-muted">{item.name}</span>
                             </button>
                         ))
                     )

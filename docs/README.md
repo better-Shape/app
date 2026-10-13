@@ -1,4 +1,4 @@
-# Shape docs
+# BetterShape docs
 
 This folder is the only docs source. Mintlify publishes it, and the website runs Mintlify against this path instead of keeping a second copy.
 

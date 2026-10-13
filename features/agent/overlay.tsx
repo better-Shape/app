@@ -31,7 +31,7 @@ export function AgentOverlayView({
         if (overlay.type !== "settings") return;
         if (!overlay.category && !overlay.section) return;
         window.dispatchEvent(
-            new CustomEvent("shape-settings-navigate", {
+            new CustomEvent("bettershape-settings-navigate", {
                 detail: {
                     category: overlay.category ?? "",
                     section: overlay.section ?? "",
@@ -43,7 +43,7 @@ export function AgentOverlayView({
     useEffect(() => {
         if (overlay.type !== "git" || !overlay.section) return;
         window.dispatchEvent(
-            new CustomEvent("shape-git-section", { detail: { section: overlay.section } }),
+            new CustomEvent("bettershape-git-section", { detail: { section: overlay.section } }),
         );
     }, [overlay]);
 

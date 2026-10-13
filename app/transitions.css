@@ -84,17 +84,17 @@
   --press-scale: 0.985;
 }
 
-@keyframes shape-popover-in {
+@keyframes bettershape-popover-in {
   from { opacity: 0; scale: var(--dropdown-pre-scale, 0.97); }
   to { opacity: 1; scale: 1; }
 }
 
-@keyframes shape-popover-out {
+@keyframes bettershape-popover-out {
   from { opacity: 1; scale: 1; }
   to { opacity: 0; scale: var(--dropdown-closing-scale, 0.99); }
 }
 
-.shape-popover-content {
+.bettershape-popover-content {
   transform-origin: var(
     --radix-dropdown-menu-content-transform-origin,
     var(
@@ -104,12 +104,12 @@
   );
 }
 
-.shape-popover-content[data-state="open"] {
-  animation: shape-popover-in var(--dropdown-open-dur) var(--dropdown-ease);
+.bettershape-popover-content[data-state="open"] {
+  animation: bettershape-popover-in var(--dropdown-open-dur) var(--dropdown-ease);
 }
 
-.shape-popover-content[data-state="closed"] {
-  animation: shape-popover-out var(--dropdown-close-dur) var(--dropdown-ease);
+.bettershape-popover-content[data-state="closed"] {
+  animation: bettershape-popover-out var(--dropdown-close-dur) var(--dropdown-ease);
 }
 
 /* Apple-style press: fast ease-out into the squash, spring with overshoot on release. */
@@ -149,7 +149,7 @@
   }
 }
 
-.shape-goo-filters {
+.bettershape-goo-filters {
   position: absolute;
   width: 0;
   height: 0;
@@ -667,8 +667,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .shape-popover-content[data-state="open"],
-  .shape-popover-content[data-state="closed"] {
+  .bettershape-popover-content[data-state="open"],
+  .bettershape-popover-content[data-state="closed"] {
     animation: none !important;
   }
   .t-morph,

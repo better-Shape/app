@@ -1,4 +1,4 @@
-export const SETTINGS_TAB_PATH = "shape://settings";
+export const SETTINGS_TAB_PATH = "bettershape://settings";
 export const SETTINGS_TAB_NAME = "Settings";
 
 import { isBrowserTab } from "@/lib/window/browser-tab";

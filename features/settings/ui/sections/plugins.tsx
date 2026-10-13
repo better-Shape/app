@@ -13,20 +13,22 @@ import { SearchInput } from "@/components/ui/search";
 import { PluginLogo } from "@/components/ui/plugin-logo";
 import { commands } from "@/lib/backend";
 import { notify } from "@/features/notifications";
-import { ShapeApiError } from "@/lib/cloud/api";
-import { useShapeAuth } from "@/lib/cloud/store";
 import {
     updateSettingSection,
     useSettings,
     type AutoRunModeSetting,
 } from "@/lib/settings";
 import {
+    ComposioError,
     disconnectPlugin,
     fetchPluginTools,
     fetchPlugins,
     invalidatePluginsCache,
     peekPluginsCache,
+    PLUGINS_PAGE_REFRESH_MS,
     startPluginConnect,
+    subscribePlugins,
+    watchPluginCatalog,
     type PluginRow,
     type PluginToolHint,
 } from "@/lib/plugins/api";
@@ -400,30 +402,27 @@ function PluginDetail({
     const mode: AutoRunModeSetting =
         settings.ai.pluginApprovals?.[plugin.toolkit] ?? settings.ai.pluginApprovalDefault ?? "ask";
     const disabled = new Set(settings.ai.pluginDisabledActions?.[plugin.toolkit] ?? []);
-    const [tools, setTools] = useState<PluginToolHint[]>([]);
-    const [toolsLoading, setToolsLoading] = useState(false);
+    // Tools are kept with the toolkit they were fetched for. A disconnected plugin shows none,
+    // and a toolkit still loading shows a loading state, without any effect writing state.
+    const toolsKey = plugin.connected ? plugin.toolkit : null;
+    const [toolsFor, setToolsFor] = useState<{ key: string; list: PluginToolHint[] } | null>(null);
+    const tools = toolsKey && toolsFor?.key === toolsKey ? toolsFor.list : [];
+    const toolsLoading = Boolean(toolsKey) && toolsFor?.key !== toolsKey;
 
     useEffect(() => {
-        if (!plugin.connected) {
-            setTools([]);
-            return;
-        }
+        if (!toolsKey) return;
         let cancelled = false;
-        setToolsLoading(true);
-        void fetchPluginTools(plugin.toolkit)
+        void fetchPluginTools(toolsKey)
             .then((list) => {
-                if (!cancelled) setTools(list);
+                if (!cancelled) setToolsFor({ key: toolsKey, list });
             })
             .catch(() => {
-                if (!cancelled) setTools([]);
-            })
-            .finally(() => {
-                if (!cancelled) setToolsLoading(false);
+                if (!cancelled) setToolsFor({ key: toolsKey, list: [] });
             });
         return () => {
             cancelled = true;
         };
-    }, [plugin.connected, plugin.toolkit]);
+    }, [toolsKey]);
 
     function setMode(value: AutoRunModeSetting) {
         updateSettingSection("ai", {
@@ -539,8 +538,10 @@ function PluginDetail({
 }
 
 export function PluginsSettingsView() {
-    const auth = useShapeAuth();
-    const pluginsAvailable = auth.loggedIn && !auth.offline;
+    const settings = useSettings();
+    // Plugins ride on the user's own Composio account, so the key configured on
+    // the Providers page is what turns this catalog on.
+    const pluginsAvailable = Boolean(settings.ai.providers.services.composio.apiKey.trim());
     const cached = peekPluginsCache();
     const [plugins, setPlugins] = useState<PluginRow[]>(cached ? mergeCatalog(cached.plugins) : EXTRA_PLUGINS);
     const [configured, setConfigured] = useState(cached?.configured ?? true);
@@ -551,22 +552,24 @@ export function PluginsSettingsView() {
     const [openToolkit, setOpenToolkit] = useState<string | null>(null);
 
     const load = useCallback(
-        async (force = false) => {
+        async (force = false, quiet = false) => {
             if (!pluginsAvailable) {
                 setLoading(false);
                 return;
             }
             try {
                 const data = await fetchPlugins({ force });
-                setPlugins(mergeCatalog(data.plugins));
-                setConfigured(data.configured);
+                const latest = peekPluginsCache() ?? data;
+                setPlugins(mergeCatalog(latest.plugins));
+                setConfigured(latest.configured);
                 setBusy((current) => {
                     if (!current) return current;
-                    if (data.plugins.some((p) => p.toolkit === current && p.connected)) return null;
+                    if (latest.plugins.some((p) => p.toolkit === current && p.connected)) return null;
                     return current;
                 });
             } catch (err) {
-                const message = err instanceof ShapeApiError ? err.message : "Could not load plugins.";
+                if (quiet) return;
+                const message = err instanceof ComposioError ? err.message : "Could not load plugins.";
                 notify.error(message);
             } finally {
                 setLoading(false);
@@ -576,8 +579,25 @@ export function PluginsSettingsView() {
     );
 
     useEffect(() => {
-        void load(false);
+        watchPluginCatalog();
+        void load(true);
     }, [load]);
+
+    useEffect(() => subscribePlugins(() => {
+        const cached = peekPluginsCache();
+        if (!cached) return;
+        setPlugins(mergeCatalog(cached.plugins));
+        setConfigured(cached.configured);
+    }), []);
+
+    useEffect(() => {
+        if (!pluginsAvailable) return;
+        const id = window.setInterval(() => {
+            if (document.visibilityState === "hidden") return;
+            void load(true, true);
+        }, PLUGINS_PAGE_REFRESH_MS);
+        return () => window.clearInterval(id);
+    }, [pluginsAvailable, load]);
 
     useEffect(() => {
         if (!busy) return;
@@ -639,7 +659,7 @@ export function PluginsSettingsView() {
             notify.info(`Finish connecting ${plugin.name} in the browser.`);
         } catch (err) {
             setBusy(null);
-            const message = err instanceof ShapeApiError ? err.message : "Could not start connect.";
+            const message = err instanceof ComposioError ? err.message : "Could not start connect.";
             notify.error(message);
         }
     }
@@ -651,7 +671,7 @@ export function PluginsSettingsView() {
             notify.success(`${plugin.name} disconnected.`);
             await load(true);
         } catch (err) {
-            const message = err instanceof ShapeApiError ? err.message : "Could not disconnect.";
+            const message = err instanceof ComposioError ? err.message : "Could not disconnect.";
             notify.error(message);
         } finally {
             setBusy(null);
@@ -706,13 +726,12 @@ export function PluginsSettingsView() {
                         <div className="mt-6 space-y-8">
                             {!pluginsAvailable ? (
                                 <div className="squircle-2xl bg-surface-2 px-4 py-10 text-center text-sm text-text-muted">
-                                    {auth.loggedIn
-                                        ? "Connect to Shape to manage cloud plugins. Local MCP servers still work under MCP."
-                                        : "Sign in to Shape to connect plugins. Local MCP servers still work under MCP."}
+                                    Add your Composio API key in Settings → Providers → Other services to
+                                    connect plugins. Local MCP servers keep working without it.
                                 </div>
                             ) : !configured ? (
                                 <div className="rounded-xl bg-surface-2 px-4 py-10 text-center text-sm text-text-muted">
-                                    Plugins are not configured on the server.
+                                    Add your Composio API key in Settings → Providers → Other services.
                                 </div>
                             ) : loading && plugins.length === 0 ? (
                                 <PluginsCatalogSkeleton />

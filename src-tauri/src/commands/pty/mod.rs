@@ -1212,6 +1212,7 @@ async fn spawn_pty_with_command(
     let session_id = id;
     let token = cancellation_token;
     let app_for_thread = app.clone();
+    #[allow(unused_variables)]
     let writer_for_reader = writer;
     thread::spawn(move || {
         let mut buf = [0u8; 8192];

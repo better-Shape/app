@@ -20,10 +20,10 @@ async function toggleFullscreen() {
 }
 
 function resetLayout() {
-    window.dispatchEvent(new CustomEvent("shape-layout-toggle", { detail: { id: "primary-sidebar", value: true } }));
-    window.dispatchEvent(new CustomEvent("shape-layout-toggle", { detail: { id: "panel", value: true } }));
-    window.dispatchEvent(new CustomEvent("shape-layout-toggle", { detail: { id: "secondary-sidebar", value: false } }));
-    window.dispatchEvent(new Event("shape-layout-reset"));
+    window.dispatchEvent(new CustomEvent("bettershape-layout-toggle", { detail: { id: "primary-sidebar", value: true } }));
+    window.dispatchEvent(new CustomEvent("bettershape-layout-toggle", { detail: { id: "panel", value: true } }));
+    window.dispatchEvent(new CustomEvent("bettershape-layout-toggle", { detail: { id: "secondary-sidebar", value: false } }));
+    window.dispatchEvent(new Event("bettershape-layout-reset"));
 }
 
 export function GlobalContextMenu({ children }: { children: React.ReactNode }) {

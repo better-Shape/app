@@ -3,14 +3,28 @@ use crate::core::error::AppError;
 use crate::core::state::{AppState, FileInfo, ProjectState};
 use tauri::{AppHandle, State};
 
-pub use crate::commands::fs::{ContentSearchResult, FileEntry, ReplaceResult, SearchOptions, SearchResult};
+pub use crate::commands::fs::{
+    ContentSearchResult, FileEntry, ReplaceResult, SearchOptions, SearchResult,
+};
 
 pub async fn ls_dir(path: String) -> Result<Vec<FileEntry>, AppError> {
     fs::ls_dir(path).await
 }
 
+pub fn home_dir() -> Option<String> {
+    fs::home_dir()
+}
+
 pub async fn read_file(path: String) -> Result<String, AppError> {
     fs::read_file(path).await
+}
+
+pub async fn read_file_within(path: String, root: String) -> Result<String, AppError> {
+    fs::read_file_within(path, root).await
+}
+
+pub fn ensure_path_within(path: String, root: String) -> Result<(), AppError> {
+    fs::ensure_path_within(path, root)
 }
 
 pub async fn read_file_bytes(path: String) -> Result<Vec<u8>, AppError> {
@@ -59,10 +73,7 @@ pub async fn close_to_right(
     fs::close_to_right(app, state, path).await
 }
 
-pub async fn close_saved(
-    app: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<(), AppError> {
+pub async fn close_saved(app: AppHandle, state: State<'_, AppState>) -> Result<(), AppError> {
     fs::close_saved(app, state).await
 }
 
@@ -74,15 +85,27 @@ pub async fn reveal_path(path: String) -> Result<(), AppError> {
     fs::reveal_path(path).await
 }
 
-pub async fn save_file(app: tauri::AppHandle, path: String, content: String) -> Result<(), AppError> {
+pub async fn save_file(
+    app: tauri::AppHandle,
+    path: String,
+    content: String,
+) -> Result<(), AppError> {
     fs::save_file(app, path, content).await
 }
 
-pub async fn save_file_bytes(app: tauri::AppHandle, path: String, bytes: Vec<u8>) -> Result<(), AppError> {
+pub async fn save_file_bytes(
+    app: tauri::AppHandle,
+    path: String,
+    bytes: Vec<u8>,
+) -> Result<(), AppError> {
     fs::save_file_bytes(app, path, bytes).await
 }
 
-pub async fn mark_file_dirty(app: tauri::AppHandle, path: String, dirty: bool) -> Result<(), AppError> {
+pub async fn mark_file_dirty(
+    app: tauri::AppHandle,
+    path: String,
+    dirty: bool,
+) -> Result<(), AppError> {
     fs::mark_file_dirty(app, path, dirty).await
 }
 
@@ -104,7 +127,11 @@ pub async fn open_file(
     fs::open_file(app, state, path, name).await
 }
 
-pub async fn close_file(app: AppHandle, state: State<'_, AppState>, path: String) -> Result<(), AppError> {
+pub async fn close_file(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<(), AppError> {
     fs::close_file(app, state, path).await
 }
 

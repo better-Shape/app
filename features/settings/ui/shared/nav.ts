@@ -45,9 +45,11 @@ export type SettingsNavGroup = {
  */
 export const SETTINGS_NAV: SettingsNavGroup[] = [
     {
-        id: "account",
+        id: "providers",
         label: "You",
-        children: [{ id: "account-profile", label: "Profile", icon: Settings24Regular, targetId: "settings-account" }],
+        children: [
+            { id: "providers", label: "Providers", icon: Settings24Regular, targetId: "settings-providers" },
+        ],
     },
     {
         id: "agents",

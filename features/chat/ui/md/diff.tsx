@@ -7,7 +7,7 @@ import { Icon } from "@/components/ui/icon";
 import { cn } from '@/lib/utils';
 import { commands } from '@/lib/backend';
 import { SyntaxHighlighter } from "@/lib/ui/syntax-highlight";
-import { getShapeSyntaxTheme } from '@/lib/ui/syntax-theme';
+import { getBetterShapeSyntaxTheme } from '@/lib/ui/syntax-theme';
 
 type DiffRow = {
     id: string;
@@ -292,7 +292,7 @@ export function InlineDiff({ file, original, replacement, isGenerating }: {
                                     </div>
                                     <div className="flex-1 min-w-0">
                                         <SyntaxHighlighter
-                                            style={getShapeSyntaxTheme() as { [key: string]: React.CSSProperties }}
+                                            style={getBetterShapeSyntaxTheme() as { [key: string]: React.CSSProperties }}
                                             language={language}
                                             PreTag="span"
                                             CodeTag="span"
@@ -324,7 +324,7 @@ export function InlineDiff({ file, original, replacement, isGenerating }: {
                                     </div>
                                     <div className="flex-1 min-w-0">
                                         <SyntaxHighlighter
-                                            style={getShapeSyntaxTheme() as { [key: string]: React.CSSProperties }}
+                                            style={getBetterShapeSyntaxTheme() as { [key: string]: React.CSSProperties }}
                                             language={language}
                                             PreTag="span"
                                             CodeTag="span"

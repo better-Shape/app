@@ -21,7 +21,7 @@ import { useOverlayRoot } from "@/lib/ui/overlay-root";
 const itemClasses =
     "group relative flex cursor-default select-none items-center gap-2 squircle-2xl px-4! py-1.5 text-sm outline-none transition-[background-color,color,transform] duration-[var(--transition-fast)] ease-[var(--ease-out)] focus:bg-panel-hover focus:text-text-primary data-disabled:pointer-events-none data-disabled:opacity-50";
 const containerClasses =
-    "shape-popover-content z-dropdown overflow-hidden squircle-2xl border border-border-secondary bg-sidebar text-text-primary shadow-md";
+    "bettershape-popover-content z-dropdown overflow-hidden squircle-2xl border border-border-secondary bg-sidebar text-text-primary shadow-md";
 const shortcutClasses =
     "ml-auto shrink-0 pr-1 text-sm text-text-muted group-focus:text-text-primary";
 /** Inset so rows and the panel sit off the edges. */
@@ -386,14 +386,18 @@ const MenubarMenu = ({
     // Radix Menubar.Menu does not type or safely accept onOpenChange (spreading it
     // onto Menu.Root would overwrite the internal close handler). We accept the
     // prop for API compatibility and notify via a trigger data-state observer.
-    const triggerRef = React.useRef<HTMLElement | null>(null);
+    // The trigger node is kept in state (set from the trigger's ref callback), so the observer
+    // effect re-runs when the trigger mounts or is replaced.
+    const [triggerEl, setTriggerEl] = React.useState<HTMLElement | null>(null);
     const onOpenChangeRef = React.useRef(onOpenChange);
-    onOpenChangeRef.current = onOpenChange;
+    React.useLayoutEffect(() => {
+        onOpenChangeRef.current = onOpenChange;
+    });
     const prevOpenRef = React.useRef(false);
 
     React.useEffect(() => {
         if (!onOpenChange) return;
-        const el = triggerRef.current;
+        const el = triggerEl;
         if (!el) return;
 
         const sync = () => {
@@ -408,7 +412,7 @@ const MenubarMenu = ({
         const observer = new MutationObserver(sync);
         observer.observe(el, { attributes: true, attributeFilter: ["data-state"] });
         return () => observer.disconnect();
-    }, [onOpenChange]);
+    }, [onOpenChange, triggerEl]);
 
     return (
         <MenubarPrimitive.Menu value={value}>
@@ -422,15 +426,16 @@ const MenubarMenu = ({
                         "displayName" in child.type &&
                         (child.type as { displayName?: string }).displayName === MenubarTrigger.displayName)
                 ) {
+                    // React 19 passes `ref` as a prop. Keep the caller's ref and add ours, so
+                    // consumers that read the trigger element still receive it.
+                    const callerRef = (child.props as { ref?: React.Ref<HTMLElement> }).ref;
+                    const composedRef = (el: HTMLElement | null) => {
+                        setTriggerEl(el);
+                        if (typeof callerRef === "function") callerRef(el);
+                        else if (callerRef) (callerRef as React.MutableRefObject<HTMLElement | null>).current = el;
+                    };
                     return React.cloneElement(child as React.ReactElement<{ ref?: React.Ref<HTMLElement> }>, {
-                        ref: (node: HTMLElement | null) => {
-                            triggerRef.current = node;
-                            const existingRef = (child as React.ReactElement & { ref?: React.Ref<HTMLElement> }).ref;
-                            if (typeof existingRef === "function") existingRef(node);
-                            else if (existingRef && typeof existingRef === "object") {
-                                (existingRef as React.MutableRefObject<HTMLElement | null>).current = node;
-                            }
-                        },
+                        ref: composedRef,
                     });
                 }
                 return child;

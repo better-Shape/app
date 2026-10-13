@@ -4,7 +4,6 @@ import { ChevronDown20Regular } from "@fluentui/react-icons/headless/svg/chevron
 import React, { useRef } from "react";
 import { Icon, type IconGlyph } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 
@@ -180,11 +179,13 @@ export function SettingSelect<T extends string>({
     options,
     onChange,
     className,
+    disabled,
 }: {
     value: T;
     options: { value: T; label: string }[];
     onChange: (v: T) => void;
     className?: string;
+    disabled?: boolean;
 }) {
     const label = options.find((o) => o.value === value)?.label ?? value;
 
@@ -194,6 +195,7 @@ export function SettingSelect<T extends string>({
                 <Button
                     variant="ghost"
                     size="sm"
+                    disabled={disabled}
                     className={cn(SETTING_CONTROL_BTN, className)}
                 >
                     <span className="truncate">{label}</span>

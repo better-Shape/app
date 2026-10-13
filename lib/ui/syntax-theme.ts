@@ -1,7 +1,7 @@
 import type { CSSProperties } from "react";
 
 /** Token-aware syntax highlighting theme for react-syntax-highlighter */
-export function getShapeSyntaxTheme(): Record<string, CSSProperties> {
+export function getBetterShapeSyntaxTheme(): Record<string, CSSProperties> {
     return {
         'code[class*="language-"]': {
             color: "var(--text-primary)",

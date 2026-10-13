@@ -2,7 +2,7 @@ use crate::core::error::AppError;
 use tauri::AppHandle;
 
 /// OS toast for generation-complete / approval.
-/// Windows uses a Shape-attributed WinRT toast (not PowerShell).
+/// Windows uses a BetterShape-attributed WinRT toast (not PowerShell).
 #[tauri::command]
 pub fn show_desktop_notification(
     app: AppHandle,

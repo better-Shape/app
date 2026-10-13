@@ -98,7 +98,10 @@ pub(super) fn tool_git_log(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutcome {
 
 pub(super) fn tool_git_stage(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutcome {
     if is_read_only_mode(ctx.mode) {
-        return blocked_outcome("git_stage", "Staging files is not allowed in Ask or Plan mode.");
+        return blocked_outcome(
+            "git_stage",
+            "Staging files is not allowed in Ask or Plan mode.",
+        );
     }
     let path = match get_str(args, "path") {
         Ok(s) => s,
@@ -119,7 +122,10 @@ pub(super) fn tool_git_stage(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutcome {
 
 pub(super) async fn tool_git_commit(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutcome {
     if is_read_only_mode(ctx.mode) {
-        return blocked_outcome("git_commit", "Committing is not allowed in Ask or Plan mode.");
+        return blocked_outcome(
+            "git_commit",
+            "Committing is not allowed in Ask or Plan mode.",
+        );
     }
     let message = match get_str(args, "message") {
         Ok(s) => s.to_string(),
@@ -151,8 +157,15 @@ fn safe_branch(name: &str) -> Result<String, String> {
 }
 
 pub(super) fn tool_git_diff(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutcome {
-    let staged = args.get("staged").and_then(|v| v.as_bool()).unwrap_or(false);
-    let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("").trim();
+    let staged = args
+        .get("staged")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let path = args
+        .get("path")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim();
     let result = if !path.is_empty() {
         git::git_file_diff(ctx.project_path.to_string(), path.to_string())
     } else if staged {
@@ -208,7 +221,10 @@ pub(super) fn tool_git_branches(ctx: &ToolCtx<'_>) -> ToolOutcome {
 
 pub(super) fn tool_git_create_branch(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutcome {
     if is_read_only_mode(ctx.mode) {
-        return blocked_outcome("git_create_branch", "Creating a branch is not allowed in Ask or Plan mode.");
+        return blocked_outcome(
+            "git_create_branch",
+            "Creating a branch is not allowed in Ask or Plan mode.",
+        );
     }
     let name = match get_str(args, "name").and_then(|s| safe_branch(&s)) {
         Ok(s) => s,
@@ -229,7 +245,10 @@ pub(super) fn tool_git_create_branch(args: &Value, ctx: &ToolCtx<'_>) -> ToolOut
 
 pub(super) fn tool_git_switch(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutcome {
     if is_read_only_mode(ctx.mode) {
-        return blocked_outcome("git_switch", "Switching branches is not allowed in Ask or Plan mode.");
+        return blocked_outcome(
+            "git_switch",
+            "Switching branches is not allowed in Ask or Plan mode.",
+        );
     }
     let name = match get_str(args, "name").and_then(|s| safe_branch(&s)) {
         Ok(s) => s,
@@ -266,9 +285,15 @@ pub(super) fn tool_git_sync(ctx: &ToolCtx<'_>) -> ToolOutcome {
 }
 
 pub(super) fn tool_git_worktree(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutcome {
-    let action = args.get("action").and_then(|v| v.as_str()).unwrap_or("list");
+    let action = args
+        .get("action")
+        .and_then(|v| v.as_str())
+        .unwrap_or("list");
     if action != "list" && is_read_only_mode(ctx.mode) {
-        return blocked_outcome("git_worktree", "Changing worktrees is not allowed in Ask or Plan mode.");
+        return blocked_outcome(
+            "git_worktree",
+            "Changing worktrees is not allowed in Ask or Plan mode.",
+        );
     }
     let mut git_bin = match crate::core::git_bin::git_command() {
         Ok(cmd) => cmd,
@@ -287,10 +312,7 @@ pub(super) fn tool_git_worktree(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutcome 
             };
             let root = std::path::Path::new(repo);
             let parent = root.parent().unwrap_or(root);
-            let folder = root
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("repo");
+            let folder = root.file_name().and_then(|n| n.to_str()).unwrap_or("repo");
             let dest = parent.join(format!("{folder}-{branch}").replace('/', "-"));
             git_bin
                 .current_dir(repo)
@@ -315,10 +337,18 @@ pub(super) fn tool_git_worktree(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutcome 
     };
     match output {
         Ok(out) => {
-            let bytes = if out.status.success() { out.stdout } else { out.stderr };
+            let bytes = if out.status.success() {
+                out.stdout
+            } else {
+                out.stderr
+            };
             let text = String::from_utf8_lossy(&bytes);
             let body = text.trim().chars().take(8000).collect::<String>();
-            let status = if out.status.success() { "completed" } else { "error" };
+            let status = if out.status.success() {
+                "completed"
+            } else {
+                "error"
+            };
             ToolOutcome {
                 tool_result: body.clone(),
                 ui_chunk: git_ui_chunk("worktree", status, &body),

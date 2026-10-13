@@ -19,7 +19,7 @@ import { LayoutRowTwo20Regular } from "@fluentui/react-icons/headless/svg/layout
 import { MoreHorizontal20Regular } from "@fluentui/react-icons/headless/svg/more-horizontal";
 
 
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import { Icon } from "@/components/ui/icon";
 
 import { cn } from "@/lib/utils";
@@ -51,7 +51,6 @@ import {
 import { notify } from "@/features/notifications";
 import { statusProgress } from "@/lib/ui/status-progress";
 import { getSettings, useSettings } from "@/lib/settings";
-import { getShapeAccessToken } from "@/lib/cloud/store";
 import { Tooltip } from "@/components/ui/tooltip";
 import {
     SidebarPanelHeaderFrame,
@@ -184,7 +183,7 @@ function ChangeRow({
                                 try {
                                     await commands.gitDiscardChanges(projectPath, file.path);
                                     onRefresh();
-                                    window.dispatchEvent(new Event("shape-git-refresh"));
+                                    window.dispatchEvent(new Event("bettershape-git-refresh"));
                                 } catch (err) {
                                     notify.gitError(err);
                                 }
@@ -323,21 +322,44 @@ export default function Source({
     const [newRemoteUrl, setNewRemoteUrl] = useState("");
     const [editingRemote, setEditingRemote] = useState<{ name: string; url: string } | null>(null);
 
+    // Status belongs to one project + repo. When either changes, drop the old status during
+    // render (React's "adjust state on prop change" pattern), so no frame shows the previous repo.
+    const repoKey = `${project_path ?? ""}\n${scmRepoPath ?? ""}`;
+    const [statusKey, setStatusKey] = useState(repoKey);
+    if (statusKey !== repoKey) {
+        setStatusKey(repoKey);
+        setChanges([]);
+        setCurrentBranch("...");
+        setHasRemote(false);
+        setLastCommit(null);
+        setNeedsSync(false);
+        setIsGitRepo(true);
+    }
+    // Results of a refresh started for an earlier repo are dropped, not written over this one.
+    const latestRepoKeyRef = useRef(repoKey);
+    useEffect(() => {
+        latestRepoKeyRef.current = repoKey;
+    }, [repoKey]);
+
     const { startLoading, stopLoading } = useLoading();
     const settings = useSettings();
 
     const refresh = useCallback(async (opts?: { track?: boolean }) => {
         const track = opts?.track !== false;
         const repoPath = scmRepoPath;
+        const keyAtStart = repoKey;
+        const stale = () => latestRepoKeyRef.current !== keyAtStart;
         if (project_path && repoPath) {
             statusProgress.push("git-refresh", "Refreshing git status...");
             if (track) startLoading();
             try {
                 await Promise.all([
                     commands.gitStatus(repoPath).then((c) => {
+                        if (stale()) return;
                         setIsGitRepo(true);
                         setChanges(c);
                     }).catch((err) => {
+                        if (stale()) return;
                         if (isBenignGitError(err)) {
                             setIsGitRepo(repos.length > 0);
                             setChanges([]);
@@ -345,20 +367,25 @@ export default function Source({
                             notify.error("Source Control Error", `Failed to load git status: ${err instanceof Error ? err.message : String(err)}`);
                         }
                     }),
-                    commands.gitCurrentBranch(repoPath).then(setCurrentBranch).catch(() => {
-                        setCurrentBranch("master");
+                    commands.gitCurrentBranch(repoPath).then((b) => {
+                        if (!stale()) setCurrentBranch(b);
+                    }).catch(() => {
+                        if (!stale()) setCurrentBranch("master");
                     }),
-                    commands.gitHasRemote(repoPath).then(setHasRemote).catch(() => {
-                        setHasRemote(false);
+                    commands.gitHasRemote(repoPath).then((v) => {
+                        if (!stale()) setHasRemote(v);
+                    }).catch(() => {
+                        if (!stale()) setHasRemote(false);
                     }),
                     commands.gitLog(repoPath, 1)
                         .then(logs => {
+                            if (stale()) return;
                             if (logs.length > 0) setLastCommit(logs[0]);
                             else setLastCommit(null);
-                        }).catch(() => setLastCommit(null)),
+                        }).catch(() => { if (!stale()) setLastCommit(null); }),
                     commands.gitSyncStatus(repoPath).then(status => {
-                        setNeedsSync(status.ahead > 0);
-                    }).catch(() => setNeedsSync(false)),
+                        if (!stale()) setNeedsSync(status.ahead > 0);
+                    }).catch(() => { if (!stale()) setNeedsSync(false); }),
                 ]);
             } finally {
                 if (track) stopLoading();
@@ -370,7 +397,7 @@ export default function Source({
             setChanges([]);
             setLastCommit(null);
         }
-    }, [project_path, scmRepoPath, repos.length, reposLoading, startLoading, stopLoading]);
+    }, [project_path, scmRepoPath, repoKey, repos.length, reposLoading, startLoading, stopLoading]);
 
     useEffect(() => {
         // Soft refresh on mount — don't flash the global loading bar for routine open.
@@ -379,8 +406,8 @@ export default function Source({
 
     useEffect(() => {
         const handleGitRefresh = () => { void refresh(); };
-        window.addEventListener("shape-git-refresh", handleGitRefresh);
-        return () => window.removeEventListener("shape-git-refresh", handleGitRefresh);
+        window.addEventListener("bettershape-git-refresh", handleGitRefresh);
+        return () => window.removeEventListener("bettershape-git-refresh", handleGitRefresh);
     }, [refresh]);
 
     useEffect(() => {
@@ -671,13 +698,7 @@ export default function Source({
         }
         setCommitSuggestionStatus("loading");
         try {
-            const token = getShapeAccessToken();
-            if (!token) {
-                notify.error("AI Error", "Sign in to Shape to use AI.");
-                setCommitSuggestionStatus("idle");
-                return;
-            }
-            const message = await commands.generateCommitMessage(token, gitRepo);
+            const message = await commands.generateCommitMessage(gitRepo);
             const lines = message.trim().split("\n");
             const title = lines[0] ?? "";
             const description = lines.slice(1).join("\n").trim();
@@ -687,11 +708,6 @@ export default function Source({
             if (description) {
                 await streamTextInto(description, setCommitDescription, { msPerChar: 4 });
             }
-            void import("@/lib/cloud/store")
-                .then(({ refreshShapeAuth }) => {
-                    void refreshShapeAuth();
-                })
-                .catch(() => undefined);
         } catch (err) {
             notify.error("AI Error", err instanceof Error ? err.message : String(err));
         } finally {
@@ -701,23 +717,10 @@ export default function Source({
 
     const runConflictHelp = async () => {
         if (!gitRepo) return;
-        const token = getShapeAccessToken();
-        if (!token) {
-            notify.error("AI Error", "Sign in to Shape for conflict help.");
-            return;
-        }
         setConflictHelpLoading(true);
         try {
-            const text = await commands.explainGitChanges("conflict", {
-                repoPath: gitRepo,
-                accessToken: token,
-            });
+            const text = await commands.explainGitChanges("conflict", { repoPath: gitRepo });
             setConflictHelp(text.trim());
-            void import("@/lib/cloud/store")
-                .then(({ refreshShapeAuth }) => {
-                    void refreshShapeAuth();
-                })
-                .catch(() => undefined);
         } catch (err) {
             notify.error("AI Error", err instanceof Error ? err.message : String(err));
         } finally {
@@ -996,7 +999,7 @@ export default function Source({
                                     key={repo.path}
                                     onClick={() => {
                                         setActiveRepo(repo.path);
-                                        window.dispatchEvent(new Event("shape-git-refresh"));
+                                        window.dispatchEvent(new Event("bettershape-git-refresh"));
                                     }}
                                 >
                                     <span className="truncate">{repo.name}</span>
@@ -1025,7 +1028,7 @@ export default function Source({
                 ) : !isGitRepo ? (
                     <div className="flex flex-col items-center p-4 text-center h-full gap-4">
                         <p className="text-sm text-text-primary text-left font-normal leading-normal">
-                            The folder currently open doesn&apos;t have a Git repository. You can initialize a repository which will enable source control features powered by Git. To learn more about how to use Git and source control in Shape <a href="#" className="text-accent hover:underline">Read our docs</a>.
+                            The folder currently open doesn&apos;t have a Git repository. You can initialize a repository which will enable source control features powered by Git. To learn more about how to use Git and source control in BetterShape <a href="#" className="text-accent hover:underline">Read our docs</a>.
                         </p>
                         <Button
                             variant="default"
@@ -1035,7 +1038,7 @@ export default function Source({
                                 try {
                                     await commands.gitInit(project_path);
                                     setIsGitRepo(true);
-                                    window.dispatchEvent(new Event("shape-git-refresh"));
+                                    window.dispatchEvent(new Event("bettershape-git-refresh"));
                                     notify.success("Git", "Repository initialized.");
                                 } catch (e) {
                                     notify.gitError(e, "Failed to initialize repository");

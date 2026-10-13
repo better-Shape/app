@@ -8,8 +8,8 @@ use tauri::{AppHandle, Emitter, Listener, Manager};
 use tokio::sync::oneshot;
 use url::Url;
 
-use crate::agent::commands::logging;
 use super::design_sandbox;
+use crate::agent::commands::logging;
 use crate::core::error::AppError;
 
 const MAX_WIDTH: u32 = 1920;
@@ -204,7 +204,7 @@ pub async fn capture_page_preview(
     let request_id = uuid::Uuid::new_v4().to_string();
     let preview_id = uuid::Uuid::new_v4().to_string();
 
-    let preview_dir = std::env::temp_dir().join("shape-design-previews");
+    let preview_dir = std::env::temp_dir().join("bettershape-design-previews");
     tokio::fs::create_dir_all(&preview_dir)
         .await
         .map_err(|e| AppError::Env(format!("Failed to create preview dir: {e}")))?;
@@ -276,7 +276,7 @@ pub async fn capture_html_preview_inner(
     let request_id = uuid::Uuid::new_v4().to_string();
     let preview_id = uuid::Uuid::new_v4().to_string();
 
-    let preview_dir = std::env::temp_dir().join("shape-design-previews");
+    let preview_dir = std::env::temp_dir().join("bettershape-design-previews");
     tokio::fs::create_dir_all(&preview_dir)
         .await
         .map_err(|e| AppError::Env(format!("Failed to create preview dir: {e}")))?;
@@ -384,7 +384,6 @@ pub async fn capture_html_preview_inner(
     })
 }
 
-
 fn load_project_css(project_path: Option<&str>) -> String {
     let Some(root) = project_path else {
         return String::new();
@@ -393,7 +392,7 @@ fn load_project_css(project_path: Option<&str>) -> String {
         Path::new(root).join("app").join("globals.css"),
         Path::new(root).join("src").join("app").join("globals.css"),
         Path::new(root)
-            .join("shape")
+            .join("bettershape")
             .join("app")
             .join("globals.css"),
         Path::new(root).join("globals.css"),
@@ -421,7 +420,7 @@ fn asset_url_for_path(path: &Path) -> Result<Url, AppError> {
 }
 
 pub fn cleanup_preview_dir() {
-    let preview_dir = std::env::temp_dir().join("shape-design-previews");
+    let preview_dir = std::env::temp_dir().join("bettershape-design-previews");
     let _ = std::fs::remove_dir_all(preview_dir);
 }
 

@@ -119,7 +119,11 @@ impl Bm25Index {
             })
             .collect();
 
-        hits.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        hits.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         hits.truncate(top_k);
         hits
     }
@@ -154,7 +158,12 @@ pub fn tokenize(text: &str) -> Vec<String> {
     terms
 }
 
-pub fn build_indexed_chunk(path: &str, start_line: usize, end_line: usize, text: &str) -> IndexedChunk {
+pub fn build_indexed_chunk(
+    path: &str,
+    start_line: usize,
+    end_line: usize,
+    text: &str,
+) -> IndexedChunk {
     let terms = tokenize(text);
     let mut term_freqs: HashMap<String, u32> = HashMap::new();
     for t in terms {

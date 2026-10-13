@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { ShapeLogo } from "@/components/ui/shape-logo";
+import { BetterShapeLogo } from "@/components/ui/bettershape-logo";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -37,18 +37,17 @@ export function GitAiAction({
     compact?: boolean;
 }) {
     const [open, setOpen] = useState(false);
-    const pendingOpen = useRef(false);
+    // "Open once the result arrives" is state, so it can be acted on during render.
+    const [pendingOpen, setPendingOpen] = useState(false);
     const has = Boolean(content?.trim());
 
-    useEffect(() => {
-        if (pendingOpen.current && has && !loading) {
-            pendingOpen.current = false;
-            setOpen(true);
-        }
-    }, [has, loading]);
+    if (pendingOpen && has && !loading) {
+        setPendingOpen(false);
+        setOpen(true);
+    }
 
     const run = () => {
-        pendingOpen.current = true;
+        setPendingOpen(true);
         void Promise.resolve(onRun());
     };
 
@@ -81,7 +80,7 @@ export function GitAiAction({
                     )}
                     disabled={disabled || loading}
                 >
-                    <ShapeLogo size={12} />
+                    <BetterShapeLogo size={12} />
                     {loading ? "Working…" : label}
                 </Button>
             </DropdownMenuTrigger>
@@ -93,7 +92,7 @@ export function GitAiAction({
                 onClick={(e) => e.stopPropagation()}
             >
                 <div className="flex items-center gap-2 px-2 py-1.5">
-                    <ShapeLogo size={14} className="shrink-0" />
+                    <BetterShapeLogo size={14} className="shrink-0" />
                     <span className="min-w-0 flex-1 truncate text-sm font-medium text-text-primary">
                         {title}
                     </span>

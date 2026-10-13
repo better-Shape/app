@@ -1,4 +1,4 @@
-//! Hybrid retrieval: BM25 + ripgrep + server embeddings → RRF merge → rerank.
+//! Hybrid retrieval: BM25 + ripgrep + local embeddings → RRF merge → rerank.
 
 use super::bm25::{Bm25Index, SearchHit};
 use super::embeddings::{Embedder, EmbeddingStore, RemoteSearchHit};
@@ -54,7 +54,7 @@ pub fn hybrid_search(
 
     let emb_hits: Vec<RemoteSearchHit> =
         if opts.embeddings_enabled && embeddings.enabled && remote.is_available() {
-            remote.search(query, n).unwrap_or_default()
+            remote.search(embeddings, query, n).unwrap_or_default()
         } else {
             vec![]
         };
@@ -74,12 +74,9 @@ fn rrf_merge(
     for (rank, hit) in bm25.iter().enumerate() {
         let key = format!("{}:{}", hit.file, hit.start_line);
         let rrf = 1.0 / (RRF_K + rank as f64 + 1.0);
-        let entry = map.entry(key).or_insert((
-            hit.end_line,
-            0.0,
-            hit.excerpt.clone(),
-            vec![],
-        ));
+        let entry = map
+            .entry(key)
+            .or_insert((hit.end_line, 0.0, hit.excerpt.clone(), vec![]));
         entry.1 += rrf;
         entry.0 = hit.end_line;
         entry.2 = hit.excerpt.clone();
@@ -90,7 +87,9 @@ fn rrf_merge(
         let key = format!("{}:{}", hit.file, hit.line);
         let rrf = 1.0 / (RRF_K + rank as f64 + 1.0);
         let excerpt = hit.excerpt.clone();
-        let entry = map.entry(key).or_insert((hit.line, 0.0, excerpt.clone(), vec![]));
+        let entry = map
+            .entry(key)
+            .or_insert((hit.line, 0.0, excerpt.clone(), vec![]));
         entry.1 += rrf;
         entry.3.push("rg".to_string());
         if entry.2.is_empty() {
@@ -107,12 +106,9 @@ fn rrf_merge(
             .find(|c| c.path == hit.file && c.start_line == hit.start_line)
             .map(|c| truncate_excerpt(&c.text, 400))
             .unwrap_or_default();
-        let entry = map.entry(key).or_insert((
-            hit.end_line,
-            0.0,
-            excerpt.clone(),
-            vec![],
-        ));
+        let entry = map
+            .entry(key)
+            .or_insert((hit.end_line, 0.0, excerpt.clone(), vec![]));
         entry.1 += rrf;
         entry.0 = hit.end_line;
         if entry.2.is_empty() {
@@ -164,7 +160,11 @@ fn rerank(
         })
         .collect();
 
-    hits.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    hits.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     hits.truncate(top_k);
     hits
 }

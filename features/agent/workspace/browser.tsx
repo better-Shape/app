@@ -49,8 +49,8 @@ import { ToolBtn } from "./tool";
 const PAGE_W = 1280;
 const PAGE_H = 800;
 const AGENT_TAB = "agent";
-const BOOKMARKS_KEY = "shape-browser-bookmarks";
-const BOOKMARK_BAR_KEY = "shape-browser-bookmark-bar";
+const BOOKMARKS_KEY = "bettershape-browser-bookmarks";
+const BOOKMARK_BAR_KEY = "bettershape-browser-bookmark-bar";
 
 type Bookmark = { url: string; title: string };
 
@@ -262,8 +262,8 @@ function UrlBar({
             inputRef.current?.focus();
             inputRef.current?.select();
         };
-        window.addEventListener("shape-browser-focus-url", focusBar);
-        return () => window.removeEventListener("shape-browser-focus-url", focusBar);
+        window.addEventListener("bettershape-browser-focus-url", focusBar);
+        return () => window.removeEventListener("bettershape-browser-focus-url", focusBar);
     }, []);
 
     const commit = (raw: string) => {
@@ -323,7 +323,7 @@ function UrlBar({
                 />
             </form>
             {open && items.length > 0 ? (
-                <div data-shape-float="" className="absolute top-full left-0 right-0 z-30 mt-1 flex max-h-64 flex-col gap-0.5 overflow-auto rounded-xl border border-border-subtle bg-surface-3 p-1 shadow-sm">
+                <div data-bettershape-float="" className="absolute top-full left-0 right-0 z-30 mt-1 flex max-h-64 flex-col gap-0.5 overflow-auto rounded-xl border border-border-subtle bg-surface-3 p-1 shadow-sm">
                     {items.map((item, index) => {
                         const active = index === selected;
                         return (
@@ -487,7 +487,7 @@ function PageStage({
         const ctrl = e.ctrlKey || e.metaKey;
         if (ctrl && e.key.toLowerCase() === "l") {
             e.preventDefault();
-            window.dispatchEvent(new Event("shape-browser-focus-url"));
+            window.dispatchEvent(new Event("bettershape-browser-focus-url"));
             return;
         }
         if (e.key === "F5" || (ctrl && e.key.toLowerCase() === "r")) {
@@ -711,7 +711,7 @@ function blankTab(id: string): PageTab {
     return { id, pending: true, url: "", title: "", favicon: "", entries: [], index: 0, error: null };
 }
 
-const SCHEME_KEY = "shape-browser-scheme";
+const SCHEME_KEY = "bettershape-browser-scheme";
 type ColorScheme = "system" | "light" | "dark";
 
 export function BrowserView({
@@ -915,7 +915,7 @@ export function BrowserView({
         travelUntil.current = Date.now() + 800;
         setTabs((prev) => prev.map((tab) => (tab.id === active.id ? { ...tab, index, url, error: null } : tab)));
         frameRef.current?.contentWindow?.postMessage({
-            type: "shape-browser-host",
+            type: "bettershape-browser-host",
             history: delta < 0 ? "back" : "forward",
             goto: url,
         }, "*");
@@ -924,7 +924,7 @@ export function BrowserView({
     const reloadPage = () => {
         if (!active?.url || showAgent) return;
         setTabs((prev) => prev.map((tab) => (tab.id === active.id ? { ...tab, error: null } : tab)));
-        frameRef.current?.contentWindow?.postMessage({ type: "shape-browser-host", reload: true }, "*");
+        frameRef.current?.contentWindow?.postMessage({ type: "bettershape-browser-host", reload: true }, "*");
     };
 
     const chooseScheme = (next: ColorScheme) => {
@@ -940,8 +940,8 @@ export function BrowserView({
         void commands.browserSurfaceScheme(scheme).then(() => {
             if (cancel) return;
             const frame = frameRef.current?.contentWindow;
-            frame?.postMessage({ type: "shape-browser-host", scheme }, "*");
-            if (changed) frame?.postMessage({ type: "shape-browser-host", reload: true }, "*");
+            frame?.postMessage({ type: "bettershape-browser-host", scheme }, "*");
+            if (changed) frame?.postMessage({ type: "bettershape-browser-host", reload: true }, "*");
         });
         return () => {
             cancel = true;
@@ -959,7 +959,7 @@ export function BrowserView({
     useEffect(() => {
         const frame = frameRef.current;
         if (!frame) return;
-        const send = () => frame.contentWindow?.postMessage({ type: "shape-browser-host", pick: picking }, "*");
+        const send = () => frame.contentWindow?.postMessage({ type: "bettershape-browser-host", pick: picking }, "*");
         send();
         frame.addEventListener("load", send);
         return () => frame.removeEventListener("load", send);
@@ -969,6 +969,10 @@ export function BrowserView({
         const onMessage = (event: MessageEvent) => {
             const frame = frameRef.current;
             if (!frame || event.source !== frame.contentWindow) return;
+            try {
+                const expected = new URL(currentUrlRef.current).origin;
+                if (event.origin && expected !== "null" && event.origin !== expected) return;
+            } catch { /* ignore */ }
             const data = event.data as {
                 type?: string;
                 url?: string;
@@ -982,25 +986,25 @@ export function BrowserView({
                 rect?: { x: number; y: number; w: number; h: number };
             } | null;
             if (!data || typeof data.type !== "string") return;
-            if (data.type === "shape-browser-page" && data.url) {
+            if (data.type === "bettershape-browser-page" && data.url) {
                 noteNavigation(data.url, data.title, null, !!data.travel, data.favicon);
                 return;
             }
-            if (data.type === "shape-browser-hover") {
+            if (data.type === "bettershape-browser-hover") {
                 if (!data.rect || !data.label) setHover(null);
                 else setHover({ label: data.label, rect: data.rect });
                 return;
             }
-            if (data.type === "shape-browser-menu") {
+            if (data.type === "bettershape-browser-menu") {
                 const rect = frame.getBoundingClientRect();
                 setPageMenu({ x: rect.left + (data.x || 0), y: rect.top + (data.y || 0) });
                 return;
             }
-            if (data.type === "shape-browser-pick" && data.tag) {
+            if (data.type === "bettershape-browser-pick" && data.tag) {
                 setPicking(false);
                 const el = data as BrowserPickedElement;
-                window.dispatchEvent(new CustomEvent("shape-chat-attach-element", { detail: el }));
-                window.dispatchEvent(new Event("shape-chat-focus-input"));
+                window.dispatchEvent(new CustomEvent("bettershape-chat-attach-element", { detail: el }));
+                window.dispatchEvent(new Event("bettershape-chat-focus-input"));
             }
         };
         window.addEventListener("message", onMessage);
@@ -1188,7 +1192,7 @@ export function BrowserView({
                 <div className="relative min-h-0 min-w-0 flex-1">
                 <iframe
                     ref={frameRef}
-                    name="shape-browser"
+                    name="bettershape-browser"
                     title={active?.title || "Browser"}
                     sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals"
                     className={cn(
@@ -1238,7 +1242,7 @@ export function BrowserView({
                 </div>
                 {toolsUrl && showPage ? (
                     <iframe
-                        name="shape-devtools"
+                        name="bettershape-devtools"
                         title="Developer tools"
                         src={toolsUrl}
                         className="h-full w-[min(440px,46%)] shrink-0 border-l border-border-subtle bg-panel"

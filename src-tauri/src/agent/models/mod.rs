@@ -103,8 +103,6 @@ pub struct MessageStats {
     pub input_tokens: usize,
     pub output_tokens: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub credits_charged: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub used_auto: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning_effort: Option<String>,
@@ -151,6 +149,14 @@ pub struct Conversation {
     /// Conversation surface. Legacy `"multiwork"` values are treated as `"chat"`.
     #[serde(default = "default_conversation_kind")]
     pub kind: String,
+    /// Rolling compaction summary for this conversation's older turns. Persisted
+    /// so reopening a long chat does not re-send the whole raw history.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    /// How many messages from the start of `history` that summary covers. Saved
+    /// with it: without the boundary the summary cannot be applied again.
+    #[serde(default)]
+    pub summary_fold_end: usize,
 }
 
 fn default_conversation_kind() -> String {
@@ -218,6 +224,37 @@ pub struct TurnCheckpoint {
     pub files: Vec<FileSnapshot>,
 }
 
+/// Record the pre-edit content of `path` for the turn at `message_index`, once per file.
+/// Shared by the live chat's list and by a background chat's file on disk.
+pub fn record_into_checkpoints(
+    checkpoints: &mut Vec<TurnCheckpoint>,
+    message_index: usize,
+    path: &str,
+    original_content: Option<String>,
+) {
+    let entry = checkpoints
+        .iter_mut()
+        .find(|c| c.message_index == message_index);
+    match entry {
+        Some(cp) => {
+            if cp.files.iter().any(|f| f.path == path) {
+                return;
+            }
+            cp.files.push(FileSnapshot {
+                path: path.to_string(),
+                original_content,
+            });
+        }
+        None => checkpoints.push(TurnCheckpoint {
+            message_index,
+            files: vec![FileSnapshot {
+                path: path.to_string(),
+                original_content,
+            }],
+        }),
+    }
+}
+
 pub struct AgentState {
     pub history: Mutex<Vec<ChatMessage>>,
     pub title: Mutex<Option<String>>,
@@ -260,6 +297,10 @@ pub struct AgentState {
     pub turn_meter: Mutex<HashMap<String, (usize, usize)>>,
     /// Compressed summary of older chat turns when history grows long.
     pub history_summary: Mutex<Option<String>>,
+    /// Compaction bookkeeping: pass history, circuit breaker, backoff.
+    pub compaction: Mutex<crate::agent::commands::compaction::CompactionState>,
+    /// Files the session read or wrote, newest first. Re-attached after a fold.
+    pub recent_files: Mutex<Vec<crate::agent::commands::compaction::RecentFile>>,
     /// Partial assistant turns keyed by conversation id. Several chats can run at once.
     pub in_flight: Mutex<HashMap<String, InFlightTurn>>,
     /// Debounce timestamp for persisting in-flight partial content.
@@ -270,6 +311,8 @@ pub struct AgentState {
     /// history index of the user turn that produced them. Restoring a checkpoint
     /// replays these (most recent first) back onto disk.
     pub file_checkpoints: Mutex<Vec<TurnCheckpoint>>,
+    /// Message index each chat's turn started at (keyed by chat id).
+    pub turn_checkpoint_index: Mutex<HashMap<String, usize>>,
     /// When true, `list_chats` / `read_chat` tools are offered to the model.
     pub chat_memory_enabled: AtomicBool,
     /// Ephemeral chat: history is not written to disk.
@@ -312,15 +355,63 @@ impl AgentState {
             turn_policies: Mutex::new(HashMap::new()),
             turn_meter: Mutex::new(HashMap::new()),
             history_summary: Mutex::new(None),
+            compaction: Mutex::new(
+                crate::agent::commands::compaction::CompactionState::default(),
+            ),
+            recent_files: Mutex::new(Vec::new()),
             in_flight: Mutex::new(HashMap::new()),
             in_flight_last_save: Mutex::new(0.0),
             design_preview: Mutex::new(DesignPreviewState::default()),
             file_checkpoints: Mutex::new(Vec::new()),
+            turn_checkpoint_index: Mutex::new(HashMap::new()),
             chat_memory_enabled: AtomicBool::new(false),
             incognito: AtomicBool::new(false),
             subagent_models: Mutex::new(vec!["auto".to_string()]),
             subagent_default_model: Mutex::new("auto".to_string()),
         }
+    }
+
+    /// Drop the compaction summary and its bookkeeping. Used when a chat is
+    /// cleared, replaced, or forked — a summary must never leak between chats.
+    pub fn reset_compaction(&self) {
+        if let Ok(mut guard) = self.history_summary.lock() {
+            *guard = None;
+        }
+        if let Ok(mut guard) = self.compaction.lock() {
+            guard.reset();
+        }
+        if let Ok(mut guard) = self.recent_files.lock() {
+            guard.clear();
+        }
+    }
+
+    /// The rolling summary currently applied to older turns.
+    pub fn current_summary(&self) -> Option<String> {
+        self.history_summary.lock().ok().and_then(|g| g.clone())
+    }
+
+    /// Replace the rolling summary (used when restoring a saved conversation).
+    pub fn set_current_summary(&self, summary: Option<String>) {
+        if let Ok(mut guard) = self.history_summary.lock() {
+            *guard = summary;
+        }
+    }
+
+    /// Restore a saved summary together with the span it covers.
+    pub fn restore_summary(&self, summary: Option<String>, fold_end: usize) {
+        let covered = if summary.is_some() { fold_end } else { 0 };
+        self.set_current_summary(summary);
+        if let Ok(mut guard) = self.compaction.lock() {
+            guard.summary_fold_end = covered;
+        }
+    }
+
+    /// How many leading messages the stored summary already covers.
+    pub fn summary_fold_end(&self) -> usize {
+        self.compaction
+            .lock()
+            .map(|g| g.summary_fold_end)
+            .unwrap_or(0)
     }
 
     pub fn incognito(&self) -> bool {
@@ -462,11 +553,7 @@ impl AgentState {
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_secs_f64())
                 .unwrap_or(0.0);
-            let last_ts = self
-                .in_flight_last_save
-                .lock()
-                .map(|l| *l)
-                .unwrap_or(0.0);
+            let last_ts = self.in_flight_last_save.lock().map(|l| *l).unwrap_or(0.0);
             let should_save = now - last_ts > 12.0;
             (
                 should_save,
@@ -520,11 +607,7 @@ impl AgentState {
                         .or(title_snapshot)
                         .unwrap_or_else(|| "Untitled".to_string());
                     let _ = crate::agent::commands::history::upsert_conversation_snapshot(
-                        self,
-                        path,
-                        conv_id,
-                        &title,
-                        hist,
+                        self, path, conv_id, &title, hist,
                     );
                 }
             }
@@ -569,10 +652,15 @@ impl AgentState {
             .lock()
             .ok()
             .and_then(|g| g.clone())?;
-        self.in_flight.lock().ok().and_then(|g| g.get(&current).cloned())
+        self.in_flight
+            .lock()
+            .ok()
+            .and_then(|g| g.get(&current).cloned())
     }
 
-    pub fn history_for_persistence(&self) -> Result<Vec<ChatMessage>, crate::core::error::AppError> {
+    pub fn history_for_persistence(
+        &self,
+    ) -> Result<Vec<ChatMessage>, crate::core::error::AppError> {
         let base = self.history.lock()?.clone();
         let current_id = self.current_conversation_id.lock()?.clone();
         Ok(self.merge_in_flight_into_history_for(base, current_id.as_deref()))
@@ -603,7 +691,11 @@ impl AgentState {
         else {
             return history;
         };
-        Self::merge_partial_into_history(history, &in_flight.partial_content, Some(in_flight.started_at))
+        Self::merge_partial_into_history(
+            history,
+            &in_flight.partial_content,
+            Some(in_flight.started_at),
+        )
     }
 
     fn merge_partial_into_history(
@@ -637,8 +729,26 @@ impl AgentState {
         history
     }
 
-    pub fn generation_state(&self) -> ChatGenerationState {
-        match self.in_flight_snapshot() {
+    /// In-flight turn for one specific conversation (not whichever chat is live).
+    pub fn in_flight_for(&self, conversation_id: &str) -> Option<InFlightTurn> {
+        self.in_flight
+            .lock()
+            .ok()
+            .and_then(|g| g.get(conversation_id).cloned())
+    }
+
+    /// True while `conversation_id` has a turn running, regardless of what is on screen.
+    pub fn is_generating_conversation(&self, conversation_id: &str) -> bool {
+        self.in_flight_for(conversation_id).is_some()
+    }
+
+    /// Generation state for `conversation_id`, or for the live chat when `None`.
+    pub fn generation_state_for(&self, conversation_id: Option<&str>) -> ChatGenerationState {
+        let snapshot = match conversation_id {
+            Some(id) => self.in_flight_for(id),
+            None => self.in_flight_snapshot(),
+        };
+        match snapshot {
             Some(f) => ChatGenerationState {
                 is_generating: true,
                 turn_id: Some(f.turn_id),
@@ -662,7 +772,12 @@ impl AgentState {
         }
     }
 
-    pub fn record_turn_usage(&self, turn_id: Option<&str>, input_tokens: usize, output_tokens: usize) {
+    pub fn record_turn_usage(
+        &self,
+        turn_id: Option<&str>,
+        input_tokens: usize,
+        output_tokens: usize,
+    ) {
         let Some(id) = turn_id.filter(|s| !s.is_empty()) else {
             return;
         };
@@ -693,37 +808,37 @@ impl AgentState {
     /// Record the pre-edit content of `path` the first time it is touched by the
     /// turn starting at `message_index`. Subsequent edits to the same file within
     /// the same turn are no-ops (we only ever want the *original* state).
-    pub fn record_file_checkpoint(&self, message_index: usize, path: &str, original_content: Option<String>) {
-        let Ok(mut checkpoints) = self.file_checkpoints.lock() else {
-            return;
-        };
-        let entry = checkpoints
-            .iter_mut()
-            .find(|c| c.message_index == message_index);
-        match entry {
-            Some(cp) => {
-                if cp.files.iter().any(|f| f.path == path) {
-                    return;
-                }
-                cp.files.push(FileSnapshot {
-                    path: path.to_string(),
-                    original_content,
-                });
-            }
-            None => {
-                checkpoints.push(TurnCheckpoint {
-                    message_index,
-                    files: vec![FileSnapshot {
-                        path: path.to_string(),
-                        original_content,
-                    }],
-                });
-            }
+    pub fn record_file_checkpoint(
+        &self,
+        message_index: usize,
+        path: &str,
+        original_content: Option<String>,
+    ) {
+        if let Ok(mut checkpoints) = self.file_checkpoints.lock() {
+            record_into_checkpoints(&mut checkpoints, message_index, path, original_content);
         }
     }
 
+    /// Note the message index a chat's turn started at, so its checkpoints can be filed under
+    /// the right message even when that chat is not the live one.
+    pub fn set_turn_checkpoint_index(&self, conversation_id: &str, message_index: usize) {
+        if let Ok(mut map) = self.turn_checkpoint_index.lock() {
+            map.insert(conversation_id.to_string(), message_index);
+        }
+    }
+
+    pub fn turn_checkpoint_index_for(&self, conversation_id: &str) -> Option<usize> {
+        self.turn_checkpoint_index
+            .lock()
+            .ok()
+            .and_then(|map| map.get(conversation_id).copied())
+    }
+
     pub fn file_checkpoints_snapshot(&self) -> Vec<TurnCheckpoint> {
-        self.file_checkpoints.lock().map(|c| c.clone()).unwrap_or_default()
+        self.file_checkpoints
+            .lock()
+            .map(|c| c.clone())
+            .unwrap_or_default()
     }
 
     pub fn replace_file_checkpoints(&self, checkpoints: Vec<TurnCheckpoint>) {
@@ -839,11 +954,7 @@ impl AgentState {
 
     pub fn title_meta(&self) -> (bool, u32) {
         let locked = self.title_locked.load(Ordering::Relaxed);
-        let anchor = self
-            .title_anchor_turns
-            .lock()
-            .map(|g| *g)
-            .unwrap_or(0);
+        let anchor = self.title_anchor_turns.lock().map(|g| *g).unwrap_or(0);
         (locked, anchor)
     }
 
@@ -971,7 +1082,10 @@ mod tests {
             AutoRunMode::from_setting(Some("ask_every_time")),
             AutoRunMode::Ask
         );
-        assert_eq!(AutoRunMode::from_setting(Some("always")), AutoRunMode::Always);
+        assert_eq!(
+            AutoRunMode::from_setting(Some("always")),
+            AutoRunMode::Always
+        );
         assert_eq!(
             AutoRunMode::from_setting(Some("run_everything")),
             AutoRunMode::Always

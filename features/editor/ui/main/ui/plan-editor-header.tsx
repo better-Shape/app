@@ -7,7 +7,8 @@ import { TaskListSquareLtr20Regular } from "@fluentui/react-icons/headless/svg/t
 import React from "react";
 import { Icon } from "@/components/ui/icon";
 
-import { commands } from "@/lib/backend";
+import { commands, useProjectState } from "@/lib/backend";
+import { getPlanOrigin, resolveProjectPlanPath } from "@/features/chat/lib/plan-origin";
 import { useChatStreamOptional } from "@/features/chat/lib/chat-stream-store";
 import { displayPlanName } from "@/lib/plan/preview";
 import { planSlugFromPath } from "@/lib/plan/file";
@@ -71,6 +72,7 @@ export function PlanEditorHeader({
     onSaveToWorkspace?: () => void;
 }) {
     const { isLoading } = useChatStreamOptional();
+    const { project_path } = useProjectState();
     const [checking, setChecking] = React.useState(false);
     const title = displayPlanName(titleProp || planSlugFromPath(path));
     const mod = modKeyLabel();
@@ -80,8 +82,11 @@ export function PlanEditorHeader({
         setChecking(true);
         try {
             await commands.readFile(path);
-            window.dispatchEvent(new CustomEvent("shape-build-plan", {
-                detail: { path, title },
+            // This button sits outside any chat, so it builds in the chat the plan was made in.
+            // With no recorded origin, the event carries no id and the active chat is used.
+            const conversationId = getPlanOrigin(resolveProjectPlanPath(path, project_path));
+            window.dispatchEvent(new CustomEvent("bettershape-build-plan", {
+                detail: { path, title, conversationId },
             }));
         } catch {
             const { notify } = await import("@/features/notifications");
@@ -89,7 +94,7 @@ export function PlanEditorHeader({
         } finally {
             setChecking(false);
         }
-    }, [checking, isLoading, path, title]);
+    }, [checking, isLoading, path, title, project_path]);
 
     React.useEffect(() => {
         const onKeyDown = (e: KeyboardEvent) => {

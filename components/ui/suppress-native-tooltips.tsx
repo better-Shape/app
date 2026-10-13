@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 
 /**
- * Strip native `title` tooltips app-wide. Custom Shape tooltips stay;
+ * Strip native `title` tooltips app-wide. Custom BetterShape tooltips stay;
  * bare `title=` attributes otherwise show the browser bubble.
  * Original text is kept on `data-native-title` if something needs it later.
  *

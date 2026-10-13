@@ -1,10 +1,10 @@
 ---
 title: Troubleshooting
-description: When install, sign-in, or chat fails.
+description: When install, keys, or chat fail.
 order: 4
 ---
 
-Start with the matching heading. If none of these fit, [contact](/docs/help/contact) with the account email and the version from **Help → About**.
+Start with the matching heading. If none of these fit, [contact](/docs/help/contact) with the version from **Help → About**.
 
 ## The app will not open
 
@@ -12,27 +12,19 @@ It needs Windows 10 or 11, 64-bit. Download the installer again from [useshape.o
 
 If it opens and closes immediately, run it once more after a reboot. If it still fails, send the version you tried to install.
 
-## Sign-in never finishes
+## Chat says no provider is configured
 
-Finish the step in the browser, then return to the app. If the browser is stuck:
+Open **Settings → Providers** and add an API key. BetterShape calls the provider directly with that key; there is no account to sign in to. If a key is set and send still fails, the provider returned the error — the status line under the message names the provider and the HTTP status.
 
-1. Close the browser tab.
-2. Sign out from the app if you are halfway in.
-3. Sign in again.
+## A model does not appear in the menu
 
-Do not paste a password into chat.
-
-## Chat will not send
-
-Check the plan and remaining credits on [Billing](/dashboard/settings/billing). Free includes Auto only. A named model on Free will not send.
-
-If you are on a paid plan and send still fails, switch to Auto once. If Auto works, the named model is the problem for that turn. If Auto also fails, check [status](/status).
+The menu lists the models offered by presets, plus anything in **Extra models** on the provider card. Add the id by hand if your provider serves a model we do not list.
 
 ## The preview cannot reach localhost
 
 Start your app first, then open that URL in the [browser](/docs/agent/browser).
 
-`localhost` has to be the same machine. A URL on another device will not load in Shape’s preview.
+`localhost` has to be the same machine. A URL on another device will not load in BetterShape’s preview.
 
 ## GitHub data is missing
 
@@ -40,7 +32,7 @@ Start your app first, then open that URL in the [browser](/docs/agent/browser).
 
 ## MCP tools do not appear
 
-Save `mcp.json`, restart Shape, and open the folder again. The `command` has to exist on `PATH` for the app, not only for a terminal you already opened. See [MCP](/docs/customize/mcp).
+Save `mcp.json`, restart BetterShape, and open the folder again. The `command` has to exist on `PATH` for the app, not only for a terminal you already opened. See [MCP](/docs/customize/mcp).
 
 ## An update did not apply
 

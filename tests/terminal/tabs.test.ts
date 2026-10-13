@@ -6,11 +6,11 @@ describe("tabs", () => {
     it("open", () => {
         const layout: CustomEvent[] = [];
         const terminal: CustomEvent[] = [];
-        window.addEventListener("shape-layout-toggle", (e) => layout.push(e as CustomEvent));
-        window.addEventListener("shape-terminal-shortcut", (e) => terminal.push(e as CustomEvent));
+        window.addEventListener("bettershape-layout-toggle", (e) => layout.push(e as CustomEvent));
+        window.addEventListener("bettershape-terminal-shortcut", (e) => terminal.push(e as CustomEvent));
 
-        window.dispatchEvent(new CustomEvent("shape-layout-toggle", { detail: { id: "panel", value: true } }));
-        window.dispatchEvent(new CustomEvent("shape-terminal-shortcut", { detail: { action: "open" } }));
+        window.dispatchEvent(new CustomEvent("bettershape-layout-toggle", { detail: { id: "panel", value: true } }));
+        window.dispatchEvent(new CustomEvent("bettershape-terminal-shortcut", { detail: { action: "open" } }));
 
         expect(layout[0]?.detail).toEqual({ id: "panel", value: true });
         expect(terminal[0]?.detail).toEqual({ action: "open" });
@@ -18,8 +18,8 @@ describe("tabs", () => {
 
     it("new", () => {
         const terminal: CustomEvent[] = [];
-        window.addEventListener("shape-terminal-shortcut", (e) => terminal.push(e as CustomEvent));
-        window.dispatchEvent(new CustomEvent("shape-terminal-shortcut", { detail: { action: "new" } }));
+        window.addEventListener("bettershape-terminal-shortcut", (e) => terminal.push(e as CustomEvent));
+        window.dispatchEvent(new CustomEvent("bettershape-terminal-shortcut", { detail: { action: "new" } }));
         expect(terminal[0]?.detail).toEqual({ action: "new" });
     });
 

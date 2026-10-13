@@ -37,7 +37,7 @@ export function selectPr(id: string | null) {
     state = { ...state, selectedId: id };
     emit();
     if (id) {
-        window.dispatchEvent(new CustomEvent("shape-set-active-tab", { detail: "prs" }));
+        window.dispatchEvent(new CustomEvent("bettershape-set-active-tab", { detail: "prs" }));
     }
 }
 

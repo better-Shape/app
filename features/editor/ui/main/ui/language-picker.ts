@@ -11,7 +11,7 @@ export function openLanguageModePicker(filePath: string, currentLanguage?: strin
             label: "Auto Detect",
             shortcut: detected,
             run: () => {
-                window.dispatchEvent(new CustomEvent("shape-editor-action", {
+                window.dispatchEvent(new CustomEvent("bettershape-editor-action", {
                     detail: { action: "setLanguage", value: detected, autoDetect: true },
                 }));
             },
@@ -21,14 +21,14 @@ export function openLanguageModePicker(filePath: string, currentLanguage?: strin
             label: lang.label,
             shortcut: lang.id,
             run: () => {
-                window.dispatchEvent(new CustomEvent("shape-editor-action", {
+                window.dispatchEvent(new CustomEvent("bettershape-editor-action", {
                     detail: { action: "setLanguage", value: lang.id },
                 }));
             },
         })),
     ];
 
-    window.dispatchEvent(new CustomEvent("shape-command-palette", {
+    window.dispatchEvent(new CustomEvent("bettershape-command-palette", {
         detail: {
             mode: "language_mode",
             placeholder: "Select Language Mode",

@@ -49,7 +49,7 @@ export function TitlebarUpdateButton() {
           status.kind === "available"
             ? `Update available: ${status.version}`
             : status.kind === "ready"
-              ? "Restart Shape to finish updating"
+              ? "Restart BetterShape to finish updating"
               : label
         }
         onClick={() => {

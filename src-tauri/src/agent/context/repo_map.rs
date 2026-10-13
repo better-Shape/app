@@ -7,9 +7,8 @@ use std::path::Path;
 /// Compact symbol outline for open files — tuned for token efficiency.
 pub const DEFAULT_REPO_MAP_TOKENS: usize = 768;
 
-pub fn estimate_tokens(text: &str) -> usize {
-    (text.chars().count() + 3) / 4
-}
+/// Kept as a re-export so existing call sites share one estimator (`context::tokens`).
+pub use crate::agent::context::tokens::estimate_tokens;
 
 pub struct RepoMapInput<'a> {
     pub open_files: &'a [String],
@@ -69,7 +68,12 @@ fn fit_to_token_budget(lines: &[String], budget: usize) -> String {
 
     while lo <= hi {
         let mid = (lo + hi) / 2;
-        let candidate = lines.iter().take(mid).cloned().collect::<Vec<_>>().join("\n");
+        let candidate = lines
+            .iter()
+            .take(mid)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n");
         let tokens = estimate_tokens(&candidate);
         if tokens <= budget {
             best = candidate;

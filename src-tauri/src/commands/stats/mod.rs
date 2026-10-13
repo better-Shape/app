@@ -283,12 +283,13 @@ fn project_hash(proj_path: &str) -> String {
     use std::hash::{Hash, Hasher};
     let mut hasher = DefaultHasher::new();
     proj_path.hash(&mut hasher);
-    format!("{:x}", hasher.finish())
+    let _ = hasher.finish();
+    crate::core::project_key::stable_project_key(proj_path)
 }
 
 fn stats_path(proj_path: &str) -> PathBuf {
     let mut path = dirs::data_local_dir().unwrap_or_else(|| PathBuf::from("."));
-    path.push("Shape");
+    path.push("BetterShape");
     path.push("stats");
     let _ = std::fs::create_dir_all(&path);
     path.push(format!("{}.json", project_hash(proj_path)));
@@ -296,7 +297,9 @@ fn stats_path(proj_path: &str) -> PathBuf {
 }
 
 fn load_store(proj_path: &str) -> ProjectStatsStore {
-    let file = stats_path(proj_path);
+    let mut file = stats_path(proj_path);
+    let legacy = file.with_file_name(format!("{:x}.json", crate::core::project_key::legacy_sip_hash(proj_path)));
+    if !file.exists() && legacy.exists() { file = legacy; }
     if let Ok(content) = std::fs::read_to_string(&file) {
         if let Ok(mut store) = serde_json::from_str::<ProjectStatsStore>(&content) {
             store.project_path = proj_path.to_string();
@@ -351,7 +354,10 @@ fn resolve_project(app_state: &AppState, project_path: Option<String>) -> Result
 
 fn is_skipped_dir(name: &str, custom: &[String]) -> bool {
     let lower = name.to_ascii_lowercase();
-    if DEFAULT_SKIP_DIRS.iter().any(|d| d.eq_ignore_ascii_case(&lower)) {
+    if DEFAULT_SKIP_DIRS
+        .iter()
+        .any(|d| d.eq_ignore_ascii_case(&lower))
+    {
         return true;
     }
     custom.iter().any(|c| {
@@ -484,7 +490,8 @@ fn is_config_file(name: &str, lang: &str) -> bool {
             | "biome.json"
             | "rust-toolchain.toml"
     ) || lang == "TOML" && lower.ends_with(".toml")
-        || lang == "YAML" && (lower.ends_with(".yml") || lower.ends_with(".yaml"))
+        || lang == "YAML"
+            && (lower.ends_with(".yml") || lower.ends_with(".yaml"))
             && (lower.contains("config") || lower.contains("ci") || lower.starts_with('.'))
 }
 
@@ -838,8 +845,14 @@ fn compute_git_insights(project_path: &str) -> GitInsights {
             let text = String::from_utf8_lossy(&output.stdout);
             for line in text.lines() {
                 let mut parts = line.split_whitespace();
-                let add = parts.next().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
-                let del = parts.next().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
+                let add = parts
+                    .next()
+                    .and_then(|s| s.parse::<u64>().ok())
+                    .unwrap_or(0);
+                let del = parts
+                    .next()
+                    .and_then(|s| s.parse::<u64>().ok())
+                    .unwrap_or(0);
                 if let Some(path) = parts.next() {
                     touched.insert(path.to_string());
                 }
@@ -860,32 +873,64 @@ pub fn bump_event(project_path: &str, key: &str) {
     }
     let mut store = load_store(project_path);
     match key {
-        "ai_terminal_runs" => store.events.ai_terminal_runs = store.events.ai_terminal_runs.saturating_add(1),
-        "ai_file_edits" => store.events.ai_file_edits = store.events.ai_file_edits.saturating_add(1),
-        "ai_file_creates" => store.events.ai_file_creates = store.events.ai_file_creates.saturating_add(1),
-        "ai_file_deletes" => store.events.ai_file_deletes = store.events.ai_file_deletes.saturating_add(1),
-        "ai_file_renames" => store.events.ai_file_renames = store.events.ai_file_renames.saturating_add(1),
+        "ai_terminal_runs" => {
+            store.events.ai_terminal_runs = store.events.ai_terminal_runs.saturating_add(1)
+        }
+        "ai_file_edits" => {
+            store.events.ai_file_edits = store.events.ai_file_edits.saturating_add(1)
+        }
+        "ai_file_creates" => {
+            store.events.ai_file_creates = store.events.ai_file_creates.saturating_add(1)
+        }
+        "ai_file_deletes" => {
+            store.events.ai_file_deletes = store.events.ai_file_deletes.saturating_add(1)
+        }
+        "ai_file_renames" => {
+            store.events.ai_file_renames = store.events.ai_file_renames.saturating_add(1)
+        }
         "ai_searches" => store.events.ai_searches = store.events.ai_searches.saturating_add(1),
         "ai_reads" => store.events.ai_reads = store.events.ai_reads.saturating_add(1),
-        "ai_git_commits" => store.events.ai_git_commits = store.events.ai_git_commits.saturating_add(1),
-        "ai_git_fetches" => store.events.ai_git_fetches = store.events.ai_git_fetches.saturating_add(1),
-        "ai_git_stages" => store.events.ai_git_stages = store.events.ai_git_stages.saturating_add(1),
-        "ai_chat_turns" => store.events.ai_chat_turns = store.events.ai_chat_turns.saturating_add(1),
+        "ai_git_commits" => {
+            store.events.ai_git_commits = store.events.ai_git_commits.saturating_add(1)
+        }
+        "ai_git_fetches" => {
+            store.events.ai_git_fetches = store.events.ai_git_fetches.saturating_add(1)
+        }
+        "ai_git_stages" => {
+            store.events.ai_git_stages = store.events.ai_git_stages.saturating_add(1)
+        }
+        "ai_chat_turns" => {
+            store.events.ai_chat_turns = store.events.ai_chat_turns.saturating_add(1)
+        }
         "ai_subagents" => store.events.ai_subagents = store.events.ai_subagents.saturating_add(1),
         "ai_design_previews" => {
             store.events.ai_design_previews = store.events.ai_design_previews.saturating_add(1)
         }
         "ai_mcp_calls" => store.events.ai_mcp_calls = store.events.ai_mcp_calls.saturating_add(1),
-        "ai_plan_saves" => store.events.ai_plan_saves = store.events.ai_plan_saves.saturating_add(1),
+        "ai_plan_saves" => {
+            store.events.ai_plan_saves = store.events.ai_plan_saves.saturating_add(1)
+        }
         "ai_todo_updates" => {
             store.events.ai_todo_updates = store.events.ai_todo_updates.saturating_add(1)
         }
-        "user_file_saves" => store.events.user_file_saves = store.events.user_file_saves.saturating_add(1),
-        "user_files_opened" => store.events.user_files_opened = store.events.user_files_opened.saturating_add(1),
-        "user_git_commits" => store.events.user_git_commits = store.events.user_git_commits.saturating_add(1),
-        "user_git_pushes" => store.events.user_git_pushes = store.events.user_git_pushes.saturating_add(1),
-        "user_git_fetches" => store.events.user_git_fetches = store.events.user_git_fetches.saturating_add(1),
-        "user_git_pulls" => store.events.user_git_pulls = store.events.user_git_pulls.saturating_add(1),
+        "user_file_saves" => {
+            store.events.user_file_saves = store.events.user_file_saves.saturating_add(1)
+        }
+        "user_files_opened" => {
+            store.events.user_files_opened = store.events.user_files_opened.saturating_add(1)
+        }
+        "user_git_commits" => {
+            store.events.user_git_commits = store.events.user_git_commits.saturating_add(1)
+        }
+        "user_git_pushes" => {
+            store.events.user_git_pushes = store.events.user_git_pushes.saturating_add(1)
+        }
+        "user_git_fetches" => {
+            store.events.user_git_fetches = store.events.user_git_fetches.saturating_add(1)
+        }
+        "user_git_pulls" => {
+            store.events.user_git_pulls = store.events.user_git_pulls.saturating_add(1)
+        }
         "chat_stops" => store.events.chat_stops = store.events.chat_stops.saturating_add(1),
         _ => return,
     }
@@ -947,7 +992,9 @@ pub fn set_stats_custom_ignore(
         .collect();
     // Dedupe case-insensitively
     let mut seen = std::collections::HashSet::new();
-    store.custom_ignore.retain(|s| seen.insert(s.to_ascii_lowercase()));
+    store
+        .custom_ignore
+        .retain(|s| seen.insert(s.to_ascii_lowercase()));
     save_store(&store)?;
     Ok(snapshot_from_store(&store))
 }

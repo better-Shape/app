@@ -1,34 +1,34 @@
 ---
 title: Quickstart
-description: Install Shape, open a folder, and send one task.
+description: Install BetterShape, open a folder, and send one task.
 order: 1
 ---
 
-Shape is a desktop app. You open a project folder, describe the work in chat, and review the edits before they stay.
+BetterShape is a desktop app. You open a project folder, describe the work in chat, and review the edits before they stay.
 
 ## Install the app
 
 1. Go to [useshape.org/download](https://useshape.org/download).
 2. Run the installer.
-3. Open Shape from the Start menu.
+3. Open BetterShape from the Start menu.
 
-Shape needs Windows 10 or 11, 64-bit. If Windows SmartScreen appears, choose **More info**, then **Run anyway**.
+BetterShape needs Windows 10 or 11, 64-bit. If Windows SmartScreen appears, choose **More info**, then **Run anyway**.
 
-## Sign in
+## Add a provider key
 
-Sign in with the account you use for chat and billing. You can still open files without signing in. You cannot send a message until you do.
+Open **Settings → Providers** and paste an API key from OpenAI, Anthropic, Google, OpenRouter, or any OpenAI-compatible endpoint. Keys are stored on this machine and used only for your own requests.
 
-If the browser window never comes back to the app, close it, sign out from **Help**, and sign in again. See [troubleshooting](/docs/help/troubleshooting).
+You can open files and edit without a key. Chat needs one, and tells you in the composer when none is configured.
 
 ## Open a folder
 
 Use **Open folder** (or `Ctrl+K` then `Ctrl+O`) and pick the project you want to work on.
 
-Shape stays in that folder until you open a different one. Chat, search, and Git all run against this folder. Open the repo root, not a nested package, unless you only want that package in context.
+BetterShape stays in that folder until you open a different one. Chat, search, and Git all run against this folder. Open the repo root, not a nested package, unless you only want that package in context.
 
 ## Send a first task
 
-Type in the composer at the bottom of chat. Start small so you can see how Shape edits files.
+Type in the composer at the bottom of chat. Start small so you can see how BetterShape edits files.
 
 Examples that work well:
 
@@ -36,17 +36,17 @@ Examples that work well:
 - “Explain `app/page.tsx` in a few sentences.”
 - “Add a loading state to the settings save button.”
 
-Press Enter to send. Shape reads the project, answers in the thread, and may edit files.
+Press Enter to send. BetterShape reads the project, answers in the thread, and may edit files.
 
 ## Point it at a file
 
-Type `@` and pick a file. That file is attached to the message. Use this when you already know which file matters, instead of hoping Shape finds it.
+Type `@` and pick a file. That file is attached to the message. Use this when you already know which file matters, instead of hoping BetterShape finds it.
 
 Type `/` to run a saved prompt. See [slash commands](/docs/customize/slash-commands).
 
 ## Review the diff
 
-When Shape edits a file, the diff shows in the thread.
+When BetterShape edits a file, the diff shows in the thread.
 
 - Keep the change if it matches what you asked.
 - Skip it if it is wrong or too broad.
@@ -60,4 +60,4 @@ The composer has a mode switch. Use **Code** for edits. Use **Ask** when you onl
 
 ## If chat will not send
 
-Check the plan and remaining credits on [Billing](/dashboard/settings/billing). Free includes Auto only. Paid plans can pick a named model. See [Models](/docs/get-started/models).
+Pick the model from the composer's model menu. Everything your key can reach is available. See [Models](/docs/get-started/models).

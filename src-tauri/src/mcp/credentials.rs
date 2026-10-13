@@ -1,6 +1,6 @@
 use super::oauth::StoredMcpTokens;
 
-const SERVICE: &str = "shape-mcp-oauth";
+const SERVICE: &str = "bettershape-mcp-oauth";
 
 pub fn load_token(server_id: &str) -> Option<StoredMcpTokens> {
     let entry = keyring::Entry::new(SERVICE, server_id).ok()?;

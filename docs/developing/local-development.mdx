@@ -6,7 +6,7 @@ order: 2
 
 You need Node.js 18 or newer, and a current Rust toolchain for [Tauri 2](https://v2.tauri.app/start/prerequisites/).
 
-This is how you run a local build. It is not how you use Shape day to day. For that, install the app from [download](/download).
+This is how you run a local build. It is not how you use BetterShape day to day. For that, install the app from [download](/download).
 
 ## Install dependencies
 
@@ -24,13 +24,7 @@ npm run tauri:dev
 
 That opens the desktop app against your local build. The first run compiles Rust and takes longer.
 
-## Cloud while developing
-
-Point `NEXT_PUBLIC_SHAPE_WEBSITE_URL` at `http://localhost:3000` and run the website locally. Localhost Cloud AI does not require an official-build attestation. Production `useshape.org` still does.
-
-A **release** binary also honors that env var when it is loopback (`http://localhost:3000` or `http://127.0.0.1:3000`). Set it in the shell before launching the `.exe` if you need Cloud AI against a local website. Other hosts stay on `https://www.useshape.org`.
-
-Every build (including release) writes a memory sample every 10 seconds to `%LOCALAPPDATA%\shape\ram-debug.log`: this process, its WebView2 children, handle and GDI counts. It is capped at 8 MB. Set `SHAPE_RAM_DEBUG=0` to turn it off. If Shape eats RAM, that file is what to send.
+Every build (including release) writes a memory sample every 10 seconds to `%LOCALAPPDATA%\bettershape\ram-debug.log`: this process, its WebView2 children, handle and GDI counts. It is capped at 8 MB. Set `BETTERSHAPE_RAM_DEBUG=0` to turn it off. If BetterShape eats RAM, that file is what to send.
 
 ## Tests
 

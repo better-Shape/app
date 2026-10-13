@@ -48,8 +48,7 @@ const TRUST_GATED_TOOLS: &[&str] = &[
     "edit_image",
 ];
 
-const WORKSPACE_UNTRUSTED_MSG: &str =
-    "Workspace is not trusted. Trust this folder in Shape to allow agent shell commands and file writes.";
+const WORKSPACE_UNTRUSTED_MSG: &str = "Workspace is not trusted. Trust this folder in BetterShape to allow agent shell commands and file writes.";
 
 /// Marks a shell command that was served by a native tool instead of a shell, so the
 /// turn loop knows nothing was actually executed.
@@ -93,17 +92,9 @@ pub struct ToolOutcome {
 }
 
 pub enum SideEffect {
-    FileRead {
-        path: String,
-        content: String,
-    },
-    FileWritten {
-        path: String,
-        content: String,
-    },
-    FilesWritten {
-        files: Vec<(String, String)>,
-    },
+    FileRead { path: String, content: String },
+    FileWritten { path: String, content: String },
+    FilesWritten { files: Vec<(String, String)> },
     FileDeleted { path: String },
     Finished { summary: Option<String> },
     PageScreenshot { tag: String },
@@ -197,6 +188,8 @@ pub async fn execute_tool(name: &str, args_json: &str, ctx: &ToolCtx<'_>) -> Too
         "design_review" => persona::tool_design_review(&args, ctx).await,
         "mcp_search" => meta::tool_mcp_search(&args, ctx).await,
         "mcp_call" => meta::tool_mcp_call_named(&args, ctx).await,
+        "mcp_manage" => meta::tool_mcp_manage(&args, ctx).await,
+        "compact_context" => meta::tool_compact_context(&args, ctx),
         "inspect_runtime" => meta::tool_inspect_runtime(&args, ctx).await,
         "ask_user" => meta::tool_ask_user(&args, ctx).await,
         "generate_svg" => crate::agent::tools::generate::tool_generate_svg(&args, ctx).await,

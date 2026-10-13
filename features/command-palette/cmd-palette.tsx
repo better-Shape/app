@@ -14,7 +14,7 @@ import { FrameworkMark } from "@/features/chat/ui/shell/brand-marks";
 import { SearchInput } from "@/components/ui/search";
 
 import { getShortcutForLabel } from "@/lib/ui/shortcuts";
-import { SHAPE_MODAL_PANEL_CLASS, SHAPE_OVERLAY_CLASS, SHAPE_OVERLAY_CONTENT_CLASS } from "@/lib/ui/modal-overlay";
+import { BETTERSHAPE_MODAL_PANEL_CLASS, BETTERSHAPE_OVERLAY_CLASS, BETTERSHAPE_OVERLAY_CONTENT_CLASS } from "@/lib/ui/modal-overlay";
 import { useOverlayRoot } from "@/lib/ui/overlay-root";
 import { cn } from "@/lib/utils";
 import { isPopoutPath } from "@/lib/window/tauri-window";
@@ -52,6 +52,9 @@ interface EditorAction {
     /** Toggle archive for chat rows. */
     archive?: () => void;
 }
+
+type PaletteGroup = Pick<EditorAction, "id" | "label" | "section" | "model" | "meta"> & { group: true };
+type PaletteRow = EditorAction | PaletteGroup;
 
 type PaletteFilter = "all" | "files";
 
@@ -96,17 +99,13 @@ function projectNameFromPath(path?: string | null): string {
     return path.replace(/\\/g, "/").split("/").filter(Boolean).pop() || "";
 }
 
-function openAgentConversation(id: string, projectPath?: string | null) {
+function openAgentConversation(id: string) {
     window.dispatchEvent(
-        new CustomEvent("shape-layout-toggle", {
+        new CustomEvent("bettershape-layout-toggle", {
             detail: { id: "secondary-sidebar", value: true },
         }),
     );
-    void import("@/lib/backend").then(({ commands }) => {
-        void commands.loadConversation(id, projectPath ?? undefined).then(() => {
-            window.dispatchEvent(new CustomEvent("shape-chat-refresh"));
-        });
-    });
+    window.dispatchEvent(new CustomEvent("bettershape-chat-load", { detail: { id } }));
 }
 
 function getSettingsPaletteActions(): EditorAction[] {
@@ -117,7 +116,7 @@ function getSettingsPaletteActions(): EditorAction[] {
             shortcut: "",
             meta: "Settings",
             section: "Settings",
-            run: () => window.dispatchEvent(new Event("shape-open-settings")),
+            run: () => window.dispatchEvent(new Event("bettershape-open-settings")),
         },
         ...SETTINGS_CATEGORIES.map((cat) => ({
             id: `settings:${cat.id}`,
@@ -137,18 +136,13 @@ function shortcut(label: string) {
 }
 
 function toggleLayout(id: "primary-sidebar" | "secondary-sidebar" | "panel") {
-    window.dispatchEvent(new CustomEvent("shape-layout-toggle", { detail: { id } }));
+    window.dispatchEvent(new CustomEvent("bettershape-layout-toggle", { detail: { id } }));
 }
 
-function openSearchSidebar(mode: "search" | "replace") {
-    window.dispatchEvent(new CustomEvent("shape-set-active-tab", { detail: "search" }));
-    window.dispatchEvent(new CustomEvent("shape-layout-toggle", { detail: { id: "primary-sidebar", value: true } }));
-    window.dispatchEvent(new CustomEvent("shape-search-mode", { detail: { mode } }));
-}
 
 function showSidebarTab(tab: string) {
-    window.dispatchEvent(new CustomEvent("shape-set-active-tab", { detail: tab }));
-    window.dispatchEvent(new CustomEvent("shape-layout-toggle", { detail: { id: "primary-sidebar", value: true } }));
+    window.dispatchEvent(new CustomEvent("bettershape-set-active-tab", { detail: tab }));
+    window.dispatchEvent(new CustomEvent("bettershape-layout-toggle", { detail: { id: "primary-sidebar", value: true } }));
 }
 
 function fuzzyScore(query: string, text: string): number {
@@ -188,7 +182,7 @@ export function CommandPalette() {
     const [open, setOpen] = useState(false);
     const [query, setQuery] = useState("");
     const [actions, setActions] = useState<EditorAction[]>([]);
-    const [agentActions, setAgentActions] = useState<EditorAction[]>([]);
+    const [agentActions, setAgentActions] = useState<PaletteRow[]>([]);
     const [fileActions, setFileActions] = useState<EditorAction[]>([]);
     const [selectedIndex, setSelectedIndex] = useState(0);
     const [mode, setMode] = useState<string>("");
@@ -230,7 +224,7 @@ export function CommandPalette() {
                 setOpen(true);
             }
         };
-        window.addEventListener("shape-command-palette", handleOpen);
+        window.addEventListener("bettershape-command-palette", handleOpen);
 
         const handleKeyDown = (e: KeyboardEvent) => {
             const isPaletteChord =
@@ -244,7 +238,7 @@ export function CommandPalette() {
         window.addEventListener("keydown", handleKeyDown);
 
         return () => {
-            window.removeEventListener("shape-command-palette", handleOpen);
+            window.removeEventListener("bettershape-command-palette", handleOpen);
             window.removeEventListener("keydown", handleKeyDown);
         };
     }, []);
@@ -274,7 +268,7 @@ export function CommandPalette() {
                 import("@/features/agent/subagents/store"),
             ]).then(([convs, sub]) => {
                 const live = sub.getSubagents();
-                const actions: EditorAction[] = [];
+                const actions: PaletteRow[] = [];
                 const ordered = [
                     ...convs.filter((c) => !c.archived).slice(0, 12),
                     ...convs.filter((c) => c.archived).slice(0, 8),
@@ -302,16 +296,16 @@ export function CommandPalette() {
                                             : a,
                                     ),
                                 );
-                                window.dispatchEvent(new CustomEvent("shape-chat-refresh"));
+                                window.dispatchEvent(new CustomEvent("bettershape-chat-refresh"));
                             });
                         },
-                        run: () => openAgentConversation(conv.id, conv.project_path),
+                        run: () => openAgentConversation(conv.id),
                         delete: (e: React.MouseEvent) => {
                             e.stopPropagation();
                             e.preventDefault();
                             void commands.deleteConversation(conv.id).then(() => {
                                 setAgentActions((prev) => prev.filter((a) => !a.id.startsWith(`agent:${conv.id}`)));
-                                window.dispatchEvent(new CustomEvent("shape-chat-refresh"));
+                                window.dispatchEvent(new CustomEvent("bettershape-chat-refresh"));
                             });
                         },
                     });
@@ -330,10 +324,10 @@ export function CommandPalette() {
                             model: child.model || "auto",
                             reply: true,
                             run: () => {
-                                openAgentConversation(conv.id, conv.project_path);
+                                openAgentConversation(conv.id);
                                 window.setTimeout(() => {
                                     window.dispatchEvent(
-                                        new CustomEvent("shape-open-subagent", {
+                                        new CustomEvent("bettershape-open-subagent", {
                                             detail: { id: child.id, parentId: conv.id },
                                         }),
                                     );
@@ -346,20 +340,13 @@ export function CommandPalette() {
                     (c) => !actions.some((a) => a.id.endsWith(`:sub:${c.id}`)),
                 );
                 if (leftover.length > 0) {
-                    const parentLabel =
-                        leftover[0]?.parentId === "__demo_chat__" ? "Demo" : "Current chat";
                     actions.unshift(
                         {
                             id: "agent:live-parent",
-                            label: parentLabel,
-                            shortcut: "",
+                            label: "Current chat",
                             section: "Recent Agents",
                             model: "auto",
-                            run: () => {
-                                if (leftover[0]?.parentId === "__demo_chat__") {
-                                    window.dispatchEvent(new CustomEvent("shape-demo-chat"));
-                                }
-                            },
+                            group: true,
                         },
                         ...leftover.map((child) => ({
                             id: `agent:live-parent:sub:${child.id}`,
@@ -369,12 +356,9 @@ export function CommandPalette() {
                             model: child.model || "auto",
                             reply: true,
                             run: () => {
-                                if (child.parentId === "__demo_chat__") {
-                                    window.dispatchEvent(new CustomEvent("shape-demo-chat"));
-                                }
                                 window.setTimeout(() => {
                                     window.dispatchEvent(
-                                        new CustomEvent("shape-open-subagent", {
+                                        new CustomEvent("bettershape-open-subagent", {
                                             detail: { id: child.id, parentId: child.parentId },
                                         }),
                                     );
@@ -471,7 +455,7 @@ export function CommandPalette() {
                 section: "Current File",
                 run: () =>
                     window.dispatchEvent(
-                        new CustomEvent("shape-command-palette", { detail: { mode: "editor_symbols" } }),
+                        new CustomEvent("bettershape-command-palette", { detail: { mode: "editor_symbols" } }),
                     ),
             },
             {
@@ -482,7 +466,7 @@ export function CommandPalette() {
                 section: "Current File",
                 run: () =>
                     window.dispatchEvent(
-                        new CustomEvent("shape-command-palette", {
+                        new CustomEvent("bettershape-command-palette", {
                             detail: { mode: "goto_line", placeholder: "Line : Column" },
                         }),
                     ),
@@ -495,7 +479,7 @@ export function CommandPalette() {
                 section: "Current File",
                 run: () => {
                     window.dispatchEvent(
-                        new CustomEvent("shape-reveal-in-explorer", { detail: { path } }),
+                        new CustomEvent("bettershape-reveal-in-explorer", { detail: { path } }),
                     );
                 },
             },
@@ -516,7 +500,7 @@ export function CommandPalette() {
                 .map((entry) => entry.action);
         }
 
-        let pool: EditorAction[] = [];
+        let pool: PaletteRow[] = [];
         if (filterTab === "all") {
             const fileSlice = fileActions.slice(0, activeFileBias ? 6 : 8);
             const actionSlice = query.trim()
@@ -562,6 +546,11 @@ export function CommandPalette() {
         query,
     ]);
 
+    const selectableActions = useMemo(
+        () => filtered.filter((row): row is EditorAction => "run" in row),
+        [filtered],
+    );
+
     useEffect(() => {
         setSelectedIndex(0);
     }, [filterTab, query, open]);
@@ -586,7 +575,7 @@ export function CommandPalette() {
     const onInputKeyDown = (e: React.KeyboardEvent) => {
         if (e.key === "ArrowDown") {
             e.preventDefault();
-            setSelectedIndex((idx) => Math.min(idx + 1, Math.max(filtered.length - 1, 0)));
+            setSelectedIndex((idx) => Math.min(idx + 1, Math.max(selectableActions.length - 1, 0)));
         } else if (e.key === "ArrowUp") {
             e.preventDefault();
             setSelectedIndex((idx) => Math.max(idx - 1, 0));
@@ -599,13 +588,13 @@ export function CommandPalette() {
                 const line = parts[0] ?? 1;
                 const column = parts[1] ?? 1;
                 setOpen(false);
-                window.dispatchEvent(new CustomEvent("shape-editor-action", {
+                window.dispatchEvent(new CustomEvent("bettershape-editor-action", {
                     detail: { action: "jumpToPosition", line, column },
                 }));
                 return;
             }
-            if (filtered.length > 0 && selectedIndex < filtered.length) {
-                runAction(filtered[selectedIndex]);
+            if (selectableActions.length > 0 && selectedIndex < selectableActions.length) {
+                runAction(selectableActions[selectedIndex]);
             }
         }
     };
@@ -617,10 +606,10 @@ export function CommandPalette() {
     return (
         <Dialog.Root open={open} onOpenChange={handleOpenChange}>
             <Dialog.Portal container={overlayRoot}>
-                <Dialog.Overlay className={SHAPE_OVERLAY_CLASS} />
+                <Dialog.Overlay className={BETTERSHAPE_OVERLAY_CLASS} />
                 <Dialog.Content className={cn(
-                    SHAPE_OVERLAY_CONTENT_CLASS,
-                    SHAPE_MODAL_PANEL_CLASS,
+                    BETTERSHAPE_OVERLAY_CONTENT_CLASS,
+                    BETTERSHAPE_MODAL_PANEL_CLASS,
                     "absolute top-[12%] left-1/2 z-50 -translate-x-1/2 flex squircle-2xl! w-[min(600px,calc(100%-2rem))] flex-col overflow-hidden focus:outline-none",
                 )}>
                     <Dialog.Title className="sr-only">Command Palette</Dialog.Title>
@@ -655,10 +644,28 @@ export function CommandPalette() {
                                       : "No matching results"}
                             </div>
                         )}
-                        {filtered.map((action, idx) => {
+                        {filtered.map((action) => {
                             const section = showSections ? action.section : undefined;
                             const showHeader = Boolean(section && section !== lastSection);
                             if (section) lastSection = section;
+                            if (!("run" in action)) {
+                                return (
+                                    <React.Fragment key={action.id}>
+                                        {showHeader ? (
+                                            <div className="px-3 pb-1 pt-2 text-sm font-medium text-text-muted">
+                                                {section}
+                                            </div>
+                                        ) : null}
+                                        <div className="mx-1 flex min-w-0 items-center gap-2 rounded-md px-3 py-1.5 text-text-secondary">
+                                            <span className="flex size-4 shrink-0 items-center justify-center">
+                                                {providerIcon(action.model || "auto", 14)}
+                                            </span>
+                                            <span className="min-w-0 truncate text-sm">{action.label}</span>
+                                        </div>
+                                    </React.Fragment>
+                                );
+                            }
+                            const idx = selectableActions.indexOf(action);
                             return (
                                 <React.Fragment key={action.id}>
                                     {showHeader ? (
@@ -804,21 +811,8 @@ function getAppCommands(): EditorAction[] {
             shortcut: shortcut("Go to File"),
             run: () =>
                 window.dispatchEvent(
-                    new CustomEvent("shape-command-palette", { detail: { mode: "files" } }),
+                    new CustomEvent("bettershape-command-palette", { detail: { mode: "files" } }),
                 ),
-        },
-        {
-            id: "app.chat.openDemo",
-            label: "Chat: Open Demo",
-            shortcut: "",
-            run: () => {
-                window.dispatchEvent(
-                    new CustomEvent("shape-layout-toggle", {
-                        detail: { id: "secondary-sidebar", value: true },
-                    }),
-                );
-                window.dispatchEvent(new CustomEvent("shape-demo-chat"));
-            },
         },
         {
             id: "app.file.recentFiles",
@@ -826,7 +820,7 @@ function getAppCommands(): EditorAction[] {
             shortcut: shortcut("Recent Files"),
             run: () =>
                 window.dispatchEvent(
-                    new CustomEvent("shape-command-palette", {
+                    new CustomEvent("bettershape-command-palette", {
                         detail: { mode: "files", recent: true, placeholder: "Recent files..." },
                     }),
                 ),
@@ -837,7 +831,7 @@ function getAppCommands(): EditorAction[] {
             shortcut: shortcut("Go to Line/Column..."),
             run: () =>
                 window.dispatchEvent(
-                    new CustomEvent("shape-command-palette", {
+                    new CustomEvent("bettershape-command-palette", {
                         detail: { mode: "goto_line", placeholder: "Line : Column" },
                     }),
                 ),
@@ -872,7 +866,7 @@ function getAppCommands(): EditorAction[] {
             shortcut: shortcut("Terminal"),
             run: () => {
                 toggleLayout("panel");
-                window.dispatchEvent(new CustomEvent("shape-terminal-shortcut", { detail: { action: "open" } }));
+                window.dispatchEvent(new CustomEvent("bettershape-terminal-shortcut", { detail: { action: "open" } }));
             },
         },
         {
@@ -880,8 +874,8 @@ function getAppCommands(): EditorAction[] {
             label: "Terminal: New Terminal",
             shortcut: shortcut("New Terminal"),
             run: () => {
-                window.dispatchEvent(new CustomEvent("shape-layout-toggle", { detail: { id: "panel", value: true } }));
-                window.dispatchEvent(new CustomEvent("shape-terminal-shortcut", { detail: { action: "new" } }));
+                window.dispatchEvent(new CustomEvent("bettershape-layout-toggle", { detail: { id: "panel", value: true } }));
+                window.dispatchEvent(new CustomEvent("bettershape-terminal-shortcut", { detail: { action: "new" } }));
             },
         },
         {
@@ -889,25 +883,25 @@ function getAppCommands(): EditorAction[] {
             label: "Terminal: Split Terminal",
             shortcut: "",
             run: () => {
-                window.dispatchEvent(new CustomEvent("shape-layout-toggle", { detail: { id: "panel", value: true } }));
-                window.dispatchEvent(new CustomEvent("shape-terminal-shortcut", { detail: { action: "split" } }));
+                window.dispatchEvent(new CustomEvent("bettershape-layout-toggle", { detail: { id: "panel", value: true } }));
+                window.dispatchEvent(new CustomEvent("bettershape-terminal-shortcut", { detail: { action: "split" } }));
             },
         },
         {
             id: "app.view.zenMode",
             label: "View: Toggle Zen Mode",
             shortcut: shortcut("Zen Mode"),
-            run: () => window.dispatchEvent(new Event("shape-toggle-zen-mode")),
+            run: () => window.dispatchEvent(new Event("bettershape-toggle-zen-mode")),
         },
         {
             id: "app.view.resetLayout",
             label: "View: Reset Layout",
             shortcut: shortcut("Reset Layout"),
             run: () => {
-                window.dispatchEvent(new CustomEvent("shape-layout-toggle", { detail: { id: "primary-sidebar", value: true } }));
-                window.dispatchEvent(new CustomEvent("shape-layout-toggle", { detail: { id: "panel", value: true } }));
-                window.dispatchEvent(new CustomEvent("shape-layout-toggle", { detail: { id: "secondary-sidebar", value: false } }));
-                window.dispatchEvent(new Event("shape-layout-reset"));
+                window.dispatchEvent(new CustomEvent("bettershape-layout-toggle", { detail: { id: "primary-sidebar", value: true } }));
+                window.dispatchEvent(new CustomEvent("bettershape-layout-toggle", { detail: { id: "panel", value: true } }));
+                window.dispatchEvent(new CustomEvent("bettershape-layout-toggle", { detail: { id: "secondary-sidebar", value: false } }));
+                window.dispatchEvent(new Event("bettershape-layout-reset"));
             },
         },
         {
@@ -932,12 +926,12 @@ function getAppCommands(): EditorAction[] {
             shortcut: "",
             run: () => {
                 window.dispatchEvent(
-                    new CustomEvent("shape-layout-toggle", {
+                    new CustomEvent("bettershape-layout-toggle", {
                         detail: { id: "secondary-sidebar", value: true },
                     }),
                 );
                 window.dispatchEvent(
-                    new CustomEvent("shape-command-palette", {
+                    new CustomEvent("bettershape-command-palette", {
                         detail: {
                             placeholder: "Search agents…",
                         },
@@ -950,7 +944,7 @@ function getAppCommands(): EditorAction[] {
             id: "app.settings.open",
             label: "Preferences: Open Settings",
             shortcut: shortcut("Settings"),
-            run: () => window.dispatchEvent(new Event("shape-open-settings")),
+            run: () => window.dispatchEvent(new Event("bettershape-open-settings")),
         },
         {
             id: "app.editor.wordWrap",
@@ -958,7 +952,7 @@ function getAppCommands(): EditorAction[] {
             shortcut: "Alt+Z",
             run: () =>
                 window.dispatchEvent(
-                    new CustomEvent("shape-editor-action", { detail: { action: "toggleWordWrap" } })
+                    new CustomEvent("bettershape-editor-action", { detail: { action: "toggleWordWrap" } })
                 ),
         },
         {
@@ -967,7 +961,7 @@ function getAppCommands(): EditorAction[] {
             shortcut: "",
             run: () =>
                 window.dispatchEvent(
-                    new CustomEvent("shape-editor-action", { detail: { action: "toggleMinimap" } })
+                    new CustomEvent("bettershape-editor-action", { detail: { action: "toggleMinimap" } })
                 ),
         },
         {
@@ -978,7 +972,7 @@ function getAppCommands(): EditorAction[] {
                 import("@/features/editor/ui/main/ui/language-picker").then(({ openLanguageModePicker }) => {
                     // Get active file from editor status
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    const path = (window as any).__shapeActivePath || "";
+                    const path = (window as any).__bettershapeActivePath || "";
                     openLanguageModePicker(path);
                 });
             },
@@ -989,7 +983,7 @@ function getAppCommands(): EditorAction[] {
             shortcut: "Shift+Alt+F",
             run: () =>
                 window.dispatchEvent(
-                    new CustomEvent("shape-editor-action", { detail: { action: "editor.action.formatDocument" } })
+                    new CustomEvent("bettershape-editor-action", { detail: { action: "editor.action.formatDocument" } })
                 ),
         },
         {
@@ -998,7 +992,7 @@ function getAppCommands(): EditorAction[] {
             shortcut: "Ctrl+K Ctrl+F",
             run: () =>
                 window.dispatchEvent(
-                    new CustomEvent("shape-editor-action", { detail: { action: "editor.action.formatSelection" } })
+                    new CustomEvent("bettershape-editor-action", { detail: { action: "editor.action.formatSelection" } })
                 ),
         },
         {
@@ -1007,7 +1001,7 @@ function getAppCommands(): EditorAction[] {
             shortcut: "F2",
             run: () =>
                 window.dispatchEvent(
-                    new CustomEvent("shape-editor-action", { detail: { action: "editor.action.rename" } })
+                    new CustomEvent("bettershape-editor-action", { detail: { action: "editor.action.rename" } })
                 ),
         },
         {
@@ -1016,7 +1010,7 @@ function getAppCommands(): EditorAction[] {
             shortcut: "Ctrl+.",
             run: () =>
                 window.dispatchEvent(
-                    new CustomEvent("shape-editor-action", { detail: { action: "editor.action.quickFix" } })
+                    new CustomEvent("bettershape-editor-action", { detail: { action: "editor.action.quickFix" } })
                 ),
         },
         {
@@ -1025,7 +1019,7 @@ function getAppCommands(): EditorAction[] {
             shortcut: "Shift+Alt+O",
             run: () =>
                 window.dispatchEvent(
-                    new CustomEvent("shape-editor-action", {
+                    new CustomEvent("bettershape-editor-action", {
                         detail: { action: "editor.action.organizeImports" },
                     })
                 ),
@@ -1036,7 +1030,7 @@ function getAppCommands(): EditorAction[] {
             shortcut: "F12",
             run: () =>
                 window.dispatchEvent(
-                    new CustomEvent("shape-editor-action", { detail: { action: "editor.action.revealDefinition" } })
+                    new CustomEvent("bettershape-editor-action", { detail: { action: "editor.action.revealDefinition" } })
                 ),
         },
         {
@@ -1045,7 +1039,7 @@ function getAppCommands(): EditorAction[] {
             shortcut: "Shift+F12",
             run: () =>
                 window.dispatchEvent(
-                    new CustomEvent("shape-editor-action", {
+                    new CustomEvent("bettershape-editor-action", {
                         detail: { action: "editor.action.referenceSearch.trigger" },
                     })
                 ),
@@ -1056,7 +1050,7 @@ function getAppCommands(): EditorAction[] {
             shortcut: "Alt+F12",
             run: () =>
                 window.dispatchEvent(
-                    new CustomEvent("shape-editor-action", {
+                    new CustomEvent("bettershape-editor-action", {
                         detail: { action: "editor.action.peekDefinition" },
                     })
                 ),
@@ -1067,7 +1061,7 @@ function getAppCommands(): EditorAction[] {
             shortcut: "",
             run: () =>
                 window.dispatchEvent(
-                    new CustomEvent("shape-editor-action", { detail: { action: "editor.action.inlayHints.toggle" } })
+                    new CustomEvent("bettershape-editor-action", { detail: { action: "editor.action.inlayHints.toggle" } })
                 ),
         },
         {
@@ -1076,7 +1070,7 @@ function getAppCommands(): EditorAction[] {
             shortcut: "Ctrl+K Ctrl+0",
             run: () =>
                 window.dispatchEvent(
-                    new CustomEvent("shape-editor-action", { detail: { action: "editor.foldAll" } })
+                    new CustomEvent("bettershape-editor-action", { detail: { action: "editor.foldAll" } })
                 ),
         },
         {
@@ -1085,7 +1079,7 @@ function getAppCommands(): EditorAction[] {
             shortcut: "Ctrl+K Ctrl+J",
             run: () =>
                 window.dispatchEvent(
-                    new CustomEvent("shape-editor-action", { detail: { action: "editor.unfoldAll" } })
+                    new CustomEvent("bettershape-editor-action", { detail: { action: "editor.unfoldAll" } })
                 ),
         },
         {
@@ -1094,7 +1088,7 @@ function getAppCommands(): EditorAction[] {
             shortcut: "Ctrl+/",
             run: () =>
                 window.dispatchEvent(
-                    new CustomEvent("shape-editor-action", {
+                    new CustomEvent("bettershape-editor-action", {
                         detail: { action: "editor.action.commentLine" },
                     })
                 ),
@@ -1105,7 +1099,7 @@ function getAppCommands(): EditorAction[] {
             shortcut: "Shift+Alt+A",
             run: () =>
                 window.dispatchEvent(
-                    new CustomEvent("shape-editor-action", {
+                    new CustomEvent("bettershape-editor-action", {
                         detail: { action: "editor.action.blockComment" },
                     })
                 ),
@@ -1116,7 +1110,7 @@ function getAppCommands(): EditorAction[] {
             shortcut: "",
             run: () =>
                 window.dispatchEvent(
-                    new CustomEvent("shape-editor-action", {
+                    new CustomEvent("bettershape-editor-action", {
                         detail: { action: "editor.action.trimTrailingWhitespace" },
                     })
                 ),
@@ -1127,7 +1121,7 @@ function getAppCommands(): EditorAction[] {
             shortcut: "Ctrl+]",
             run: () =>
                 window.dispatchEvent(
-                    new CustomEvent("shape-editor-action", { detail: { action: "editor.action.indentLines" } })
+                    new CustomEvent("bettershape-editor-action", { detail: { action: "editor.action.indentLines" } })
                 ),
         },
         {
@@ -1136,7 +1130,7 @@ function getAppCommands(): EditorAction[] {
             shortcut: "Ctrl+[",
             run: () =>
                 window.dispatchEvent(
-                    new CustomEvent("shape-editor-action", { detail: { action: "editor.action.outdentLines" } })
+                    new CustomEvent("bettershape-editor-action", { detail: { action: "editor.action.outdentLines" } })
                 ),
         },
         {
@@ -1145,7 +1139,7 @@ function getAppCommands(): EditorAction[] {
             shortcut: "Shift+Alt+↓",
             run: () =>
                 window.dispatchEvent(
-                    new CustomEvent("shape-editor-action", {
+                    new CustomEvent("bettershape-editor-action", {
                         detail: { action: "editor.action.copyLinesDownAction" },
                     })
                 ),
@@ -1156,7 +1150,7 @@ function getAppCommands(): EditorAction[] {
             shortcut: "Alt+↑",
             run: () =>
                 window.dispatchEvent(
-                    new CustomEvent("shape-editor-action", {
+                    new CustomEvent("bettershape-editor-action", {
                         detail: { action: "editor.action.moveLinesUpAction" },
                     })
                 ),
@@ -1167,7 +1161,7 @@ function getAppCommands(): EditorAction[] {
             shortcut: "Alt+↓",
             run: () =>
                 window.dispatchEvent(
-                    new CustomEvent("shape-editor-action", {
+                    new CustomEvent("bettershape-editor-action", {
                         detail: { action: "editor.action.moveLinesDownAction" },
                     })
                 ),
@@ -1178,7 +1172,7 @@ function getAppCommands(): EditorAction[] {
             shortcut: "Ctrl+A",
             run: () =>
                 window.dispatchEvent(
-                    new CustomEvent("shape-editor-action", { detail: { action: "editor.action.selectAll" } })
+                    new CustomEvent("bettershape-editor-action", { detail: { action: "editor.action.selectAll" } })
                 ),
         },
         {
@@ -1187,7 +1181,7 @@ function getAppCommands(): EditorAction[] {
             shortcut: "Ctrl+Shift+L",
             run: () =>
                 window.dispatchEvent(
-                    new CustomEvent("shape-editor-action", {
+                    new CustomEvent("bettershape-editor-action", {
                         detail: { action: "editor.action.selectHighlights" },
                     })
                 ),
@@ -1198,7 +1192,7 @@ function getAppCommands(): EditorAction[] {
             shortcut: "",
             run: () =>
                 window.dispatchEvent(
-                    new CustomEvent("shape-editor-action", {
+                    new CustomEvent("bettershape-editor-action", {
                         detail: { action: "editor.action.sortLinesAscending" },
                     })
                 ),
@@ -1209,7 +1203,7 @@ function getAppCommands(): EditorAction[] {
             shortcut: "",
             run: () =>
                 window.dispatchEvent(
-                    new CustomEvent("shape-editor-action", {
+                    new CustomEvent("bettershape-editor-action", {
                         detail: { action: "editor.action.sortLinesDescending" },
                     })
                 ),
@@ -1220,7 +1214,7 @@ function getAppCommands(): EditorAction[] {
             shortcut: "",
             run: () =>
                 window.dispatchEvent(
-                    new CustomEvent("shape-editor-action", {
+                    new CustomEvent("bettershape-editor-action", {
                         detail: { action: "editor.action.transformToUppercase" },
                     })
                 ),
@@ -1231,7 +1225,7 @@ function getAppCommands(): EditorAction[] {
             shortcut: "",
             run: () =>
                 window.dispatchEvent(
-                    new CustomEvent("shape-editor-action", {
+                    new CustomEvent("bettershape-editor-action", {
                         detail: { action: "editor.action.transformToLowercase" },
                     })
                 ),
@@ -1242,7 +1236,7 @@ function getAppCommands(): EditorAction[] {
             shortcut: "",
             run: () =>
                 window.dispatchEvent(
-                    new CustomEvent("shape-editor-action", {
+                    new CustomEvent("bettershape-editor-action", {
                         detail: { action: "editor.action.transformToTitlecase" },
                     })
                 ),
@@ -1253,7 +1247,7 @@ function getAppCommands(): EditorAction[] {
             shortcut: "",
             run: () =>
                 window.dispatchEvent(
-                    new CustomEvent("shape-editor-action", {
+                    new CustomEvent("bettershape-editor-action", {
                         detail: { action: "editor.action.joinLines" },
                     })
                 ),
@@ -1264,7 +1258,7 @@ function getAppCommands(): EditorAction[] {
             shortcut: "Ctrl+Alt+↑",
             run: () =>
                 window.dispatchEvent(
-                    new CustomEvent("shape-editor-action", {
+                    new CustomEvent("bettershape-editor-action", {
                         detail: { action: "editor.action.insertCursorAbove" },
                     })
                 ),
@@ -1275,7 +1269,7 @@ function getAppCommands(): EditorAction[] {
             shortcut: "Ctrl+Alt+↓",
             run: () =>
                 window.dispatchEvent(
-                    new CustomEvent("shape-editor-action", {
+                    new CustomEvent("bettershape-editor-action", {
                         detail: { action: "editor.action.insertCursorBelow" },
                     })
                 ),
@@ -1286,7 +1280,7 @@ function getAppCommands(): EditorAction[] {
             shortcut: "F8",
             run: () =>
                 window.dispatchEvent(
-                    new CustomEvent("shape-editor-action", {
+                    new CustomEvent("bettershape-editor-action", {
                         detail: { action: "editor.action.marker.next" },
                     })
                 ),
@@ -1297,7 +1291,7 @@ function getAppCommands(): EditorAction[] {
             shortcut: "Shift+F8",
             run: () =>
                 window.dispatchEvent(
-                    new CustomEvent("shape-editor-action", {
+                    new CustomEvent("bettershape-editor-action", {
                         detail: { action: "editor.action.marker.prev" },
                     })
                 ),
@@ -1308,7 +1302,7 @@ function getAppCommands(): EditorAction[] {
             label: "File: New Text File",
             shortcut: shortcut("New Text File"),
             run: () =>
-                window.dispatchEvent(new CustomEvent("shape-explorer-create", { detail: { type: "file" } })),
+                window.dispatchEvent(new CustomEvent("bettershape-explorer-create", { detail: { type: "file" } })),
         },
         {
             id: "app.file.open",
@@ -1320,7 +1314,7 @@ function getAppCommands(): EditorAction[] {
             id: "app.file.openFolder",
             label: "File: Open Folder",
             shortcut: shortcut("Open Folder"),
-            run: () => window.dispatchEvent(new Event("shape-open-project-pick")),
+            run: () => window.dispatchEvent(new Event("bettershape-open-project-pick")),
         },
         {
             id: "app.file.newNext",
@@ -1329,7 +1323,7 @@ function getAppCommands(): EditorAction[] {
             iconNode: <FrameworkMark slug="nextdotjs" color="000000" invert size={16} />,
             run: () =>
                 window.dispatchEvent(
-                    new CustomEvent("shape-scaffold-project", { detail: { kind: "next" } }),
+                    new CustomEvent("bettershape-scaffold-project", { detail: { kind: "next" } }),
                 ),
         },
         {
@@ -1339,7 +1333,7 @@ function getAppCommands(): EditorAction[] {
             iconNode: <FrameworkMark slug="vite" color="646CFF" size={16} />,
             run: () =>
                 window.dispatchEvent(
-                    new CustomEvent("shape-scaffold-project", { detail: { kind: "vite" } }),
+                    new CustomEvent("bettershape-scaffold-project", { detail: { kind: "vite" } }),
                 ),
         },
         {
@@ -1349,7 +1343,7 @@ function getAppCommands(): EditorAction[] {
             iconNode: <FrameworkMark slug="astro" color="FF5D01" size={16} />,
             run: () =>
                 window.dispatchEvent(
-                    new CustomEvent("shape-scaffold-project", { detail: { kind: "astro" } }),
+                    new CustomEvent("bettershape-scaffold-project", { detail: { kind: "astro" } }),
                 ),
         },
         {
@@ -1359,7 +1353,7 @@ function getAppCommands(): EditorAction[] {
             iconNode: <FrameworkMark slug="remix" color="FFFFFF" size={16} />,
             run: () =>
                 window.dispatchEvent(
-                    new CustomEvent("shape-scaffold-project", { detail: { kind: "remix" } }),
+                    new CustomEvent("bettershape-scaffold-project", { detail: { kind: "remix" } }),
                 ),
         },
         {

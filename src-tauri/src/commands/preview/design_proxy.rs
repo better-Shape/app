@@ -7,7 +7,7 @@ use tokio::sync::{Mutex, Notify};
 
 use crate::core::error::AppError;
 
-const INJECT_MARK: &str = "<!--shape-design-bridge-->";
+const INJECT_MARK: &str = "<!--bettershape-design-bridge-->";
 
 pub struct DesignProxyState {
     inner: Mutex<Option<RunningProxy>>,
@@ -17,6 +17,7 @@ struct RunningProxy {
     port: u16,
     target: String,
     inject: bool,
+    token: Arc<String>,
     shutdown: Arc<Notify>,
 }
 
@@ -69,6 +70,8 @@ fn host_header(parsed: &url::Url) -> String {
     }
 }
 
+const FRAME_ANCESTORS: &str = "frame-ancestors tauri://localhost http://tauri.localhost https://tauri.localhost http://asset.localhost https://asset.localhost http://localhost:* http://127.0.0.1:*";
+
 fn rewrite_csp_frame_ancestors(csp: &str) -> String {
     let mut parts: Vec<String> = csp
         .split(';')
@@ -78,14 +81,24 @@ fn rewrite_csp_frame_ancestors(csp: &str) -> String {
     let mut found = false;
     for part in parts.iter_mut() {
         if part.to_ascii_lowercase().starts_with("frame-ancestors") {
-            *part = "frame-ancestors *".to_string();
+            *part = FRAME_ANCESTORS.to_string();
             found = true;
         }
     }
     if !found {
-        parts.push("frame-ancestors *".to_string());
+        parts.push(FRAME_ANCESTORS.to_string());
     }
     parts.join("; ")
+}
+
+fn assert_loopback_target(parsed: &url::Url, what: &str) -> Result<(), AppError> {
+    let ok = match parsed.host() {
+        Some(url::Host::Ipv4(ip)) => ip.is_loopback(),
+        Some(url::Host::Ipv6(ip)) => ip.is_loopback(),
+        Some(url::Host::Domain(d)) => { let l = d.to_ascii_lowercase(); l == "localhost" || l.ends_with(".localhost") }
+        None => false,
+    };
+    ok.then_some(()).ok_or_else(|| AppError::Message(format!("{what} requires loopback.")))
 }
 
 fn origin_of(parsed: &url::Url) -> String {
@@ -97,7 +110,9 @@ fn origin_of(parsed: &url::Url) -> String {
     )
 }
 
-fn proxy_src(listen_port: u16, parsed: &url::Url) -> String {
+const PROXY_TOKEN_PARAM: &str = "__betterbetterbetterbettershape_proxy_token";
+
+fn proxy_src(listen_port: u16, parsed: &url::Url, token: Option<&str>) -> String {
     // Listener is bound to 127.0.0.1 — using "localhost" here can hit ::1 on Windows
     // and show the OS "refused to connect" page.
     let mut out = format!("http://127.0.0.1:{listen_port}{}", parsed.path());
@@ -105,15 +120,24 @@ fn proxy_src(listen_port: u16, parsed: &url::Url) -> String {
         out.push('?');
         out.push_str(q);
     }
+    if let Some(t) = token { out.push_str(&format!("{}{PROXY_TOKEN_PARAM}={t}", match parsed.query() { Some("") => "", Some(_) => "&", None => "?" })); }
+    if let Some(f) = parsed.fragment().filter(|f| !f.is_empty()) { out.push('#'); out.push_str(f); }
     out
 }
 
-fn rewrite_location(value: &str, listen_port: u16, target: &url::Url) -> String {
-    if let Ok(u) = url::Url::parse(value) {
+fn extract_and_strip_proxy_token(q: Option<&str>, exp: &str) -> (bool, Option<String>) {
+    let Some(q) = q else { return (false, None) };
+    let (mut m, mut k) = (false, Vec::new());
+    for p in q.split('&').filter(|p| !p.is_empty()) { if let Some((PROXY_TOKEN_PARAM, v)) = p.split_once('=') { m |= v == exp; } else { k.push(p); } }
+    (m, (!k.is_empty()).then(|| k.join("&")))
+}
+
+fn rewrite_location(value: &str, listen_port: u16, target: &url::Url, token: &str) -> String {
+    if let Ok(u) = target.join(value) {
         if u.host_str() == target.host_str()
             && u.port_or_known_default() == target.port_or_known_default()
         {
-            return proxy_src(listen_port, &u);
+            return proxy_src(listen_port, &u, Some(token));
         }
     }
     value.to_string()
@@ -124,6 +148,7 @@ async fn handle_client(
     target: url::Url,
     script: Arc<String>,
     listen_port: u16,
+    token: Arc<String>,
 ) {
     let mut buf = vec![0u8; 64 * 1024];
     let n = match client.read(&mut buf).await {
@@ -146,9 +171,18 @@ async fn handle_client(
     }
 
     let mut dest = target.clone();
+    let mut query_token_ok = false;
     if let Ok(rel) = url::Url::parse(&format!("http://placeholder.local{path}")) {
         dest.set_path(rel.path());
-        dest.set_query(rel.query());
+        let (matched, cleaned_q) = extract_and_strip_proxy_token(rel.query(), &token);
+        query_token_ok = matched;
+        dest.set_query(cleaned_q.as_deref());
+    }
+    let hdr = |k: &str| lines.clone().find_map(|l| l.split_once(':').and_then(|(n, v)| n.trim().eq_ignore_ascii_case(k).then_some(v.trim())));
+    let ref_ok = hdr("referer").and_then(|r| url::Url::parse(r).ok()).map(|u| extract_and_strip_proxy_token(u.query(), &token).0 || (u.host_str() == Some("127.0.0.1") && u.port() == Some(listen_port) && hdr("sec-fetch-site") == Some("same-origin"))).unwrap_or(false);
+    if !query_token_ok && !ref_ok {
+        let _ = client.write_all(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 9\r\nConnection: close\r\n\r\nForbidden").await;
+        return;
     }
 
     let client_http = reqwest::Client::builder()
@@ -224,7 +258,7 @@ async fn handle_client(
         }
         let mut val = value.to_str().unwrap_or("").to_string();
         if lower == "location" {
-            val = rewrite_location(&val, listen_port, &target);
+            val = rewrite_location(&val, listen_port, &dest, &token);
         }
         if lower == "content-security-policy" || lower == "content-security-policy-report-only" {
             val = rewrite_csp_frame_ancestors(&val);
@@ -234,6 +268,7 @@ async fn handle_client(
         head.push_str(&val);
         head.push_str("\r\n");
     }
+    head.push_str("Referrer-Policy: same-origin\r\n");
     head.push_str(&format!(
         "Content-Length: {}\r\nConnection: close\r\n\r\n",
         out_body.len()
@@ -255,6 +290,7 @@ pub async fn start_design_proxy(
             "Design mode only supports http(s) preview URLs.".into(),
         ));
     }
+    assert_loopback_target(&parsed, "Design proxy")?;
 
     let inject = !bridge_script.trim().is_empty();
 
@@ -264,7 +300,7 @@ pub async fn start_design_proxy(
             if running.target == origin_of(&parsed) && running.inject == inject {
                 return Ok(DesignProxyInfo {
                     port: running.port,
-                    src: proxy_src(running.port, &parsed),
+                    src: proxy_src(running.port, &parsed, Some(&running.token)),
                 });
             }
         }
@@ -279,6 +315,8 @@ pub async fn start_design_proxy(
     let origin = origin_of(&parsed);
     let base = parsed.clone();
     let script = Arc::new(bridge_script);
+    let token = Arc::new(uuid::Uuid::new_v4().simple().to_string());
+    let token_worker = token.clone();
 
     tokio::spawn(async move {
         loop {
@@ -289,8 +327,9 @@ pub async fn start_design_proxy(
                         Ok((stream, _)) => {
                             let script = script.clone();
                             let target = base.clone();
+                            let tok = token_worker.clone();
                             tokio::spawn(async move {
-                                handle_client(stream, target, script, port).await;
+                                handle_client(stream, target, script, port, tok).await;
                             });
                         }
                         Err(_) => break,
@@ -300,12 +339,13 @@ pub async fn start_design_proxy(
         }
     });
 
-    let src = proxy_src(port, &parsed);
+    let src = proxy_src(port, &parsed, Some(&token));
 
     *state.inner.lock().await = Some(RunningProxy {
         port,
         target: origin,
         inject,
+        token,
         shutdown,
     });
 
@@ -330,6 +370,7 @@ pub async fn stop_design_proxy(state: tauri::State<'_, DesignProxyState>) -> Res
 pub async fn probe_preview_url(url: String) -> Result<bool, AppError> {
     let parsed = url::Url::parse(&url)
         .map_err(|e| AppError::Message(format!("Invalid preview URL: {e}")))?;
+    assert_loopback_target(&parsed, "Preview probe")?;
     let host = parsed.host_str().unwrap_or("localhost");
     let port = parsed.port_or_known_default().unwrap_or(80);
     // IPv4 only — [::1] on Windows can stall far past the connect timeout.
@@ -337,7 +378,10 @@ pub async fn probe_preview_url(url: String) -> Result<bool, AppError> {
     // and Windows `localhost` often tries `[::1]` which is not listening.
     let mut candidates = Vec::new();
     let lower = host.to_ascii_lowercase();
-    let local = matches!(lower.as_str(), "localhost" | "0.0.0.0" | "::1" | "[::1]" | "127.0.0.1");
+    let local = matches!(
+        lower.as_str(),
+        "localhost" | "0.0.0.0" | "::1" | "[::1]" | "127.0.0.1"
+    );
     if local {
         candidates.push(format!("127.0.0.1:{port}"));
         candidates.push(format!("localhost:{port}"));
@@ -364,4 +408,16 @@ pub async fn probe_preview_url(url: String) -> Result<bool, AppError> {
     }
     log::info!("[preview] probe_preview_url FAIL {}", url);
     Ok(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn proxy_checks() {
+        for u in ["http://localhost:5173/", "http://127.0.0.1:3000/app", "http://[::1]:8080/", "http://app.localhost:5173/"] { assert!(assert_loopback_target(&url::Url::parse(u).unwrap(), "t").is_ok()); }
+        for u in ["http://192.168.1.10:5173/", "http://10.0.0.2/", "https://example.com/", "http://evil-localhost.com/"] { assert!(assert_loopback_target(&url::Url::parse(u).unwrap(), "t").is_err()); }
+        let out = rewrite_csp_frame_ancestors("default-src 'self'; frame-ancestors *");
+        assert!(!out.contains("frame-ancestors *") && out.contains("tauri.localhost") && extract_and_strip_proxy_token(Some("a=1&__betterbetterbetterbettershape_proxy_token=x&b=2"), "x") == (true, Some("a=1&b=2".into())) && !extract_and_strip_proxy_token(Some("__betterbetterbetterbettershape_proxy_token=y"), "x").0);
+    }
 }

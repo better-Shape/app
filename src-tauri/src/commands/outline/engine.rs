@@ -186,7 +186,7 @@ fn grammar_for(language: OutlineLanguage) -> Result<tree_sitter::Language, AppEr
         OutlineLanguage::Cpp => tree_sitter_cpp::LANGUAGE.into(),
         OutlineLanguage::Toml => tree_sitter_toml_ng::LANGUAGE.into(),
         OutlineLanguage::Unknown => {
-            return Err(AppError::Message("unsupported language".to_string()))
+            return Err(AppError::Message("unsupported language".to_string()));
         }
     };
     Ok(lang)
@@ -546,70 +546,99 @@ mod tests {
 
         // Benchmark Small (100 lines) - Initial Parse
         let start = Instant::now();
-        let _ = engine.parse_document(ParseRequest {
-            file_path: file_path.clone(),
-            content: small_content.clone(),
-            extension: "ts".to_string(),
-        }).unwrap();
+        let _ = engine
+            .parse_document(ParseRequest {
+                file_path: file_path.clone(),
+                content: small_content.clone(),
+                extension: "ts".to_string(),
+            })
+            .unwrap();
         let init_small_duration = start.elapsed();
 
         // Benchmark Small (100 lines) - Incremental Edit
-        let edit_small_content = format!("{}function sub(a: number, b: number) {{ return a - b; }}\n", small_content);
+        let edit_small_content = format!(
+            "{}function sub(a: number, b: number) {{ return a - b; }}\n",
+            small_content
+        );
         let start = Instant::now();
-        let _ = engine.parse_document(ParseRequest {
-            file_path: file_path.clone(),
-            content: edit_small_content,
-            extension: "ts".to_string(),
-        }).unwrap();
+        let _ = engine
+            .parse_document(ParseRequest {
+                file_path: file_path.clone(),
+                content: edit_small_content,
+                extension: "ts".to_string(),
+            })
+            .unwrap();
         let incr_small_duration = start.elapsed();
 
         // Reset engine for Medium
         let mut engine = OutlineEngine::default();
         // Benchmark Medium (1,000 lines) - Initial Parse
         let start = Instant::now();
-        let _ = engine.parse_document(ParseRequest {
-            file_path: file_path.clone(),
-            content: medium_content.clone(),
-            extension: "ts".to_string(),
-        }).unwrap();
+        let _ = engine
+            .parse_document(ParseRequest {
+                file_path: file_path.clone(),
+                content: medium_content.clone(),
+                extension: "ts".to_string(),
+            })
+            .unwrap();
         let init_medium_duration = start.elapsed();
 
         // Benchmark Medium (1,000 lines) - Incremental Edit
-        let edit_medium_content = format!("{}function sub(a: number, b: number) {{ return a - b; }}\n", medium_content);
+        let edit_medium_content = format!(
+            "{}function sub(a: number, b: number) {{ return a - b; }}\n",
+            medium_content
+        );
         let start = Instant::now();
-        let _ = engine.parse_document(ParseRequest {
-            file_path: file_path.clone(),
-            content: edit_medium_content,
-            extension: "ts".to_string(),
-        }).unwrap();
+        let _ = engine
+            .parse_document(ParseRequest {
+                file_path: file_path.clone(),
+                content: edit_medium_content,
+                extension: "ts".to_string(),
+            })
+            .unwrap();
         let incr_medium_duration = start.elapsed();
 
         // Reset engine for Large
         let mut engine = OutlineEngine::default();
         // Benchmark Large (10,000 lines) - Initial Parse
         let start = Instant::now();
-        let _ = engine.parse_document(ParseRequest {
-            file_path: file_path.clone(),
-            content: large_content.clone(),
-            extension: "ts".to_string(),
-        }).unwrap();
+        let _ = engine
+            .parse_document(ParseRequest {
+                file_path: file_path.clone(),
+                content: large_content.clone(),
+                extension: "ts".to_string(),
+            })
+            .unwrap();
         let init_large_duration = start.elapsed();
 
         // Benchmark Large (10,000 lines) - Incremental Edit
-        let edit_large_content = format!("{}function sub(a: number, b: number) {{ return a - b; }}\n", large_content);
+        let edit_large_content = format!(
+            "{}function sub(a: number, b: number) {{ return a - b; }}\n",
+            large_content
+        );
         let start = Instant::now();
-        let _ = engine.parse_document(ParseRequest {
-            file_path: file_path.clone(),
-            content: edit_large_content,
-            extension: "ts".to_string(),
-        }).unwrap();
+        let _ = engine
+            .parse_document(ParseRequest {
+                file_path: file_path.clone(),
+                content: edit_large_content,
+                extension: "ts".to_string(),
+            })
+            .unwrap();
         let incr_large_duration = start.elapsed();
 
-        println!("\n=== SHAPE AST PARSING BENCHMARK RESULTS ===");
-        println!("100 Lines   | Initial Parse: {:?} | Incremental Parse: {:?}", init_small_duration, incr_small_duration);
-        println!("1,000 Lines | Initial Parse: {:?} | Incremental Parse: {:?}", init_medium_duration, incr_medium_duration);
-        println!("10,000 Lines| Initial Parse: {:?} | Incremental Parse: {:?}", init_large_duration, incr_large_duration);
+        println!("\n=== BETTERSHAPE AST PARSING BENCHMARK RESULTS ===");
+        println!(
+            "100 Lines   | Initial Parse: {:?} | Incremental Parse: {:?}",
+            init_small_duration, incr_small_duration
+        );
+        println!(
+            "1,000 Lines | Initial Parse: {:?} | Incremental Parse: {:?}",
+            init_medium_duration, incr_medium_duration
+        );
+        println!(
+            "10,000 Lines| Initial Parse: {:?} | Incremental Parse: {:?}",
+            init_large_duration, incr_large_duration
+        );
         println!("============================================\n");
     }
 }
-

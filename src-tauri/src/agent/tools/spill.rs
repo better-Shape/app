@@ -1,6 +1,5 @@
-/// Spill large tool outputs to `.shape/agent-out/` for dynamic context discovery
+/// Spill large tool outputs to `.bettershape/agent-out/` for dynamic context discovery
 /// (Cursor-style: files as memory instead of silent truncation).
-
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -26,13 +25,9 @@ fn next_spill_name(prefix: &str) -> String {
     format!("{prefix}-{ts}-{n}.txt")
 }
 
-/// If `content` is large, write full text under `.shape/agent-out/` and return an
+/// If `content` is large, write full text under `.bettershape/agent-out/` and return an
 /// excerpt that points the agent at the spill file. Small content is returned as-is.
-pub fn maybe_spill_tool_output(
-    project_path: &str,
-    tool_name: &str,
-    content: &str,
-) -> String {
+pub fn maybe_spill_tool_output(project_path: &str, tool_name: &str, content: &str) -> String {
     if project_path.is_empty() || content.len() <= SPILL_THRESHOLD {
         return content.to_string();
     }
@@ -48,7 +43,7 @@ pub fn maybe_spill_tool_output(
         return truncate_inplace(content);
     }
 
-    let rel = format!(".shape/agent-out/{filename}");
+    let rel = format!(".bettershape/agent-out/{filename}");
     let head: String = content.chars().take(EXCERPT_HEAD).collect();
     let tail: String = content
         .chars()
@@ -75,7 +70,7 @@ pub fn spill_history_transcript(project_path: &str, transcript: &str) -> Option<
     let filename = next_spill_name("history");
     let abs = dir.join(&filename);
     fs::write(&abs, transcript).ok()?;
-    Some(format!(".shape/agent-out/{filename}"))
+    Some(format!(".bettershape/agent-out/{filename}"))
 }
 
 fn truncate_inplace(content: &str) -> String {

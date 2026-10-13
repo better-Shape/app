@@ -2,7 +2,7 @@ import { type ClassValue, clsx } from "clsx";
 import { extendTailwindMerge } from "tailwind-merge";
 
 /**
- * Shape defines custom size utilities (`h-chrome`, `px-sm`, …) outside Tailwind's
+ * BetterShape defines custom size utilities (`h-chrome`, `px-sm`, …) outside Tailwind's
  * default scale. Without registering them here, `cn("h-chrome", "h-6")` keeps
  * BOTH classes and whichever rule wins in CSS is non-deterministic — which is
  * why design-panel fields kept the 30px chrome height under a 24px label slot.

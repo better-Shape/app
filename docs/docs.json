@@ -1,6 +1,6 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "name": "Shape",
+  "name": "BetterShape",
   "theme": "aspen",
   "description": "The desktop coding agent. Works in your files.",
   "colors": {
@@ -32,7 +32,13 @@
           },
           {
             "group": "Agent",
-            "pages": ["agent/overview", "agent/plan", "agent/review", "agent/browser"]
+            "pages": [
+              "agent/overview",
+              "agent/plan",
+              "agent/review",
+              "agent/browser",
+              "agent/context"
+            ]
           },
           {
             "group": "Plugins",

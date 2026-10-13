@@ -1,7 +1,9 @@
+pub mod admin;
 pub(crate) mod client;
 pub(crate) mod credentials;
 mod http_client;
 mod oauth;
+pub mod registry;
 mod types;
 
 pub use oauth::{handle_oauth_callback, start_oauth};
@@ -14,20 +16,20 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-enum ConnectedClient {
+pub(crate) enum ConnectedClient {
     Stdio(StdioClient),
     Http(HttpMcpClient),
 }
 
 impl ConnectedClient {
-    fn tools(&self) -> &[McpToolInfo] {
+    pub(crate) fn tools(&self) -> &[McpToolInfo] {
         match self {
             ConnectedClient::Stdio(c) => &c.tools,
             ConnectedClient::Http(c) => &c.tools,
         }
     }
 
-    fn last_error(&self) -> Option<String> {
+    pub(crate) fn last_error(&self) -> Option<String> {
         match self {
             ConnectedClient::Stdio(c) => c.last_error.clone(),
             ConnectedClient::Http(c) => c.last_error.clone(),
@@ -46,6 +48,13 @@ pub struct McpState {
     /// Per-server locks so a long tool call does not block status/sync/schema.
     clients: Mutex<HashMap<String, Arc<Mutex<ConnectedClient>>>>,
     configs: Mutex<Vec<McpServerConfig>>,
+    /// Serialises connect-then-insert. Two upserts for the same id could
+    /// otherwise finish in either order and leave the older connection live.
+    connecting: Mutex<()>,
+    /// Ids that were loaded from `mcp.json` the last time the file was read.
+    /// A server removed from the file is dropped on the next reload; one that
+    /// came from Settings is kept, because it never lives in that file.
+    file_sourced: Mutex<std::collections::HashSet<String>>,
 }
 
 impl McpState {
@@ -53,10 +62,12 @@ impl McpState {
         Self {
             clients: Mutex::new(HashMap::new()),
             configs: Mutex::new(Vec::new()),
+            connecting: Mutex::new(()),
+            file_sourced: Mutex::new(std::collections::HashSet::new()),
         }
     }
 
-    fn connect_server(server: &McpServerConfig) -> Result<ConnectedClient, String> {
+    pub(crate) fn connect_server(server: &McpServerConfig) -> Result<ConnectedClient, String> {
         if server.transport == McpTransport::Http {
             let url = server
                 .url
@@ -82,6 +93,11 @@ impl McpState {
             // unless the worker is first moved to blocking mode via `block_in_place`.
             let rt = tokio::runtime::Handle::current();
             let auth = server.auth.clone();
+            let headers: Vec<(String, String)> = server
+                .headers
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
             let client = tokio::task::block_in_place(|| {
                 rt.block_on(HttpMcpClient::connect(
                     &server.id,
@@ -89,6 +105,7 @@ impl McpState {
                     url,
                     auth,
                     bearer,
+                    headers,
                 ))
             })?;
             return Ok(ConnectedClient::Http(client));
@@ -104,7 +121,10 @@ impl McpState {
         .map(ConnectedClient::Stdio)
     }
 
-    pub fn sync_servers(&self, servers: Vec<McpServerConfig>) -> Result<Vec<McpStatusEntry>, String> {
+    pub fn sync_servers(
+        &self,
+        servers: Vec<McpServerConfig>,
+    ) -> Result<Vec<McpStatusEntry>, String> {
         {
             let mut configs = self.configs.lock().map_err(|e| e.to_string())?;
             *configs = servers.clone();
@@ -169,8 +189,10 @@ impl McpState {
     }
 
     pub fn get_status(&self) -> Result<Vec<McpStatusEntry>, String> {
-        let clients = self.clients.lock().map_err(|e| e.to_string())?;
+        // `configs` before `clients`: every other path that holds both takes
+        // them in that order, and mixing the two can deadlock.
         let configs = self.configs.lock().map_err(|e| e.to_string())?;
+        let clients = self.clients.lock().map_err(|e| e.to_string())?;
 
         Ok(configs
             .iter()
@@ -343,8 +365,8 @@ impl McpState {
         // Resolve the target client under the map lock, then drop it before the
         // network/stdio round-trip so status/sync/schema are not blocked.
         let target = {
-            let clients = self.clients.lock().map_err(|e| e.to_string())?;
             let configs = self.configs.lock().map_err(|e| e.to_string())?;
+            let clients = self.clients.lock().map_err(|e| e.to_string())?;
             let mut found = None;
             for client in clients.values() {
                 let guard = client.lock().map_err(|e| e.to_string())?;
@@ -391,6 +413,139 @@ impl McpState {
         Ok(text)
     }
 
+    /// Add or replace a single server without disturbing the others.
+    ///
+    /// The agent's `mcp_manage` tool writes `mcp.json` and then calls this: it
+    /// reconnects just the changed server, so servers the user added through
+    /// Settings (which never live in that file) keep running untouched.
+    pub fn upsert_server(&self, server: McpServerConfig) -> Result<McpStatusEntry, String> {
+        // Held across the connect so a second upsert for this server cannot
+        // insert its client first and lose to the older connection.
+        let _connecting = self.connecting.lock().map_err(|e| e.to_string())?;
+        {
+            let mut configs = self.configs.lock().map_err(|e| e.to_string())?;
+            configs.retain(|c| c.id != server.id);
+            configs.push(server.clone());
+        }
+
+        {
+            let mut clients = self.clients.lock().map_err(|e| e.to_string())?;
+            clients.remove(&server.id);
+        }
+
+        if !server.enabled {
+            return Ok(McpStatusEntry {
+                id: server.id.clone(),
+                name: server.name.clone(),
+                status: McpServerStatus::Disabled,
+                tool_count: 0,
+                error: None,
+                auth: server.auth.clone(),
+            });
+        }
+
+        // Connecting spawns a process or opens a socket. Doing that with the
+        // map locked would stall `get_status`, `all_tools` and `call_tool` for
+        // every other server until the handshake ends.
+        match Self::connect_server(&server) {
+            Ok(client) => {
+                let entry = McpStatusEntry {
+                    id: server.id.clone(),
+                    name: server.name.clone(),
+                    status: McpServerStatus::Connected,
+                    tool_count: client.tools().len(),
+                    error: client.last_error(),
+                    auth: server.auth.clone(),
+                };
+                // A removal may have landed while the handshake was open. Read
+                // the config map first: every path that takes both takes
+                // `configs` before `clients`, and this one has to match.
+                let still_configured = self
+                    .configs
+                    .lock()
+                    .map(|c| c.iter().any(|s| s.id == server.id))
+                    .unwrap_or(true);
+                if !still_configured {
+                    return Ok(McpStatusEntry {
+                        id: server.id.clone(),
+                        name: server.name.clone(),
+                        status: McpServerStatus::Disabled,
+                        tool_count: 0,
+                        error: None,
+                        auth: server.auth.clone(),
+                    });
+                }
+                let mut clients = self.clients.lock().map_err(|e| e.to_string())?;
+                clients.insert(server.id.clone(), Arc::new(Mutex::new(client)));
+                Ok(entry)
+            }
+            Err(e) if e == "NEEDS_AUTH" => Ok(McpStatusEntry {
+                id: server.id.clone(),
+                name: server.name.clone(),
+                status: McpServerStatus::NeedsAuth,
+                tool_count: 0,
+                error: None,
+                auth: server.auth.clone(),
+            }),
+            Err(e) => Ok(McpStatusEntry {
+                id: server.id.clone(),
+                name: server.name.clone(),
+                status: McpServerStatus::Error,
+                tool_count: 0,
+                error: Some(e),
+                auth: server.auth.clone(),
+            }),
+        }
+    }
+
+    /// Forget a server and drop its connection. Returns false when it was not
+    /// configured in the first place.
+    pub fn remove_server(&self, server_id: &str) -> Result<bool, String> {
+        // Same lock upsert holds while it connects: otherwise a removal can
+        // finish first and the upsert then inserts the client it just removed.
+        let _connecting = self.connecting.lock().map_err(|e| e.to_string())?;
+        let removed = {
+            let mut configs = self.configs.lock().map_err(|e| e.to_string())?;
+            let before = configs.len();
+            configs.retain(|c| c.id != server_id);
+            configs.len() != before
+        };
+        let mut clients = self.clients.lock().map_err(|e| e.to_string())?;
+        clients.remove(server_id);
+        Ok(removed)
+    }
+
+    /// Ids the file provided at the last reload.
+    pub fn file_sourced_ids(&self) -> std::collections::HashSet<String> {
+        self.file_sourced.lock().map(|s| s.clone()).unwrap_or_default()
+    }
+
+    /// Remember which ids the file provided.
+    pub fn remember_file_sourced(&self, ids: std::collections::HashSet<String>) {
+        if let Ok(mut guard) = self.file_sourced.lock() {
+            *guard = ids;
+        }
+    }
+
+    /// Tools one connected server currently exposes.
+    pub fn tools_for_server(&self, server_id: &str) -> Result<Vec<McpToolInfo>, String> {
+        let clients = self.clients.lock().map_err(|e| e.to_string())?;
+        let Some(client) = clients.get(server_id) else {
+            return Ok(Vec::new());
+        };
+        let guard = client.lock().map_err(|e| e.to_string())?;
+        Ok(guard.tools().to_vec())
+    }
+
+    /// Configured servers exactly as the running state holds them.
+    pub fn configs_snapshot(&self) -> Vec<McpServerConfig> {
+        self.configs
+            .lock()
+            .map(|c| c.clone())
+            .unwrap_or_default()
+    }
+
+    /// Restart the current server.
     pub fn restart_server(&self, server_id: &str) -> Result<McpStatusEntry, String> {
         let configs = self.configs.lock().map_err(|e| e.to_string())?;
         let server = configs

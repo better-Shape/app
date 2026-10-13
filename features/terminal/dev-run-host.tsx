@@ -37,7 +37,7 @@ export function DevRunHost() {
                 // Already running — only open Terminal if the user clicked Play
                 // (Design Mode passes background: true and stays put).
                 if (!detail?.background) {
-                    window.dispatchEvent(new CustomEvent("shape-open-workspace-terminal"));
+                    window.dispatchEvent(new CustomEvent("bettershape-open-workspace-terminal"));
                 }
                 return;
             }
@@ -60,13 +60,13 @@ export function DevRunHost() {
             })();
         };
 
-        window.addEventListener("shape-terminal-run", onRun as EventListener);
-        window.addEventListener("shape-terminal-run-stop", onStop);
-        window.addEventListener("shape-terminal-run-restart", onRestart as EventListener);
+        window.addEventListener("bettershape-terminal-run", onRun as EventListener);
+        window.addEventListener("bettershape-terminal-run-stop", onStop);
+        window.addEventListener("bettershape-terminal-run-restart", onRestart as EventListener);
         return () => {
-            window.removeEventListener("shape-terminal-run", onRun as EventListener);
-            window.removeEventListener("shape-terminal-run-stop", onStop);
-            window.removeEventListener("shape-terminal-run-restart", onRestart as EventListener);
+            window.removeEventListener("bettershape-terminal-run", onRun as EventListener);
+            window.removeEventListener("bettershape-terminal-run-stop", onStop);
+            window.removeEventListener("bettershape-terminal-run-restart", onRestart as EventListener);
             // Do NOT kill the PTY on remount — module-level runtime owns it.
         };
     }, []);

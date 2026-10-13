@@ -1,15 +1,15 @@
 /** Structured continue actions shown as a connected bar under "Continue" in chat. */
 
-export type ShapeContinueAction = { type: "plan_build"; path: string; title: string };
+export type BetterShapeContinueAction = { type: "plan_build"; path: string; title: string };
 
-const ACTION_RE = /<shape_action\s+type="(plan_build)"([^>]*)\/>\s*/i;
+const ACTION_RE = /<betterbetterbetterbettershape_action\s+type="(plan_build)"([^>]*)\/>\s*/i;
 
 function attr(attrs: string, name: string): string {
     return attrs.match(new RegExp(`${name}="([^"]*)"`))?.[1] ?? "";
 }
 
-export function parseShapeContinueAction(content: string): {
-    action: ShapeContinueAction | null;
+export function parseBetterShapeContinueAction(content: string): {
+    action: BetterShapeContinueAction | null;
     displayText: string;
 } {
     const match = content.match(ACTION_RE);
@@ -32,7 +32,7 @@ export function buildPlanBuildMessage(path: string, title?: string): string {
     const safeTitle = (title || "Plan").replace(/"/g, "'");
     const safePath = path.replace(/"/g, "'");
     return [
-        `<shape_action type="plan_build" path="${safePath}" title="${safeTitle}" />`,
+        `<betterbetterbetterbettershape_action type="plan_build" path="${safePath}" title="${safeTitle}" />`,
         "Continue.",
         "",
         `Build the plan at ${path}. Follow it step by step.`,

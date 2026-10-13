@@ -2,42 +2,18 @@
 
 import { PanelLeft20Filled } from "@fluentui/react-icons/headless/svg/panel-left";
 import { PanelRight20Filled } from "@fluentui/react-icons/headless/svg/panel-right";
-import { Sparkle20Filled } from "@fluentui/react-icons/headless/svg/sparkle";
 
 import type { ReactNode } from "react";
 import { Icon } from "@/components/ui/icon";
 
 import { cn } from "@/lib/utils";
 import { Tooltip } from "@/components/ui/tooltip";
-import { useShapeAuth } from "@/lib/cloud/store";
-import { dashboardUrl } from "@/lib/cloud/api";
-import { commands } from "@/lib/backend/commands";
 import { WindowControlsSpacer } from "@/features/agent/workbench/titlebar/ui/window-controls";
 
-export const AGENT_TABS_SLOT = "shape-agent-tabs";
-export const AGENT_CHROME_ACTIONS_SLOT = "shape-agent-chrome-actions";
-export const AGENT_SIDEBAR_BACK_SLOT = "shape-agent-sidebar-back";
-export const AGENT_SIDEBAR_HISTORY_SLOT = "shape-agent-sidebar-history";
-
-export function GetPlusButton({ className }: { className?: string }) {
-    const auth = useShapeAuth();
-    if (!auth.loggedIn || auth.offline || auth.tier !== "free") return null;
-    return (
-        <button
-            type="button"
-            className={cn(
-                "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full bg-[#3a3148] px-2.5 text-sm font-medium text-[#c084fc] transition-colors hover:bg-[#463a58] hover:text-[#d8b4fe]",
-                className,
-            )}
-            onClick={() =>
-                void commands.openUrlExternal(`${dashboardUrl()}/settings/billing`)
-            }
-        >
-            <Icon icon={Sparkle20Filled} />
-            Get Plus
-        </button>
-    );
-}
+export const AGENT_TABS_SLOT = "bettershape-agent-tabs";
+export const AGENT_CHROME_ACTIONS_SLOT = "bettershape-agent-chrome-actions";
+export const AGENT_SIDEBAR_BACK_SLOT = "bettershape-agent-sidebar-back";
+export const AGENT_SIDEBAR_HISTORY_SLOT = "bettershape-agent-sidebar-history";
 
 function Btn({
     label,

@@ -15,7 +15,6 @@ import {
     loadRepoHistory,
     type RepoHistoryEntry,
 } from "@/lib/workspace/repo-history";
-import { openSettingsWindow } from "@/lib/window/open-settings";
 import { cn } from "@/lib/utils";
 
 function parentDir(path: string): string {

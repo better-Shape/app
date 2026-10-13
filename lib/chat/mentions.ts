@@ -5,7 +5,9 @@ import { lookupMentionToken, registerMentionToken } from "@/lib/chat/mention-reg
 import { getPreviewCurrentUrl } from "@/features/preview/store";
 import { DESIGN_TOKEN_MENTIONS, designTokenById } from "@/lib/chat/design-mentions";
 import { elementMentionBlock, lookupElementMention } from "@/lib/chat/element-mentions";
-import { skillBySlug } from "@/lib/chat/skills";
+import { skillBySlug, skillIdFromName } from "@/lib/chat/skills";
+import type { DiscoveredSkill } from "@/lib/chat/discover-skills";
+import { resolveDiscoveredSkill, resolveDiscoveredSkillBySource } from "@/lib/chat/skill-index";
 
 export type MentionKind =
     | "file"
@@ -156,7 +158,8 @@ export function formatMentionToken(mention: ChatMention): string {
     } else if (mention.kind === "plugin") {
         token = `@plugin:${slugifyMentionLabel(mention.id || mention.path || mention.label || "plugin")}`;
     } else if (mention.kind === "skill") {
-        token = `@skill:${slugifyMentionLabel(mention.id || mention.path || mention.label || "skill")}`;
+        const source = skillMentionSource(mention.path);
+        token = `@skill:${slugifyMentionLabel(source || mention.id || mention.path || mention.label || "skill")}`;
     } else if (mention.kind === "element") {
         token = `@${(mention.id || "element:element").replace(/^@/, "")}`;
     } else {
@@ -455,16 +458,56 @@ export function resolveDesignSelectionFromProse(text: string): ChatMention | nul
   return null;
 }
 
+/** A discovery path (`…/SKILL.md`, `~/…`), not a skill slug. */
+function skillMentionSource(path: string | undefined): string | null {
+    const value = path?.trim();
+    if (!value) return null;
+    if (value.includes("/") || value.includes("\\") || value.startsWith("~")) return value;
+    return null;
+}
+
+function skillMentionBlock(onDisk: DiscoveredSkill): string {
+    const attributes = [
+        `type="skill"`,
+        `id="${escapeXmlAttr(skillIdFromName(onDisk.name))}"`,
+        `name="${escapeXmlAttr(onDisk.name)}"`,
+        `source="${escapeXmlAttr(onDisk.relPath)}"`,
+    ];
+    if (onDisk.description) attributes.push(`description="${escapeXmlAttr(onDisk.description)}"`);
+    const folderNote =
+        onDisk.scope === "project"
+            ? ""
+            : `\nThe skill folder is ${onDisk.folder} — resolve any relative paths in this skill against it.`;
+    return `<mention_context ${attributes.join(" ")}>Follow this skill for the rest of the turn.${folderNote}\n${onDisk.body}\n</mention_context>`;
+}
+
 async function readMentionContext(
     mention: ChatMention,
     projectPath: string | null,
 ): Promise<string | null> {
     if (mention.kind === "skill") {
-        const skill = skillBySlug(mention.id || mention.path || mention.label);
-        if (!skill) {
-            return `<mention_context type="skill" id="${escapeXmlAttr(mention.path || mention.label)}">The user referenced a skill that is not installed.</mention_context>`;
+        const slug = mention.id || mention.label;
+        const source = skillMentionSource(mention.path);
+        // A picker row stores the file path. That file wins over another skill
+        // that happens to share the slug.
+        if (source) {
+            const picked = await resolveDiscoveredSkillBySource(source);
+            if (picked) return skillMentionBlock(picked);
         }
-        return `<mention_context type="skill" id="${escapeXmlAttr(skill.id)}" name="${escapeXmlAttr(skill.name)}">Follow this skill for the rest of the turn.\n${skill.body}\n</mention_context>`;
+
+        const installed = skillBySlug(slug || mention.path || "");
+        if (installed) {
+            return `<mention_context type="skill" id="${escapeXmlAttr(installed.id)}" name="${escapeXmlAttr(installed.name)}">Follow this skill for the rest of the turn.\n${installed.body}\n</mention_context>`;
+        }
+
+        // Typed `@skill:name` with no file: library first, then the
+        // highest-precedence file on disk.
+        const onDisk = await resolveDiscoveredSkill(skillIdFromName(slug || mention.path || ""));
+        if (!onDisk) {
+            const missing = slug || mention.path || mention.label || "skill";
+            return `<mention_context type="skill" id="${escapeXmlAttr(missing)}">The user referenced a skill that is not installed.</mention_context>`;
+        }
+        return skillMentionBlock(onDisk);
     }
 
     if (mention.kind === "codebase") {
@@ -511,7 +554,7 @@ async function readMentionContext(
             if (resolved) {
                 const isLocal =
                     /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0)(:\d+)?/i.test(resolved);
-                return `<mention_context type="browser" path="${escapeXmlAttr(resolved)}" label="${escapeXmlAttr(hostnameOf(resolved) || resolved)}">The user referenced the ${isLocal ? "local preview page" : "website"} ${escapeXmlAttr(hostnameOf(resolved) || resolved)} (${escapeXmlAttr(resolved)}). ${isLocal ? "This is the URL currently open in the Shape Preview panel." : "Use the visit_url tool to fetch its content and styling if you need to recreate or reference it."}</mention_context>`;
+                return `<mention_context type="browser" path="${escapeXmlAttr(resolved)}" label="${escapeXmlAttr(hostnameOf(resolved) || resolved)}">The user referenced the ${isLocal ? "local preview page" : "website"} ${escapeXmlAttr(hostnameOf(resolved) || resolved)} (${escapeXmlAttr(resolved)}). ${isLocal ? "This is the URL currently open in the BetterShape Preview panel." : "Use the visit_url tool to fetch its content and styling if you need to recreate or reference it."}</mention_context>`;
             }
             if (path && path !== "current") {
                 return `<mention_context type="browser" path="${escapeXmlAttr(path)}" label="${escapeXmlAttr(label)}">The user referenced the website ${escapeXmlAttr(label)} (${escapeXmlAttr(path)}). Use the visit_url tool to fetch its content and styling if you need to recreate or reference it.</mention_context>`;
@@ -527,7 +570,7 @@ async function readMentionContext(
         }
         if (mention.kind === "plugin") {
             const toolkit = mention.id || path;
-            return `<mention_context type="plugin" toolkit="${escapeXmlAttr(toolkit)}" label="${escapeXmlAttr(label)}">The user referenced the Shape plugin "${escapeXmlAttr(label)}" (toolkit=${escapeXmlAttr(toolkit)}). Prefer plugin_run / plugin tools for this app when relevant.</mention_context>`;
+            return `<mention_context type="plugin" toolkit="${escapeXmlAttr(toolkit)}" label="${escapeXmlAttr(label)}">The user referenced the BetterShape plugin "${escapeXmlAttr(label)}" (toolkit=${escapeXmlAttr(toolkit)}). Prefer plugin_run / plugin tools for this app when relevant.</mention_context>`;
         }
         return `<mention_context type="${mention.kind}" path="${escapeXmlAttr(path)}" label="${escapeXmlAttr(label)}">${escapeXmlAttr(label)}</mention_context>`;
     }

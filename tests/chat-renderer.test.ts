@@ -253,7 +253,7 @@ describe("preprocessChatMarkdown", () => {
         expect(out).not.toContain("python_tag");
     });
 
-    it("hides Shape list_terminals / terminal_input dumps", () => {
+    it("hides BetterShape list_terminals / terminal_input dumps", () => {
         const input = [
             "Waiting.",
             "<list_terminals>",
@@ -269,7 +269,7 @@ describe("preprocessChatMarkdown", () => {
         expect(out).not.toContain("terminal_input");
     });
 
-    it("preserves intentional Shape UI tags for the chunk parser", () => {
+    it("preserves intentional BetterShape UI tags for the chunk parser", () => {
         const input = 'Before\n<terminal_command status="pending" id="c1">npm test</terminal_command>\nAfter';
         // strip path must not erase terminal_command — parseMessageContent owns that.
         const out = preprocessChatMarkdown(input);

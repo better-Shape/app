@@ -1,6 +1,8 @@
 "use client";
 
 import { commands } from "@/lib/backend";
+import { serverFromEntry } from "@/lib/mcp/parse";
+import type { McpEntryInput } from "@/lib/mcp/parse";
 import type { McpServerConfig } from "@/lib/settings";
 
 const DEFAULT_MCP_JSON = `{
@@ -25,29 +27,19 @@ type RawMcpEntry = {
     transport?: "stdio" | "http";
     url?: string;
     auth?: "none" | "oauth";
+    headers?: Record<string, string>;
     disabledTools?: string[];
     oauthClientId?: string;
 };
 
+/** Reads whatever the file holds; `serverFromEntry` decides what is valid. */
 export function parseMcpJson(content: string): McpServerConfig[] {
     const parsed = JSON.parse(content) as {
-        mcpServers?: Record<string, RawMcpEntry>;
+        mcpServers?: Record<string, McpEntryInput>;
     };
 
     const servers = parsed.mcpServers ?? {};
-    return Object.entries(servers).map(([name, cfg]) => ({
-        id: name,
-        name,
-        transport: cfg.transport ?? (cfg.url ? "http" : "stdio"),
-        command: cfg.command ?? "",
-        args: cfg.args ?? [],
-        env: cfg.env ?? {},
-        url: cfg.url,
-        auth: cfg.auth ?? (cfg.url ? "oauth" : "none"),
-        enabled: cfg.disabled !== true,
-        disabledTools: cfg.disabledTools ?? [],
-        oauthClientId: cfg.oauthClientId,
-    }));
+    return Object.entries(servers).map(([name, cfg]) => serverFromEntry(name, cfg ?? {}));
 }
 
 export async function loadMcpServersFromFile(): Promise<McpServerConfig[]> {
@@ -72,12 +64,25 @@ export async function saveMcpServers(servers: McpServerConfig[]): Promise<void> 
             env: Object.keys(s.env).length ? s.env : undefined,
             url: s.url,
             auth: s.auth,
+            headers: s.headers,
             disabled: !s.enabled,
             disabledTools: s.disabledTools?.length ? s.disabledTools : undefined,
             oauthClientId: s.oauthClientId || undefined,
         };
     }
-    const content = JSON.stringify({ mcpServers }, null, 2);
+    // The file can carry a $schema, notes, or other servers' keys. Replace only
+    // the mcpServers property so a save from Settings cannot drop them.
+    let existing: Record<string, unknown> = {};
+    try {
+        const raw = await commands.readMcpConfig();
+        const parsed: unknown = typeof raw === "string" ? JSON.parse(raw) : raw;
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+            existing = parsed as Record<string, unknown>;
+        }
+    } catch {
+        /* first write, or unreadable file: start fresh */
+    }
+    const content = JSON.stringify({ ...existing, mcpServers }, null, 2);
     await commands.writeMcpConfig(content);
 }
 
@@ -89,36 +94,24 @@ export async function openMcpConfig(): Promise<void> {
         await commands.writeMcpConfig(DEFAULT_MCP_JSON);
     }
     await commands.openFile(path, "mcp.json");
-    window.dispatchEvent(new CustomEvent("shape-agent-overlay", { detail: null }));
+    window.dispatchEvent(new CustomEvent("bettershape-agent-overlay", { detail: null }));
     window.dispatchEvent(
-        new CustomEvent("shape-open-workspace-file", { detail: { path } }),
+        new CustomEvent("bettershape-open-workspace-file", { detail: { path } }),
     );
     window.dispatchEvent(
-        new CustomEvent("shape-layout-toggle", { detail: { id: "agent-workspace", value: true } }),
+        new CustomEvent("bettershape-layout-toggle", { detail: { id: "agent-workspace", value: true } }),
     );
 }
 
 export async function mergePluginConfig(
     pluginId: string,
-    config: { mcpServers?: Record<string, RawMcpEntry> },
+    config: { mcpServers?: Record<string, McpEntryInput> },
 ): Promise<McpServerConfig[]> {
     const existing = await loadMcpServersFromFile();
     const incoming = config.mcpServers ?? {};
     const merged = new Map(existing.map((s) => [s.id, s]));
     for (const [id, cfg] of Object.entries(incoming)) {
-        merged.set(id, {
-            id,
-            name: id,
-            transport: cfg.transport ?? (cfg.url ? "http" : "stdio"),
-            command: cfg.command ?? "",
-            args: cfg.args ?? [],
-            env: cfg.env ?? {},
-            url: cfg.url,
-            auth: cfg.auth ?? (cfg.url ? "oauth" : "none"),
-            enabled: cfg.disabled !== true,
-            disabledTools: cfg.disabledTools ?? [],
-            oauthClientId: cfg.oauthClientId,
-        });
+        merged.set(id, serverFromEntry(id, cfg ?? {}));
     }
     const list = Array.from(merged.values());
     await saveMcpServers(list);

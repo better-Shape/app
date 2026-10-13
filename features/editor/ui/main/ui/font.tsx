@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useId, useMemo, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 
 interface FontViewProps {
@@ -13,11 +13,13 @@ const SAMPLE_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz 0123
 export function FontView({ path }: FontViewProps) {
     const [loaded, setLoaded] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const reactId = useId();
 
     const fontFamily = useMemo(() => {
         const base = path.split(/[\\/]/).pop()?.replace(/\.[^.]+$/, "") || "PreviewFont";
-        return `shape-font-${base.replace(/[^a-zA-Z0-9_-]/g, "-")}-${Math.random().toString(36).slice(2, 8)}`;
-    }, [path]);
+        const suffix = reactId.replace(/[^a-zA-Z0-9_-]/g, "");
+        return `bettershape-font-${base.replace(/[^a-zA-Z0-9_-]/g, "-")}-${suffix}`;
+    }, [path, reactId]);
 
     const fileName = path.split(/[\\/]/).pop() || path;
 

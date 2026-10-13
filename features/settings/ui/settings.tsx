@@ -8,7 +8,7 @@ import {
     updateSettingSection,
     updateSettings,
     DEFAULT_SETTINGS,
-    type ShapeSettings,
+    type BetterShapeSettings,
 } from "@/lib/settings";
 import { commands, useProjectState } from "@/lib/backend";
 import type { PackageDep, PackageInfo } from "@/lib/backend/types";
@@ -36,10 +36,11 @@ import {
     AUTO_FETCH_INTERVAL_PRESETS,
 } from "./shared/controls";
 import { AiSettingsPanel } from "./sections/ai";
-import { AccountSettingsPanel } from "./sections/account";
+import { ProvidersSettingsView } from "./sections/providers";
 import { applyTelemetryPreference } from "@/lib/telemetry";
 import { clearRepoHistory } from "@/lib/workspace/repo-history";
-import { SHAPE_API_BASE } from "@/lib/cloud/api";
+import { HELP_LINKS } from "@/lib/errors/help-links";
+import { isWorkspaceTrusted, listTrustedWorkspaces, trustWorkspace, untrustWorkspace } from "@/lib/workspace/trust";
 import {
     checkForAppUpdates,
     describeUpdateStatus,
@@ -50,7 +51,7 @@ import {
 } from "@/lib/window/updater";
 import { HostedSidebarBack } from "@/features/agent/sidebar/hosted-nav";
 import { Icon } from "@/components/ui/icon";
-import { ShapeLogo } from "@/components/ui/shape-logo";
+import { BetterShapeLogo } from "@/components/ui/bettershape-logo";
 import { SETTINGS_NAV, allSettingsLeaves, type SettingsNavLeaf } from "./shared/nav";
 import { KeyboardShortcutsView } from "./sections/shortcuts";
 import { PluginsSettingsView } from "./sections/plugins";
@@ -58,7 +59,6 @@ import { McpSettingsView } from "./sections/mcp";
 import { SkillsSettings } from "./sections/skills";
 import { Skeleton } from "@/features/git/ui/shared/skeletons";
 import { useRouter } from "next/navigation";
-import { useShapeAuth } from "@/lib/cloud/store";
 import { useRuntimeFlag } from "@/lib/runtime/store";
 import {
     AlertDialog,
@@ -78,7 +78,7 @@ import {
     type ReportCategory,
 } from "@/lib/feedback/report";
 
-function EditorSettings({ settings }: { settings: ShapeSettings }) {
+function EditorSettings({ settings }: { settings: BetterShapeSettings }) {
     const e = settings.editor;
     const f = settings.files;
     return (
@@ -115,7 +115,7 @@ function EditorSettings({ settings }: { settings: ShapeSettings }) {
                         { value: "bounded", label: "Bounded" },
                     ]}
                     onChange={(v) =>
-                        updateSettingSection("editor", { wordWrap: v as ShapeSettings["editor"]["wordWrap"] })
+                        updateSettingSection("editor", { wordWrap: v as BetterShapeSettings["editor"]["wordWrap"] })
                     }
                 />
             </SettingRow>
@@ -129,7 +129,7 @@ function EditorSettings({ settings }: { settings: ShapeSettings }) {
                     ]}
                     onChange={(v) =>
                         updateSettingSection("editor", {
-                            lineNumbers: v as ShapeSettings["editor"]["lineNumbers"],
+                            lineNumbers: v as BetterShapeSettings["editor"]["lineNumbers"],
                         })
                     }
                 />
@@ -182,7 +182,7 @@ function EditorSettings({ settings }: { settings: ShapeSettings }) {
                         { value: "onFocusChange", label: "On focus change" },
                     ]}
                     onChange={(v) =>
-                        updateSettingSection("editor", { autoSave: v as ShapeSettings["editor"]["autoSave"] })
+                        updateSettingSection("editor", { autoSave: v as BetterShapeSettings["editor"]["autoSave"] })
                     }
                 />
             </SettingRow>
@@ -211,7 +211,7 @@ function EditorSettings({ settings }: { settings: ShapeSettings }) {
                         { value: "underline", label: "Underline" },
                     ]}
                     onChange={(v) =>
-                        updateSettingSection("editor", { cursorStyle: v as ShapeSettings["editor"]["cursorStyle"] })
+                        updateSettingSection("editor", { cursorStyle: v as BetterShapeSettings["editor"]["cursorStyle"] })
                     }
                 />
             </SettingRow>
@@ -251,7 +251,7 @@ function EditorSettings({ settings }: { settings: ShapeSettings }) {
                         { value: "CRLF", label: "CRLF" },
                     ]}
                     onChange={(v) =>
-                        updateSettingSection("files", { defaultEol: v as ShapeSettings["files"]["defaultEol"] })
+                        updateSettingSection("files", { defaultEol: v as BetterShapeSettings["files"]["defaultEol"] })
                     }
                 />
             </SettingRow>
@@ -267,7 +267,7 @@ function EditorSettings({ settings }: { settings: ShapeSettings }) {
     );
 }
 
-function TerminalSettings({ settings }: { settings: ShapeSettings }) {
+function TerminalSettings({ settings }: { settings: BetterShapeSettings }) {
     const t = settings.terminal;
     return (
         <SettingSection id="settings-terminal" title="Integrated Terminal">
@@ -312,7 +312,7 @@ function TerminalSettings({ settings }: { settings: ShapeSettings }) {
     );
 }
 
-function GitSettings({ settings }: { settings: ShapeSettings }) {
+function GitSettings({ settings }: { settings: BetterShapeSettings }) {
     const g = settings.git;
     return (
         <SettingSection id="settings-git" title="Source Control">
@@ -349,13 +349,13 @@ function AiSettings({
     settings,
     page,
 }: {
-    settings: ShapeSettings;
+    settings: BetterShapeSettings;
     page: "models" | "rules" | "workflows" | "context" | "subagents";
 }) {
     return <AiSettingsPanel settings={settings} page={page} />;
 }
 
-function LintSettings({ settings }: { settings: ShapeSettings }) {
+function LintSettings({ settings }: { settings: BetterShapeSettings }) {
     const eslint = settings.eslint;
     const prettier = settings.prettier;
     return (
@@ -377,7 +377,7 @@ function LintSettings({ settings }: { settings: ShapeSettings }) {
     );
 }
 
-function LspSettings({ settings }: { settings: ShapeSettings }) {
+function LspSettings({ settings }: { settings: BetterShapeSettings }) {
     const lsp = settings.lsp;
     return (
         <>
@@ -409,7 +409,7 @@ function LspSettings({ settings }: { settings: ShapeSettings }) {
     );
 }
 
-function NodeSettings({ settings }: { settings: ShapeSettings }) {
+function NodeSettings({ settings }: { settings: BetterShapeSettings }) {
     const node = settings.node;
     const { project_path } = useProjectState();
     const [info, setInfo] = useState<PackageInfo | null>(null);
@@ -566,13 +566,13 @@ function NodeSettings({ settings }: { settings: ShapeSettings }) {
     );
 }
 
-function DeveloperSettings({ settings }: { settings: ShapeSettings }) {
+function DeveloperSettings({ settings }: { settings: BetterShapeSettings }) {
     const dev = settings.developer;
 
     return (
         <>
             <SettingSection id="settings-developer" title="Developer">
-                <SettingRow title="Developer Tools in context menu" description="Inspect Shape itself from the right-click menu.">
+                <SettingRow title="Developer Tools in context menu" description="Inspect BetterShape itself from the right-click menu.">
                     <SettingSwitch
                         checked={dev.enableDevTools}
                         onChange={(v) => updateSettingSection("developer", { enableDevTools: v })}
@@ -583,7 +583,7 @@ function DeveloperSettings({ settings }: { settings: ShapeSettings }) {
     );
 }
 
-function UpdatesSettings({ settings }: { settings: ShapeSettings }) {
+function UpdatesSettings({ settings }: { settings: BetterShapeSettings }) {
     const u = settings.updates;
     const [version, setVersion] = useState("0.0.1");
     const [busy, setBusy] = useState(false);
@@ -624,7 +624,7 @@ function UpdatesSettings({ settings }: { settings: ShapeSettings }) {
     const downloading = status.kind === "downloading" || status.kind === "checking";
 
     return (
-        <SettingSection id="settings-updates" title="About Shape">
+        <SettingSection id="settings-updates" title="About BetterShape">
             <SettingCard>
                 <div className="flex items-center gap-3 px-3.5 py-3">
                     <div className="min-w-0 flex-1">
@@ -696,7 +696,7 @@ function UpdatesSettings({ settings }: { settings: ShapeSettings }) {
                         { value: "nightly", label: "Nightly" },
                     ]}
                     onChange={(v) => {
-                        const channel = v as ShapeSettings["updates"]["channel"];
+                        const channel = v as BetterShapeSettings["updates"]["channel"];
                         updateSettingSection("updates", { channel });
                         void (async () => {
                             const next = await checkForAppUpdates({ force: true, silent: true, channel });
@@ -709,14 +709,13 @@ function UpdatesSettings({ settings }: { settings: ShapeSettings }) {
     );
 }
 
-function PrivacySettings({ settings, part }: { settings: ShapeSettings; part: "notifications" | "privacy" }) {
+function PrivacySettings({ settings, part }: { settings: BetterShapeSettings; part: "notifications" | "privacy" }) {
     const p = settings.privacy;
-    const websiteBase = SHAPE_API_BASE;
     if (part === "notifications") {
         const n = settings.notifications;
         return (
             <SettingSection id="settings-notifications" title="Notifications">
-                <SettingRow title="Desktop notifications" description="Alerts while Shape is in the background.">
+                <SettingRow title="Desktop notifications" description="Alerts while BetterShape is in the background.">
                     <SettingSwitch
                         checked={n.desktopEnabled}
                         onChange={(v) => {
@@ -759,14 +758,11 @@ function PrivacySettings({ settings, part }: { settings: ShapeSettings; part: "n
                 </SettingRow>
             </SettingSection>
             <SettingSection id="settings-privacy" title="Data Control">
-                <SettingRow title="Usage telemetry" description="Anonymous product usage. Never includes chats or files.">
-                    <SettingSwitch
-                        checked={p.telemetryEnabled}
-                        onChange={(v) => {
-                            updateSettingSection("privacy", { telemetryEnabled: v });
-                            void applyTelemetryPreference(v);
-                        }}
-                    />
+                <SettingRow
+                    title="Usage telemetry"
+                    description="BetterShape sends nothing: this build has no telemetry endpoint and no device id."
+                >
+                    <SettingSwitch checked={false} disabled onChange={() => {}} />
                 </SettingRow>
                 <SettingRow title="Clear recent folders">
                     <Button
@@ -774,7 +770,7 @@ function PrivacySettings({ settings, part }: { settings: ShapeSettings; part: "n
                         size="sm"
                         onClick={() => {
                             clearRepoHistory();
-                            window.dispatchEvent(new Event("shape-repo-history-changed"));
+                            window.dispatchEvent(new Event("bettershape-repo-history-changed"));
                         }}
                     >
                         Clear
@@ -786,7 +782,7 @@ function PrivacySettings({ settings, part }: { settings: ShapeSettings; part: "n
                         size="sm"
                         onClick={() => {
                             void commands.clearChatHistory().then(() => {
-                                window.dispatchEvent(new CustomEvent("shape-chat-refresh"));
+                                window.dispatchEvent(new CustomEvent("bettershape-chat-refresh"));
                             });
                         }}
                     >
@@ -800,6 +796,7 @@ function PrivacySettings({ settings, part }: { settings: ShapeSettings; part: "n
                     />
                 </SettingRow>
             </SettingSection>
+            <TrustedWorkspacesSection />
             <FeedbackSection />
             <SettingSection title="Legal">
                 <SettingCard>
@@ -807,14 +804,14 @@ function PrivacySettings({ settings, part }: { settings: ShapeSettings; part: "n
                     <button
                         type="button"
                         className="block text-text-muted hover:text-text-primary transition-colors"
-                        onClick={() => void commands.openUrlExternal(`${websiteBase}/terms`)}
+                        onClick={() => void commands.openUrlExternal(HELP_LINKS.license)}
                     >
                         Terms of Service
                     </button>
                     <button
                         type="button"
                         className="block text-text-muted hover:text-text-primary transition-colors"
-                        onClick={() => void commands.openUrlExternal(`${websiteBase}/privacy`)}
+                        onClick={() => void commands.openUrlExternal(HELP_LINKS.privacy)}
                     >
                         Privacy Policy
                     </button>
@@ -822,6 +819,23 @@ function PrivacySettings({ settings, part }: { settings: ShapeSettings; part: "n
                 </SettingCard>
             </SettingSection>
         </>
+    );
+}
+
+function TrustedWorkspacesSection() {
+    const { project_path: p } = useProjectState();
+    const [trusted, setTrusted] = useState<string[]>(() => listTrustedWorkspaces());
+    const refresh = () => setTrusted(listTrustedWorkspaces());
+    useEffect(() => {
+        const evs = ["bettershape-workspace-trusted", "bettershape-workspace-untrusted", "bettershape-workspace-opened", "storage"];
+        evs.forEach((e) => window.addEventListener(e, refresh));
+        return () => evs.forEach((e) => window.removeEventListener(e, refresh));
+    }, []);
+    return (
+        <SettingSection title="Workspace Trust">
+            {p ? <SettingRow title="Current workspace" description={p}><SettingSwitch checked={isWorkspaceTrusted(p)} onChange={(v) => { (v ? trustWorkspace : untrustWorkspace)(p); refresh(); }} /></SettingRow> : null}
+            <SettingCard>{trusted.length === 0 ? <div className="px-3.5 py-2.5 text-sm text-text-muted">No trusted workspaces.</div> : trusted.map((w) => <SettingRow key={w} title={w}><Button variant="outline" size="sm" onClick={() => { untrustWorkspace(w); refresh(); }}>Revoke</Button></SettingRow>)}</SettingCard>
+        </SettingSection>
     );
 }
 
@@ -967,7 +981,7 @@ function FeedbackSection() {
     );
 }
 
-function PythonSettings({ settings }: { settings: ShapeSettings }) {
+function PythonSettings({ settings }: { settings: BetterShapeSettings }) {
     const { project_path } = useProjectState();
     const selected = settings.python?.interpreterPath ?? "auto";
     const [interpreters, setInterpreters] = useState<{ path: string; label: string; version?: string }[]>([]);
@@ -1028,7 +1042,7 @@ function PythonSettings({ settings }: { settings: ShapeSettings }) {
     );
 }
 
-function ToolsSettings({ settings }: { settings: ShapeSettings }) {
+function ToolsSettings({ settings }: { settings: BetterShapeSettings }) {
     return (
         <>
             <LintSettings settings={settings} />
@@ -1050,13 +1064,11 @@ export function SettingsView({
     onBack?: () => void;
 } = {}) {
     const settings = useSettings();
-    const auth = useShapeAuth();
     const agentsOn = useRuntimeFlag("desktop_agents", true);
-    const pluginsNavDisabled = !auth.loggedIn || Boolean(auth.offline);
     const searchParams = useSearchParams();
     const router = useRouter();
     const [query, setQuery] = useState("");
-    const [activeLeafId, setActiveLeafId] = useState("account-profile");
+    const [activeLeafId, setActiveLeafId] = useState("providers");
     const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
 
     const resolveTargetFromDeepLink = useCallback((category?: string | null, section?: string | null): string | null => {
@@ -1070,7 +1082,8 @@ export function SettingsView({
         switch (category) {
             case "account":
             case "general":
-                return "settings-account";
+            case "providers":
+                return "settings-providers";
             case "ai":
             case "agents":
                 return "settings-ai-models";
@@ -1117,10 +1130,10 @@ export function SettingsView({
             }
             applyNavigation(custom.detail?.category, custom.detail?.section);
         };
-        window.addEventListener("shape-settings-navigate", handler as EventListener);
+        window.addEventListener("bettershape-settings-navigate", handler as EventListener);
         let unlisten: (() => void) | null = null;
         void listen<{ category?: string; section?: string; path?: string }>(
-            "shape-settings-navigate",
+            "bettershape-settings-navigate",
             (event) => {
                 if (event.payload?.path) {
                     router.push(event.payload.path);
@@ -1134,7 +1147,7 @@ export function SettingsView({
             })
             .catch(() => undefined);
         return () => {
-            window.removeEventListener("shape-settings-navigate", handler as EventListener);
+            window.removeEventListener("bettershape-settings-navigate", handler as EventListener);
             unlisten?.();
         };
     }, [applyNavigation, router]);
@@ -1198,20 +1211,16 @@ export function SettingsView({
                                             <div className="space-y-0.5">
                                                 {group.children.map((leaf) => {
                                                     const active = activeLeafId === leaf.id;
-                                                    const disabled = leaf.id === "plugins" && pluginsNavDisabled;
                                                     return (
                                                         <button
                                                             key={leaf.id}
                                                             type="button"
-                                                            disabled={disabled}
-                                                            title={disabled ? "Sign in to manage plugins." : undefined}
                                                             onClick={() => onLeafClick(leaf)}
                                                             className={cn(
                                                                 "flex h-9 w-full items-center gap-1.5 rounded-lg px-2 text-left text-sm",
                                                                 active
                                                                     ? "bg-panel-hover text-text-primary"
                                                                     : "text-text-secondary hover:bg-panel-hover/50 hover:text-text-primary",
-                                                                disabled && "pointer-events-none opacity-40",
                                                             )}
                                                         >
                                                             <Icon icon={leaf.icon} className="icon-md settings-nav-icon"/>
@@ -1263,7 +1272,7 @@ export function SettingsView({
                             <h1 className="mb-6 text-2xl font-medium text-text-primary">
                                 {allSettingsLeaves().find((leaf) => leaf.id === activeLeafId)?.label}
                             </h1>
-                            {activeLeafId === "account-profile" ? <AccountSettingsPanel /> : null}
+                            {activeLeafId === "providers" ? <ProvidersSettingsView /> : null}
                             {activeLeafId === "ai-models" ? <AiSettings settings={settings} page="models" /> : null}
                             {activeLeafId === "ai-subagents" ? <AiSettings settings={settings} page="subagents" /> : null}
                             {activeLeafId === "ai-rules" ? <AiSettings settings={settings} page="rules" /> : null}
@@ -1300,7 +1309,7 @@ export function SettingsView({
                             <Button
                                 size="sm"
                                 onClick={() => {
-                                    localStorage.removeItem("shape-settings-v1");
+                                    localStorage.removeItem("bettershape-settings-v1");
                                     updateSettings(DEFAULT_SETTINGS);
                                     setResetConfirmOpen(false);
                                 }}

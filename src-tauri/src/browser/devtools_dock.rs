@@ -15,7 +15,7 @@ use tokio_tungstenite::tungstenite::Message;
 use super::surface::{best_target, inspector_url, is_app_page, score_target};
 
 const MISS: &str = "This page doesn't have developer tools yet.";
-const RESTART: &str = "Restart Shape, then open developer tools for this page.";
+const RESTART: &str = "Restart BetterShape, then open developer tools for this page.";
 
 struct Proxy {
     task: tauri::async_runtime::JoinHandle<()>,
@@ -29,7 +29,10 @@ pub async fn inspector_for(want: &str) -> Result<String, String> {
     }
     let list = json_list().await?;
     if let Some(page) = best_target(&list, want) {
-        let ws = page.get("webSocketDebuggerUrl").and_then(|v| v.as_str()).unwrap_or("");
+        let ws = page
+            .get("webSocketDebuggerUrl")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
         if ws.contains("/devtools/page/") {
             let front = inspector_url(&page);
             if !front.is_empty() {
@@ -39,9 +42,9 @@ pub async fn inspector_for(want: &str) -> Result<String, String> {
     }
     let page_ws = app_page_ws(&list)?;
     iframe_session_id(&page_ws, want).await?;
-    let port = start_proxy(page_ws, want.to_string()).await?;
+    let (port, token) = start_proxy(page_ws, want.to_string()).await?;
     Ok(format!(
-        "{}/devtools/inspector.html?ws=127.0.0.1:{port}/devtools/page/frame",
+        "{}/devtools/inspector.html?ws=127.0.0.1:{port}/devtools/page/frame/{token}",
         crate::browser::webview_debug::base_url()
     ))
 }
@@ -52,7 +55,10 @@ fn app_page_ws(list: &[Value]) -> Result<String, String> {
         .filter(|item| {
             let url = item.get("url").and_then(|v| v.as_str()).unwrap_or("");
             let kind = item.get("type").and_then(|v| v.as_str()).unwrap_or("");
-            let ws = item.get("webSocketDebuggerUrl").and_then(|v| v.as_str()).unwrap_or("");
+            let ws = item
+                .get("webSocketDebuggerUrl")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             kind == "page" && is_app_page(url) && ws.starts_with("ws")
         })
         .collect();
@@ -77,7 +83,10 @@ async fn json_list() -> Result<Vec<Value>, String> {
         .build()
         .map_err(|e| e.to_string())?;
     client
-        .get(format!("{}/json/list", crate::browser::webview_debug::base_url()))
+        .get(format!(
+            "{}/json/list",
+            crate::browser::webview_debug::base_url()
+        ))
         .send()
         .await
         .map_err(|_| RESTART.to_string())?
@@ -87,8 +96,9 @@ async fn json_list() -> Result<Vec<Value>, String> {
 }
 
 async fn iframe_session_id(page_ws: &str, want: &str) -> Result<String, String> {
-    let (mut socket, _) = tokio_tungstenite::connect_async(page_ws)
+    let (mut socket, _) = tokio::time::timeout(Duration::from_secs(5), tokio_tungstenite::connect_async(page_ws))
         .await
+        .map_err(|_| RESTART.to_string())?
         .map_err(|_| RESTART.to_string())?;
     let session = wait_iframe(&mut socket, want).await?;
     Ok(session)
@@ -141,8 +151,14 @@ async fn wait_iframe(
             continue;
         }
         let info = value.pointer("/params/targetInfo");
-        let url = info.and_then(|v| v.get("url")).and_then(|v| v.as_str()).unwrap_or("");
-        let kind = info.and_then(|v| v.get("type")).and_then(|v| v.as_str()).unwrap_or("");
+        let url = info
+            .and_then(|v| v.get("url"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let kind = info
+            .and_then(|v| v.get("type"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
         if seen.len() < 8 {
             seen.push(format!("{kind} {url}"));
         }
@@ -167,16 +183,23 @@ async fn wait_iframe(
     if let Some((_, session)) = best {
         return Ok(session);
     }
-    log::warn!("devtools: no iframe session for {want}; saw {}", seen.join(" | "));
+    log::warn!(
+        "devtools: no iframe session for {want}; saw {}",
+        seen.join(" | ")
+    );
     Err(MISS.into())
 }
 
-async fn start_proxy(page_ws: String, want: String) -> Result<u16, String> {
+async fn start_proxy(page_ws: String, want: String) -> Result<(u16, String), String> {
     if let Some(old) = PROXY.lock().unwrap_or_else(|p| p.into_inner()).take() {
         old.task.abort();
     }
-    let listener = TcpListener::bind("127.0.0.1:0").await.map_err(|e| e.to_string())?;
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .map_err(|e| e.to_string())?;
     let port = listener.local_addr().map_err(|e| e.to_string())?.port();
+    let token = uuid::Uuid::new_v4().simple().to_string();
+    let exp_path = format!("/devtools/page/frame/{token}");
     let task = tauri::async_runtime::spawn(async move {
         loop {
             let Ok((stream, _)) = listener.accept().await else {
@@ -184,16 +207,18 @@ async fn start_proxy(page_ws: String, want: String) -> Result<u16, String> {
             };
             let page_ws = page_ws.clone();
             let want = want.clone();
+            let exp_path = exp_path.clone();
             tauri::async_runtime::spawn(async move {
-                let Ok(frontend) = tokio_tungstenite::accept_async(stream).await else {
-                    return;
-                };
+                let Ok(frontend) = tokio_tungstenite::accept_hdr_async(stream, move |r: &tokio_tungstenite::tungstenite::handshake::server::Request, resp| {
+                    if r.uri().path() != exp_path || !r.headers().get("Origin").and_then(|v| v.to_str().ok()).map(|o| o == crate::browser::webview_debug::base_url()).unwrap_or(true) { return Err(tokio_tungstenite::tungstenite::http::Response::builder().status(403).body(None).unwrap()); }
+                    Ok(resp)
+                }).await else { return };
                 relay(frontend, page_ws, want).await;
             });
         }
     });
     *PROXY.lock().unwrap_or_else(|p| p.into_inner()) = Some(Proxy { task });
-    Ok(port)
+    Ok((port, token))
 }
 
 async fn relay(
@@ -201,7 +226,7 @@ async fn relay(
     page_ws: String,
     want: String,
 ) {
-    let Ok((mut page, _)) = tokio_tungstenite::connect_async(&page_ws).await else {
+    let Ok(Ok((mut page, _))) = tokio::time::timeout(Duration::from_secs(5), tokio_tungstenite::connect_async(&page_ws)).await else {
         return;
     };
     let Ok(session) = wait_iframe(&mut page, &want).await else {
@@ -251,7 +276,9 @@ async fn relay(
 
 fn tag_session(text: &str, session: &str) -> Option<String> {
     let mut value: Value = serde_json::from_str(text).ok()?;
-    value.as_object_mut()?.insert("sessionId".to_string(), Value::String(session.to_string()));
+    value
+        .as_object_mut()?
+        .insert("sessionId".to_string(), Value::String(session.to_string()));
     Some(value.to_string())
 }
 

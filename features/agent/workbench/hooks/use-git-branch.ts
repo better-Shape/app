@@ -26,11 +26,11 @@ export function useGitBranch(projectPath: string | null | undefined) {
 
         void update();
         const onGitRefresh = () => { void update(); };
-        window.addEventListener("shape-git-refresh", onGitRefresh);
+        window.addEventListener("bettershape-git-refresh", onGitRefresh);
         const id = setInterval(update, BACKUP_POLL_MS);
         return () => {
             mounted = false;
-            window.removeEventListener("shape-git-refresh", onGitRefresh);
+            window.removeEventListener("bettershape-git-refresh", onGitRefresh);
             clearInterval(id);
         };
     }, [projectPath]);

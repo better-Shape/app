@@ -20,15 +20,15 @@ describe("settings", () => {
     it("emit", () => {
         const events: string[] = [];
         const handler = () => events.push("changed");
-        window.addEventListener("shape-settings-changed", handler);
+        window.addEventListener("bettershape-settings-changed", handler);
         updateSettingSection("editor", { fontSize: 16 });
-        window.removeEventListener("shape-settings-changed", handler);
+        window.removeEventListener("bettershape-settings-changed", handler);
         expect(events).toContain("changed");
     });
 
     it("persist", () => {
         updateSettingSection("editor", { tabSize: 4, fontSize: 15 });
-        const parsed = JSON.parse(localStorage.getItem("shape-settings-v1")!);
+        const parsed = JSON.parse(localStorage.getItem("bettershape-settings-v1")!);
         expect(parsed.editor.tabSize).toBe(4);
         expect(parsed.editor.fontSize).toBe(15);
     });

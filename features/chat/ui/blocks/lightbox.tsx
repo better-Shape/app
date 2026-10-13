@@ -8,7 +8,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { cn } from "@/lib/utils";
 import { Icon } from "@/components/ui/icon";
 
-import { SHAPE_OVERLAY_CLASS } from "@/lib/ui/modal-overlay";
+import { BETTERSHAPE_OVERLAY_CLASS } from "@/lib/ui/modal-overlay";
 import type { DesignPreviewItem } from "./gallery";
 
 function resolveSrc(path: string): string {
@@ -79,7 +79,7 @@ export function MediaLightbox({
         <div
             className={cn(
                 "fixed inset-0 z-[200] flex flex-col items-center justify-center gap-4 p-6",
-                SHAPE_OVERLAY_CLASS,
+                BETTERSHAPE_OVERLAY_CLASS,
             )}
             role="dialog"
             aria-modal="true"

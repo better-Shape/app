@@ -1,8 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { ChevronDown20Regular } from "@fluentui/react-icons/headless/svg/chevron-down";
-import { Icon } from "@/components/ui/icon";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
     DropdownMenu,
@@ -70,9 +68,12 @@ export function ThinkingEffortControl({
     const shown = options[clamp(Math.round(pos), maxIndex)] ?? options[index]!;
     const motion = dragPos == null ? "180ms cubic-bezier(0.22, 1, 0.36, 1)" : "0s";
 
-    useEffect(() => {
+    // A new effort level (from the model or a click) ends any drag in progress.
+    const [seenIndex, setSeenIndex] = useState(index);
+    if (index !== seenIndex) {
+        setSeenIndex(index);
         setDragPos(null);
-    }, [index]);
+    }
 
     const settle = (raw: number) => {
         const n = clamp(raw, maxIndex);

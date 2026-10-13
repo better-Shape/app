@@ -1,7 +1,7 @@
 //! Always-on memory log. One line every 10s while idle, plus agent-turn
 //! snapshots. Covers this process and the WebView2 processes it owns.
-//! File: `%LOCALAPPDATA%\shape\ram-debug.log` (Windows). Set
-//! `SHAPE_RAM_DEBUG=0` to turn it off.
+//! File: `%LOCALAPPDATA%\bettershape\ram-debug.log` (Windows). Set
+//! `BETTERSHAPE_RAM_DEBUG=0` to turn it off.
 
 use serde_json::Value;
 use std::collections::HashMap;
@@ -23,8 +23,10 @@ pub static WATCH_PENDING: AtomicU64 = AtomicU64::new(0);
 pub fn enabled() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| {
-        std::env::var("SHAPE_RAM_DEBUG")
-            .map(|v| !(v == "0" || v.eq_ignore_ascii_case("false") || v.eq_ignore_ascii_case("off")))
+        std::env::var("BETTERSHAPE_RAM_DEBUG")
+            .map(|v| {
+                !(v == "0" || v.eq_ignore_ascii_case("false") || v.eq_ignore_ascii_case("off"))
+            })
             .unwrap_or(true)
     })
 }
@@ -34,10 +36,7 @@ const MAX_LOG_BYTES: u64 = 8 * 1024 * 1024;
 const IDLE_SAMPLE_SECS: u64 = 10;
 
 fn elapsed_s() -> f64 {
-    STARTED
-        .get_or_init(Instant::now)
-        .elapsed()
-        .as_secs_f64()
+    STARTED.get_or_init(Instant::now).elapsed().as_secs_f64()
 }
 
 fn mb(bytes: u64) -> f64 {
@@ -96,11 +95,7 @@ mod win {
         unsafe {
             let mut counters = std::mem::zeroed::<ProcessMemoryCountersEx>();
             counters.cb = std::mem::size_of::<ProcessMemoryCountersEx>() as u32;
-            let ok = GetProcessMemoryInfo(
-                GetCurrentProcess(),
-                &mut counters,
-                counters.cb,
-            );
+            let ok = GetProcessMemoryInfo(GetCurrentProcess(), &mut counters, counters.cb);
             let mut sys = std::mem::zeroed::<MemoryStatusEx>();
             sys.length = std::mem::size_of::<MemoryStatusEx>() as u32;
             let sys_ok = GlobalMemoryStatusEx(&mut sys);
@@ -276,7 +271,7 @@ fn log_path() -> PathBuf {
         .get_or_init(|| {
             let dir = dirs::data_local_dir()
                 .unwrap_or_else(|| PathBuf::from("."))
-                .join("shape");
+                .join("bettershape");
             let _ = create_dir_all(&dir);
             dir.join("ram-debug.log")
         })
@@ -290,7 +285,9 @@ pub fn init() {
     STARTED.get_or_init(Instant::now);
     let path = log_path();
     // Append so a crash log survives the next launch; trim when it gets big.
-    let too_big = std::fs::metadata(&path).map(|m| m.len() > MAX_LOG_BYTES).unwrap_or(false);
+    let too_big = std::fs::metadata(&path)
+        .map(|m| m.len() > MAX_LOG_BYTES)
+        .unwrap_or(false);
     let opened = if too_big {
         File::create(&path)
     } else {
@@ -314,10 +311,13 @@ pub fn init() {
         ),
     );
     std::thread::Builder::new()
-        .name("shape-ram-sampler".into())
+        .name("bettershape-ram-sampler".into())
         .spawn(|| loop {
             std::thread::sleep(std::time::Duration::from_secs(IDLE_SAMPLE_SECS));
-            snapshot("idle", &format!("{} {}", win::resources_line(), win::children_line()));
+            snapshot(
+                "idle",
+                &format!("{} {}", win::resources_line(), win::children_line()),
+            );
         })
         .ok();
 }
@@ -330,7 +330,11 @@ fn write_line(line: &str) {
         if let Some(file) = guard.as_mut() {
             let _ = writeln!(file, "{line}");
             let _ = file.flush();
-            if file.metadata().map(|m| m.len() > MAX_LOG_BYTES).unwrap_or(false) {
+            if file
+                .metadata()
+                .map(|m| m.len() > MAX_LOG_BYTES)
+                .unwrap_or(false)
+            {
                 let _ = file.set_len(0);
             }
         }
@@ -440,7 +444,10 @@ pub fn note_watch_event(pending: usize) {
     let n = WATCH_EVENTS.fetch_add(1, Ordering::Relaxed) + 1;
     WATCH_PENDING.store(pending as u64, Ordering::Relaxed);
     if n == 1 || n % 50 == 0 {
-        snapshot("fs_watch_event", &format!("event_n={n} pending_paths={pending}"));
+        snapshot(
+            "fs_watch_event",
+            &format!("event_n={n} pending_paths={pending}"),
+        );
     }
 }
 

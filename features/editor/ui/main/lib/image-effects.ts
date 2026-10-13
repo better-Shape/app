@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 
-const SHARPEN_FILTER_ID = "shape-image-sharpen";
+const SHARPEN_FILTER_ID = "bettershape-image-sharpen";
 
 export function sharpenFilterId(): string {
     return SHARPEN_FILTER_ID;

@@ -1,18 +1,18 @@
 ---
 title: MCP
-description: Add a local tool server Shape can call from chat.
+description: Add a local tool server BetterShape can call from chat.
 order: 2
 ---
 
-MCP servers are tools Shape can call from chat. Add one in **Settings → Agents → MCP**, or keep a server in `mcp.json` if you want it in a file.
+MCP servers are tools BetterShape can call from chat. Add one in **Settings → Agents → MCP**, or keep a server in `mcp.json` if you want it in a file.
 
-Servers you add in Settings stay in Shape. They are not written into `mcp.json`. A server in `mcp.json` is picked up on its own. You do not have to add it again in Settings.
+Servers you add in Settings stay in BetterShape. They are not written into `mcp.json`. A server in `mcp.json` is picked up on its own. You do not have to add it again in Settings.
 
 Use MCP when the tool runs on your machine or at a URL you already have. Use a [plugin](/docs/customize/plugins) when the tool is an outside account.
 
 ## Add a server in Settings
 
-Open **Settings → Agents → MCP** and choose **Add server**. Paste the server URL, or paste its JSON config. Shape shows the server, then connects. If the server asks you to sign in, finish that in the browser.
+Open **Settings → Agents → MCP** and choose **Add server**. Paste the server URL, or paste its JSON config. BetterShape shows the server, then connects. If the server asks you to sign in, finish that in the browser.
 
 Remove a server you added there with **Remove**. That does not change `mcp.json`.
 
@@ -20,11 +20,11 @@ Remove a server you added there with **Remove**. That does not change `mcp.json`
 
 On the MCP page, choose **Open mcp.json**.
 
-If the file does not exist yet, Shape creates it.
+If the file does not exist yet, BetterShape creates it.
 
 ## Add a server
 
-Use `command` when Shape should start the process. Use `url` if the server is already running.
+Use `command` when BetterShape should start the process. Use `url` if the server is already running.
 
 ```json
 {
@@ -46,14 +46,58 @@ Name the server something you will recognize in chat. The name is what you will 
 Send a message that needs the tool. If the server does not show up:
 
 1. Save `mcp.json`.
-2. Open **Settings → Agents → MCP** again. Shape reloads the file.
+2. Open **Settings → Agents → MCP** again. BetterShape reloads the file.
 3. Open the same folder again.
-4. Check that `command` is on your `PATH` when Shape starts. A tool that only works in your existing terminal session will fail here.
+4. Check that `command` is on your `PATH` when BetterShape starts. A tool that only works in your existing terminal session will fail here.
+
+## Let the agent manage servers
+
+You do not have to open Settings for this. Ask in chat, and BetterShape can add, change, test, or remove a server for you. The tools are `mcp_manage` (server lifecycle) and `mcp_search` / `mcp_call` (using the tools a server exposes).
+
+```
+Add the filesystem MCP server and test that it connects.
+```
+
+```
+What MCP servers do I have, and which ones are failing?
+```
+
+The agent can:
+
+- **List** servers and their status.
+- **Search the registry** for a server by name, then **add** it from the registry entry.
+- **Add, update, enable, disable, or remove** a server, with `command`/`args`/`env` for a local process or `url`/`headers` for a remote one.
+- **Test** a server and report the tool count and latency. A test that passes saves the server unless you pass `save: false`.
+- **Start sign-in** for a server that needs OAuth.
+- **List the tools** a server exposes.
+
+Servers the agent creates are written to the same `mcp.json` the Settings page reads, so they show up there too. Pass `save: false` to add a server for the current session only.
+
+Adding a server changes which tools BetterShape can call, so a mode that only reads will not do it. Approve the action like any other edit.
+
+A local server is a program this machine will run, so the first time one is added, updated, or tested, BetterShape asks for approval in the chat and shows the exact command. Servers already in `mcp.json`, and everything you add yourself in Settings, are past that point. Set **Auto-run** to **Always** in Settings to stop the questions.
+
+### Headers
+
+Remote servers that authenticate with a header use `headers`:
+
+```json
+{
+  "mcpServers": {
+    "internal": {
+      "url": "https://mcp.example.com/mcp",
+      "headers": { "X-Api-Key": "..." }
+    }
+  }
+}
+```
+
+BetterShape sends those headers on every request to that server. When the server uses OAuth instead, BetterShape does not send a stored `Authorization` header — the OAuth token wins.
 
 ## The file on this machine
 
-`mcp.json` lives in Shape’s data folder, not in the repo. Do not put API keys in it. Use env vars the server already reads.
+`mcp.json` lives in BetterShape’s data folder, not in the repo. Do not put API keys in it. Use env vars the server already reads.
 
 ## Remove a server
 
-Delete the entry from `mcp.json` and save. Restart Shape if the tool still appears.
+Delete the entry from `mcp.json` and save. Restart BetterShape if the tool still appears.

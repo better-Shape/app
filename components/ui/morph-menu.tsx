@@ -55,8 +55,8 @@ export function MorphMenu({
     const measureRef = useRef<HTMLSpanElement>(null);
     const [open, setOpen] = useState(false);
     const [closedW, setClosedW] = useState<number | null>(null);
-    // Lock open size while open so content reflow doesn't jump mid-morph.
-    const lockedOpen = useRef({ w: openWidth, h: openHeight });
+    // Open size is captured when the menu opens, so content reflow doesn't jump mid-morph.
+    const [lockedOpen, setLockedOpen] = useState({ w: openWidth, h: openHeight });
 
     useLayoutEffect(() => {
         if (!useMorph || !measureRef.current) return;
@@ -70,11 +70,6 @@ export function MorphMenu({
         ro.observe(el);
         return () => ro.disconnect();
     }, [useMorph, trigger]);
-
-    useEffect(() => {
-        if (open) return;
-        lockedOpen.current = { w: openWidth, h: openHeight };
-    }, [open, openWidth, openHeight]);
 
     useEffect(() => {
         if (!open) return;
@@ -126,8 +121,8 @@ export function MorphMenu({
 
     const ready = closedW != null;
     const wClosed = closedW ?? 96;
-    const wOpen = open ? lockedOpen.current.w : openWidth;
-    const hOpen = open ? lockedOpen.current.h : openHeight;
+    const wOpen = open ? lockedOpen.w : openWidth;
+    const hOpen = open ? lockedOpen.h : openHeight;
     // Keep closed and open on the same squircle so the morph doesn't tween into a pill.
     const rClosed = 24;
     const rOpen = 24;
@@ -169,7 +164,7 @@ export function MorphMenu({
                     aria-label={ariaLabel}
                     onClick={(e) => {
                         e.stopPropagation();
-                        if (!open) lockedOpen.current = { w: openWidth, h: openHeight };
+                        if (!open) setLockedOpen({ w: openWidth, h: openHeight });
                         setOpen((v) => !v);
                     }}
                 >

@@ -3,7 +3,7 @@
  * survives app quit without forcing a save prompt every time.
  */
 
-const STORAGE_KEY = "shape-dirty-buffers-v1";
+const STORAGE_KEY = "bettershape-dirty-buffers-v1";
 
 export type DirtyBuffer = {
     path: string;

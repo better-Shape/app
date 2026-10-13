@@ -1,5 +1,5 @@
-import type { ShapeAuthState } from "@/lib/cloud/types";
 import type { LastTurnUsage } from "@/lib/chat/last-turn-usage";
+import { modelOption } from "@/lib/ai/providers";
 
 export type MessageUsageStats = {
     timeMs?: number;
@@ -7,10 +7,7 @@ export type MessageUsageStats = {
     tokens?: number;
     inputTokens?: number;
     outputTokens?: number;
-    creditsCharged?: number;
     usedAuto?: boolean;
-    /** @deprecated Account monthly % — do not show as per-message usage. */
-    autoPercent?: number;
     reasoningEffort?: string;
     mode?: string;
     latencyMs?: number;
@@ -59,19 +56,12 @@ export function formatMessageUsageRows(
 ): Array<{ label: string; value: string }> {
     if (!stats) return [];
     const rows: Array<{ label: string; value: string }> = [];
-    const usedAuto = stats.usedAuto ?? isAutoModelId(model);
     const tokens = stats.tokens ?? 0;
-    const credits = stats.creditsCharged ?? 0;
     const input = stats.inputTokens;
     const output = stats.outputTokens;
 
-    if (usedAuto && tokens > 0) {
-        rows.push({
-            label: "Tokens",
-            value: tokens.toLocaleString(),
-        });
-    } else if (!usedAuto && credits > 0) {
-        rows.push({ label: "Credits", value: credits.toFixed(2) });
+    if (tokens > 0) {
+        rows.push({ label: "Tokens", value: tokens.toLocaleString() });
     }
 
     if (input != null && input > 0) {
@@ -85,91 +75,69 @@ export function formatMessageUsageRows(
 }
 
 export type ChatUsageDisplay = {
-    mode: "auto" | "credits";
-    /** Ring fill for monthly account usage (switches with Auto vs premium model). */
+    mode: "tokens";
+    /** Ring fill for the last turn relative to the model's context window. */
     percent: number;
-    /** Short primary line, e.g. "18% used". */
+    /** Short primary line, e.g. "12.4K tokens". */
     title: string;
     /** Secondary line — kept for API compat; prefer empty / same as title. */
     detail: string;
     /** Single-line tooltip. */
     tooltip: string;
-    used?: number;
-    included?: number;
+    tokens?: number;
 };
 
-function formatCredits(n: number): string {
-    return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+/** Parse a catalog context window ("400K", "1M") into tokens. */
+function contextWindowTokens(selectedModel: string): number {
+    const raw = modelOption(selectedModel).contextWindow.trim().toUpperCase();
+    if (!raw) return 0;
+    const value = Number.parseFloat(raw);
+    if (!Number.isFinite(value) || value <= 0) return 0;
+    if (raw.endsWith("M")) return Math.round(value * 1_000_000);
+    if (raw.endsWith("K")) return Math.round(value * 1_000);
+    return Math.round(value);
 }
 
+/** Age after which the last turn's figure is history, not live feedback. */
+export const LAST_TURN_TTL_MS = 15 * 60 * 1000;
+
+/**
+ * The composer ring shows the last turn's share of the model's context window.
+ * There is no account budget to display any more — you pay your provider directly.
+ *
+ * `now` is injectable so the TTL is testable without touching the clock.
+ */
 export function resolveChatUsageDisplay(
     selectedModel: string,
-    auth: Pick<
-        ShapeAuthState,
-        | "loggedIn"
-        | "isLoading"
-        | "revalidating"
-        | "tier"
-        | "freeAutoPercent"
-        | "creditsIncluded"
-        | "creditsRemaining"
-    >,
-    _lastTurn?: LastTurnUsage | null,
+    lastTurn?: LastTurnUsage | null,
+    now: number = Date.now(),
 ): ChatUsageDisplay {
-    if (!auth.loggedIn) {
-        if (auth.isLoading || auth.revalidating) {
-            return {
-                mode: "credits",
-                percent: 0,
-                title: "",
-                detail: "",
-                tooltip: "",
-            };
-        }
+    const fresh =
+        lastTurn && Number.isFinite(lastTurn.at) && now - lastTurn.at <= LAST_TURN_TTL_MS
+            ? lastTurn
+            : null;
+    const tokens = fresh?.tokens ?? 0;
+    if (tokens <= 0) {
         return {
-            mode: "credits",
+            mode: "tokens",
             percent: 0,
-            title: "Sign in",
-            detail: "to view usage",
-            tooltip: "Sign in to view usage",
+            title: "",
+            detail: "",
+            tooltip: "Token usage appears after the first reply",
         };
     }
-
-    const usingAuto = selectedModel === "auto" || isAutoModelId(selectedModel) || auth.tier === "free";
-
-    if (usingAuto) {
-        const percent = Math.max(0, Math.min(100, Math.round(auth.freeAutoPercent ?? 0)));
-        const title = `${percent}% used`;
-        return {
-            mode: "auto",
-            percent,
-            title,
-            detail: title,
-            tooltip: `${title} this month (Auto)`,
-        };
-    }
-
-    const included = auth.creditsIncluded;
-    if (included > 0) {
-        const used = Math.max(0, included - Math.max(0, auth.creditsRemaining));
-        const percent = Math.max(0, Math.min(100, Math.round((used / included) * 100)));
-        const title = `${formatCredits(used)} out of ${formatCredits(included)}`;
-        return {
-            mode: "credits",
-            percent,
-            title,
-            detail: title,
-            tooltip: `${title} this month`,
-            used,
-            included,
-        };
-    }
-
+    const window = contextWindowTokens(selectedModel);
+    const percent = window > 0 ? Math.min(100, Math.round((tokens / window) * 100)) : 0;
+    const title = `${tokens.toLocaleString()} tokens`;
     return {
-        mode: "credits",
-        percent: 0,
-        title: "Credits",
-        detail: "none on this plan",
-        tooltip: "Credits: none on this plan",
+        mode: "tokens",
+        percent,
+        title,
+        detail: title,
+        tooltip:
+            window > 0
+                ? `${title} · ${percent}% of the ${modelOption(selectedModel).contextWindow} context window`
+                : `${title} in the last turn`,
+        tokens,
     };
 }

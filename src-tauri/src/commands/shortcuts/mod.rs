@@ -20,7 +20,7 @@ pub fn setup_menu(app: &AppHandle) -> tauri::Result<()> {
     )?;
 
     let menu = Menu::with_items(app, &[&file_menu])?;
-    // Windows native decorations were never the goal — Shape draws its own
+    // Windows native decorations were never the goal — BetterShape draws its own
     // titlebar. A native File menu still paints a second bar; keep the OS
     // menu on macOS only.
     #[cfg(target_os = "macos")]
@@ -43,7 +43,10 @@ fn execute_shortcut_action(app: &AppHandle, action: &str) {
             let _ = crate::domain::filesystem::service::close_active_file_helper(app);
         }
         "recent_files" | "Ctrl+E" => {
-            let _ = app.emit("shape-command-palette", serde_json::json!({ "mode": "files", "recent": true }));
+            let _ = app.emit(
+                "bettershape-command-palette",
+                serde_json::json!({ "mode": "files", "recent": true }),
+            );
         }
         "close_all_tabs" => {
             let _ = crate::domain::filesystem::service::close_all_files_helper(app);
@@ -95,8 +98,7 @@ pub fn spawn_new_window() -> Result<(), AppError> {
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
     }
-    cmd.spawn()
-        .map_err(|e| AppError::Io(e))?;
+    cmd.spawn().map_err(|e| AppError::Io(e))?;
     Ok(())
 }
 

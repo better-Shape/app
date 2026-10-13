@@ -111,8 +111,8 @@ export function pluginLetter(name: string): string {
     return name.trim().slice(0, 1).toUpperCase() || "?";
 }
 
-/** Meta discovery tools — never force the Shape logo in workflow chips. */
-export function isShapePluginMeta(_toolkit?: string, _slug?: string): boolean {
+/** Meta discovery tools — never force the BetterShape logo in workflow chips. */
+export function isBetterShapePluginMeta(_toolkit?: string, _slug?: string): boolean {
     return false;
 }
 

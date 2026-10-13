@@ -4,7 +4,7 @@ import { ArrowDownload20Regular } from "@fluentui/react-icons/headless/svg/arrow
 import { ArrowUpload20Regular } from "@fluentui/react-icons/headless/svg/arrow-upload";
 import { Delete20Regular } from "@fluentui/react-icons/headless/svg/delete";
 import { Edit20Regular } from "@fluentui/react-icons/headless/svg/edit";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "@/components/ui/icon";
 
 import { Button } from "@/components/ui/button";
@@ -36,7 +36,6 @@ import {
     eventToKeyChord,
     exportKeybindingOverrides,
     findKeybindingConflicts,
-    getActiveKeybindingPreset,
     importKeybindingOverrides,
     listKeybindingPresets,
     loadKeybindings,
@@ -84,7 +83,9 @@ function RecordKeybindingDialog({
     const pendingRef = useRef<string | null>(null);
     const pendingTimerRef = useRef<number | null>(null);
 
-    chordRef.current = chord;
+    useLayoutEffect(() => {
+        chordRef.current = chord;
+    });
 
     useEffect(() => {
         const onKeyDown = (e: KeyboardEvent) => {
@@ -219,18 +220,16 @@ export function KeyboardShortcutsView() {
     const [query, setQuery] = useState("");
     const [bindings, setBindings] = useState<KeyBinding[]>(() => loadKeybindings());
     const [recording, setRecording] = useState<KeyBinding | null>(null);
-    const [presetId, setPresetId] = useState(() => getActiveKeybindingPreset());
     const presets = useMemo(() => listKeybindingPresets(), []);
 
     const reload = useCallback(() => {
         setBindings(loadKeybindings());
-        setPresetId(getActiveKeybindingPreset());
     }, []);
 
     useEffect(() => {
         const onChange = () => reload();
-        window.addEventListener("shape-keybindings-changed", onChange);
-        return () => window.removeEventListener("shape-keybindings-changed", onChange);
+        window.addEventListener("bettershape-keybindings-changed", onChange);
+        return () => window.removeEventListener("bettershape-keybindings-changed", onChange);
     }, [reload]);
 
     const filtered = useMemo(() => {

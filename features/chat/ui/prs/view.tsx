@@ -10,7 +10,6 @@ import { ChevronDown20Regular } from "@fluentui/react-icons/headless/svg/chevron
 import { Filter20Regular } from "@fluentui/react-icons/headless/svg/filter";
 import { MoreHorizontal20Regular } from "@fluentui/react-icons/headless/svg/more-horizontal";
 import { Open20Regular } from "@fluentui/react-icons/headless/svg/open";
-import { TextNumberListLtr20Regular } from "@fluentui/react-icons/headless/svg/text-number-list-ltr";
 
 
 
@@ -315,7 +314,7 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
         return () => {
             cancelled = true;
         };
-    }, [selected?.id, selected?.number, repo?.owner, repo?.repo]);
+    }, [selected, repo]);
 
     const checkout = async () => {
         if (!project_path || !selected?.headRef) {
@@ -326,7 +325,7 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
         try {
             await commands.gitFetch(project_path);
             await commands.gitSwitchBranch(project_path, selected.headRef);
-            window.dispatchEvent(new Event("shape-git-refresh"));
+            window.dispatchEvent(new Event("bettershape-git-refresh"));
             notify.success(`Checked out ${selected.headRef}`);
         } catch (e) {
             notify.error(e instanceof Error ? e.message : "Could not check out branch");
@@ -337,7 +336,7 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
 
     const sendPrompt = (prompt: string) => {
         window.dispatchEvent(
-            new CustomEvent("shape-chat-insert-prompt", { detail: { prompt, send: false } }),
+            new CustomEvent("bettershape-chat-insert-prompt", { detail: { prompt, send: false } }),
         );
     };
 

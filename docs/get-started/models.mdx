@@ -1,44 +1,43 @@
 ---
 title: Models
-description: Auto is included. Named models spend credits on a paid plan.
+description: Add your own provider keys and pick any model they offer.
 order: 2
 ---
 
 Every message uses a model. You pick it from the model menu in chat.
 
-## Auto
+## Add a provider
 
-Auto is included on every plan, including Free. Use it unless you have a reason to pick a named model.
+Open **Settings → Providers** and paste an API key for the provider you use:
 
-Auto is the default. Leave it there for most work.
-
-## Named models
-
-Paid plans can pick a named model (Claude, GPT, Gemini, Grok, and others in the catalog). Named models spend credits. Harder tasks and longer threads spend more.
-
-Credits reset each month. Unused credits do not carry over.
-
-If a named model is greyed out, the current plan does not include it. Change the plan on [Billing](https://www.useshape.org/dashboard/settings/billing).
-
-## Plans
-
-| Plan | Price | What you get |
+| Provider | Key from | Notes |
 | --- | --- | --- |
-| Free | $0 | Auto |
-| Plus | $15 / month | Auto and named models, 450 credits |
-| Pro | $50 / month | Auto and named models, 1,800 credits |
-| Max | $150 / month | Auto and named models, 5,800 credits |
+| OpenAI | platform.openai.com | GPT models, embeddings, images, speech. |
+| Anthropic | console.anthropic.com | Claude models. |
+| Google | aistudio.google.com | Gemini models. |
+| OpenRouter | openrouter.ai | One key for many providers. |
+| xAI, DeepSeek, Groq, Mistral | their dashboards | OpenAI-compatible. |
+| Custom | your own endpoint | Any OpenAI-compatible base URL, including a local runtime. |
 
-Change your plan on [Billing](https://www.useshape.org/dashboard/settings/billing). Usage for the current period is on the same page.
+Chat works as soon as one provider is enabled with a key. Without one, BetterShape says so instead of failing mid-turn.
 
-## How to choose
+## Pick a model
 
-- Everyday edits: Auto.
-- A large refactor or a long plan: a named model on a paid plan.
-- You are out of credits: Auto still runs while the Auto pool has quota. If send fails, wait for the reset or change plan.
+The model menu lists the models your key can reach, plus anything extra you add by hand. The default is **Auto**, which uses your first configured provider unless you set a different default in **Settings → Providers**.
 
-## What a credit is not
+## Embeddings and search
 
-A credit is not one message. One turn can spend a fraction of a credit or several, depending on how much context and work the model does.
+Codebase search uses an OpenAI-compatible `/embeddings` endpoint. Point **Embedding model** at one your provider offers, or turn embeddings off; keyword search and the file index still work.
 
-The usage graph on the dashboard shows credits over recent days.
+## Media
+
+Image, speech, and caption tools need an OpenAI-wire provider. They use the same key as chat.
+
+## Cost
+
+Your provider bills you directly. BetterShape shows the tokens spent on the last turn in the composer ring, not a credit balance.
+
+## Related
+
+- [Client trust and provider keys](/docs/developing/client-trust)
+- [Plugins](/docs/customize/plugins)

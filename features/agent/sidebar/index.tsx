@@ -10,7 +10,6 @@ import { type IconGlyph, Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 import { loginGitHub, useGitHubAuth } from "@/lib/github/store";
 import { openSettingsWindow } from "@/lib/window/open-settings";
-import { useShapeAuth } from "@/lib/cloud/store";
 import { ChatList } from "./chats";
 import { AccountMenu, ProfileAvatar } from "./menu";
 import { ChatUsageButton } from "@/features/chat/ui/composer/usage";
@@ -19,7 +18,7 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { SidebarToggleBtn, AGENT_SIDEBAR_BACK_SLOT } from "../chrome";
 import type { AgentOverlay } from "../overlay";
 
-export const AGENT_SIDEBAR_NAV_SLOT = "shape-agent-sidebar-nav";
+export const AGENT_SIDEBAR_NAV_SLOT = "bettershape-agent-sidebar-nav";
 
 function NavItem({
     label,
@@ -89,13 +88,10 @@ export function AgentSidebar({
     onToggleSidebar?: () => void;
 }) {
     const github = useGitHubAuth();
-    const shapeAuth = useShapeAuth();
     const showHostedNav = Boolean(overlay);
 
     const displayName =
-        (shapeAuth.name && !/^n\/?a$/i.test(shapeAuth.name.trim()) ? shapeAuth.name.trim() : null)
-        ?? (github.loggedIn && github.username ? github.username : null)
-        ?? "Personal";
+        (github.loggedIn && github.username ? github.username : null) ?? "Personal";
 
     const toggleSidebar = () => {
         if (onToggleSidebar) {
@@ -103,7 +99,7 @@ export function AgentSidebar({
             return;
         }
         window.dispatchEvent(
-            new CustomEvent("shape-layout-toggle", {
+            new CustomEvent("bettershape-layout-toggle", {
                 detail: { id: "primary-sidebar" },
             }),
         );
@@ -118,8 +114,8 @@ export function AgentSidebar({
     ];
 
     const newChat = () => {
-        window.dispatchEvent(new Event("shape-chat-new"));
-        window.dispatchEvent(new Event("shape-chat-focus-input"));
+        window.dispatchEvent(new Event("bettershape-chat-new"));
+        window.dispatchEvent(new Event("bettershape-chat-focus-input"));
     };
 
     return (
@@ -179,8 +175,6 @@ export function AgentSidebar({
                                     >
                                         <ProfileAvatar
                                             gitAvatarUrl={github.loggedIn ? github.avatarUrl : null}
-                                            shapeUserId={shapeAuth.userId}
-                                            offline={Boolean(shapeAuth.offline)}
                                             name={displayName}
                                             size={20}
                                         />
@@ -237,8 +231,8 @@ export function AgentSidebar({
                         {expanded ? (
                             <ChatList
                                 onNewChat={() => {
-                                    window.dispatchEvent(new Event("shape-chat-new"));
-                                    window.dispatchEvent(new Event("shape-chat-focus-input"));
+                                    window.dispatchEvent(new Event("bettershape-chat-new"));
+                                    window.dispatchEvent(new Event("bettershape-chat-focus-input"));
                                 }}
                             />
                         ) : (

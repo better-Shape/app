@@ -1,26 +1,16 @@
 /// Model routing and family classification for the agent harness.
 ///
-/// Policy: Shape picks the model. "Auto" is a fixed cheap/fast model — never
-/// OpenRouter's server-side auto-router (`openrouter/auto`), which can land on
-/// expensive flagship models.
+/// BetterShape is bring-your-own-key: model ids are `provider/model`
+/// (`openai/gpt-5`, `anthropic/claude-sonnet-4.5`, `google/gemini-2.5-pro`,
+/// `openrouter/…`, `custom/…`). `auto` resolves at request time to the user's
+/// configured default model — never to a hardcoded vendor slug.
 ///
 /// Families drive per-model prompt overlays and tool shapes (Cursor-style harness
 /// customization): OpenAI-trained models prefer apply_patch; Anthropic/DeepSeek
 /// prefer SEARCH/REPLACE string edits.
 
-/** Fast included model used for Auto and auxiliary work (titles, explore, etc.). */
-pub const MODEL_FAST: &str = "deepseek/deepseek-v4-flash";
-
-/// Cheap code-understanding model reserved for overview helpers.
-#[allow(dead_code)]
-pub const MODEL_OVERVIEW: &str = MODEL_FAST;
-
-/// Cheap vision pass that *describes* images for [`MODEL_FAST`]. The website
-/// picks this slug when `X-Shape-Feature: caption` — do not send it from the client.
-pub const MODEL_IMAGE_CAPTION: &str = "google/gemini-2.5-flash-lite";
-
-/// Same slug as [`MODEL_IMAGE_CAPTION`]. Kept so older call sites still compile.
-pub const MODEL_FAST_VISION: &str = MODEL_IMAGE_CAPTION;
+/// Auto selection id. Resolves to the configured default model.
+pub const AUTO_MODEL: &str = "auto";
 
 /// Provider family used to select prompts and edit tools.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -55,29 +45,31 @@ impl ModelFamily {
     }
 }
 
-/// Resolve a user-facing model id to the slug used for *local* harness behavior
-/// (tool families, image captioning). Cloud billing still receives [`proxy_model_id`].
+/// Normalize a user-facing model id while keeping the provider prefix intact.
 pub fn normalize_model(model: &str) -> String {
-    match model.trim() {
-        "auto" | "openrouter/auto" => MODEL_FAST.to_string(),
-        other => other.to_string(),
+    if is_auto_selection(model) {
+        AUTO_MODEL.to_string()
+    } else {
+        model.trim().to_string()
     }
 }
 
-/// Id sent to Shape Cloud. Auto is never remapped here — the website chooses
-/// the backend so forks cannot substitute a cheaper or more expensive model.
-pub fn proxy_model_id(selected: &str) -> String {
-    if is_auto_selection(selected) {
-        "auto".to_string()
-    } else {
-        selected.trim().to_string()
+/// Provider-native slug for a selection id (Auto → the configured default model).
+/// Falls back to the raw id when nothing is configured yet.
+pub fn concrete_model(model: &str) -> String {
+    if let Ok((_, slug)) = crate::core::ai_providers::resolve_model(model) {
+        if !slug.trim().is_empty() {
+            return slug;
+        }
     }
+    normalize_model(model)
 }
 
 #[allow(dead_code)]
 pub fn normalize_model_with_images(model: &str, has_images: bool) -> String {
     let _ = has_images;
-    // Auto always stays on the cheap text model. Images are captioned separately.
+    // Auto always stays on the same model. Images are captioned separately
+    // when the selected model is text-only.
     normalize_model(model)
 }
 
@@ -85,9 +77,9 @@ pub fn is_auto_selection(model: &str) -> bool {
     matches!(model.trim(), "auto" | "openrouter/auto")
 }
 
-/// Model id for the in-editor single-file rewrite. Always Shape Auto (included).
+/// Model id for the in-editor single-file rewrite (the user's default model).
 pub fn editor_rewrite_model() -> &'static str {
-    "auto"
+    AUTO_MODEL
 }
 
 #[allow(dead_code)]
@@ -108,10 +100,14 @@ pub fn content_has_images(content: &str) -> bool {
 
 pub fn model_accepts_images(model: &str) -> bool {
     let m = model.trim().to_ascii_lowercase();
-    if m.is_empty() || m == MODEL_FAST {
+    if m.is_empty() {
         return false;
     }
-    if m == MODEL_FAST_VISION || m == MODEL_IMAGE_CAPTION || m.contains("vision") {
+    // Auto follows whatever the user configured as the default model.
+    if is_auto_selection(&m) {
+        return model_accepts_images(&concrete_model(&m));
+    }
+    if m.contains("vision") || m.contains("vl") || m.contains("omni") {
         return true;
     }
     m.starts_with("google/")
@@ -217,28 +213,18 @@ mod tests {
 
     #[test]
     fn normalize_auto() {
-        assert_eq!(normalize_model("auto"), MODEL_FAST);
-        assert_eq!(normalize_model("openrouter/auto"), MODEL_FAST);
+        assert_eq!(normalize_model("auto"), AUTO_MODEL);
+        assert_eq!(normalize_model("openrouter/auto"), AUTO_MODEL);
         assert_eq!(normalize_model("anthropic/claude-sonnet-4"), "anthropic/claude-sonnet-4");
-        assert_eq!(
-            normalize_model_with_images("auto", true),
-            MODEL_FAST
-        );
-        assert_eq!(normalize_model_with_images("auto", false), MODEL_FAST);
-        assert_eq!(proxy_model_id("auto"), "auto");
-        assert_eq!(proxy_model_id("openrouter/auto"), "auto");
-        assert_eq!(
-            proxy_model_id("anthropic/claude-sonnet-4.6"),
-            "anthropic/claude-sonnet-4.6"
-        );
+        assert_eq!(normalize_model_with_images("auto", true), AUTO_MODEL);
+        assert_eq!(normalize_model_with_images("auto", false), AUTO_MODEL);
+        assert_eq!(normalize_model(" openai/gpt-5 "), "openai/gpt-5");
     }
 
     #[test]
     fn editor_rewrite_stays_on_auto() {
         let id = editor_rewrite_model();
-        assert_eq!(id, "auto");
-        assert_eq!(proxy_model_id(id), "auto");
-        assert_ne!(id, MODEL_FAST);
+        assert_eq!(id, AUTO_MODEL);
         assert!(!id.contains('/'));
     }
 
@@ -281,14 +267,9 @@ mod tests {
     }
 
     #[test]
-    fn auto_with_images_stays_on_fast_text_model() {
-        assert_eq!(
-            normalize_model_with_images("auto", true),
-            MODEL_FAST
-        );
-        assert_ne!(MODEL_IMAGE_CAPTION, MODEL_FAST);
-        assert!(!model_accepts_images(MODEL_FAST));
-        assert!(model_accepts_images(MODEL_IMAGE_CAPTION));
+    fn auto_with_images_keeps_the_configured_model() {
+        assert_eq!(normalize_model_with_images("auto", true), AUTO_MODEL);
+        assert!(model_accepts_images("google/gemini-2.5-flash"));
         assert!(content_has_images(
             "see <attached_image name=\"x.png\">data:image/png;base64,aa</attached_image>"
         ));
@@ -296,13 +277,10 @@ mod tests {
     }
 
     #[test]
-    fn vision_exp_slug_is_not_rejected_as_text_only() {
-        assert!(model_accepts_images("deepseek/deepseek-v4-flash-vision-exp"));
-        assert!(!model_accepts_images("deepseek/deepseek-v4-flash"));
-        assert_eq!(
-            model_accepts_images("deepseek/deepseek-v4-flash "),
-            false
-        );
+    fn vision_models_are_not_rejected_as_text_only() {
+        assert!(model_accepts_images("deepseek/deepseek-vl2"));
+        assert!(!model_accepts_images("deepseek/deepseek-chat"));
+        assert!(!model_accepts_images("deepseek/deepseek-chat "));
     }
 
     #[test]
@@ -317,7 +295,7 @@ mod tests {
     }
 
     #[test]
-    fn modes_with_screenshot_tool_do_not_swap_auto_to_caption_model() {
+    fn modes_with_screenshot_tool_keep_the_selected_model() {
         assert!(mode_wants_vision("code"));
         assert!(mode_wants_vision("Visual"));
         assert!(mode_wants_vision("design"));
@@ -327,11 +305,11 @@ mod tests {
         assert!(!mode_wants_vision("plan"));
         assert_eq!(
             normalize_model_with_images("auto", mode_wants_vision("code")),
-            MODEL_FAST
+            AUTO_MODEL
         );
         assert_eq!(
             normalize_model_with_images("auto", mode_wants_vision("ask")),
-            MODEL_FAST
+            AUTO_MODEL
         );
     }
 }

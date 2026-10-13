@@ -2,6 +2,8 @@
 //! Chromium's web speech API fails inside WebView2 (`network`), so dictation
 //! uses the system recognizer instead.
 
+#![allow(dead_code)]
+
 #[cfg(windows)]
 pub fn allow_microphone(app: &tauri::AppHandle) {
     use tauri::Manager;
@@ -80,7 +82,10 @@ try {
 "#;
 
 fn encoded_powershell(script: &str) -> String {
-    let bytes: Vec<u8> = script.encode_utf16().flat_map(|unit| unit.to_le_bytes()).collect();
+    let bytes: Vec<u8> = script
+        .encode_utf16()
+        .flat_map(|unit| unit.to_le_bytes())
+        .collect();
     base64::Engine::encode(&base64::engine::general_purpose::STANDARD, bytes)
 }
 
@@ -129,7 +134,7 @@ pub fn dictation_push(wav: Vec<u8>) -> Result<(), String> {
         return Ok(());
     }
     let path = std::env::temp_dir().join(format!(
-        "shape-dict-{}.wav",
+        "bettershape-dict-{}.wav",
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis())
@@ -184,8 +189,13 @@ pub fn dictation_start(app: tauri::AppHandle) -> Result<(), String> {
             const CREATE_NO_WINDOW: u32 = 0x0800_0000;
             cmd.creation_flags(CREATE_NO_WINDOW);
         }
-        let mut child = cmd.spawn().map_err(|e| format!("Dictation couldn't start ({e})."))?;
-        let stdout = child.stdout.take().ok_or_else(|| "Dictation has no output.".to_string())?;
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| format!("Dictation couldn't start ({e})."))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| "Dictation has no output.".to_string())?;
         let stderr = child.stderr.take();
         let stdin = child.stdin.take();
         {

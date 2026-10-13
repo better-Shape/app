@@ -1,8 +1,8 @@
 //! Generate commit message command + helpers.
+use super::messages;
 use super::streaming;
 use crate::agent::models::{AgentState, ChatMessage};
 use crate::agent::prompts;
-use super::messages;
 use crate::app_state::AppState;
 use crate::commands::git;
 use crate::core::error::AppError;
@@ -55,7 +55,11 @@ fn related_chat_for_commit(
         .iter()
         .flat_map(|p| {
             let slash = p.replace('\\', "/");
-            let file = slash.rsplit('/').next().unwrap_or(slash.as_str()).to_string();
+            let file = slash
+                .rsplit('/')
+                .next()
+                .unwrap_or(slash.as_str())
+                .to_string();
             vec![slash.to_lowercase(), file.to_lowercase()]
         })
         .collect();
@@ -63,7 +67,9 @@ fn related_chat_for_commit(
     let mut matched = Vec::new();
     for msg in history.iter().rev().take(16) {
         let lower = msg.content.to_lowercase();
-        let hits = path_needles.iter().any(|n| !n.is_empty() && lower.contains(n));
+        let hits = path_needles
+            .iter()
+            .any(|n| !n.is_empty() && lower.contains(n));
         if !hits {
             continue;
         }
@@ -79,7 +85,10 @@ fn related_chat_for_commit(
         // Summary only if it also mentions staged paths.
         if let Some(s) = summary {
             let lower = s.to_lowercase();
-            if path_needles.iter().any(|n| !n.is_empty() && lower.contains(n)) {
+            if path_needles
+                .iter()
+                .any(|n| !n.is_empty() && lower.contains(n))
+            {
                 let excerpt: String = s.chars().take(1_200).collect();
                 return Some(excerpt);
             }
@@ -93,15 +102,10 @@ fn related_chat_for_commit(
 
 #[tauri::command]
 pub async fn generate_commit_message(
-    access_token: Option<String>,
     repo_path: Option<String>,
     app_state: tauri::State<'_, AppState>,
     agent_state: tauri::State<'_, AgentState>,
 ) -> Result<String, AppError> {
-    let provider = streaming::LlmProvider::Shape;
-    let auth_token = access_token
-        .filter(|t| !t.trim().is_empty())
-        .ok_or_else(|| AppError::Env("Sign in to Shape to use AI chat.".to_string()))?;
     let client = Client::new();
     let model = "auto";
 
@@ -178,11 +182,10 @@ pub async fn generate_commit_message(
 
     let commit_turn_id = uuid::Uuid::new_v4().to_string();
     let commit_ctx = streaming::ProxyContext::new("commit")
-        .with_provider(provider)
         .with_turn(Some(commit_turn_id), None);
 
     let (message, _, _) =
-        streaming::complete_chat_with_max_tokens(&client, &auth_token, &prompt, model, 220, &commit_ctx).await?;
+        streaming::complete_chat_with_max_tokens(&client, "", &prompt, model, 220, &commit_ctx).await?;
     if message.is_empty() {
         return Err(AppError::Message(
             "Failed to generate commit message".to_string(),
@@ -196,7 +199,9 @@ fn strip_model_fences(text: &str) -> String {
     let Some(rest) = trimmed.strip_prefix("```") else {
         return trimmed.to_string();
     };
-    let rest = rest.trim_start_matches(|c: char| c.is_ascii_alphanumeric() || c == '+' || c == '#' || c == '-');
+    let rest = rest.trim_start_matches(|c: char| {
+        c.is_ascii_alphanumeric() || c == '+' || c == '#' || c == '-'
+    });
     let rest = rest.trim_start_matches(['\r', '\n']);
     rest.strip_suffix("```").unwrap_or(rest).trim().to_string()
 }
@@ -204,7 +209,6 @@ fn strip_model_fences(text: &str) -> String {
 /// Rewrite one open file from an instruction. Does not create or append a chat.
 #[tauri::command]
 pub async fn rewrite_open_file(
-    access_token: Option<String>,
     path: String,
     instruction: String,
     app: tauri::AppHandle,
@@ -215,13 +219,12 @@ pub async fn rewrite_open_file(
     if instruction.is_empty() {
         return Err(AppError::Message("Enter an edit instruction.".to_string()));
     }
-    let auth_token = access_token
-        .filter(|t| !t.trim().is_empty())
-        .ok_or_else(|| AppError::Env("Sign in to Shape to use AI chat.".to_string()))?;
     let original = std::fs::read_to_string(&path)
         .map_err(|e| AppError::Message(format!("Could not read file: {}", e)))?;
     if original.chars().count() > 80_000 {
-        return Err(AppError::Message("This file is too large to edit from the editor bar.".to_string()));
+        return Err(AppError::Message(
+            "This file is too large to edit from the editor bar.".to_string(),
+        ));
     }
     let name = std::path::Path::new(&path)
         .file_name()
@@ -233,11 +236,10 @@ pub async fn rewrite_open_file(
     let client = Client::new();
     let turn_id = uuid::Uuid::new_v4().to_string();
     let ctx = streaming::ProxyContext::new("file-edit")
-        .with_provider(streaming::LlmProvider::Shape)
         .with_turn(Some(turn_id), None);
     let (message, _, _) = streaming::complete_chat_with_max_tokens(
         &client,
-        &auth_token,
+        "",
         &prompt,
         crate::agent::model_router::editor_rewrite_model(),
         16000,
@@ -248,32 +250,26 @@ pub async fn rewrite_open_file(
     if next.trim().is_empty() {
         return Err(AppError::Message("The edit came back empty.".to_string()));
     }
-    std::fs::write(&path, &next).map_err(|e| AppError::Message(format!("Could not write file: {}", e)))?;
-    let _ = app.emit("shape-file-edited", &path);
+    std::fs::write(&path, &next)
+        .map_err(|e| AppError::Message(format!("Could not write file: {}", e)))?;
+    let _ = app.emit("bettershape-file-edited", &path);
     Ok(next)
 }
 
 /// One-shot rewrite for an editor selection. Does not touch the agent transcript.
 #[tauri::command]
-pub async fn rewrite_text(
-    access_token: Option<String>,
-    prompt: String,
-) -> Result<String, AppError> {
+pub async fn rewrite_text(prompt: String) -> Result<String, AppError> {
     let prompt = prompt.trim().to_string();
     if prompt.is_empty() {
         return Err(AppError::Message("Nothing to rewrite.".to_string()));
     }
-    let auth_token = access_token
-        .filter(|t| !t.trim().is_empty())
-        .ok_or_else(|| AppError::Env("Sign in to Shape to use AI chat.".to_string()))?;
     let client = Client::new();
     let turn_id = uuid::Uuid::new_v4().to_string();
     let ctx = streaming::ProxyContext::new("rewrite")
-        .with_provider(streaming::LlmProvider::Shape)
         .with_turn(Some(turn_id), None);
     let (message, _, _) = streaming::complete_chat_with_max_tokens(
         &client,
-        &auth_token,
+        "",
         &prompt,
         crate::agent::model_router::editor_rewrite_model(),
         4000,
@@ -282,7 +278,9 @@ pub async fn rewrite_text(
     .await?;
     let next = strip_model_fences(&message);
     if next.trim().is_empty() {
-        return Err(AppError::Message("The rewrite came back empty.".to_string()));
+        return Err(AppError::Message(
+            "The rewrite came back empty.".to_string(),
+        ));
     }
     Ok(next)
 }

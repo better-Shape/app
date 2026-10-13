@@ -18,7 +18,7 @@ function completeOAuthOnce(callbackUrl: string): Promise<string> {
 export async function initMcpOAuthListener(
     onComplete?: (serverId: string) => void | Promise<void>,
 ): Promise<() => void> {
-    const unlisten = await listen<string>("shape-mcp-oauth-callback", async (event) => {
+    const unlisten = await listen<string>("bettershape-mcp-oauth-callback", async (event) => {
         try {
             const serverId = await completeOAuthOnce(event.payload);
             await onComplete?.(serverId);

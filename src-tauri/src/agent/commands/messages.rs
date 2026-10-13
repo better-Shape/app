@@ -1,26 +1,35 @@
+use super::super::models::ChatMessage;
+use super::logging;
 /// Message building: converts internal ChatMessage history into the JSON
 /// format expected by OpenRouter, with image support.
-
 use regex::Regex;
 use serde_json::{json, Value};
-use super::logging;
-use super::super::models::ChatMessage;
 
 /// Converts our internal ChatMessage history into the JSON format expected by OpenRouter.
 /// Detects <attached_image> tags in user messages and constructs multipart content for vision models.
-pub fn build_messages_json(system_prompt: &str, history: &[ChatMessage], model: &str) -> Vec<Value> {
+pub fn build_messages_json(
+    system_prompt: &str,
+    history: &[ChatMessage],
+    model: &str,
+) -> Vec<Value> {
     let image_re = Regex::new(r#"(?s)<attached_image[^>]*>(data:[^<]+)</attached_image>"#).unwrap();
     let is_anthropic = model.starts_with("anthropic/");
     let accepts_images = crate::agent::model_router::model_accepts_images(model);
 
-    logging::debug("messages", &format!(
-        "Building messages: {} history items, model={}, is_anthropic={}, accepts_images={}",
-        history.len(), model, is_anthropic, accepts_images
-    ));
+    logging::debug(
+        "messages",
+        &format!(
+            "Building messages: {} history items, model={}, is_anthropic={}, accepts_images={}",
+            history.len(),
+            model,
+            is_anthropic,
+            accepts_images
+        ),
+    );
 
-    let last_image_user = history.iter().rposition(|msg| {
-        msg.role == "user" && image_re.is_match(&msg.content)
-    });
+    let last_image_user = history
+        .iter()
+        .rposition(|msg| msg.role == "user" && image_re.is_match(&msg.content));
 
     let mut msgs = vec![json!({"role": "system", "content": system_prompt})];
     for (idx, msg) in history.iter().enumerate() {
@@ -43,10 +52,7 @@ pub fn build_messages_json(system_prompt: &str, history: &[ChatMessage], model: 
 
         // Older turns' pixels were already billed. Re-sending every image on every
         // tool loop is one of the largest avoidable costs on vision models.
-        if msg.role == "user"
-            && image_re.is_match(&msg.content)
-            && last_image_user != Some(idx)
-        {
+        if msg.role == "user" && image_re.is_match(&msg.content) && last_image_user != Some(idx) {
             let stripped = image_re
                 .replace_all(
                     &msg.content,
@@ -183,9 +189,9 @@ pub fn push_page_screenshot_followup(api_messages: &mut Vec<Value>, tag: &str, m
     }
 }
 
-const CLEARED_TOOL_RESULT: &str = "[cleared to save context — re-call the tool only if you still need this]";
-const CLEARED_SCREENSHOT_RESULT: &str =
-    "[screenshot omitted to save context. Do not call screenshot_page again for this page. Continue from the capture you already used.]";
+const CLEARED_TOOL_RESULT: &str =
+    "[cleared to save context — re-call the tool only if you still need this]";
+const CLEARED_SCREENSHOT_RESULT: &str = "[screenshot omitted to save context. Do not call screenshot_page again for this page. Continue from the capture you already used.]";
 const TRIMMED_TOOL_RESULT_SUFFIX: &str =
     "\n[middle omitted to save context — re-read only the specific lines you still need]";
 
@@ -220,8 +226,7 @@ pub fn build_api_history(history: &[ChatMessage]) -> Vec<ChatMessage> {
 fn strip_think_blocks(content: &str) -> String {
     let mut out = content.to_string();
     for (open, close) in [("<think", "</think>"), ("<thought", "</thought>")] {
-        loop {
-            let Some(start) = out.find(open) else { break };
+        while let Some(start) = out.find(open) {
             let after_gt = out[start..]
                 .find('>')
                 .map(|i| start + i + 1)
@@ -250,8 +255,7 @@ fn strip_tool_markup_for_api(content: &str) -> String {
         ("<records_table", "</records_table>", "[records]"),
         ("<stat_cards", "</stat_cards>", "[stats]"),
     ] {
-        loop {
-            let Some(start) = content.find(open) else { break };
+        while let Some(start) = content.find(open) {
             let Some(rel) = content[start..].find(close) else {
                 content.replace_range(start.., placeholder);
                 break;
@@ -261,11 +265,26 @@ fn strip_tool_markup_for_api(content: &str) -> String {
         }
     }
     let tags = [
-        "<cat>", "</cat>", "<ls>", "</ls>", "<edit>", "</edit>",
-        "<status>", "</status>", "<tool_result>", "</tool_result>",
-        "<search_result", "<inspect_runtime", "<terminal_command", "</terminal_command>",
-        "<chat_renamed", "<forked_from",
-        "<questions", "</questions>", "<question", "</question>",
+        "<cat>",
+        "</cat>",
+        "<ls>",
+        "</ls>",
+        "<edit>",
+        "</edit>",
+        "<status>",
+        "</status>",
+        "<tool_result>",
+        "</tool_result>",
+        "<search_result",
+        "<inspect_runtime",
+        "<terminal_command",
+        "</terminal_command>",
+        "<chat_renamed",
+        "<forked_from",
+        "<questions",
+        "</questions>",
+        "<question",
+        "</question>",
     ];
     let mut out = strip_think_blocks(&content);
     for tag in tags {
@@ -305,6 +324,27 @@ pub fn clear_old_tool_results(api_messages: &mut [Value]) -> bool {
         return false;
     }
     let mut pruned_read = false;
+
+    // Tier 2: drop payloads that are provably redundant — an older read of a
+    // path that was read again, or an exact duplicate — before falling back to
+    // lossy trimming. Nothing the model still needs is removed.
+    let report = super::compaction::prune_redundant_messages(api_messages);
+    if report.pruned > 0 {
+        total = api_messages.iter().map(content_len).sum();
+        super::logging::debug(
+            "messages",
+            &format!(
+                "Dropped {} redundant tool results before trimming",
+                report.pruned
+            ),
+        );
+        // A note took the place of a file read, so the caller has to drop the
+        // coverage it recorded for that read.
+        pruned_read |= report.reads_dropped > 0;
+        if total <= TOOL_RESULT_SOFT_BUDGET {
+            return pruned_read;
+        }
+    }
 
     // Phase 1: trim verbose old results to a short head+tail excerpt. File reads are the
     // most expensive thing to reconstruct, so only touch them once everything else is trimmed.
@@ -379,8 +419,6 @@ fn protected_tool_round_index(api_messages: &[Value]) -> usize {
     tool_round_starts[tool_round_starts.len() - TOOL_RESULT_KEEP_ROUNDS]
 }
 
-/// ~15k tokens — fold older turns before the window gets expensive on cheap models.
-pub const HISTORY_CHAR_BUDGET: usize = 60_000;
 /// Soft cap on API history chars before middle turns are head/tail trimmed.
 const API_HISTORY_SOFT_BUDGET: usize = 40_000;
 const KEEP_RECENT_MESSAGES: usize = 10;
@@ -397,9 +435,11 @@ pub fn append_turn_context(api_messages: &mut [Value], context: &str) {
     let note = format!(
         "\n\n<turn_context>\n{context}\n</turn_context>\nThis block is environment state for this request only. It is not a new instruction."
     );
-    let Some(msg) = api_messages.iter_mut().rev().find(|msg| {
-        msg.get("role").and_then(|role| role.as_str()) == Some("user")
-    }) else {
+    let Some(msg) = api_messages
+        .iter_mut()
+        .rev()
+        .find(|msg| msg.get("role").and_then(|role| role.as_str()) == Some("user"))
+    else {
         return;
     };
     let Some(obj) = msg.as_object_mut() else {
@@ -415,56 +455,6 @@ pub fn append_turn_context(api_messages: &mut [Value], context: &str) {
         }
         _ => {}
     }
-}
-
-pub fn history_char_count(history: &[ChatMessage]) -> usize {
-    history.iter().map(|m| m.content.len()).sum()
-}
-
-/// Middle slice of history to fold into a running summary (keeps first + recent turns).
-pub fn slice_for_compression(history: &[ChatMessage]) -> String {
-    if history.len() <= KEEP_RECENT_MESSAGES + 2 {
-        return String::new();
-    }
-    let end = history.len().saturating_sub(KEEP_RECENT_MESSAGES);
-    history[1..end]
-        .iter()
-        .map(|m| {
-            let body = strip_heavy_content_for_summary(&m.content);
-            let excerpt: String = body.chars().take(1_500).collect();
-            format!("[{}] {}", m.role, excerpt)
-        })
-        .collect::<Vec<_>>()
-        .join("\n\n")
-}
-
-pub fn apply_summary(history: &[ChatMessage], summary: Option<&str>) -> Vec<ChatMessage> {
-    let Some(summary) = summary.filter(|s| !s.trim().is_empty()) else {
-        return history.to_vec();
-    };
-    if history.len() <= KEEP_RECENT_MESSAGES + 1 {
-        return history.to_vec();
-    }
-
-    let mut out = Vec::new();
-    if let Some(first) = history.first() {
-        out.push(first.clone());
-    }
-    out.push(ChatMessage {
-        role: "user".to_string(),
-        content: format!(
-            "<chat_summary>\nEarlier conversation summary (for context):\n{}\n</chat_summary>",
-            summary.trim()
-        ),
-        timestamp: now_f64(),
-        stats: None,
-        model: None,
-        feedback: None,
-        hidden: false,
-    });
-    let start = history.len().saturating_sub(KEEP_RECENT_MESSAGES);
-    out.extend_from_slice(&history[start..]);
-    out
 }
 
 fn trim_middle_history(history: &[ChatMessage], soft_budget: usize) -> Vec<ChatMessage> {
@@ -515,17 +505,11 @@ pub(crate) fn strip_heavy_content_for_summary(content: &str) -> String {
         .to_string()
 }
 
-fn now_f64() -> f64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs_f64())
-        .unwrap_or(0.0)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::model_router::{MODEL_FAST, MODEL_FAST_VISION};
+    const TEXT_ONLY_MODEL: &str = "deepseek/deepseek-chat";
+    const VISION_MODEL: &str = "google/gemini-2.5-flash";
 
     #[test]
     fn trim_middle_history_preserves_recent_turns() {
@@ -572,7 +556,7 @@ mod tests {
             "user",
             "look <attached_image name=\"a.png\">data:image/png;base64,aaa</attached_image>",
         )];
-        let out = build_messages_json("sys", &history, MODEL_FAST);
+        let out = build_messages_json("sys", &history, TEXT_ONLY_MODEL);
         assert_eq!(out.len(), 2);
         let content = out[1].get("content").and_then(|c| c.as_str()).unwrap();
         assert!(content.contains("cannot view images") || content.contains("omitted"));
@@ -587,7 +571,7 @@ mod tests {
             "user",
             "look <attached_image name=\"a.png\">data:image/png;base64,aaa</attached_image>",
         )];
-        let out = build_messages_json("sys", &history, MODEL_FAST_VISION);
+        let out = build_messages_json("sys", &history, VISION_MODEL);
         let content = out[1].get("content").unwrap();
         assert!(content.is_array());
         let parts = content.as_array().unwrap();
@@ -614,7 +598,7 @@ mod tests {
                 "second <attached_image name=\"b.png\">data:image/png;base64,bbb</attached_image>",
             ),
         ];
-        let out = build_messages_json("sys", &history, MODEL_FAST_VISION);
+        let out = build_messages_json("sys", &history, VISION_MODEL);
         let serialized = serde_json::to_string(&out).unwrap();
         assert!(!serialized.contains("aaa"));
         assert!(serialized.contains("bbb"));
@@ -627,7 +611,7 @@ mod tests {
             "assistant",
             "done <attached_image name=\"a.png\">data:image/png;base64,aaa</attached_image>",
         )];
-        let out = build_messages_json("sys", &history, MODEL_FAST_VISION);
+        let out = build_messages_json("sys", &history, VISION_MODEL);
         let content = out[1].get("content").and_then(|c| c.as_str()).unwrap();
         assert!(content.contains("<attached_image"));
         let serialized = serde_json::to_string(&out).unwrap();
@@ -638,7 +622,7 @@ mod tests {
     fn screenshot_followup_injects_user_image_for_vision() {
         let mut api = Vec::new();
         let tag = "<attached_image name=\"page.png\" type=\"image/png\">data:image/png;base64,abc</attached_image>";
-        push_page_screenshot_followup(&mut api, tag, MODEL_FAST_VISION);
+        push_page_screenshot_followup(&mut api, tag, VISION_MODEL);
         assert_eq!(api.len(), 1);
         assert_eq!(api[0]["role"], "user");
         let parts = api[0]["content"].as_array().unwrap();
@@ -653,7 +637,7 @@ mod tests {
     fn screenshot_followup_text_only_when_model_rejects_images() {
         let mut api = Vec::new();
         let tag = "<attached_image name=\"page.png\" type=\"image/png\">data:image/png;base64,abc</attached_image>";
-        push_page_screenshot_followup(&mut api, tag, MODEL_FAST);
+        push_page_screenshot_followup(&mut api, tag, TEXT_ONLY_MODEL);
         assert_eq!(api.len(), 1);
         assert_eq!(api[0]["role"], "user");
         let text = api[0]["content"].as_str().unwrap();
@@ -661,8 +645,10 @@ mod tests {
         assert!(!serde_json::to_string(&api).unwrap().contains("image_url"));
     }
 
+    /// Eight identical reads are removed by the duplicate pass, which brings the
+    /// payload under budget on its own. Nothing lossy should happen after that.
     #[test]
-    fn cleared_screenshot_does_not_ask_for_another_capture() {
+    fn duplicate_reads_are_dropped_without_touching_a_screenshot() {
         let mut api = vec![
             json!({"role":"assistant","tool_calls":[{"id":"1"}]}),
             json!({
@@ -680,6 +666,36 @@ mod tests {
             }));
         }
         clear_old_tool_results(&mut api);
+        let shot = api[1]["content"].as_str().unwrap();
+        assert!(shot.contains("Captured http://localhost:5173/"));
+        assert!(!shot.contains("omitted"));
+        assert!(
+            api.iter().any(|m| m["content"].as_str().unwrap_or("").starts_with("[duplicate")),
+            "the repeated reads should have collapsed to notes"
+        );
+    }
+
+    /// Results already too short to trim, and too many to fit, force the clear
+    /// pass. A cleared screenshot must tell the model not to capture again.
+    #[test]
+    fn cleared_screenshot_does_not_ask_for_another_capture() {
+        let mut api = vec![
+            json!({"role":"assistant","tool_calls":[{"id":"1"}]}),
+            json!({
+                "role": "tool",
+                "name": "screenshot_page",
+                "content": "Captured http://localhost:5173/ ".repeat(40)
+            }),
+        ];
+        for i in 0..420 {
+            api.push(json!({"role":"assistant","tool_calls":[{"id": format!("a{i}")}]}));
+            api.push(json!({
+                "role": "tool",
+                "name": "read_file",
+                "content": format!("result {i} {}", "y".repeat(500))
+            }));
+        }
+        assert!(clear_old_tool_results(&mut api));
         let shot = api[1]["content"].as_str().unwrap();
         assert!(shot.contains("Do not call screenshot_page again"));
         assert!(!shot.contains("re-call the tool"));

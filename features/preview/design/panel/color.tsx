@@ -14,12 +14,7 @@ import { WeatherSunny20Regular } from "@fluentui/react-icons/headless/svg/weathe
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
-} from "@/components/ui/dropdown";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown";
 import { Icon } from "@/components/ui/icon";
 
 import { Input } from "@/components/ui/input";
@@ -726,10 +721,13 @@ export function FillControls({
 }) {
     const derived = fillModeFromStyle(style);
     const [imageIntent, setImageIntent] = useState(false);
-    useEffect(() => {
+    // Adjusting state during render when the derived fill mode changes (no effect needed).
+    const [seenDerived, setSeenDerived] = useState(derived);
+    if (derived !== seenDerived) {
+        setSeenDerived(derived);
         if (derived === "image") setImageIntent(true);
         if (derived === "gradient") setImageIntent(false);
-    }, [derived]);
+    }
     const mode: "solid" | "gradient" | "image" =
         imageIntent && derived !== "gradient" ? "image" : derived;
 

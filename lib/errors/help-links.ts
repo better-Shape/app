@@ -1,10 +1,15 @@
-import { SHAPE_API_BASE } from "@/lib/cloud/api";
+/**
+ * Help links. There is no hosted docs site any more — everything points at
+ * the public repository so the app stays usable offline and self-built.
+ */
+
+export const REPO_URL = "https://github.com/useshape/Shape";
 
 export const HELP_LINKS = {
-    documentation: `${SHAPE_API_BASE}/docs/introduction/quick-start`,
-    changelog: `${SHAPE_API_BASE}/docs/changelog`,
-    reportIssue: "https://github.com/useshape/Shape/issues/new",
-    license: `${SHAPE_API_BASE}/terms`,
-    privacy: `${SHAPE_API_BASE}/privacy`,
-    download: `${SHAPE_API_BASE}/download`,
+  documentation: `${REPO_URL}#readme`,
+  changelog: `${REPO_URL}/releases`,
+  reportIssue: `${REPO_URL}/issues/new`,
+  license: `${REPO_URL}/blob/main/LICENSE`,
+  privacy: `${REPO_URL}/blob/main/docs/privacy.md`,
+  download: `${REPO_URL}/releases`,
 } as const;

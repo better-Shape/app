@@ -1,14 +1,15 @@
-import { DEFAULT_SETTINGS, getSettings, updateSettingSection, type ShapeSettings } from "@/lib/settings";
+import { DEFAULT_SETTINGS, getSettings, updateSettingSection, type BetterShapeSettings } from "@/lib/settings";
 
 export function resetSettings() {
-    localStorage.setItem("shape-settings-v1", JSON.stringify(DEFAULT_SETTINGS));
+    localStorage.setItem("bettershape-settings-v1", JSON.stringify(DEFAULT_SETTINGS));
     updateSettingSection("editor", { ...DEFAULT_SETTINGS.editor });
+    updateSettingSection("skills", { ...DEFAULT_SETTINGS.skills });
 }
 
-export function withSettings(patch: Partial<ShapeSettings>) {
+export function withSettings(patch: Partial<BetterShapeSettings>) {
     const current = getSettings();
     localStorage.setItem(
-        "shape-settings-v1",
+        "bettershape-settings-v1",
         JSON.stringify({
             ...current,
             ...patch,

@@ -24,10 +24,7 @@ const DEFAULT_SUBAGENT_MODEL: &str = "auto";
 
 fn is_auto_model(id: &str) -> bool {
     let t = id.trim();
-    t.is_empty()
-        || t.eq_ignore_ascii_case("auto")
-        || t.eq_ignore_ascii_case("openrouter/auto")
-        || t == crate::agent::model_router::MODEL_FAST
+    t.is_empty() || t.eq_ignore_ascii_case("auto") || t.eq_ignore_ascii_case("openrouter/auto")
 }
 
 fn normalize_model_id(id: &str) -> String {
@@ -79,7 +76,11 @@ pub fn pick_subagent_model(requested: Option<&str>, allowed: &[String], default:
 
 pub fn set_policy(state: &AgentState, models: Option<Vec<String>>, default: Option<String>) {
     let allowed = allowed_subagent_models(&models.unwrap_or_default());
-    let chosen = pick_subagent_model(None, &allowed, default.as_deref().unwrap_or(DEFAULT_SUBAGENT_MODEL));
+    let chosen = pick_subagent_model(
+        None,
+        &allowed,
+        default.as_deref().unwrap_or(DEFAULT_SUBAGENT_MODEL),
+    );
     if let Ok(mut g) = state.subagent_models.lock() {
         *g = allowed;
     }
@@ -241,9 +242,8 @@ pub fn spawn(
             .as_deref()
             .map(|b| format!("\nBranch: `{b}` (not merged)."))
             .unwrap_or_default();
-        let update = format!(
-            "Subagent \"{title}\" ({spawn_id}) {status}.{branch_line}\n\n{transcript}"
-        );
+        let update =
+            format!("Subagent \"{title}\" ({spawn_id}) {status}.{branch_line}\n\n{transcript}");
         let clipped: String = update.chars().take(6000).collect();
         if let Some(parent) = parent_conversation_id.as_deref() {
             let _ = app.emit(
@@ -296,13 +296,12 @@ async fn run_subagent_inner(
     parent_turn_id: Option<String>,
     cancel: CancellationToken,
 ) -> Result<SubagentDone, String> {
-    let isolation = if parent_mode.eq_ignore_ascii_case("ask")
-        || parent_mode.eq_ignore_ascii_case("plan")
-    {
-        Isolation::Shared
-    } else {
-        isolation
-    };
+    let isolation =
+        if parent_mode.eq_ignore_ascii_case("ask") || parent_mode.eq_ignore_ascii_case("plan") {
+            Isolation::Shared
+        } else {
+            isolation
+        };
     let checkout = checkout::prepare(&project_path, &title, isolation);
     emit_card(
         &app,
@@ -324,8 +323,7 @@ async fn run_subagent_inner(
     let client = Client::new();
 
     let model_norm = model_router::normalize_model(&model);
-    let proxy_model = model_router::proxy_model_id(&model);
-    let family = model_router::model_family(&model_norm);
+    let family = model_router::model_family(&model_router::concrete_model(&model_norm));
     let ask_like = parent_mode.eq_ignore_ascii_case("ask")
         || parent_mode.eq_ignore_ascii_case("plan");
     let mut tools = if ask_like {
@@ -365,7 +363,6 @@ async fn run_subagent_inner(
         api_messages: &mut api_messages,
         tools: &tools,
         model: &model_norm,
-        proxy_model: &proxy_model,
         mode,
         project_path: &checkout.project_path,
         app_handle: &app,
@@ -377,6 +374,7 @@ async fn run_subagent_inner(
         proxy_ctx,
         max_loops: run_turn::max_loops_for_mode(mode),
         emit_complete: false,
+        compact_instructions: None,
     })
     .await
     .map_err(|e| e.to_string())?;
@@ -431,7 +429,11 @@ mod tests {
     #[test]
     fn default_clamped_to_allowlist() {
         assert_eq!(
-            pick_subagent_model(None, &["z-ai/glm-5.3-flash".into()], "anthropic/claude-opus-5.5"),
+            pick_subagent_model(
+                None,
+                &["z-ai/glm-5.3-flash".into()],
+                "anthropic/claude-opus-5.5"
+            ),
             "z-ai/glm-5.3-flash"
         );
     }
