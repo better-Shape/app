@@ -522,13 +522,8 @@ pub async fn send_chat_message(
         compaction::history_tokens(stored_view.as_deref().unwrap_or(&history_snapshot));
     let mut compacted_fresh = false;
     if !state.incognito() && view_tokens >= compaction::fill_line_tokens(&model_to_use) {
-        let mut req = compaction::CompactRequest::new(
-            &client,
-            "",
-            proxy_base.clone(),
-            &model_to_use,
-            "auto",
-        );
+        let mut req =
+            compaction::CompactRequest::new(&client, "", proxy_base.clone(), &model_to_use, "auto");
         req.instructions = compact_instructions.clone();
         req.project_path = current_proj_path.as_deref().unwrap_or("");
         req.app_handle = Some(&app_handle);

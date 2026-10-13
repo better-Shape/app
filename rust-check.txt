@@ -1,0 +1,17 @@
+[1m[92m    Updating[0m crates.io index
+[1m[92m   Compiling[0m app v1.0.3 (/home/runner/work/Shape/Shape/src-tauri)
+src/agent/commands/streaming.rs:1058:5: [1m[33mwarning[0m: unused variable: `proxy_ctx`: help: if this is intentional, prefix it with an underscore: `_proxy_ctx`
+src/agent/commands/send_chat.rs:89:9: [1m[33mwarning[0m: unused variable: `has_images`: help: if this is intentional, prefix it with an underscore: `_has_images`
+src/agent/commands/send_chat.rs:264:9: [1m[33mwarning[0m: unused variable: `turn_base_summary`: help: if this is intentional, prefix it with an underscore: `_turn_base_summary`
+src/agent/commands/provider_wire.rs:118:8: [1m[33mwarning[0m: function `embeddings_request` is never used
+src/agent/models/mod.rs:392:12: [1m[33mwarning[0m: methods `set_current_summary` and `restore_summary` are never used
+src/core/ai_providers.rs:33:12: [1m[33mwarning[0m: method `as_str` is never used
+src/core/ai_providers.rs:300:8: [1m[33mwarning[0m: function `resolve_default` is never used
+src/core/ai_providers.rs:385:8: [1m[33mwarning[0m: function `can_resolve` is never used
+src/core/ai_providers.rs:426:8: [1m[33mwarning[0m: function `embeddings_endpoint` is never used
+src/core/ai_providers.rs:442:8: [1m[33mwarning[0m: function `describe` is never used
+src/agent/models/mod.rs:399:12: [1m[33mwarning[0m: method `restore_summary` is never used
+[1m[33mwarning[0m: `app` (lib test) generated 10 warnings (9 duplicates)
+[1m[33mwarning[0m: `app` (lib) generated 10 warnings (run `cargo fix --lib -p app` to apply 3 suggestions)
+[1m[92m    Finished[0m `dev` profile [unoptimized + debuginfo] target(s) in 18.35s
+---
