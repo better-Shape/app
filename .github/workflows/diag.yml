@@ -1,0 +1,62 @@
+name: Diagnose
+
+on:
+  push:
+    branches:
+      - arena/2628126c-shape
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  diagnose:
+    name: Diagnose Rust
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - run: npm ci
+
+      - name: Build runtime
+        run: npm run build:runtime
+
+      - name: Cargo check and test (capture output)
+        run: |
+          set +e
+          {
+            echo "### cargo check --all-targets"
+            cargo check --manifest-path src-tauri/Cargo.toml --all-targets 2>&1
+            echo "check_exit=$?"
+            echo
+            echo "### cargo test"
+            cargo test --manifest-path src-tauri/Cargo.toml 2>&1
+            echo "test_exit=$?"
+          } > /tmp/cargo.log 2>&1
+          tail -c 58000 /tmp/cargo.log > /tmp/tail.log
+
+      - name: Post the log as a PR comment
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR=$(gh api "repos/${{ github.repository }}/pulls?head=${{ github.repository_owner }}:${{ github.ref_name }}&state=open" --jq '.[0].number')
+          if [ -z "$PR" ] || [ "$PR" = "null" ]; then echo "no open PR"; exit 0; fi
+          { echo "<!-- cargo-diagnostic -->"; echo "### cargo output (tail)"; echo '```text'; cat /tmp/tail.log; echo '```'; } > /tmp/body.md
+          gh pr comment "$PR" --repo "${{ github.repository }}" --body-file /tmp/body.md
