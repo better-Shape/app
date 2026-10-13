@@ -87,17 +87,26 @@ function CompactionStatus({ instructions }: { instructions: string }) {
         refresh();
     }, [refresh]);
 
-    // The agent can hold automatic compaction mid-task; refresh when it does.
+    // The agent can hold automatic compaction mid-task, and a background pass
+    // can finish while this panel is open — refresh on both.
     React.useEffect(() => {
-        let unlisten: (() => void) | undefined;
-        void listen("chat_compaction_paused", () => {
-            refresh();
-        })
-            .then((fn) => {
-                unlisten = fn;
-            })
-            .catch(() => undefined);
-        return () => unlisten?.();
+        let disposed = false;
+        const unlisteners: Array<() => void> = [];
+        const register = (event: string, handler: () => void) => {
+            void listen(event, handler)
+                .then((fn) => {
+                    if (disposed) fn();
+                    else unlisteners.push(fn);
+                })
+                .catch(() => undefined);
+        };
+        register("chat_compaction_paused", refresh);
+        register("chat_compacted", refresh);
+        return () => {
+            disposed = true;
+            for (const fn of unlisteners) fn();
+            unlisteners.length = 0;
+        };
     }, [refresh]);
 
     const passes = state?.totalPasses ?? 0;

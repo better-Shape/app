@@ -44,7 +44,10 @@ export function openSubagent(id: string) {
     if (!id) return;
     activeId = id;
     emit();
-    window.dispatchEvent(new CustomEvent("bettershape-subagent-open", { detail: { id } }));
+    const card = cards.find((c) => c.id === id);
+    window.dispatchEvent(
+        new CustomEvent("bettershape-open-subagent", { detail: { id, parentId: card?.parentId } }),
+    );
 }
 
 export function closeSubagent() {

@@ -68,6 +68,41 @@ export function PlanTabView({ path, markdown }: { path: string; markdown?: strin
     const saveTimer = useRef<number | null>(null);
     const pending = useRef<string | null>(null);
 
+    // The agent can rewrite this plan while the tab is open. Reload it unless
+    // local edits are still queued (those flush next and win).
+    useEffect(() => {
+        let disposed = false;
+        let unlisten: (() => void) | undefined;
+        const samePath = (a: string, b: string) =>
+            a.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase()
+            === b.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+        void import("@tauri-apps/api/event")
+            .then(({ listen }) =>
+                listen<{ path?: string; absolutePath?: string }>("bettershape-plan-saved", (event) => {
+                    const saved = event.payload?.absolutePath || event.payload?.path;
+                    if (!saved || !absPath || !samePath(saved, absPath)) return;
+                    if (pending.current !== null) return;
+                    void commands
+                        .readFile(absPath)
+                        .then((text) => {
+                            applySource(text);
+                            setError(null);
+                        })
+                        .catch(() => undefined);
+                }),
+            )
+            .then((fn) => {
+                if (disposed) fn();
+                else unlisten = fn;
+            })
+            .catch(() => undefined);
+        return () => {
+            disposed = true;
+            unlisten?.();
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- applySource is stable per render
+    }, [absPath]);
+
     const flush = useCallback(async () => {
         const next = pending.current;
         pending.current = null;

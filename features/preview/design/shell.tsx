@@ -847,8 +847,17 @@ export function DesignStudio({
         const onToggleInspect = () => {
             setToolMode((mode) => (mode === "normal" ? "select" : "normal"));
         };
+        // Closing the folder / leaving design mode drops the inspector tool.
+        const onExitDesign = () => {
+            setToolMode("normal");
+            setPromptOpen(false);
+        };
         window.addEventListener("bettershape-toggle-browser-design-mode", onToggleInspect);
-        return () => window.removeEventListener("bettershape-toggle-browser-design-mode", onToggleInspect);
+        window.addEventListener("bettershape-design-exit", onExitDesign);
+        return () => {
+            window.removeEventListener("bettershape-toggle-browser-design-mode", onToggleInspect);
+            window.removeEventListener("bettershape-design-exit", onExitDesign);
+        };
     }, []);
 
     useEffect(() => {

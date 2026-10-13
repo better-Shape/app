@@ -487,6 +487,27 @@ export function AgentLayout({ children }: { children: React.ReactNode }) {
     }, [openWorkspaceTerminal]);
 
     useEffect(() => {
+        // Window ▸ Reset Layout: back to the default panes, widths and no zen.
+        const onReset = () => {
+            setZenMode(false);
+            setWorkspaceWidth(560);
+            widthRef.current = 560;
+            setWorkspaceFits(true);
+            persistWorkspace(true);
+            setSidebarOpen(true);
+            try {
+                localStorage.setItem(ZEN_KEY, "0");
+                localStorage.setItem("bettershape-agent-sidebar", "true");
+                localStorage.removeItem("bettershape-agent-workspace-width");
+            } catch {
+                /* ignore */
+            }
+        };
+        window.addEventListener("bettershape-layout-reset", onReset);
+        return () => window.removeEventListener("bettershape-layout-reset", onReset);
+    }, [persistWorkspace]);
+
+    useEffect(() => {
         const onZen = () => {
             setZenMode((prev) => {
                 const next = !prev;

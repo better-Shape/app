@@ -98,11 +98,20 @@ export default function Chat({
                 : getSubagents()[0];
             if (liveFirst) openSubagent(liveFirst.id);
         };
+        // Sidebar delete/archive closes the matching tab here; the shell owns tabs.
+        const onCloseTab = (e: Event) => {
+            const id = (e as CustomEvent<{ id?: string }>).detail?.id;
+            if (!id) return;
+            if (!sessionRef.current.openChatTabs.some((tab) => tab.id === id)) return;
+            void sessionRef.current.handleCloseChatTab(id);
+        };
         window.addEventListener("bettershape-open-subagent", onOpen as EventListener);
         window.addEventListener("bettershape-open-subagents-for", onOpenForParent as EventListener);
+        window.addEventListener("bettershape-chat-close-tab", onCloseTab as EventListener);
         return () => {
             window.removeEventListener("bettershape-open-subagent", onOpen as EventListener);
             window.removeEventListener("bettershape-open-subagents-for", onOpenForParent as EventListener);
+            window.removeEventListener("bettershape-chat-close-tab", onCloseTab as EventListener);
         };
     }, []);
 
