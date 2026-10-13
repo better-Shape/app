@@ -33,6 +33,15 @@ export type ProviderPreset = {
   needsBaseUrl: boolean;
   keyHint: string;
   docsUrl: string;
+  /**
+   * True when this provider serves an OpenAI-compatible `/embeddings` endpoint
+   * and the app therefore knows a default embedding model id for it. Providers
+   * without it (Groq, xAI, DeepSeek) can still embed if the user types a model
+   * id by hand — the indexer only guesses a default for the ones listed here.
+   */
+  embeddings?: boolean;
+  /** Embedding model ids to offer for this provider. */
+  embeddingModels?: string[];
   models: { id: string; name: string; contextWindow: string; vision?: boolean }[];
 };
 
@@ -45,6 +54,8 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     needsBaseUrl: false,
     keyHint: "sk-…",
     docsUrl: "https://platform.openai.com/api-keys",
+    embeddings: true,
+    embeddingModels: ["text-embedding-3-small", "text-embedding-3-large"],
     models: [
       { id: "openai/gpt-5", name: "GPT-5", contextWindow: "400K", vision: true },
       { id: "openai/gpt-5-mini", name: "GPT-5 mini", contextWindow: "400K", vision: true },
@@ -92,6 +103,8 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     needsBaseUrl: false,
     keyHint: "sk-or-…",
     docsUrl: "https://openrouter.ai/keys",
+    embeddings: true,
+    embeddingModels: ["openai/text-embedding-3-small", "openai/text-embedding-3-large"],
     models: [
       { id: "openrouter/anthropic/claude-sonnet-4.5", name: "Claude Sonnet 4.5", contextWindow: "200K", vision: true },
       { id: "openrouter/openai/gpt-5", name: "GPT-5", contextWindow: "400K", vision: true },
@@ -153,6 +166,8 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     needsBaseUrl: false,
     keyHint: "…",
     docsUrl: "https://console.mistral.ai/api-keys",
+    embeddings: true,
+    embeddingModels: ["mistral-embed"],
     models: [
       { id: "mistral/mistral-large-latest", name: "Mistral Large", contextWindow: "128K" },
       { id: "mistral/codestral-latest", name: "Codestral", contextWindow: "256K" },
@@ -166,6 +181,10 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     needsBaseUrl: true,
     keyHint: "local runtimes often need no key",
     docsUrl: "",
+    // Self-hosted runtimes decide their own embedding model, so the user picks
+    // the id (Ollama's `nomic-embed-text`, vLLM's `BAAI/bge-m3`, …).
+    embeddings: true,
+    embeddingModels: [],
     models: [],
   },
 ];
@@ -316,33 +335,55 @@ export function availableModels(settings: ProvidersSettings): ModelOption[] {
   return out;
 }
 
+/** Providers that can embed, in the order the app prefers to route to them. */
+export function embeddingProviders(settings: ProvidersSettings): ProviderId[] {
+  return PROVIDER_PRESETS.filter(
+    (preset) =>
+      preset.embeddings === true && isConnectionUsable(preset.id, settings.connections),
+  ).map((preset) => preset.id);
+}
+
 export function embeddingModelOptions(settings: ProvidersSettings): string[] {
-  const openAiWire = settings.connections.openai;
-  const openRouter = settings.connections.openrouter;
   const presets: string[] = [];
-  if (isConnectionUsable("openai", settings.connections)) {
-    presets.push("text-embedding-3-small", "text-embedding-3-large");
-  }
-  if (isConnectionUsable("openrouter", settings.connections)) {
-    presets.push("openai/text-embedding-3-small", "openai/text-embedding-3-large");
-  }
-  if (isConnectionUsable("custom", settings.connections)) {
-    presets.push(settings.embeddingModel || "");
+  for (const id of embeddingProviders(settings)) {
+    presets.push(...(providerPreset(id).embeddingModels ?? []));
   }
   const chosen = settings.embeddingModel.trim();
   if (chosen && !presets.includes(chosen)) presets.unshift(chosen);
-  void openAiWire;
-  void openRouter;
-  return presets.filter(Boolean);
+  return [...new Set(presets.filter(Boolean))];
 }
 
-/** True when semantic embeddings can run (needs an OpenAI-wire key). */
+/**
+ * Provider that will serve the semantic index, plus the model id to send.
+ *
+ * Mirrors the Rust side: OpenAI and OpenRouter have a known default, every other
+ * provider needs the user to name a model — an empty result means the index
+ * stays off rather than calling an endpoint that cannot answer.
+ */
+export function embeddingsTarget(settings: ProvidersSettings): { id: ProviderId; model: string } | null {
+  const chosen = settings.embeddingModel.trim();
+  const preferredOf = (ids: ProviderId[]): ProviderId | undefined =>
+    ids.find((id) => id === "openai") ?? ids.find((id) => id === "openrouter") ?? ids[0];
+
+  if (chosen) {
+    // Any OpenAI-wire connection can embed when the user names the model.
+    const wire = PROVIDER_PRESETS.filter(
+      (preset) => preset.kind === "openai" && isConnectionUsable(preset.id, settings.connections),
+    ).map((preset) => preset.id);
+    const preferred = preferredOf(wire);
+    return preferred ? { id: preferred, model: chosen } : null;
+  }
+
+  const known = embeddingProviders(settings);
+  const preferred = preferredOf(known);
+  if (!preferred) return null;
+  const fallback = providerPreset(preferred).embeddingModels?.[0] ?? "";
+  return fallback ? { id: preferred, model: fallback } : null;
+}
+
+/** True when the semantic index has somewhere to run. */
 export function embeddingsAvailable(settings: ProvidersSettings): boolean {
-  return (
-    isConnectionUsable("openai", settings.connections) ||
-    isConnectionUsable("openrouter", settings.connections) ||
-    (isConnectionUsable("custom", settings.connections) && Boolean(settings.connections.custom.baseUrl.trim()))
-  );
+  return embeddingsTarget(settings) !== null;
 }
 
 /** Payload for the Rust `set_ai_config` command. */
@@ -383,17 +424,14 @@ export function toRustAiConfig(settings: ProvidersSettings): RustAiConfig {
   }
 
   const defaultModel = resolveDefaultModel(settings, providers);
-  const embeddingsUsable = embeddingsAvailable(settings);
-  const embeddingModel =
-    settings.embeddingModel.trim() ||
-    (isConnectionUsable("openrouter", settings.connections)
-      ? "openai/text-embedding-3-small"
-      : "text-embedding-3-small");
+  // A provider that serves embeddings and a model id we can name — without both,
+  // Rust skips the semantic index instead of calling an endpoint it cannot use.
+  const embeddingTarget = embeddingsTarget(settings);
 
   return {
     providers,
     defaultModel,
-    embeddingModel: embeddingsUsable ? embeddingModel : "",
+    embeddingModel: embeddingTarget?.model ?? "",
     search: {
       provider: settings.services.search.provider,
       apiKey: settings.services.search.apiKey.trim(),
@@ -415,4 +453,185 @@ function resolveDefaultModel(settings: ProvidersSettings, providers: RustAiProvi
   if (wanted && wanted !== "auto" && usableIds.has(wanted)) return wanted;
   const pinned = providers.find((p) => p.models.length > 0);
   return pinned?.models[0] ?? "";
+}
+
+/* -------------------------------------------------------------------------- */
+/* Secret handling                                                            */
+/* -------------------------------------------------------------------------- */
+
+/** Pseudo-ids for the two non-model secrets, stored beside provider keys. */
+export const SEARCH_SECRET_ID = "service:search";
+export const COMPOSIO_SECRET_ID = "service:composio";
+
+/** Every secret the provider settings currently hold, keyed by storage id. */
+export function providerSecrets(settings: ProvidersSettings): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const preset of PROVIDER_PRESETS) {
+    const key = settings.connections[preset.id]?.apiKey?.trim();
+    if (key) out[preset.id] = key;
+  }
+  const search = settings.services.search.apiKey.trim();
+  if (search) out[SEARCH_SECRET_ID] = search;
+  const composio = settings.services.composio.apiKey.trim();
+  if (composio) out[COMPOSIO_SECRET_ID] = composio;
+  return out;
+}
+
+/**
+ * A copy safe to write to disk: the OS keychain owns the secrets, so nothing
+ * here contains a key. Non-secret fields are copied verbatim.
+ */
+export function redactProviderSecrets<T extends { ai: { providers: ProvidersSettings } }>(settings: T): T {
+  const connections = {} as Record<ProviderId, ProviderConnection>;
+  for (const preset of PROVIDER_PRESETS) {
+    const connection = settings.ai.providers.connections[preset.id];
+    connections[preset.id] = connection
+      ? { ...connection, apiKey: "" }
+      : { apiKey: "", baseUrl: "", enabled: true, models: [], extraModels: [] };
+  }
+  return {
+    ...settings,
+    ai: {
+      ...settings.ai,
+      providers: {
+        ...settings.ai.providers,
+        connections,
+        services: {
+          ...settings.ai.providers.services,
+          search: { ...settings.ai.providers.services.search, apiKey: "" },
+          composio: { ...settings.ai.providers.services.composio, apiKey: "" },
+        },
+      },
+    },
+  };
+}
+
+/**
+ * Fill secrets that only exist in memory back into a freshly loaded copy.
+ *
+ * Storage never holds keys once the keychain is in use, so a plain merge would
+ * wipe the session's keys the first time a settings payload arrived from disk or
+ * from the other window. Existing values always win for non-secret fields.
+ */
+export function mergeProviderSecrets(live: ProvidersSettings, loaded: ProvidersSettings): ProvidersSettings {
+  const connections = {} as Record<ProviderId, ProviderConnection>;
+  for (const preset of PROVIDER_PRESETS) {
+    const current = live.connections[preset.id];
+    const incoming = loaded.connections[preset.id] ?? emptyConnection();
+    connections[preset.id] = {
+      ...incoming,
+      apiKey: incoming.apiKey.trim() ? incoming.apiKey : (current?.apiKey ?? ""),
+    };
+  }
+  return {
+    ...loaded,
+    connections,
+    services: {
+      search: {
+        ...loaded.services.search,
+        apiKey: loaded.services.search.apiKey.trim()
+          ? loaded.services.search.apiKey
+          : live.services.search.apiKey,
+      },
+      composio: {
+        ...loaded.services.composio,
+        apiKey: loaded.services.composio.apiKey.trim()
+          ? loaded.services.composio.apiKey
+          : live.services.composio.apiKey,
+      },
+    },
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Key sanity checks                                                          */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Prefixes that identify a provider's keys. Only formats we are confident about
+ * are listed: `sk-` alone is shared by OpenAI, DeepSeek and gateways, so a plain
+ * `sk-…` value never triggers advice.
+ */
+const KEY_PREFIXES: { id: ProviderId; prefix: string }[] = [
+  { id: "anthropic", prefix: "sk-ant-" },
+  { id: "openrouter", prefix: "sk-or-" },
+  { id: "groq", prefix: "gsk_" },
+  { id: "xai", prefix: "xai-" },
+  { id: "google", prefix: "AIza" },
+];
+
+/** Which provider a pasted key *looks* like it belongs to. Advisory only. */
+export function keyOwnerHint(apiKey: string): { id: ProviderId; label: string } | null {
+  const key = apiKey.trim();
+  if (key.length < 12) return null;
+  for (const { id, prefix } of KEY_PREFIXES) {
+    if (key.startsWith(prefix)) return { id, label: providerPreset(id).label };
+  }
+  return null;
+}
+
+/**
+ * One-line warning for the field the user is typing in, or null when the key
+ * looks plausible. Never blocks a save: gateways hand out their own formats, so
+ * this only ever suggests.
+ */
+export function keyFormatWarning(id: ProviderId, apiKey: string): string | null {
+  const key = apiKey.trim();
+  if (!key) return null;
+  const owner = keyOwnerHint(key);
+  if (owner && owner.id !== id) {
+    return `This looks like a ${owner.label} key — paste it into the ${owner.label} card instead.`;
+  }
+  const expected = KEY_PREFIXES.find((entry) => entry.id === id);
+  if (expected && !key.startsWith(expected.prefix)) {
+    return `${providerPreset(id).label} keys start with ${expected.prefix} — double-check the value.`;
+  }
+  return null;
+}
+
+/** Same idea for the web-search keys, whose formats are also fixed. */
+export function searchKeyWarning(
+  provider: (typeof SEARCH_PROVIDERS)[number]["id"],
+  apiKey: string,
+): string | null {
+  const key = apiKey.trim();
+  if (!key) return null;
+  if (provider === "tavily" && !key.startsWith("tvly-")) {
+    return "Tavily keys start with tvly-.";
+  }
+  if (provider === "brave" && !key.startsWith("BSA")) {
+    return "Brave Search keys start with BSA.";
+  }
+  return null;
+}
+
+/** `sk-abc…1234` — enough to recognise a key without showing it in full. */
+export function maskApiKey(apiKey: string): string {
+  const key = apiKey.trim();
+  if (key.length <= 10) return key ? `${key.slice(0, 2)}…` : "";
+  return `${key.slice(0, 6)}…${key.slice(-4)}`;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Model discovery                                                            */
+/* -------------------------------------------------------------------------- */
+
+/** Turn discovered native slugs into the `provider/model` ids the app stores. */
+export function modelsWithProviderPrefix(id: ProviderId, discovered: string[]): string[] {
+  const out: string[] = [];
+  for (const raw of discovered) {
+    const slug = raw.trim();
+    if (!slug) continue;
+    out.push(slug.startsWith(`${id}/`) ? slug : `${id}/${slug}`);
+  }
+  return [...new Set(out)];
+}
+
+/** `provider/model` ids → the raw slugs `extraModels` expects. */
+export function stripProviderPrefix(id: ProviderId, ids: string[]): string[] {
+  return ids
+    .map((raw) => raw.trim())
+    .filter(Boolean)
+    .map((raw) => (raw.startsWith(`${id}/`) ? raw.slice(id.length + 1) : raw))
+    .filter((raw, index, all) => all.indexOf(raw) === index);
 }

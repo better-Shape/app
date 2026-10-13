@@ -10,4 +10,32 @@ describe("ipc", () => {
         for (const [c, p] of [["select_design_preview", { id: "i", skipped: false, conceptId: "c", tweaks: "{}" }], ["send_chat_message", expect.objectContaining({ message: "h", customSystemPrompt: "p" })], ["rename_path", { oldPath: "a", newPath: "b" }], ["fork_conversation", { messageIndex: 3 }], ["set_message_feedback", { index: 1, feedback: "up", conversationId: "c" }], ["open_in_app", { app: "code", path: "p" }], ["set_extra_workspace_folders", { folders: ["e"] }], ["grant_ipc_path", { path: "x" }]] as const) expect(invoke).toHaveBeenCalledWith(c, p);
         for (const x of vi.mocked(invoke).mock.calls) for (const k of Object.keys((x[1] ?? {}) as Record<string, unknown>)) expect(k).not.toMatch(/_/);
     });
+
+    it("BYOK diagnostics", async () => {
+        await Promise.all([
+            commands.aiTestProvider("openai", "openai", "sk-live", "https://api.openai.com/v1"),
+            commands.aiVaultSupported(),
+            commands.aiStoreKey("openai", "sk-live"),
+            commands.aiDeleteKey("openai"),
+            commands.aiLoadKeys(["openai", "service:search"]),
+        ]);
+        expect(invoke).toHaveBeenCalledWith("ai_test_provider", {
+            providerId: "openai",
+            kind: "openai",
+            apiKey: "sk-live",
+            baseUrl: "https://api.openai.com/v1",
+        });
+        expect(invoke).toHaveBeenCalledWith("ai_vault_supported", undefined);
+        expect(invoke).toHaveBeenCalledWith("ai_store_key", {
+            providerId: "openai",
+            apiKey: "sk-live",
+        });
+        expect(invoke).toHaveBeenCalledWith("ai_delete_key", { providerId: "openai" });
+        expect(invoke).toHaveBeenCalledWith("ai_load_keys", {
+            providerIds: ["openai", "service:search"],
+        });
+        for (const x of vi.mocked(invoke).mock.calls)
+            for (const k of Object.keys((x[1] ?? {}) as Record<string, unknown>))
+                expect(k).not.toMatch(/_/);
+    });
 });

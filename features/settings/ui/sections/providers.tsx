@@ -5,8 +5,11 @@
  *
  * Everything BetterShape needs a key for lives here: model providers (OpenAI,
  * Anthropic, Google, and any OpenAI-compatible endpoint), the semantic index
- * embedding model, web search, and Composio for plugins. Keys are stored in the
- * app's local settings and pushed to the Rust side; nothing leaves the machine.
+ * embedding model, web search, and Composio for plugins.
+ *
+ * Keys go into the operating system's keychain and are pushed to the Rust side
+ * for the session; nothing leaves the machine. "Test connection" verifies a key
+ * and base URL against the provider and can import the models it reports.
  */
 
 import React from "react";
@@ -23,12 +26,16 @@ import {
     embeddingModelOptions,
     embeddingsAvailable,
     isConnectionUsable,
+    keyFormatWarning,
     modelIdsFor,
+    modelsWithProviderPrefix,
     providerPreset,
+    searchKeyWarning,
     type ProviderId,
     type ProvidersSettings,
 } from "@/lib/ai/providers";
-import { getSettings, updateSettingSection } from "@/lib/settings";
+import { areSecretsVaulted, getSettings, updateSettingSection } from "@/lib/settings";
+import { vaultAvailable } from "@/lib/ai/vault";
 import {
     SettingCard,
     SettingRow,
@@ -43,36 +50,60 @@ function KeyInput({
     placeholder,
     onChange,
     disabled,
+    warning,
 }: {
     value: string;
     placeholder: string;
     onChange: (next: string) => void;
     disabled?: boolean;
+    /** Advisory message shown under the field (never blocks the edit). */
+    warning?: string | null;
 }) {
     const [visible, setVisible] = React.useState(false);
     return (
-        <div className="flex w-full items-center gap-1.5">
-            <input
-                type={visible ? "text" : "password"}
-                value={value}
-                placeholder={placeholder}
-                disabled={disabled}
-                spellCheck={false}
-                autoComplete="off"
-                onChange={(e) => onChange(e.target.value)}
-                className="h-8 min-w-0 flex-1 rounded-md border border-border-secondary bg-transparent px-2 text-sm text-text-primary outline-none focus:border-accent disabled:opacity-50"
-            />
-            <Button
-                size="sm"
-                variant="ghost"
-                className={SETTING_CONTROL_BTN}
-                aria-label={visible ? "Hide key" : "Show key"}
-                onClick={() => setVisible((v) => !v)}
-            >
-                <Icon icon={visible ? EyeOff20Regular : Eye20Regular} />
-            </Button>
+        <div className="flex w-full flex-col gap-1">
+            <div className="flex w-full items-center gap-1.5">
+                <input
+                    type={visible ? "text" : "password"}
+                    value={value}
+                    placeholder={placeholder}
+                    disabled={disabled}
+                    spellCheck={false}
+                    autoComplete="off"
+                    onChange={(e) => onChange(e.target.value)}
+                    className="h-8 min-w-0 flex-1 rounded-md border border-border-secondary bg-transparent px-2 text-sm text-text-primary outline-none focus:border-accent disabled:opacity-50"
+                />
+                <Button
+                    size="sm"
+                    variant="ghost"
+                    className={SETTING_CONTROL_BTN}
+                    aria-label={visible ? "Hide key" : "Show key"}
+                    onClick={() => setVisible((v) => !v)}
+                >
+                    <Icon icon={visible ? EyeOff20Regular : Eye20Regular} />
+                </Button>
+            </div>
+            {warning ? <div className="text-xs text-amber-500">{warning}</div> : null}
         </div>
     );
+}
+
+/** Keychain availability, probed once per mounted settings view. */
+function useVaultStatus(): boolean | null {
+    const [available, setAvailable] = React.useState<boolean | null>(
+        typeof window === "undefined" ? null : areSecretsVaulted() ? true : null,
+    );
+    React.useEffect(() => {
+        if (available !== null) return;
+        let cancelled = false;
+        void vaultAvailable().then((supported) => {
+            if (!cancelled) setAvailable(supported);
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, [available]);
+    return available;
 }
 
 function TextInput({
@@ -101,8 +132,50 @@ function ProviderCard({ id, providers }: { id: ProviderId; providers: ProvidersS
     const preset = providerPreset(id);
     const connection = providers.connections[id];
     const [modelsOpen, setModelsOpen] = React.useState(false);
+    const [testing, setTesting] = React.useState(false);
+    const [testResult, setTestResult] = React.useState<{
+        ok: boolean;
+        message: string;
+        models: string[];
+    } | null>(null);
+    const [imported, setImported] = React.useState(0);
     const models = modelIdsFor(id, providers.connections);
     const usable = isConnectionUsable(id, providers.connections);
+
+    const testConnection = async () => {
+        setTesting(true);
+        setTestResult(null);
+        setImported(0);
+        try {
+            const report = await commands.aiTestProvider(
+                id,
+                preset.kind,
+                connection.apiKey,
+                connection.baseUrl || preset.baseUrl,
+            );
+            setTestResult({
+                ok: report.ok,
+                message: report.ok ? `${report.message} (${report.latencyMs} ms)` : report.message,
+                models: report.models,
+            });
+        } catch (error) {
+            setTestResult({
+                ok: false,
+                message: error instanceof Error ? error.message : String(error),
+                models: [],
+            });
+        } finally {
+            setTesting(false);
+        }
+    };
+
+    /** Adopt the models the provider actually reported for this key. */
+    const importModels = () => {
+        if (!testResult || testResult.models.length === 0) return;
+        const ids = modelsWithProviderPrefix(id, testResult.models);
+        update({ models: ids });
+        setImported(ids.length);
+    };
 
     const update = (patch: Partial<typeof connection>) => {
         updateSettingSection("ai", {
@@ -156,12 +229,48 @@ function ProviderCard({ id, providers }: { id: ProviderId; providers: ProvidersS
                         value={connection.apiKey}
                         placeholder={preset.keyHint || "API key"}
                         onChange={(apiKey) => update({ apiKey })}
+                        warning={keyFormatWarning(id, connection.apiKey)}
                     />
                     <TextInput
                         value={connection.baseUrl}
                         placeholder={preset.baseUrl || "https://host/v1"}
                         onChange={(baseUrl) => update({ baseUrl })}
                     />
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                        size="sm"
+                        variant="secondary"
+                        className={SETTING_CONTROL_BTN}
+                        disabled={testing || (!usable && id !== "custom")}
+                        onClick={() => void testConnection()}
+                    >
+                        {testing ? "Testing…" : "Test connection"}
+                    </Button>
+                    {testResult?.ok && testResult.models.length > 0 ? (
+                        <Button
+                            size="sm"
+                            variant="ghost"
+                            className={SETTING_CONTROL_BTN}
+                            onClick={importModels}
+                        >
+                            {imported > 0
+                                ? `${imported} models imported`
+                                : `Use these ${testResult.models.length} models`}
+                        </Button>
+                    ) : null}
+                    {testResult ? (
+                        <span
+                            className={
+                                testResult.ok
+                                    ? "text-xs text-text-muted"
+                                    : "text-xs whitespace-pre-line text-amber-500"
+                            }
+                        >
+                            {testResult.message}
+                        </span>
+                    ) : null}
                 </div>
 
                 {models.length > 0 ? (
@@ -218,6 +327,10 @@ export function ProvidersSettingsView() {
     const models = availableModels(providers);
     const embeddable = embeddingsAvailable(providers);
     const embeddingOptions = embeddingModelOptions(providers);
+    const vault = useVaultStatus();
+    // A provider with no known embedding defaults (a local runtime) needs the
+    // model id typed in, so the select becomes a text field.
+    const needsEmbeddingId = embeddable && embeddingOptions.length === 0;
 
     return (
         <>
@@ -227,6 +340,13 @@ export function ProvidersSettingsView() {
                 description="Bring your own keys. Requests go straight from your machine to the provider — BetterShape never proxies them."
                 card={false}
             >
+                {vault === false ? (
+                    <div className="mb-2.5 rounded-md border border-amber-500/40 px-3 py-2 text-xs text-amber-500">
+                        No OS keychain is available on this machine, so keys are kept in the app&apos;s
+                        local settings file. Install a Secret Service provider (gnome-keyring,
+                        KWallet) to store them encrypted.
+                    </div>
+                ) : null}
                 <div className="flex flex-col gap-2.5">
                     {PROVIDER_PRESETS.map((preset) => (
                         <ProviderCard key={preset.id} id={preset.id} providers={providers} />
@@ -265,23 +385,38 @@ export function ProvidersSettingsView() {
                         description={
                             embeddable
                                 ? "OpenAI-compatible embeddings for semantic search."
-                                : "Add an OpenAI, OpenRouter or custom OpenAI-wire key to enable semantic search."
+                                : "Add an OpenAI, OpenRouter, Mistral or custom OpenAI-wire key to enable semantic search."
                         }
                     >
-                        <SettingSelect
-                            value={providers.embeddingModel || "text-embedding-3-small"}
-                            onChange={(value) =>
-                                updateSettingSection("ai", {
-                                    providers: { ...providers, embeddingModel: value },
-                                })
-                            }
-                            disabled={!embeddable}
-                            options={
-                                embeddingOptions.length > 0
-                                    ? embeddingOptions.map((model) => ({ value: model, label: model }))
-                                    : [{ value: "text-embedding-3-small", label: "text-embedding-3-small" }]
-                            }
-                        />
+                        {needsEmbeddingId ? (
+                            <TextInput
+                                value={providers.embeddingModel}
+                                placeholder="nomic-embed-text"
+                                onChange={(value) =>
+                                    updateSettingSection("ai", {
+                                        providers: { ...providers, embeddingModel: value },
+                                    })
+                                }
+                            />
+                        ) : (
+                            <SettingSelect
+                                value={providers.embeddingModel || embeddingOptions[0] || ""}
+                                onChange={(value) =>
+                                    updateSettingSection("ai", {
+                                        providers: { ...providers, embeddingModel: value },
+                                    })
+                                }
+                                disabled={!embeddable || embeddingOptions.length === 0}
+                                options={
+                                    embeddingOptions.length > 0
+                                        ? embeddingOptions.map((model) => ({
+                                              value: model,
+                                              label: model,
+                                          }))
+                                        : [{ value: "", label: "None available" }]
+                                }
+                            />
+                        )}
                     </SettingRow>
                 </SettingCard>
             </SettingSection>
@@ -337,6 +472,10 @@ export function ProvidersSettingsView() {
                                             },
                                         })
                                     }
+                                    warning={searchKeyWarning(
+                                        providers.services.search.provider,
+                                        providers.services.search.apiKey,
+                                    )}
                                 />
                             ) : null}
                         </div>

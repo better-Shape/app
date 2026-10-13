@@ -5,7 +5,10 @@ import { normalizeColorTheme, type ColorThemeId } from "./themes";
 import type { AgentWorkflow } from "@/lib/chat/workflows";
 import {
     defaultProvidersSettings,
+    mergeProviderSecrets,
     normalizeProvidersSettings,
+    providerSecrets,
+    redactProviderSecrets,
     type ProvidersSettings,
 } from "@/lib/ai/providers";
 
@@ -382,6 +385,82 @@ export const DEFAULT_SETTINGS: BetterShapeSettings = {
 
 const STORAGE_KEY = "bettershape-settings-v1";
 
+/**
+ * True once the OS keychain has been confirmed usable. Keys are then stripped
+ * from every copy of the settings that leaves this process (localStorage, the
+ * Tauri store, cross-window events) and read back from the keychain at launch.
+ */
+let secretsVaulted = false;
+
+/** Called by the BYOK bootstrap after probing the keychain. */
+export function setSecretsVaulted(vaulted: boolean): void {
+    secretsVaulted = vaulted;
+}
+
+export function areSecretsVaulted(): boolean {
+    return secretsVaulted;
+}
+
+/** A copy that is safe to persist: no API keys when the keychain is in use. */
+function forStorage<T extends { ai: { providers: ProvidersSettings } }>(settings: T): T {
+    return secretsVaulted ? redactProviderSecrets(settings) : settings;
+}
+
+/** Secrets currently in memory, keyed by their keychain id. */
+export function providerSecretsForVault(): Record<string, string> {
+    return providerSecrets(currentSettings.ai.providers);
+}
+
+/**
+ * Fold keychain secrets back into the live settings.
+ *
+ * Values already in memory win, so a migration from plaintext settings keeps
+ * whatever the user had before the keychain was in use.
+ */
+export function applyVaultSecrets(secrets: Record<string, string>): void {
+    let changed = false;
+    const connections = { ...currentSettings.ai.providers.connections };
+    for (const [id, value] of Object.entries(secrets)) {
+        const secret = value.trim();
+        if (!secret) continue;
+        const connection = connections[id as keyof typeof connections];
+        if (connection && !connection.apiKey.trim()) {
+            connections[id as keyof typeof connections] = { ...connection, apiKey: secret };
+            changed = true;
+        }
+    }
+    const search = currentSettings.ai.providers.services.search;
+    const composio = currentSettings.ai.providers.services.composio;
+    const searchKey = secrets["service:search"]?.trim();
+    const composioKey = secrets["service:composio"]?.trim();
+    let services = currentSettings.ai.providers.services;
+    if (searchKey && !search.apiKey.trim()) {
+        services = { ...services, search: { ...search, apiKey: searchKey } };
+        changed = true;
+    }
+    if (composioKey && !composio.apiKey.trim()) {
+        services = { ...services, composio: { ...composio, apiKey: composioKey } };
+        changed = true;
+    }
+    if (!changed) {
+        // Still rewrite both stores: an older build may have left plaintext keys
+        // behind, and redaction only takes effect on the next write.
+        persist();
+        void persistToTauriStore();
+        return;
+    }
+    currentSettings = {
+        ...currentSettings,
+        ai: {
+            ...currentSettings.ai,
+            providers: { ...currentSettings.ai.providers, connections, services },
+        },
+    };
+    persist();
+    void persistToTauriStore();
+    emit();
+}
+
 let currentSettings: BetterShapeSettings = {
     ...DEFAULT_SETTINGS,
     editor: { ...DEFAULT_SETTINGS.editor },
@@ -469,8 +548,18 @@ function mergeAiSettings(
     return merged;
 }
 
-function mergeSettings(base: BetterShapeSettings, patch: Partial<BetterShapeSettings>): BetterShapeSettings {
+function mergeSettings(
+    base: BetterShapeSettings,
+    patch: Partial<BetterShapeSettings>,
+    options?: { preserveSecrets?: boolean },
+): BetterShapeSettings {
     const aiPatch = patch.ai ? { ...patch.ai } : undefined;
+    const mergedAi = mergeAiSettings(base.ai, aiPatch);
+    // Storage carries no keys once the keychain is in use, so a payload coming
+    // back from disk (or from the other window) must not blank the live ones.
+    const ai = options?.preserveSecrets
+        ? { ...mergedAi, providers: mergeProviderSecrets(currentSettings.ai.providers, mergedAi.providers) }
+        : mergedAi;
     return {
         editor: { ...DEFAULT_SETTINGS.editor, ...base.editor, ...patch.editor },
         terminal: { ...DEFAULT_SETTINGS.terminal, ...base.terminal, ...patch.terminal },
@@ -485,7 +574,7 @@ function mergeSettings(base: BetterShapeSettings, patch: Partial<BetterShapeSett
                 ...(patch.git?.blame ?? {}),
             },
         },
-        ai: mergeAiSettings(base.ai, aiPatch),
+        ai,
         skills: {
             ...DEFAULT_SETTINGS.skills,
             ...base.skills,
@@ -587,7 +676,7 @@ export function getFileExcludePatterns(): string {
 }
 
 function applySettingsFromPayload(next: Partial<BetterShapeSettings> | BetterShapeSettings) {
-    currentSettings = mergeSettings(DEFAULT_SETTINGS, next);
+    currentSettings = mergeSettings(DEFAULT_SETTINGS, next, { preserveSecrets: true });
     hydrated = true;
     applyAppearanceSettings(currentSettings);
 }
@@ -603,7 +692,9 @@ function emit() {
     emitLocal();
     if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) {
         void import("@tauri-apps/api/event").then(({ emit: tauriEmit }) => {
-            void tauriEmit("bettershape-settings-changed", currentSettings).catch(() => { /* ignore */ });
+            void tauriEmit("bettershape-settings-changed", forStorage(currentSettings)).catch(() => {
+                /* ignore */
+            });
         }).catch(() => { /* ignore */ });
     }
 }
@@ -628,7 +719,7 @@ export function initSettingsBridge(): void {
             void listen<BetterShapeSettings>("bettershape-settings-changed", (event) => {
                 applySettingsFromPayload(event.payload);
                 try {
-                    localStorage.setItem(STORAGE_KEY, JSON.stringify(currentSettings));
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify(forStorage(currentSettings)));
                 } catch { /* ignore */ }
                 emitLocal();
             });
@@ -654,7 +745,17 @@ function loadFromLocalStorage() {
 function persist() {
     if (typeof window === "undefined") return;
     try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(currentSettings));
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(forStorage(currentSettings)));
+    } catch { /* ignore */ }
+}
+
+/** Mirror the settings into the Tauri store file (redacted when vaulted). */
+async function persistToTauriStore(): Promise<void> {
+    try {
+        const { load } = await import("@tauri-apps/plugin-store");
+        const store = await load("settings.json", { autoSave: true, defaults: {} });
+        await store.set("settings", forStorage(currentSettings));
+        await store.save();
     } catch { /* ignore */ }
 }
 
@@ -667,10 +768,14 @@ export async function initSettings(): Promise<void> {
         const store = await load("settings.json", { autoSave: true, defaults: {} });
         const stored = await store.get<Partial<BetterShapeSettings>>("settings");
         if (stored) {
-            currentSettings = mergeSettings(DEFAULT_SETTINGS, stored);
+            currentSettings = mergeSettings(DEFAULT_SETTINGS, stored, { preserveSecrets: true });
             persist();
+            // Rewrite through the redaction path so a pre-keychain build's keys
+            // do not survive in the store file.
+            await store.set("settings", forStorage(currentSettings));
+            await store.save();
         } else {
-            await store.set("settings", currentSettings);
+            await store.set("settings", forStorage(currentSettings));
             await store.save();
         }
     } catch {
@@ -703,14 +808,7 @@ export function updateSettings(patch: Partial<BetterShapeSettings>): void {
     currentSettings = mergeSettings(currentSettings, patch);
     persist();
     applyAppearanceSettings(currentSettings);
-    void (async () => {
-        try {
-            const { load } = await import("@tauri-apps/plugin-store");
-            const store = await load("settings.json", { autoSave: true, defaults: {} });
-            await store.set("settings", currentSettings);
-            await store.save();
-        } catch { /* ignore */ }
-    })();
+    void persistToTauriStore();
     emit();
 }
 

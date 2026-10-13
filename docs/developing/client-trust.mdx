@@ -9,7 +9,17 @@ BetterShape runs on your machine and calls model providers directly with the key
 
 ## Where keys live
 
-Keys are stored locally through the settings store and handed to the Rust agent when you send a message. They are never sent anywhere except the provider endpoint you configured (OpenAI, Anthropic, Google, or your own OpenAI-compatible base URL).
+Keys go into the operating system's credential store:
+
+| Platform | Store |
+| --- | --- |
+| macOS | Keychain |
+| Windows | Credential Manager |
+| Linux | Secret Service (gnome-keyring, KWallet) |
+
+The settings file keeps everything *except* secrets — base URLs, model picks, defaults. Keys are read back from the keychain at launch and handed to the Rust agent for the session, so nothing is written to disk in plain text. If a machine has no usable keychain, BetterShape says so in Settings → Providers and falls back to keeping keys in the settings file rather than locking you out of your own models.
+
+Keys are never sent anywhere except the provider endpoint you configured (OpenAI, Anthropic, Google, or your own OpenAI-compatible base URL).
 
 ## Rules of thumb
 

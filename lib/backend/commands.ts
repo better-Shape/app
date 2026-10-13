@@ -830,6 +830,29 @@ export const commands = {
             composio: { apiKey: string; userId: string };
         }>("get_ai_config"),
     aiProviderStatus: () => invokeCommand<string[]>("ai_provider_status"),
+    /** Probe one provider: key validity, base URL, and the models it serves. */
+    aiTestProvider: (providerId: string, kind?: string, apiKey?: string, baseUrl?: string) =>
+        invokeCommand<{
+            ok: boolean;
+            status: number;
+            message: string;
+            models: string[];
+            latencyMs: number;
+        }>("ai_test_provider", {
+            providerId,
+            kind: kind ?? null,
+            apiKey: apiKey ?? null,
+            baseUrl: baseUrl ?? null,
+        }),
+    /** True when this machine has a usable OS keychain for provider keys. */
+    aiVaultSupported: () => invokeCommand<boolean>("ai_vault_supported"),
+    /** Store (or clear, with an empty key) one provider secret in the keychain. */
+    aiStoreKey: (providerId: string, apiKey: string) =>
+        invokeCommand<void>("ai_store_key", { providerId, apiKey }),
+    aiDeleteKey: (providerId: string) => invokeCommand<void>("ai_delete_key", { providerId }),
+    /** Read back stored secrets for the given ids (missing entries are omitted). */
+    aiLoadKeys: (providerIds: string[]) =>
+        invokeCommand<{ id: string; apiKey: string }[]>("ai_load_keys", { providerIds }),
     // Codebase index
     indexProject: (projectPath?: string) =>
         invokeCommand<boolean>("index_project", {

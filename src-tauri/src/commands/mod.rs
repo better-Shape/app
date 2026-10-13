@@ -1,3 +1,4 @@
+pub mod ai_byok;
 pub mod ai_config;
 pub mod desktop_notification;
 pub mod fs;

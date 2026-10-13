@@ -202,6 +202,12 @@ pub fn run() {
             commands::ai_config::set_ai_config,
             commands::ai_config::get_ai_config,
             commands::ai_config::ai_provider_status,
+            // BYOK diagnostics + OS-keychain credential storage
+            commands::ai_byok::ai_test_provider,
+            commands::ai_byok::ai_vault_supported,
+            commands::ai_byok::ai_store_key,
+            commands::ai_byok::ai_load_keys,
+            commands::ai_byok::ai_delete_key,
             // fs
             commands::ipc::filesystem::ls_dir,
             commands::ipc::filesystem::home_dir,

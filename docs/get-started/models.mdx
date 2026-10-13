@@ -21,13 +21,19 @@ Open **Settings → Providers** and paste an API key for the provider you use:
 
 Chat works as soon as one provider is enabled with a key. Without one, BetterShape says so instead of failing mid-turn.
 
+### Verify a key
+
+**Test connection** asks the provider for its model list with the key and base URL currently in the card. A green answer means the key works and the endpoint is right; the app then offers **Use these N models** to import the ids your account actually serves. This works before you save, and it is the fastest way to pin down a wrong base URL or a key that belongs to another provider.
+
+Keys are kept in your OS keychain, not in the app's settings file.
+
 ## Pick a model
 
 The model menu lists the models your key can reach, plus anything extra you add by hand. The default is **Auto**, which uses your first configured provider unless you set a different default in **Settings → Providers**.
 
 ## Embeddings and search
 
-Codebase search uses an OpenAI-compatible `/embeddings` endpoint. Point **Embedding model** at one your provider offers, or turn embeddings off; keyword search and the file index still work.
+Codebase search uses an OpenAI-compatible `/embeddings` endpoint. OpenAI and OpenRouter have a known default; Mistral and self-hosted runtimes need the model id typed in (Ollama's `nomic-embed-text`, vLLM's `BAAI/bge-m3`). Providers that cannot embed — Groq, xAI, DeepSeek — are skipped instead of being sent a model they do not serve. Turn embeddings off any time; keyword search and the file index still work.
 
 ## Media
 

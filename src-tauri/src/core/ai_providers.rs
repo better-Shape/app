@@ -152,6 +152,30 @@ pub fn default_model() -> String {
         .unwrap_or_default()
 }
 
+/// Ids of the providers the app can route to right now, in configuration order.
+pub fn configured_provider_ids() -> Vec<String> {
+    get_config()
+        .map(|config| {
+            config
+                .providers
+                .iter()
+                .filter(|p| p.enabled && !p.api_key.trim().is_empty())
+                .map(|p| p.id.clone())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// One configured connection by id, for diagnostics (settings test buttons).
+///
+/// Unlike [`resolve_model`] this does not require a key: a connection the user
+/// just typed in still needs to be testable, and a keyless local runtime is a
+/// legitimate configuration.
+pub fn provider_by_id(id: &str) -> Option<ResolvedProvider> {
+    let config = get_config()?;
+    config.find(id.trim()).map(from_entry)
+}
+
 /// A provider resolved for one concrete request.
 #[derive(Debug, Clone)]
 pub struct ResolvedProvider {
@@ -301,7 +325,17 @@ pub fn resolve_model(model: &str) -> Result<(ResolvedProvider, String), AppError
     }
 
     let provider = config.first_usable().ok_or_else(no_provider_error)?;
-    Ok((from_entry(provider), requested.to_string()))
+    // A bare provider name (`deepseek`) or an `auto` default that resolved to an
+    // empty model leaves nothing to send. Failing here names the fix instead of
+    // letting the provider answer with an opaque "model not found".
+    let slug = rest.trim();
+    if slug.is_empty() {
+        return Err(AppError::Message(
+            "No model is selected. Pick one under Settings → Providers (or add model ids for your custom endpoint), then try again."
+                .to_string(),
+        ));
+    }
+    Ok((from_entry(provider), slug.to_string()))
 }
 
 /// Provider + model used for codebase embeddings, when one is configured.
@@ -326,8 +360,13 @@ pub fn embeddings_target() -> Option<(ResolvedProvider, String)> {
         config.embedding_model.trim().to_string()
     } else if candidate.id.eq_ignore_ascii_case("openrouter") {
         "openai/text-embedding-3-small".to_string()
-    } else {
+    } else if candidate.id.eq_ignore_ascii_case("openai") {
         "text-embedding-3-small".to_string()
+    } else {
+        // Only OpenAI and OpenRouter are known to serve OpenAI's embedding model.
+        // Guessing it for any other OpenAI-wire provider (Groq, xAI, DeepSeek, a
+        // local runtime) made the indexer hammer an endpoint that cannot answer.
+        return None;
     };
     Some((from_entry(candidate), model))
 }
@@ -425,6 +464,60 @@ pub fn embeddings_endpoint(resolved: &ResolvedProvider) -> String {
     format!("{}/embeddings", resolved.base_url)
 }
 
+/// True when a provider status is worth retrying (rate limits, transient 5xx).
+pub fn is_retryable_status(status: u16) -> bool {
+    matches!(status, 408 | 409 | 425 | 429) || (500..=599).contains(&status)
+}
+
+/// `Retry-After` header (seconds form) → a wait we are willing to honour.
+///
+/// Providers also send an HTTP-date; treating that as "no hint" keeps the retry
+/// immediate rather than sleeping until an unparsed date.
+pub fn retry_after_secs(raw: Option<&str>) -> Option<u64> {
+    let value = raw?.trim();
+    let secs: u64 = value.parse().ok()?;
+    // A provider asking for minutes means something is wrong beyond this turn;
+    // report it instead of blocking the UI.
+    if secs == 0 || secs > 60 {
+        return None;
+    }
+    Some(secs)
+}
+
+/// What the user should do about an HTTP failure, by status.
+fn status_advice(status: u16) -> &'static str {
+    match status {
+        400 => {
+            "The request was rejected. If the message mentions tools, pick a tool-capable model."
+        }
+        401 => "The API key was rejected. Check the key in Settings → Providers.",
+        402 => "The provider account is out of credit or over its quota.",
+        403 => "The key is valid but lacks access to this model or endpoint.",
+        404 => "The model or endpoint was not found. Check the model id and base URL.",
+        407 => "A proxy in front of the provider is asking for authentication.",
+        413 => "The request was too large. Start a new chat or lower the context setting.",
+        422 => "The provider rejected the request body (often an unsupported parameter).",
+        429 => "Rate limit or quota reached. Wait a moment, or switch models.",
+        500..=599 => "The provider had a server error. Retrying usually works.",
+        _ => "The provider rejected the request.",
+    }
+}
+
+/// Actionable one-liner for a non-2xx provider response: what happened, what to
+/// do, where it was routed, then a trimmed slice of the provider's own message.
+pub fn describe_http_error(label: &str, status: u16, body: &str) -> String {
+    let mut message = format!("{label} API error {status} — {}", status_advice(status));
+    let routed = configured_provider_ids();
+    if !routed.is_empty() {
+        message.push_str(&format!("\nEnabled providers: {}.", routed.join(", ")));
+    }
+    let detail: String = body.trim().chars().take(600).collect();
+    if !detail.is_empty() {
+        message.push_str(&format!("\nProvider said: {detail}"));
+    }
+    message
+}
+
 /// Reasoning effort (`low` | `high` | `ultra` | `max` | `super`) → token budget.
 pub fn effort_budget(effort: Option<&str>, fallback: u32) -> u32 {
     match effort.map(|s| s.trim().to_ascii_lowercase()).as_deref() {
@@ -473,8 +566,16 @@ mod tests {
         }
     }
 
+    /// The active configuration is process-global; tests that rewrite it take
+    /// this lock so they never observe each other's providers.
+    fn config_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     #[test]
     fn resolves_prefixed_ids() {
+        let _guard = config_lock();
         set_config(config_with(
             vec![
                 entry("openai", ProviderKind::OpenAi, "sk-test"),
@@ -507,6 +608,7 @@ mod tests {
 
     #[test]
     fn missing_key_is_an_error() {
+        let _guard = config_lock();
         set_config(config_with(
             vec![entry("openai", ProviderKind::OpenAi, "")],
             "",
@@ -517,6 +619,7 @@ mod tests {
 
     #[test]
     fn unconfigured_setup_errors_clearly() {
+        let _guard = config_lock();
         set_config(AiProviderConfig::default());
         let err = resolve_model("auto").unwrap_err().to_string();
         assert!(err.contains("Settings"));
@@ -563,5 +666,80 @@ mod tests {
         assert_eq!(effort_budget(Some("ultra"), 4096), 24576);
         assert_eq!(effort_budget(Some("low"), 4096), 4096);
         assert_eq!(effort_budget(None, 4096), 4096);
+    }
+
+    #[test]
+    fn empty_model_slug_is_reported_not_sent() {
+        let _guard = config_lock();
+        set_config(config_with(
+            vec![entry("custom", ProviderKind::OpenAi, "k")],
+            "",
+        ));
+        // A connection whose model list is empty cannot serve a request.
+        let err = resolve_model("custom").unwrap_err().to_string();
+        assert!(err.contains("No model is selected"), "{err}");
+
+        set_config(config_with(
+            vec![entry("custom", ProviderKind::OpenAi, "k")],
+            "custom/llama3",
+        ));
+        let (_, slug) = resolve_model("auto").unwrap();
+        assert_eq!(slug, "llama3");
+    }
+
+    #[test]
+    fn only_known_embedding_providers_get_a_default_model() {
+        let _guard = config_lock();
+        set_config(config_with(
+            vec![entry("groq", ProviderKind::OpenAi, "k")],
+            "groq/llama-3.3-70b-versatile",
+        ));
+        assert!(embeddings_target().is_none());
+
+        set_config(config_with(
+            vec![entry("openai", ProviderKind::OpenAi, "k")],
+            "openai/gpt-5",
+        ));
+        let (_, model) = embeddings_target().expect("openai embeds");
+        assert_eq!(model, "text-embedding-3-small");
+
+        // A user-chosen model is honoured on any OpenAI-wire provider.
+        let mut config = config_with(
+            vec![entry("groq", ProviderKind::OpenAi, "k")],
+            "groq/llama-3.3-70b-versatile",
+        );
+        config.embedding_model = "nomic-embed-text".to_string();
+        set_config(config);
+        let (provider, model) = embeddings_target().expect("explicit model");
+        assert_eq!(provider.id, "groq");
+        assert_eq!(model, "nomic-embed-text");
+    }
+
+    #[test]
+    fn retry_advice_covers_rate_limits_and_auth() {
+        assert!(is_retryable_status(429));
+        assert!(is_retryable_status(503));
+        assert!(!is_retryable_status(400));
+        assert!(!is_retryable_status(401));
+        assert_eq!(retry_after_secs(Some(" 7 ")), Some(7));
+        assert_eq!(retry_after_secs(Some("120")), None);
+        assert_eq!(
+            retry_after_secs(Some("Wed, 21 Oct 2026 07:28:00 GMT")),
+            None
+        );
+    }
+
+    #[test]
+    fn http_errors_name_the_fix_and_the_route() {
+        let _guard = config_lock();
+        set_config(config_with(
+            vec![entry("openai", ProviderKind::OpenAi, "k")],
+            "openai/gpt-5",
+        ));
+        let message = describe_http_error("OpenAI", 401, "{\"error\":{\"message\":\"bad key\"}}");
+        assert!(message.contains("OpenAI API error 401"), "{message}");
+        assert!(message.contains("Settings → Providers"), "{message}");
+        assert!(message.contains("Enabled providers: openai"), "{message}");
+        assert!(message.contains("bad key"), "{message}");
     }
 }

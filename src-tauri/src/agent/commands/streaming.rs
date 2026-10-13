@@ -37,13 +37,67 @@ pub fn resolve_provider(model: &str) -> Result<(ResolvedProvider, String), AppEr
     resolve_model(model)
 }
 
+/// Extra attempts for provider-side rate limits and transient 5xx answers.
+const MAX_STATUS_RETRIES: u32 = 2;
+
+/// Actionable text for a non-2xx provider response (what happened, what to do,
+/// which providers are enabled, then the provider's own message).
 fn llm_http_error(provider: &ResolvedProvider, status: reqwest::StatusCode, text: &str) -> String {
-    format!(
-        "{} API error {}: {}",
-        provider.label_or_id(),
-        status,
-        &text[..floor_char_boundary(text, 800)]
-    )
+    crate::core::ai_providers::describe_http_error(provider.label_or_id(), status.as_u16(), text)
+}
+
+/// Outcome for a turn cancelled before anything streamed.
+fn cancelled_outcome() -> StreamOutcome {
+    StreamOutcome {
+        content: String::new(),
+        tool_calls: Vec::new(),
+        finish_reason: None,
+        token_count: 0,
+        input_tokens: 0,
+        output_tokens: 0,
+        had_reasoning: false,
+        reasoning: None,
+        reasoning_details: None,
+    }
+}
+
+/// Send one request, retrying transport failures with exponential backoff and
+/// bailing out the moment the user cancels.
+async fn send_with_retry(
+    client: &Client,
+    api_key: &str,
+    provider: &ResolvedProvider,
+    provider_model: &str,
+    body: &Value,
+    token: &tokio_util::sync::CancellationToken,
+) -> Result<reqwest::Response, AppError> {
+    let retry_strategy = backoff::ExponentialBackoff {
+        max_elapsed_time: Some(std::time::Duration::from_secs(30)),
+        ..Default::default()
+    };
+    backoff::future::retry(retry_strategy, || async {
+        if token.is_cancelled() {
+            return Err(backoff::Error::Permanent(AppError::Message(
+                "Cancelled".to_string(),
+            )));
+        }
+        tokio::select! {
+            biased;
+            _ = token.cancelled() => {
+                Err(backoff::Error::Permanent(AppError::Message(
+                    "Cancelled".to_string(),
+                )))
+            }
+            result = provider_request(client, api_key, provider, provider_model, body, true)
+                .send() => {
+                result.map_err(|e| {
+                    logging::warn("stream", &format!("Request failed (will retry): {}", e));
+                    backoff::Error::transient(AppError::Network(e))
+                })
+            }
+        }
+    })
+    .await
 }
 
 /// Per-request metadata (feature tag, turn ids, reasoning knobs).
@@ -344,50 +398,56 @@ pub async fn stream_chat(
         ),
     );
 
-    let retry_strategy = backoff::ExponentialBackoff {
-        max_elapsed_time: Some(std::time::Duration::from_secs(30)),
-        ..Default::default()
-    };
+    // Providers answer 429/5xx for reasons that clear on their own — a rate limit
+    // window, a momentary outage. Retrying inside the turn (honouring Retry-After)
+    // keeps the chat alive instead of failing the whole turn on the first hiccup.
+    let mut attempt: u32 = 0;
+    let resp = loop {
+        let response =
+            match send_with_retry(client, api_key, &provider, &provider_model, &body, &token).await
+            {
+                Ok(response) => response,
+                Err(AppError::Message(msg)) if msg == "Cancelled" || token.is_cancelled() => {
+                    return Ok(cancelled_outcome());
+                }
+                Err(err) => return Err(err),
+            };
 
-    let resp = backoff::future::retry(retry_strategy, || async {
-        if token.is_cancelled() {
-            return Err(backoff::Error::Permanent(AppError::Message(
-                "Cancelled".to_string(),
-            )));
+        let status = response.status();
+        if status.is_success()
+            || !crate::core::ai_providers::is_retryable_status(status.as_u16())
+            || attempt >= MAX_STATUS_RETRIES
+        {
+            break response;
         }
+
+        let wait = crate::core::ai_providers::retry_after_secs(
+            response
+                .headers()
+                .get("retry-after")
+                .and_then(|value| value.to_str().ok()),
+        )
+        .unwrap_or_else(|| 2u64 << attempt.min(2));
+        attempt += 1;
+        logging::warn(
+            "stream",
+            &format!(
+                "Provider returned {} — retrying in {}s (attempt {}/{})",
+                status, wait, attempt, MAX_STATUS_RETRIES
+            ),
+        );
+        emit_chat_status(
+            app_handle,
+            serde_json::json!({
+                "phase": "retry",
+                "label": format!("Provider busy — retrying in {wait}s"),
+            }),
+        );
         tokio::select! {
             biased;
-            _ = token.cancelled() => {
-                Err(backoff::Error::Permanent(AppError::Message(
-                    "Cancelled".to_string(),
-                )))
-            }
-            result = provider_request(client, api_key, &provider, &provider_model, &body, true)
-                .send() => {
-                result.map_err(|e| {
-                    logging::warn("stream", &format!("Request failed (will retry): {}", e));
-                    backoff::Error::transient(AppError::Network(e))
-                })
-            }
+            _ = token.cancelled() => return Ok(cancelled_outcome()),
+            _ = tokio::time::sleep(std::time::Duration::from_secs(wait)) => {}
         }
-    })
-    .await;
-    let resp = match resp {
-        Ok(response) => response,
-        Err(AppError::Message(msg)) if msg == "Cancelled" || token.is_cancelled() => {
-            return Ok(StreamOutcome {
-                content: String::new(),
-                tool_calls: Vec::new(),
-                finish_reason: None,
-                token_count: 0,
-                input_tokens: 0,
-                output_tokens: 0,
-                had_reasoning: false,
-                reasoning: None,
-                reasoning_details: None,
-            });
-        }
-        Err(err) => return Err(err),
     };
 
     if !resp.status().is_success() {
