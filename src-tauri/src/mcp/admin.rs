@@ -127,7 +127,11 @@ fn servers_object(doc: &mut Value) -> &mut serde_json::Map<String, Value> {
         *doc = json!({});
     }
     let obj = doc.as_object_mut().expect("object");
-    if !obj.get("mcpServers").map(|v| v.is_object()).unwrap_or(false) {
+    if !obj
+        .get("mcpServers")
+        .map(|v| v.is_object())
+        .unwrap_or(false)
+    {
         obj.insert("mcpServers".into(), json!({}));
     }
     obj.get_mut("mcpServers")
@@ -185,7 +189,11 @@ pub fn entry_json(cfg: &McpServerConfig) -> Value {
     if !cfg.disabled_tools.is_empty() {
         obj.insert("disabledTools".into(), json!(cfg.disabled_tools));
     }
-    if let Some(client_id) = cfg.oauth_client_id.as_ref().filter(|s| !s.trim().is_empty()) {
+    if let Some(client_id) = cfg
+        .oauth_client_id
+        .as_ref()
+        .filter(|s| !s.trim().is_empty())
+    {
         obj.insert("oauthClientId".into(), json!(client_id));
     }
     Value::Object(obj)
@@ -606,7 +614,8 @@ mod tests {
     #[test]
     fn patch_only_touches_supplied_fields() {
         let cfg = stdio_cfg("keep", "npx");
-        let mut doc = json!({ "mcpServers": { "keep": entry_json(&cfg), "other": { "command": "uvx" } } });
+        let mut doc =
+            json!({ "mcpServers": { "keep": entry_json(&cfg), "other": { "command": "uvx" } } });
         // Exercise the same mutation path `patch` uses, without touching disk.
         {
             let servers = servers_object(&mut doc);

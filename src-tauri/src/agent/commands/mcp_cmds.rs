@@ -52,12 +52,16 @@ pub fn sync_mcp_servers(
 }
 
 #[tauri::command]
-pub fn get_mcp_status(mcp_state: tauri::State<'_, McpState>) -> Result<Vec<McpStatusEntry>, AppError> {
+pub fn get_mcp_status(
+    mcp_state: tauri::State<'_, McpState>,
+) -> Result<Vec<McpStatusEntry>, AppError> {
     mcp_state.get_status().map_err(|e| AppError::Message(e))
 }
 
 #[tauri::command]
-pub fn get_mcp_tools(mcp_state: tauri::State<'_, McpState>) -> Result<Vec<crate::mcp::McpToolInfo>, AppError> {
+pub fn get_mcp_tools(
+    mcp_state: tauri::State<'_, McpState>,
+) -> Result<Vec<crate::mcp::McpToolInfo>, AppError> {
     mcp_state.all_tools().map_err(|e| AppError::Message(e))
 }
 
@@ -66,7 +70,9 @@ pub fn restart_mcp_server(
     id: String,
     mcp_state: tauri::State<'_, McpState>,
 ) -> Result<McpStatusEntry, AppError> {
-    mcp_state.restart_server(&id).map_err(|e| AppError::Message(e))
+    mcp_state
+        .restart_server(&id)
+        .map_err(|e| AppError::Message(e))
 }
 
 #[tauri::command]
@@ -129,7 +135,10 @@ pub async fn mcp_manage_servers(
     use tauri::Emitter;
 
     let announce = |action: &str, id: Option<&str>| {
-        let _ = app_handle.emit("mcp-servers-changed", serde_json::json!({ "action": action, "id": id }));
+        let _ = app_handle.emit(
+            "mcp-servers-changed",
+            serde_json::json!({ "action": action, "id": id }),
+        );
     };
 
     let action = request.action.trim().to_ascii_lowercase();
@@ -237,10 +246,7 @@ pub async fn mcp_registry_install(
     let taken = admin::load_server(&cfg.id)
         .map_err(AppError::Message)?
         .is_some()
-        || mcp_state
-            .configs_snapshot()
-            .iter()
-            .any(|s| s.id == cfg.id);
+        || mcp_state.configs_snapshot().iter().any(|s| s.id == cfg.id);
     if taken && !replace.unwrap_or(false) {
         return Err(AppError::Message(format!(
             "'{}' is already configured. Open it in the list, or remove it first.",
@@ -283,9 +289,12 @@ pub fn mcp_reload_from_file(
     let mut previously_file_sourced = mcp_state.file_sourced_ids();
     previously_file_sourced.extend(crate::mcp::admin::written_ids_snapshot());
     let mut servers: Vec<McpServerConfig> = file_servers;
-    servers.extend(mcp_state.configs_snapshot().into_iter().filter(|s| {
-        !file_ids.contains(&s.id) && !previously_file_sourced.contains(&s.id)
-    }));
+    servers.extend(
+        mcp_state
+            .configs_snapshot()
+            .into_iter()
+            .filter(|s| !file_ids.contains(&s.id) && !previously_file_sourced.contains(&s.id)),
+    );
     mcp_state.remember_file_sourced(file_ids);
     mcp_state.sync_servers(servers).map_err(AppError::Message)
 }

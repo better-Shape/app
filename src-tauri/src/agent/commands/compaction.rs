@@ -152,7 +152,10 @@ pub fn hard_ceiling_tokens(model: &str) -> usize {
 
 /// Tokens in a conversation, as the model would see it.
 pub fn history_tokens(history: &[ChatMessage]) -> usize {
-    history.iter().map(|m| estimate_tokens(&m.content) + 4).sum()
+    history
+        .iter()
+        .map(|m| estimate_tokens(&m.content) + 4)
+        .sum()
 }
 
 // ---------------------------------------------------------------------------
@@ -204,7 +207,8 @@ impl CompactionRecord {
     pub fn describe(&self) -> String {
         format!(
             "compacted {} messages ({}k → {}k tokens)",
-            self.messages_before.saturating_sub(self.folded_end.saturating_sub(self.folded_start)),
+            self.messages_before
+                .saturating_sub(self.folded_end.saturating_sub(self.folded_start)),
             self.tokens_before / 1000,
             self.tokens_after / 1000,
         )
@@ -263,7 +267,7 @@ pub struct CompactionState {
 }
 
 impl CompactionState {
-        /// Record a pass over the *conversation history*, where `folded_end` is an
+    /// Record a pass over the *conversation history*, where `folded_end` is an
     /// index into that history. Later sends can reuse the boundary directly.
     pub fn mark_success(&mut self, record: CompactionRecord) {
         self.summary_fold_end = record.folded_end;
@@ -348,9 +352,7 @@ impl CompactionState {
             return PauseOutcome::Override(note);
         }
         let grown = tokens.saturating_sub(pause.baseline_tokens);
-        if now >= pause.expires_at
-            || grown >= PAUSE_TOKEN_BUDGET
-            || pause.skips >= PAUSE_MAX_SKIPS
+        if now >= pause.expires_at || grown >= PAUSE_TOKEN_BUDGET || pause.skips >= PAUSE_MAX_SKIPS
         {
             self.pause = None;
             return PauseOutcome::Idle;
@@ -502,12 +504,10 @@ fn tool_targets(api_messages: &[Value]) -> std::collections::HashMap<String, Str
             if !DEDUPABLE_TOOLS.contains(&name) {
                 continue;
             }
-            let args: Option<Value> = func
-                .and_then(|f| f.get("arguments"))
-                .and_then(|v| match v {
-                    Value::String(s) => serde_json::from_str(s).ok(),
-                    other => Some(other.clone()),
-                });
+            let args: Option<Value> = func.and_then(|f| f.get("arguments")).and_then(|v| match v {
+                Value::String(s) => serde_json::from_str(s).ok(),
+                other => Some(other.clone()),
+            });
             let Some(args) = args else { continue };
             let key = args
                 .get("path")
@@ -523,7 +523,11 @@ fn tool_targets(api_messages: &[Value]) -> std::collections::HashMap<String, Str
                 args.get("end_line").and_then(|v| v.as_u64()),
             ) {
                 (None, None) => String::new(),
-                (s, e) => format!(":{}-{}", s.unwrap_or(1), e.map(|v| v.to_string()).unwrap_or_else(|| "end".into())),
+                (s, e) => format!(
+                    ":{}-{}",
+                    s.unwrap_or(1),
+                    e.map(|v| v.to_string()).unwrap_or_else(|| "end".into())
+                ),
             };
             out.insert(id.to_string(), format!("{name}:{key}{range}"));
         }
@@ -548,7 +552,8 @@ pub struct PruneReport {
 pub fn prune_redundant_messages(messages: &mut [Value]) -> PruneReport {
     // Newest target wins. Walk backwards so we see newer ones first.
     let targets = tool_targets(messages);
-    let mut seen_target: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut seen_target: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::new();
     let mut seen_hash: std::collections::HashMap<u64, usize> = std::collections::HashMap::new();
     let mut report = PruneReport::default();
 
@@ -1055,12 +1060,7 @@ pub fn apply_stored_summary(
         tail_tokens: tokens_before.saturating_sub(span_tokens),
     };
     Some(apply_compaction(
-        history,
-        &plan,
-        &summary,
-        "resumed",
-        None,
-        None,
+        history, &plan, &summary, "resumed", None, None,
     ))
 }
 
@@ -1236,7 +1236,11 @@ pub struct CompactionOutcome {
 /// span) and `Err` when the summarizer call or its output failed.
 /// The conversation the app is showing right now, if any.
 fn current_conversation_id(state: &AgentState) -> Option<String> {
-    state.current_conversation_id.lock().ok().and_then(|c| c.clone())
+    state
+        .current_conversation_id
+        .lock()
+        .ok()
+        .and_then(|c| c.clone())
 }
 
 pub async fn compact_history(
@@ -1253,7 +1257,10 @@ pub async fn compact_history(
         ));
     }
     let Some(plan) = plan_compaction(history, req.keep_recent, drain_line_tokens(req.model)) else {
-        logging::info("compaction", "No foldable span — history is already compact");
+        logging::info(
+            "compaction",
+            "No foldable span — history is already compact",
+        );
         return Ok(None);
     };
 
@@ -1269,7 +1276,8 @@ pub async fn compact_history(
     // Summarize only what the stored summary does not cover yet, and hand the
     // previous summary in as the base. Re-reading the whole span every pass is
     // what erodes detail over a long session.
-    let span_start = if previous.is_some() && already_covered > plan.fold_start
+    let span_start = if previous.is_some()
+        && already_covered > plan.fold_start
         && already_covered < plan.fold_end
     {
         already_covered
@@ -1466,7 +1474,10 @@ pub async fn maybe_auto_compact(
             return None;
         }
         if guard.in_backoff(now) {
-            logging::debug("compaction", "Auto-compaction in backoff after a low-yield pass");
+            logging::debug(
+                "compaction",
+                "Auto-compaction in backoff after a low-yield pass",
+            );
             return None;
         }
         if guard.last_compacted_at > 0.0 && now - guard.last_compacted_at < MIN_PASS_INTERVAL_SECS {
@@ -1638,7 +1649,8 @@ pub async fn compact_api_messages(
     }
 
     let owned_conversation = current_conversation_id(state);
-    let Some(produced) = summarize_payload_prefix(state, api_messages, fold_end, &req).await? else {
+    let Some(produced) = summarize_payload_prefix(state, api_messages, fold_end, &req).await?
+    else {
         return Ok(None);
     };
     let PayloadSummary {
@@ -1802,7 +1814,8 @@ pub async fn maybe_shrink_payload(
         return Ok(None);
     };
     let owned_conversation = current_conversation_id(state);
-    let Some(produced) = summarize_payload_prefix(state, api_messages, fold_end, &req).await? else {
+    let Some(produced) = summarize_payload_prefix(state, api_messages, fold_end, &req).await?
+    else {
         return Ok(None);
     };
     let PayloadSummary {
@@ -1946,7 +1959,20 @@ fn api_tail_start(messages: &[Value], keep: usize) -> Option<usize> {
 pub fn compaction_view(state: &AgentState) -> Value {
     // Read everything out of the locks first: the view is composed from plain
     // values so no two mutexes are ever held at the same time.
-    let (summary_version, records, consecutive_failures, last_failure, backoff_until, breaker_open, last_compacted_at, pause, pins, skips_total, overrides, last_override) = {
+    let (
+        summary_version,
+        records,
+        consecutive_failures,
+        last_failure,
+        backoff_until,
+        breaker_open,
+        last_compacted_at,
+        pause,
+        pins,
+        skips_total,
+        overrides,
+        last_override,
+    ) = {
         match state.compaction.lock() {
             Ok(guard) => (
                 guard.summary_version,
@@ -1962,7 +1988,20 @@ pub fn compaction_view(state: &AgentState) -> Value {
                 guard.overrides,
                 guard.last_override.clone(),
             ),
-            Err(_) => (0, Vec::new(), 0, None, 0.0, false, 0.0, None, Vec::new(), 0, 0, None),
+            Err(_) => (
+                0,
+                Vec::new(),
+                0,
+                None,
+                0.0,
+                false,
+                0.0,
+                None,
+                Vec::new(),
+                0,
+                0,
+                None,
+            ),
         }
     };
     let summary_chars = state
@@ -2062,11 +2101,20 @@ pub async fn compact_chat(
 
     let client = reqwest::Client::new();
     let proxy = ProxyContext::new("chat")
-        .with_turn(None, state.current_conversation_id.lock().ok().and_then(|g| g.clone()))
+        .with_turn(
+            None,
+            state
+                .current_conversation_id
+                .lock()
+                .ok()
+                .and_then(|g| g.clone()),
+        )
         .with_project_path(Some(project_path.clone()).filter(|p| !p.is_empty()));
 
     let mut req = CompactRequest::new(&client, &api_key, proxy, &model_id, "manual");
-    req.focus = focus.map(|f| f.trim().to_string()).filter(|f| !f.is_empty());
+    req.focus = focus
+        .map(|f| f.trim().to_string())
+        .filter(|f| !f.is_empty());
     req.instructions = instructions
         .map(|i| i.trim().to_string())
         .filter(|i| !i.is_empty());
@@ -2143,11 +2191,7 @@ pub fn pause_auto(
 }
 
 /// Tell the settings panel that a hold started or ended.
-pub fn announce_pause(
-    app: &tauri::AppHandle,
-    state: &AgentState,
-    paused: bool,
-) {
+pub fn announce_pause(app: &tauri::AppHandle, state: &AgentState, paused: bool) {
     use tauri::Emitter;
     let conversation_id = state
         .current_conversation_id
@@ -2175,9 +2219,7 @@ pub fn reset_compaction(state: tauri::State<'_, AgentState>) -> Result<(), AppEr
 
 /// Compaction state for the context-window panel.
 #[tauri::command]
-pub fn get_compaction_state(
-    state: tauri::State<'_, AgentState>,
-) -> Result<Value, AppError> {
+pub fn get_compaction_state(state: tauri::State<'_, AgentState>) -> Result<Value, AppError> {
     Ok(compaction_view(&state))
 }
 
@@ -2236,10 +2278,7 @@ mod tests {
         assert_eq!(history[plan.fold_end].role, "user");
         assert_eq!(plan.fold_start, 0);
         assert!(plan.span_tokens >= MIN_SPAN_TOKENS);
-        assert_eq!(
-            plan.tokens_before,
-            plan.span_tokens + plan.tail_tokens
-        );
+        assert_eq!(plan.tokens_before, plan.span_tokens + plan.tail_tokens);
     }
 
     #[test]
@@ -2306,7 +2345,8 @@ mod tests {
 
     #[test]
     fn chatter_before_the_sections_is_dropped() {
-        let raw = "Sure! Here is the summary you asked for:\n\n1. Primary Request and Intent: ship it";
+        let raw =
+            "Sure! Here is the summary you asked for:\n\n1. Primary Request and Intent: ship it";
         assert!(format_compact_summary(raw).starts_with("1. Primary Request"));
     }
 
@@ -2359,9 +2399,7 @@ mod tests {
                 }]
             })
         };
-        let tool = |id: &str, name: &str, content: &str| {
-            json!({"role": "tool", "tool_call_id": id, "name": name, "content": content})
-        };
+        let tool = |id: &str, name: &str, content: &str| json!({"role": "tool", "tool_call_id": id, "name": name, "content": content});
         let mut messages = vec![
             call("1", "read_file", "{\"path\":\"a.rs\"}"),
             tool("1", "read_file", "old a"),
@@ -2397,13 +2435,14 @@ mod tests {
                 }]
             })
         };
-        let tool = |id: &str, content: &str| {
-            json!({"role": "tool", "tool_call_id": id, "name": "read_file", "content": content})
-        };
+        let tool = |id: &str, content: &str| json!({"role": "tool", "tool_call_id": id, "name": "read_file", "content": content});
         let mut messages = vec![
             call("1", "{\"path\":\"a.rs\",\"start_line\":1,\"end_line\":50}"),
             tool("1", "head"),
-            call("2", "{\"path\":\"a.rs\",\"start_line\":200,\"end_line\":260}"),
+            call(
+                "2",
+                "{\"path\":\"a.rs\",\"start_line\":200,\"end_line\":260}",
+            ),
             tool("2", "tail"),
         ];
         assert_eq!(prune_redundant_messages(&mut messages).pruned, 0);
@@ -2417,7 +2456,9 @@ mod tests {
         // No pass has happened in this session: nothing to apply.
         assert!(apply_stored_summary(&state, &history, KEEP_RECENT_MESSAGES, "auto").is_none());
 
-        state.set_current_summary(Some("previous summary text that is long enough to be usable at all".into()));
+        state.set_current_summary(Some(
+            "previous summary text that is long enough to be usable at all".into(),
+        ));
         assert!(apply_stored_summary(&state, &history, KEEP_RECENT_MESSAGES, "auto").is_none());
 
         {
@@ -2520,7 +2561,10 @@ mod tests {
         let fill = fill_line_tokens(model);
         let ceiling = hard_ceiling_tokens(model);
 
-        assert_eq!(mid_turn_decision(fill - 1, model, false), MidTurnDecision::No);
+        assert_eq!(
+            mid_turn_decision(fill - 1, model, false),
+            MidTurnDecision::No
+        );
         assert_eq!(mid_turn_decision(fill, model, false), MidTurnDecision::Fold);
         // A hold is the agent's say, and it holds below the ceiling.
         assert_eq!(mid_turn_decision(fill, model, true), MidTurnDecision::Wait);

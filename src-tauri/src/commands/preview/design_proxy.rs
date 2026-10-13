@@ -470,15 +470,9 @@ mod tests {
         assert!(
             !out.contains("frame-ancestors *")
                 && out.contains("tauri.localhost")
-                && extract_and_strip_proxy_token(
-                    Some("a=1&__bettershape_proxy_token=x&b=2"),
-                    "x"
-                ) == (true, Some("a=1&b=2".into()))
-                && !extract_and_strip_proxy_token(
-                    Some("__bettershape_proxy_token=y"),
-                    "x"
-                )
-                .0
+                && extract_and_strip_proxy_token(Some("a=1&__bettershape_proxy_token=x&b=2"), "x")
+                    == (true, Some("a=1&b=2".into()))
+                && !extract_and_strip_proxy_token(Some("__bettershape_proxy_token=y"), "x").0
         );
     }
 }

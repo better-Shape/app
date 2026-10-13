@@ -761,12 +761,8 @@ pub async fn run_agent_turn(mut config: AgentTurnConfig<'_>) -> Result<AgentTurn
             req.instructions = config.compact_instructions.clone();
             req.project_path = config.project_path;
             req.app_handle = Some(config.app_handle);
-            match compaction::maybe_shrink_payload(
-                config.agent_state,
-                config.api_messages,
-                req,
-            )
-            .await
+            match compaction::maybe_shrink_payload(config.agent_state, config.api_messages, req)
+                .await
             {
                 Ok(Some(record)) => {
                     // The transcript those caches referred to is gone, so a file
@@ -776,10 +772,7 @@ pub async fn run_agent_turn(mut config: AgentTurnConfig<'_>) -> Result<AgentTurn
                     read_coverage.clear();
                     executed_readonly_calls.clear();
                     read_paths.clear();
-                    logging::info(
-                        "chat",
-                        &format!("Mid-turn auto-{}", record.describe()),
-                    );
+                    logging::info("chat", &format!("Mid-turn auto-{}", record.describe()));
                 }
                 Ok(None) => {}
                 Err(e) => logging::warn(
