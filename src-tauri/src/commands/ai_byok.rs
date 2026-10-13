@@ -345,10 +345,11 @@ pub async fn ai_check_provider(
     });
 
     let started = Instant::now();
-    let response =
-        crate::agent::commands::provider_wire::request(&client, &provider, &model, &body, false)
-            .send()
-            .await?;
+    let response = crate::agent::commands::provider_wire::request(
+        &client, &provider, &model, &body, false, None,
+    )
+    .send()
+    .await?;
     let status = response.status();
     let text = response.text().await.unwrap_or_default();
     let latency_ms = started.elapsed().as_millis() as u64;

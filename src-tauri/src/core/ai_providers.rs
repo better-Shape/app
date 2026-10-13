@@ -505,6 +505,50 @@ pub fn user_agent() -> String {
     format!("bettershape/{}", env!("CARGO_PKG_VERSION"))
 }
 
+/// True for OpenCode's gateways (Zen, Zen Messages, Go).
+///
+/// Their docs ask every coding agent to identify itself with its own user agent
+/// and to send a stable per-conversation id in `x-opencode-session`, which they
+/// use for routing and prompt caching. Third-party clients that do both are
+/// listed as validated; without the session header the Go endpoint answers 400.
+pub fn is_opencode_gateway(provider: &ResolvedProvider) -> bool {
+    provider.base_url.contains("opencode.ai")
+}
+
+/// A conversation id shaped for a header: printable token characters only.
+pub fn session_id(conversation_id: Option<&str>) -> Option<String> {
+    let cleaned: String = conversation_id?
+        .trim()
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+        .take(96)
+        .collect();
+    (!cleaned.is_empty()).then_some(cleaned)
+}
+
+/// What the user should do about an OpenCode gateway refusal.
+///
+/// The gateways answer with their own error types; a generic "403" line hides
+/// the one action that fixes it.
+fn opencode_advice(status: u16, body: &str) -> Option<&'static str> {
+    let lower = body.to_ascii_lowercase();
+    if lower.contains("freetiererror") {
+        return Some(
+            "OpenCode's free models are free for OpenCode accounts, but the gateway refuses traffic it cannot attribute. Add your OpenCode Console API key (opencode.ai/console) under Settings \u{2192} Providers \u{2192} OpenCode Zen, or take the Go subscription for the same models with a monthly allowance.",
+        );
+    }
+    if status == 401
+        && (lower.contains("missing api key")
+            || lower.contains("requires a credential")
+            || lower.contains("autherr"))
+    {
+        return Some(
+            "OpenCode Zen and Go need your own API key: copy it from opencode.ai/console and paste it in Settings \u{2192} Providers \u{2192} OpenCode Zen.",
+        );
+    }
+    None
+}
+
 /// Header carrying the API key for this connection, or `None` for keyless
 /// endpoints and `auth_style: none`.
 ///
@@ -540,6 +584,19 @@ pub fn auth_header(provider: &ResolvedProvider) -> Option<(&'static str, String)
 /// own headers (which win), then the key — unless a connection header already
 /// carries that name.
 pub fn request_headers(provider: &ResolvedProvider) -> reqwest::header::HeaderMap {
+    request_headers_for(provider, None)
+}
+
+/// Headers for one request.
+///
+/// `session` is the conversation id when the caller has one. Only OpenCode's
+/// gateways get the extra identification: it is what their docs ask of every
+/// coding agent, and it keeps traffic attributable to this app rather than
+/// pretending to be OpenCode.
+pub fn request_headers_for(
+    provider: &ResolvedProvider,
+    session: Option<&str>,
+) -> reqwest::header::HeaderMap {
     let mut map = reqwest::header::HeaderMap::new();
     if let Ok(value) = reqwest::header::HeaderValue::from_str(&user_agent()) {
         map.insert(reqwest::header::USER_AGENT, value.clone());
@@ -569,6 +626,20 @@ pub fn request_headers(provider: &ResolvedProvider) -> reqwest::header::HeaderMa
             continue;
         };
         map.insert(name, value);
+    }
+    if is_opencode_gateway(provider) {
+        if let Some(id) = session_id(session) {
+            if let Ok(value) = reqwest::header::HeaderValue::from_str(&id) {
+                map.insert(
+                    reqwest::header::HeaderName::from_static("x-opencode-session"),
+                    value,
+                );
+            }
+        }
+        map.insert(
+            reqwest::header::HeaderName::from_static("x-opencode-client"),
+            reqwest::header::HeaderValue::from_static("bettershape"),
+        );
     }
     if let Some((name, value)) = auth_header(provider) {
         if !map.contains_key(name) {
@@ -654,7 +725,8 @@ fn status_advice(status: u16) -> &'static str {
 /// Actionable one-liner for a non-2xx provider response: what happened, what to
 /// do, where it was routed, then a trimmed slice of the provider's own message.
 pub fn describe_http_error(label: &str, status: u16, body: &str) -> String {
-    let mut message = format!("{label} API error {status} — {}", status_advice(status));
+    let advice = opencode_advice(status, body).unwrap_or_else(|| status_advice(status));
+    let mut message = format!("{label} API error {status} — {advice}");
     let routed = configured_provider_ids();
     if !routed.is_empty() {
         message.push_str(&format!("\nEnabled providers: {}.", routed.join(", ")));
@@ -907,6 +979,72 @@ mod tests {
             ..base
         };
         assert_eq!(auth_header(&keyless), None);
+    }
+
+    #[test]
+    fn opencode_gateways_get_the_session_header_their_docs_require() {
+        let provider = ResolvedProvider {
+            id: "zen".into(),
+            kind: ProviderKind::OpenAi,
+            label: "OpenCode Zen".into(),
+            api_key: "oc_sk_x".into(),
+            base_url: "https://opencode.ai/inference/v1".into(),
+            keyless: false,
+            headers: HashMap::new(),
+            auth_style: String::new(),
+        };
+
+        // A conversation id travels as-is; a client name is attached, and our
+        // own user agent is what goes out (never OpenCode's).
+        let map = request_headers_for(&provider, Some("chat-42"));
+        assert_eq!(map.get("x-opencode-session").unwrap(), "chat-42");
+        assert_eq!(map.get("x-opencode-client").unwrap(), "bettershape");
+        assert!(map
+            .get(reqwest::header::USER_AGENT)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .starts_with("bettershape/"));
+
+        // Junk is dropped rather than sent as a broken header.
+        let map = request_headers_for(&provider, Some("   "));
+        assert!(map.get("x-opencode-session").is_none());
+        let map = request_headers_for(&provider, Some("a\nb\tc"));
+        assert_eq!(map.get("x-opencode-session").unwrap(), "abc");
+
+        // Other providers never see the OpenCode headers.
+        let other = ResolvedProvider {
+            base_url: "https://api.openai.com/v1".into(),
+            ..provider.clone()
+        };
+        let map = request_headers_for(&other, Some("chat-42"));
+        assert!(map.get("x-opencode-session").is_none());
+        assert!(map.get("x-opencode-client").is_none());
+    }
+
+    #[test]
+    fn opencode_refusals_name_the_fix() {
+        let free = describe_http_error(
+            "Zen",
+            403,
+            "{\"error\":{\"type\":\"FreeTierError\",\"message\":\"OpenCode's free tier can only be used from within OpenCode.\"}}",
+        );
+        assert!(free.contains("Settings"), "{free}");
+        assert!(free.contains("opencode.ai/console"), "{free}");
+
+        let unauthorized = describe_http_error(
+            "Zen",
+            401,
+            "{\"error\":{\"type\":\"AuthError\",\"message\":\"Missing API key.\"}}",
+        );
+        assert!(
+            unauthorized.contains("opencode.ai/console"),
+            "{unauthorized}"
+        );
+
+        // Anything else keeps the generic advice.
+        let generic = describe_http_error("Zen", 429, "{\"error\":\"slow down\"}");
+        assert!(generic.contains("Rate limit"), "{generic}");
     }
 
     #[test]

@@ -21,6 +21,7 @@ export type ProviderId =
   | "openrouter"
   | "zen"
   | "zen-messages"
+  | "zen-go"
   | "nvidia"
   | "xai"
   | "deepseek"
@@ -66,6 +67,8 @@ export type ProviderPreset = {
   needsBaseUrl: boolean;
   keyHint: string;
   docsUrl: string;
+  /** One line under the wire name: what this provider needs, or what it includes. */
+  note?: string;
   /**
    * True when the endpoint answers without an API key: local runtimes, and
    * gateways with a free tier. Keyless providers ship turned off so a fresh
@@ -205,20 +208,37 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     kind: "openai",
     baseUrl: "https://opencode.ai/inference/v1",
     needsBaseUrl: false,
-    keyHint: "oc_sk_… (free models need no key)",
-    docsUrl: "https://opencode.ai/docs/zen",
-    // The free tier answers without credentials; turn it on to use it.
-    keyless: true,
+    keyHint: "oc_sk_… from opencode.ai/console",
+    docsUrl: "https://opencode.ai/v2/docs/console/models/",
+    note: "Free models included with a Console account key; paid models bill credits.",
+    // Free models are free for OpenCode accounts but the gateway only serves
+    // them to attributable traffic, so this needs the user's own Console key.
     defaultEnabled: false,
     models: [
-      { id: "zen/kimi-k2.6", name: "Kimi K2.6", contextWindow: "256K" },
-      { id: "zen/kimi-k2.5", name: "Kimi K2.5", contextWindow: "256K" },
-      { id: "zen/kimi-k2.7-code", name: "Kimi K2.7 Code", contextWindow: "256K" },
-      { id: "zen/glm-5.2", name: "GLM 5.2", contextWindow: "200K" },
-      { id: "zen/glm-5.1", name: "GLM 5.1", contextWindow: "200K" },
-      { id: "zen/minimax-m2.7", name: "MiniMax M2.7", contextWindow: "200K" },
+      // Free with an OpenCode account, while the free list lasts.
+      { id: "zen/ling-3.1-flash-free", name: "Ling 3.1 Flash · free", contextWindow: "128K" },
+      { id: "zen/ling-3.0-flash-fin-free", name: "Ling 3.0 Flash Fin · free", contextWindow: "128K" },
+      { id: "zen/nemotron-3.5-lightning-free", name: "Nemotron 3.5 Lightning · free", contextWindow: "128K" },
+      { id: "zen/nemotron-3-ultra-free", name: "Nemotron 3 Ultra · free", contextWindow: "128K" },
+      { id: "zen/mimo-v2.6-flash-free", name: "MiMo V2.6 Flash · free", contextWindow: "128K" },
+      { id: "zen/mimo-v2.5-free", name: "MiMo V2.5 · free", contextWindow: "128K" },
+      { id: "zen/exo-free", name: "Exo · free", contextWindow: "128K" },
+      { id: "zen/space-bunny-free", name: "Space Bunny · free", contextWindow: "256K" },
+      { id: "zen/cat-jam-free", name: "Cat Jam · free", contextWindow: "256K" },
+      { id: "zen/longcat-2.5-preview-free", name: "LongCat 2.5 Preview · free", contextWindow: "256K" },
+      { id: "zen/step-5-preview-free", name: "Step 5 Preview · free", contextWindow: "256K" },
+      { id: "zen/big-pickle", name: "Big Pickle · free", contextWindow: "256K" },
+      // Pay-as-you-go models, charged against Console credits.
       { id: "zen/deepseek-v4-flash", name: "DeepSeek V4 Flash", contextWindow: "128K" },
       { id: "zen/deepseek-v4-pro", name: "DeepSeek V4 Pro", contextWindow: "128K" },
+      { id: "zen/deepseek-v4.1-flash", name: "DeepSeek V4.1 Flash", contextWindow: "128K" },
+      { id: "zen/glm-5.3-flash", name: "GLM 5.3 Flash", contextWindow: "200K" },
+      { id: "zen/glm-5.2", name: "GLM 5.2", contextWindow: "200K" },
+      { id: "zen/kimi-k2.6", name: "Kimi K2.6", contextWindow: "256K" },
+      { id: "zen/kimi-k2.7-code", name: "Kimi K2.7 Code", contextWindow: "256K" },
+      { id: "zen/minimax-m2.7", name: "MiniMax M2.7", contextWindow: "200K" },
+      { id: "zen/minimax-m3", name: "MiniMax M3", contextWindow: "200K" },
+      { id: "zen/mistral-large-4", name: "Mistral Large 4", contextWindow: "256K" },
       { id: "zen/qwen3.8-max", name: "Qwen3.8 Max", contextWindow: "256K" },
     ],
   },
@@ -230,15 +250,60 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     // The Messages wire appends `/v1/messages`, so this base stops before `/v1`.
     baseUrl: "https://opencode.ai/inference",
     needsBaseUrl: false,
-    keyHint: "oc_sk_… (free models need no key)",
-    docsUrl: "https://opencode.ai/docs/zen",
-    keyless: true,
+    keyHint: "oc_sk_… from opencode.ai/console",
+    docsUrl: "https://opencode.ai/v2/docs/console/models/",
+    note: "Claude and Qwen over the Messages wire, with the same Console key.",
     defaultEnabled: false,
     models: [
-      { id: "zen-messages/claude-sonnet-4-6", name: "Claude Sonnet 4.6", contextWindow: "200K", vision: true },
+      { id: "zen-messages/claude-opus-5-5", name: "Claude Opus 5.5", contextWindow: "200K", vision: true },
+      { id: "zen-messages/claude-sonnet-5-5", name: "Claude Sonnet 5.5", contextWindow: "200K", vision: true },
+      { id: "zen-messages/claude-sonnet-5", name: "Claude Sonnet 5", contextWindow: "200K", vision: true },
+      { id: "zen-messages/claude-haiku-5-5", name: "Claude Haiku 5.5", contextWindow: "200K", vision: true },
       { id: "zen-messages/claude-haiku-4-5", name: "Claude Haiku 4.5", contextWindow: "200K", vision: true },
-      { id: "zen-messages/qwen3.7-plus", name: "Qwen3.7 Plus", contextWindow: "256K" },
+      { id: "zen-messages/claude-sonnet-4-6", name: "Claude Sonnet 4.6", contextWindow: "200K", vision: true },
       { id: "zen-messages/qwen3.8-flash", name: "Qwen3.8 Flash", contextWindow: "256K" },
+      { id: "zen-messages/qwen3.7-plus", name: "Qwen3.7 Plus", contextWindow: "256K" },
+      { id: "zen-messages/qwen3.6-plus", name: "Qwen3.6 Plus", contextWindow: "256K" },
+    ],
+  },
+  {
+    id: "zen-go",
+    label: "OpenCode Go",
+    group: "Gateways",
+    kind: "openai",
+    baseUrl: "https://opencode.ai/zen/go/v1",
+    needsBaseUrl: false,
+    keyHint: "oc_sk_… from opencode.ai/console (Go plan)",
+    docsUrl: "https://opencode.ai/v2/docs/console/go",
+    note: "Go / Go Plus subscription. Sends the per-conversation session header Go asks for.",
+    // A monthly subscription (Go / Go Plus). Go's docs validate third-party
+    // coding agents that send their own user agent and a per-conversation
+    // `x-opencode-session`; the app sends both.
+    defaultEnabled: false,
+    models: [
+      { id: "zen-go/longcat-2.5-preview-free", name: "LongCat 2.5 Preview · free", contextWindow: "256K" },
+      { id: "zen-go/step-5-preview-free", name: "Step 5 Preview · free", contextWindow: "256K" },
+      { id: "zen-go/cat-jam-free", name: "Cat Jam · free", contextWindow: "256K" },
+      { id: "zen-go/deepseek-v4-flash", name: "DeepSeek V4 Flash", contextWindow: "128K" },
+      { id: "zen-go/deepseek-v4-pro", name: "DeepSeek V4 Pro", contextWindow: "128K" },
+      { id: "zen-go/deepseek-v4.1-flash", name: "DeepSeek V4.1 Flash", contextWindow: "128K" },
+      { id: "zen-go/glm-5.3-flash", name: "GLM-5.3-Flash", contextWindow: "200K" },
+      { id: "zen-go/glm-5.3", name: "GLM-5.3", contextWindow: "200K" },
+      { id: "zen-go/glm-5.2", name: "GLM-5.2", contextWindow: "200K" },
+      { id: "zen-go/kimi-k3", name: "Kimi K3", contextWindow: "256K" },
+      { id: "zen-go/kimi-k2.7-code", name: "Kimi K2.7 Code", contextWindow: "256K" },
+      { id: "zen-go/kimi-k2.6", name: "Kimi K2.6", contextWindow: "256K" },
+      { id: "zen-go/mimo-v2.6-pro", name: "MiMo-V2.6-Pro", contextWindow: "128K" },
+      { id: "zen-go/mimo-v2.6-flash", name: "MiMo-V2.6-Flash", contextWindow: "128K" },
+      { id: "zen-go/mimo-v2.5-pro", name: "MiMo-V2.5-Pro", contextWindow: "128K" },
+      { id: "zen-go/mimo-v2.5", name: "MiMo-V2.5", contextWindow: "128K" },
+      { id: "zen-go/minimax-m3", name: "MiniMax M3", contextWindow: "200K" },
+      { id: "zen-go/minimax-m2.7", name: "MiniMax M2.7", contextWindow: "200K" },
+      { id: "zen-go/longcat-2.0", name: "LongCat-2.0", contextWindow: "256K" },
+      { id: "zen-go/space-bunny", name: "Space Bunny", contextWindow: "256K" },
+      { id: "zen-go/hy4-preview", name: "Hy4 preview", contextWindow: "256K" },
+      { id: "zen-go/hy3", name: "Hy3", contextWindow: "256K" },
+      { id: "zen-go/qwen3.8-max", name: "Qwen3.8 Max", contextWindow: "256K" },
     ],
   },
   {

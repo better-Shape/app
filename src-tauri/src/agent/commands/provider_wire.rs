@@ -95,6 +95,7 @@ pub fn request(
     model: &str,
     body: &Value,
     stream: bool,
+    session: Option<&str>,
 ) -> reqwest::RequestBuilder {
     let converted = to_provider_body(provider.kind, body);
     let builder = match provider.kind {
@@ -108,7 +109,7 @@ pub fn request(
     };
     let builder = builder
         .header("Content-Type", "application/json")
-        .headers(ai_providers::request_headers(provider));
+        .headers(ai_providers::request_headers_for(provider, session));
     builder.json(&converted)
 }
 

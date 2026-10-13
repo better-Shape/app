@@ -271,6 +271,9 @@ function ProviderCard({ id, providers }: { id: ProviderId; providers: ProvidersS
                                   ? "Anthropic Messages API"
                                   : "Google Generative Language API"}
                         </div>
+                        {preset.note ? (
+                            <div className="text-xs text-text-muted">{preset.note}</div>
+                        ) : null}
                     </div>
                     <SettingSwitch
                         checked={connection.enabled}

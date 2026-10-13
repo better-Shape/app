@@ -96,3 +96,103 @@ BetterShape went from 8 presets to **37**, grouped in Settings:
    Vertex service accounts) are deliberately out of scope: they need their own auth flows, not API keys.
 3. **`GET /zen/v1/models`** returns the live Zen catalogue; the preset list is curated from the docs and
    can be refreshed with the existing **Test connection → import models** flow.
+
+## OpenCode Zen / Go — verified against the live gateway
+
+Probed from a CI runner with curl (see the raw transcript at the end of this
+section). These are measurements, not documentation claims.
+
+### What the free tier actually answers
+
+| Traffic | Result |
+| --- | --- |
+| `/zen/v1/models` (or `/inference/v1/models`), anonymous | **200** — the free ids are listed (`-free`, plus `big-pickle`) |
+| Free model, anonymous, any headers | **403** `FreeTierError` — "OpenCode's free tier can only be used from within OpenCode" |
+| Free model with the exact official UA + `x-opencode-client: cli` + session headers | **403** — identical body |
+| Free model with `Authorization: Bearer public` | **403** — identical body |
+| Free model, non-streaming | **403** — identical body |
+| Paid model (e.g. `claude-haiku-4-5`), anonymous | **401** `AuthError` — "Missing API key" |
+| `/zen/go/v1/chat/completions`, anonymous | **401** — "Go requires a credential" |
+| `/zen/go/v1/usage`, anonymous | **401** |
+
+**Conclusion:** the free tier is gated server-side on *attribution*, and no
+client-side header combination satisfies it anonymously. Free models are priced
+"Free" for OpenCode Console accounts, and the docs describe the endpoints as
+being for applications calling them directly — so the fix is the user's own
+Console key, not client spoofing. BetterShape therefore keeps its own honest
+User-Agent and never impersonates OpenCode.
+
+### What the docs require of a third-party agent (Go)
+
+`opencode.ai/v2/docs/console/go` lists validated third-party clients and states
+the contract plainly:
+
+1. send typical coding-agent traffic;
+2. **identify itself with its own user agent** (`my-coding-agent/1.0`), not a
+   generic SDK or HTTP-library name;
+3. send a **stable per-conversation id in `x-opencode-session`** so routing and
+   prompt caching can be optimized.
+
+Go's endpoint answers `400` without that session header, which is what the app
+now sends (`core::ai_providers::request_headers_for`), together with
+`x-opencode-client: bettershape`. Only `opencode.ai` hosts receive those two
+headers.
+
+### Endpoints and wires (from `opencode.ai/v2/docs/console/models`)
+
+Base `https://opencode.ai/inference/v1`; `https://opencode.ai/zen/v1` serves the
+same list. Wires are per model family:
+
+* `chat/completions` — glm-\*, kimi-\*, minimax-\*, deepseek-\*, mistral-large-4,
+  qwen3.8-max, big-pickle, and the chat-wire free models;
+* `messages` (Anthropic) — claude-\*, qwen3.x-plus, qwen3.8-flash;
+* `responses` (OpenAI) — gpt-\*, grok-\*, muse-spark-\* (not supported by the app's
+  OpenAI-wire adapter, so those ids are deliberately not listed);
+* `models/<id>:generateContent` (Google) — gemini-\*;
+* `systemone` — jev-1.13.
+
+Presets: `zen` (chat wire), `zen-messages` (Messages wire), `zen-go`
+(`https://opencode.ai/zen/go/v1`).
+
+<details>
+<summary>Raw probe transcript</summary>
+
+```
+## Zen probe
+
+date: Tue Oct 13 21:53:20 UTC 2026
+
+### Free model, no credentials
+- **bare** (ling-3.1-flash-free, stream=true) -> HTTP 403
+  - body: {"type":"error","error":{"type":"FreeTierError","message":"OpenCode's free tier can only be used from within OpenCode. Download it at https://opencode.ai and keep building."}}
+- **better shape UA (what the app sends today)** (ling-3.1-flash-free, stream=true) -> HTTP 403
+  - body: {"type":"error","error":{"type":"FreeTierError","message":"OpenCode's free tier can only be used from within OpenCode. Download it at https://opencode.ai and keep building."}}
+- **bearer public** (ling-3.1-flash-free, stream=true) -> HTTP 403
+  - body: {"type":"error","error":{"type":"FreeTierError","message":"OpenCode's free tier can only be used from within OpenCode. Download it at https://opencode.ai and keep building."}}
+- **opencode UA** (ling-3.1-flash-free, stream=true) -> HTTP 403
+  - body: {"type":"error","error":{"type":"FreeTierError","message":"OpenCode's free tier can only be used from within OpenCode. Download it at https://opencode.ai and keep building."}}
+- **opencode UA + session header** (ling-3.1-flash-free, stream=true) -> HTTP 403
+  - body: {"type":"error","error":{"type":"FreeTierError","message":"OpenCode's free tier can only be used from within OpenCode. Download it at https://opencode.ai and keep building."}}
+- **full opencode identity** (ling-3.1-flash-free, stream=true) -> HTTP 403
+  - body: {"type":"error","error":{"type":"FreeTierError","message":"OpenCode's free tier can only be used from within OpenCode. Download it at https://opencode.ai and keep building."}}
+
+### Non-streaming (titles, summaries) with full identity
+- **non-stream** (ling-3.1-flash-free, stream=false) -> HTTP 403
+  - body: {"type":"error","error":{"type":"FreeTierError","message":"OpenCode's free tier can only be used from within OpenCode. Download it at https://opencode.ai and keep building."}}
+
+### Paid model, anonymous
+- **paid anonymous** (claude-haiku-4-5, stream=true) -> HTTP 401
+  - body: {"type":"error","error":{"type":"AuthError","message":"Missing API key."}}
+
+### Go endpoint
+- **POST/GET go/v1/chat/completions** -> HTTP 401
+  - body: {"error":{"type":"server_error","message":"Upstream request failed: Go requires a credential"}}
+- **POST/GET go/v1/usage** -> HTTP 401
+  - body: {"type":"error","error":{"type":"AuthError","message":"Unauthorized"}}
+
+### Streaming body, first bytes
+```
+{"type":"error","error":{"type":"FreeTierError","message":"OpenCode's free tier can only be used from within OpenCode. Download it at https://opencode.ai and keep building."}}```
+```
+
+</details>

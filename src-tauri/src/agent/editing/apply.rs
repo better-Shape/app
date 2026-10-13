@@ -128,6 +128,7 @@ async fn call_fast_apply_model(
         &provider_model,
         &body,
         false,
+        None,
     )
     .send()
     .await

@@ -36,10 +36,12 @@ function connectionOf(settings: ProvidersSettings, id: ProviderId) {
 }
 
 describe("keyless connections", () => {
-    it("ships the keyless presets turned off, so nothing routes unasked", () => {
+    it("ships each preset in the state its preset asks for", () => {
         const settings = defaultProvidersSettings();
         for (const preset of PROVIDER_PRESETS) {
-            expect(settings.connections[preset.id].enabled).toBe(!preset.keyless);
+            expect(`${preset.id}:${settings.connections[preset.id].enabled}`).toBe(
+                `${preset.id}:${preset.defaultEnabled ?? !preset.keyless}`,
+            );
         }
         expect(isConnectionUsable("ollama", settings.connections)).toBe(false);
         expect(isConnectionUsable("custom", settings.connections)).toBe(false);
@@ -58,13 +60,38 @@ describe("keyless connections", () => {
         expect(isConnectionUsable("groq", settings.connections)).toBe(true);
     });
 
-    it("lets a keyless connection carry a key anyway", () => {
-        // Zen's free models need no key; paid ones do.
-        const settings = configured("zen", { apiKey: "oc_sk_live" });
+    it("keeps the OpenCode gateways keyed", () => {
+        // Verified against the live gateway: free models answer 403 FreeTierError
+        // for unattributable traffic, whatever headers it carries, so these need
+        // the user's own Console/Go key.
+        const settings = configured("zen");
+        expect(isConnectionUsable("zen", settings.connections)).toBe(false);
+        settings.connections.zen.apiKey = "oc_sk_live";
         expect(isConnectionUsable("zen", settings.connections)).toBe(true);
+
         const payload = toRustAiConfig(settings);
         const zen = payload.providers.find((provider) => provider.id === "zen");
-        expect(zen).toMatchObject({ keyless: true, apiKey: "oc_sk_live" });
+        expect(zen).toMatchObject({ apiKey: "oc_sk_live", keyless: false });
+    });
+
+    it("lists OpenCode's free models, and the Go plan's", () => {
+        const free = PROVIDER_PRESETS.find((preset) => preset.id === "zen")!.models.filter(
+            (model) => model.name.includes("free"),
+        );
+        // The free roster rotates, so this asserts the shape rather than a
+        // fixed list: they exist, they carry the Zen prefix, and they are free.
+        expect(free.length).toBeGreaterThanOrEqual(8);
+        for (const model of free) {
+            expect(model.id.startsWith("zen/")).toBe(true);
+        }
+        const go = PROVIDER_PRESETS.find((preset) => preset.id === "zen-go")!;
+        expect(go.baseUrl).toBe("https://opencode.ai/zen/go/v1");
+        expect(go.models.some((model) => model.id === "zen-go/cat-jam-free")).toBe(true);
+        // Every gateway preset addresses its own host.
+        for (const id of ["zen", "zen-messages", "zen-go"] as const) {
+            expect(providerPreset(id).baseUrl).toContain("opencode.ai");
+            expect(providerPreset(id).keyless).toBeUndefined();
+        }
     });
 });
 

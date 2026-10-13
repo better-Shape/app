@@ -69,6 +69,7 @@ async fn send_with_retry(
     provider: &ResolvedProvider,
     provider_model: &str,
     body: &Value,
+    session: Option<&str>,
     token: &tokio_util::sync::CancellationToken,
 ) -> Result<reqwest::Response, AppError> {
     let retry_strategy = backoff::ExponentialBackoff {
@@ -88,8 +89,9 @@ async fn send_with_retry(
                     "Cancelled".to_string(),
                 )))
             }
-            result = provider_request(client, api_key, provider, provider_model, body, true)
-                .send() => {
+            result =
+                provider_request(client, api_key, provider, provider_model, body, true, session)
+                    .send() => {
                 result.map_err(|e| {
                     logging::warn("stream", &format!("Request failed (will retry): {}", e));
                     backoff::Error::transient(AppError::Network(e))
@@ -250,8 +252,9 @@ pub(crate) fn provider_request(
     model: &str,
     body: &Value,
     stream: bool,
+    session: Option<&str>,
 ) -> reqwest::RequestBuilder {
-    provider_wire::request(client, provider, model, body, stream)
+    provider_wire::request(client, provider, model, body, stream, session)
 }
 
 fn content_delta_piece(accumulated: &str, delta_text: &str) -> String {
@@ -403,15 +406,23 @@ pub async fn stream_chat(
     // keeps the chat alive instead of failing the whole turn on the first hiccup.
     let mut attempt: u32 = 0;
     let resp = loop {
-        let response =
-            match send_with_retry(client, api_key, &provider, &provider_model, &body, &token).await
-            {
-                Ok(response) => response,
-                Err(AppError::Message(msg)) if msg == "Cancelled" || token.is_cancelled() => {
-                    return Ok(cancelled_outcome());
-                }
-                Err(err) => return Err(err),
-            };
+        let response = match send_with_retry(
+            client,
+            api_key,
+            &provider,
+            &provider_model,
+            &body,
+            proxy_ctx.conversation_id.as_deref(),
+            &token,
+        )
+        .await
+        {
+            Ok(response) => response,
+            Err(AppError::Message(msg)) if msg == "Cancelled" || token.is_cancelled() => {
+                return Ok(cancelled_outcome());
+            }
+            Err(err) => return Err(err),
+        };
 
         let status = response.status();
         if status.is_success()
@@ -1071,8 +1082,16 @@ pub async fn complete_chat_cancellable(
         body["reasoning"] = json!({ "enabled": false, "exclude": true });
     }
 
-    let send_fut =
-        provider_request(client, api_key, &provider, &provider_model, &body, false).send();
+    let send_fut = provider_request(
+        client,
+        api_key,
+        &provider,
+        &provider_model,
+        &body,
+        false,
+        proxy_ctx.conversation_id.as_deref(),
+    )
+    .send();
 
     let resp = match cancel {
         Some(token) => {
@@ -1137,8 +1156,16 @@ pub async fn complete_chat_messages(
         body["reasoning"] = json!({ "enabled": false, "exclude": true });
     }
 
-    let send_fut =
-        provider_request(client, api_key, &provider, &provider_model, &body, false).send();
+    let send_fut = provider_request(
+        client,
+        api_key,
+        &provider,
+        &provider_model,
+        &body,
+        false,
+        proxy_ctx.conversation_id.as_deref(),
+    )
+    .send();
 
     let resp = match cancel {
         Some(token) => {
@@ -1220,10 +1247,18 @@ pub async fn complete_chat_with_max_tokens(
         body["reasoning"] = json!({ "enabled": false, "exclude": true });
     }
 
-    let resp = provider_request(client, api_key, &provider, &provider_model, &body, false)
-        .send()
-        .await
-        .map_err(|e| AppError::Message(format!("Completion failed: {}", e)))?;
+    let resp = provider_request(
+        client,
+        api_key,
+        &provider,
+        &provider_model,
+        &body,
+        false,
+        proxy_ctx.conversation_id.as_deref(),
+    )
+    .send()
+    .await
+    .map_err(|e| AppError::Message(format!("Completion failed: {}", e)))?;
 
     let json = completion_json(resp, &provider).await?;
     let json = provider_wire::normalize_completion(provider.kind, json);
