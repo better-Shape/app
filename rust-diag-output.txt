@@ -2,12 +2,28 @@
 exit=0
 
 ### cargo test --all-features
-test result: ok. 313 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.19s
-test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
-test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
-test exit=0
+test core::ai_providers::tests::empty_model_slug_is_reported_not_sent ... FAILED
+test core::ai_providers::tests::provider_aliases_land_on_the_configured_connection ... FAILED
+test core::ai_providers::tests::resolves_prefixed_ids ... FAILED
+failures:
+---- core::ai_providers::tests::empty_model_slug_is_reported_not_sent stdout ----
+thread 'core::ai_providers::tests::empty_model_slug_is_reported_not_sent' (5297) panicked at src/core/ai_providers.rs:1163:41:
+---- core::ai_providers::tests::provider_aliases_land_on_the_configured_connection stdout ----
+thread 'core::ai_providers::tests::provider_aliases_land_on_the_configured_connection' (5305) panicked at src/core/ai_providers.rs:886:9:
+---- core::ai_providers::tests::resolves_prefixed_ids stdout ----
+thread 'core::ai_providers::tests::resolves_prefixed_ids' (5307) panicked at src/core/ai_providers.rs:831:9:
+failures:
+test result: FAILED. 310 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s
+test exit=101
 
 ### failing test names
+failures:
+
+---- core::ai_providers::tests::empty_model_slug_is_reported_not_sent stdout ----
+--
+failures:
+    core::ai_providers::tests::empty_model_slug_is_reported_not_sent
+    core::ai_providers::tests::provider_aliases_land_on_the_configured_connection
 
 ### clippy
 clippy exit=0

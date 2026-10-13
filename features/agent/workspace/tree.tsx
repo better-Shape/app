@@ -12,6 +12,12 @@ import { FileIcon } from "@/components/ui/file-icon";
 
 import { cn } from "@/lib/utils";
 import {
+    getFileClipboard,
+    pasteFileClipboard,
+    setFileClipboard,
+    subscribeFileClipboard,
+} from "@/lib/workspace/file-clipboard";
+import {
     ContextMenu,
     ContextMenuContent,
     ContextMenuItem,
@@ -54,6 +60,8 @@ function sortEntries(list: FileEntry[]) {
     });
 }
 
+type ClipboardAction = "cut" | "copy" | "paste";
+
 function TreeNode({
     entry,
     depth,
@@ -63,6 +71,10 @@ function TreeNode({
     statusFor,
     revealDir,
     revealPath,
+    selectedPath,
+    cutPaths,
+    onSelect,
+    onClipboard,
 }: {
     entry: FileEntry;
     depth: number;
@@ -72,6 +84,10 @@ function TreeNode({
     statusFor: (path: string) => string | undefined;
     revealDir?: string;
     revealPath?: string | null;
+    selectedPath?: string | null;
+    cutPaths?: Set<string>;
+    onSelect?: (entry: FileEntry) => void;
+    onClipboard?: (action: ClipboardAction, entry: FileEntry) => void;
 }) {
     const [open, setOpen] = useState(false);
     const [children, setChildren] = useState<FileEntry[] | null>(null);
@@ -81,6 +97,10 @@ function TreeNode({
     const inRevealTrace = Boolean(entry.is_dir && revealDir && isWithin(entry.path, revealDir));
     const revealed = Boolean(revealPath && pathKey(entry.path) === pathKey(revealPath));
     const isExpanded = open || Boolean(query.trim() && entry.is_dir) || inRevealTrace;
+    // A cut entry stays dimmed until it lands somewhere else, the way a file
+    // manager shows a pending move.
+    const cut = Boolean(cutPaths?.has(pathKey(entry.path)));
+    const selected = Boolean(selectedPath && pathKey(selectedPath) === pathKey(entry.path));
 
     useEffect(() => {
         if (!revealed) return;
@@ -131,10 +151,12 @@ function TreeNode({
                 <button
                     ref={nodeRef}
                     type="button"
-                    onClick={() => setOpen((v) => !v)}
+                    onClick={() => { onSelect?.(entry); setOpen((v) => !v); }}
                     className={cn(
                         "flex h-6 w-full items-center gap-1 rounded-md pr-2 text-left text-sm text-text-secondary hover:bg-panel-hover hover:text-text-primary",
                         revealed && "bg-panel-active text-text-primary",
+                        selected && !revealed && "bg-panel-hover text-text-primary",
+                        cut && "opacity-50",
                     )}
                     style={{ paddingLeft: pad }}
                 >
@@ -149,6 +171,10 @@ function TreeNode({
                         <ContextMenuItem onClick={() => setOpen(true)}>Open</ContextMenuItem>
                         <ContextMenuItem onClick={reveal}>Reveal in Explorer</ContextMenuItem>
                         <ContextMenuItem onClick={copyPath}>Copy Path</ContextMenuItem>
+                        <ContextMenuSeparator />
+                        <ContextMenuItem onClick={() => onClipboard?.("cut", entry)}>Cut</ContextMenuItem>
+                        <ContextMenuItem onClick={() => onClipboard?.("copy", entry)}>Copy</ContextMenuItem>
+                        <ContextMenuItem onClick={() => onClipboard?.("paste", entry)}>Paste</ContextMenuItem>
                     </ContextMenuContent>
                 </ContextMenu>
                 {isExpanded ? (
@@ -164,6 +190,10 @@ function TreeNode({
                             statusFor={statusFor}
                             revealDir={revealDir}
                             revealPath={revealPath}
+                            selectedPath={selectedPath}
+                            cutPaths={cutPaths}
+                            onSelect={onSelect}
+                            onClipboard={onClipboard}
                         />
                         ))}
                     </div>
@@ -184,12 +214,15 @@ function TreeNode({
         <button
             ref={nodeRef}
             type="button"
-            onClick={() => onOpenFile(entry.path)}
+            onClick={() => { onSelect?.(entry); onOpenFile(entry.path); }}
             className={cn(
                 "flex h-6 w-full items-center gap-1.5 rounded-md pr-2 text-left text-sm",
                 active || revealed
                     ? "bg-panel-active text-text-primary"
-                    : "text-text-secondary hover:bg-panel-hover hover:text-text-primary",
+                    : selected
+                      ? "bg-panel-hover text-text-primary"
+                      : "text-text-secondary hover:bg-panel-hover hover:text-text-primary",
+                cut && "opacity-50",
             )}
             style={{ paddingLeft: pad }}
         >
@@ -214,6 +247,10 @@ function TreeNode({
                 >
                     Open Terminal
                 </ContextMenuItem>
+                <ContextMenuSeparator />
+                <ContextMenuItem onClick={() => onClipboard?.("cut", entry)}>Cut</ContextMenuItem>
+                <ContextMenuItem onClick={() => onClipboard?.("copy", entry)}>Copy</ContextMenuItem>
+                <ContextMenuItem onClick={() => onClipboard?.("paste", entry)}>Paste into Folder</ContextMenuItem>
             </ContextMenuContent>
         </ContextMenu>
     );
@@ -245,6 +282,53 @@ export function FileTree({
         window.addEventListener("bettershape-files-changed", b);
         return () => window.removeEventListener("bettershape-files-changed", b);
     }, []);
+
+    // The tree's own clipboard: which row the keyboard acts on, what is cut
+    // (drawn dimmed), and the last refusal so it can be shown instead of
+    // failing silently.
+    const [selected, setSelected] = useState<FileEntry | null>(null);
+    const selectedRef = useRef<FileEntry | null>(null);
+    const [clipboardError, setClipboardError] = useState<string | null>(null);
+    const [clipboardTick, setClipboardTick] = useState(0);
+    useEffect(() => subscribeFileClipboard(() => setClipboardTick((n) => n + 1)), []);
+    const cutPaths = useMemo(() => {
+        const set = new Set<string>();
+        const clip = getFileClipboard();
+        if (clip?.mode === "cut") for (const path of clip.paths) set.add(pathKey(path));
+        return set;
+    }, [clipboardTick]);
+
+    const select = useCallback((entry: FileEntry) => {
+        selectedRef.current = entry;
+        setSelected(entry);
+    }, []);
+
+    const runClipboard = useCallback((action: ClipboardAction, entry: FileEntry) => {
+        select(entry);
+        setClipboardError(null);
+        if (action === "cut" || action === "copy") {
+            setFileClipboard(action, [entry.path]);
+            return;
+        }
+        const targetDir = entry.is_dir ? entry.path : parentDir(entry.path);
+        void pasteFileClipboard(targetDir).catch((e) => {
+            setClipboardError(e instanceof Error ? e.message : String(e));
+        });
+    }, [select]);
+
+    // Ctrl+X/C/V with the tree focused. The shortcut layer already dispatches
+    // this event; until now nothing listened.
+    useEffect(() => {
+        const onAction = (event: Event) => {
+            const action = (event as CustomEvent<{ action?: string }>).detail?.action;
+            if (action !== "cut" && action !== "copy" && action !== "paste") return;
+            const entry = selectedRef.current;
+            if (!entry) return;
+            runClipboard(action, entry);
+        };
+        window.addEventListener("bettershape-explorer-action", onAction);
+        return () => window.removeEventListener("bettershape-explorer-action", onAction);
+    }, [runClipboard]);
 
     // "Reveal in Explorer" (editor breadcrumb, command palette, chat files).
     const [revealPath, setRevealPath] = useState<string | null>(null);
@@ -327,6 +411,11 @@ export function FileTree({
                 </div>
                 <div className="min-h-0 flex-1 overflow-y-auto px-1 pb-2 custom-scrollbar">
                     {error ? <div className="p-2 text-sm text-error">{error}</div> : null}
+                    {clipboardError ? (
+                        <div className="mx-1 mb-1 rounded-md border border-error/40 px-2 py-1.5 text-xs text-error">
+                            {clipboardError}
+                        </div>
+                    ) : null}
                     {shown.map((entry) => (
                         <TreeNode
                             key={entry.path}
@@ -338,6 +427,10 @@ export function FileTree({
                             statusFor={statusFor}
                             revealDir={revealDir}
                             revealPath={revealPath}
+                            selectedPath={selected?.path ?? null}
+                            cutPaths={cutPaths}
+                            onSelect={select}
+                            onClipboard={runClipboard}
                         />
                     ))}
                 </div>
