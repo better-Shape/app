@@ -44,7 +44,7 @@ import {
 } from "@codemirror/autocomplete";
 import { indentationMarkers } from "@replit/codemirror-indentation-markers";
 import { commands, getProjectPath } from "@/lib/backend";
-import { languageForPath } from "./lang";
+import { languageForPath, languageNameForPath } from "./lang";
 import { betterShapeSyntaxLinter } from "./syntax-lint";
 import { BETTERSHAPE_CLIP_CODE, rememberBetterShapeClip } from "@/features/chat/lib/bettershape-clip";
 import { betterShapeEditorChrome } from "./theme";
@@ -94,6 +94,51 @@ export function CodeMirrorEditor({
         const langCompartment = new Compartment();
         const wrapCompartment = new Compartment();
         let wrapEnabled = false;
+
+        /**
+         * Cursor/indent/language report. The breadcrumb, the symbol chain and the
+         * status bar all listen for this event — publishing it is what keeps them
+         * in step with the buffer.
+         */
+        const publishStatus = (view: EditorView) => {
+            const head = view.state.selection.main.head;
+            const line = view.state.doc.lineAt(head);
+            window.dispatchEvent(
+                new CustomEvent("bettershape-editor-status", {
+                    detail: {
+                        path: pathRef.current,
+                        line: line.number,
+                        column: head - line.from + 1,
+                        spaces: 4,
+                        insertSpaces: true,
+                        eol: view.state.lineBreak === "\r\n" ? "CRLF" : "LF",
+                        language: languageNameForPath(pathRef.current),
+                    },
+                }),
+            );
+        };
+
+        /** Buffer contents for the outline parser, debounced while typing. */
+        let bufferTimer: number | null = null;
+        const publishBuffer = (view: EditorView) => {
+            window.dispatchEvent(
+                new CustomEvent("bettershape-editor-buffer", {
+                    detail: {
+                        path: pathRef.current,
+                        content: view.state.doc.toString(),
+                        extension: pathRef.current.split(".").pop() ?? "",
+                        version: bufferVersionRef.current,
+                    },
+                }),
+            );
+        };
+        const scheduleBuffer = (view: EditorView) => {
+            if (bufferTimer !== null) window.clearTimeout(bufferTimer);
+            bufferTimer = window.setTimeout(() => {
+                bufferTimer = null;
+                publishBuffer(view);
+            }, 250);
+        };
         const state = EditorState.create({
             doc: content,
             extensions: [
@@ -153,13 +198,21 @@ export function CodeMirrorEditor({
                 wrapCompartment.of([]),
                 langCompartment.of(lang ? [lang, betterShapeSyntaxLinter(path), lintGutter()] : []),
                 EditorView.updateListener.of((update) => {
-                    if (!update.docChanged) return;
+                    if (!update.docChanged) {
+                        // Moving the caret in the focused view moves the breadcrumb.
+                        if ((update.selectionSet || update.focusChanged) && update.view.hasFocus) {
+                            publishStatus(update.view);
+                        }
+                        return;
+                    }
                     const next = update.state.doc.toString();
                     setContentRef.current(next);
                     const dirty = next !== savedContentRef.current;
                     isDirtyRef.current = dirty;
                     bufferVersionRef.current += 1;
                     void commands.markFileDirty(pathRef.current, dirty);
+                    scheduleBuffer(update.view);
+                    if (update.view.hasFocus) publishStatus(update.view);
                 }),
                 EditorView.domEventHandlers({
                     dragstart(event, view) {
@@ -203,6 +256,10 @@ export function CodeMirrorEditor({
         const view = new EditorView({ state, parent: host });
         viewRef.current = view;
         pathRef.current = path;
+        // Seed both consumers: the breadcrumb reads the buffer for its symbol
+        // chain, and the status bar wants a caret position before the first key.
+        publishBuffer(view);
+        if (view.hasFocus) publishStatus(view);
         const fileName = path.split(/[\\/]/).pop() || path;
         const described = LanguageDescription.matchFilename(languages, fileName);
         if (described) {
@@ -311,6 +368,7 @@ export function CodeMirrorEditor({
 
         const markActive = () => {
             activeView = view;
+            publishStatus(view);
         };
         if (!activeView) activeView = view;
         view.dom.addEventListener("focusin", markActive);
@@ -329,6 +387,7 @@ export function CodeMirrorEditor({
             view.dom.removeEventListener("focusin", markActive);
             view.dom.removeEventListener("pointerdown", markActive);
             if (activeView === view) activeView = null;
+            if (bufferTimer !== null) window.clearTimeout(bufferTimer);
             view.destroy();
             viewRef.current = null;
         };

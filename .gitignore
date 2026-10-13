@@ -45,6 +45,7 @@ next-env.d.ts
 
 # Shape
 .shape/
+.bettershape/
 
 # Local commit wording (not published)
 COMMIT.md

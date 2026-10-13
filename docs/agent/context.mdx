@@ -13,7 +13,7 @@ A short chat never hits the limit. A long one does, and it helps to know what su
 1. **Tool output is trimmed.** Old tool results shrink to a head-and-tail excerpt. A result the model no longer needs, such as an older read of a file it read again later, becomes a one-line note.
 2. **Older turns are summarized.** Past roughly 74% of the window, Shape folds the older turns into one summary and keeps the newest turns word for word. That is compaction.
 3. **The summary is reused.** After the first fold, later turns send the summary plus the recent turns instead of the whole transcript, so Shape does not re-summarize on every message.
-4. **Oversized output goes to disk.** A single tool result too big for the budget is written under `.shape/agent-out/` and the model gets the path.
+4. **Oversized output goes to disk.** A single tool result too big for the budget is written under `.bettershape/agent-out/` and the model gets the path.
 
 ## Run it yourself
 
@@ -62,7 +62,7 @@ Settings → Agents → Context shows the hold, its reason, and a **Compact now*
 
 ## What you still see
 
-Compaction changes what the model reads, not what you keep. The earlier messages stay in the chat, with a marker where the summary took over. The pre-compaction transcript is archived under `.shape/agent-out/`, so the agent can grep it when a detail is missing.
+Compaction changes what the model reads, not what you keep. The earlier messages stay in the chat, with a marker where the summary took over. The pre-compaction transcript is archived under `.bettershape/agent-out/`, so the agent can grep it when a detail is missing.
 
 Each chat keeps its own summary. Opening another thread, or starting a new one, starts from that thread's history.
 

@@ -12,8 +12,13 @@ const EXCERPT_TAIL: usize = 1_500;
 
 static SPILL_SEQ: AtomicU64 = AtomicU64::new(1);
 
+/// Project folder for spilled output. Must match the path handed to the model in
+/// the excerpt below (and in `agent/prompts/SYSTEM.MD`), or the agent is sent to
+/// a file that does not exist.
 fn agent_out_dir(project_path: &str) -> PathBuf {
-    Path::new(project_path).join(".shape").join("agent-out")
+    Path::new(project_path)
+        .join(".bettershape")
+        .join("agent-out")
 }
 
 fn next_spill_name(prefix: &str) -> String {
@@ -97,5 +102,29 @@ mod tests {
     fn small_output_not_spilled() {
         let out = maybe_spill_tool_output("/tmp/proj", "run_terminal", "hello");
         assert_eq!(out, "hello");
+    }
+
+    /// The excerpt points the model at a path; that path has to be the one the
+    /// spill actually wrote, or the agent chases a missing file.
+    #[test]
+    fn spilled_output_is_where_the_model_is_told_to_look() {
+        let root = std::env::temp_dir().join("bettershape-spill-test");
+        let _ = std::fs::remove_dir_all(&root);
+        let project = root.to_string_lossy().to_string();
+        let content = "y".repeat(SPILL_THRESHOLD + 25);
+
+        let out = maybe_spill_tool_output(&project, "run_terminal", &content);
+        let start = out.find('`').expect("path is backticked") + 1;
+        let end = out[start..].find('`').expect("closing backtick") + start;
+        let hinted = &out[start..end];
+
+        assert!(hinted.starts_with(".bettershape/agent-out/"), "{hinted}");
+        let written = root.join(hinted);
+        assert!(written.exists(), "missing {}", written.display());
+        assert_eq!(
+            std::fs::read_to_string(&written).unwrap().len(),
+            content.len()
+        );
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

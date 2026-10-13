@@ -53,3 +53,54 @@ export function languageForPath(path: string): Extension | null {
             return null;
     }
 }
+
+/** Human-readable language name for the status bar, from the file path. */
+export function languageNameForPath(path: string): string {
+    const ext = path.split(/[\\/]/).pop()?.split(".").pop()?.toLowerCase() || "";
+    switch (ext) {
+        case "ts":
+        case "mts":
+        case "cts":
+            return "TypeScript";
+        case "tsx":
+            return "TypeScript JSX";
+        case "js":
+        case "mjs":
+        case "cjs":
+            return "JavaScript";
+        case "jsx":
+            return "JavaScript JSX";
+        case "json":
+        case "jsonc":
+            return "JSON";
+        case "html":
+        case "htm":
+            return "HTML";
+        case "vue":
+            return "Vue";
+        case "svelte":
+            return "Svelte";
+        case "astro":
+            return "Astro";
+        case "css":
+            return "CSS";
+        case "scss":
+            return "SCSS";
+        case "sass":
+            return "Sass";
+        case "less":
+            return "Less";
+        case "md":
+            return "Markdown";
+        case "mdx":
+            return "MDX";
+        case "py":
+            return "Python";
+        case "rs":
+            return "Rust";
+        case "sql":
+            return "SQL";
+        default:
+            return "Plain Text";
+    }
+}

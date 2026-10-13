@@ -212,6 +212,7 @@ fn is_ignored_path(path: &Path) -> bool {
                 || s == "build"
                 || s == "out"
                 || s == ".shape"
+                || s == ".bettershape"
                 || s == ".idea"
                 || s == ".vscode"
                 || s == "venv"

@@ -53,6 +53,7 @@ fn is_git_scan_ignored(name: &str) -> bool {
             | "build"
             | "out"
             | ".shape"
+            | ".bettershape"
             | ".idea"
             | ".vscode"
             | "venv"

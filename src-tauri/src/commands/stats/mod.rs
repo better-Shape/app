@@ -31,6 +31,7 @@ const DEFAULT_SKIP_DIRS: &[&str] = &[
     ".idea",
     ".vscode",
     ".shape",
+    ".bettershape",
     "vendor",
     "Pods",
     "DerivedData",
