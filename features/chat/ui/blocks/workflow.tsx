@@ -541,15 +541,28 @@ export function GeneratedMediaStep({ block }: { block: Chunk }) {
                         <audio controls src={src} className="relative z-10 w-full" preload="metadata" />
                     </div>
                 ) : (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                        src={src}
-                        alt={labelNoun}
-                        className={cn(
-                            "w-full rounded-lg bg-surface-2",
-                            block.type === "generated_svg" ? "max-h-72 object-contain p-2" : "max-h-56 object-cover",
-                        )}
-                    />
+                    <button
+                        type="button"
+                        className="cursor-zoom-in outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                        title={`Open ${labelNoun} in the viewer`}
+                        onClick={() =>
+                            window.dispatchEvent(
+                                new CustomEvent("bettershape-open-media", {
+                                    detail: { src, title: `Generated ${labelNoun}`, kind: "image" },
+                                }),
+                            )
+                        }
+                    >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                            src={src}
+                            alt={labelNoun}
+                            className={cn(
+                                "w-full rounded-lg bg-surface-2",
+                                block.type === "generated_svg" ? "max-h-72 object-contain p-2" : "max-h-56 object-cover",
+                            )}
+                        />
+                    </button>
                 )}
             </div>
         </GitActionChip>
