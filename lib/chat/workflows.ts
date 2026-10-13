@@ -146,7 +146,8 @@ function escapeAttr(value: string): string {
 
 /**
  * Commands the app itself understands. They are matched before a message is
- * sent (see `matchSlashCommand`) and never reach the model as text.
+ * sent (see `matchSlashCommand`) and never reach the model as text, with or
+ * without attachments.
  */
 export interface BuiltinSlashCommand {
     token: string;

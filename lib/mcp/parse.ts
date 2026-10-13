@@ -1,6 +1,6 @@
 import type { McpServerConfig } from "@/lib/settings";
 
-type RawEntry = {
+export type McpEntryInput = {
     command?: string;
     args?: string[];
     env?: Record<string, string>;
@@ -14,6 +14,16 @@ type RawEntry = {
     oauthClientId?: string;
     name?: string;
 };
+
+/** Keep only string values: Rust decodes these as a string map. */
+function stringMap(value: unknown): Record<string, string> | undefined {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+    const out: Record<string, string> = {};
+    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+        if (typeof item === "string") out[key] = item;
+    }
+    return Object.keys(out).length ? out : undefined;
+}
 
 function slugId(name: string): string {
     const slug = name
@@ -32,7 +42,7 @@ function hostId(url: string): string {
     }
 }
 
-export function serverFromEntry(id: string, cfg: RawEntry): McpServerConfig {
+export function serverFromEntry(id: string, cfg: McpEntryInput): McpServerConfig {
     const url = cfg.url?.trim() || undefined;
     const transport = cfg.transport ?? (url ? "http" : "stdio");
     return {
@@ -41,10 +51,10 @@ export function serverFromEntry(id: string, cfg: RawEntry): McpServerConfig {
         transport,
         command: cfg.command ?? "",
         args: Array.isArray(cfg.args) ? cfg.args.map(String) : [],
-        env: cfg.env && typeof cfg.env === "object" ? cfg.env : {},
+        env: stringMap(cfg.env) ?? {},
         url,
         auth: cfg.auth ?? (url ? "oauth" : "none"),
-        headers: cfg.headers && typeof cfg.headers === "object" ? cfg.headers : undefined,
+        headers: stringMap(cfg.headers),
         enabled: cfg.disabled !== true,
         disabledTools: cfg.disabledTools ?? [],
         oauthClientId: cfg.oauthClientId,
@@ -79,7 +89,7 @@ export function parseMcpPaste(input: string): { servers: McpServerConfig[]; erro
     }
     const record = parsed as Record<string, unknown>;
     if (record.mcpServers && typeof record.mcpServers === "object") {
-        const servers = Object.entries(record.mcpServers as Record<string, RawEntry>).map(
+        const servers = Object.entries(record.mcpServers as Record<string, McpEntryInput>).map(
             ([id, cfg]) => serverFromEntry(id, cfg ?? {}),
         );
         if (servers.length === 0) return { servers: [], error: "No servers in that config." };
@@ -92,7 +102,7 @@ export function parseMcpPaste(input: string): { servers: McpServerConfig[]; erro
             : typeof record.url === "string"
               ? hostId(record.url)
               : "mcp";
-        return { servers: [serverFromEntry(id, record as RawEntry)] };
+        return { servers: [serverFromEntry(id, record as McpEntryInput)] };
     }
     return { servers: [], error: "Config needs a url, a command, or mcpServers." };
 }

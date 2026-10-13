@@ -871,9 +871,17 @@ export function useChatSession() {
         };
         const readyFiles = await waitForAttachments();
 
-        // Built-in slash commands never reach the model.
-        const builtin = readyFiles.length === 0 ? matchSlashCommand(messageContent) : null;
+        // Built-in slash commands are handled here and never reach the model.
+        // A command carries no files, so one typed with attachments still runs,
+        // and the attachments stay in the composer for the next message.
+        const builtin = matchSlashCommand(messageContent);
         if (builtin) {
+            if (readyFiles.length > 0) {
+                notify.info(
+                    `${builtin.command.token} runs on its own.`,
+                    "Your attachment was not sent, and is still attached for the next message.",
+                );
+            }
             try {
                 localStorage.removeItem("shape-chat-input");
             } catch {
