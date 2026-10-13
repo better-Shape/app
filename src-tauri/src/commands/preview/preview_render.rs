@@ -8,8 +8,8 @@ use tauri::{AppHandle, Emitter, Listener, Manager};
 use tokio::sync::oneshot;
 use url::Url;
 
-use crate::agent::commands::logging;
 use super::design_sandbox;
+use crate::agent::commands::logging;
 use crate::core::error::AppError;
 
 const MAX_WIDTH: u32 = 1920;
@@ -383,7 +383,6 @@ pub async fn capture_html_preview_inner(
         render_ms: started.elapsed().as_millis() as u64,
     })
 }
-
 
 fn load_project_css(project_path: Option<&str>) -> String {
     let Some(root) = project_path else {

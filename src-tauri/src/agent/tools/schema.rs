@@ -8,7 +8,6 @@
 ///
 /// This is the single source of truth for *what* the model can do; the human-readable
 /// system prompt only describes *when* to use which tool.
-
 use serde_json::{json, Value};
 
 use crate::agent::model_router::ModelFamily;
@@ -114,11 +113,7 @@ pub fn tools_for_mode(mode: &str, extra: Vec<Value>) -> Vec<Value> {
 }
 
 /// Mode + model-family tool selection (Cursor-style per-model tool shapes).
-pub fn tools_for_mode_and_family(
-    mode: &str,
-    family: ModelFamily,
-    extra: Vec<Value>,
-) -> Vec<Value> {
+pub fn tools_for_mode_and_family(mode: &str, family: ModelFamily, extra: Vec<Value>) -> Vec<Value> {
     tools_for_mode_family_and_memory(mode, family, extra, false)
 }
 
@@ -239,10 +234,25 @@ fn tool_fn_name(tool: &Value) -> &str {
 
 fn steer_pack_for(name: &str) -> Option<&'static str> {
     match name {
-        "read_file" | "list_dir" | "search_codebase" | "codebase_overview" | "search_files" | "grep"
-        | "create_directory" | "create_file" | "apply_patch" | "edit_file" | "delete_file"
-        | "rename_file" | "read_lints" | "screenshot_page" | "inspect_runtime"
-        | "design_review" | "render_design_previews" | "mcp_search" | "mcp_call" => Some("workspace"),
+        "read_file"
+        | "list_dir"
+        | "search_codebase"
+        | "codebase_overview"
+        | "search_files"
+        | "grep"
+        | "create_directory"
+        | "create_file"
+        | "apply_patch"
+        | "edit_file"
+        | "delete_file"
+        | "rename_file"
+        | "read_lints"
+        | "screenshot_page"
+        | "inspect_runtime"
+        | "design_review"
+        | "render_design_previews"
+        | "mcp_search"
+        | "mcp_call" => Some("workspace"),
         "plugin_search" | "plugin_run" => Some("plugins"),
         "plugin_list" | "plugin_tools" => Some("browse"),
         "web_search" | "visit_url" => None,
@@ -250,7 +260,9 @@ fn steer_pack_for(name: &str) -> Option<&'static str> {
         | "git_branches" | "git_create_branch" | "git_switch" | "git_sync" | "git_worktree" => {
             Some("git")
         }
-        "run_terminal" | "list_terminals" | "read_terminal" | "write_to_terminal" => Some("terminal"),
+        "run_terminal" | "list_terminals" | "read_terminal" | "write_to_terminal" => {
+            Some("terminal")
+        }
         "generate_svg" | "generate_image" | "generate_audio" | "edit_image" | "save_media" => {
             Some("media")
         }
@@ -1454,4 +1466,3 @@ mod tests {
         assert!(ask_names.contains(&"read_chat".to_string()));
     }
 }
-

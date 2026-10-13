@@ -172,11 +172,7 @@ fn status_for_provider(provider: &AuthProvider) -> Result<GitHubAuthStatus, AppE
     };
 
     let logged_in = username.is_some();
-    let avatar_url = if logged_in {
-        fetch_avatar_url()
-    } else {
-        None
-    };
+    let avatar_url = if logged_in { fetch_avatar_url() } else { None };
 
     Ok(GitHubAuthStatus {
         logged_in,
@@ -302,8 +298,9 @@ pub fn logout(username: Option<String>) -> Result<(), AppError> {
             }
         }
         Some(AuthProvider::Gh) => {
-            let gh = command_exists("gh")
-                .ok_or_else(|| AppError::Message("GitHub CLI (gh) is not installed.".to_string()))?;
+            let gh = command_exists("gh").ok_or_else(|| {
+                AppError::Message("GitHub CLI (gh) is not installed.".to_string())
+            })?;
             let output = Command::new(&gh)
                 .args(["auth", "logout", "-h", "github.com", "-u", &account])
                 .output()?;
@@ -493,14 +490,7 @@ pub fn actions_download_artifact(
 pub fn actions_workflow_yaml(repo: &str, workflow: &str) -> Result<String, AppError> {
     let gh = require_gh()?;
     let output = Command::new(&gh)
-        .args([
-            "workflow",
-            "view",
-            workflow,
-            "--yaml",
-            "--repo",
-            repo,
-        ])
+        .args(["workflow", "view", workflow, "--yaml", "--repo", repo])
         .output()?;
     if !output.status.success() {
         return Err(gh_output_error(
@@ -528,14 +518,7 @@ pub fn actions_workflow_dispatch(
     if let Some(json) = inputs {
         let mut child = Command::new(&gh)
             .args([
-                "workflow",
-                "run",
-                workflow,
-                "--repo",
-                repo,
-                "--ref",
-                git_ref,
-                "--json",
+                "workflow", "run", workflow, "--repo", repo, "--ref", git_ref, "--json",
             ])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -557,13 +540,7 @@ pub fn actions_workflow_dispatch(
 
     let output = Command::new(&gh)
         .args([
-            "workflow",
-            "run",
-            workflow,
-            "--repo",
-            repo,
-            "--ref",
-            git_ref,
+            "workflow", "run", workflow, "--repo", repo, "--ref", git_ref,
         ])
         .output()?;
     if !output.status.success() {
@@ -579,13 +556,13 @@ pub fn actions_workflow_dispatch(
 mod tests {
     use super::*;
 
-  // Manual test checklist:
-  // 1. Signed out -> titlebar GitHub submenu shows Sign in with GitHub
-  // 2. Sign in -> browser opens -> approve -> dropdown shows @username
-  // 3. git push from integrated terminal works without extra auth
-  // 4. Sign out -> dropdown resets; next push prompts again
-  // 5. Machine with only gh (no GCM) -> fallback works
-  // 6. Machine with neither -> clear install message
+    // Manual test checklist:
+    // 1. Signed out -> titlebar GitHub submenu shows Sign in with GitHub
+    // 2. Sign in -> browser opens -> approve -> dropdown shows @username
+    // 3. git push from integrated terminal works without extra auth
+    // 4. Sign out -> dropdown resets; next push prompts again
+    // 5. Machine with only gh (no GCM) -> fallback works
+    // 6. Machine with neither -> clear install message
 
     #[test]
     fn parse_gcm_list_single_account() {
@@ -596,24 +573,19 @@ mod tests {
     #[test]
     fn parse_gcm_list_multiple_accounts() {
         let accounts = parse_gcm_github_list("alice\n\nbob\n");
-        assert_eq!(
-            accounts,
-            vec!["alice".to_string(), "bob".to_string()]
-        );
+        assert_eq!(accounts, vec!["alice".to_string(), "bob".to_string()]);
     }
 
     #[test]
     fn parse_gh_auth_status_prefers_active_account() {
         let json = r#"{"hosts":{"github.com":[{"state":"success","active":false,"login":"inactive-user"},{"state":"success","active":true,"login":"active-user"}]}}"#;
-        assert_eq!(
-            parse_gh_auth_status(json).as_deref(),
-            Some("active-user")
-        );
+        assert_eq!(parse_gh_auth_status(json).as_deref(), Some("active-user"));
     }
 
     #[test]
     fn parse_gh_auth_status_falls_back_to_successful_account() {
-        let json = r#"{"hosts":{"github.com":[{"state":"success","active":false,"login":"only-user"}]}}"#;
+        let json =
+            r#"{"hosts":{"github.com":[{"state":"success","active":false,"login":"only-user"}]}}"#;
         assert_eq!(parse_gh_auth_status(json).as_deref(), Some("only-user"));
     }
 

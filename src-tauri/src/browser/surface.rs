@@ -3,10 +3,13 @@
 //! frame load sites that send `X-Frame-Options` or a tight `frame-ancestors`.
 //! The agent's browser is a separate headless process and does not come through here.
 
+#![allow(dead_code)]
+#![allow(unused_imports)]
+
 use std::sync::Mutex;
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter};
 
 const FRAME_NAME: &str = "shape-browser";
 const TOOLS_NAME: &str = "shape-devtools";
@@ -315,7 +318,10 @@ fn install_script(core: &webview2_com::Microsoft::Web::WebView2::Win32::ICoreWeb
         if hr.is_ok() {
             let text = id.to_string();
             if !text.is_empty() {
-                SCRIPT_IDS.lock().unwrap_or_else(|p| p.into_inner()).push(text);
+                SCRIPT_IDS
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .push(text);
             }
         }
         Ok(())
@@ -412,7 +418,10 @@ fn hook_main(app: &AppHandle) {
                 return Ok(());
             };
             let frame = args.Frame()?;
-            let ancestors = sender.as_ref().map(ancestors_for).unwrap_or_else(|| ANCESTORS.to_string());
+            let ancestors = sender
+                .as_ref()
+                .map(ancestors_for)
+                .unwrap_or_else(|| ANCESTORS.to_string());
             watch_frame(frame, ancestors);
             Ok(())
         }));
@@ -460,64 +469,71 @@ fn hook_main(app: &AppHandle) {
             ICoreWebView2Frame2, ICoreWebView2NavigationStartingEventArgs2,
             COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED,
         };
-        use webview2_com::{FrameNavigationCompletedEventHandler, FrameNavigationStartingEventHandler};
+        use webview2_com::{
+            FrameNavigationCompletedEventHandler, FrameNavigationStartingEventHandler,
+        };
         use windows_core::{Interface, PCWSTR};
 
         let Ok(frame2) = frame.cast::<ICoreWebView2Frame2>() else {
             return;
         };
         let ancestors_nav = ancestors;
-        let starting = FrameNavigationStartingEventHandler::create(Box::new(move |_frame, args| {
-            let Some(args) = args else {
-                return Ok(());
-            };
-            if let Ok(args2) = args.cast::<ICoreWebView2NavigationStartingEventArgs2>() {
-                let wide: Vec<u16> = ancestors_nav.encode_utf16().chain(std::iter::once(0)).collect();
-                unsafe {
-                    let _ = args2.SetAdditionalAllowedFrameAncestors(PCWSTR(wide.as_ptr()));
-                }
-            }
-            unsafe {
-                let mut uri = windows_core::PWSTR::null();
-                if args.Uri(&mut uri).is_ok() {
-                    let url = read_pwstr(uri);
-                    if track && (url.starts_with("http://") || url.starts_with("https://")) {
-                        *FRAME_URL.lock().unwrap_or_else(|p| p.into_inner()) = url.clone();
-                        emit_frame(&url, true, "");
-                        let mode = SCHEME.lock().unwrap_or_else(|p| p.into_inner()).clone();
-                        let page = url;
-                        tauri::async_runtime::spawn(async move {
-                            let _ = emulate_scheme(&page, &mode).await;
-                        });
+        let starting =
+            FrameNavigationStartingEventHandler::create(Box::new(move |_frame, args| {
+                let Some(args) = args else {
+                    return Ok(());
+                };
+                if let Ok(args2) = args.cast::<ICoreWebView2NavigationStartingEventArgs2>() {
+                    let wide: Vec<u16> = ancestors_nav
+                        .encode_utf16()
+                        .chain(std::iter::once(0))
+                        .collect();
+                    unsafe {
+                        let _ = args2.SetAdditionalAllowedFrameAncestors(PCWSTR(wide.as_ptr()));
                     }
                 }
-            }
-            Ok(())
-        }));
-        let completed = FrameNavigationCompletedEventHandler::create(Box::new(move |_frame, args| {
-            if !track {
-                return Ok(());
-            }
-            let Some(args) = args else {
-                return Ok(());
-            };
-            let mut success = windows_core::BOOL(0);
-            unsafe { args.IsSuccess(&mut success)? };
-            let url = FRAME_URL.lock().unwrap_or_else(|p| p.into_inner()).clone();
-            if success.as_bool() {
-                if url.starts_with("http://") || url.starts_with("https://") {
-                    crate::browser::record_history(&url, "");
+                unsafe {
+                    let mut uri = windows_core::PWSTR::null();
+                    if args.Uri(&mut uri).is_ok() {
+                        let url = read_pwstr(uri);
+                        if track && (url.starts_with("http://") || url.starts_with("https://")) {
+                            *FRAME_URL.lock().unwrap_or_else(|p| p.into_inner()) = url.clone();
+                            emit_frame(&url, true, "");
+                            let mode = SCHEME.lock().unwrap_or_else(|p| p.into_inner()).clone();
+                            let page = url;
+                            tauri::async_runtime::spawn(async move {
+                                let _ = emulate_scheme(&page, &mode).await;
+                            });
+                        }
+                    }
                 }
-                return Ok(());
-            }
-            let mut status = Default::default();
-            unsafe { args.WebErrorStatus(&mut status)? };
-            if status == COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED {
-                return Ok(());
-            }
-            emit_frame(&url, false, error_sentence(status.0));
-            Ok(())
-        }));
+                Ok(())
+            }));
+        let completed =
+            FrameNavigationCompletedEventHandler::create(Box::new(move |_frame, args| {
+                if !track {
+                    return Ok(());
+                }
+                let Some(args) = args else {
+                    return Ok(());
+                };
+                let mut success = windows_core::BOOL(0);
+                unsafe { args.IsSuccess(&mut success)? };
+                let url = FRAME_URL.lock().unwrap_or_else(|p| p.into_inner()).clone();
+                if success.as_bool() {
+                    if url.starts_with("http://") || url.starts_with("https://") {
+                        crate::browser::record_history(&url, "");
+                    }
+                    return Ok(());
+                }
+                let mut status = Default::default();
+                unsafe { args.WebErrorStatus(&mut status)? };
+                if status == COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED {
+                    return Ok(());
+                }
+                emit_frame(&url, false, error_sentence(status.0));
+                Ok(())
+            }));
         let mut start_token = 0i64;
         let mut done_token = 0i64;
         unsafe {
@@ -530,7 +546,10 @@ fn hook_main(app: &AppHandle) {
 }
 
 #[tauri::command]
-pub async fn browser_surface_open(_app: AppHandle, url: Option<String>) -> Result<SurfaceState, String> {
+pub async fn browser_surface_open(
+    _app: AppHandle,
+    url: Option<String>,
+) -> Result<SurfaceState, String> {
     Ok(SurfaceState {
         id: "frame".into(),
         url: url.unwrap_or_default(),
@@ -551,7 +570,11 @@ pub async fn browser_surface_activate(_app: AppHandle, _id: String) -> Result<()
 }
 
 #[tauri::command]
-pub async fn browser_surface_navigate(_app: AppHandle, _id: String, _url: String) -> Result<(), String> {
+pub async fn browser_surface_navigate(
+    _app: AppHandle,
+    _id: String,
+    _url: String,
+) -> Result<(), String> {
     Ok(())
 }
 
@@ -566,7 +589,11 @@ pub async fn browser_surface_forward(_app: AppHandle, _id: String) -> Result<(),
 }
 
 #[tauri::command]
-pub async fn browser_surface_reload(_app: AppHandle, _id: String, _hard: Option<bool>) -> Result<(), String> {
+pub async fn browser_surface_reload(
+    _app: AppHandle,
+    _id: String,
+    _hard: Option<bool>,
+) -> Result<(), String> {
     Ok(())
 }
 
@@ -665,7 +692,10 @@ async fn iframe_targets() -> Result<Vec<serde_json::Value>, String> {
         .build()
         .map_err(|e| e.to_string())?;
     let list = client
-        .get(format!("{}/json/list", crate::browser::webview_debug::base_url()))
+        .get(format!(
+            "{}/json/list",
+            crate::browser::webview_debug::base_url()
+        ))
         .send()
         .await
         .map_err(|_| "Restart Shape, then open developer tools for this page.".to_string())?
@@ -679,7 +709,10 @@ async fn iframe_targets() -> Result<Vec<serde_json::Value>, String> {
         return Ok(list);
     }
     let version = client
-        .get(format!("{}/json/version", crate::browser::webview_debug::base_url()))
+        .get(format!(
+            "{}/json/version",
+            crate::browser::webview_debug::base_url()
+        ))
         .send()
         .await
         .map_err(|e| e.to_string())?
@@ -700,7 +733,9 @@ async fn iframe_targets() -> Result<Vec<serde_json::Value>, String> {
     use futures::{SinkExt, StreamExt};
     use tokio_tungstenite::tungstenite::Message;
     socket
-        .send(Message::Text(r#"{"id":1,"method":"Target.getTargets"}"#.into()))
+        .send(Message::Text(
+            r#"{"id":1,"method":"Target.getTargets"}"#.into(),
+        ))
         .await
         .map_err(|e| e.to_string())?;
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
@@ -713,7 +748,8 @@ async fn iframe_targets() -> Result<Vec<serde_json::Value>, String> {
             Message::Text(text) => text,
             _ => continue,
         };
-        let value: serde_json::Value = serde_json::from_str(&text).unwrap_or(serde_json::Value::Null);
+        let value: serde_json::Value =
+            serde_json::from_str(&text).unwrap_or(serde_json::Value::Null);
         if value.get("id").and_then(|v| v.as_i64()) != Some(1) {
             continue;
         }
@@ -752,7 +788,8 @@ async fn emulate_scheme(page_url: &str, mode: &str) -> Result<(), String> {
 #[cfg(windows)]
 async fn emulate_scheme_once(page_url: &str, mode: &str) -> Result<(), String> {
     let list = iframe_targets().await?;
-    let page = best_target(&list, page_url).ok_or_else(|| "This page doesn't have a color scheme yet.".to_string())?;
+    let page = best_target(&list, page_url)
+        .ok_or_else(|| "This page doesn't have a color scheme yet.".to_string())?;
     let id = page
         .get("id")
         .or_else(|| page.get("targetId"))
@@ -779,7 +816,10 @@ async fn session_call(target_id: &str, method: &str, params: &str) -> Result<(),
         .build()
         .map_err(|e| e.to_string())?;
     let version = client
-        .get(format!("{}/json/version", crate::browser::webview_debug::base_url()))
+        .get(format!(
+            "{}/json/version",
+            crate::browser::webview_debug::base_url()
+        ))
         .send()
         .await
         .map_err(|_| "Restart Shape, then try again.".to_string())?
@@ -813,7 +853,8 @@ async fn session_call(target_id: &str, method: &str, params: &str) -> Result<(),
     if session.is_empty() {
         return Err("This page doesn't have developer tools yet.".into());
     }
-    let call = format!(r#"{{"id":2,"sessionId":"{session}","method":"{method}","params":{params}}}"#);
+    let call =
+        format!(r#"{{"id":2,"sessionId":"{session}","method":"{method}","params":{params}}}"#);
     socket
         .send(Message::Text(call.into()))
         .await
@@ -847,7 +888,8 @@ async fn next_cdp(
             Message::Text(text) => text,
             _ => continue,
         };
-        let value: serde_json::Value = serde_json::from_str(&text).unwrap_or(serde_json::Value::Null);
+        let value: serde_json::Value =
+            serde_json::from_str(&text).unwrap_or(serde_json::Value::Null);
         if value.get("id").and_then(|v| v.as_i64()) == Some(id) {
             return Ok(value);
         }

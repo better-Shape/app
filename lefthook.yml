@@ -1,42 +1,57 @@
-# EXAMPLE USAGE:
-#
-#   Refer for explanation to following link:
-#   https://lefthook.dev/configuration/
-#
-# pre-push:
-#   jobs:
-#     - name: packages audit
-#       tags:
-#         - frontend
-#         - security
-#       run: yarn audit
-#
-#     - name: gems audit
-#       tags:
-#         - backend
-#         - security
-#       run: bundle audit
-#
-# pre-commit:
-#   parallel: true
-#   jobs:
-#     - run: yarn eslint {staged_files}
-#       glob: "*.{js,ts,jsx,tsx}"
-#
-#     - name: rubocop
-#       glob: "*.rb"
-#       exclude:
-#         - config/application.rb
-#         - config/routes.rb
-#       run: bundle exec rubocop --force-exclusion -- {all_files}
-#
-#     - name: govet
-#       files: git ls-files -m
-#       glob: "*.go"
-#       run: go vet -- {files}
-#
-#     - script: "hello.js"
-#       runner: node
-#
-#     - script: "hello.go"
-#       runner: go run
+# Lefthook - Git hooks for Shape
+# https://lefthook.dev/configuration/
+# Install: npm install -g lefthook && lefthook install
+# Or: npx lefthook install
+
+pre-commit:
+  parallel: true
+  jobs:
+    - name: eslint (staged)
+      glob: "*.{js,ts,jsx,tsx,mjs,cjs}"
+      # Don't use --max-warnings=0 on staged - existing warnings in repo would block commits
+      # Use --no-warn-ignored to suppress warnings for files excluded by eslint config
+      run: npx eslint --no-warn-ignored {staged_files}
+
+    - name: typecheck (fast)
+      # Run tsc on whole project - fast enough for pre-commit, catches type errors early
+      # Don't skip on main - type errors on main should still be caught
+      run: npx tsc --noEmit --pretty
+
+    - name: rust fmt check
+      glob: "*.rs"
+      run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
+
+    - name: version sync check
+      # Only when version files touched
+      glob: "{package.json,src-tauri/tauri.conf.json,src-tauri/Cargo.toml}"
+      run: |
+        node scripts/release/version.mjs --check
+
+pre-push:
+  jobs:
+    - name: tests (js)
+      run: npm run test
+
+    - name: tests (rust)
+      # Run Rust tests on all pushes - don't skip on main
+      run: cargo test --manifest-path src-tauri/Cargo.toml --all-features --quiet
+
+commit-msg:
+  jobs:
+    - name: conventional commit lint
+      run: |
+        MSG=$(cat {1})
+        # Allow: area: description, or conventional types
+        if echo "$MSG" | head -n1 | grep -Eq '^[a-z0-9-]+(\([^)]+\))?: .{5,}$'; then
+          exit 0
+        fi
+        if echo "$MSG" | head -n1 | grep -Eq '^(feat|fix|chore|docs|ci|refactor|test|perf|build|style|security|release)(\(.+\))?: .{5,}$'; then
+          exit 0
+        fi
+        if echo "$MSG" | head -n1 | grep -Eq '^Merge '; then
+          exit 0
+        fi
+        echo "Commit message should be 'area: short summary' (e.g. 'agent: fix streaming race')"
+        echo "Got: $(head -n1 {1})"
+        echo "See COMMIT.md or docs/developing/ci-cd.mdx"
+        exit 1

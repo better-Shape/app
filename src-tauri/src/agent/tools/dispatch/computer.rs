@@ -60,7 +60,10 @@ fn evidence_ok(claim: &str, evidence: &str) -> Result<(), String> {
     let bare = evidence
         .trim_matches(|c: char| c.is_ascii_punctuation() || c.is_whitespace())
         .to_ascii_lowercase();
-    if matches!(bare.as_str(), "done" | "completed" | "success" | "it works" | "fixed") {
+    if matches!(
+        bare.as_str(),
+        "done" | "completed" | "success" | "it works" | "fixed"
+    ) {
         return Err("That is a label, not evidence.".into());
     }
     Ok(())
@@ -105,7 +108,9 @@ pub(super) async fn tool_check_done(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutc
         };
     }
     ToolOutcome {
-        tool_result: "PASS. The evidence is concrete. You may tell the user, and mention what you checked.".into(),
+        tool_result:
+            "PASS. The evidence is concrete. You may tell the user, and mention what you checked."
+                .into(),
         ui_chunk: "\n<insight_card title=\"Checked\">PASS</insight_card>\n".into(),
         side_effect: None,
     }

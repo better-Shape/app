@@ -1,0 +1,20 @@
+# CODEOWNERS for Shape
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default owner for everything
+* @useshape/maintainers
+
+# CI/CD and release are critical - require maintainer review
+/.github/workflows/ @useshape/maintainers
+/.github/actions/ @useshape/maintainers
+/scripts/release/ @useshape/maintainers
+/src-tauri/tauri.conf.json @useshape/maintainers
+/src-tauri/Cargo.toml @useshape/maintainers
+
+# Security-sensitive areas
+/src-tauri/src/ @useshape/maintainers
+/src-tauri/capabilities/ @useshape/maintainers
+/src-tauri/build.rs @useshape/maintainers
+
+# Docs can be reviewed more broadly
+/docs/ @useshape/maintainers

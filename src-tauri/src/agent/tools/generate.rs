@@ -42,7 +42,12 @@ async fn generate_media(kind: &str, args: &Value, ctx: &ToolCtx<'_>) -> ToolOutc
 
     let mut body = json!({ "kind": kind, "prompt": prompt });
     if kind == "audio" {
-        if let Some(voice) = args.get("voice").and_then(|v| v.as_str()).map(str::trim).filter(|s| !s.is_empty()) {
+        if let Some(voice) = args
+            .get("voice")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
             body["voice"] = json!(voice);
         }
     }
@@ -124,12 +129,7 @@ async fn generate_media(kind: &str, args: &Value, ctx: &ToolCtx<'_>) -> ToolOutc
     }
 }
 
-async fn stash_generated(
-    url: &str,
-    kind: &str,
-    prompt: &str,
-    ctx: &ToolCtx<'_>,
-) -> Option<String> {
+async fn stash_generated(url: &str, kind: &str, prompt: &str, ctx: &ToolCtx<'_>) -> Option<String> {
     let mime_bytes: Option<(String, Vec<u8>)> = if url.starts_with("data:") {
         media_stash::decode_data_url(url).ok()
     } else if url.starts_with("http://") || url.starts_with("https://") {
@@ -233,13 +233,20 @@ async fn resolve_reference_image(args: &Value, ctx: &ToolCtx<'_>) -> Result<Stri
 }
 
 fn extract_data_url_named(content: &str, needle: &str) -> Option<String> {
-    for tag in ["attached_image", "attached_asset", "generated_image", "generated_svg"] {
+    for tag in [
+        "attached_image",
+        "attached_asset",
+        "generated_image",
+        "generated_svg",
+    ] {
         let open = format!("<{tag}");
         let close = format!("</{tag}>");
         let mut rest = content;
         while let Some(start) = rest.find(&open) {
             let after = &rest[start..];
-            let Some(end_attrs) = after.find('>') else { break };
+            let Some(end_attrs) = after.find('>') else {
+                break;
+            };
             let attrs = &after[..end_attrs];
             let name = attrs
                 .split("name=\"")
@@ -247,7 +254,9 @@ fn extract_data_url_named(content: &str, needle: &str) -> Option<String> {
                 .and_then(|s| s.split('"').next())
                 .unwrap_or("");
             let body_start = start + end_attrs + 1;
-            let Some(rel_end) = rest[body_start..].find(&close) else { break };
+            let Some(rel_end) = rest[body_start..].find(&close) else {
+                break;
+            };
             let body = rest[body_start..body_start + rel_end].trim();
             if name.eq_ignore_ascii_case(needle) || needle.is_empty() {
                 if body.starts_with("data:") || body.starts_with("http") {

@@ -7,7 +7,6 @@
 /// Families drive per-model prompt overlays and tool shapes (Cursor-style harness
 /// customization): OpenAI-trained models prefer apply_patch; Anthropic/DeepSeek
 /// prefer SEARCH/REPLACE string edits.
-
 /** Fast included model used for Auto and auxiliary work (titles, explore, etc.). */
 pub const MODEL_FAST: &str = "deepseek/deepseek-v4-flash";
 
@@ -219,11 +218,11 @@ mod tests {
     fn normalize_auto() {
         assert_eq!(normalize_model("auto"), MODEL_FAST);
         assert_eq!(normalize_model("openrouter/auto"), MODEL_FAST);
-        assert_eq!(normalize_model("anthropic/claude-sonnet-4"), "anthropic/claude-sonnet-4");
         assert_eq!(
-            normalize_model_with_images("auto", true),
-            MODEL_FAST
+            normalize_model("anthropic/claude-sonnet-4"),
+            "anthropic/claude-sonnet-4"
         );
+        assert_eq!(normalize_model_with_images("auto", true), MODEL_FAST);
         assert_eq!(normalize_model_with_images("auto", false), MODEL_FAST);
         assert_eq!(proxy_model_id("auto"), "auto");
         assert_eq!(proxy_model_id("openrouter/auto"), "auto");
@@ -282,10 +281,7 @@ mod tests {
 
     #[test]
     fn auto_with_images_stays_on_fast_text_model() {
-        assert_eq!(
-            normalize_model_with_images("auto", true),
-            MODEL_FAST
-        );
+        assert_eq!(normalize_model_with_images("auto", true), MODEL_FAST);
         assert_ne!(MODEL_IMAGE_CAPTION, MODEL_FAST);
         assert!(!model_accepts_images(MODEL_FAST));
         assert!(model_accepts_images(MODEL_IMAGE_CAPTION));
@@ -297,12 +293,11 @@ mod tests {
 
     #[test]
     fn vision_exp_slug_is_not_rejected_as_text_only() {
-        assert!(model_accepts_images("deepseek/deepseek-v4-flash-vision-exp"));
+        assert!(model_accepts_images(
+            "deepseek/deepseek-v4-flash-vision-exp"
+        ));
         assert!(!model_accepts_images("deepseek/deepseek-v4-flash"));
-        assert_eq!(
-            model_accepts_images("deepseek/deepseek-v4-flash "),
-            false
-        );
+        assert_eq!(model_accepts_images("deepseek/deepseek-v4-flash "), false);
     }
 
     #[test]

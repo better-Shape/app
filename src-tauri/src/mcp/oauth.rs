@@ -65,10 +65,7 @@ fn now_epoch() -> i64 {
 
 fn pkce_challenge(verifier: &str) -> String {
     let digest = Sha256::digest(verifier.as_bytes());
-    base64::Engine::encode(
-        &base64::engine::general_purpose::URL_SAFE_NO_PAD,
-        digest,
-    )
+    base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, digest)
 }
 
 fn random_urlsafe(len: usize) -> String {
@@ -322,7 +319,14 @@ pub fn scopes_from_meta(prm: &serde_json::Value, as_meta: &serde_json::Value) ->
     if raw.len() <= MAX_SCOPE_CHARS {
         return raw;
     }
-    let preferred = ["openid", "offline_access", "read", "write", "mcp:connect", "default"];
+    let preferred = [
+        "openid",
+        "offline_access",
+        "read",
+        "write",
+        "mcp:connect",
+        "default",
+    ];
     let available: Vec<&str> = raw.split_whitespace().collect();
     let mut picked: Vec<&str> = preferred
         .iter()
@@ -421,7 +425,9 @@ async fn fetch_json_ok(client: &reqwest::Client, url: &str) -> Option<serde_json
 async fn wait_loopback_callback(listener: TcpListener) -> Result<String, String> {
     let (mut socket, _) = timeout(OAUTH_TIMEOUT, listener.accept())
         .await
-        .map_err(|_| "OAuth timed out — approve in the browser, then try Connect again.".to_string())?
+        .map_err(|_| {
+            "OAuth timed out — approve in the browser, then try Connect again.".to_string()
+        })?
         .map_err(|e| format!("OAuth callback accept failed: {e}"))?;
 
     let mut buf = vec![0u8; 16_384];

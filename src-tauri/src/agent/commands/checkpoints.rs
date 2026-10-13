@@ -5,7 +5,13 @@ use super::logging;
 
 fn sanitize_id(id: &str) -> String {
     id.chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect()
 }
 
@@ -27,7 +33,10 @@ pub fn load_checkpoints(conversation_id: &str) -> Vec<TurnCheckpoint> {
         if let Ok(checkpoints) = serde_json::from_str(&content) {
             return checkpoints;
         }
-        logging::warn("checkpoints", "Failed to parse checkpoint file, returning empty");
+        logging::warn(
+            "checkpoints",
+            "Failed to parse checkpoint file, returning empty",
+        );
     }
     Vec::new()
 }

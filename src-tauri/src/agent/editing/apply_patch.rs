@@ -13,7 +13,6 @@
 /// *** Delete File: path
 /// *** End Patch
 /// ```
-
 use std::path::Path;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -59,11 +58,9 @@ pub fn parse_patch(input: &str) -> Result<ParsedPatch, PatchApplyError> {
     let begin = "*** Begin Patch";
     let end = "*** End Patch";
     let body = if text.contains(begin) {
-        let start = text
-            .find(begin)
-            .ok_or_else(|| PatchApplyError {
-                message: "Missing `*** Begin Patch`.".to_string(),
-            })?;
+        let start = text.find(begin).ok_or_else(|| PatchApplyError {
+            message: "Missing `*** Begin Patch`.".to_string(),
+        })?;
         let after_begin = &text[start + begin.len()..];
         let end_idx = after_begin.find(end).ok_or_else(|| PatchApplyError {
             message: "Missing `*** End Patch`.".to_string(),
@@ -334,9 +331,7 @@ pub fn resolve_patch(
     input: &str,
     project_root: &Path,
 ) -> Result<Vec<AppliedFileChange>, PatchApplyError> {
-    let read = |p: &Path| {
-        std::fs::read_to_string(p).map_err(|e| e.to_string())
-    };
+    let read = |p: &Path| std::fs::read_to_string(p).map_err(|e| e.to_string());
     let parsed = parse_patch(input)?;
     let actions = materialize_updates(parsed.actions, project_root, read)?;
     let mut changes = Vec::new();

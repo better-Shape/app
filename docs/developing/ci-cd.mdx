@@ -1,0 +1,194 @@
+---
+title: CI/CD Pipeline
+description: How Shape's CI/CD pipeline works and how to contribute safely.
+order: 20
+---
+
+Shape uses GitHub Actions for continuous integration and delivery. This document describes the pipeline design, jobs, security hardening, and release process.
+
+## Overview
+
+```
+PR → CI (lint, typecheck, tests, build, version-sync, audit) → Merge to main
+Tag v* → Release (test → build Windows x86_64 + aarch64 → publish GitHub Release)
+Schedule → Security (CodeQL, audit, scorecard, zizmor)
+```
+
+## Workflows
+
+### CI (`ci.yml`)
+
+Triggers: `pull_request`, `push` to `main`, manual dispatch.
+
+Permissions: `contents: read` (least privilege).
+
+Concurrency: `ci-${workflow}-${ref}` with `cancel-in-progress: true` only for PRs — rapid pushes cancel stale runs, but `main` runs always finish.
+
+Jobs:
+
+| Job | Purpose | Timeout | Key Tools |
+|-----|---------|---------|-----------|
+| `lint` | ESLint + `tsc --noEmit` + preview runtime build | 10m | `eslint`, `tsc`, `esbuild` |
+| `test-js` | Vitest (jsdom) | 15m | `vitest`, coverage artifact |
+| `test-rust` | Cargo test all features | 20m | `cargo test` |
+| `rust-lints` | `cargo fmt --check` + `clippy -D warnings` + `cargo check` | 15m | `rustfmt`, `clippy` |
+| `build` | Next.js export build verification | 15m | `next build` |
+| `version-sync` | Ensure `package.json` ↔ `tauri.conf.json` ↔ `Cargo.toml` sync | 5m | `scripts/release/version.mjs` |
+| `audit` | `npm audit` + `cargo audit` (warn, not block) | 10m | `cargo-audit` |
+| `ci-success` | Gate job - fails if any required job failed | 5m | - |
+
+All jobs use the composite action `.github/actions/setup` for consistent Node 22 + Rust + caching.
+
+Caching:
+
+- `actions/setup-node` with `cache: npm` keyed on `package-lock.json` + `bun.lock`
+- `Swatinem/rust-cache@v2` for `src-tauri/target`
+- `actions/cache@v4` for `.next/cache`
+
+Artifacts:
+
+- `coverage-js` (7 days)
+- `next-build-output` on failure (3 days)
+
+### Security (`security.yml`)
+
+Triggers: push to `main`, PRs, weekly schedule Monday 00:00 UTC, manual.
+
+Jobs:
+
+- **CodeQL**: SAST for `javascript-typescript` and `rust` with `security-and-quality` queries. Runs `autobuild` + manual Next.js build fallback.
+- **Dependency Review**: On PRs only, fails on `high` severity, denies GPL-2.0/3.0.
+- **Audit**: `npm audit --audit-level=critical` + `cargo audit` with JSON reports uploaded.
+- **Zizmor**: GitHub Actions workflow linter (supply chain, template injection, unpinned actions).
+- **Scorecard**: OpenSSF Scorecard (on `main` pushes, scheduled weekly, and manual dispatch - not on PRs), publishes SARIF.
+
+Permissions hardened per job: CodeQL gets `security-events: write`, Scorecard gets `id-token: write`.
+
+### Release (`release.yml`)
+
+Triggers: tags `v*` and manual dispatch.
+
+Permissions: top-level `contents: read`, jobs elevate only where needed.
+
+Concurrency: `release-${ref}` with `cancel-in-progress: false` — releases must never be cancelled mid-flight (could corrupt artifacts).
+
+Jobs:
+
+1. **test**: Full `npm run test:all` + validates tag matches `package.json` version + version sync check. Timeout 25m.
+2. **build**: Matrix `windows-latest (x86_64)` + `windows-11-arm (aarch64)`. Steps:
+   - Checkout with `fetch-depth: 0` (needed for release notes)
+   - Setup Node 22 + Rust + cache
+   - `npm ci`, `sync-version`, `build:runtime`
+   - Verify required secrets (`TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, `SHAPE_CLOUD_BUILD_SECRET`) present before build
+   - `tauri build --bundles nsis [--target aarch64-pc-windows-msvc]`
+   - `node scripts/release/assets.mjs` to produce `Shape-<arch>-setup.exe` + `.sig` + `Shape-<arch>.zip`
+   - SBOM generation via `anchore/sbom-action` (CycloneDX, best-effort)
+   - Upload artifacts with 14-day retention, compression level 6
+3. **publish**: Downloads artifacts (merge-multiple), generates notes via `scripts/release/notes.mjs`, detects prerelease (`vX.Y.Z-*` → prerelease), attests build provenance via `actions/attest-build-provenance@v2` (SLSA, requires public repo), publishes via custom `scripts/release/upload.mjs` with retry logic for flaky `uploads.github.com`.
+
+Environment variables baked into release binary:
+
+- `SHAPE_CLOUD_BUILD_SECRET` (from secret, same as website)
+- `NEXT_PUBLIC_SHAPE_WEBSITE_URL=https://www.useshape.org` (release binaries ignore runtime redirects)
+
+Release notes grouping: area-only (Editor, Agent, Git, Terminal, Workbench, Updater, Docs, CI) — commit subjects should be `area: short summary`.
+
+### PR Hygiene (`pr.yml`)
+
+Triggers: PR opened/edited/sync.
+
+- **title-lint**: Warns if title doesn't match `area: description` or conventional type. Non-blocking but nudges contributors.
+- **check-large-files**: Fails if file >5MB (excluding `.git`, `node_modules`, `target`, `.next`, `out`, `dist`).
+- **secrets heuristic**: Greps diff for private key / API key patterns.
+- **label-check**: Warns if PR >2000 lines.
+
+## Composite Action (`setup`)
+
+Located at `.github/actions/setup/action.yml`:
+
+- Inputs: `node-version` (default 22), `install-rust`, `rust-targets`, `rust-components`, `install-system-deps`, `cache-key`
+- Installs: Node.js with npm cache, system deps (webkit2gtk, appindicator, etc.) on Linux when requested, Rust toolchain with optional targets/components, Rust cache, Next.js cache.
+
+This DRYs up 7 workflows and ensures consistent versions.
+
+## Dependabot
+
+`.github/dependabot.yml`:
+
+- **npm**: weekly Monday 09:00 UTC, 10 open PRs limit, groups `dev-dependencies` (types, eslint, vitest, jsdom) and `next-ecosystem` (next, tailwind, postcss) for minor/patch.
+- **cargo**: weekly, groups `tauri` crates.
+- **github-actions**: weekly, 5 open PRs limit.
+
+Labels: `dependencies` + ecosystem. Commit prefix `chore` or `ci`.
+
+## Security Hardening
+
+Implemented checklist (from OpenSSF, SLSA, GitHub security docs):
+
+1. **Least privilege permissions**: Top-level `contents: read`, per-job elevation only.
+2. **Pinned actions**: All `uses:` pinned to major version (`@v4`, `@v3`, etc.). Consider pinning to full SHA for high-security (tradeoff with Dependabot noise).
+3. **No `pull_request_target`**: Avoids privileged context on fork PRs.
+4. **No untrusted input in scripts**: PR titles, branch names treated as data, not code (no interpolation into `run:`).
+5. **Concurrency controls**: PRs cancel stale runs (cost saving), releases queue (safety).
+6. **Timeouts**: All jobs have `timeout-minutes` to cap runaway jobs (prevents 6h billing).
+7. **Caching**: Scoped by OS + lockfile hash, avoids cache poisoning across branches. No cache in privileged release publish (only build).
+8. **Secrets**: OIDC not yet used for npm (no npm publish in this repo), but Tauri signing keys are scoped to build job only. `SHAPE_CLOUD_BUILD_SECRET` verified present before build.
+9. **Dependency review**: Blocks PRs introducing high-severity vulns.
+10. **CodeQL**: SAST for JS/TS + Rust on every PR and main push.
+11. **Zizmor**: Lints workflows for template injection, unpinned actions, dangerous triggers.
+12. **Scorecard**: Weekly supply-chain health.
+13. **SBOM**: CycloneDX SBOM generated for release artifacts.
+14. **Attestations**: SLSA build provenance via `attest-build-provenance` (id-token: write).
+15. **Audit**: `npm audit` + `cargo audit` weekly.
+16. **Large file & secret heuristic**: PR hygiene job.
+17. **Artifact retention**: Minimal (3-14 days) to reduce storage + exposure.
+
+## Local Development vs CI
+
+| Check | Local Command | CI Job |
+|-------|---------------|--------|
+| Lint | `npm run lint` | `lint` |
+| Typecheck | `npx tsc --noEmit` | `lint` |
+| JS tests | `npm run test` | `test-js` |
+| Rust tests | `npm run test:rust` | `test-rust` |
+| Rust fmt | `cargo fmt` | `rust-lints` |
+| Clippy | `cargo clippy --all-targets --all-features -- -D warnings` | `rust-lints` |
+| Build | `npm run build` | `build` |
+| Version sync | `npm run sync-version` | `version-sync` |
+| Full | `npm run test:all` | `test` (release) |
+
+Run `npm run test:all` before pushing non-trivial changes (per CONTRIBUTING.md).
+
+## Release Process (Maintainer)
+
+1. Ensure `main` is green (CI + Security).
+2. Pick version: `npm run release -- --patch|--minor|--major [--pre] --dry-run`
+3. Preview notes: `node scripts/release/notes.mjs --dry-run`
+4. Commit version bump if needed: `npm run release -- 1.0.3 --commit`
+5. Tag & push: `npm run release -- 1.0.3 --tag --push` or `git push origin v1.0.3`
+6. Watch Release workflow on GitHub Actions.
+7. Verify draft release artifacts, then publish (handled by `upload.mjs` if `--publish`).
+8. Updater: `.sig` files ship with release, endpoint `https://www.useshape.org/api/updates/desktop` serves latest.
+
+Nightly tags: `vX.Y.Z-nightly` or `vX.Y.Z-pre` → published as GitHub prerelease.
+
+## Future Improvements
+
+- [ ] Pin actions to full commit SHA + Dependabot for SHA updates (stronger supply chain)
+- [ ] Add Windows build smoke test in CI (currently only release builds Windows; PRs only test Linux)
+- [ ] Add `cargo deny` for license/ban checks
+- [ ] Add Playwright / e2e smoke for Next.js
+- [ ] Add `next/bundle-analyzer` size check + artifact size regression gate
+- [ ] OIDC for any future npm publishing (trusted publishing)
+- [ ] Reusable workflows for test matrix to further DRY
+- [ ] Add `actions/stale` for issue hygiene (optional)
+- [ ] Add `codecov` upload for coverage tracking
+- [ ] Add `cargo nextest` for faster Rust tests
+
+## References
+
+- Tauri v2 CI: https://v2.tauri.app/distribute/pipelines/github/
+- GitHub Actions security checklist: https://corgea.com/learn/github-actions-security-checklist
+- Supply chain: https://learn.github.com/well-architected/library/application-security/recommendations/managing-dependency-threats/
+- Rust CI best practices: clippy + fmt + audit + rust-cache
+- Next.js CI: lint + typecheck + test + build with caching

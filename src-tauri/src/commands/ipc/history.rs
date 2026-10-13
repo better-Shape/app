@@ -1,6 +1,4 @@
-use crate::commands::history::{
-    get_file_history, restore_history_version, HistoryEntry,
-};
+use crate::commands::history::{get_file_history, restore_history_version, HistoryEntry};
 use crate::core::error::AppError;
 use crate::core::state::AppState;
 use tauri::State;

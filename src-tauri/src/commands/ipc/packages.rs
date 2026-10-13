@@ -1,6 +1,6 @@
+pub use crate::commands::packages::PackageInfo;
 use crate::core::error::AppError;
 use crate::domain::packages::service;
-pub use crate::commands::packages::PackageInfo;
 
 #[tauri::command]
 pub async fn get_package_info(

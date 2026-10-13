@@ -64,7 +64,12 @@ impl HttpMcpClient {
         }
     }
 
-    async fn rpc(&mut self, token: Option<&str>, method: &str, params: Value) -> Result<Value, String> {
+    async fn rpc(
+        &mut self,
+        token: Option<&str>,
+        method: &str,
+        params: Value,
+    ) -> Result<Value, String> {
         match self.rpc_once(token, method, &params).await {
             Ok(v) => Ok(v),
             Err(err) if self.auth == McpAuthType::Oauth && is_unauthorized(&err) => {
@@ -111,7 +116,11 @@ impl HttpMcpClient {
             .await
             .map_err(|e| format!("HTTP MCP request failed: {}", e))?;
 
-        if let Some(sid) = resp.headers().get("mcp-session-id").and_then(|v| v.to_str().ok()) {
+        if let Some(sid) = resp
+            .headers()
+            .get("mcp-session-id")
+            .and_then(|v| v.to_str().ok())
+        {
             self.session_id = Some(sid.to_string());
         }
 
@@ -134,7 +143,9 @@ impl HttpMcpClient {
             return Err(format!("HTTP MCP error {}: {}", status, text));
         }
 
-        let json = if content_type.contains("text/event-stream") || text.trim_start().starts_with("event:") {
+        let json = if content_type.contains("text/event-stream")
+            || text.trim_start().starts_with("event:")
+        {
             parse_sse_jsonrpc(&text)?
         } else {
             serde_json::from_str::<Value>(&text)

@@ -104,7 +104,10 @@ impl McpState {
         .map(ConnectedClient::Stdio)
     }
 
-    pub fn sync_servers(&self, servers: Vec<McpServerConfig>) -> Result<Vec<McpStatusEntry>, String> {
+    pub fn sync_servers(
+        &self,
+        servers: Vec<McpServerConfig>,
+    ) -> Result<Vec<McpStatusEntry>, String> {
         {
             let mut configs = self.configs.lock().map_err(|e| e.to_string())?;
             *configs = servers.clone();

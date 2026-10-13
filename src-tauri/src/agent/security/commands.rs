@@ -1,55 +1,134 @@
 /// Commands that are always safe to run (read-only or benign).
 /// Matched against the first shell segment only, not a naive prefix of the full string.
 const SAFE_COMMANDS: &[&str] = &[
-    "ls", "dir", "cat", "head", "tail", "echo", "pwd", "whoami",
-    "git status", "git log", "git diff", "git branch", "git remote",
-    "git show", "git stash list",
-    "npm list", "npm ls", "npm outdated", "npm audit",
-    "pnpm list", "pnpm ls", "pnpm audit", "pnpm outdated",
+    "ls",
+    "dir",
+    "cat",
+    "head",
+    "tail",
+    "echo",
+    "pwd",
+    "whoami",
+    "git status",
+    "git log",
+    "git diff",
+    "git branch",
+    "git remote",
+    "git show",
+    "git stash list",
+    "npm list",
+    "npm ls",
+    "npm outdated",
+    "npm audit",
+    "pnpm list",
+    "pnpm ls",
+    "pnpm audit",
+    "pnpm outdated",
     // cargo check/clippy run build.rs + proc-macros → approval (same as build/test)
-    "node --version", "npm --version", "pnpm --version", "cargo --version",
-    "python --version", "rustc --version", "go version",
-    "which", "where", "type", "tree", "wc",
+    "node --version",
+    "npm --version",
+    "pnpm --version",
+    "cargo --version",
+    "python --version",
+    "rustc --version",
+    "go version",
+    "which",
+    "where",
+    "type",
+    "tree",
+    "wc",
 ];
 
 /// Command prefixes that are always blocked (destructive).
 const BLOCKED_PATTERNS: &[&str] = &[
-    "rm -rf /", "rm -rf ~", "rm -rf .", "del /s /q",
-    "rmdir /s /q", "rd /s /q",
-    "format", "mkfs",
-    "shutdown", "reboot", "halt", "poweroff",
-    "chmod 777", "chown root",
-    "reg delete", "reg add",
-    "curl -x post", "wget --post",
-    "nc -e", "ncat -e",
-    "pip install --user", "npm install -g",
-    "sudo", "runas",
-    "eval", "exec", "source /",
-    "Stop-Process -Name node", "stop-process -name node",
-    "taskkill /im node.exe", "taskkill /im node",
-    "killall node", "pkill node", "pkill -f node",
-    "Stop-Process -Name app", "taskkill /im app.exe",
-    "killall Shape", "pkill Shape",
+    "rm -rf /",
+    "rm -rf ~",
+    "rm -rf .",
+    "del /s /q",
+    "rmdir /s /q",
+    "rd /s /q",
+    "format",
+    "mkfs",
+    "shutdown",
+    "reboot",
+    "halt",
+    "poweroff",
+    "chmod 777",
+    "chown root",
+    "reg delete",
+    "reg add",
+    "curl -x post",
+    "wget --post",
+    "nc -e",
+    "ncat -e",
+    "pip install --user",
+    "npm install -g",
+    "sudo",
+    "runas",
+    "eval",
+    "exec",
+    "source /",
+    "Stop-Process -Name node",
+    "stop-process -name node",
+    "taskkill /im node.exe",
+    "taskkill /im node",
+    "killall node",
+    "pkill node",
+    "pkill -f node",
+    "Stop-Process -Name app",
+    "taskkill /im app.exe",
+    "killall Shape",
+    "pkill Shape",
     // CVE-2026-26268 class: agent must not plant or retarget git hooks.
-    ".git/hooks", ".git\\hooks",
-    "git config core.hookspath", "git config --global core.hookspath",
+    ".git/hooks",
+    ".git\\hooks",
+    "git config core.hookspath",
+    "git config --global core.hookspath",
     "git config --local core.hookspath",
 ];
 
 const DESTRUCTIVE_GIT_PATTERNS: &[&str] = &[
-    "git checkout", "git restore", "git reset", "git clean",
-    "git stash drop", "git stash clear", "git push --force", "git push -f",
+    "git checkout",
+    "git restore",
+    "git reset",
+    "git clean",
+    "git stash drop",
+    "git stash clear",
+    "git push --force",
+    "git push -f",
 ];
 
 const WARN_PATTERNS: &[&str] = &[
-    "npx create", "npm create", "pnpm create", "yarn create", "bun create",
-    "create-next-app", "create-react-app", "create-vite", "create-remix",
-    "npm install", "npm i ", "yarn add", "pnpm add", "pnpm install", "pnpm i ",
-    "cargo add", "cargo build", "cargo test", "cargo check", "cargo clippy", "pip install",
+    "npx create",
+    "npm create",
+    "pnpm create",
+    "yarn create",
+    "bun create",
+    "create-next-app",
+    "create-react-app",
+    "create-vite",
+    "create-remix",
+    "npm install",
+    "npm i ",
+    "yarn add",
+    "pnpm add",
+    "pnpm install",
+    "pnpm i ",
+    "cargo add",
+    "cargo build",
+    "cargo test",
+    "cargo check",
+    "cargo clippy",
+    "pip install",
     "git push",
-    "docker", "kubectl",
-    "curl", "wget", "fetch",
-    "rm ", "del ", "remove-item",
+    "docker",
+    "kubectl",
+    "curl",
+    "wget",
+    "fetch",
+    "rm ",
+    "del ",
+    "remove-item",
 ];
 
 #[derive(Debug, Clone, PartialEq)]
@@ -68,7 +147,8 @@ pub fn is_destructive_git(command: &str) -> bool {
         }
         // Creating a branch is not destructive.
         !(*pattern == "git checkout"
-            && (cmd_lower.contains("git checkout -b") || cmd_lower.contains("git checkout --orphan")))
+            && (cmd_lower.contains("git checkout -b")
+                || cmd_lower.contains("git checkout --orphan")))
     })
 }
 
@@ -136,14 +216,16 @@ pub fn check_command_safety(command: &str) -> CommandSafety {
     // Require approval for shell operators (chaining, redirection, substitution).
     if has_shell_metacharacters(&cmd_lower) {
         return CommandSafety::NeedsApproval {
-            reason: "Command contains shell operators (&&, |, ;, etc.) and needs review.".to_string(),
+            reason: "Command contains shell operators (&&, |, ;, etc.) and needs review."
+                .to_string(),
         };
     }
 
     for pattern in DESTRUCTIVE_GIT_PATTERNS {
         if cmd_lower.contains(pattern) {
             let is_new_branch = *pattern == "git checkout"
-                && (cmd_lower.contains("git checkout -b") || cmd_lower.contains("git checkout --orphan"));
+                && (cmd_lower.contains("git checkout -b")
+                    || cmd_lower.contains("git checkout --orphan"));
             if !is_new_branch {
                 return CommandSafety::NeedsApproval {
                     reason: format!(
@@ -225,7 +307,10 @@ fn kills_host_runtime(cmd_lower: &str) -> bool {
     })
 }
 fn blocked_pattern_matches(cmd_lower: &str, pattern: &str) -> bool {
-    if pattern.chars().any(|c| c.is_ascii_whitespace() || c == '/' || c == '\\') {
+    if pattern
+        .chars()
+        .any(|c| c.is_ascii_whitespace() || c == '/' || c == '\\')
+    {
         return cmd_lower.contains(pattern);
     }
     cmd_lower
@@ -234,10 +319,7 @@ fn blocked_pattern_matches(cmd_lower: &str, pattern: &str) -> bool {
 }
 
 fn has_shell_metacharacters(cmd: &str) -> bool {
-    const OPS: &[&str] = &[
-        "&&", "||", ";", "|", "`", "$(", "${",
-        "\n", "\r",
-    ];
+    const OPS: &[&str] = &["&&", "||", ";", "|", "`", "$(", "${", "\n", "\r"];
     for op in OPS {
         if cmd.contains(op) {
             return true;
@@ -409,7 +491,9 @@ mod tests {
                 other => panic!("expected NeedsApproval for '{}', got {:?}", cmd, other),
             }
         }
-        if let CommandSafety::NeedsApproval { reason } = check_command_safety("git checkout -b feature/x") {
+        if let CommandSafety::NeedsApproval { reason } =
+            check_command_safety("git checkout -b feature/x")
+        {
             assert!(!reason.contains("discard uncommitted changes"));
         }
         assert_eq!(check_command_safety("git status"), CommandSafety::Safe);
@@ -449,7 +533,10 @@ mod tests {
             check_command_safety("git diff --output=/tmp/x"),
             CommandSafety::NeedsApproval { .. }
         ));
-        assert_eq!(check_command_safety("git log -1 --oneline"), CommandSafety::Safe);
+        assert_eq!(
+            check_command_safety("git log -1 --oneline"),
+            CommandSafety::Safe
+        );
     }
 
     #[test]
@@ -483,7 +570,12 @@ mod tests {
         // Always + git protection: destructive git still asks.
         let git = check_command_safety("git reset --hard HEAD");
         assert!(matches!(
-            apply_auto_run_mode(git.clone(), "git reset --hard HEAD", AutoRunMode::Always, true),
+            apply_auto_run_mode(
+                git.clone(),
+                "git reset --hard HEAD",
+                AutoRunMode::Always,
+                true
+            ),
             CommandSafety::NeedsApproval { .. }
         ));
         // Protection off: it runs.

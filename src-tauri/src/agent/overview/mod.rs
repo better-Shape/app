@@ -95,7 +95,12 @@ fn stamp(path: &Path) -> u64 {
     std::fs::metadata(path)
         .ok()
         .and_then(|m| {
-            let modified = m.modified().ok()?.duration_since(UNIX_EPOCH).ok()?.as_secs();
+            let modified = m
+                .modified()
+                .ok()?
+                .duration_since(UNIX_EPOCH)
+                .ok()?
+                .as_secs();
             Some(modified.wrapping_mul(33).wrapping_add(m.len()))
         })
         .unwrap_or(0)
@@ -103,11 +108,7 @@ fn stamp(path: &Path) -> u64 {
 
 fn area_name(rel: &str) -> String {
     let trimmed = rel.trim_start_matches(['/', '\\']);
-    let first = trimmed
-        .split(['/', '\\'])
-        .next()
-        .unwrap_or("root")
-        .trim();
+    let first = trimmed.split(['/', '\\']).next().unwrap_or("root").trim();
     if first.is_empty() || first.contains('.') {
         "root".to_string()
     } else {
@@ -270,7 +271,10 @@ fn query_overview(store: &OverviewStore, query: &str) -> String {
     .to_string()
 }
 
-pub async fn answer_overview(args: &serde_json::Value, ctx: &ToolCtx<'_>) -> Result<String, String> {
+pub async fn answer_overview(
+    args: &serde_json::Value,
+    ctx: &ToolCtx<'_>,
+) -> Result<String, String> {
     if ctx.project_path.trim().is_empty() {
         return Err("No project is open.".to_string());
     }

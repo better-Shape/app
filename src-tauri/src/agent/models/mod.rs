@@ -462,11 +462,7 @@ impl AgentState {
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_secs_f64())
                 .unwrap_or(0.0);
-            let last_ts = self
-                .in_flight_last_save
-                .lock()
-                .map(|l| *l)
-                .unwrap_or(0.0);
+            let last_ts = self.in_flight_last_save.lock().map(|l| *l).unwrap_or(0.0);
             let should_save = now - last_ts > 12.0;
             (
                 should_save,
@@ -520,11 +516,7 @@ impl AgentState {
                         .or(title_snapshot)
                         .unwrap_or_else(|| "Untitled".to_string());
                     let _ = crate::agent::commands::history::upsert_conversation_snapshot(
-                        self,
-                        path,
-                        conv_id,
-                        &title,
-                        hist,
+                        self, path, conv_id, &title, hist,
                     );
                 }
             }
@@ -569,10 +561,15 @@ impl AgentState {
             .lock()
             .ok()
             .and_then(|g| g.clone())?;
-        self.in_flight.lock().ok().and_then(|g| g.get(&current).cloned())
+        self.in_flight
+            .lock()
+            .ok()
+            .and_then(|g| g.get(&current).cloned())
     }
 
-    pub fn history_for_persistence(&self) -> Result<Vec<ChatMessage>, crate::core::error::AppError> {
+    pub fn history_for_persistence(
+        &self,
+    ) -> Result<Vec<ChatMessage>, crate::core::error::AppError> {
         let base = self.history.lock()?.clone();
         let current_id = self.current_conversation_id.lock()?.clone();
         Ok(self.merge_in_flight_into_history_for(base, current_id.as_deref()))
@@ -603,7 +600,11 @@ impl AgentState {
         else {
             return history;
         };
-        Self::merge_partial_into_history(history, &in_flight.partial_content, Some(in_flight.started_at))
+        Self::merge_partial_into_history(
+            history,
+            &in_flight.partial_content,
+            Some(in_flight.started_at),
+        )
     }
 
     fn merge_partial_into_history(
@@ -662,7 +663,12 @@ impl AgentState {
         }
     }
 
-    pub fn record_turn_usage(&self, turn_id: Option<&str>, input_tokens: usize, output_tokens: usize) {
+    pub fn record_turn_usage(
+        &self,
+        turn_id: Option<&str>,
+        input_tokens: usize,
+        output_tokens: usize,
+    ) {
         let Some(id) = turn_id.filter(|s| !s.is_empty()) else {
             return;
         };
@@ -693,7 +699,12 @@ impl AgentState {
     /// Record the pre-edit content of `path` the first time it is touched by the
     /// turn starting at `message_index`. Subsequent edits to the same file within
     /// the same turn are no-ops (we only ever want the *original* state).
-    pub fn record_file_checkpoint(&self, message_index: usize, path: &str, original_content: Option<String>) {
+    pub fn record_file_checkpoint(
+        &self,
+        message_index: usize,
+        path: &str,
+        original_content: Option<String>,
+    ) {
         let Ok(mut checkpoints) = self.file_checkpoints.lock() else {
             return;
         };
@@ -723,7 +734,10 @@ impl AgentState {
     }
 
     pub fn file_checkpoints_snapshot(&self) -> Vec<TurnCheckpoint> {
-        self.file_checkpoints.lock().map(|c| c.clone()).unwrap_or_default()
+        self.file_checkpoints
+            .lock()
+            .map(|c| c.clone())
+            .unwrap_or_default()
     }
 
     pub fn replace_file_checkpoints(&self, checkpoints: Vec<TurnCheckpoint>) {
@@ -839,11 +853,7 @@ impl AgentState {
 
     pub fn title_meta(&self) -> (bool, u32) {
         let locked = self.title_locked.load(Ordering::Relaxed);
-        let anchor = self
-            .title_anchor_turns
-            .lock()
-            .map(|g| *g)
-            .unwrap_or(0);
+        let anchor = self.title_anchor_turns.lock().map(|g| *g).unwrap_or(0);
         (locked, anchor)
     }
 
@@ -971,7 +981,10 @@ mod tests {
             AutoRunMode::from_setting(Some("ask_every_time")),
             AutoRunMode::Ask
         );
-        assert_eq!(AutoRunMode::from_setting(Some("always")), AutoRunMode::Always);
+        assert_eq!(
+            AutoRunMode::from_setting(Some("always")),
+            AutoRunMode::Always
+        );
         assert_eq!(
             AutoRunMode::from_setting(Some("run_everything")),
             AutoRunMode::Always

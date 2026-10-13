@@ -21,7 +21,9 @@ fn strip_urls(text: &str) -> String {
         out.push_str(&rest[..i]);
         let after = &rest[i..];
         let end = after
-            .find(|c: char| c.is_whitespace() || matches!(c, '"' | '\'' | ')' | '<' | '>' | ']' | ','))
+            .find(|c: char| {
+                c.is_whitespace() || matches!(c, '"' | '\'' | ')' | '<' | '>' | ']' | ',')
+            })
             .unwrap_or(after.len());
         rest = &after[end..];
     }
@@ -30,15 +32,27 @@ fn strip_urls(text: &str) -> String {
 
 fn sanitize_plugin_error(raw: &str) -> String {
     if let Ok(v) = serde_json::from_str::<Value>(raw) {
-        if let Some(e) = v.get("error").and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
+        if let Some(e) = v
+            .get("error")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+        {
             return strip_urls(e).chars().take(240).collect();
         }
-        if let Some(e) = v.get("message").and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
+        if let Some(e) = v
+            .get("message")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+        {
             return strip_urls(e).chars().take(240).collect();
         }
     }
     let cleaned = strip_urls(raw);
-    let first = cleaned.lines().next().unwrap_or("Plugin request failed.").trim();
+    let first = cleaned
+        .lines()
+        .next()
+        .unwrap_or("Plugin request failed.")
+        .trim();
     if first.is_empty() {
         "Plugin request failed.".to_string()
     } else {
@@ -108,7 +122,11 @@ pub async fn execute_plugin_list(access_token: &str) -> String {
     }
 }
 
-pub async fn execute_plugin_tools(toolkit: &str, query: Option<&str>, access_token: &str) -> String {
+pub async fn execute_plugin_tools(
+    toolkit: &str,
+    query: Option<&str>,
+    access_token: &str,
+) -> String {
     let mut path = format!(
         "/api/plugins/tools?toolkit={}",
         urlencoding::encode(toolkit)
@@ -177,7 +195,8 @@ pub async fn execute_plugin_search(
                 .get("tools")
                 .and_then(|v| v.as_array())
                 .and_then(|arr| {
-                    arr.iter().find(|t| t.get("slug").and_then(|s| s.as_str()) == Some(rec.as_str()))
+                    arr.iter()
+                        .find(|t| t.get("slug").and_then(|s| s.as_str()) == Some(rec.as_str()))
                 })
                 .and_then(|t| t.get("args"))
                 .and_then(|v| v.as_str())
@@ -310,7 +329,9 @@ pub async fn fetch_gate(
         req = req.header("X-Shape-Conversation-Id", conversation_id);
     }
     match req.send().await {
-        Ok(resp) if resp.status().is_success() => resp.json::<Value>().await.unwrap_or_else(|_| json!({})),
+        Ok(resp) if resp.status().is_success() => {
+            resp.json::<Value>().await.unwrap_or_else(|_| json!({}))
+        }
         _ => json!({}),
     }
 }

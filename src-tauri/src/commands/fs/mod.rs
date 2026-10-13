@@ -2,18 +2,18 @@ use crate::app_state::{AppState, FileInfo, ProjectState};
 use crate::core::error::AppError;
 use fsindex::{Config, FileIndexer};
 use fst::{automaton::Automaton, automaton::Str, IntoStreamer, Set, Streamer};
+use notify::{Event, RecursiveMode, Watcher};
 use nucleo_matcher::pattern::{CaseMatching, Normalization, Pattern};
 use nucleo_matcher::{Config as MatcherConfig, Matcher};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::path::{Path, PathBuf};
-use std::process::Command;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::{Mutex, OnceLock};
 use tauri::{AppHandle, Emitter, Manager, State};
-use notify::{Watcher, RecursiveMode, Event};
 
 #[derive(Clone, Serialize)]
 pub struct FileEntry {
@@ -283,7 +283,10 @@ impl Drop for WatchSession {
 static FILE_WATCHER: OnceLock<Mutex<Option<WatchSession>>> = OnceLock::new();
 
 fn start_watcher(app: AppHandle, path: &str) {
-    let mut watcher_guard = FILE_WATCHER.get_or_init(|| Mutex::new(None)).lock().unwrap();
+    let mut watcher_guard = FILE_WATCHER
+        .get_or_init(|| Mutex::new(None))
+        .lock()
+        .unwrap();
     *watcher_guard = None;
 
     let app_clone = app.clone();
@@ -335,8 +338,8 @@ fn start_watcher(app: AppHandle, path: &str) {
     std::thread::Builder::new()
         .name("shape-fs-watch".into())
         .spawn(move || {
-            let mut watcher = match notify::recommended_watcher(
-                move |res: Result<Event, notify::Error>| {
+            let mut watcher =
+                match notify::recommended_watcher(move |res: Result<Event, notify::Error>| {
                     let Ok(event) = res else {
                         return;
                     };
@@ -357,11 +360,10 @@ fn start_watcher(app: AppHandle, path: &str) {
                     if any_interesting {
                         let _ = tx_clone.send(());
                     }
-                },
-            ) {
-                Ok(watcher) => watcher,
-                Err(_) => return,
-            };
+                }) {
+                    Ok(watcher) => watcher,
+                    Err(_) => return,
+                };
 
             let roots = collect_watch_roots(&root);
             let mut recursive_roots = roots
@@ -471,14 +473,18 @@ pub async fn read_file_bytes(path: String) -> Result<Vec<u8>, AppError> {
 
 pub async fn create_file(path: String) -> Result<(), AppError> {
     crate::agent::security::paths::assert_ipc_path_allowed(&path)?;
-    tokio::fs::write(&path, "").await.map_err(|e| AppError::Io(e))?;
+    tokio::fs::write(&path, "")
+        .await
+        .map_err(|e| AppError::Io(e))?;
     clear_cache();
     Ok(())
 }
 
 pub async fn create_dir(path: String) -> Result<(), AppError> {
     crate::agent::security::paths::assert_ipc_path_allowed(&path)?;
-    tokio::fs::create_dir_all(&path).await.map_err(|e| AppError::Io(e))?;
+    tokio::fs::create_dir_all(&path)
+        .await
+        .map_err(|e| AppError::Io(e))?;
     clear_cache();
     Ok(())
 }
@@ -503,11 +509,10 @@ pub async fn delete_path(path: String) -> Result<(), AppError> {
 pub async fn trash_path(path: String) -> Result<(), AppError> {
     crate::agent::security::paths::assert_ipc_path_allowed(&path)?;
     let for_trash = path.clone();
-    let trash_err = tokio::task::spawn_blocking(move || {
-        trash::delete(&for_trash).map_err(|e| e.to_string())
-    })
-    .await
-    .map_err(|e| AppError::Message(format!("Worker thread panicked: {}", e)))?;
+    let trash_err =
+        tokio::task::spawn_blocking(move || trash::delete(&for_trash).map_err(|e| e.to_string()))
+            .await
+            .map_err(|e| AppError::Message(format!("Worker thread panicked: {}", e)))?;
 
     if trash_err.is_ok() {
         clear_cache();
@@ -535,8 +540,10 @@ pub async fn rename_path(
 ) -> Result<(), AppError> {
     crate::agent::security::paths::assert_ipc_path_allowed(&old_path)?;
     crate::agent::security::paths::assert_ipc_path_allowed(&new_path)?;
-    tokio::fs::rename(&old_path, &new_path).await.map_err(|e| AppError::Io(e))?;
-    
+    tokio::fs::rename(&old_path, &new_path)
+        .await
+        .map_err(|e| AppError::Io(e))?;
+
     let mut state = state.0.lock()?;
     let old_p = PathBuf::from(&old_path);
     let new_p = PathBuf::from(&new_path);
@@ -545,7 +552,11 @@ pub async fn rename_path(
     for file in state.open_files.iter_mut() {
         if file.path == old_path {
             file.path = new_path.clone();
-            file.name = new_p.file_name().unwrap_or_default().to_string_lossy().to_string();
+            file.name = new_p
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
             updated = true;
         } else {
             let file_path = PathBuf::from(&file.path);
@@ -590,7 +601,7 @@ pub async fn pin_file(
     let mut state = state.0.lock()?;
     if let Some(file) = state.open_files.iter_mut().find(|f| f.path == path) {
         file.is_pinned = pinned;
-        
+
         // Re-order: pinned files first
         state.open_files.sort_by(|a, b| {
             if a.is_pinned == b.is_pinned {
@@ -601,7 +612,7 @@ pub async fn pin_file(
                 std::cmp::Ordering::Greater
             }
         });
-        
+
         let _ = app.emit("project-state-update", &*state);
     }
     Ok(())
@@ -616,25 +627,22 @@ pub async fn close_to_right(
     if let Some(pos) = state.open_files.iter().position(|f| f.path == path) {
         state.open_files.truncate(pos + 1);
         if let Some(active) = &state.active_file {
-             if !state.open_files.iter().any(|f| &f.path == active) {
-                 state.active_file = state.open_files.last().map(|f| f.path.clone());
-             }
+            if !state.open_files.iter().any(|f| &f.path == active) {
+                state.active_file = state.open_files.last().map(|f| f.path.clone());
+            }
         }
         let _ = app.emit("project-state-update", &*state);
     }
     Ok(())
 }
 
-pub async fn close_saved(
-    app: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<(), AppError> {
+pub async fn close_saved(app: AppHandle, state: State<'_, AppState>) -> Result<(), AppError> {
     let mut state = state.0.lock()?;
     state.open_files.retain(|f| f.is_dirty);
     if let Some(active) = &state.active_file {
-         if !state.open_files.iter().any(|f| &f.path == active) {
-             state.active_file = state.open_files.last().map(|f| f.path.clone());
-         }
+        if !state.open_files.iter().any(|f| &f.path == active) {
+            state.active_file = state.open_files.last().map(|f| f.path.clone());
+        }
     }
     let _ = app.emit("project-state-update", &*state);
     Ok(())
@@ -769,11 +777,17 @@ pub async fn open_in_app(app: String, path: String) -> Result<(), AppError> {
             }
             #[cfg(target_os = "macos")]
             {
-                Command::new("open").arg(&path).spawn().map_err(|e| AppError::Io(e))?;
+                Command::new("open")
+                    .arg(&path)
+                    .spawn()
+                    .map_err(|e| AppError::Io(e))?;
             }
             #[cfg(target_os = "linux")]
             {
-                Command::new("xdg-open").arg(&path).spawn().map_err(|e| AppError::Io(e))?;
+                Command::new("xdg-open")
+                    .arg(&path)
+                    .spawn()
+                    .map_err(|e| AppError::Io(e))?;
             }
             return Ok::<(), AppError>(());
         }
@@ -851,7 +865,11 @@ pub async fn open_in_app(app: String, path: String) -> Result<(), AppError> {
     Ok(())
 }
 
-pub async fn save_file(app: tauri::AppHandle, path: String, content: String) -> Result<(), AppError> {
+pub async fn save_file(
+    app: tauri::AppHandle,
+    path: String,
+    content: String,
+) -> Result<(), AppError> {
     crate::agent::security::paths::assert_ipc_path_allowed(&path)?;
     match tokio::fs::write(&path, &content).await {
         Ok(_) => {
@@ -877,7 +895,11 @@ pub async fn save_file(app: tauri::AppHandle, path: String, content: String) -> 
     }
 }
 
-pub async fn save_file_bytes(app: tauri::AppHandle, path: String, bytes: Vec<u8>) -> Result<(), AppError> {
+pub async fn save_file_bytes(
+    app: tauri::AppHandle,
+    path: String,
+    bytes: Vec<u8>,
+) -> Result<(), AppError> {
     crate::agent::security::paths::assert_ipc_path_allowed(&path)?;
     tokio::fs::write(&path, &bytes)
         .await
@@ -892,7 +914,11 @@ pub async fn save_file_bytes(app: tauri::AppHandle, path: String, bytes: Vec<u8>
     Ok(())
 }
 
-pub async fn mark_file_dirty(app: tauri::AppHandle, path: String, dirty: bool) -> Result<(), AppError> {
+pub async fn mark_file_dirty(
+    app: tauri::AppHandle,
+    path: String,
+    dirty: bool,
+) -> Result<(), AppError> {
     let state_mutex = app.state::<AppState>();
     let mut state = state_mutex.0.lock()?;
     if let Some(file) = state.open_files.iter_mut().find(|f| f.path == path) {
@@ -963,9 +989,7 @@ pub async fn set_project_path(
     if let Some(p) = path.as_ref() {
         start_watcher(app.clone(), p);
         if changed {
-            if let Some(index_state) =
-                app.try_state::<crate::agent::index::IndexState>()
-            {
+            if let Some(index_state) = app.try_state::<crate::agent::index::IndexState>() {
                 if index_state.should_background_index(p) {
                     let _ = index_state.spawn_background_index(app.clone(), p.clone());
                 }
@@ -989,26 +1013,39 @@ pub async fn open_file(
     let is_virtual = path.starts_with("shape://");
     if !is_virtual {
         // Refuse to open missing paths as tabs (avoids broken "file not found" panes).
-        let meta = std::fs::metadata(&path).map_err(|_| {
-            AppError::Message(format!("File not found: {}", path))
-        })?;
+        let meta = std::fs::metadata(&path)
+            .map_err(|_| AppError::Message(format!("File not found: {}", path)))?;
         if !meta.is_file() {
             return Err(AppError::Message(format!("Not a file: {}", path)));
         }
     }
 
     let mut state = state.0.lock()?;
-    
-    let mut normalized_request = path.replace("\\", "/");
-    #[cfg(target_os = "windows")]
-    { normalized_request = normalized_request.to_lowercase(); }
+
+    let normalized_request = {
+        #[cfg(target_os = "windows")]
+        {
+            path.replace("\\", "/").to_lowercase()
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            path.replace("\\", "/")
+        }
+    };
 
     let mut existing_path = None;
     for f in &state.open_files {
-        let mut f_normalized = f.path.replace("\\", "/");
-        #[cfg(target_os = "windows")]
-        { f_normalized = f_normalized.to_lowercase(); }
-        
+        let f_normalized = {
+            #[cfg(target_os = "windows")]
+            {
+                f.path.replace("\\", "/").to_lowercase()
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                f.path.replace("\\", "/")
+            }
+        };
+
         if f_normalized == normalized_request {
             existing_path = Some(f.path.clone());
             break;
@@ -1041,7 +1078,11 @@ pub async fn open_file(
     Ok(())
 }
 
-pub async fn close_file(app: AppHandle, state: State<'_, AppState>, path: String) -> Result<(), AppError> {
+pub async fn close_file(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<(), AppError> {
     let mut state = state.0.lock()?;
     if let Some(pos) = state.open_files.iter().position(|f| f.path == path) {
         state.open_files.remove(pos);
@@ -1182,7 +1223,8 @@ pub async fn search_project_files(
 
         let mut rg_hits: HashSet<String> = HashSet::new();
         let mut rg_cmd = Command::new("rg");
-        rg_cmd.current_dir(&project_root)
+        rg_cmd
+            .current_dir(&project_root)
             .arg("--files-with-matches")
             .arg("--max-count")
             .arg("1")
@@ -1195,10 +1237,10 @@ pub async fn search_project_files(
             .arg("--")
             .arg(query_trimmed)
             .arg(".");
-            
+
         #[cfg(windows)]
         rg_cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-            
+
         let rg_out = rg_cmd.output();
 
         if let Ok(out) = rg_out {
@@ -1315,7 +1357,7 @@ pub async fn search_content(
 
     tokio::task::spawn_blocking(move || {
         ensure_cache(&project_root)?;
-        
+
         let mut args = vec![
             "--json".to_string(),
             "--column".to_string(),
@@ -1371,7 +1413,7 @@ pub async fn search_content(
             args.push("--glob".to_string());
             args.push("!node_modules/*".to_string());
         }
-        
+
         // --- Added the 5 general filters ---
         let mut exclusions = Vec::new();
         if options.exclude_tests {
@@ -1381,15 +1423,34 @@ pub async fn search_content(
             exclusions.extend(vec!["*docs*", "*.md", "*.txt", "docs/", "doc/"]);
         }
         if options.exclude_build {
-            exclusions.extend(vec!["build/", "dist/", "target/", "out/", ".next/", "node_modules/"]);
+            exclusions.extend(vec![
+                "build/",
+                "dist/",
+                "target/",
+                "out/",
+                ".next/",
+                "node_modules/",
+            ]);
         }
         if options.exclude_assets {
-            exclusions.extend(vec!["*.png", "*.jpg", "*.jpeg", "*.gif", "*.svg", "*.ico", "*.webp", "*.avif", "*.woff", "*.woff2", "*.ttf", "*.eot", "*.mp4", "*.webm", "*.mp3", "*.wav"]);
+            exclusions.extend(vec![
+                "*.png", "*.jpg", "*.jpeg", "*.gif", "*.svg", "*.ico", "*.webp", "*.avif",
+                "*.woff", "*.woff2", "*.ttf", "*.eot", "*.mp4", "*.webm", "*.mp3", "*.wav",
+            ]);
         }
         if options.only_source {
-            exclusions.extend(vec!["*.json", "*.yaml", "*.yml", "*.toml", "*.xml", "*.csv", "*.lock", "*lock.json"]);
+            exclusions.extend(vec![
+                "*.json",
+                "*.yaml",
+                "*.yml",
+                "*.toml",
+                "*.xml",
+                "*.csv",
+                "*.lock",
+                "*lock.json",
+            ]);
         }
-        
+
         for excl in &exclusions {
             args.push("--glob".to_string());
             args.push(format!("!{}", excl));
@@ -1407,12 +1468,11 @@ pub async fn search_content(
         args.push(".".to_string());
 
         let mut rg_cmd = Command::new("rg");
-        rg_cmd.current_dir(&project_root)
-            .args(&args);
-            
+        rg_cmd.current_dir(&project_root).args(&args);
+
         #[cfg(windows)]
         rg_cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-            
+
         let output = match rg_cmd.output() {
             Ok(out) => out,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -1420,12 +1480,13 @@ pub async fn search_content(
                 let mut git_cmd = crate::core::git_bin::git_command().map_err(|e| {
                     std::io::Error::new(std::io::ErrorKind::NotFound, e.to_string())
                 })?;
-                git_cmd.current_dir(&project_root)
+                git_cmd
+                    .current_dir(&project_root)
                     .arg("grep")
                     .arg("-I") // ignore binaries
                     .arg("-n")
                     .arg("--column");
-                
+
                 if !options.case_sensitive {
                     git_cmd.arg("-i");
                 }
@@ -1456,14 +1517,18 @@ pub async fn search_content(
                 git_cmd.creation_flags(0x08000000);
 
                 let git_out = git_cmd.output().map_err(|err| {
-                    AppError::Message(format!("ripgrep not installed, and git grep failed: {}", err))
+                    AppError::Message(format!(
+                        "ripgrep not installed, and git grep failed: {}",
+                        err
+                    ))
                 })?;
 
                 if !git_out.status.success() {
                     // FALLBACK TO PURE RUST FS SEARCH FOR NON-GIT FOLDERS
-                    let mut parse_results: std::collections::HashMap<String, ContentSearchResult> = std::collections::HashMap::new();
+                    let mut parse_results: std::collections::HashMap<String, ContentSearchResult> =
+                        std::collections::HashMap::new();
                     let mut total_matches = 0;
-                    
+
                     if let Ok(cache_guard) = fs_cache().lock() {
                         if let Some(cache) = cache_guard.as_ref() {
                             let query_lower = query.to_lowercase();
@@ -1472,18 +1537,24 @@ pub async fn search_content(
                             let exc_build = options.exclude_build;
                             let exc_assets = options.exclude_assets;
                             let exc_source = options.only_source;
-                            
-                            let inc_patterns: Vec<String> = if let Some(inc) = &options.include_pattern {
-                                inc.split(',').map(|s| s.trim().to_lowercase().replace("*", "")).filter(|s| !s.is_empty()).collect()
-                            } else {
-                                Vec::new()
-                            };
+
+                            let inc_patterns: Vec<String> =
+                                if let Some(inc) = &options.include_pattern {
+                                    inc.split(',')
+                                        .map(|s| s.trim().to_lowercase().replace("*", ""))
+                                        .filter(|s| !s.is_empty())
+                                        .collect()
+                                } else {
+                                    Vec::new()
+                                };
 
                             for (rel_path, abs_path) in cache.file_rel_to_abs.iter() {
-                                if total_matches >= 3000 { break; }
-                                
+                                if total_matches >= 3000 {
+                                    break;
+                                }
+
                                 let lower_path = rel_path.to_lowercase();
-                                
+
                                 if !inc_patterns.is_empty() {
                                     let mut matched = false;
                                     for pat in &inc_patterns {
@@ -1492,15 +1563,49 @@ pub async fn search_content(
                                             break;
                                         }
                                     }
-                                    if !matched { continue; }
+                                    if !matched {
+                                        continue;
+                                    }
                                 }
-                                
-                                if exc_tests && (lower_path.contains("test") || lower_path.contains("spec")) { continue; }
-                                if exc_docs && (lower_path.contains("docs") || lower_path.ends_with(".md") || lower_path.ends_with(".txt")) { continue; }
-                                if exc_build && (lower_path.contains("build/") || lower_path.contains("dist/") || lower_path.contains("target/") || lower_path.contains(".next/")) { continue; }
-                                if exc_assets && (lower_path.ends_with(".png") || lower_path.ends_with(".jpg") || lower_path.ends_with(".svg") || lower_path.ends_with(".ico") || lower_path.ends_with(".mp4")) { continue; }
-                                if exc_source && (lower_path.ends_with(".json") || lower_path.ends_with(".yaml") || lower_path.ends_with(".toml") || lower_path.ends_with(".lock")) { continue; }
-                                
+
+                                if exc_tests
+                                    && (lower_path.contains("test") || lower_path.contains("spec"))
+                                {
+                                    continue;
+                                }
+                                if exc_docs
+                                    && (lower_path.contains("docs")
+                                        || lower_path.ends_with(".md")
+                                        || lower_path.ends_with(".txt"))
+                                {
+                                    continue;
+                                }
+                                if exc_build
+                                    && (lower_path.contains("build/")
+                                        || lower_path.contains("dist/")
+                                        || lower_path.contains("target/")
+                                        || lower_path.contains(".next/"))
+                                {
+                                    continue;
+                                }
+                                if exc_assets
+                                    && (lower_path.ends_with(".png")
+                                        || lower_path.ends_with(".jpg")
+                                        || lower_path.ends_with(".svg")
+                                        || lower_path.ends_with(".ico")
+                                        || lower_path.ends_with(".mp4"))
+                                {
+                                    continue;
+                                }
+                                if exc_source
+                                    && (lower_path.ends_with(".json")
+                                        || lower_path.ends_with(".yaml")
+                                        || lower_path.ends_with(".toml")
+                                        || lower_path.ends_with(".lock"))
+                                {
+                                    continue;
+                                }
+
                                 if let Ok(content) = std::fs::read_to_string(abs_path) {
                                     for (line_idx, line) in content.lines().enumerate() {
                                         let line_match = if !options.case_sensitive {
@@ -1508,15 +1613,15 @@ pub async fn search_content(
                                         } else {
                                             line.find(&query)
                                         };
-                                        
+
                                         if let Some(col_start) = line_match {
-                                            let entry = parse_results.entry(rel_path.to_string()).or_insert_with(|| {
-                                                ContentSearchResult {
+                                            let entry = parse_results
+                                                .entry(rel_path.to_string())
+                                                .or_insert_with(|| ContentSearchResult {
                                                     path: abs_path.clone(),
                                                     relative_path: rel_path.clone(),
                                                     matches: Vec::new(),
-                                                }
-                                            });
+                                                });
                                             entry.matches.push(ContentMatch {
                                                 line_number: line_idx + 1,
                                                 line_text: line.to_string(),
@@ -1524,7 +1629,9 @@ pub async fn search_content(
                                                 column_end: col_start + query.len(),
                                             });
                                             total_matches += 1;
-                                            if total_matches >= 3000 { break; }
+                                            if total_matches >= 3000 {
+                                                break;
+                                            }
                                         }
                                     }
                                 }
@@ -1535,12 +1642,15 @@ pub async fn search_content(
                 }
 
                 let stdout = String::from_utf8_lossy(&git_out.stdout);
-                let mut results: std::collections::HashMap<String, ContentSearchResult> = std::collections::HashMap::new();
+                let mut results: std::collections::HashMap<String, ContentSearchResult> =
+                    std::collections::HashMap::new();
                 let mut total_matches = 0;
                 let root_path = Path::new(&project_root);
-                
+
                 for line in stdout.lines() {
-                    if total_matches >= 3000 { break; }
+                    if total_matches >= 3000 {
+                        break;
+                    }
                     // Format: filepath:line:column:content
                     let parts: Vec<&str> = line.splitn(4, ':').collect();
                     if parts.len() >= 4 {
@@ -1569,7 +1679,12 @@ pub async fn search_content(
                 }
                 return Ok(results.into_values().collect());
             }
-            Err(e) => return Err(AppError::Message(format!("Failed to execute ripgrep: {}", e))),
+            Err(e) => {
+                return Err(AppError::Message(format!(
+                    "Failed to execute ripgrep: {}",
+                    e
+                )));
+            }
         };
 
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -1635,13 +1750,13 @@ pub async fn search_content(
                 }
             }
         }
-        
+
         if let Some(file_result) = current_file_result.take() {
             if !file_result.matches.is_empty() {
                 results.push(file_result);
             }
         }
-        
+
         Ok(results)
     })
     .await
@@ -1784,7 +1899,9 @@ mod tests {
         assert!(rel.iter().any(|n| n.is_empty() || *n == "."));
         assert!(rel.iter().any(|n| n == "src"));
         assert!(rel.iter().any(|n| n == "app"));
-        assert!(rel.iter().all(|n| *n != "node_modules" && !n.contains("node_modules")));
+        assert!(rel
+            .iter()
+            .all(|n| *n != "node_modules" && !n.contains("node_modules")));
         assert!(rel.iter().all(|n| *n != ".next" && *n != "out"));
         assert!(
             roots.len() <= 8,
@@ -1801,7 +1918,12 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(root.join("src")).unwrap();
         for i in 0..400 {
-            fs::create_dir_all(root.join("node_modules").join(format!("pkg{i}")).join("dist")).unwrap();
+            fs::create_dir_all(
+                root.join("node_modules")
+                    .join(format!("pkg{i}"))
+                    .join("dist"),
+            )
+            .unwrap();
         }
         let roots = collect_watch_roots(&root);
         assert!(
@@ -1822,7 +1944,15 @@ mod tests {
             &root.join("src").join("components"),
             0
         ));
-        assert!(!should_watch_created_dir(&root, &root.join("node_modules"), 0));
-        assert!(!should_watch_created_dir(&root, &root.join("vendor"), MAX_RECURSIVE_WATCH_ROOTS));
+        assert!(!should_watch_created_dir(
+            &root,
+            &root.join("node_modules"),
+            0
+        ));
+        assert!(!should_watch_created_dir(
+            &root,
+            &root.join("vendor"),
+            MAX_RECURSIVE_WATCH_ROOTS
+        ));
     }
 }

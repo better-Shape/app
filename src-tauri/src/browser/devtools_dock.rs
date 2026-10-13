@@ -29,7 +29,10 @@ pub async fn inspector_for(want: &str) -> Result<String, String> {
     }
     let list = json_list().await?;
     if let Some(page) = best_target(&list, want) {
-        let ws = page.get("webSocketDebuggerUrl").and_then(|v| v.as_str()).unwrap_or("");
+        let ws = page
+            .get("webSocketDebuggerUrl")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
         if ws.contains("/devtools/page/") {
             let front = inspector_url(&page);
             if !front.is_empty() {
@@ -52,7 +55,10 @@ fn app_page_ws(list: &[Value]) -> Result<String, String> {
         .filter(|item| {
             let url = item.get("url").and_then(|v| v.as_str()).unwrap_or("");
             let kind = item.get("type").and_then(|v| v.as_str()).unwrap_or("");
-            let ws = item.get("webSocketDebuggerUrl").and_then(|v| v.as_str()).unwrap_or("");
+            let ws = item
+                .get("webSocketDebuggerUrl")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             kind == "page" && is_app_page(url) && ws.starts_with("ws")
         })
         .collect();
@@ -77,7 +83,10 @@ async fn json_list() -> Result<Vec<Value>, String> {
         .build()
         .map_err(|e| e.to_string())?;
     client
-        .get(format!("{}/json/list", crate::browser::webview_debug::base_url()))
+        .get(format!(
+            "{}/json/list",
+            crate::browser::webview_debug::base_url()
+        ))
         .send()
         .await
         .map_err(|_| RESTART.to_string())?
@@ -141,8 +150,14 @@ async fn wait_iframe(
             continue;
         }
         let info = value.pointer("/params/targetInfo");
-        let url = info.and_then(|v| v.get("url")).and_then(|v| v.as_str()).unwrap_or("");
-        let kind = info.and_then(|v| v.get("type")).and_then(|v| v.as_str()).unwrap_or("");
+        let url = info
+            .and_then(|v| v.get("url"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let kind = info
+            .and_then(|v| v.get("type"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
         if seen.len() < 8 {
             seen.push(format!("{kind} {url}"));
         }
@@ -167,7 +182,10 @@ async fn wait_iframe(
     if let Some((_, session)) = best {
         return Ok(session);
     }
-    log::warn!("devtools: no iframe session for {want}; saw {}", seen.join(" | "));
+    log::warn!(
+        "devtools: no iframe session for {want}; saw {}",
+        seen.join(" | ")
+    );
     Err(MISS.into())
 }
 
@@ -175,7 +193,9 @@ async fn start_proxy(page_ws: String, want: String) -> Result<u16, String> {
     if let Some(old) = PROXY.lock().unwrap_or_else(|p| p.into_inner()).take() {
         old.task.abort();
     }
-    let listener = TcpListener::bind("127.0.0.1:0").await.map_err(|e| e.to_string())?;
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .map_err(|e| e.to_string())?;
     let port = listener.local_addr().map_err(|e| e.to_string())?.port();
     let task = tauri::async_runtime::spawn(async move {
         loop {
@@ -251,7 +271,9 @@ async fn relay(
 
 fn tag_session(text: &str, session: &str) -> Option<String> {
     let mut value: Value = serde_json::from_str(text).ok()?;
-    value.as_object_mut()?.insert("sessionId".to_string(), Value::String(session.to_string()));
+    value
+        .as_object_mut()?
+        .insert("sessionId".to_string(), Value::String(session.to_string()));
     Some(value.to_string())
 }
 

@@ -8,7 +8,7 @@ use crate::agent::models::{AutoRunMode, PendingCommand};
 use crate::agent::tools::search;
 
 use super::common::{
-    clip, cleanup_pending_command, emit_command_resolved, error_outcome, escape_xml_attr,
+    cleanup_pending_command, clip, emit_command_resolved, error_outcome, escape_xml_attr,
     escape_xml_text, get_str, latest_user_task, wait_for_command_decision, ApprovalDecision,
 };
 use super::{ToolCtx, ToolOutcome};
@@ -46,10 +46,7 @@ pub(super) async fn tool_grep(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutcome {
             .get("glob")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string()),
-        context: args
-            .get("context")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0) as usize,
+        context: args.get("context").and_then(|v| v.as_u64()).unwrap_or(0) as usize,
         case_sensitive: args
             .get("case_sensitive")
             .and_then(|v| v.as_bool())
@@ -210,7 +207,10 @@ pub(super) async fn tool_search_codebase(args: &Value, ctx: &ToolCtx<'_>) -> Too
     match search_result {
         Ok(hits) if hits.is_empty() => ToolOutcome {
             tool_result: "No results found. Try grep with a more specific term.".to_string(),
-            ui_chunk: format!("\n<search_result query=\"{}\">No results</search_result>\n", escape_xml_attr(&query)),
+            ui_chunk: format!(
+                "\n<search_result query=\"{}\">No results</search_result>\n",
+                escape_xml_attr(&query)
+            ),
             side_effect: None,
         },
         Ok(hits) => {
@@ -292,7 +292,11 @@ fn humanize_plugin_slug(slug: &str) -> String {
 }
 
 fn toolkit_from_plugin_args(slug: &str, args: &Value) -> String {
-    if let Some(t) = args.get("toolkit").and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
+    if let Some(t) = args
+        .get("toolkit")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+    {
         return t.to_ascii_lowercase();
     }
     slug.split('_')
@@ -304,9 +308,9 @@ fn toolkit_from_plugin_args(slug: &str, args: &Value) -> String {
 fn plugin_slug_is_mutating(slug: &str) -> bool {
     let u = slug.to_ascii_uppercase();
     const WRITE: &[&str] = &[
-        "SEND", "CREATE", "DELETE", "UPDATE", "POST", "WRITE", "REMOVE", "PATCH", "PUT",
-        "INVITE", "CANCEL", "MERGE", "DEPLOY", "PUBLISH", "COMMENT", "ASSIGN", "CLOSE",
-        "ARCHIVE", "UPLOAD", "INSERT",
+        "SEND", "CREATE", "DELETE", "UPDATE", "POST", "WRITE", "REMOVE", "PATCH", "PUT", "INVITE",
+        "CANCEL", "MERGE", "DEPLOY", "PUBLISH", "COMMENT", "ASSIGN", "CLOSE", "ARCHIVE", "UPLOAD",
+        "INSERT",
     ];
     WRITE.iter().any(|k| u.contains(k))
 }
@@ -380,7 +384,11 @@ async fn execute_plugin_run_ui(
         ctx.api_key,
         ctx.turn_id.as_deref(),
         ctx.conversation_id.as_deref(),
-        if task.is_empty() { None } else { Some(task.as_str()) },
+        if task.is_empty() {
+            None
+        } else {
+            Some(task.as_str())
+        },
     )
     .await;
     let err = res.starts_with("ERROR")
@@ -404,7 +412,9 @@ pub(super) async fn tool_plugin_run(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutc
     let arguments = args.get("arguments").cloned().unwrap_or(json!({}));
     let toolkit = toolkit_from_plugin_args(&slug, args);
     let label = humanize_plugin_slug(&slug);
-    let policy = ctx.agent_state.turn_policy_for(ctx.conversation_id.as_deref());
+    let policy = ctx
+        .agent_state
+        .turn_policy_for(ctx.conversation_id.as_deref());
     if policy
         .plugin_disabled_actions
         .get(&toolkit)
@@ -481,7 +491,8 @@ pub(super) async fn tool_plugin_run(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutc
         ApprovalDecision::Approved => {
             emit_command_resolved(ctx, &cmd_id, true);
             let mut outcome =
-                execute_plugin_run_ui(&toolkit, &slug, &label, &arguments, ctx, Some(&cmd_id)).await;
+                execute_plugin_run_ui(&toolkit, &slug, &label, &arguments, ctx, Some(&cmd_id))
+                    .await;
             outcome.tool_result = format!("(approved by user)\n{}", outcome.tool_result);
             outcome
         }

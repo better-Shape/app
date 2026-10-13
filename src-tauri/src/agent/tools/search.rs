@@ -102,7 +102,12 @@ pub async fn execute_grep(query: &str, project_path: &Option<String>, opts: Grep
         for glob in crate::agent::security::paths::SENSITIVE_RG_GLOBS {
             cmd.arg("--glob").arg(glob);
         }
-        if let Some(g) = opts.glob.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        if let Some(g) = opts
+            .glob
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
             cmd.arg("--glob").arg(g);
         }
         if context > 0 {
@@ -119,8 +124,8 @@ pub async fn execute_grep(query: &str, project_path: &Option<String>, opts: Grep
 
     let mut rg_out = run_rg(false);
     if let Ok(out) = &rg_out {
-        let pattern_error = !out.status.success()
-            && !String::from_utf8_lossy(&out.stderr).trim().is_empty();
+        let pattern_error =
+            !out.status.success() && !String::from_utf8_lossy(&out.stderr).trim().is_empty();
         if pattern_error {
             rg_out = run_rg(true);
         }
@@ -276,13 +281,15 @@ pub async fn execute_file_search(query: &str, project_path: &Option<String>) -> 
 
     let mut results = Vec::new();
     let q_lower = query.to_lowercase();
-    
-    let walk_dir = walkdir::WalkDir::new(path)
-        .into_iter()
-        .filter_entry(|e| {
-            let name = e.file_name().to_string_lossy();
-            !name.starts_with('.') && name != "node_modules" && name != "target" && name != "dist" && name != "build"
-        });
+
+    let walk_dir = walkdir::WalkDir::new(path).into_iter().filter_entry(|e| {
+        let name = e.file_name().to_string_lossy();
+        !name.starts_with('.')
+            && name != "node_modules"
+            && name != "target"
+            && name != "dist"
+            && name != "build"
+    });
 
     for entry in walk_dir.filter_map(|e| e.ok()) {
         if entry.file_type().is_file() {

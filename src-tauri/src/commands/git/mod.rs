@@ -8,9 +8,7 @@ use std::process::Command;
 use std::str;
 
 mod hunks;
-pub use hunks::{
-    git_list_hunks, git_restore_hunk, git_stage_hunk, git_unstage_hunk, GitHunkList,
-};
+pub use hunks::{git_list_hunks, git_restore_hunk, git_stage_hunk, git_unstage_hunk, GitHunkList};
 
 pub(super) fn git_cmd() -> Result<Command, AppError> {
     crate::core::git_bin::git_command()
@@ -173,7 +171,10 @@ pub fn git_discover_repos(workspace_root: String) -> Result<Vec<GitRepoInfo>, Ap
 }
 
 /// Return the deepest discovered repo that contains `file_path`, or try libgit2 upward walk.
-pub fn git_resolve_repo_for_file(workspace_root: String, file_path: String) -> Result<Option<String>, AppError> {
+pub fn git_resolve_repo_for_file(
+    workspace_root: String,
+    file_path: String,
+) -> Result<Option<String>, AppError> {
     let file = PathBuf::from(&file_path);
     let file_norm = normalize_path_str(&file);
 
@@ -304,9 +305,9 @@ pub fn git_activity_timeline(
     rev: Option<String>,
     author: Option<String>,
 ) -> Result<Vec<GitActivityPoint>, AppError> {
+    use std::io::{BufRead, BufReader};
     #[cfg(windows)]
     use std::os::windows::process::CommandExt;
-    use std::io::{BufRead, BufReader};
     use std::process::Stdio;
 
     let include_all = all_refs.unwrap_or(true);
@@ -337,9 +338,10 @@ pub fn git_activity_timeline(
     let mut child = cmd
         .spawn()
         .map_err(|e| AppError::Message(format!("git activity timeline failed: {}", e)))?;
-    let stdout = child.stdout.take().ok_or_else(|| {
-        AppError::Message("git activity timeline: missing stdout".into())
-    })?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| AppError::Message("git activity timeline: missing stdout".into()))?;
 
     let reader = BufReader::new(stdout);
     let mut points = Vec::with_capacity(1024);
@@ -352,7 +354,9 @@ pub fn git_activity_timeline(
         let mut parts = line.split_whitespace();
         let Some(ts_raw) = parts.next() else { continue };
         let Some(hash) = parts.next() else { continue };
-        let Ok(timestamp) = ts_raw.parse::<u64>() else { continue };
+        let Ok(timestamp) = ts_raw.parse::<u64>() else {
+            continue;
+        };
         points.push(GitActivityPoint {
             timestamp,
             hash: hash.to_string(),
@@ -499,12 +503,16 @@ pub fn git_stage_all(repo_path: String) -> Result<(), AppError> {
         let mut index = repo.index().map_err(|e| AppError::Git(e))?;
         let mut opts = StatusOptions::new();
         opts.include_untracked(true).recurse_untracked_dirs(true);
-        let statuses = repo.statuses(Some(&mut opts)).map_err(|e| AppError::Git(e))?;
+        let statuses = repo
+            .statuses(Some(&mut opts))
+            .map_err(|e| AppError::Git(e))?;
         for entry in statuses.iter() {
             if entry.status().is_conflicted() {
                 continue;
             }
-            let Some(path_str) = entry.path() else { continue };
+            let Some(path_str) = entry.path() else {
+                continue;
+            };
             let path = Path::new(path_str);
             let full = Path::new(&repo_path).join(path);
             if full.exists() {
@@ -537,7 +545,9 @@ pub fn git_unstage_all(repo_path: String) -> Result<(), AppError> {
                 let mut index = repo.index().map_err(|e| AppError::Git(e))?;
                 let mut opts = StatusOptions::new();
                 opts.include_untracked(true);
-                let statuses = repo.statuses(Some(&mut opts)).map_err(|e| AppError::Git(e))?;
+                let statuses = repo
+                    .statuses(Some(&mut opts))
+                    .map_err(|e| AppError::Git(e))?;
                 for entry in statuses.iter() {
                     let bits = entry.status();
                     if bits.is_index_new()
@@ -557,7 +567,9 @@ pub fn git_unstage_all(repo_path: String) -> Result<(), AppError> {
         let commit = head.peel_to_commit().map_err(|e| AppError::Git(e))?;
         let mut opts = StatusOptions::new();
         opts.include_untracked(false);
-        let statuses = repo.statuses(Some(&mut opts)).map_err(|e| AppError::Git(e))?;
+        let statuses = repo
+            .statuses(Some(&mut opts))
+            .map_err(|e| AppError::Git(e))?;
         let mut paths: Vec<String> = Vec::new();
         for entry in statuses.iter() {
             let bits = entry.status();
@@ -845,7 +857,11 @@ pub fn git_file_diff(repo_path: String, file_path: String) -> Result<String, App
     Ok(output)
 }
 
-pub fn git_set_upstream(repo_path: String, branch: String, upstream: String) -> Result<(), AppError> {
+pub fn git_set_upstream(
+    repo_path: String,
+    branch: String,
+    upstream: String,
+) -> Result<(), AppError> {
     #[cfg(windows)]
     use std::os::windows::process::CommandExt;
 
@@ -864,7 +880,11 @@ pub fn git_set_upstream(repo_path: String, branch: String, upstream: String) -> 
     Ok(())
 }
 
-pub fn git_diff_branches(repo_path: String, base: String, compare: String) -> Result<String, AppError> {
+pub fn git_diff_branches(
+    repo_path: String,
+    base: String,
+    compare: String,
+) -> Result<String, AppError> {
     #[cfg(windows)]
     use std::os::windows::process::CommandExt;
 
@@ -1014,7 +1034,9 @@ pub fn git_rename_branch(
     let mut branch = repo
         .find_branch(&old_name, git2::BranchType::Local)
         .map_err(|e| AppError::Git(e))?;
-    branch.rename(&new_name, false).map_err(|e| AppError::Git(e))?;
+    branch
+        .rename(&new_name, false)
+        .map_err(|e| AppError::Git(e))?;
     Ok(())
 }
 
@@ -1117,7 +1139,9 @@ pub fn git_branch_details(
 
     let include_remotes = all_refs.unwrap_or(false);
     let mut cmd = git_cmd()?;
-    cmd.current_dir(&path).arg("for-each-ref").arg("--sort=-committerdate");
+    cmd.current_dir(&path)
+        .arg("for-each-ref")
+        .arg("--sort=-committerdate");
     cmd.arg("refs/heads/");
     if include_remotes {
         cmd.arg("refs/remotes/");
@@ -1132,7 +1156,10 @@ pub fn git_branch_details(
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(AppError::Message(format!("git for-each-ref failed: {}", stderr)));
+        return Err(AppError::Message(format!(
+            "git for-each-ref failed: {}",
+            stderr
+        )));
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -1171,9 +1198,12 @@ pub fn git_branch_details(
 
     if !current_branch.is_empty() {
         let mut sync_cmd = git_cmd()?;
-        sync_cmd
-            .current_dir(&path)
-            .args(["rev-list", "--left-right", "--count", "HEAD...@{upstream}"]);
+        sync_cmd.current_dir(&path).args([
+            "rev-list",
+            "--left-right",
+            "--count",
+            "HEAD...@{upstream}",
+        ]);
         #[cfg(windows)]
         sync_cmd.creation_flags(0x08000000);
 
@@ -1182,7 +1212,9 @@ pub fn git_branch_details(
                 let sync_stdout = String::from_utf8_lossy(&sync_output.stdout);
                 let counts: Vec<&str> = sync_stdout.trim().split_whitespace().collect();
                 if counts.len() == 2 {
-                    if let (Ok(ahead), Ok(behind)) = (counts[0].parse::<u32>(), counts[1].parse::<u32>()) {
+                    if let (Ok(ahead), Ok(behind)) =
+                        (counts[0].parse::<u32>(), counts[1].parse::<u32>())
+                    {
                         for detail in details.iter_mut() {
                             if detail.name == current_branch {
                                 detail.ahead = Some(ahead);
@@ -1304,7 +1336,10 @@ fn for_each_ref_branches(path: &str, refs: &str) -> Result<String, AppError> {
         .map_err(|e| AppError::Message(format!("git for-each-ref failed: {}", e)))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(AppError::Message(format!("git for-each-ref failed: {}", stderr)));
+        return Err(AppError::Message(format!(
+            "git for-each-ref failed: {}",
+            stderr
+        )));
     }
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
@@ -1318,15 +1353,12 @@ fn head_state(path: &str) -> (String, Option<(String, String)>, bool) {
         return ("HEAD".into(), None, false);
     };
     let detached = !head.is_branch();
-    let commit_short = head
-        .peel_to_commit()
-        .ok()
-        .map(|c| {
-            let id = c.id().to_string();
-            let short = id.chars().take(7).collect::<String>();
-            let author = c.author().name().unwrap_or("").to_string();
-            (short, author)
-        });
+    let commit_short = head.peel_to_commit().ok().map(|c| {
+        let id = c.id().to_string();
+        let short = id.chars().take(7).collect::<String>();
+        let author = c.author().name().unwrap_or("").to_string();
+        (short, author)
+    });
     if detached {
         let name = commit_short
             .as_ref()
@@ -1380,15 +1412,16 @@ pub fn git_branch_graph(path: String, all_refs: Option<bool>) -> Result<GitBranc
     let mut selected: Vec<RawBranchRef> = Vec::new();
     let mut seen = std::collections::HashSet::new();
 
-    let push_unique =
-        |entry: RawBranchRef, selected: &mut Vec<RawBranchRef>, seen: &mut std::collections::HashSet<String>| {
-            if selected.len() >= GRAPH_MAX_NODES {
-                return;
-            }
-            if seen.insert(entry.name.clone()) {
-                selected.push(entry);
-            }
-        };
+    let push_unique = |entry: RawBranchRef,
+                       selected: &mut Vec<RawBranchRef>,
+                       seen: &mut std::collections::HashSet<String>| {
+        if selected.len() >= GRAPH_MAX_NODES {
+            return;
+        }
+        if seen.insert(entry.name.clone()) {
+            selected.push(entry);
+        }
+    };
 
     if detached {
         if let Some((commit, author)) = &head_commit {
@@ -1463,7 +1496,8 @@ pub fn git_branch_graph(path: String, all_refs: Option<bool>) -> Result<GitBranc
                 if t != &entry.name && names.contains(t) {
                     // Don't force-link detached HEAD / alternate histories to trunk —
                     // only link when not already a known root candidate.
-                    let looks_orphan_name = entry.name.starts_with("HEAD@") || entry.date == "detached";
+                    let looks_orphan_name =
+                        entry.name.starts_with("HEAD@") || entry.date == "detached";
                     if !looks_orphan_name {
                         parents.push(t.clone());
                     }
@@ -1493,7 +1527,9 @@ pub fn git_branch_graph(path: String, all_refs: Option<bool>) -> Result<GitBranc
                 3
             }
         };
-        score(a).cmp(&score(b)).then_with(|| selected[a].name.cmp(&selected[b].name))
+        score(a)
+            .cmp(&score(b))
+            .then_with(|| selected[a].name.cmp(&selected[b].name))
     });
 
     // Children grouped under first parent (tree for layout; extra parents drawn as extra edges).
@@ -1726,12 +1762,22 @@ pub fn git_sync_status(path: String) -> Result<GitSyncStatus, AppError> {
     let repo = Repository::open(&path).map_err(|e| AppError::Git(e))?;
     let head = match repo.head() {
         Ok(h) => h,
-        Err(_) => return Ok(GitSyncStatus { ahead: 0, behind: 0 }),
+        Err(_) => {
+            return Ok(GitSyncStatus {
+                ahead: 0,
+                behind: 0,
+            });
+        }
     };
 
     let local_oid = match head.target() {
         Some(oid) => oid,
-        None => return Ok(GitSyncStatus { ahead: 0, behind: 0 }),
+        None => {
+            return Ok(GitSyncStatus {
+                ahead: 0,
+                behind: 0,
+            });
+        }
     };
 
     let upstream_oid = {
@@ -1751,7 +1797,10 @@ pub fn git_sync_status(path: String) -> Result<GitSyncStatus, AppError> {
             behind: behind as u32,
         })
     } else {
-        Ok(GitSyncStatus { ahead: 0, behind: 0 })
+        Ok(GitSyncStatus {
+            ahead: 0,
+            behind: 0,
+        })
     }
 }
 
@@ -1803,13 +1852,10 @@ pub fn git_log_stream_start(
         color_index: 0,
     };
 
-    STREAMERS
-        .lock()
-        .unwrap()
-        .insert(
-            caller_id,
-            std::sync::Arc::new(std::sync::Mutex::new(streamer)),
-        );
+    STREAMERS.lock().unwrap().insert(
+        caller_id,
+        std::sync::Arc::new(std::sync::Mutex::new(streamer)),
+    );
     Ok(())
 }
 
@@ -2422,13 +2468,16 @@ pub fn git_set_remote_url(path: String, name: String, url: String) -> Result<(),
     use std::os::windows::process::CommandExt;
 
     let mut cmd = git_cmd()?;
-    cmd.current_dir(&path).args(["remote", "set-url", &name, &url]);
+    cmd.current_dir(&path)
+        .args(["remote", "set-url", &name, &url]);
     #[cfg(windows)]
     cmd.creation_flags(0x08000000);
 
     let output = cmd.output().map_err(|e| AppError::Io(e))?;
     if !output.status.success() {
-        return Err(AppError::Message(String::from_utf8_lossy(&output.stderr).to_string()));
+        return Err(AppError::Message(
+            String::from_utf8_lossy(&output.stderr).to_string(),
+        ));
     }
     Ok(())
 }
@@ -2501,7 +2550,10 @@ pub(super) fn resolve_repo_relative_path(repo_path: &str, file_path: &str) -> St
         }
     }
 
-    let norm_repo = repo_path.replace('\\', "/").trim_end_matches('/').to_string();
+    let norm_repo = repo_path
+        .replace('\\', "/")
+        .trim_end_matches('/')
+        .to_string();
     let norm_file = clean_path.clone();
     if norm_file.len() > norm_repo.len()
         && norm_file[..norm_repo.len()].eq_ignore_ascii_case(&norm_repo)
@@ -2535,11 +2587,7 @@ pub fn git_blame_file(repo_path: String, file_path: String) -> Result<Vec<BlameL
         if let Some(hunk) = blame.get_index(line_idx) {
             let commit_id = hunk.final_commit_id();
             let commit = repo.find_commit(commit_id).map_err(|e| AppError::Git(e))?;
-            let author = commit
-                .author()
-                .name()
-                .unwrap_or("Unknown")
-                .to_string();
+            let author = commit.author().name().unwrap_or("Unknown").to_string();
             let date = commit.time().seconds().to_string();
             let summary = commit.summary().unwrap_or("").to_string();
             results.push(BlameLine {
@@ -2596,7 +2644,11 @@ pub fn git_stash_list(repo_path: String) -> Result<Vec<GitStashEntry>, AppError>
     Ok(entries)
 }
 
-pub fn git_stash_save(repo_path: String, message: String, include_untracked: bool) -> Result<(), AppError> {
+pub fn git_stash_save(
+    repo_path: String,
+    message: String,
+    include_untracked: bool,
+) -> Result<(), AppError> {
     #[cfg(windows)]
     use std::os::windows::process::CommandExt;
 
@@ -2638,7 +2690,8 @@ fn run_git_stash_action(repo_path: &str, action: &str, index: usize) -> Result<(
 
     let stash_ref = format!("stash@{{{}}}", index);
     let mut cmd = git_cmd()?;
-    cmd.current_dir(repo_path).args(["stash", action, &stash_ref]);
+    cmd.current_dir(repo_path)
+        .args(["stash", action, &stash_ref]);
     #[cfg(windows)]
     cmd.creation_flags(0x08000000);
 
@@ -2657,7 +2710,8 @@ pub fn git_stash_show(repo_path: String, index: usize) -> Result<String, AppErro
 
     let stash_ref = format!("stash@{{{}}}", index);
     let mut cmd = git_cmd()?;
-    cmd.current_dir(&repo_path).args(["stash", "show", "-p", &stash_ref]);
+    cmd.current_dir(&repo_path)
+        .args(["stash", "show", "-p", &stash_ref]);
     #[cfg(windows)]
     cmd.creation_flags(0x08000000);
 
@@ -2723,7 +2777,9 @@ fn validate_clone_url(url: &str) -> Result<(), AppError> {
         || lower.starts_with("git@")
         || lower.starts_with("ssh://"))
     {
-        return Err(AppError::Message("Unsupported clone URL scheme".to_string()));
+        return Err(AppError::Message(
+            "Unsupported clone URL scheme".to_string(),
+        ));
     }
     if trimmed
         .chars()
@@ -2795,7 +2851,10 @@ mod clone_folder_name_tests {
 
     #[test]
     fn ssh_style() {
-        assert_eq!(clone_folder_name("git@github.com:useshape/Shape.git"), "Shape");
+        assert_eq!(
+            clone_folder_name("git@github.com:useshape/Shape.git"),
+            "Shape"
+        );
     }
 
     #[test]
@@ -2818,7 +2877,9 @@ pub fn git_clone(url: String, parent_dir: String) -> Result<String, AppError> {
     }
     let folder = clone_folder_name(&url);
     if folder.is_empty() {
-        return Err(AppError::Message("Could not derive clone folder name".to_string()));
+        return Err(AppError::Message(
+            "Could not derive clone folder name".to_string(),
+        ));
     }
     let dest = parent.join(&folder);
     if dest.exists() {
@@ -2870,7 +2931,10 @@ pub fn git_list_tags(repo_path: String) -> Result<Vec<GitTagEntry>, AppError> {
         .map_err(|e| AppError::Message(format!("git for-each-ref tags failed: {}", e)))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(AppError::Message(format!("git list tags failed: {}", stderr)));
+        return Err(AppError::Message(format!(
+            "git list tags failed: {}",
+            stderr
+        )));
     }
 
     let mut tags = Vec::new();
@@ -2981,7 +3045,10 @@ pub fn git_diff_name_status(
         .map_err(|e| AppError::Message(format!("git diff name-status failed: {}", e)))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(AppError::Message(format!("git diff name-status failed: {}", stderr)));
+        return Err(AppError::Message(format!(
+            "git diff name-status failed: {}",
+            stderr
+        )));
     }
 
     let mut files = Vec::new();
@@ -2991,7 +3058,9 @@ pub fn git_diff_name_status(
             continue;
         }
         let mut parts = line.split('\t');
-        let Some(status_raw) = parts.next() else { continue };
+        let Some(status_raw) = parts.next() else {
+            continue;
+        };
         let status_char = status_raw.chars().next().unwrap_or('M');
         let status = status_char.to_string();
         // Renames: R100\told\tnew — take the new path.

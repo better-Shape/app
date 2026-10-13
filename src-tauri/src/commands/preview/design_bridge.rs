@@ -115,8 +115,8 @@ fn install_on_windows(
         if let Some(id) = previous_id {
             let _ = core.RemoveScriptToExecuteOnDocumentCreated(&HSTRING::from(id));
         }
-        let handler = AddScriptToExecuteOnDocumentCreatedCompletedHandler::create(Box::new(
-            |_hr, id| {
+        let handler =
+            AddScriptToExecuteOnDocumentCreatedCompletedHandler::create(Box::new(|_hr, id| {
                 let script_id = id.to_string();
                 if !script_id.is_empty() {
                     if let Ok(mut guard) = INSTALL.lock() {
@@ -126,8 +126,7 @@ fn install_on_windows(
                     }
                 }
                 Ok(())
-            },
-        ));
+            }));
         core.AddScriptToExecuteOnDocumentCreated(&HSTRING::from(script), &handler)
             .map_err(|e| e.to_string())?;
     }
@@ -135,10 +134,7 @@ fn install_on_windows(
 }
 
 #[cfg(target_os = "macos")]
-fn install_on_macos(
-    webview: &tauri::webview::PlatformWebview,
-    script: &str,
-) -> Result<(), String> {
+fn install_on_macos(webview: &tauri::webview::PlatformWebview, script: &str) -> Result<(), String> {
     // WKWebView counterpart to WebView2 AddScriptToExecuteOnDocumentCreated.
     // The injected script itself guards to localhost iframe documents only.
     let _ = webview;

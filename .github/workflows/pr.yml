@@ -1,0 +1,112 @@
+name: PR Hygiene
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  title-lint:
+    name: PR Title Lint (Conventional)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check PR title follows conventional commits area prefix
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          echo "PR Title: $TITLE"
+          # Allow conventional: area: description  or  type(area): description  or  area(scope): ...
+          # Examples: agent: fix streaming, git: improve graph, docs: update readme, chore: bump deps
+          # Also allow: fix: ..., feat: ..., chore: ...
+          # Regex: ^[a-z0-9-]+(\([^\)]+\))?: .{5,}
+          if echo "$TITLE" | grep -Eq '^[a-z0-9-]+(\([^)]+\))?: .{5,}$'; then
+            echo "✓ Title looks good (area: description)"
+            exit 0
+          fi
+          # Also allow conventional types without area? e.g. fix: ..., feat: ...
+          if echo "$TITLE" | grep -Eq '^(feat|fix|chore|docs|ci|refactor|test|perf|build|style|security)(\(.+\))?: .{5,}$'; then
+            echo "✓ Title follows conventional type"
+            exit 0
+          fi
+          echo "::warning::PR title '$TITLE' doesn't match preferred format 'area: short summary'"
+          echo "Preferred examples: 'agent: fix streaming race', 'git: improve graph perf', 'docs: update quickstart'"
+          echo "This is a warning only - not blocking, but please consider updating."
+          # Don't fail, just warn - change to exit 1 if you want strict enforcement
+          exit 0
+
+  check-large-files:
+    name: Check Large Files & Secrets
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for large files (>5MB)
+        run: |
+          LARGE=$(find . -type f -size +5M \
+            -not -path "./.git/*" \
+            -not -path "./node_modules/*" \
+            -not -path "./src-tauri/target/*" \
+            -not -path "./.next/*" \
+            -not -path "./out/*" \
+            -not -path "./dist/*" 2>/dev/null || true)
+          if [ -n "$LARGE" ]; then
+            echo "::error::Large files detected (>5MB):"
+            echo "$LARGE"
+            exit 1
+          fi
+          echo "✓ No large files"
+
+      - name: Check for accidentally committed secrets patterns
+        run: |
+          set -euo pipefail
+          # Heuristic: look for actual secret values, not variable names or secret references
+          # We must NOT filter out all lines containing TAURI_SIGNING/SHAPE_CLOUD, as that would allow
+          # a real secret on such a line to evade detection
+          # Instead, only filter the specific GitHub Actions secret reference syntax
+          # Obfuscate private key pattern to avoid this file being flagged as secret by scanners
+          # Do NOT filter out private-key markers before scanning - that would allow evasion
+          DIFF=$(git diff origin/main...HEAD --unified=0 || git diff HEAD~1 --unified=0 || true)
+          # Only filter out the exact ${{ secrets.* }} reference pattern
+          FILTERED=$(echo "$DIFF" | sed -E 's/\$\{\{\s*secrets\.[^}]+\}\}//g' || true)
+          # Build private key pattern from parts to avoid literal in file triggering self-detection
+          P1="BEG"
+          P2="IN"
+          P3=".*PRIV"
+          P4="ATE"
+          PRIVATE_KEY_PATTERN="${P1}${P2}${P3}${P4}"
+          # Do NOT filter out lines containing private key markers - we want to detect them
+          # Only filter out this workflow's own pattern construction to avoid self-match
+          if echo "$FILTERED" | grep -v "P1=" | grep -v "P2=" | grep -v "P3=" | grep -v "P4=" | grep -v "PRIVATE_KEY_PATTERN=" | grep -Ei "(${PRIVATE_KEY_PATTERN}|sk-ant-[a-zA-Z0-9-]{20,}|sk-proj-[a-zA-Z0-9-]{20,}|ghp_[a-zA-Z0-9]{36}|gho_[a-zA-Z0-9]{36}|AKIA[0-9A-Z]{16})" | grep -v "example" | grep -v ".gitignore"; then
+            echo "::error::Potential secret value detected in diff - please review"
+            echo "If this is a false positive (e.g. docs), add 'example' comment or adjust filter"
+            exit 1
+          fi
+          # Also check for aws_secret_access_key pattern separately
+          if echo "$FILTERED" | grep -Ei "aws_secret_access_key.*[A-Za-z0-9/+=]{40}" | grep -v "example" | grep -v ".gitignore"; then
+            echo "::error::Potential AWS secret detected"
+            exit 1
+          fi
+          echo "✓ No obvious secret values in diff"
+
+  label-check:
+    name: Label Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Check if PR is too large
+        env:
+          ADDITIONS: ${{ github.event.pull_request.additions }}
+          DELETIONS: ${{ github.event.pull_request.deletions }}
+        run: |
+          TOTAL=$((ADDITIONS + DELETIONS))
+          echo "Changes: +$ADDITIONS -$DELETIONS = $TOTAL total"
+          if [ "$TOTAL" -gt 2000 ]; then
+            echo "::warning::Large PR ($TOTAL lines). Consider splitting into smaller PRs."
+          fi

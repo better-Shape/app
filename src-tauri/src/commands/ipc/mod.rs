@@ -1,10 +1,10 @@
 pub mod device_id;
-pub mod open;
 pub mod filesystem;
 pub mod git;
 pub mod github_auth;
 pub mod history;
 pub mod lint;
+pub mod open;
 pub mod outline;
 pub mod packages;
 pub mod shortcuts;

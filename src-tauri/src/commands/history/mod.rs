@@ -88,7 +88,10 @@ fn trim_history_versions(dir: &Path, max: usize) -> Result<(), AppError> {
     Ok(())
 }
 
-pub fn get_file_history(project_path: &str, file_path: &str) -> Result<Vec<HistoryEntry>, AppError> {
+pub fn get_file_history(
+    project_path: &str,
+    file_path: &str,
+) -> Result<Vec<HistoryEntry>, AppError> {
     if file_path.starts_with("shape://") {
         return Ok(vec![]);
     }
@@ -172,5 +175,11 @@ fn format_timestamp(ts: i64) -> String {
     let hours = rem / 3600;
     let mins = (rem % 3600) / 60;
     let secs = rem % 60;
-    format!("1970-01-{:02} {:02}:{:02}:{:02}", 1 + days, hours, mins, secs)
+    format!(
+        "1970-01-{:02} {:02}:{:02}:{:02}",
+        1 + days,
+        hours,
+        mins,
+        secs
+    )
 }

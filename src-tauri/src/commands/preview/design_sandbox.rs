@@ -15,8 +15,10 @@ pub const PREVIEW_TAILWIND_FILENAME: &str = "tailwind-browser.js";
 static RUNTIME_BUNDLE: &str =
     include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/runtime/bundle.js"));
 
-static RUNTIME_TAILWIND_BROWSER: &str =
-    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/runtime/tailwind-browser.js"));
+static RUNTIME_TAILWIND_BROWSER: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/runtime/tailwind-browser.js"
+));
 
 #[allow(dead_code)]
 pub fn runtime_bundle_bytes() -> &'static str {
@@ -41,9 +43,8 @@ pub fn ensure_runtime_bundle(dir: &Path) -> Result<(), AppError> {
         Err(_) => true,
     };
     if needs_tailwind {
-        std::fs::write(&tailwind_path, RUNTIME_TAILWIND_BROWSER).map_err(|e| {
-            AppError::Env(format!("Failed to write preview tailwind browser: {e}"))
-        })?;
+        std::fs::write(&tailwind_path, RUNTIME_TAILWIND_BROWSER)
+            .map_err(|e| AppError::Env(format!("Failed to write preview tailwind browser: {e}")))?;
     }
     Ok(())
 }
@@ -150,7 +151,10 @@ pub fn write_concept_document(
     html: &str,
 ) -> Result<PathBuf, AppError> {
     let dir = ensure_session_dir(session_id)?;
-    let path = dir.join(format!("concept-{}.html", sanitize_path_segment(concept_id)));
+    let path = dir.join(format!(
+        "concept-{}.html",
+        sanitize_path_segment(concept_id)
+    ));
     std::fs::write(&path, html)
         .map_err(|e| AppError::Env(format!("Failed to write concept preview html: {e}")))?;
     Ok(path)
@@ -228,7 +232,9 @@ enum PreviewDocumentKind<'a> {
         bundle_src: &'a str,
         tailwind_src: &'a str,
     },
-    StaticBody { body_html: String },
+    StaticBody {
+        body_html: String,
+    },
 }
 
 fn preview_document_head(tailwind_src: &str, project_css: &str) -> String {
@@ -274,10 +280,7 @@ fn build_offline_preview_document(kind: PreviewDocumentKind<'_>, project_css: &s
     };
 
     let body = match kind {
-        PreviewDocumentKind::React {
-            bundle_src,
-            ..
-        } => {
+        PreviewDocumentKind::React { bundle_src, .. } => {
             let bundle_src_attr = html_attr_escape(bundle_src);
             format!(
                 r#"<div id="root"></div>
@@ -385,7 +388,7 @@ pub fn build_preview_ready_script(_max_wait_ms: u64) -> String {
     document.title = (document.title || "") + "|ready";
   }
 })();"#
-    .to_string()
+        .to_string()
 }
 
 fn load_project_css(project_path: Option<&str>) -> String {
@@ -395,7 +398,10 @@ fn load_project_css(project_path: Option<&str>) -> String {
     let candidates = [
         Path::new(root).join("app").join("globals.css"),
         Path::new(root).join("src").join("app").join("globals.css"),
-        Path::new(root).join("shape").join("app").join("globals.css"),
+        Path::new(root)
+            .join("shape")
+            .join("app")
+            .join("globals.css"),
         Path::new(root).join("globals.css"),
     ];
     for path in candidates {
@@ -456,8 +462,10 @@ mod tests {
         assert!(inlined.contains("ShapePreviewRuntime"));
         assert!(inlined.len() > 100_000);
         // HTML must not declare @import in a style tag; the browser bundle may mention it in JS.
-        assert!(!inlined.contains(r#"type="text/tailwindcss">
-@import "tailwindcss""#));
+        assert!(!inlined.contains(
+            r#"type="text/tailwindcss">
+@import "tailwindcss""#
+        ));
     }
 
     #[test]

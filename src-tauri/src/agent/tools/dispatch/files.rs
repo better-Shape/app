@@ -9,8 +9,8 @@ use crate::agent::security;
 use crate::agent::tools::files;
 
 use super::common::{
-    blocked_outcome, error_outcome, escape_xml_attr, escape_xml_text, get_str,
-    is_read_only_mode, ApprovalDecision,
+    blocked_outcome, error_outcome, escape_xml_attr, escape_xml_text, get_str, is_read_only_mode,
+    ApprovalDecision,
 };
 use super::{SideEffect, ToolCtx, ToolOutcome};
 
@@ -19,8 +19,14 @@ pub(super) fn tool_read_file(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutcome {
         Ok(s) => s,
         Err(e) => return error_outcome("read_file", &e),
     };
-    let start = args.get("start_line").and_then(|v| v.as_u64()).map(|v| v as usize);
-    let end = args.get("end_line").and_then(|v| v.as_u64()).map(|v| v as usize);
+    let start = args
+        .get("start_line")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as usize);
+    let end = args
+        .get("end_line")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as usize);
 
     if let Some(image) = files::read_image_for_model(&path, ctx.project_path) {
         return image_read_outcome(&path, image);
@@ -55,7 +61,11 @@ pub(super) fn tool_read_file(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutcome {
 }
 
 fn image_read_outcome(path: &str, image: files::ImageRead) -> ToolOutcome {
-    let tag = crate::agent::tools::page_shot::attached_image_tag(&image.name, &image.mime, &image.data_url);
+    let tag = crate::agent::tools::page_shot::attached_image_tag(
+        &image.name,
+        &image.mime,
+        &image.data_url,
+    );
     let kb = image.bytes / 1024;
     ToolOutcome {
         tool_result: format!(
@@ -94,10 +104,12 @@ pub(super) fn tool_list_dir(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutcome {
     }
 }
 
-
 pub(super) fn tool_create_directory(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutcome {
     if is_read_only_mode(ctx.mode) {
-        return blocked_outcome("create_directory", "Directory creation is not allowed in Ask or Plan mode.");
+        return blocked_outcome(
+            "create_directory",
+            "Directory creation is not allowed in Ask or Plan mode.",
+        );
     }
     let path = match get_str(args, "path") {
         Ok(s) => s,
@@ -118,7 +130,10 @@ pub(super) fn tool_create_directory(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutc
 
 pub(super) async fn tool_create_file(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutcome {
     if is_read_only_mode(ctx.mode) {
-        return blocked_outcome("create_file", "File creation is not allowed in Ask or Plan mode.");
+        return blocked_outcome(
+            "create_file",
+            "File creation is not allowed in Ask or Plan mode.",
+        );
     }
     let path = match get_str(args, "path") {
         Ok(s) => s,
@@ -131,7 +146,11 @@ pub(super) async fn tool_create_file(args: &Value, ctx: &ToolCtx<'_>) -> ToolOut
         .to_string();
 
     let mut approved_edit_id: Option<String> = None;
-    if ctx.agent_state.turn_policy_for(ctx.conversation_id.as_deref()).require_edit_approval {
+    if ctx
+        .agent_state
+        .turn_policy_for(ctx.conversation_id.as_deref())
+        .require_edit_approval
+    {
         // Refuse duplicates before asking for approval — same check create_file
         // itself performs on write.
         if security::paths::resolve_safe_path(&path, ctx.project_path)
@@ -140,7 +159,10 @@ pub(super) async fn tool_create_file(args: &Value, ctx: &ToolCtx<'_>) -> ToolOut
         {
             return error_outcome(
                 "create_file",
-                &format!("File '{}' already exists — use edit_file to modify it.", path),
+                &format!(
+                    "File '{}' already exists — use edit_file to modify it.",
+                    path
+                ),
             );
         }
         let resolved = crate::agent::editing::ResolvedEdit {
@@ -178,10 +200,7 @@ pub(super) async fn tool_create_file(args: &Value, ctx: &ToolCtx<'_>) -> ToolOut
             ToolOutcome {
                 tool_result,
                 ui_chunk: ui,
-                side_effect: Some(SideEffect::FileWritten {
-                    path,
-                    content,
-                }),
+                side_effect: Some(SideEffect::FileWritten { path, content }),
             }
         }
         Err(e) => error_outcome("create_file", &e.to_string()),
@@ -193,7 +212,11 @@ pub(super) fn tool_send_file(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutcome {
         Ok(s) => s,
         Err(e) => return error_outcome("send_file", &e),
     };
-    let title = args.get("title").and_then(|v| v.as_str()).unwrap_or("").trim();
+    let title = args
+        .get("title")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim();
     let file = match files::read_file_for_send(&path, ctx.project_path) {
         Ok(file) => file,
         Err(e) => return error_outcome("send_file", &e.to_string()),
@@ -341,7 +364,12 @@ fn find_attached_bytes(ctx: &ToolCtx<'_>, name: &str) -> Result<Vec<u8>, String>
 }
 
 fn decode_generated_media(content: &str, name_lc: &str) -> Option<Vec<u8>> {
-    for tag in ["generated_image", "generated_svg", "generated_audio", "attached_asset"] {
+    for tag in [
+        "generated_image",
+        "generated_svg",
+        "generated_audio",
+        "attached_asset",
+    ] {
         let open = format!("<{tag}");
         let close = format!("</{tag}>");
         let mut rest = content;
@@ -384,10 +412,9 @@ fn decode_attached_image(content: &str, name_lc: &str) -> Option<Vec<u8>> {
             if let Some(comma) = body.find(',') {
                 if body[..comma].contains("base64") {
                     let data = body[comma + 1..].trim();
-                    if let Ok(bytes) = base64::Engine::decode(
-                        &base64::engine::general_purpose::STANDARD,
-                        data,
-                    ) {
+                    if let Ok(bytes) =
+                        base64::Engine::decode(&base64::engine::general_purpose::STANDARD, data)
+                    {
                         return Some(bytes);
                     }
                 }
@@ -547,7 +574,8 @@ pub(super) async fn gate_edit_approval(
 /// persist it immediately so a crash mid-turn does not lose the checkpoint.
 pub(super) fn record_checkpoint(ctx: &ToolCtx<'_>, path: &str, original_content: Option<String>) {
     let message_index = ctx.agent_state.current_turn_index();
-    ctx.agent_state.record_file_checkpoint(message_index, path, original_content);
+    ctx.agent_state
+        .record_file_checkpoint(message_index, path, original_content);
     if let Some(conv_id) = ctx.conversation_id.as_deref().filter(|s| !s.is_empty()) {
         checkpoints::save_checkpoints(conv_id, &ctx.agent_state.file_checkpoints_snapshot());
     }
@@ -555,7 +583,10 @@ pub(super) fn record_checkpoint(ctx: &ToolCtx<'_>, path: &str, original_content:
 
 pub(super) async fn tool_edit_file(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutcome {
     if is_read_only_mode(ctx.mode) {
-        return blocked_outcome("edit_file", "File edits are not allowed in Ask or Plan mode.");
+        return blocked_outcome(
+            "edit_file",
+            "File edits are not allowed in Ask or Plan mode.",
+        );
     }
     let target = match get_str(args, "target_file") {
         Ok(s) => s,
@@ -573,16 +604,24 @@ pub(super) async fn tool_edit_file(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutco
         .to_string();
 
     if code_edit.trim().is_empty() {
-        return error_outcome("edit_file", "`code_edit` is required and must not be empty.");
+        return error_outcome(
+            "edit_file",
+            "`code_edit` is required and must not be empty.",
+        );
     }
 
     if let Err(e) = security::paths::validate_write_path(&target, ctx.project_path) {
-        return error_outcome("edit_file", &format!("Security: cannot edit '{}': {}", target, e));
+        return error_outcome(
+            "edit_file",
+            &format!("Security: cannot edit '{}': {}", target, e),
+        );
     }
 
     let abs_path = match security::paths::resolve_safe_path(&target, ctx.project_path) {
         Ok(p) => p.to_string_lossy().into_owned(),
-        Err(e) => return error_outcome("edit_file", &format!("Cannot resolve '{}': {}", target, e)),
+        Err(e) => {
+            return error_outcome("edit_file", &format!("Cannot resolve '{}': {}", target, e));
+        }
     };
 
     // Resolve (merge) first without touching disk — the approval flow shows the
@@ -598,13 +637,20 @@ pub(super) async fn tool_edit_file(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutco
     {
         Ok(r) => r,
         Err(e) => {
-            logging::error("dispatch", &format!("edit_file failed for {}: {}", target, e));
+            logging::error(
+                "dispatch",
+                &format!("edit_file failed for {}: {}", target, e),
+            );
             return error_outcome("edit_file", &e.to_string());
         }
     };
 
     let mut approved_edit_id: Option<String> = None;
-    if ctx.agent_state.turn_policy_for(ctx.conversation_id.as_deref()).require_edit_approval {
+    if ctx
+        .agent_state
+        .turn_policy_for(ctx.conversation_id.as_deref())
+        .require_edit_approval
+    {
         match gate_edit_approval(&target, &resolved, ctx).await {
             Ok(id) => approved_edit_id = Some(id),
             Err(outcome) => return outcome,
@@ -614,7 +660,10 @@ pub(super) async fn tool_edit_file(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutco
     if let Err(e) =
         crate::agent::editing::write_resolved_edit(ctx.app_handle, &abs_path, &resolved).await
     {
-        logging::error("dispatch", &format!("edit_file write failed for {}: {}", target, e));
+        logging::error(
+            "dispatch",
+            &format!("edit_file write failed for {}: {}", target, e),
+        );
         return error_outcome("edit_file", &e.to_string());
     }
 
@@ -691,10 +740,7 @@ pub(super) fn append_lint_feedback(ctx: &ToolCtx<'_>, path: &str, tool_result: &
     }
     tool_result.push_str("\n\nLINTER DIAGNOSTICS (from IDE; call read_lints for a refresh):\n");
     for d in diags.iter().take(12) {
-        tool_result.push_str(&format!(
-            "- [{}] L{}: {}\n",
-            d.severity, d.line, d.message
-        ));
+        tool_result.push_str(&format!("- [{}] L{}: {}\n", d.severity, d.line, d.message));
     }
 }
 
@@ -772,7 +818,10 @@ pub(super) fn tool_read_lints(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutcome {
 
 pub(super) async fn tool_apply_patch(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutcome {
     if is_read_only_mode(ctx.mode) {
-        return blocked_outcome("apply_patch", "File edits are not allowed in Ask or Plan mode.");
+        return blocked_outcome(
+            "apply_patch",
+            "File edits are not allowed in Ask or Plan mode.",
+        );
     }
     let input = match get_str(args, "input") {
         Ok(s) => s,
@@ -845,7 +894,11 @@ pub(super) async fn tool_apply_patch(args: &Value, ctx: &ToolCtx<'_>) -> ToolOut
         };
 
         let mut approved_edit_id: Option<String> = None;
-        if ctx.agent_state.turn_policy_for(ctx.conversation_id.as_deref()).require_edit_approval {
+        if ctx
+            .agent_state
+            .turn_policy_for(ctx.conversation_id.as_deref())
+            .require_edit_approval
+        {
             match gate_edit_approval(&change.path, &resolved, ctx).await {
                 Ok(id) => approved_edit_id = Some(id),
                 Err(outcome) => return outcome,
@@ -928,7 +981,10 @@ pub(super) async fn tool_apply_patch(args: &Value, ctx: &ToolCtx<'_>) -> ToolOut
 
 pub(super) fn tool_delete_file(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutcome {
     if is_read_only_mode(ctx.mode) {
-        return blocked_outcome("delete_file", "File deletion is not allowed in Ask or Plan mode.");
+        return blocked_outcome(
+            "delete_file",
+            "File deletion is not allowed in Ask or Plan mode.",
+        );
     }
     let path = match get_str(args, "path") {
         Ok(s) => s,
@@ -954,7 +1010,10 @@ pub(super) fn tool_delete_file(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutcome {
 
 pub(super) fn tool_rename_file(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutcome {
     if is_read_only_mode(ctx.mode) {
-        return blocked_outcome("rename_file", "File renaming is not allowed in Ask or Plan mode.");
+        return blocked_outcome(
+            "rename_file",
+            "File renaming is not allowed in Ask or Plan mode.",
+        );
     }
     let old_path = match get_str(args, "old_path") {
         Ok(s) => s,
@@ -970,7 +1029,10 @@ pub(super) fn tool_rename_file(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutcome {
             let _ = ctx.app_handle.emit("shape-file-edited", &new_path);
             ToolOutcome {
                 tool_result: out,
-                ui_chunk: format!("\n<rename_file>{} -> {}</rename_file>\n", old_path, new_path),
+                ui_chunk: format!(
+                    "\n<rename_file>{} -> {}</rename_file>\n",
+                    old_path, new_path
+                ),
                 side_effect: None,
             }
         }

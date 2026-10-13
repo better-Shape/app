@@ -107,14 +107,8 @@ fn strip_tool_markup(text: &str) -> String {
     let patterns: &[(&str, &str)] = &[
         ("<|tool_calls_begin|>", "<|tool_calls_end|>"),
         ("<|tool_call_begin|>", "<|tool_call_end|>"),
-        (
-            "<|tool_calls_section_begin|>",
-            "<|tool_calls_section_end|>",
-        ),
-        (
-            "<|tool_call_begin|>",
-            "<|tool_call_end|>",
-        ),
+        ("<|tool_calls_section_begin|>", "<|tool_calls_section_end|>"),
+        ("<|tool_call_begin|>", "<|tool_call_end|>"),
         ("<tool_call>", "</tool_call>"),
     ];
     for (start, end) in patterns {
@@ -301,10 +295,9 @@ fn extract_leaked_tool_calls(text: &str) -> Vec<ParsedLeakCall> {
         if let Some(end) = find_json_object_end(text, abs) {
             let slice = &text[abs..=end];
             if let Ok(v) = serde_json::from_str::<Value>(slice) {
-                if let (Some(name), Some(args)) = (
-                    v.get("name").and_then(|n| n.as_str()),
-                    v.get("arguments"),
-                ) {
+                if let (Some(name), Some(args)) =
+                    (v.get("name").and_then(|n| n.as_str()), v.get("arguments"))
+                {
                     let args_str = if args.is_string() {
                         args.as_str().unwrap_or("{}").to_string()
                     } else {

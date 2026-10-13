@@ -19,7 +19,10 @@ use super::{SideEffect, ToolCtx, ToolOutcome};
 
 pub(super) async fn tool_run_terminal(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutcome {
     if is_read_only_mode(ctx.mode) {
-        return blocked_outcome("run_terminal", "Running terminal commands is not allowed in Ask or Plan mode.");
+        return blocked_outcome(
+            "run_terminal",
+            "Running terminal commands is not allowed in Ask or Plan mode.",
+        );
     }
     let command = match get_str(args, "command") {
         Ok(s) => s,
@@ -38,7 +41,9 @@ pub(super) async fn tool_run_terminal(args: &Value, ctx: &ToolCtx<'_>) -> ToolOu
         return outcome;
     }
 
-    let policy = ctx.agent_state.turn_policy_for(ctx.conversation_id.as_deref());
+    let policy = ctx
+        .agent_state
+        .turn_policy_for(ctx.conversation_id.as_deref());
     let safety = security::commands::apply_auto_run_mode(
         security::commands::check_command_safety(&command),
         &command,
@@ -49,7 +54,10 @@ pub(super) async fn tool_run_terminal(args: &Value, ctx: &ToolCtx<'_>) -> ToolOu
         CommandSafety::Blocked { reason } => {
             logging::warn("dispatch", &format!("Command blocked: {}", reason));
             ToolOutcome {
-                tool_result: format!("BLOCKED: Command '{}' was blocked by security: {}", command, reason),
+                tool_result: format!(
+                    "BLOCKED: Command '{}' was blocked by security: {}",
+                    command, reason
+                ),
                 ui_chunk: format!(
                     "\n<terminal_command status=\"blocked\">{}\nBlocked: {}</terminal_command>\n",
                     command, reason
@@ -88,7 +96,11 @@ pub(super) async fn tool_run_terminal(args: &Value, ctx: &ToolCtx<'_>) -> ToolOu
 
 /// Run a command through the unified session engine and build the tool outcome.
 /// The `cmd_id` correlates the chat card, live output events, and this result.
-pub(super) async fn execute_terminal_session(command: &str, cmd_id: &str, ctx: &ToolCtx<'_>) -> ToolOutcome {
+pub(super) async fn execute_terminal_session(
+    command: &str,
+    cmd_id: &str,
+    ctx: &ToolCtx<'_>,
+) -> ToolOutcome {
     let Some(pty_state) = ctx.pty_state else {
         return error_outcome("run_terminal", "Terminal state is not available.");
     };
@@ -188,25 +200,32 @@ pub(super) fn intercept_file_mutation_command(command: &str) -> Option<ToolOutco
         // Steering a read attempt toward edit tools sends the model looking for another
         // shell trick instead of the tool it actually wanted.
         if looks_like_read {
-            Some("Shell one-liners cannot inspect files. Use `read_file` (it takes start_line/end_line) or `grep`.")
+            Some(
+                "Shell one-liners cannot inspect files. Use `read_file` (it takes start_line/end_line) or `grep`.",
+            )
         } else {
-            Some("Shell one-liners cannot edit files. Use `edit_file` or `apply_patch` (whichever is in your tool list).")
+            Some(
+                "Shell one-liners cannot edit files. Use `edit_file` or `apply_patch` (whichever is in your tool list).",
+            )
         }
     } else if cmd_lower.contains("set-content")
         || cmd_lower.contains("out-file")
         || cmd_lower.contains("add-content")
-        || cmd_lower.contains("get-content")
-            && cmd_lower.contains("-replace")
+        || cmd_lower.contains("get-content") && cmd_lower.contains("-replace")
         || cmd_lower.contains(" open(")
             && (cmd_lower.contains(".write(") || cmd_lower.contains(".writelines("))
     {
-        Some("Writing files through the shell is blocked. Use `edit_file` or `apply_patch` (whichever is in your tool list).")
+        Some(
+            "Writing files through the shell is blocked. Use `edit_file` or `apply_patch` (whichever is in your tool list).",
+        )
     } else if cmd_lower.contains(" > ")
         || cmd_lower.contains(" >> ")
         || cmd_lower.starts_with("sed -i")
         || cmd_lower.contains("sed -i")
     {
-        Some("Redirecting shell output to files is blocked. Use `edit_file` or `apply_patch` (whichever is in your tool list).")
+        Some(
+            "Redirecting shell output to files is blocked. Use `edit_file` or `apply_patch` (whichever is in your tool list).",
+        )
     } else {
         None
     };
@@ -289,9 +308,22 @@ fn tokenize_segment(segment: &str) -> Vec<String> {
 
 /// Pipeline stages that only reshape output, so the command feeding them is still a plain read.
 const BENIGN_PIPELINE_STAGES: &[&str] = &[
-    "select-object", "select", "format-list", "fl", "format-table", "ft", "out-string",
-    "out-host", "measure-object", "measure", "sort-object", "sort", "write-output",
-    "write-host", "echo", "more",
+    "select-object",
+    "select",
+    "format-list",
+    "fl",
+    "format-table",
+    "ft",
+    "out-string",
+    "out-host",
+    "measure-object",
+    "measure",
+    "sort-object",
+    "sort",
+    "write-output",
+    "write-host",
+    "echo",
+    "more",
 ];
 
 fn command_name(token: &str) -> String {
@@ -372,7 +404,11 @@ fn parse_shell_read_args(args: &[String]) -> ShellReadArgs {
 }
 
 fn redirected(outcome: ToolOutcome, tool: &str) -> ToolOutcome {
-    let ToolOutcome { tool_result, ui_chunk, side_effect } = outcome;
+    let ToolOutcome {
+        tool_result,
+        ui_chunk,
+        side_effect,
+    } = outcome;
     ToolOutcome {
         tool_result: format!(
             "{}{tool}` tool instead of a shell command. Any other flags were ignored — \
@@ -392,7 +428,10 @@ fn read_tail(path: &str, count: usize, ctx: &ToolCtx<'_>) -> ToolOutcome {
             ToolOutcome {
                 tool_result: tail,
                 ui_chunk: cat_ui_chunk(path, None, None),
-                side_effect: Some(SideEffect::FileRead { path: path.to_string(), content }),
+                side_effect: Some(SideEffect::FileRead {
+                    path: path.to_string(),
+                    content,
+                }),
             }
         }
         Err(e) => error_outcome("run_terminal", &e.to_string()),
@@ -429,8 +468,16 @@ pub(super) async fn intercept_file_inspection_command(
     if outcomes.len() == 1 {
         return outcomes.pop();
     }
-    let tool_result = outcomes.iter().map(|o| o.tool_result.as_str()).collect::<Vec<_>>().join("\n\n");
-    let ui_chunk = outcomes.iter().map(|o| o.ui_chunk.as_str()).collect::<Vec<_>>().join("");
+    let tool_result = outcomes
+        .iter()
+        .map(|o| o.tool_result.as_str())
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    let ui_chunk = outcomes
+        .iter()
+        .map(|o| o.ui_chunk.as_str())
+        .collect::<Vec<_>>()
+        .join("");
     Some(ToolOutcome {
         tool_result,
         ui_chunk,
@@ -447,9 +494,14 @@ async fn intercept_one_inspection_segment(segment: &str, ctx: &ToolCtx<'_>) -> O
 
     match name.as_str() {
         "cat" | "type" | "gc" | "get-content" | "head" | "tail" => {
-            let path = parsed.path.take().or_else(|| parsed.positional.first().cloned())?;
+            let path = parsed
+                .path
+                .take()
+                .or_else(|| parsed.positional.first().cloned())?;
             if path.contains('*') || path.contains('?') {
-                return steer("Reading several files with a glob is not supported. Use `read_file` per file, or `grep`.");
+                return steer(
+                    "Reading several files with a glob is not supported. Use `read_file` per file, or `grep`.",
+                );
             }
             if name == "tail" || parsed.tail.is_some() {
                 let n = parsed.tail.unwrap_or(80);
@@ -463,9 +515,17 @@ async fn intercept_one_inspection_segment(segment: &str, ctx: &ToolCtx<'_>) -> O
             Some(redirected(tool_read_file(&args, ctx), "read_file"))
         }
         "ls" | "dir" | "gci" | "get-childitem" | "gi" | "get-item" => {
-            let path = parsed.path.take().or_else(|| parsed.positional.first().cloned());
-            if path.as_deref().is_some_and(|p| p.contains('*') || p.contains('?')) {
-                return steer("Listing with a glob is not supported. Use `list_dir` or `search_files`.");
+            let path = parsed
+                .path
+                .take()
+                .or_else(|| parsed.positional.first().cloned());
+            if path
+                .as_deref()
+                .is_some_and(|p| p.contains('*') || p.contains('?'))
+            {
+                return steer(
+                    "Listing with a glob is not supported. Use `list_dir` or `search_files`.",
+                );
             }
             let args = json!({ "path": path.as_deref().unwrap_or(".") });
             Some(redirected(tool_list_dir(&args, ctx), "list_dir"))
@@ -484,7 +544,9 @@ async fn intercept_one_inspection_segment(segment: &str, ctx: &ToolCtx<'_>) -> O
             }
             Some(redirected(tool_grep(&args, ctx).await, "grep"))
         }
-        "find" => steer("Using `find` is not supported. Use `list_dir`, `search_files`, or `grep` instead."),
+        "find" => steer(
+            "Using `find` is not supported. Use `list_dir`, `search_files`, or `grep` instead.",
+        ),
         "test-path" => steer("Use `list_dir` to check whether a path exists."),
         _ => None,
     }
@@ -573,7 +635,11 @@ pub(super) async fn run_git_commit_with_approval(
     }
 }
 
-pub(super) async fn run_with_approval(command: &str, reason: &str, ctx: &ToolCtx<'_>) -> ToolOutcome {
+pub(super) async fn run_with_approval(
+    command: &str,
+    reason: &str,
+    ctx: &ToolCtx<'_>,
+) -> ToolOutcome {
     let cmd_id = format!("cmd-{}", uuid::Uuid::new_v4());
     let pending = PendingCommand {
         id: cmd_id.clone(),
@@ -704,7 +770,12 @@ pub(super) fn format_session_snapshot(
     } else {
         cleaned
     };
-    format!("{}\n{}\n\n{}", header, command_line, clip(&body, tail_chars))
+    format!(
+        "{}\n{}\n\n{}",
+        header,
+        command_line,
+        clip(&body, tail_chars)
+    )
 }
 
 pub(super) fn tool_read_terminal(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutcome {
@@ -761,11 +832,7 @@ pub(super) async fn tool_wait(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutcome {
         };
         let started = std::time::Instant::now();
         let finished = pty_state
-            .wait_for_session_exit(
-                id,
-                std::time::Duration::from_secs(seconds),
-                &ctx.cancel,
-            )
+            .wait_for_session_exit(id, std::time::Duration::from_secs(seconds), &ctx.cancel)
             .await;
         if ctx.cancel.is_cancelled() {
             return ToolOutcome {
@@ -793,7 +860,11 @@ pub(super) async fn tool_wait(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutcome {
                 "\n<status>Waited {}s for session {} — {}</status>\n",
                 waited,
                 id,
-                if finished { "finished" } else { "still running" }
+                if finished {
+                    "finished"
+                } else {
+                    "still running"
+                }
             ),
             side_effect: None,
         };
@@ -831,7 +902,10 @@ pub(super) async fn tool_wait(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutcome {
 
 pub(super) fn tool_write_to_terminal(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutcome {
     if is_read_only_mode(ctx.mode) {
-        return blocked_outcome("write_to_terminal", "Writing to terminal is not allowed in Ask or Plan mode.");
+        return blocked_outcome(
+            "write_to_terminal",
+            "Writing to terminal is not allowed in Ask or Plan mode.",
+        );
     }
     let session_id = match args.get("session_id").and_then(|v| v.as_u64()) {
         Some(id) => id as u32,
@@ -860,7 +934,11 @@ pub(super) fn tool_write_to_terminal(args: &Value, ctx: &ToolCtx<'_>) -> ToolOut
 
     match pty_state.write_to_session(session_id, &input) {
         Ok(()) => ToolOutcome {
-            tool_result: format!("Sent {} bytes to terminal session {}.", input.len(), session_id),
+            tool_result: format!(
+                "Sent {} bytes to terminal session {}.",
+                input.len(),
+                session_id
+            ),
             ui_chunk: format!(
                 "\n<terminal_input session=\"{}\">{}</terminal_input>\n",
                 session_id,
@@ -892,7 +970,9 @@ mod tests {
         assert_eq!(split_command_segments("a && b"), vec!["a", "b"]);
         let chained = split_command_segments("Get-Content src/server.js; Get-Content src/user.js");
         assert_eq!(chained.len(), 2);
-        assert!(command_name(tokenize_segment(&chained[0]).first().unwrap()).contains("get-content"));
+        assert!(
+            command_name(tokenize_segment(&chained[0]).first().unwrap()).contains("get-content")
+        );
         assert!(!is_benign_stage(&chained[1]));
     }
 
@@ -900,7 +980,13 @@ mod tests {
     fn tokenizes_quoted_paths() {
         assert_eq!(
             tokenize_segment("Select-String -Path 'app/my page.tsx' -Pattern \"function X\""),
-            vec!["Select-String", "-Path", "app/my page.tsx", "-Pattern", "function X"]
+            vec![
+                "Select-String",
+                "-Path",
+                "app/my page.tsx",
+                "-Pattern",
+                "function X"
+            ]
         );
     }
 
@@ -922,7 +1008,8 @@ mod tests {
 
     #[test]
     fn reads_select_string_with_context() {
-        let (name, parsed) = args("Select-String -Path 'app/page.tsx' -Pattern 'function X' -Context 0,50");
+        let (name, parsed) =
+            args("Select-String -Path 'app/page.tsx' -Pattern 'function X' -Context 0,50");
         assert_eq!(name, "select-string");
         assert_eq!(parsed.path.as_deref(), Some("app/page.tsx"));
         assert_eq!(parsed.pattern.as_deref(), Some("function X"));
@@ -943,7 +1030,10 @@ mod tests {
 
     #[test]
     fn strips_executable_paths_and_extensions() {
-        assert_eq!(command_name("C:\\Windows\\System32\\findstr.exe"), "findstr");
+        assert_eq!(
+            command_name("C:\\Windows\\System32\\findstr.exe"),
+            "findstr"
+        );
         assert_eq!(command_name("/usr/bin/CAT"), "cat");
     }
 
@@ -951,10 +1041,18 @@ mod tests {
     fn read_shaped_one_liners_are_pointed_at_read_file() {
         let blocked = intercept_file_mutation_command("python -c \"print(open('a.txt').read())\"")
             .expect("blocked");
-        assert!(blocked.tool_result.contains("read_file"), "{}", blocked.tool_result);
+        assert!(
+            blocked.tool_result.contains("read_file"),
+            "{}",
+            blocked.tool_result
+        );
 
         let write = intercept_file_mutation_command("python -c \"open('a.txt','w').write('x')\"")
             .expect("blocked");
-        assert!(write.tool_result.contains("edit_file"), "{}", write.tool_result);
+        assert!(
+            write.tool_result.contains("edit_file"),
+            "{}",
+            write.tool_result
+        );
     }
 }

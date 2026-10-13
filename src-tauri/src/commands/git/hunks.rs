@@ -92,7 +92,8 @@ fn parse_patch_hunks(patch: &str) -> Vec<GitHunk> {
 
     let flush = |current: &mut Option<(String, u32, u32, u32, u32, Vec<GitHunkLine>, u32, u32)>,
                  hunks: &mut Vec<GitHunk>| {
-        if let Some((header, old_start, old_lines, new_start, new_lines, lines, _, _)) = current.take()
+        if let Some((header, old_start, old_lines, new_start, new_lines, lines, _, _)) =
+            current.take()
         {
             hunks.push(GitHunk {
                 index: hunks.len(),
@@ -180,10 +181,7 @@ pub fn git_list_hunks(
 
 fn patch_header_for(rel_path: &str) -> String {
     let unix = rel_path.replace('\\', "/");
-    format!(
-        "diff --git a/{p} b/{p}\n--- a/{p}\n+++ b/{p}\n",
-        p = unix
-    )
+    format!("diff --git a/{p} b/{p}\n--- a/{p}\n+++ b/{p}\n", p = unix)
 }
 
 fn hunk_to_patch_body(hunk: &GitHunk) -> String {
@@ -199,7 +197,7 @@ fn hunk_to_patch_body(hunk: &GitHunk) -> String {
             _ => ' ',
         };
         body.push(prefix);
-            body.push_str(&line.content);
+        body.push_str(&line.content);
         body.push('\n');
     }
     body
@@ -254,7 +252,10 @@ fn build_partial_hunk(hunk: &GitHunk, selected: &[usize]) -> Result<GitHunk, App
         }
     }
 
-    if !new_lines.iter().any(|l| l.line_type == "add" || l.line_type == "del") {
+    if !new_lines
+        .iter()
+        .any(|l| l.line_type == "add" || l.line_type == "del")
+    {
         return Err(AppError::Message(
             "Selection contains no change lines to stage".to_string(),
         ));
@@ -432,10 +433,7 @@ mod tests {
 
     #[test]
     fn stage_unstage_restore_hunk_roundtrip() {
-        let dir = std::env::temp_dir().join(format!(
-            "shape-hunk-test-{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("shape-hunk-test-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
 
@@ -492,10 +490,7 @@ mod tests {
 
     #[test]
     fn stage_selected_lines_partial() {
-        let dir = std::env::temp_dir().join(format!(
-            "shape-hunk-lines-{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("shape-hunk-lines-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
 
@@ -522,13 +517,7 @@ mod tests {
         assert!(add_indices.len() >= 2);
 
         // Stage only the first added line.
-        git_stage_hunk(
-            repo.clone(),
-            "f.txt".into(),
-            0,
-            Some(vec![add_indices[0]]),
-        )
-        .unwrap();
+        git_stage_hunk(repo.clone(), "f.txt".into(), 0, Some(vec![add_indices[0]])).unwrap();
 
         let staged = git_list_hunks(repo.clone(), "f.txt".into(), true).unwrap();
         let unstaged = git_list_hunks(repo, "f.txt".into(), false).unwrap();

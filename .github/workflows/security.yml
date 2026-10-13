@@ -1,0 +1,286 @@
+name: Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly on Monday at 00:00 UTC
+    - cron: "0 0 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # ─────────────────────────────────────────────────────────
+  # CodeQL - SAST for JS/TS and Rust
+  # ─────────────────────────────────────────────────────────
+  codeql:
+    name: CodeQL (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      security-events: write
+      contents: read
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [javascript-typescript, rust]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup
+        uses: ./.github/actions/setup
+        with:
+          install-rust: "true"
+          install-system-deps: ${{ matrix.language == 'rust' && 'true' || 'false' }}
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          queries: security-and-quality
+
+      - name: Autobuild
+        id: autobuild
+        uses: github/codeql-action/autobuild@v3
+        continue-on-error: true
+        # For JS/TS, autobuild is no-op (interpreted). For Rust, it runs cargo build.
+        # If autobuild fails, we fallback to manual build for JS, and still try analysis
+
+      - name: Manual build fallback (Next.js)
+        if: always() && matrix.language == 'javascript-typescript'
+        run: |
+          set -euo pipefail
+          echo "Autobuild outcome: ${{ steps.autobuild.outcome }}"
+          if [ "${{ steps.autobuild.outcome }}" = "failure" ]; then
+            echo "::warning::Autobuild failed, running manual build fallback"
+          fi
+          npm ci
+          npm run build:runtime
+          # Build may fail due to missing env, but we still want CodeQL to try
+          npm run build || echo "::warning::Next.js build failed, but continuing for CodeQL"
+        env:
+          NEXT_PUBLIC_SHAPE_WEBSITE_URL: https://www.useshape.org
+
+      - name: Check build status
+        if: always()
+        run: |
+          echo "Autobuild outcome: ${{ steps.autobuild.outcome }}"
+          if [ "${{ steps.autobuild.outcome }}" = "failure" ] && [ "${{ matrix.language }}" != "javascript-typescript" ]; then
+            echo "::warning::Autobuild failed for ${{ matrix.language }} - CodeQL may have incomplete results"
+          fi
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"
+
+  # ─────────────────────────────────────────────────────────
+  # Dependency Review - block PRs with vulnerable deps
+  # ─────────────────────────────────────────────────────────
+  dependency-review:
+    name: Dependency Review
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check dependency graph status
+        id: dep-graph-check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Try to check if dependency graph is enabled by querying SBOM endpoint
+          # Handle throttling/retries - don't treat throttling as disabled (fail closed for security)
+          MAX_RETRIES=3
+          RETRY_DELAY=5
+          HTTP_CODE=0
+          for i in $(seq 1 $MAX_RETRIES); do
+            echo "Checking dependency graph status (attempt $i/$MAX_RETRIES)..."
+            # Use --include to get HTTP code, capture it
+            RESPONSE=$(gh api repos/${{ github.repository }}/dependency-graph/sbom --include 2>&1 || true)
+            # Check if response contains 404 (graph disabled) vs 429/5xx (throttled) vs success
+            if echo "$RESPONSE" | grep -q "200 OK\|HTTP/2 200"; then
+              echo "enabled=true" >> "$GITHUB_OUTPUT"
+              echo "status=enabled" >> "$GITHUB_OUTPUT"
+              echo "✓ Dependency graph is enabled"
+              exit 0
+            elif echo "$RESPONSE" | grep -q "404 Not Found"; then
+              echo "enabled=false" >> "$GITHUB_OUTPUT"
+              echo "status=disabled" >> "$GITHUB_OUTPUT"
+              echo "::warning::Dependency graph appears disabled (404) - dependency review will be skipped"
+              echo "Enable in: Settings > Code security and analysis > Dependency graph"
+              exit 0
+            elif echo "$RESPONSE" | grep -q "429\|Too Many Requests\|rate limit\|throttled"; then
+              echo "::warning::Dependency graph check throttled (attempt $i), retrying in ${RETRY_DELAY}s..."
+              sleep $RETRY_DELAY
+              RETRY_DELAY=$((RETRY_DELAY * 2))
+              continue
+            else
+              # Other error (network, 5xx, etc) - retry unless last attempt
+              echo "::warning::Dependency graph check failed (attempt $i): $(echo "$RESPONSE" | head -n 5)"
+              if [ $i -lt $MAX_RETRIES ]; then
+                sleep $RETRY_DELAY
+                RETRY_DELAY=$((RETRY_DELAY * 2))
+                continue
+              else
+                # Final attempt failed - fail closed for security, don't treat as disabled
+                echo "enabled=unknown" >> "$GITHUB_OUTPUT"
+                echo "status=error" >> "$GITHUB_OUTPUT"
+                echo "::error::Dependency graph check failed after $MAX_RETRIES attempts - failing closed for security"
+                echo "This could be throttling or temporary failure - please retry the workflow"
+                exit 1
+              fi
+            fi
+          done
+
+      - name: Dependency Review
+        id: dep-review
+        if: steps.dep-graph-check.outputs.enabled == 'true'
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+          deny-licenses: GPL-2.0, GPL-3.0
+          comment-summary-in-pr: on-failure
+
+      - name: Check dependency review result
+        if: always()
+        run: |
+          set -euo pipefail
+          GRAPH_ENABLED="${{ steps.dep-graph-check.outputs.enabled }}"
+          GRAPH_STATUS="${{ steps.dep-graph-check.outputs.status }}"
+          OUTCOME="${{ steps.dep-review.outcome }}"
+          echo "Dependency graph enabled: $GRAPH_ENABLED, status: $GRAPH_STATUS"
+          echo "Dependency review outcome: $OUTCOME"
+          if [ "$GRAPH_STATUS" = "error" ] || [ "$GRAPH_ENABLED" = "unknown" ]; then
+            echo "::error::Dependency graph check failed (throttled or error) - failing closed for security"
+            echo "Please retry the workflow - this is not treated as disabled"
+            exit 1
+          fi
+          if [ "$GRAPH_ENABLED" = "false" ]; then
+            echo "::warning::Dependency graph disabled - skipping review. Enable for security."
+            echo "This is not blocking, but repo should enable dependency graph"
+            exit 0
+          fi
+          if [ "$OUTCOME" = "failure" ]; then
+            echo "::error::Dependency review found high-severity vulnerabilities or license issues - blocking PR"
+            exit 1
+          elif [ "$OUTCOME" = "success" ]; then
+            echo "✓ Dependency review passed - no high-severity vulnerabilities"
+          else
+            echo "::warning::Dependency review outcome: $OUTCOME (may be skipped)"
+          fi
+
+  # ─────────────────────────────────────────────────────────
+  # Audit: npm + cargo (scheduled + on demand)
+  # ─────────────────────────────────────────────────────────
+  audit:
+    name: Audit Dependencies
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup
+        uses: ./.github/actions/setup
+        with:
+          install-rust: "true"
+          install-system-deps: "false"
+
+      - run: npm ci
+
+      - name: npm audit (high and above)
+        run: |
+          set -o pipefail
+          npm audit --audit-level=high --json > npm-audit.json || true
+          # Use cat with || true to avoid SIGPIPE when head closes pipe
+          cat npm-audit.json 2>/dev/null | head -n 200 || true
+          # Fail only on high/critical if you want strict:
+          # npm audit --audit-level=high
+          # For now, warn but don't block PRs unless critical
+          if npm audit --audit-level=critical; then
+            echo "✓ No critical npm vulnerabilities"
+          else
+            echo "::warning::Critical npm vulnerabilities found - check npm-audit.json"
+            # Uncomment to block:
+            # exit 1
+          fi
+
+      - name: Install cargo-audit
+        run: |
+          cargo install cargo-audit --locked || true
+
+      - name: cargo audit
+        run: |
+          set -o pipefail
+          cargo audit --file src-tauri/Cargo.lock --json > cargo-audit.json || true
+          cat cargo-audit.json 2>/dev/null | head -n 200 || true
+          cargo audit --file src-tauri/Cargo.lock || echo "::warning::cargo audit found issues"
+
+      - name: Upload audit reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: audit-reports
+          path: |
+            npm-audit.json
+            cargo-audit.json
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # ─────────────────────────────────────────────────────────
+  # Zizmor - GitHub Actions workflow linter (supply chain)
+  # ─────────────────────────────────────────────────────────
+  zizmor:
+    name: Zizmor (Actions Linter)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run zizmor
+        uses: zizmorcore/zizmor-action@v0.6.4
+        with:
+          persona: auditable
+        continue-on-error: true
+
+  # ─────────────────────────────────────────────────────────
+  # OpenSSF Scorecard (supply chain health)
+  # ─────────────────────────────────────────────────────────
+  scorecard:
+    name: OpenSSF Scorecard
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.event_name != 'pull_request'
+    permissions:
+      security-events: write
+      id-token: write
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Run Scorecard
+        uses: ossf/scorecard-action@v2.4.1
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          publish_results: true
+
+      - name: Upload Scorecard results
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: results.sarif

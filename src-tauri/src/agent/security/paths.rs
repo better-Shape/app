@@ -63,13 +63,7 @@ const EDITOR_CONFIG_DIRS: &[&str] = &[".vscode", ".cursor", ".shape"];
 
 /// Directories that should never be written to by the AI.
 const PROTECTED_DIRS: &[&str] = &[
-    ".git",
-    ".ssh",
-    ".gnupg",
-    ".aws",
-    ".azure",
-    ".kube",
-    ".docker",
+    ".git", ".ssh", ".gnupg", ".aws", ".azure", ".kube", ".docker",
 ];
 
 fn ascii_eq_ignore_case(a: &str, b: &str) -> bool {
@@ -109,14 +103,12 @@ pub fn resolve_safe_path(user_path: &str, project_root: &str) -> Result<PathBuf,
     }
 
     let root = PathBuf::from(project_root);
-    let canonical_root = root.canonicalize().map_err(|e| {
-        AppError::Message(format!("Cannot resolve project root: {}", e))
-    })?;
+    let canonical_root = root
+        .canonicalize()
+        .map_err(|e| AppError::Message(format!("Cannot resolve project root: {}", e)))?;
 
     // Strip leading separators to prevent absolute path injection
-    let cleaned = user_path
-        .trim_start_matches('/')
-        .trim_start_matches('\\');
+    let cleaned = user_path.trim_start_matches('/').trim_start_matches('\\');
 
     // Block explicit traversal patterns before resolution
     if cleaned.contains("..") {
@@ -133,16 +125,16 @@ pub fn resolve_safe_path(user_path: &str, project_root: &str) -> Result<PathBuf,
 
     // For existing paths, canonicalize to resolve symlinks
     let resolved = if target.exists() {
-        target.canonicalize().map_err(|e| {
-            AppError::Message(format!("Cannot resolve path: {}", e))
-        })?
+        target
+            .canonicalize()
+            .map_err(|e| AppError::Message(format!("Cannot resolve path: {}", e)))?
     } else {
         // For new files, canonicalize the parent and append the filename
         if let Some(parent) = target.parent() {
             if parent.exists() {
-                let canonical_parent = parent.canonicalize().map_err(|e| {
-                    AppError::Message(format!("Cannot resolve parent: {}", e))
-                })?;
+                let canonical_parent = parent
+                    .canonicalize()
+                    .map_err(|e| AppError::Message(format!("Cannot resolve parent: {}", e)))?;
                 if let Some(file_name) = target.file_name() {
                     canonical_parent.join(file_name)
                 } else {
@@ -191,10 +183,7 @@ fn is_env_template_name(name: &str) -> bool {
 
 /// Check if a file path targets a sensitive file that should not be accessible.
 pub fn is_sensitive_path(path: &Path) -> bool {
-    let name = path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("");
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
     // Any `.env*` / `*.env` variant (`.env.staging`, `local.env`, …), except templates.
     if ascii_eq_ignore_case(name, ".env")
@@ -364,10 +353,16 @@ mod tests {
         assert!(is_sensitive_path(Path::new("/project/.vscode/Tasks.json")));
         assert!(is_sensitive_path(Path::new("/project/Foo.CODE-WORKSPACE")));
         assert!(is_sensitive_path(Path::new("/project/.cursor/MCP.json")));
-        assert!(is_sensitive_path(Path::new("/project/.vscode/settings.json")));
-        assert!(is_sensitive_path(Path::new("/project/.VsCode/Settings.JSON")));
+        assert!(is_sensitive_path(Path::new(
+            "/project/.vscode/settings.json"
+        )));
+        assert!(is_sensitive_path(Path::new(
+            "/project/.VsCode/Settings.JSON"
+        )));
         assert!(!is_sensitive_path(Path::new("/project/app/settings.json")));
-        assert!(is_sensitive_path(Path::new("/project/.git/hooks/pre-commit")));
+        assert!(is_sensitive_path(Path::new(
+            "/project/.git/hooks/pre-commit"
+        )));
     }
 
     #[test]

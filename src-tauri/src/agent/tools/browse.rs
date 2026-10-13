@@ -15,7 +15,7 @@ use tauri::Emitter;
 use tokio::time::timeout;
 use tokio_tungstenite::tungstenite::Message;
 
-use super::dispatch::{ToolCtx, ToolOutcome, SideEffect};
+use super::dispatch::{SideEffect, ToolCtx, ToolOutcome};
 use super::runtime_inspect::{fetch_page_ws, find_chromium, free_port};
 
 const VIEW_W: f64 = 1280.0;
@@ -40,16 +40,18 @@ static SESSION: Mutex<Option<Session>> = Mutex::new(None);
 #[tauri::command]
 pub fn agent_browse_stop(app: tauri::AppHandle) {
     stop_session();
-    let _ = app.emit(
-        "agent-browse",
-        json!({"id": "live", "status": "stopped"}),
-    );
+    let _ = app.emit("agent-browse", json!({"id": "live", "status": "stopped"}));
 }
 
 /// Click or move inside the same page the user is looking at. Coordinates are
 /// percentages of the 1280×720 layout, which the UI scales to fit.
 #[tauri::command]
-pub async fn agent_browse_pointer(app: tauri::AppHandle, kind: String, x: f64, y: f64) -> Result<(), String> {
+pub async fn agent_browse_pointer(
+    app: tauri::AppHandle,
+    kind: String,
+    x: f64,
+    y: f64,
+) -> Result<(), String> {
     if stopped() {
         return Err("Browser control is stopped.".into());
     }
@@ -57,7 +59,10 @@ pub async fn agent_browse_pointer(app: tauri::AppHandle, kind: String, x: f64, y
     let y = y.clamp(0.0, 100.0);
     let port = {
         let guard = SESSION.lock().unwrap_or_else(|p| p.into_inner());
-        let port = guard.as_ref().map(|s| s.port).ok_or_else(|| "Browser is not running.".to_string())?;
+        let port = guard
+            .as_ref()
+            .map(|s| s.port)
+            .ok_or_else(|| "Browser is not running.".to_string())?;
         crate::browser::note_live_port(port);
         port
     };
@@ -128,7 +133,9 @@ fn stopped() -> bool {
 
 pub async fn tool_browse(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutcome {
     if stopped() && args.get("action").and_then(|v| v.as_str()) != Some("open") {
-        return fail("The user stopped browser control. Call browse with action open if they ask you to continue.");
+        return fail(
+            "The user stopped browser control. Call browse with action open if they ask you to continue.",
+        );
     }
     if ctx.cancel.is_cancelled() {
         return fail("Stopped.");
@@ -143,10 +150,9 @@ pub async fn tool_browse(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutcome {
 
     if action == "stop" {
         stop_session();
-        let _ = ctx.app_handle.emit(
-            "agent-browse",
-            json!({"id": "live", "status": "stopped"}),
-        );
+        let _ = ctx
+            .app_handle
+            .emit("agent-browse", json!({"id": "live", "status": "stopped"}));
         return ok(
             "Browser control stopped. The user has the tab back.",
             browse_tag("stopped", "", "Browser"),
@@ -173,15 +179,28 @@ pub async fn tool_browse(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutcome {
         Err(err) => return fail(&format!("DevTools is not ready: {err}")),
     };
 
-    let mut cursor_x = args.get("x").and_then(|v| v.as_f64()).unwrap_or(50.0).clamp(0.0, 100.0);
-    let mut cursor_y = args.get("y").and_then(|v| v.as_f64()).unwrap_or(50.0).clamp(0.0, 100.0);
+    let mut cursor_x = args
+        .get("x")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(50.0)
+        .clamp(0.0, 100.0);
+    let mut cursor_y = args
+        .get("y")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(50.0)
+        .clamp(0.0, 100.0);
     let href_before = eval_script(&ws, r#"(function(){return location.href||""})()"#)
         .await
         .unwrap_or_default();
 
     let act_result = match action.as_str() {
         "open" => {
-            let url = match args.get("url").and_then(|v| v.as_str()).map(str::trim).filter(|s| !s.is_empty()) {
+            let url = match args
+                .get("url")
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+            {
                 Some(u) => match crate::agent::security::urls::validate_outbound_url(u) {
                     Ok(url) => url,
                     Err(err) => return fail(&err),
@@ -200,7 +219,11 @@ pub async fn tool_browse(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutcome {
                 }),
             );
             match drive(&ws, "Page.navigate", json!({ "url": url })).await {
-                Ok(v) => match v.get("errorText").and_then(|e| e.as_str()).filter(|s| !s.is_empty()) {
+                Ok(v) => match v
+                    .get("errorText")
+                    .and_then(|e| e.as_str())
+                    .filter(|s| !s.is_empty())
+                {
                     Some(err) => Err(err.to_string()),
                     None => Ok(format!("Opened {url}")),
                 },
@@ -287,13 +310,34 @@ pub async fn tool_browse(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutcome {
         wait_for_page(&ws, &href_before).await;
     }
 
-    let snap = eval_script(&ws, SNAPSHOT_JS).await.unwrap_or_else(|_| "{}".into());
+    let snap = eval_script(&ws, SNAPSHOT_JS)
+        .await
+        .unwrap_or_else(|_| "{}".into());
     let snap_v: Value = serde_json::from_str(&snap).unwrap_or(json!({}));
-    let title = snap_v.get("title").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let href = snap_v.get("href").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let failed = snap_v.get("failed").and_then(|v| v.as_bool()).unwrap_or(false);
+    let title = snap_v
+        .get("title")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let href = snap_v
+        .get("href")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let failed = snap_v
+        .get("failed")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     if failed || page_failed(&href, &title) {
-        return page_error(ctx, if href.is_empty() { args.get("url").and_then(|v| v.as_str()).unwrap_or("") } else { href.as_str() }, "This site can't be reached.");
+        return page_error(
+            ctx,
+            if href.is_empty() {
+                args.get("url").and_then(|v| v.as_str()).unwrap_or("")
+            } else {
+                href.as_str()
+            },
+            "This site can't be reached.",
+        );
     }
     let elements = snap_v
         .get("elements")
@@ -406,14 +450,21 @@ async fn act_on_target(
     let id = args
         .get("target")
         .and_then(|v| v.as_u64())
-        .or_else(|| args.get("target").and_then(|v| v.as_i64()).map(|n| n as u64))
+        .or_else(|| {
+            args.get("target")
+                .and_then(|v| v.as_i64())
+                .map(|n| n as u64)
+        })
         .or_else(|| {
             args.get("target")
                 .and_then(|v| v.as_str())
                 .and_then(|s| s.parse::<u64>().ok())
         })
         .ok_or_else(|| "browse act requires target, an element id from observe.".to_string())?;
-    let method = args.get("method").and_then(|v| v.as_str()).unwrap_or("click");
+    let method = args
+        .get("method")
+        .and_then(|v| v.as_str())
+        .unwrap_or("click");
     let located = eval_script(
         ws,
         &format!(
@@ -432,12 +483,22 @@ async fn act_on_target(
     .await?;
     let v: Value = serde_json::from_str(&located).unwrap_or(json!({"ok": false}));
     if v.get("ok").and_then(|b| b.as_bool()) != Some(true) {
-        return Err(format!("Element {id} is not on the page. Call observe again."));
+        return Err(format!(
+            "Element {id} is not on the page. Call observe again."
+        ));
     }
     let x = v.get("x").and_then(|n| n.as_f64()).unwrap_or(0.0);
     let y = v.get("y").and_then(|n| n.as_f64()).unwrap_or(0.0);
-    let w = v.get("w").and_then(|n| n.as_f64()).unwrap_or(VIEW_W).max(1.0);
-    let h = v.get("h").and_then(|n| n.as_f64()).unwrap_or(VIEW_H).max(1.0);
+    let w = v
+        .get("w")
+        .and_then(|n| n.as_f64())
+        .unwrap_or(VIEW_W)
+        .max(1.0);
+    let h = v
+        .get("h")
+        .and_then(|n| n.as_f64())
+        .unwrap_or(VIEW_H)
+        .max(1.0);
     *cursor_x = (x / w * 100.0).clamp(0.0, 100.0);
     *cursor_y = (y / h * 100.0).clamp(0.0, 100.0);
     let name = v.get("name").and_then(|n| n.as_str()).unwrap_or("");
@@ -463,7 +524,9 @@ async fn act_on_target(
             click_px(ws, x, y).await?;
             tokio::time::sleep(Duration::from_millis(120)).await;
             scroll_past_in_page_anchor(ws).await;
-            return Ok(format!("Clicked [{id}] {name} (scrolled past in-page link)"));
+            return Ok(format!(
+                "Clicked [{id}] {name} (scrolled past in-page link)"
+            ));
         }
         drive(ws, "Page.navigate", json!({ "url": link })).await?;
         tokio::time::sleep(Duration::from_millis(120)).await;
@@ -516,7 +579,11 @@ pub fn seal_browse_markup(content: &str) -> String {
     let block = &content[start..end];
     let url = xml_attr(block, "url");
     let title = xml_attr(block, "title");
-    let image = LAST_FRAME.lock().ok().and_then(|guard| guard.clone()).unwrap_or_default();
+    let image = LAST_FRAME
+        .lock()
+        .ok()
+        .and_then(|guard| guard.clone())
+        .unwrap_or_default();
     let body = if image.is_empty() {
         String::new()
     } else {
@@ -579,13 +646,19 @@ fn start_live_view(app: tauri::AppHandle, port: u16) {
 async fn run_screencast(app: &tauri::AppHandle, gen: u64) -> Result<(), String> {
     let port = {
         let guard = SESSION.lock().unwrap_or_else(|p| p.into_inner());
-        guard.as_ref().map(|s| s.port).ok_or_else(|| "Browser is not running.".to_string())?
+        guard
+            .as_ref()
+            .map(|s| s.port)
+            .ok_or_else(|| "Browser is not running.".to_string())?
     };
     let ws_url = fetch_page_ws(port).await?;
-    let (mut ws, _) = timeout(Duration::from_secs(8), tokio_tungstenite::connect_async(&ws_url))
-        .await
-        .map_err(|_| "DevTools websocket timed out".to_string())?
-        .map_err(|e| format!("DevTools websocket: {e}"))?;
+    let (mut ws, _) = timeout(
+        Duration::from_secs(8),
+        tokio_tungstenite::connect_async(&ws_url),
+    )
+    .await
+    .map_err(|_| "DevTools websocket timed out".to_string())?
+    .map_err(|e| format!("DevTools websocket: {e}"))?;
     let start = json!({
         "id": 1,
         "method": "Page.startScreencast",
@@ -610,7 +683,10 @@ async fn run_screencast(app: &tauri::AppHandle, gen: u64) -> Result<(), String> 
                 if method != "Page.screencastFrame" {
                     continue;
                 }
-                let session_id = v.pointer("/params/sessionId").cloned().unwrap_or(Value::Null);
+                let session_id = v
+                    .pointer("/params/sessionId")
+                    .cloned()
+                    .unwrap_or(Value::Null);
                 ack_id += 1;
                 let ack = json!({
                     "id": ack_id,
@@ -665,7 +741,8 @@ async fn ensure_session() -> Result<(), String> {
     stop_session();
     STOP.store(false, Ordering::SeqCst);
     let browser = find_chromium().ok_or_else(|| {
-        "No Chrome or Edge found. Install one so the agent can open a page inside Shape.".to_string()
+        "No Chrome or Edge found. Install one so the agent can open a page inside Shape."
+            .to_string()
     })?;
     let port = free_port().ok_or_else(|| "Could not find a free debug port.".to_string())?;
     let data_dir = std::env::temp_dir().join(format!("shape-browse-{port}"));
@@ -698,7 +775,11 @@ async fn ensure_session() -> Result<(), String> {
         .map_err(|e| format!("Failed to launch the browser ({browser}): {e}"))?;
     {
         let mut guard = SESSION.lock().unwrap_or_else(|p| p.into_inner());
-        *guard = Some(Session { child, port, data_dir });
+        *guard = Some(Session {
+            child,
+            port,
+            data_dir,
+        });
     }
     let deadline = Instant::now() + Duration::from_secs(8);
     while Instant::now() < deadline {
@@ -790,10 +871,13 @@ async fn drive_all(ws_url: &str, calls: Vec<(&str, Value)>) -> Result<Vec<Value>
     if calls.is_empty() {
         return Ok(Vec::new());
     }
-    let (mut ws, _) = timeout(Duration::from_secs(8), tokio_tungstenite::connect_async(ws_url))
-        .await
-        .map_err(|_| "DevTools websocket timed out".to_string())?
-        .map_err(|e| format!("DevTools websocket: {e}"))?;
+    let (mut ws, _) = timeout(
+        Duration::from_secs(8),
+        tokio_tungstenite::connect_async(ws_url),
+    )
+    .await
+    .map_err(|_| "DevTools websocket timed out".to_string())?
+    .map_err(|e| format!("DevTools websocket: {e}"))?;
     let mut pending: std::collections::HashMap<u64, Value> = std::collections::HashMap::new();
     for (index, (method, params)) in calls.iter().enumerate() {
         let id = (index as u64) + 1;
@@ -826,14 +910,19 @@ async fn drive_all(ws_url: &str, calls: Vec<(&str, Value)>) -> Result<Vec<Value>
     if pending.len() < calls.len() {
         return Err("DevTools timed out during input.".into());
     }
-    Ok((1..=calls.len() as u64).filter_map(|id| pending.remove(&id)).collect())
+    Ok((1..=calls.len() as u64)
+        .filter_map(|id| pending.remove(&id))
+        .collect())
 }
 
 async fn drive(ws_url: &str, method: &str, params: Value) -> Result<Value, String> {
-    let (mut ws, _) = timeout(Duration::from_secs(8), tokio_tungstenite::connect_async(ws_url))
-        .await
-        .map_err(|_| "DevTools websocket timed out".to_string())?
-        .map_err(|e| format!("DevTools websocket: {e}"))?;
+    let (mut ws, _) = timeout(
+        Duration::from_secs(8),
+        tokio_tungstenite::connect_async(ws_url),
+    )
+    .await
+    .map_err(|_| "DevTools websocket timed out".to_string())?
+    .map_err(|e| format!("DevTools websocket: {e}"))?;
     let body = json!({"id": 1, "method": method, "params": params}).to_string();
     ws.send(Message::Text(body.into()))
         .await
@@ -876,7 +965,9 @@ fn page_error(ctx: &ToolCtx<'_>, url: &str, message: &str) -> ToolOutcome {
         }),
     );
     ok(
-        &format!("{message} URL: {url}. Do not click this page. Try another URL or tell the user it failed to load."),
+        &format!(
+            "{message} URL: {url}. Do not click this page. Try another URL or tell the user it failed to load."
+        ),
         browse_tag("error", url, "This site can't be reached"),
         None,
     )
@@ -940,7 +1031,10 @@ async fn wait_for_page(ws: &str, previous: &str) {
             }
         } else if href != previous && (ready == "complete" || ready == "interactive") {
             return;
-        } else if href == previous && (ready == "complete" || ready == "interactive") && start.elapsed() > Duration::from_millis(160) {
+        } else if href == previous
+            && (ready == "complete" || ready == "interactive")
+            && start.elapsed() > Duration::from_millis(160)
+        {
             return;
         }
         tokio::time::sleep(Duration::from_millis(120)).await;
@@ -989,7 +1083,10 @@ async fn capture_jpeg(ws: &str) -> Result<String, String> {
 }
 
 fn percent_to_px(x: f64, y: f64) -> (f64, f64) {
-    ((x.clamp(0.0, 100.0) / 100.0) * VIEW_W, (y.clamp(0.0, 100.0) / 100.0) * VIEW_H)
+    (
+        (x.clamp(0.0, 100.0) / 100.0) * VIEW_W,
+        (y.clamp(0.0, 100.0) / 100.0) * VIEW_H,
+    )
 }
 
 fn truncate(text: &str, max: usize) -> String {

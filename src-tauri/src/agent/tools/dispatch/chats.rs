@@ -119,9 +119,7 @@ pub(super) fn tool_read_chat(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutcome {
         .unwrap_or(40)
         .clamp(1, 80) as usize;
 
-    let Some((_proj, conv)) =
-        history::find_conversation_by_id(&id, Some(ctx.project_path))
-    else {
+    let Some((_proj, conv)) = history::find_conversation_by_id(&id, Some(ctx.project_path)) else {
         return error_outcome(
             "read_chat",
             &format!("No chat found with id '{id}' in this project."),

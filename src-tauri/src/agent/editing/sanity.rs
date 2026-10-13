@@ -124,7 +124,11 @@ Call read_file for the full content before retrying.",
         }
     }
 
-    let head: String = original.lines().take(WINDOW_LINES).collect::<Vec<_>>().join("\n");
+    let head: String = original
+        .lines()
+        .take(WINDOW_LINES)
+        .collect::<Vec<_>>()
+        .join("\n");
     format!(
         "File is large ({} chars). First {} lines:\n```\n{}\n```\n\
 Call read_file for the full content before retrying.",
@@ -173,7 +177,9 @@ mod tests {
     #[test]
     fn rejects_catastrophic_shrink_like_corgi_tailwind() {
         // Replays the corruption pattern: 70-line file collapsed to 4 marker lines.
-        let original = (0..70).map(|i| format!("  color{}: \"var(--c{})\",\n", i, i)).collect::<String>();
+        let original = (0..70)
+            .map(|i| format!("  color{}: \"var(--c{})\",\n", i, i))
+            .collect::<String>();
         let merged = "=======\n=======\n=======\n=======\n";
         let edit = "<<<<<<< SEARCH\n  plugins: [require(\"tailwindcss-animate\")],\n};\n=======\n=======\n>>>>>>> REPLACE\n";
         let err = validate_merged_edit(merged, &original, edit, "speculative").unwrap_err();
@@ -205,9 +211,15 @@ mod tests {
 
     #[test]
     fn format_excerpt_uses_window_for_large_files() {
-        let original = (0..500).map(|i| format!("line {}\n", i)).collect::<String>();
+        let original = (0..500)
+            .map(|i| format!("line {}\n", i))
+            .collect::<String>();
         let excerpt = format_edit_error_excerpt(&original, Some("line 250"));
-        assert!(!excerpt.contains("line 499") || excerpt.contains("Nearest") || excerpt.contains("First"));
+        assert!(
+            !excerpt.contains("line 499")
+                || excerpt.contains("Nearest")
+                || excerpt.contains("First")
+        );
         assert!(excerpt.len() < original.len());
     }
 
@@ -215,8 +227,16 @@ mod tests {
     fn format_excerpt_caps_minified_long_lines() {
         let original = format!("@import 'tailwindcss';\n{}\n", "a".repeat(12_000));
         let excerpt = format_edit_error_excerpt(&original, Some("@import"));
-        assert!(excerpt.contains("truncated"), "expected char cap, got: {}", excerpt.len());
-        assert!(excerpt.len() < 4_000, "excerpt still huge: {}", excerpt.len());
+        assert!(
+            excerpt.contains("truncated"),
+            "expected char cap, got: {}",
+            excerpt.len()
+        );
+        assert!(
+            excerpt.len() < 4_000,
+            "excerpt still huge: {}",
+            excerpt.len()
+        );
         assert!(!excerpt.contains(&"a".repeat(2_000)));
     }
 }

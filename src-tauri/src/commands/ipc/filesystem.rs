@@ -3,7 +3,9 @@ use crate::core::state::{AppState, FileInfo, ProjectState};
 use crate::domain::filesystem::service;
 use tauri::{AppHandle, State};
 
-pub use crate::commands::fs::{ContentSearchResult, FileEntry, ReplaceResult, SearchOptions, SearchResult};
+pub use crate::commands::fs::{
+    ContentSearchResult, FileEntry, ReplaceResult, SearchOptions, SearchResult,
+};
 
 #[tauri::command]
 pub async fn ls_dir(path: String) -> Result<Vec<FileEntry>, AppError> {
@@ -85,10 +87,7 @@ pub async fn close_to_right(
 }
 
 #[tauri::command]
-pub async fn close_saved(
-    app: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<(), AppError> {
+pub async fn close_saved(app: AppHandle, state: State<'_, AppState>) -> Result<(), AppError> {
     service::close_saved(app, state).await
 }
 
@@ -108,17 +107,29 @@ pub async fn open_in_app(app: String, path: String) -> Result<(), AppError> {
 }
 
 #[tauri::command]
-pub async fn save_file(app: tauri::AppHandle, path: String, content: String) -> Result<(), AppError> {
+pub async fn save_file(
+    app: tauri::AppHandle,
+    path: String,
+    content: String,
+) -> Result<(), AppError> {
     service::save_file(app, path, content).await
 }
 
 #[tauri::command]
-pub async fn save_file_bytes(app: tauri::AppHandle, path: String, bytes: Vec<u8>) -> Result<(), AppError> {
+pub async fn save_file_bytes(
+    app: tauri::AppHandle,
+    path: String,
+    bytes: Vec<u8>,
+) -> Result<(), AppError> {
     service::save_file_bytes(app, path, bytes).await
 }
 
 #[tauri::command]
-pub async fn mark_file_dirty(app: tauri::AppHandle, path: String, dirty: bool) -> Result<(), AppError> {
+pub async fn mark_file_dirty(
+    app: tauri::AppHandle,
+    path: String,
+    dirty: bool,
+) -> Result<(), AppError> {
     service::mark_file_dirty(app, path, dirty).await
 }
 
@@ -143,7 +154,11 @@ pub async fn open_file(
 }
 
 #[tauri::command]
-pub async fn close_file(app: AppHandle, state: State<'_, AppState>, path: String) -> Result<(), AppError> {
+pub async fn close_file(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<(), AppError> {
     service::close_file(app, state, path).await
 }
 

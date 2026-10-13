@@ -122,7 +122,9 @@ pub async fn build_context_with_options(
 
     // Repo map on send. Codebase retrieval happens on demand via `search_codebase`.
     if opts.include_repo_map {
-        if let (Some(_project_path), Some(_query)) = (&project_path_opt, opts.retrieval_query.as_ref()) {
+        if let (Some(_project_path), Some(_query)) =
+            (&project_path_opt, opts.retrieval_query.as_ref())
+        {
             if opts.index_state.is_some() {
                 let boost_paths: Vec<String> = open_files
                     .iter()
@@ -164,10 +166,11 @@ fn workspace_looks_empty(project_path: &str) -> bool {
 }
 
 fn get_git_status_short(project_path: &str, max_lines: usize) -> String {
-    let output = crate::core::git_bin::git_command()
-        .and_then(|mut cmd| {
-            Ok(cmd.args(["-C", project_path, "status", "--short"]).output()?)
-        });
+    let output = crate::core::git_bin::git_command().and_then(|mut cmd| {
+        Ok(cmd
+            .args(["-C", project_path, "status", "--short"])
+            .output()?)
+    });
 
     match output {
         Ok(out) if out.status.success() => {

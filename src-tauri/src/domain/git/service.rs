@@ -4,7 +4,6 @@ use crate::core::error::AppError;
 use crate::core::state::{AppState, FileInfo};
 use tauri::{AppHandle, Emitter, State};
 
-
 pub async fn git_status(path: String) -> Result<Vec<GitFileParams>, AppError> {
     tauri::async_runtime::spawn_blocking(move || git::git_status(path))
         .await
@@ -169,8 +168,8 @@ pub async fn git_branch_details(
     tauri::async_runtime::spawn_blocking(move || {
         git::git_branch_details(path, current_branch, all_refs)
     })
-        .await
-        .map_err(|e| AppError::Message(e.to_string()))?
+    .await
+    .map_err(|e| AppError::Message(e.to_string()))?
 }
 
 pub async fn git_branch_graph(
@@ -237,12 +236,17 @@ pub async fn git_log_stream_start(
     caller_id: String,
     all_refs: Option<bool>,
 ) -> Result<(), AppError> {
-    tauri::async_runtime::spawn_blocking(move || git::git_log_stream_start(path, caller_id, all_refs))
-        .await
-        .map_err(|e| AppError::Message(e.to_string()))?
+    tauri::async_runtime::spawn_blocking(move || {
+        git::git_log_stream_start(path, caller_id, all_refs)
+    })
+    .await
+    .map_err(|e| AppError::Message(e.to_string()))?
 }
 
-pub async fn git_log_stream_next(caller_id: String, limit: usize) -> Result<Vec<GitLogEntry>, AppError> {
+pub async fn git_log_stream_next(
+    caller_id: String,
+    limit: usize,
+) -> Result<Vec<GitLogEntry>, AppError> {
     tauri::async_runtime::spawn_blocking(move || git::git_log_stream_next(caller_id, limit))
         .await
         .map_err(|e| AppError::Message(e.to_string()))?
@@ -318,10 +322,16 @@ pub async fn git_revert_commit(repo_path: String, hash: String) -> Result<(), Ap
         .map_err(|e| AppError::Message(e.to_string()))?
 }
 
-pub async fn git_create_branch_from_commit(repo_path: String, branch_name: String, hash: String) -> Result<(), AppError> {
-    tauri::async_runtime::spawn_blocking(move || git::git_create_branch_from_commit(repo_path, branch_name, hash))
-        .await
-        .map_err(|e| AppError::Message(e.to_string()))?
+pub async fn git_create_branch_from_commit(
+    repo_path: String,
+    branch_name: String,
+    hash: String,
+) -> Result<(), AppError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        git::git_create_branch_from_commit(repo_path, branch_name, hash)
+    })
+    .await
+    .map_err(|e| AppError::Message(e.to_string()))?
 }
 
 pub async fn git_checkout_commit(repo_path: String, hash: String) -> Result<(), AppError> {
@@ -390,7 +400,10 @@ pub async fn git_get_commit_file_content(
     .map_err(|e| AppError::Message(e.to_string()))?
 }
 
-pub async fn git_blame_file(repo_path: String, file_path: String) -> Result<Vec<git::BlameLine>, AppError> {
+pub async fn git_blame_file(
+    repo_path: String,
+    file_path: String,
+) -> Result<Vec<git::BlameLine>, AppError> {
     tauri::async_runtime::spawn_blocking(move || git::git_blame_file(repo_path, file_path))
         .await
         .map_err(|e| AppError::Message(e.to_string()))?
@@ -402,10 +415,16 @@ pub async fn git_stash_list(repo_path: String) -> Result<Vec<git::GitStashEntry>
         .map_err(|e| AppError::Message(e.to_string()))?
 }
 
-pub async fn git_stash_save(repo_path: String, message: String, include_untracked: bool) -> Result<(), AppError> {
-    tauri::async_runtime::spawn_blocking(move || git::git_stash_save(repo_path, message, include_untracked))
-        .await
-        .map_err(|e| AppError::Message(e.to_string()))?
+pub async fn git_stash_save(
+    repo_path: String,
+    message: String,
+    include_untracked: bool,
+) -> Result<(), AppError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        git::git_stash_save(repo_path, message, include_untracked)
+    })
+    .await
+    .map_err(|e| AppError::Message(e.to_string()))?
 }
 
 pub async fn git_stash_apply(repo_path: String, index: usize) -> Result<(), AppError> {
@@ -453,7 +472,10 @@ pub fn git_open_diff(
             is_dirty: false,
             is_pinned: false,
             kind: crate::app_state::FileKind::Diff,
-            diff_metadata: Some(crate::app_state::DiffMetadata { staged, commit_hash: None }),
+            diff_metadata: Some(crate::app_state::DiffMetadata {
+                staged,
+                commit_hash: None,
+            }),
         });
     }
     state_guard.active_file = Some(diff_path);
@@ -485,9 +507,11 @@ pub async fn git_create_tag(
     hash: String,
     message: Option<String>,
 ) -> Result<(), AppError> {
-    tauri::async_runtime::spawn_blocking(move || git::git_create_tag(repo_path, name, hash, message))
-        .await
-        .map_err(|e| AppError::Message(e.to_string()))?
+    tauri::async_runtime::spawn_blocking(move || {
+        git::git_create_tag(repo_path, name, hash, message)
+    })
+    .await
+    .map_err(|e| AppError::Message(e.to_string()))?
 }
 
 pub async fn git_delete_tag(repo_path: String, name: String) -> Result<(), AppError> {
@@ -501,9 +525,11 @@ pub async fn git_diff_name_status(
     base: String,
     compare: String,
 ) -> Result<Vec<git::GitFileParams>, AppError> {
-    tauri::async_runtime::spawn_blocking(move || git::git_diff_name_status(repo_path, base, compare))
-        .await
-        .map_err(|e| AppError::Message(e.to_string()))?
+    tauri::async_runtime::spawn_blocking(move || {
+        git::git_diff_name_status(repo_path, base, compare)
+    })
+    .await
+    .map_err(|e| AppError::Message(e.to_string()))?
 }
 
 pub async fn git_get_file_at_ref(
@@ -511,9 +537,11 @@ pub async fn git_get_file_at_ref(
     rev: String,
     file_path: String,
 ) -> Result<String, AppError> {
-    tauri::async_runtime::spawn_blocking(move || git::git_get_file_at_ref(repo_path, rev, file_path))
-        .await
-        .map_err(|e| AppError::Message(e.to_string()))?
+    tauri::async_runtime::spawn_blocking(move || {
+        git::git_get_file_at_ref(repo_path, rev, file_path)
+    })
+    .await
+    .map_err(|e| AppError::Message(e.to_string()))?
 }
 
 pub async fn git_merge_abort(repo_path: String) -> Result<(), AppError> {
@@ -569,7 +597,10 @@ pub fn git_open_commit_diff(
             is_dirty: false,
             is_pinned: false,
             kind: crate::app_state::FileKind::Diff,
-            diff_metadata: Some(crate::app_state::DiffMetadata { staged: false, commit_hash: Some(hash) }),
+            diff_metadata: Some(crate::app_state::DiffMetadata {
+                staged: false,
+                commit_hash: Some(hash),
+            }),
         });
     }
     state_guard.active_file = Some(diff_path);

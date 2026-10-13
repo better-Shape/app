@@ -54,14 +54,8 @@ fn npx_command() -> &'static str {
 
 fn write_temp_file(file_path: &str, content: &str) -> Result<PathBuf, String> {
     let path = Path::new(file_path);
-    let ext = path
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("txt");
-    let stem = path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("lint");
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("txt");
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("lint");
     let temp_dir = std::env::temp_dir().join("shape-lint");
     std::fs::create_dir_all(&temp_dir).map_err(|e| e.to_string())?;
     let temp_path = temp_dir.join(format!("{}-{}.{}", stem, uuid_like(), ext));
@@ -149,7 +143,9 @@ pub fn eslint_lint_file(
 
     cmd.arg(&temp_display);
 
-    let output = cmd.output().map_err(|e| format!("Failed to run eslint: {e}"))?;
+    let output = cmd
+        .output()
+        .map_err(|e| format!("Failed to run eslint: {e}"))?;
     let stdout = String::from_utf8_lossy(&output.stdout);
     let diagnostics = parse_eslint_json(&stdout);
 

@@ -1,4 +1,4 @@
-﻿//! Git Manager AI helpers (PR/issue/release summaries, CI + change explainers).
+//! Git Manager AI helpers (PR/issue/release summaries, CI + change explainers).
 use super::streaming;
 use crate::agent::prompts;
 use crate::app_state::AppState;
@@ -82,14 +82,18 @@ async fn complete_pull_request_prompt(
     let pr_path = format!("repos/{slug}/pulls/{number}");
     let files_path = format!("repos/{slug}/pulls/{number}/files?per_page=100");
     let pr_raw = crate::commands::github_auth::api_get(&pr_path)?;
-    let files_raw = crate::commands::github_auth::api_get(&files_path).unwrap_or_else(|_| "[]".into());
+    let files_raw =
+        crate::commands::github_auth::api_get(&files_path).unwrap_or_else(|_| "[]".into());
 
     let pr: serde_json::Value =
         serde_json::from_str(&pr_raw).map_err(|e| AppError::Message(e.to_string()))?;
     let files: serde_json::Value =
         serde_json::from_str(&files_raw).unwrap_or_else(|_| serde_json::json!([]));
 
-    let title = pr.get("title").and_then(|v| v.as_str()).unwrap_or("(no title)");
+    let title = pr
+        .get("title")
+        .and_then(|v| v.as_str())
+        .unwrap_or("(no title)");
     let body = pr.get("body").and_then(|v| v.as_str()).unwrap_or("");
     let state = pr.get("state").and_then(|v| v.as_str()).unwrap_or("");
     let base = pr
@@ -111,7 +115,10 @@ async fn complete_pull_request_prompt(
     if let Some(arr) = files.as_array() {
         for f in arr.iter().take(80) {
             let name = f.get("filename").and_then(|v| v.as_str()).unwrap_or("?");
-            let status = f.get("status").and_then(|v| v.as_str()).unwrap_or("modified");
+            let status = f
+                .get("status")
+                .and_then(|v| v.as_str())
+                .unwrap_or("modified");
             let a = f.get("additions").and_then(|v| v.as_u64()).unwrap_or(0);
             let d = f.get("deletions").and_then(|v| v.as_u64()).unwrap_or(0);
             file_lines.push(format!("- [{status}] {name} (+{a}/âˆ’{d})"));
@@ -159,14 +166,18 @@ pub async fn review_pull_request(
     let pr_path = format!("repos/{slug}/pulls/{number}");
     let files_path = format!("repos/{slug}/pulls/{number}/files?per_page=100");
     let pr_raw = crate::commands::github_auth::api_get(&pr_path)?;
-    let files_raw = crate::commands::github_auth::api_get(&files_path).unwrap_or_else(|_| "[]".into());
+    let files_raw =
+        crate::commands::github_auth::api_get(&files_path).unwrap_or_else(|_| "[]".into());
 
     let pr: serde_json::Value =
         serde_json::from_str(&pr_raw).map_err(|e| AppError::Message(e.to_string()))?;
     let files: serde_json::Value =
         serde_json::from_str(&files_raw).unwrap_or_else(|_| serde_json::json!([]));
 
-    let title = pr.get("title").and_then(|v| v.as_str()).unwrap_or("(no title)");
+    let title = pr
+        .get("title")
+        .and_then(|v| v.as_str())
+        .unwrap_or("(no title)");
     let body = pr.get("body").and_then(|v| v.as_str()).unwrap_or("");
     let state = pr.get("state").and_then(|v| v.as_str()).unwrap_or("");
     let base = pr
@@ -188,7 +199,10 @@ pub async fn review_pull_request(
     if let Some(arr) = files.as_array() {
         for f in arr.iter().take(80) {
             let name = f.get("filename").and_then(|v| v.as_str()).unwrap_or("?");
-            let status = f.get("status").and_then(|v| v.as_str()).unwrap_or("modified");
+            let status = f
+                .get("status")
+                .and_then(|v| v.as_str())
+                .unwrap_or("modified");
             let a = f.get("additions").and_then(|v| v.as_u64()).unwrap_or(0);
             let d = f.get("deletions").and_then(|v| v.as_u64()).unwrap_or(0);
             file_lines.push(format!("- [{status}] {name} (+{a}/−{d})"));
@@ -211,10 +225,7 @@ pub async fn review_pull_request(
                 for c in runs.iter().take(40) {
                     let name = c.get("name").and_then(|v| v.as_str()).unwrap_or("check");
                     let status = c.get("status").and_then(|v| v.as_str()).unwrap_or("");
-                    let conclusion = c
-                        .get("conclusion")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("");
+                    let conclusion = c.get("conclusion").and_then(|v| v.as_str()).unwrap_or("");
                     check_lines.push(format!("- {name}: {status} {conclusion}"));
                 }
             }
@@ -262,22 +273,20 @@ pub async fn draft_pull_request(
     let model = MODEL_TITLE_GEN;
     let project_path = repo_path
         .filter(|s| !s.trim().is_empty())
-        .or_else(|| {
-            app_state
-                .0
-                .lock()
-                .ok()
-                .and_then(|s| s.project_path.clone())
-        })
+        .or_else(|| app_state.0.lock().ok().and_then(|s| s.project_path.clone()))
         .ok_or(AppError::Message("No project open".into()))?;
 
     let base = base.trim().to_string();
     let compare = compare.trim().to_string();
     if base.is_empty() || compare.is_empty() {
-        return Err(AppError::Message("Base and compare branches are required".into()));
+        return Err(AppError::Message(
+            "Base and compare branches are required".into(),
+        ));
     }
     if base == compare {
-        return Err(AppError::Message("Pick a different branch than the base.".into()));
+        return Err(AppError::Message(
+            "Pick a different branch than the base.".into(),
+        ));
     }
 
     let stat = git::git_diff_branches(project_path.clone(), base.clone(), compare.clone())
@@ -332,14 +341,20 @@ pub async fn summarize_release(
     let rel: serde_json::Value =
         serde_json::from_str(&raw).map_err(|e| AppError::Message(e.to_string()))?;
 
-    let title = rel.get("name").and_then(|v| v.as_str()).unwrap_or("(untitled)");
+    let title = rel
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("(untitled)");
     let tag = rel.get("tag_name").and_then(|v| v.as_str()).unwrap_or("?");
     let body = rel.get("body").and_then(|v| v.as_str()).unwrap_or("");
     let author = rel
         .pointer("/author/login")
         .and_then(|v| v.as_str())
         .unwrap_or("?");
-    let prerelease = rel.get("prerelease").and_then(|v| v.as_bool()).unwrap_or(false);
+    let prerelease = rel
+        .get("prerelease")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     let draft = rel.get("draft").and_then(|v| v.as_bool()).unwrap_or(false);
     let published = rel
         .get("published_at")
@@ -431,10 +446,7 @@ pub async fn explain_git_changes(
     let client = Client::new();
     let model = MODEL_TITLE_GEN;
     let kind = kind.trim().to_ascii_lowercase();
-    if !matches!(
-        kind.as_str(),
-        "commit" | "working" | "branch" | "conflict"
-    ) {
+    if !matches!(kind.as_str(), "commit" | "working" | "branch" | "conflict") {
         return Err(AppError::Message(
             "kind must be commit, working, branch, or conflict".into(),
         ));
@@ -442,13 +454,7 @@ pub async fn explain_git_changes(
 
     let project_path = repo_path
         .filter(|s| !s.trim().is_empty())
-        .or_else(|| {
-            app_state
-                .0
-                .lock()
-                .ok()
-                .and_then(|s| s.project_path.clone())
-        })
+        .or_else(|| app_state.0.lock().ok().and_then(|s| s.project_path.clone()))
         .ok_or(AppError::Message("No project open".into()))?;
 
     let mut prompt = format!("{}\n\n## Mode\n{kind}\n\n", prompts::EXPLAIN_GIT_MD);
@@ -458,17 +464,21 @@ pub async fn explain_git_changes(
             let hash = hash
                 .filter(|s| !s.trim().is_empty())
                 .ok_or(AppError::Message("Commit hash required".into()))?;
-            let files = git::git_commit_files(project_path.clone(), hash.clone()).unwrap_or_default();
+            let files =
+                git::git_commit_files(project_path.clone(), hash.clone()).unwrap_or_default();
             let patch = git::git_commit_patch(project_path.clone(), hash.clone())?;
             if patch.trim().is_empty() && files.is_empty() {
-                return Err(AppError::Message("No changes in this commit to explain.".into()));
+                return Err(AppError::Message(
+                    "No changes in this commit to explain.".into(),
+                ));
             }
             let file_lines: Vec<String> = files
                 .iter()
                 .take(80)
                 .map(|f| format!("- [{}] {}", f.status, f.path))
                 .collect();
-            let msg = git::git_commit_message(project_path.clone(), hash.clone()).unwrap_or_default();
+            let msg =
+                git::git_commit_message(project_path.clone(), hash.clone()).unwrap_or_default();
             prompt.push_str(&format!(
                 "## Commit\n- Hash: {hash}\n- Message:\n{}\n\n## Files\n{}\n\n## Diff\n{}\n",
                 if msg.trim().is_empty() {
@@ -516,9 +526,8 @@ pub async fn explain_git_changes(
             let compare = compare
                 .filter(|s| !s.trim().is_empty())
                 .ok_or(AppError::Message("Compare branch required".into()))?;
-            let stat =
-                git::git_diff_branches(project_path.clone(), base.clone(), compare.clone())
-                    .unwrap_or_default();
+            let stat = git::git_diff_branches(project_path.clone(), base.clone(), compare.clone())
+                .unwrap_or_default();
             let patch =
                 git::git_diff_range_patch(project_path.clone(), base.clone(), compare.clone())
                     .unwrap_or_default();
@@ -540,16 +549,13 @@ pub async fn explain_git_changes(
                 .filter(|f| f.status.eq_ignore_ascii_case("C") || f.status.contains('U'))
                 .collect();
             if conflicted.is_empty() {
-                return Err(AppError::Message(
-                    "No conflicted files detected.".into(),
-                ));
+                return Err(AppError::Message("No conflicted files detected.".into()));
             }
             let mut sections = Vec::new();
             for f in conflicted.iter().take(12) {
                 let full = std::path::Path::new(&project_path).join(&f.path);
-                let body = std::fs::read_to_string(&full).unwrap_or_else(|_| {
-                    "(could not read file â€” binary or missing)".into()
-                });
+                let body = std::fs::read_to_string(&full)
+                    .unwrap_or_else(|_| "(could not read file â€” binary or missing)".into());
                 sections.push(format!(
                     "### {}\n{}\n",
                     f.path,
@@ -600,7 +606,10 @@ pub async fn summarize_issue(
         ));
     }
 
-    let title = issue.get("title").and_then(|v| v.as_str()).unwrap_or("(no title)");
+    let title = issue
+        .get("title")
+        .and_then(|v| v.as_str())
+        .unwrap_or("(no title)");
     let body = issue.get("body").and_then(|v| v.as_str()).unwrap_or("");
     let state = issue.get("state").and_then(|v| v.as_str()).unwrap_or("");
     let user = issue

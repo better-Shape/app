@@ -16,7 +16,6 @@
 /// The old `apply_fuzzy_edit` is gone, along with its 80%-overwrite heuristic and
 /// whitespace/alphanumeric sliding-window matcher — both silently masked stale-state
 /// edits and were the root cause of corrupted files in the agent's trace log.
-
 pub mod apply;
 pub mod apply_patch;
 pub mod sanity;
@@ -25,8 +24,8 @@ pub mod syntax_check;
 
 use reqwest::Client;
 
-use crate::core::error::AppError;
 use super::commands::logging;
+use crate::core::error::AppError;
 
 /// A merged edit that has NOT been written to disk yet. Produced by
 /// [`resolve_edit`]; written by [`write_resolved_edit`] (or discarded when the
@@ -130,8 +129,7 @@ pub async fn resolve_edit(
     if is_new_file {
         if code_edit.trim().is_empty() {
             return Err(AppError::Message(
-                "Refusing to create an empty new file. Provide content in `code_edit`."
-                    .to_string(),
+                "Refusing to create an empty new file. Provide content in `code_edit`.".to_string(),
             ));
         }
         let lines = code_edit.lines().count();
@@ -216,7 +214,10 @@ pub async fn resolve_edit(
     }
 
     // 3) Fast-apply LLM fallback.
-    logging::info("editing", "speculative resolver declined, falling back to fast-apply");
+    logging::info(
+        "editing",
+        "speculative resolver declined, falling back to fast-apply",
+    );
     match apply::fast_apply(client, api_key, &original, &code_edit, instructions).await {
         Ok(merged) => finish_resolved(merged, original, &code_edit, "fast_apply"),
         Err(e) => {

@@ -110,11 +110,7 @@ pub fn merge_css_declarations(existing: &str, updates: &BTreeMap<String, String>
     }
     order
         .into_iter()
-        .filter_map(|name| {
-            values
-                .get(&name)
-                .map(|value| format!("{name}: {value}"))
-        })
+        .filter_map(|name| values.get(&name).map(|value| format!("{name}: {value}")))
         .collect::<Vec<_>>()
         .join("; ")
 }

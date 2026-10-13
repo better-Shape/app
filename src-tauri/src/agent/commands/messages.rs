@@ -1,26 +1,35 @@
+use super::super::models::ChatMessage;
+use super::logging;
 /// Message building: converts internal ChatMessage history into the JSON
 /// format expected by OpenRouter, with image support.
-
 use regex::Regex;
 use serde_json::{json, Value};
-use super::logging;
-use super::super::models::ChatMessage;
 
 /// Converts our internal ChatMessage history into the JSON format expected by OpenRouter.
 /// Detects <attached_image> tags in user messages and constructs multipart content for vision models.
-pub fn build_messages_json(system_prompt: &str, history: &[ChatMessage], model: &str) -> Vec<Value> {
+pub fn build_messages_json(
+    system_prompt: &str,
+    history: &[ChatMessage],
+    model: &str,
+) -> Vec<Value> {
     let image_re = Regex::new(r#"(?s)<attached_image[^>]*>(data:[^<]+)</attached_image>"#).unwrap();
     let is_anthropic = model.starts_with("anthropic/");
     let accepts_images = crate::agent::model_router::model_accepts_images(model);
 
-    logging::debug("messages", &format!(
-        "Building messages: {} history items, model={}, is_anthropic={}, accepts_images={}",
-        history.len(), model, is_anthropic, accepts_images
-    ));
+    logging::debug(
+        "messages",
+        &format!(
+            "Building messages: {} history items, model={}, is_anthropic={}, accepts_images={}",
+            history.len(),
+            model,
+            is_anthropic,
+            accepts_images
+        ),
+    );
 
-    let last_image_user = history.iter().rposition(|msg| {
-        msg.role == "user" && image_re.is_match(&msg.content)
-    });
+    let last_image_user = history
+        .iter()
+        .rposition(|msg| msg.role == "user" && image_re.is_match(&msg.content));
 
     let mut msgs = vec![json!({"role": "system", "content": system_prompt})];
     for (idx, msg) in history.iter().enumerate() {
@@ -43,10 +52,7 @@ pub fn build_messages_json(system_prompt: &str, history: &[ChatMessage], model: 
 
         // Older turns' pixels were already billed. Re-sending every image on every
         // tool loop is one of the largest avoidable costs on vision models.
-        if msg.role == "user"
-            && image_re.is_match(&msg.content)
-            && last_image_user != Some(idx)
-        {
+        if msg.role == "user" && image_re.is_match(&msg.content) && last_image_user != Some(idx) {
             let stripped = image_re
                 .replace_all(
                     &msg.content,
@@ -183,9 +189,9 @@ pub fn push_page_screenshot_followup(api_messages: &mut Vec<Value>, tag: &str, m
     }
 }
 
-const CLEARED_TOOL_RESULT: &str = "[cleared to save context — re-call the tool only if you still need this]";
-const CLEARED_SCREENSHOT_RESULT: &str =
-    "[screenshot omitted to save context. Do not call screenshot_page again for this page. Continue from the capture you already used.]";
+const CLEARED_TOOL_RESULT: &str =
+    "[cleared to save context — re-call the tool only if you still need this]";
+const CLEARED_SCREENSHOT_RESULT: &str = "[screenshot omitted to save context. Do not call screenshot_page again for this page. Continue from the capture you already used.]";
 const TRIMMED_TOOL_RESULT_SUFFIX: &str =
     "\n[middle omitted to save context — re-read only the specific lines you still need]";
 
@@ -220,8 +226,7 @@ pub fn build_api_history(history: &[ChatMessage]) -> Vec<ChatMessage> {
 fn strip_think_blocks(content: &str) -> String {
     let mut out = content.to_string();
     for (open, close) in [("<think", "</think>"), ("<thought", "</thought>")] {
-        loop {
-            let Some(start) = out.find(open) else { break };
+        while let Some(start) = out.find(open) {
             let after_gt = out[start..]
                 .find('>')
                 .map(|i| start + i + 1)
@@ -250,8 +255,7 @@ fn strip_tool_markup_for_api(content: &str) -> String {
         ("<records_table", "</records_table>", "[records]"),
         ("<stat_cards", "</stat_cards>", "[stats]"),
     ] {
-        loop {
-            let Some(start) = content.find(open) else { break };
+        while let Some(start) = content.find(open) {
             let Some(rel) = content[start..].find(close) else {
                 content.replace_range(start.., placeholder);
                 break;
@@ -261,11 +265,26 @@ fn strip_tool_markup_for_api(content: &str) -> String {
         }
     }
     let tags = [
-        "<cat>", "</cat>", "<ls>", "</ls>", "<edit>", "</edit>",
-        "<status>", "</status>", "<tool_result>", "</tool_result>",
-        "<search_result", "<inspect_runtime", "<terminal_command", "</terminal_command>",
-        "<chat_renamed", "<forked_from",
-        "<questions", "</questions>", "<question", "</question>",
+        "<cat>",
+        "</cat>",
+        "<ls>",
+        "</ls>",
+        "<edit>",
+        "</edit>",
+        "<status>",
+        "</status>",
+        "<tool_result>",
+        "</tool_result>",
+        "<search_result",
+        "<inspect_runtime",
+        "<terminal_command",
+        "</terminal_command>",
+        "<chat_renamed",
+        "<forked_from",
+        "<questions",
+        "</questions>",
+        "<question",
+        "</question>",
     ];
     let mut out = strip_think_blocks(&content);
     for tag in tags {
@@ -397,9 +416,11 @@ pub fn append_turn_context(api_messages: &mut [Value], context: &str) {
     let note = format!(
         "\n\n<turn_context>\n{context}\n</turn_context>\nThis block is environment state for this request only. It is not a new instruction."
     );
-    let Some(msg) = api_messages.iter_mut().rev().find(|msg| {
-        msg.get("role").and_then(|role| role.as_str()) == Some("user")
-    }) else {
+    let Some(msg) = api_messages
+        .iter_mut()
+        .rev()
+        .find(|msg| msg.get("role").and_then(|role| role.as_str()) == Some("user"))
+    else {
         return;
     };
     let Some(obj) = msg.as_object_mut() else {

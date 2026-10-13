@@ -15,7 +15,6 @@
 ///   * `shape-terminal-ai-action` — legacy payloads for the terminal panel.
 ///   * `agent-terminal-stream`   — command-correlated events for the chat UI's
 ///     live output card: `{ commandId, sessionId, kind, ... }`.
-
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -192,10 +191,7 @@ fn make_callbacks(
                     &app_out,
                     json!({ "type": "data", "data": data.replace('\n', "\r\n") }),
                 );
-                let _ = app_out.emit(
-                    "pty-output",
-                    json!({ "id": session_id, "data": data }),
-                );
+                let _ = app_out.emit("pty-output", json!({ "id": session_id, "data": data }));
             }
         }),
         on_exit: Arc::new(move |session_id, exit_code| {
@@ -280,7 +276,10 @@ pub async fn run_agent_command(
     if cancel.is_cancelled() {
         let _ = pty::kill_session(pty_state, session_id).await;
         agent_state.unregister_session(session_id);
-        emit_panel_event(app, json!({ "type": "finish", "exitCode": -1, "cancelled": true }));
+        emit_panel_event(
+            app,
+            json!({ "type": "finish", "exitCode": -1, "cancelled": true }),
+        );
         emit_chat_stream(
             app,
             json!({
@@ -303,8 +302,15 @@ pub async fn run_agent_command(
     let snapshot = pty_state
         .read_session_output(session_id, MODEL_OUTPUT_CAP)
         .ok();
-    let raw_output = snapshot.as_ref().map(|s| s.output.clone()).unwrap_or_default();
-    let output = if is_pty { strip_ansi(&raw_output) } else { raw_output };
+    let raw_output = snapshot
+        .as_ref()
+        .map(|s| s.output.clone())
+        .unwrap_or_default();
+    let output = if is_pty {
+        strip_ansi(&raw_output)
+    } else {
+        raw_output
+    };
     let exit_code = snapshot.as_ref().and_then(|s| s.exit_code);
 
     if finished {
@@ -427,7 +433,11 @@ fn clip(text: &str, limit: usize) -> String {
         return text.to_string();
     }
     let head: String = text.chars().take(limit).collect();
-    format!("{}... [truncated, {} chars total]", head, text.chars().count())
+    format!(
+        "{}... [truncated, {} chars total]",
+        head,
+        text.chars().count()
+    )
 }
 
 fn clip_tail(text: &str, limit: usize) -> String {
@@ -445,23 +455,53 @@ mod tests {
 
     #[test]
     fn classify_dev_servers() {
-        assert_eq!(classify_command("npm run dev"), CommandExecutionMode::DevServer);
-        assert_eq!(classify_command("pnpm dev"), CommandExecutionMode::DevServer);
-        assert_eq!(classify_command("cargo watch -x check"), CommandExecutionMode::DevServer);
+        assert_eq!(
+            classify_command("npm run dev"),
+            CommandExecutionMode::DevServer
+        );
+        assert_eq!(
+            classify_command("pnpm dev"),
+            CommandExecutionMode::DevServer
+        );
+        assert_eq!(
+            classify_command("cargo watch -x check"),
+            CommandExecutionMode::DevServer
+        );
         assert_eq!(classify_command("vite"), CommandExecutionMode::DevServer);
-        assert_eq!(classify_command("docker compose up"), CommandExecutionMode::DevServer);
+        assert_eq!(
+            classify_command("docker compose up"),
+            CommandExecutionMode::DevServer
+        );
     }
 
     #[test]
     fn classify_one_shot_builds_and_installs() {
         // Installs/builds are one-shot: bounded foreground, then background.
-        assert_eq!(classify_command("npm install"), CommandExecutionMode::OneShot);
+        assert_eq!(
+            classify_command("npm install"),
+            CommandExecutionMode::OneShot
+        );
         assert_eq!(classify_command("npm ci"), CommandExecutionMode::OneShot);
-        assert_eq!(classify_command("cargo build --release"), CommandExecutionMode::OneShot);
-        assert_eq!(classify_command("cargo test"), CommandExecutionMode::OneShot);
-        assert_eq!(classify_command("git status"), CommandExecutionMode::OneShot);
-        assert_eq!(classify_command("vite build"), CommandExecutionMode::OneShot);
-        assert_eq!(classify_command("npx create-next-app --yes ."), CommandExecutionMode::OneShot);
+        assert_eq!(
+            classify_command("cargo build --release"),
+            CommandExecutionMode::OneShot
+        );
+        assert_eq!(
+            classify_command("cargo test"),
+            CommandExecutionMode::OneShot
+        );
+        assert_eq!(
+            classify_command("git status"),
+            CommandExecutionMode::OneShot
+        );
+        assert_eq!(
+            classify_command("vite build"),
+            CommandExecutionMode::OneShot
+        );
+        assert_eq!(
+            classify_command("npx create-next-app --yes ."),
+            CommandExecutionMode::OneShot
+        );
     }
 
     #[test]

@@ -15,14 +15,16 @@
 /// 3. Trailing-whitespace-insensitive line match
 /// 4. Unique first+last line anchor (for 3+ line blocks)
 /// If no match or ambiguous match, returns an Error with feedback for the model.
-
 pub fn resolve(original_text: &str, code_edit_text: &str) -> Result<String, String> {
     let original_text = original_text.replace("\r\n", "\n");
     let code_edit_text = strip_edit_fences(&code_edit_text.replace("\r\n", "\n"));
 
     let blocks = parse_blocks(&code_edit_text);
     if blocks.is_empty() {
-        if code_edit_text.lines().any(|l| l.starts_with("<<<<<<< SEARCH")) {
+        if code_edit_text
+            .lines()
+            .any(|l| l.starts_with("<<<<<<< SEARCH"))
+        {
             return Err(
                 "Incomplete SEARCH/REPLACE block. Each block must include `<<<<<<< SEARCH`, \
 `=======`, and `>>>>>>> REPLACE` markers. Do not leave REPLACE empty unless you intend to delete the matched region."
@@ -102,18 +104,36 @@ fn apply_line_match(
 
     // 2. Whitespace-normalized
     if let Some(idx) = unique_window_match(&out_lines, search, MatchMode::Whitespace) {
-        return Ok(splice_lines(&out_lines, idx, search.len(), replace, original_text));
+        return Ok(splice_lines(
+            &out_lines,
+            idx,
+            search.len(),
+            replace,
+            original_text,
+        ));
     }
 
     // 3. Trim trailing whitespace per line
     if let Some(idx) = unique_window_match(&out_lines, search, MatchMode::TrimEnd) {
-        return Ok(splice_lines(&out_lines, idx, search.len(), replace, original_text));
+        return Ok(splice_lines(
+            &out_lines,
+            idx,
+            search.len(),
+            replace,
+            original_text,
+        ));
     }
 
     // 4. First+last anchor when block is long enough
     if search.len() >= 3 {
         if let Some(idx) = unique_anchor_match(&out_lines, search) {
-            return Ok(splice_lines(&out_lines, idx, search.len(), replace, original_text));
+            return Ok(splice_lines(
+                &out_lines,
+                idx,
+                search.len(),
+                replace,
+                original_text,
+            ));
         }
     }
 
@@ -176,7 +196,12 @@ fn unique_anchor_match(out_lines: &[&str], search: &[&str]) -> Option<usize> {
         // Require at least half of the middle lines to match loosely
         let mut mid_ok = 0usize;
         let mut mid_total = 0usize;
-        for (j, search_line) in search.iter().enumerate().skip(1).take(search.len().saturating_sub(2)) {
+        for (j, search_line) in search
+            .iter()
+            .enumerate()
+            .skip(1)
+            .take(search.len().saturating_sub(2))
+        {
             mid_total += 1;
             if lines_match(out_lines[i + j], search_line)
                 || out_lines[i + j].trim_end() == search_line.trim_end()
@@ -224,7 +249,10 @@ struct EditBlock<'a> {
 fn strip_edit_fences(edit_text: &str) -> String {
     let trimmed = edit_text.trim();
     let mut lines: Vec<&str> = trimmed.lines().collect();
-    if lines.first().is_some_and(|l| l.trim_start().starts_with("```")) {
+    if lines
+        .first()
+        .is_some_and(|l| l.trim_start().starts_with("```"))
+    {
         lines.remove(0);
     }
     if lines.last().is_some_and(|l| l.trim() == "```") {
@@ -300,7 +328,9 @@ fn lines_match(a: &str, b: &str) -> bool {
 }
 
 pub fn is_marker_line_pub(line: &str) -> bool {
-    line.starts_with("<<<<<<< SEARCH") || line.starts_with("=======") || line.starts_with(">>>>>>> REPLACE")
+    line.starts_with("<<<<<<< SEARCH")
+        || line.starts_with("=======")
+        || line.starts_with(">>>>>>> REPLACE")
 }
 
 #[cfg(test)]
@@ -361,9 +391,13 @@ mod tests {
     #[test]
     fn incomplete_block_does_not_apply() {
         let orig = "{\n  \"name\": \"isolated-app\"\n}\n";
-        let edit = "<<<<<<< SEARCH\n  \"name\": \"isolated-app\"\n=======\n  \"name\": \"changed\"\n";
+        let edit =
+            "<<<<<<< SEARCH\n  \"name\": \"isolated-app\"\n=======\n  \"name\": \"changed\"\n";
         assert!(resolve(orig, edit).is_err());
-        assert_eq!(resolve(orig, edit).unwrap_err().contains("Incomplete"), true);
+        assert_eq!(
+            resolve(orig, edit).unwrap_err().contains("Incomplete"),
+            true
+        );
         assert!(!has_incomplete_search_blocks("no markers here"));
     }
 }

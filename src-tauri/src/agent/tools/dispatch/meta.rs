@@ -1,8 +1,8 @@
 //! Plan, todos, finish, design, and MCP tools.
 
+use base64::Engine;
 use serde_json::{json, Value};
 use tauri::Emitter;
-use base64::Engine;
 
 use crate::agent::commands::streaming;
 use crate::agent::models::{DesignPickConcept, PendingAsk, PendingDesignPick};
@@ -12,8 +12,7 @@ use crate::commands::preview_render;
 use super::common::{
     blocked_outcome, cleanup_pending_ask, cleanup_pending_design_pick, clip, error_outcome,
     escape_todo_content, escape_xml_attr, escape_xml_preview_source, escape_xml_text, get_str,
-    is_read_only_mode,
-    wait_for_ask_answer, wait_for_design_pick,
+    is_read_only_mode, wait_for_ask_answer, wait_for_design_pick,
 };
 use super::{SideEffect, ToolCtx, ToolOutcome};
 
@@ -113,24 +112,33 @@ pub(super) fn tool_save_plan(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutcome {
     let file_body = format_plan_file(&body, &todos);
     let slug = slugify_plan_title(&title);
     if slug.is_empty() {
-        return error_outcome("save_plan", "title must contain at least one alphanumeric character.");
+        return error_outcome(
+            "save_plan",
+            "title must contain at least one alphanumeric character.",
+        );
     }
     let Some(abs_dir) = plan_storage_dir(ctx.project_path) else {
         return error_outcome("save_plan", "Could not resolve the app data directory.");
     };
     if let Err(e) = std::fs::create_dir_all(&abs_dir) {
-        return error_outcome("save_plan", &format!("Failed to create plans directory: {}", e));
+        return error_outcome(
+            "save_plan",
+            &format!("Failed to create plans directory: {}", e),
+        );
     }
     let abs_path = abs_dir.join(format!("{}.md", slug));
     if let Err(e) = std::fs::write(&abs_path, &file_body) {
         return error_outcome("save_plan", &format!("Failed to write plan file: {}", e));
     }
     let stored = abs_path.to_string_lossy().replace('\\', "/");
-    let _ = ctx.app_handle.emit("shape-plan-saved", serde_json::json!({
-        "path": stored,
-        "title": title,
-        "absolutePath": stored,
-    }));
+    let _ = ctx.app_handle.emit(
+        "shape-plan-saved",
+        serde_json::json!({
+            "path": stored,
+            "title": title,
+            "absolutePath": stored,
+        }),
+    );
     ToolOutcome {
         tool_result: format!("Plan saved internally as {}", slug),
         ui_chunk: format!(
@@ -224,7 +232,10 @@ pub(super) fn tool_update_todos(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutcome 
     // Soft-heal missing in_progress instead of hard-failing the turn.
     if in_progress == 0 && pending > 0 {
         if let Some(pos) = ui.find("status=\"pending\"") {
-            ui.replace_range(pos..pos + "status=\"pending\"".len(), "status=\"in_progress\"");
+            ui.replace_range(
+                pos..pos + "status=\"pending\"".len(),
+                "status=\"in_progress\"",
+            );
             in_progress = 1;
             pending = pending.saturating_sub(1);
             for part in summary_parts.iter_mut() {
@@ -371,7 +382,10 @@ pub(super) fn is_markdown_checkbox_line(trimmed: &str) -> bool {
 
 /// While pending work remains, exactly one todo must be `in_progress`.
 /// All-terminal lists (completed/cancelled only) may have zero.
-pub(super) fn validate_update_todos_in_progress(in_progress: usize, pending: usize) -> Result<(), String> {
+pub(super) fn validate_update_todos_in_progress(
+    in_progress: usize,
+    pending: usize,
+) -> Result<(), String> {
     if in_progress > 1 {
         return Err(format!(
             "Exactly one todo must be in_progress (got {in_progress}). \
@@ -379,11 +393,9 @@ pub(super) fn validate_update_todos_in_progress(in_progress: usize, pending: usi
         ));
     }
     if in_progress == 0 && pending > 0 {
-        return Err(
-            "Exactly one todo must be in_progress while work remains. \
+        return Err("Exactly one todo must be in_progress while work remains. \
              Set one pending item to in_progress (or mark all todos completed/cancelled)."
-                .to_string(),
-        );
+            .to_string());
     }
     Ok(())
 }
@@ -568,7 +580,9 @@ pub(super) async fn tool_render_design_previews(args: &Value, ctx: &ToolCtx<'_>)
         ctx.app_handle,
         json!({ "phase": "approval", "label": "Waiting for you to pick a design" }),
     );
-    let _ = ctx.app_handle.emit("agent-design-pick-pending", json!({ "id": pick_id }));
+    let _ = ctx
+        .app_handle
+        .emit("agent-design-pick-pending", json!({ "id": pick_id }));
 
     let answer = wait_for_design_pick(&pick_id, ctx).await;
     cleanup_pending_design_pick(&pick_id, ctx);
@@ -637,7 +651,6 @@ fn design_previews_ui(id: &str, status: &str, selected: &str, inner: &str) -> St
         inner
     )
 }
-
 
 pub(super) async fn tool_screenshot_page(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutcome {
     if is_read_only_mode(ctx.mode) {
@@ -719,11 +732,11 @@ pub(super) async fn tool_inspect_runtime(args: &Value, ctx: &ToolCtx<'_>) -> Too
     }
     let url_arg = args.get("url").and_then(|v| v.as_str());
     let path_arg = args.get("path").and_then(|v| v.as_str());
-    let resolved = match crate::agent::tools::runtime_inspect::resolve_inspect_url(url_arg, path_arg)
-    {
-        Ok(u) => u,
-        Err(e) => return error_outcome("inspect_runtime", &e),
-    };
+    let resolved =
+        match crate::agent::tools::runtime_inspect::resolve_inspect_url(url_arg, path_arg) {
+            Ok(u) => u,
+            Err(e) => return error_outcome("inspect_runtime", &e),
+        };
 
     let report = match crate::agent::tools::runtime_inspect::inspect_url(&resolved).await {
         Ok(r) => r,
@@ -755,7 +768,9 @@ fn questions_ui(id: &str, status: &str, questions: &Value, answers: Option<&Valu
         "questions": questions,
         "answers": answers,
     });
-    let body = payload.to_string().replace("</questions>", "</questions\u{200B}>");
+    let body = payload
+        .to_string()
+        .replace("</questions>", "</questions\u{200B}>");
     format!(
         "\n<questions id=\"{}\" status=\"{}\">\n{}\n</questions>\n",
         escape_xml_attr(id),
@@ -765,7 +780,9 @@ fn questions_ui(id: &str, status: &str, questions: &Value, answers: Option<&Valu
 }
 
 fn normalize_questions(raw: &Value) -> Result<Value, String> {
-    let arr = raw.as_array().ok_or_else(|| "questions must be an array".to_string())?;
+    let arr = raw
+        .as_array()
+        .ok_or_else(|| "questions must be an array".to_string())?;
     if arr.is_empty() || arr.len() > 6 {
         return Err("Ask 1–6 questions at a time.".to_string());
     }
@@ -846,10 +863,9 @@ pub(super) async fn tool_ask_user(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutcom
         ctx.app_handle,
         json!({ "phase": "approval", "label": "Waiting for your answers" }),
     );
-    let _ = ctx.app_handle.emit(
-        "agent-ask-pending",
-        json!({ "id": ask_id }),
-    );
+    let _ = ctx
+        .app_handle
+        .emit("agent-ask-pending", json!({ "id": ask_id }));
 
     let answer = wait_for_ask_answer(&ask_id, ctx).await;
     cleanup_pending_ask(&ask_id, ctx);
@@ -930,10 +946,9 @@ mod tests {
     fn plan_todos_requires_heading_and_checkbox() {
         assert!(validate_plan_todos_section("# Plan\n\nNo checklist.").is_err());
         assert!(validate_plan_todos_section("## Todos\n\nJust text.").is_err());
-        assert!(validate_plan_todos_section(
-            "## Overview\n\n## Todos\n\n- [ ] Do the thing\n"
-        )
-        .is_ok());
+        assert!(
+            validate_plan_todos_section("## Overview\n\n## Todos\n\n- [ ] Do the thing\n").is_ok()
+        );
         assert!(validate_plan_todos_section("## Todo\n\n- [x] Done already\n").is_ok());
         // Checkbox under a later section does not count.
         assert!(validate_plan_todos_section(
@@ -953,4 +968,3 @@ mod tests {
         assert!(validate_update_todos_in_progress(3, 1).is_err());
     }
 }
-

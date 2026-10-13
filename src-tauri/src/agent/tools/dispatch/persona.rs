@@ -63,7 +63,9 @@ fn emit_persona(ctx: &ToolCtx<'_>, review_id: &str, persona: &Persona, payload: 
 }
 
 fn escape_xml_text(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 fn lenient_json(raw: &str) -> Value {
@@ -81,7 +83,11 @@ fn lenient_json(raw: &str) -> Value {
 }
 
 fn str_of(v: &Value, key: &str) -> String {
-    v.get(key).and_then(|x| x.as_str()).unwrap_or("").trim().to_string()
+    v.get(key)
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string()
 }
 
 fn normalize_url(raw: &str) -> String {
@@ -124,7 +130,11 @@ pub(super) async fn tool_design_review(args: &Value, ctx: &ToolCtx<'_>) -> ToolO
             id: format!("{review_id}-{}", i + 1),
             name: {
                 let n = str_of(p, "name");
-                if n.is_empty() { format!("Persona {}", i + 1) } else { n }
+                if n.is_empty() {
+                    format!("Persona {}", i + 1)
+                } else {
+                    n
+                }
             },
             profile: str_of(p, "profile"),
             goal: str_of(p, "goal"),
@@ -143,7 +153,12 @@ pub(super) async fn tool_design_review(args: &Value, ctx: &ToolCtx<'_>) -> ToolO
     );
     ctx.emit_ui_token(&running_ui);
     for p in &personas {
-        emit_persona(ctx, &review_id, p, json!({ "status": "running", "step": 0, "steps": steps, "url": url, "note": "Opening the site…" }));
+        emit_persona(
+            ctx,
+            &review_id,
+            p,
+            json!({ "status": "running", "step": 0, "steps": steps, "url": url, "note": "Opening the site…" }),
+        );
     }
 
     let outcomes = join_all(
@@ -153,7 +168,10 @@ pub(super) async fn tool_design_review(args: &Value, ctx: &ToolCtx<'_>) -> ToolO
     )
     .await;
 
-    let mut summary = format!("Design review of {url} with {} persona(s).\n", outcomes.len());
+    let mut summary = format!(
+        "Design review of {url} with {} persona(s).\n",
+        outcomes.len()
+    );
     let mut cards: Vec<Value> = Vec::new();
     for out in &outcomes {
         let r = &out.report;
@@ -209,7 +227,14 @@ fn bullets(v: Option<&Value>) -> String {
     match v.and_then(|x| x.as_array()) {
         Some(items) if !items.is_empty() => items
             .iter()
-            .map(|i| format!("- {}", i.as_str().map(str::to_string).unwrap_or_else(|| i.to_string())))
+            .map(|i| {
+                format!(
+                    "- {}",
+                    i.as_str()
+                        .map(str::to_string)
+                        .unwrap_or_else(|| i.to_string())
+                )
+            })
             .collect::<Vec<_>>()
             .join("\n"),
         _ => "- (none)".to_string(),
@@ -239,8 +264,15 @@ async fn run_persona(
         Ok(p) => p,
         Err(e) => {
             outcome.status = "failed";
-            outcome.notes.push(format!("Could not open a browser session: {e}"));
-            emit_persona(ctx, review_id, persona, json!({ "status": "failed", "note": e }));
+            outcome
+                .notes
+                .push(format!("Could not open a browser session: {e}"));
+            emit_persona(
+                ctx,
+                review_id,
+                persona,
+                json!({ "status": "failed", "note": e }),
+            );
             return outcome;
         }
     };
@@ -257,8 +289,15 @@ async fn run_persona(
         .filter(|s| !s.is_empty())
     {
         outcome.status = "failed";
-        outcome.notes.push(format!("The site did not load ({err})."));
-        emit_persona(ctx, review_id, persona, json!({ "status": "failed", "note": "The site did not load." }));
+        outcome
+            .notes
+            .push(format!("The site did not load ({err})."));
+        emit_persona(
+            ctx,
+            review_id,
+            persona,
+            json!({ "status": "failed", "note": "The site did not load." }),
+        );
         browser::close_isolated_page(&page).await;
         return outcome;
     }
@@ -270,14 +309,19 @@ async fn run_persona(
             outcome.status = "stopped";
             break;
         }
-        let snap_raw = cdp::eval(&page.ws, SNAPSHOT_JS).await.unwrap_or_else(|_| "{}".into());
+        let snap_raw = cdp::eval(&page.ws, SNAPSHOT_JS)
+            .await
+            .unwrap_or_else(|_| "{}".into());
         let snap: Value = serde_json::from_str(&snap_raw).unwrap_or(json!({}));
         let title = str_of(&snap, "title");
         let href = str_of(&snap, "href");
         if !href.is_empty() {
             outcome.final_url = href.clone();
         }
-        let failed = snap.get("failed").and_then(|f| f.as_bool()).unwrap_or(false);
+        let failed = snap
+            .get("failed")
+            .and_then(|f| f.as_bool())
+            .unwrap_or(false);
         let elements = snap
             .get("elements")
             .and_then(|e| e.as_array())
@@ -290,7 +334,11 @@ async fn run_persona(
                             e.get("id").and_then(|i| i.as_u64()).unwrap_or(0),
                             str_of(e, "tag"),
                             str_of(e, "name"),
-                            if href.is_empty() { String::new() } else { format!(" → {href}") }
+                            if href.is_empty() {
+                                String::new()
+                            } else {
+                                format!(" → {href}")
+                            }
                         )
                     })
                     .collect::<Vec<_>>()
@@ -333,7 +381,15 @@ async fn run_persona(
             name = persona.name,
             profile = persona.profile,
             goal = persona.goal,
-            transcript = if transcript.is_empty() { "- nothing yet".to_string() } else { transcript.iter().map(|t| format!("- {t}")).collect::<Vec<_>>().join("\n") },
+            transcript = if transcript.is_empty() {
+                "- nothing yet".to_string()
+            } else {
+                transcript
+                    .iter()
+                    .map(|t| format!("- {t}"))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            },
         );
 
         proxy.refresh_request_id();
@@ -391,7 +447,11 @@ async fn run_persona(
             }
             other => format!("Unknown move '{other}'"),
         };
-        transcript.push(if thought.is_empty() { did } else { format!("{thought} → {did}") });
+        transcript.push(if thought.is_empty() {
+            did
+        } else {
+            format!("{thought} → {did}")
+        });
         tokio::time::sleep(Duration::from_millis(80)).await;
     }
 
@@ -408,10 +468,27 @@ async fn run_persona(
             name = persona.name,
             profile = persona.profile,
             goal = persona.goal,
-            transcript = if transcript.is_empty() { "- nothing".to_string() } else { transcript.iter().map(|t| format!("- {t}")).collect::<Vec<_>>().join("\n") },
+            transcript = if transcript.is_empty() {
+                "- nothing".to_string()
+            } else {
+                transcript
+                    .iter()
+                    .map(|t| format!("- {t}"))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            },
         );
         proxy.refresh_request_id();
-        match streaming::complete_chat_with_max_tokens(ctx.client, ctx.api_key, &prompt, ctx.model, 800, &proxy).await {
+        match streaming::complete_chat_with_max_tokens(
+            ctx.client,
+            ctx.api_key,
+            &prompt,
+            ctx.model,
+            800,
+            &proxy,
+        )
+        .await
+        {
             Ok((content, _, _)) => {
                 outcome.report = lenient_json(&content);
                 if outcome.report.is_null() {
@@ -476,7 +553,11 @@ async fn act_on(ws: &str, id: u64, action: &str, decision: &Value) -> String {
         }
         let _ = cdp::eval(ws, &format!(r#"(function(){{ var el = window.__shapeTargets && window.__shapeTargets[{id}]; if (el) {{ el.focus(); if ("value" in el) el.value = ""; }} return "ok"; }})()"#)).await;
         let _ = cdp::call(ws, "Input.insertText", json!({ "text": text })).await;
-        if decision.get("submit").and_then(|s| s.as_bool()).unwrap_or(false) {
+        if decision
+            .get("submit")
+            .and_then(|s| s.as_bool())
+            .unwrap_or(false)
+        {
             let _ = cdp::call_all(
                 ws,
                 vec![

@@ -3,12 +3,11 @@
 /// `original` file and return the full merged file. We then run sanity checks before
 /// trusting the output (no ellipsis markers leaked through, file didn't collapse to
 /// nothing, the model didn't drop a huge chunk silently).
-
 use reqwest::Client;
 use serde_json::{json, Value};
 
-use crate::core::error::AppError;
 use super::super::commands::logging;
+use crate::core::error::AppError;
 
 /// Default fast-apply fallback chain. Configurable via env `SHAPE_APPLY_MODEL`.
 ///
@@ -46,7 +45,10 @@ pub async fn fast_apply(
 
     let mut models: Vec<String> = match std::env::var("SHAPE_APPLY_MODEL") {
         Ok(model) if !model.trim().is_empty() => vec![model],
-        _ => DEFAULT_APPLY_MODELS.iter().map(|m| (*m).to_string()).collect(),
+        _ => DEFAULT_APPLY_MODELS
+            .iter()
+            .map(|m| (*m).to_string())
+            .collect(),
     };
 
     // If the user configured the old deprecated model, transparently append the safe
@@ -122,11 +124,11 @@ async fn call_fast_apply_model(
         api_key,
         &super::super::commands::streaming::ProxyContext::new("fast_apply"),
     )
-        .header("HTTP-Referer", "https://shape-ide.local")
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| AppError::Message(format!("fast-apply request failed: {}", e)))?;
+    .header("HTTP-Referer", "https://shape-ide.local")
+    .json(&body)
+    .send()
+    .await
+    .map_err(|e| AppError::Message(format!("fast-apply request failed: {}", e)))?;
 
     if !resp.status().is_success() {
         let status = resp.status();

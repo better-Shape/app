@@ -45,19 +45,21 @@ pub fn sync_mcp_servers(
     servers: Vec<McpServerConfig>,
     mcp_state: tauri::State<'_, McpState>,
 ) -> Result<Vec<McpStatusEntry>, AppError> {
-    mcp_state
-        .sync_servers(servers)
-        .map_err(|e| AppError::Message(e))
+    mcp_state.sync_servers(servers).map_err(AppError::Message)
 }
 
 #[tauri::command]
-pub fn get_mcp_status(mcp_state: tauri::State<'_, McpState>) -> Result<Vec<McpStatusEntry>, AppError> {
-    mcp_state.get_status().map_err(|e| AppError::Message(e))
+pub fn get_mcp_status(
+    mcp_state: tauri::State<'_, McpState>,
+) -> Result<Vec<McpStatusEntry>, AppError> {
+    mcp_state.get_status().map_err(AppError::Message)
 }
 
 #[tauri::command]
-pub fn get_mcp_tools(mcp_state: tauri::State<'_, McpState>) -> Result<Vec<crate::mcp::McpToolInfo>, AppError> {
-    mcp_state.all_tools().map_err(|e| AppError::Message(e))
+pub fn get_mcp_tools(
+    mcp_state: tauri::State<'_, McpState>,
+) -> Result<Vec<crate::mcp::McpToolInfo>, AppError> {
+    mcp_state.all_tools().map_err(AppError::Message)
 }
 
 #[tauri::command]
@@ -65,7 +67,7 @@ pub fn restart_mcp_server(
     id: String,
     mcp_state: tauri::State<'_, McpState>,
 ) -> Result<McpStatusEntry, AppError> {
-    mcp_state.restart_server(&id).map_err(|e| AppError::Message(e))
+    mcp_state.restart_server(&id).map_err(AppError::Message)
 }
 
 #[tauri::command]
@@ -77,10 +79,10 @@ pub async fn mcp_start_oauth(
     let server_id = mcp_state
         .start_server_oauth(&id)
         .await
-        .map_err(|e| AppError::Message(e))?;
+        .map_err(AppError::Message)?;
     mcp_state
         .restart_server(&server_id)
-        .map_err(|e| AppError::Message(e))?;
+        .map_err(AppError::Message)?;
     Ok(server_id)
 }
 
@@ -91,10 +93,10 @@ pub async fn mcp_complete_oauth(
 ) -> Result<String, AppError> {
     let server_id = crate::mcp::handle_oauth_callback(&callback_url)
         .await
-        .map_err(|e| AppError::Message(e))?;
+        .map_err(AppError::Message)?;
     mcp_state
         .restart_server(&server_id)
-        .map_err(|e| AppError::Message(e))?;
+        .map_err(AppError::Message)?;
     Ok(server_id)
 }
 
@@ -113,5 +115,5 @@ pub fn call_mcp_tool(
     let args_json = serde_json::to_string(&arguments).unwrap_or_else(|_| "{}".to_string());
     mcp_state
         .call_tool(&qualified_name, &args_json)
-        .map_err(|e| AppError::Message(e))
+        .map_err(AppError::Message)
 }

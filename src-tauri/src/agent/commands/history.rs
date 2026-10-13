@@ -1,9 +1,8 @@
-/// Conversation persistence: save/load/manage chat history to disk.
-
-use std::time::{SystemTime, UNIX_EPOCH};
-use crate::core::error::AppError;
 use super::super::models::{AgentState, ChatMessage, Conversation};
 use super::logging;
+use crate::core::error::AppError;
+/// Conversation persistence: save/load/manage chat history to disk.
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn now_f64() -> f64 {
     SystemTime::now()
@@ -41,12 +40,18 @@ pub fn get_chat_history_path(proj_path: &str) -> std::path::PathBuf {
 
 pub fn load_conversations(proj_path: &str) -> Vec<Conversation> {
     let file_path = get_chat_history_path(proj_path);
-    logging::debug("history", &format!("Loading conversations from {:?}", file_path));
+    logging::debug(
+        "history",
+        &format!("Loading conversations from {:?}", file_path),
+    );
     if let Ok(content) = std::fs::read_to_string(&file_path) {
         if let Ok(convs) = serde_json::from_str(&content) {
             return convs;
         } else {
-            logging::warn("history", "Failed to parse conversation file, returning empty");
+            logging::warn(
+                "history",
+                "Failed to parse conversation file, returning empty",
+            );
         }
     }
     Vec::new()
@@ -68,7 +73,12 @@ pub fn save_conversations_removing(proj_path: &str, convs: &[Conversation], remo
     save_conversations_inner(proj_path, convs, &[removed], true);
 }
 
-fn save_conversations_inner(proj_path: &str, convs: &[Conversation], removed: &[&str], merge_disk: bool) {
+fn save_conversations_inner(
+    proj_path: &str,
+    convs: &[Conversation],
+    removed: &[&str],
+    merge_disk: bool,
+) {
     let file_path = get_chat_history_path(proj_path);
     let mut lock_path = file_path.clone();
     lock_path.set_extension("lock");
@@ -108,14 +118,22 @@ fn save_conversations_inner(proj_path: &str, convs: &[Conversation], removed: &[
     }
 }
 
-fn histories_compatible_prefix(a: &[crate::agent::models::ChatMessage], b: &[crate::agent::models::ChatMessage]) -> bool {
+fn histories_compatible_prefix(
+    a: &[crate::agent::models::ChatMessage],
+    b: &[crate::agent::models::ChatMessage],
+) -> bool {
     let (short, long) = if a.len() <= b.len() { (a, b) } else { (b, a) };
-    short.iter().zip(long.iter()).all(|(left, right)| {
-        left.role == right.role && left.content == right.content
-    })
+    short
+        .iter()
+        .zip(long.iter())
+        .all(|(left, right)| left.role == right.role && left.content == right.content)
 }
 
-fn merge_with_disk(proj_path: &str, incoming: &[Conversation], removed: &[&str]) -> Vec<Conversation> {
+fn merge_with_disk(
+    proj_path: &str,
+    incoming: &[Conversation],
+    removed: &[&str],
+) -> Vec<Conversation> {
     let mut merged = load_conversations(proj_path);
     for id in removed {
         merged.retain(|c| c.id != *id);
@@ -140,7 +158,10 @@ fn merge_with_disk(proj_path: &str, incoming: &[Conversation], removed: &[&str])
 }
 
 /// Locate a conversation by id, optionally preferring a project file first.
-pub fn find_conversation_by_id(id: &str, preferred_proj: Option<&str>) -> Option<(String, Conversation)> {
+pub fn find_conversation_by_id(
+    id: &str,
+    preferred_proj: Option<&str>,
+) -> Option<(String, Conversation)> {
     if let Some(proj) = preferred_proj.filter(|p| !p.is_empty()) {
         let list = load_conversations(proj);
         if let Some(conv) = list.into_iter().find(|c| c.id == id) {
@@ -229,7 +250,9 @@ fn save_current_conversation_inner(
         let (locked, anchor) = state.title_meta();
         existing.title_locked = locked;
         existing.title_anchor_turns = anchor;
-        if existing.kind.trim().is_empty() || existing.kind == "chat" || existing.kind == "multiwork"
+        if existing.kind.trim().is_empty()
+            || existing.kind == "chat"
+            || existing.kind == "multiwork"
         {
             existing.kind = if kind == "multiwork" {
                 "chat".to_string()

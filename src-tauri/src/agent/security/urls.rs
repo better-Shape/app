@@ -1,5 +1,4 @@
 /// Outbound URL checks for browse / visit_url (SSRF class).
-
 pub fn validate_outbound_url(raw: &str) -> Result<String, String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {

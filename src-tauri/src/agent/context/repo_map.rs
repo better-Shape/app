@@ -69,7 +69,12 @@ fn fit_to_token_budget(lines: &[String], budget: usize) -> String {
 
     while lo <= hi {
         let mid = (lo + hi) / 2;
-        let candidate = lines.iter().take(mid).cloned().collect::<Vec<_>>().join("\n");
+        let candidate = lines
+            .iter()
+            .take(mid)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n");
         let tokens = estimate_tokens(&candidate);
         if tokens <= budget {
             best = candidate;

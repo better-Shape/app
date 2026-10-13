@@ -1,8 +1,8 @@
 //! Generate commit message command + helpers.
+use super::messages;
 use super::streaming;
 use crate::agent::models::{AgentState, ChatMessage};
 use crate::agent::prompts;
-use super::messages;
 use crate::app_state::AppState;
 use crate::commands::git;
 use crate::core::error::AppError;
@@ -55,7 +55,11 @@ fn related_chat_for_commit(
         .iter()
         .flat_map(|p| {
             let slash = p.replace('\\', "/");
-            let file = slash.rsplit('/').next().unwrap_or(slash.as_str()).to_string();
+            let file = slash
+                .rsplit('/')
+                .next()
+                .unwrap_or(slash.as_str())
+                .to_string();
             vec![slash.to_lowercase(), file.to_lowercase()]
         })
         .collect();
@@ -63,7 +67,9 @@ fn related_chat_for_commit(
     let mut matched = Vec::new();
     for msg in history.iter().rev().take(16) {
         let lower = msg.content.to_lowercase();
-        let hits = path_needles.iter().any(|n| !n.is_empty() && lower.contains(n));
+        let hits = path_needles
+            .iter()
+            .any(|n| !n.is_empty() && lower.contains(n));
         if !hits {
             continue;
         }
@@ -79,7 +85,10 @@ fn related_chat_for_commit(
         // Summary only if it also mentions staged paths.
         if let Some(s) = summary {
             let lower = s.to_lowercase();
-            if path_needles.iter().any(|n| !n.is_empty() && lower.contains(n)) {
+            if path_needles
+                .iter()
+                .any(|n| !n.is_empty() && lower.contains(n))
+            {
                 let excerpt: String = s.chars().take(1_200).collect();
                 return Some(excerpt);
             }
@@ -181,8 +190,15 @@ pub async fn generate_commit_message(
         .with_provider(provider)
         .with_turn(Some(commit_turn_id), None);
 
-    let (message, _, _) =
-        streaming::complete_chat_with_max_tokens(&client, &auth_token, &prompt, model, 220, &commit_ctx).await?;
+    let (message, _, _) = streaming::complete_chat_with_max_tokens(
+        &client,
+        &auth_token,
+        &prompt,
+        model,
+        220,
+        &commit_ctx,
+    )
+    .await?;
     if message.is_empty() {
         return Err(AppError::Message(
             "Failed to generate commit message".to_string(),
@@ -196,7 +212,9 @@ fn strip_model_fences(text: &str) -> String {
     let Some(rest) = trimmed.strip_prefix("```") else {
         return trimmed.to_string();
     };
-    let rest = rest.trim_start_matches(|c: char| c.is_ascii_alphanumeric() || c == '+' || c == '#' || c == '-');
+    let rest = rest.trim_start_matches(|c: char| {
+        c.is_ascii_alphanumeric() || c == '+' || c == '#' || c == '-'
+    });
     let rest = rest.trim_start_matches(['\r', '\n']);
     rest.strip_suffix("```").unwrap_or(rest).trim().to_string()
 }
@@ -221,7 +239,9 @@ pub async fn rewrite_open_file(
     let original = std::fs::read_to_string(&path)
         .map_err(|e| AppError::Message(format!("Could not read file: {}", e)))?;
     if original.chars().count() > 80_000 {
-        return Err(AppError::Message("This file is too large to edit from the editor bar.".to_string()));
+        return Err(AppError::Message(
+            "This file is too large to edit from the editor bar.".to_string(),
+        ));
     }
     let name = std::path::Path::new(&path)
         .file_name()
@@ -248,7 +268,8 @@ pub async fn rewrite_open_file(
     if next.trim().is_empty() {
         return Err(AppError::Message("The edit came back empty.".to_string()));
     }
-    std::fs::write(&path, &next).map_err(|e| AppError::Message(format!("Could not write file: {}", e)))?;
+    std::fs::write(&path, &next)
+        .map_err(|e| AppError::Message(format!("Could not write file: {}", e)))?;
     let _ = app.emit("shape-file-edited", &path);
     Ok(next)
 }
@@ -282,7 +303,9 @@ pub async fn rewrite_text(
     .await?;
     let next = strip_model_fences(&message);
     if next.trim().is_empty() {
-        return Err(AppError::Message("The rewrite came back empty.".to_string()));
+        return Err(AppError::Message(
+            "The rewrite came back empty.".to_string(),
+        ));
     }
     Ok(next)
 }

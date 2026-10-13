@@ -4,50 +4,115 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release (e.g. v1.0.3). Must already exist if using workflow_dispatch."
+        required: false
+        type: string
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  # Use tag name for concurrency group, not ref - so tag-push and branch dispatch for same tag share group and don't race
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
 
 jobs:
+  # ─────────────────────────────────────────────────────────
+  # Gate: tests + tag/version validation
+  # ─────────────────────────────────────────────────────────
   test:
-    name: Test
+    name: Test & Validate Tag
     runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
         with:
-          node-version: "22"
-          cache: npm
+          fetch-depth: 0
 
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
+      - name: Setup
+        uses: ./.github/actions/setup
         with:
-          workspaces: src-tauri -> target
+          install-rust: "true"
+          install-system-deps: "true"
+          cache-key: "release"
 
       - run: npm ci
 
       - name: Build runtime
         run: npm run build:runtime
 
-      - name: Test
+      - name: Test (JS + Rust)
         run: npm run test:all
 
       - name: Assert tag matches package.json
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
         run: |
-          TAG="${GITHUB_REF_NAME#v}"
+          set -euo pipefail
+          # Determine expected tag: GITHUB_REF_NAME for tag push, INPUT_TAG for manual dispatch
+          # Use env var INPUT_TAG to avoid injection via direct ${{ inputs.tag }} expansion in shell
+          if [[ "${GITHUB_REF:-}" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF_NAME#v}"
+            echo "Tag push: $TAG from $GITHUB_REF_NAME"
+          elif [ -n "${INPUT_TAG:-}" ]; then
+            TAG="${INPUT_TAG}"
+            TAG="${TAG#v}"
+            echo "Manual dispatch with tag input: $TAG"
+            # Validate tag format before using in git commands (prevent injection)
+            if ! echo "$INPUT_TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?$'; then
+              echo "::error::Invalid tag format: $INPUT_TAG"
+              exit 1
+            fi
+            # Verify the input tag exists as a git tag
+            if ! git rev-parse --verify "refs/tags/$INPUT_TAG" >/dev/null 2>&1; then
+              echo "::error::Input tag $INPUT_TAG does not exist as a git tag - refusing to build from branch"
+              exit 1
+            fi
+            # Verify HEAD is actually the tagged commit (or the tag points to HEAD)
+            TAG_COMMIT=$(git rev-list -n 1 "refs/tags/$INPUT_TAG" 2>/dev/null || true)
+            HEAD_COMMIT=$(git rev-parse HEAD)
+            if [ "$TAG_COMMIT" != "$HEAD_COMMIT" ]; then
+              echo "::error::Manual dispatch tag $INPUT_TAG points to $TAG_COMMIT but HEAD is $HEAD_COMMIT"
+              echo "To release a tag, dispatch the workflow from that tag, not from a branch"
+              echo "Or ensure you are on the tagged commit"
+              exit 1
+            fi
+          else
+            echo "No tag context (neither tag push nor manual dispatch with tag) - skipping version check"
+            exit 0
+          fi
           PKG=$(node -p "require('./package.json').version")
-          test "$TAG" = "$PKG"
+          echo "Tag version: $TAG"
+          echo "Package version: $PKG"
+          if [ "$TAG" != "$PKG" ]; then
+            echo "::error::Tag $TAG does not match package.json version $PKG"
+            echo "Run 'npm run sync-version' and ensure tag was created from correct commit."
+            exit 1
+          fi
 
+      - name: Validate version sync (tauri.conf.json + Cargo.toml)
+        run: |
+          node scripts/release/version.mjs
+          if ! git diff --quiet -- src-tauri/tauri.conf.json src-tauri/Cargo.toml; then
+            echo "::error::Version files out of sync after sync-version"
+            git diff
+            exit 1
+          fi
+
+  # ─────────────────────────────────────────────────────────
+  # Build Windows artifacts (x86_64 + aarch64)
+  # ─────────────────────────────────────────────────────────
   build:
     name: Build (Windows ${{ matrix.arch }})
     needs: test
+    timeout-minutes: 60
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -58,25 +123,20 @@ jobs:
           - runner: windows-11-arm
             arch: aarch64
             target: aarch64-pc-windows-msvc
+
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-node@v4
+      - name: Setup
+        uses: ./.github/actions/setup
         with:
-          node-version: "22"
-          cache: npm
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri -> target
-          key: ${{ matrix.arch }}
+          install-rust: "true"
+          rust-targets: ${{ matrix.target }}
+          install-system-deps: "false"
+          cache-key: ${{ matrix.arch }}
 
       - run: npm ci
 
@@ -86,6 +146,18 @@ jobs:
       - name: Build runtime
         run: npm run build:runtime
 
+      - name: Verify secrets present
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          SHAPE_CLOUD_BUILD_SECRET: ${{ secrets.SHAPE_CLOUD_BUILD_SECRET }}
+        run: |
+          if [ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then echo "::error::TAURI_SIGNING_PRIVATE_KEY missing"; exit 1; fi
+          if [ -z "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" ]; then echo "::error::TAURI_SIGNING_PRIVATE_KEY_PASSWORD missing"; exit 1; fi
+          if [ -z "${SHAPE_CLOUD_BUILD_SECRET:-}" ]; then echo "::error::SHAPE_CLOUD_BUILD_SECRET missing"; exit 1; fi
+          echo "✓ All required secrets present"
+
       # Password-protected key in secrets (upload via node/fs, not PowerShell pipe —
       # UTF-16 piping corrupts the key and surfaces as "Wrong password").
       - name: Build Tauri (NSIS only)
@@ -93,15 +165,9 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # Official Shape Cloud AI attestation (same secret as website SHAPE_CLOUD_BUILD_SECRET).
           SHAPE_CLOUD_BUILD_SECRET: ${{ secrets.SHAPE_CLOUD_BUILD_SECRET }}
-          # Bake production website into Next + Rust (release binaries ignore runtime redirects).
           NEXT_PUBLIC_SHAPE_WEBSITE_URL: https://www.useshape.org
         run: |
-          if [ -z "${SHAPE_CLOUD_BUILD_SECRET:-}" ]; then
-            echo "SHAPE_CLOUD_BUILD_SECRET secret is required for release builds" >&2
-            exit 1
-          fi
           if [ -n "${{ matrix.target }}" ]; then
             npm run tauri -- build --bundles nsis --target "${{ matrix.target }}"
           else
@@ -111,71 +177,189 @@ jobs:
       - name: Prepare release assets
         run: node scripts/release/assets.mjs --arch ${{ matrix.arch }} --out-dir dist/release
 
+      - name: List assets
+        shell: bash
+        run: find dist/release -type f -exec ls -lh {} \;
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: windows-${{ matrix.arch }}
           path: dist/release/*
           if-no-files-found: error
+          retention-days: 14
+          compression-level: 6
 
+      # SBOM generation for supply-chain transparency - best effort but warn if fails
+      - name: Generate SBOM (CycloneDX)
+        uses: anchore/sbom-action@v0
+        continue-on-error: true
+        with:
+          path: dist/release/
+          format: cyclonedx-json
+          output-file: dist/release/sbom-${{ matrix.arch }}.cyclonedx.json
+
+      - name: Upload SBOM
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ matrix.arch }}
+          path: dist/release/sbom-${{ matrix.arch }}.cyclonedx.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  # ─────────────────────────────────────────────────────────
+  # Publish GitHub Release
+  # ─────────────────────────────────────────────────────────
   publish:
-    name: Publish release
+    name: Publish Release
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-node@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: npm
 
       - run: npm ci
 
-      - name: Download artifacts
+      - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: dist/release
           merge-multiple: true
 
-      # GitHub artifact attestations require a public repo or a paid org plan.
-      # Skip them here — updater .sig files still ship with the release.
+      - name: List downloaded assets
+        run: find dist/release -type f -exec ls -lh {} \;
+
+      - name: Resolve release tag
+        id: release-tag
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          # For push tags, use GITHUB_REF_NAME. For manual dispatch, use input tag if provided
+          if [ -n "${INPUT_TAG:-}" ]; then
+            TAG="$INPUT_TAG"
+            echo "Using input tag: $TAG"
+            # Critical: verify input tag exists as git tag to prevent typo creating new release from branch
+            if ! git rev-parse --verify "refs/tags/$TAG" >/dev/null 2>&1; then
+              echo "::error::Input tag $TAG does not exist as git tag - refusing to create release from branch"
+              echo "Create the tag first with 'git tag $TAG && git push origin $TAG' or dispatch from the tag"
+              exit 1
+            fi
+            # Verify tag points to HEAD - fail if input tag doesn't match current commit
+            # Prevents publishing assets built from tag A under tag B when dispatching from A with input B
+            TAG_COMMIT=$(git rev-list -n 1 "refs/tags/$TAG" 2>/dev/null || true)
+            HEAD_COMMIT=$(git rev-parse HEAD)
+            if [ "$TAG_COMMIT" != "$HEAD_COMMIT" ]; then
+              echo "::error::Input tag $TAG points to $TAG_COMMIT but HEAD is $HEAD_COMMIT"
+              echo "Refusing to publish: assets were built from HEAD ($HEAD_COMMIT) but would be published under $TAG ($TAG_COMMIT)"
+              echo "Dispatch the workflow from the tag $TAG itself, not from another tag/branch"
+              exit 1
+            fi
+          else
+            TAG="${GITHUB_REF_NAME}"
+            echo "Using ref name: $TAG"
+          fi
+          # Validate tag format
+          if ! echo "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?$'; then
+            echo "::error::Invalid tag format: $TAG (expected vX.Y.Z or vX.Y.Z-prerelease)"
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Previous tag
         id: prev
+        env:
+          RELEASE_TAG: ${{ steps.release-tag.outputs.tag }}
         run: |
-          PREV=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)
+          set -euo pipefail
+          # Find previous tag before the release tag
+          if [ -n "${RELEASE_TAG:-}" ] && git rev-parse --verify "$RELEASE_TAG" >/dev/null 2>&1; then
+            PREV=$(git describe --tags --abbrev=0 "$RELEASE_TAG^" 2>/dev/null || git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)
+          else
+            PREV=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)
+          fi
           echo "tag=$PREV" >> "$GITHUB_OUTPUT"
+          echo "Previous tag: $PREV"
 
       - name: Detect prerelease
         id: meta
+        env:
+          RELEASE_TAG: ${{ steps.release-tag.outputs.tag }}
         run: |
           # Stable tags are vX.Y.Z. Nightly tags are hyphenated (vX.Y.Z-nightly) and publish as GitHub prereleases.
-          if [[ "${GITHUB_REF_NAME}" == *-* ]]; then
+          if [[ "$RELEASE_TAG" == *-* ]]; then
             echo "prerelease=true" >> "$GITHUB_OUTPUT"
+            echo "Prerelease detected: $RELEASE_TAG"
           else
             echo "prerelease=false" >> "$GITHUB_OUTPUT"
+            echo "Stable release: $RELEASE_TAG"
           fi
 
-      - name: Generate notes
+      - name: Generate release notes
+        env:
+          PREV_TAG: ${{ steps.prev.outputs.tag }}
         run: |
-          if [ -n "${{ steps.prev.outputs.tag }}" ]; then
-            node scripts/release/notes.mjs --from "${{ steps.prev.outputs.tag }}" --to HEAD --output release-notes.md
+          set -euo pipefail
+          # Validate PREV_TAG is a safe git ref (no command substitution, only alphanumeric, dot, dash, slash, underscore)
+          if [ -n "${PREV_TAG:-}" ]; then
+            if ! echo "$PREV_TAG" | grep -Eq '^[a-zA-Z0-9._/v-]+$'; then
+              echo "::error::Invalid previous tag format: $PREV_TAG"
+              exit 1
+            fi
+            # Verify it's a real git ref
+            if ! git rev-parse --verify "$PREV_TAG" >/dev/null 2>&1; then
+              echo "::warning::Previous tag $PREV_TAG not found as git ref, ignoring"
+              PREV_TAG=""
+            fi
+          fi
+          if [ -n "${PREV_TAG:-}" ]; then
+            node scripts/release/notes.mjs --from "$PREV_TAG" --to HEAD --output release-notes.md
           else
             node scripts/release/notes.mjs --to HEAD --output release-notes.md
           fi
+          cat release-notes.md
 
-      - name: Publish release
+      # Build provenance attestation (SLSA) - requires public repo, which Shape is.
+      # This gives consumers cryptographic proof of build origin. Must not be optional.
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: "dist/release/*"
+
+      - name: Publish release (with retries)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.release-tag.outputs.tag }}
         run: |
           set -euo pipefail
-          ARGS=(--tag "${GITHUB_REF_NAME}" --dir dist/release --notes-file release-notes.md --publish)
+          ARGS=(--tag "$RELEASE_TAG" --dir dist/release --notes-file release-notes.md --publish)
           if [ "${{ steps.meta.outputs.prerelease }}" = "true" ]; then
             ARGS+=(--prerelease)
           fi
           # Draft → upload with retries + octet-stream → publish.
-          # softprops dies on intermittent uploads.github.com "Error creating policy".
+          # Custom script handles intermittent uploads.github.com "Error creating policy".
           node scripts/release/upload.mjs "${ARGS[@]}"
+
+      - name: Summary
+        env:
+          RELEASE_TAG: ${{ steps.release-tag.outputs.tag }}
+        run: |
+          {
+            echo "## Release $RELEASE_TAG published :rocket:"
+            echo ""
+            echo "Artifacts:"
+            find dist/release -type f -exec ls -lh {} \; | awk '{print "- " $9 " (" $5 ")"}' || true
+          } >> "$GITHUB_STEP_SUMMARY"

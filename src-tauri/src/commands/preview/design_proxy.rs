@@ -337,7 +337,10 @@ pub async fn probe_preview_url(url: String) -> Result<bool, AppError> {
     // and Windows `localhost` often tries `[::1]` which is not listening.
     let mut candidates = Vec::new();
     let lower = host.to_ascii_lowercase();
-    let local = matches!(lower.as_str(), "localhost" | "0.0.0.0" | "::1" | "[::1]" | "127.0.0.1");
+    let local = matches!(
+        lower.as_str(),
+        "localhost" | "0.0.0.0" | "::1" | "[::1]" | "127.0.0.1"
+    );
     if local {
         candidates.push(format!("127.0.0.1:{port}"));
         candidates.push(format!("localhost:{port}"));

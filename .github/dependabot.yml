@@ -1,0 +1,77 @@
+version: 2
+updates:
+  # npm dependencies (frontend)
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+      - npm
+    commit-message:
+      prefix: "chore"
+      include: scope
+    groups:
+      dev-dependencies:
+        patterns:
+          - "@types/*"
+          - "eslint*"
+          - "vitest*"
+          - "@vitest/*"
+          - "jsdom*"
+        update-types:
+          - minor
+          - patch
+      next-ecosystem:
+        patterns:
+          - "next"
+          - "eslint-config-next"
+          - "@tailwindcss/*"
+          - "tailwindcss"
+          - "postcss"
+        update-types:
+          - minor
+          - patch
+
+  # Cargo dependencies (Rust backend)
+  - package-ecosystem: cargo
+    directory: "/src-tauri"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+      - rust
+    commit-message:
+      prefix: "chore"
+      include: scope
+    groups:
+      tauri:
+        patterns:
+          - "tauri*"
+        update-types:
+          - minor
+          - patch
+
+  # GitHub Actions
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - github-actions
+    commit-message:
+      prefix: "ci"
+      include: scope

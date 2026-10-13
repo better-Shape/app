@@ -16,10 +16,7 @@ pub fn is_loopback_origin(url: &str) -> bool {
     let Ok(parsed) = url::Url::parse(url) else {
         return false;
     };
-    matches!(
-        parsed.host_str(),
-        Some("localhost" | "127.0.0.1" | "::1")
-    )
+    matches!(parsed.host_str(), Some("localhost" | "127.0.0.1" | "::1"))
 }
 
 fn env_website_url() -> Option<String> {

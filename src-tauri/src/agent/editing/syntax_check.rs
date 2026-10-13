@@ -43,7 +43,10 @@ fn language_for_path(path: &str) -> Option<Language> {
 
 fn snippet(source: &str, node: Node) -> String {
     let raw = node.utf8_text(source.as_bytes()).unwrap_or("").trim();
-    let one_line: String = raw.chars().map(|c| if c == '\n' || c == '\r' { ' ' } else { c }).collect();
+    let one_line: String = raw
+        .chars()
+        .map(|c| if c == '\n' || c == '\r' { ' ' } else { c })
+        .collect();
     if one_line.chars().count() <= SNIPPET_CHARS {
         return one_line;
     }

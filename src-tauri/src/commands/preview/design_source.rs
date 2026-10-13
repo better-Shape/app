@@ -225,7 +225,11 @@ pub fn list_design_assets(project_path: String) -> Result<Vec<DesignAsset>, AppE
                     .to_string_lossy()
                     .replace('\\', "/")
                     .to_ascii_lowercase();
-                if rel.contains("/app/") && (rel.ends_with("/page.tsx") || rel.ends_with("/layout.tsx") || rel.ends_with("/page.jsx")) {
+                if rel.contains("/app/")
+                    && (rel.ends_with("/page.tsx")
+                        || rel.ends_with("/layout.tsx")
+                        || rel.ends_with("/page.jsx"))
+                {
                     continue;
                 }
                 if rel.contains("/components/") || rel.contains("/ui/") {
@@ -402,7 +406,12 @@ fn merge_opening_attribute(opening: &str, name: &str, value: &str) -> Result<Str
             } else {
                 value.replace('\\', "\\\\").replace('\'', "\\'")
             };
-            return Ok(format!("{}{}{}", &opening[..quote_at + 1], inner, &opening[end..]));
+            return Ok(format!(
+                "{}{}{}",
+                &opening[..quote_at + 1],
+                inner,
+                &opening[end..]
+            ));
         }
         let quote = *bytes
             .get(cursor)
@@ -526,7 +535,10 @@ fn locate_source_path(root: &Path, raw: &str) -> Option<PathBuf> {
             cleaned = cleaned[start..].to_string();
         }
     }
-    let root_canon = root.canonicalize().ok().unwrap_or_else(|| root.to_path_buf());
+    let root_canon = root
+        .canonicalize()
+        .ok()
+        .unwrap_or_else(|| root.to_path_buf());
     let absolute = PathBuf::from(&cleaned);
     if absolute.is_absolute() {
         if let Ok(canon) = absolute.canonicalize() {
@@ -537,9 +549,7 @@ fn locate_source_path(root: &Path, raw: &str) -> Option<PathBuf> {
         let root_s = paths::spawn_cwd(&root_canon.to_string_lossy())
             .replace('\\', "/")
             .to_lowercase();
-        let file_s = paths::spawn_cwd(&cleaned)
-            .replace('\\', "/")
-            .to_lowercase();
+        let file_s = paths::spawn_cwd(&cleaned).replace('\\', "/").to_lowercase();
         if let Some(rest) = file_s.strip_prefix(root_s.trim_end_matches('/')) {
             let joined = root_canon.join(rest.trim_start_matches('/'));
             if joined.is_file() && supported_source(&joined) {
@@ -624,17 +634,10 @@ fn pick_opening<'a>(
     column: Option<usize>,
     classes: &[String],
 ) -> Option<&'a OpeningHit> {
-    let opening_of = |hit: &OpeningHit| -> &str {
-        source
-            .get(hit.opening_start..hit.opening_end)
-            .unwrap_or("")
-    };
+    let opening_of =
+        |hit: &OpeningHit| -> &str { source.get(hit.opening_start..hit.opening_end).unwrap_or("") };
     let score = |hit: &OpeningHit| -> (u8, u8, usize, usize, usize) {
-        let tag_penalty: u8 = if tags_compatible(&hit.tag, tag) {
-            0
-        } else {
-            2
-        };
+        let tag_penalty: u8 = if tags_compatible(&hit.tag, tag) { 0 } else { 2 };
         let class_penalty: u8 = if opening_has_classes(opening_of(hit), classes) {
             0
         } else {
@@ -811,18 +814,17 @@ pub fn resolve_design_element(
             "Design mode supports React + Vite, Next.js, Astro, and Remix projects.".into(),
         ));
     };
-    let Some(source_file) = query.source_file.as_deref().filter(|value| !value.is_empty()) else {
+    let Some(source_file) = query
+        .source_file
+        .as_deref()
+        .filter(|value| !value.is_empty())
+    else {
         return Ok(Vec::new());
     };
     let Some(path) = locate_source_path(&root, source_file) else {
         return Ok(Vec::new());
     };
-    if path
-        .metadata()
-        .map(|meta| meta.len())
-        .unwrap_or(u64::MAX)
-        > MAX_SOURCE_BYTES
-    {
+    if path.metadata().map(|meta| meta.len()).unwrap_or(u64::MAX) > MAX_SOURCE_BYTES {
         return Ok(Vec::new());
     }
     let Ok(source) = std::fs::read_to_string(&path) else {
@@ -1047,7 +1049,12 @@ fn merge_html_style(opening: &str, styles: &BTreeMap<String, String>) -> Result<
             .map(|v| start + v)
             .ok_or_else(|| AppError::Message("Invalid style attribute.".into()))?;
         let merged = merge_css_declarations(&opening[start..end], styles);
-        return Ok(format!("{}{}{}", &opening[..start], merged, &opening[end..]));
+        return Ok(format!(
+            "{}{}{}",
+            &opening[..start],
+            merged,
+            &opening[end..]
+        ));
     }
     let insert_at = opening
         .rfind("/>")
@@ -1220,7 +1227,10 @@ pub fn apply_design_source_patch(patch: DesignSourcePatch) -> Result<DesignPatch
         let mut updated = current;
         for (name, value) in &patch.attributes {
             let key = name.trim();
-            if key.is_empty() || !key.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+            if key.is_empty()
+                || !key
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
             {
                 return Err(AppError::Message("Unsupported attribute name.".into()));
             }
@@ -1395,7 +1405,8 @@ mod tests {
             r#"{"dependencies":{"vite":"7","react":"19"}}"#,
         )
         .unwrap();
-        let source = r#"export function App(){return <main className="hero shell">Hello Shape</main>}"#;
+        let source =
+            r#"export function App(){return <main className="hero shell">Hello Shape</main>}"#;
         std::fs::write(src.join("App.tsx"), source).unwrap();
         let column = source.find("<main").unwrap() + 1;
 
@@ -1450,7 +1461,7 @@ mod tests {
         std::fs::write(src.join("App.tsx"), source).unwrap();
         let second = source.match_indices("<main").nth(1).unwrap().0;
         let line = source[..second].bytes().filter(|b| *b == b'\n').count() + 1;
-        let column = second - source[..second].rfind('\n').unwrap() ;
+        let column = second - source[..second].rfind('\n').unwrap();
 
         let matches = resolve_design_element(
             root.to_string_lossy().into_owned(),
@@ -1526,8 +1537,7 @@ mod tests {
 
     #[test]
     fn resolves_next_chunk_url_to_app_page() {
-        let root =
-            std::env::temp_dir().join(format!("shape-design-next-{}", uuid::Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("shape-design-next-{}", uuid::Uuid::new_v4()));
         let app = root.join("app");
         std::fs::create_dir_all(&app).unwrap();
         std::fs::write(
@@ -1572,7 +1582,10 @@ mod tests {
             },
         )
         .unwrap();
-        assert!(miss.is_empty(), "bundler runtime chunks must not map to app/page.tsx");
+        assert!(
+            miss.is_empty(),
+            "bundler runtime chunks must not map to app/page.tsx"
+        );
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -1596,8 +1609,7 @@ mod tests {
 
     #[test]
     fn refuses_instance_props_on_html_and_skips_node_modules() {
-        let root =
-            std::env::temp_dir().join(format!("shape-design-safe-{}", uuid::Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("shape-design-safe-{}", uuid::Uuid::new_v4()));
         let src = root.join("src");
         let vendor = root.join("node_modules").join("ui");
         std::fs::create_dir_all(&src).unwrap();
@@ -1643,10 +1655,7 @@ export function App(){return <main><Header cartCount={1} label="Shop" /><div cla
             content: None,
         })
         .unwrap_err();
-        assert!(
-            format!("{err:?}").contains("cartCount"),
-            "{err:?}"
-        );
+        assert!(format!("{err:?}").contains("cartCount"), "{err:?}");
         assert!(!std::fs::read_to_string(src.join("App.tsx"))
             .unwrap()
             .contains("cartCount={9}"));
