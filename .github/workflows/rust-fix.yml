@@ -1,0 +1,58 @@
+name: Rust fix (temporary)
+
+# Temporary helper: formats the crate and writes compiler errors into the branch
+# so they can be fixed from an environment without a Rust toolchain.
+# Deleted before the branch is finished.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    name: Format + collect errors
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          persist-credentials: true
+
+      - name: Setup
+        uses: ./.github/actions/setup
+        with:
+          install-rust: "true"
+          install-system-deps: "true"
+          rust-components: "rustfmt,clippy"
+
+      - run: npm ci
+
+      - name: Build preview runtime
+        run: npm run build:runtime
+
+      - name: Format the crate
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml --all || true
+
+      - name: Collect compiler errors
+        run: |
+          set -o pipefail
+          cargo check --manifest-path src-tauri/Cargo.toml --all-features --message-format=short --tests 2>&1 \
+            | tee rust-check.txt || true
+          echo "---" >> rust-check.txt
+          tail -c 200000 rust-check.txt > rust-check.txt.tmp && mv rust-check.txt.tmp rust-check.txt
+          wc -l rust-check.txt
+
+      - name: Commit and push
+        run: |
+          set -euo pipefail
+          git config user.name "bettershape-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Nothing to commit"
+          else
+            git commit -m "chore: rustfmt + compiler report (temporary workflow)"
+            git push origin HEAD:${{ github.ref_name }}
+          fi
