@@ -585,7 +585,9 @@ pub async fn send_chat_message(
     // send to another chat clears the shared slot, and this turn must still
     // report the context it actually started with.
     let summarized = if compacted_fresh {
-        state.current_summary().or_else(|| turn_base_summary.clone())
+        state
+            .current_summary()
+            .or_else(|| turn_base_summary.clone())
     } else {
         turn_base_summary.clone()
     };
