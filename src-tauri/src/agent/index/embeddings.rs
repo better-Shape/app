@@ -181,7 +181,7 @@ impl RemoteIndexClient {
         if let Some(conv) = &self.context.conversation_id {
             let _ = conv;
         }
-        let url = format!("{}/embeddings", provider.base_url.trim_end_matches('/'));
+        let url = crate::core::ai_providers::embeddings_endpoint(&provider);
         let body = serde_json::json!({ "model": model, "input": texts });
         let resp = blocking_http_client()
             .post(&url)

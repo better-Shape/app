@@ -1063,11 +1063,19 @@ pub async fn complete_chat_messages(
     }
 
     let (provider, provider_model) = resolve_provider(model)?;
-    let body = json!({
+    let mut body = json!({
         "model": provider_model,
         "messages": messages,
         "max_tokens": max_tokens,
     });
+    // Captions and other auxiliary calls want the answer, not the reasoning:
+    // thinking tokens would be billed against the same budget and dropped.
+    if matches!(
+        proxy_ctx.feature.as_str(),
+        "commit" | "title" | "file-edit" | "caption"
+    ) {
+        body["reasoning"] = json!({ "enabled": false, "exclude": true });
+    }
 
     let send_fut =
         provider_request(client, api_key, &provider, &provider_model, &body, false).send();

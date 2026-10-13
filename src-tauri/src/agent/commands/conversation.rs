@@ -330,8 +330,6 @@ pub fn activate_conversation(
             history::collapse_duplicate_assistants(&mut loaded);
             let user_turns = loaded.iter().filter(|m| m.role == "user").count() as u32;
             *state.history.lock()? = loaded;
-            // The summary belonged to the chat being left; it must not reach this one's model context.
-            *state.history_summary.lock()? = None;
             *state.title.lock()? = Some(conv.title);
             let anchor = if conv.title_anchor_turns == 0 {
                 user_turns
@@ -341,6 +339,11 @@ pub fn activate_conversation(
             state.set_title_meta(conv.title_locked, anchor);
             *state.current_conversation_id.lock()? = Some(id.to_string());
             *state.conversation_kind.lock()? = Some("chat".to_string());
+            // Restore this conversation's rolling summary so a long chat does not
+            // have to re-send every raw turn after a restart. The fold boundary
+            // travels with it — without it the summary cannot be applied again.
+            state.reset_compaction();
+            state.restore_summary(conv.summary.clone(), conv.summary_fold_end);
             state.clear_design_preview_state();
             state.replace_file_checkpoints(checkpoints::load_checkpoints(id));
             state.set_incognito(false);

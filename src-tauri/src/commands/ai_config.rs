@@ -14,7 +14,9 @@ pub fn set_ai_config(config: AiProviderConfig) -> Result<(), AppError> {
         ai_providers::normalize_base_url(&provider.base_url, provider.kind)
             .map_err(AppError::Message)?;
     }
+    let summary = ai_providers::describe(&config);
     ai_providers::set_config(config);
+    crate::agent::commands::logging::info("ai", &format!("Providers configured: {summary}"));
     Ok(())
 }
 

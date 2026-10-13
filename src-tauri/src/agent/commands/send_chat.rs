@@ -78,15 +78,6 @@ pub async fn send_chat_message(
     if let Err(err) = streaming::resolve_provider(&model_to_use) {
         return Err(err);
     }
-    let history_has_images = state
-        .history
-        .lock()
-        .map(|h| {
-            h.iter()
-                .any(|m| m.role == "user" && model_router::content_has_images(&m.content))
-        })
-        .unwrap_or(false);
-    let has_images = model_router::content_has_images(&message) || history_has_images;
     let mode_to_use = mode.unwrap_or_else(|| "Ask".to_string());
     // Auto stays on DeepSeek locally. The website maps `auto` for billing.
     // Vision-capable picks keep pixels; text-only models get a caption pass.
@@ -589,7 +580,15 @@ pub async fn send_chat_message(
     let tools = schema::apply_steer_packs(schema::stable_tools(family), &steer);
     let mcp_tokens: u64 = 0;
 
-    let summarized = state.current_summary();
+    // Prefer the summary the live slot holds now when this turn folded a fresh
+    // one. Otherwise use the snapshot taken before the first await: a concurrent
+    // send to another chat clears the shared slot, and this turn must still
+    // report the context it actually started with.
+    let summarized = if compacted_fresh {
+        state.current_summary().or_else(|| turn_base_summary.clone())
+    } else {
+        turn_base_summary.clone()
+    };
     let conversation_json =
         serde_json::to_string(&messages::build_api_history(&history_snapshot)).unwrap_or_default();
     let mut breakdown = build_context_breakdown(

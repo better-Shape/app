@@ -113,26 +113,6 @@ pub fn request(
     }
 }
 
-/// Embeddings request (OpenAI wire only — the only mainstream embeddings API
-/// among the supported providers).
-pub fn embeddings_request(
-    client: &Client,
-    provider: &ResolvedProvider,
-    model: &str,
-    inputs: &[String],
-    dimensions: Option<u32>,
-) -> reqwest::RequestBuilder {
-    let mut body = json!({ "model": model, "input": inputs });
-    if let Some(dimensions) = dimensions {
-        body["dimensions"] = json!(dimensions);
-    }
-    client
-        .post(embeddings_endpoint(provider))
-        .header("Authorization", format!("Bearer {}", provider.api_key))
-        .header("Content-Type", "application/json")
-        .json(&body)
-}
-
 /// OpenAI request body → the provider's own shape.
 pub fn to_provider_body(kind: ProviderKind, body: &Value) -> Value {
     match kind {

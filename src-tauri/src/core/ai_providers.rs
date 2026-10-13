@@ -296,11 +296,6 @@ pub fn resolve_model(model: &str) -> Result<(ResolvedProvider, String), AppError
     Ok((from_entry(provider), requested.to_string()))
 }
 
-/// Provider used for auxiliary calls (titles, captions, summaries, decisions).
-pub fn resolve_default() -> Result<(ResolvedProvider, String), AppError> {
-    resolve_model("auto")
-}
-
 /// Provider + model used for codebase embeddings, when one is configured.
 /// Embeddings need an OpenAI-compatible `/embeddings` endpoint, so OpenRouter,
 /// OpenAI, and any custom OpenAI-wire endpoint all work; Anthropic and Google
@@ -379,11 +374,6 @@ pub fn search_config() -> SearchConfig {
 /// The user's own Composio credentials.
 pub fn composio_config() -> ComposioConfig {
     get_config().map(|c| c.composio).unwrap_or_default()
-}
-
-/// True when the given model id can be routed without hitting the network.
-pub fn can_resolve(model: &str) -> bool {
-    resolve_model(model).is_ok()
 }
 
 /// Base URLs are user supplied; make sure they are absolute http(s).
