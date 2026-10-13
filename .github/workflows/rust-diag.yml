@@ -23,6 +23,7 @@ jobs:
           install-system-deps: "true"
           rust-components: "rustfmt,clippy"
       - name: Collect
+        continue-on-error: true
         run: |
           set -uo pipefail
           exec > /tmp/diag.txt 2>&1
@@ -30,11 +31,9 @@ jobs:
           echo "### cargo fmt --check"
           cargo fmt --all -- --check 2>&1 | head -80
           echo
-          echo "### cargo test --no-run"
-          cargo test --all-features --no-run 2>&1 | grep -aE "^(error|warning: unused|  -->)|error\[|^error:" | head -100
-          echo
-          echo "### clippy"
-          cargo clippy --all-targets --message-format short 2>&1 | grep -aE "error|warning" | head -60
+          echo "### cargo test --no-run (errors)"
+          cargo test --all-features --no-run 2>&1 | grep -aE "^error|error\[|^warning: unused|--> src/" | head -120
+          echo "### end"
           exit 0
       - name: Publish
         if: always()
@@ -43,8 +42,17 @@ jobs:
         run: |
           set -uo pipefail
           B64=$(base64 -w0 /tmp/diag.txt)
-          gh api --method PUT "repos/${{ github.repository }}/contents/rust-diag-output.txt" \
-            --field message="chore: rust diagnostics" \
-            --field branch="${{ github.ref_name }}" \
-            --field content="$B64" >/dev/null && echo written || echo failed
+          SHA=$(gh api "repos/${{ github.repository }}/contents/rust-diag-output.txt?ref=${{ github.ref_name }}" --jq .sha 2>/dev/null || echo "")
+          if [ -n "$SHA" ]; then
+            gh api --method PUT "repos/${{ github.repository }}/contents/rust-diag-output.txt" \
+              --field message="chore: rust diagnostics" \
+              --field branch="${{ github.ref_name }}" \
+              --field sha="$SHA" \
+              --field content="$B64" >/dev/null && echo written || echo failed
+          else
+            gh api --method PUT "repos/${{ github.repository }}/contents/rust-diag-output.txt" \
+              --field message="chore: rust diagnostics" \
+              --field branch="${{ github.ref_name }}" \
+              --field content="$B64" >/dev/null && echo written || echo failed
+          fi
           exit 0
