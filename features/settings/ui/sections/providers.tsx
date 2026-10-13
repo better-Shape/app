@@ -261,7 +261,7 @@ function ProviderCard({ id, providers }: { id: ProviderId; providers: ProvidersS
                                 <span
                                     className={
                                         usable
-                                            ? "h-1.5 w-1.5 rounded-full bg-emerald-500"
+                                            ? "h-1.5 w-1.5 rounded-full bg-success"
                                             : "h-1.5 w-1.5 rounded-full bg-text-muted"
                                     }
                                     aria-hidden

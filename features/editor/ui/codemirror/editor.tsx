@@ -118,6 +118,38 @@ export function CodeMirrorEditor({
             );
         };
 
+        /**
+         * The current selection, for the chat's selection context. Chat has
+         * always listened for this event; nothing published it, so selecting
+         * code and then asking about it attached nothing. Capped so a careless
+         * "select all" on a huge file cannot blow up a prompt.
+         */
+        const SELECTION_CONTEXT_LIMIT = 8000;
+        const publishSelection = (view: EditorView) => {
+            const range = view.state.selection.main;
+            let detail: {
+                path: string;
+                startLine: number;
+                endLine: number;
+                text: string;
+            } | null = null;
+            if (!range.empty) {
+                const raw = view.state.sliceDoc(range.from, range.to);
+                detail = {
+                    path: pathRef.current,
+                    startLine: view.state.doc.lineAt(range.from).number,
+                    endLine: view.state.doc.lineAt(range.to).number,
+                    text:
+                        raw.length > SELECTION_CONTEXT_LIMIT
+                            ? `${raw.slice(0, SELECTION_CONTEXT_LIMIT)}\n… (selection truncated)`
+                            : raw,
+                };
+            }
+            window.dispatchEvent(
+                new CustomEvent("bettershape-editor-selection", { detail }),
+            );
+        };
+
         /** Buffer contents for the outline parser, debounced while typing. */
         let bufferTimer: number | null = null;
         const publishBuffer = (view: EditorView) => {
@@ -203,6 +235,10 @@ export function CodeMirrorEditor({
                         if ((update.selectionSet || update.focusChanged) && update.view.hasFocus) {
                             publishStatus(update.view);
                         }
+                        // Deliberately published even when focus is elsewhere:
+                        // the point of a selection is to attach it to a question
+                        // typed in the chat, which blurs the editor first.
+                        if (update.selectionSet) publishSelection(update.view);
                         return;
                     }
                     const next = update.state.doc.toString();
@@ -213,6 +249,7 @@ export function CodeMirrorEditor({
                     void commands.markFileDirty(pathRef.current, dirty);
                     scheduleBuffer(update.view);
                     if (update.view.hasFocus) publishStatus(update.view);
+                    if (update.selectionSet || update.docChanged) publishSelection(update.view);
                 }),
                 EditorView.domEventHandlers({
                     dragstart(event, view) {
@@ -260,6 +297,7 @@ export function CodeMirrorEditor({
         // chain, and the status bar wants a caret position before the first key.
         publishBuffer(view);
         if (view.hasFocus) publishStatus(view);
+        publishSelection(view);
         const fileName = path.split(/[\\/]/).pop() || path;
         const described = LanguageDescription.matchFilename(languages, fileName);
         if (described) {

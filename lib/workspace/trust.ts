@@ -75,7 +75,10 @@ export function notifyWorkspaceOpened(path: string): void {
     if (typeof window === "undefined") return;
     void syncRustTrust(path, isWorkspaceTrusted(path));
     window.dispatchEvent(new CustomEvent("bettershape-workspace-opened", { detail: { path } }));
-    if (!isWorkspaceTrusted(path)) window.dispatchEvent(new CustomEvent("bettershape-workspace-trust-required", { detail: { path } }));
+    // Trust is asked for through `ensureWorkspaceTrust` (a native dialog) before
+    // the workspace is opened, so a separate "trust required" event had no
+    // listener and is gone rather than looking like an interface.
+
 }
 
 export function notifyWorkspaceClosed(): void {

@@ -39,9 +39,8 @@ export async function setIncognitoChat(enabled: boolean): Promise<void> {
         }
         return;
     }
-    window.dispatchEvent(
-        new CustomEvent("bettershape-chat-incognito", { detail: { enabled: active } }),
-    );
+    // `subscribeIncognito` is the channel the UI uses; the event was never
+    // listened for, so it is gone rather than pretending to be an interface.
 }
 
 export async function syncIncognitoFromBackend(): Promise<void> {
