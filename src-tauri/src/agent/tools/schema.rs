@@ -42,6 +42,7 @@ pub fn all_tools_for_family(family: ModelFamily) -> Vec<Value> {
         tools.push(edit_file());
     }
     tools.extend([
+        compact_context(),
         delete_file(),
         rename_file(),
         run_terminal(),
@@ -101,6 +102,7 @@ fn ask_tools() -> Vec<Value> {
         decide(),
         check_done(),
         spawn_subagent(),
+        compact_context(),
         ask_user(),
         finish(),
     ]
@@ -167,6 +169,7 @@ pub fn stable_tools(family: ModelFamily) -> Vec<Value> {
         render_design_previews(),
         mcp_search(),
         mcp_call(),
+        mcp_manage(),
     ] {
         insert_before_finish(&mut tools, tool);
     }
@@ -242,7 +245,8 @@ fn steer_pack_for(name: &str) -> Option<&'static str> {
         "read_file" | "list_dir" | "search_codebase" | "codebase_overview" | "search_files" | "grep"
         | "create_directory" | "create_file" | "apply_patch" | "edit_file" | "delete_file"
         | "rename_file" | "read_lints" | "screenshot_page" | "inspect_runtime"
-        | "design_review" | "render_design_previews" | "mcp_search" | "mcp_call" => Some("workspace"),
+        | "design_review" | "render_design_previews" | "mcp_search" | "mcp_call"
+        | "mcp_manage" => Some("workspace"),
         "plugin_search" | "plugin_run" => Some("plugins"),
         "plugin_list" | "plugin_tools" => Some("browse"),
         "web_search" | "visit_url" => None,
@@ -1243,6 +1247,62 @@ fn mcp_call() -> Value {
                 "arguments": {"type": "object", "description": "Arguments for that tool.", "additionalProperties": true}
             },
             "required": ["name"],
+            "additionalProperties": false
+        }),
+    )
+}
+
+fn compact_context() -> Value {
+    tool(
+        "compact_context",
+        "Control the context window for this conversation. action:compact (the default) folds older turns into a summary right now and keeps you working in the same turn; reach for it when the transcript gets heavy (large tool results, long file reads, repeated search output) or when you notice you are re-reading work you already did. action:defer holds the automatic pass while you finish a step: pass reason with one line naming what you are half-way through, and that note is pinned into the next summary while the hold lapses on its own. action:resume ends a hold once the step is done. Recent turns and the files you still need stay verbatim. Nothing is deleted: the full pre-compaction transcript is archived under .shape/agent-out/ and can be read back. After a fold, re-read the archive or the file for detail the summary dropped instead of recalling it from memory.",
+        json!({
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["compact", "defer", "resume"],
+                    "description": "compact folds now (the default). defer holds automatic compaction. resume ends a hold."
+                },
+                "focus": {"type": "string", "description": "For compact: optional steer for the summary, e.g. \"keep the failing test output and the migration files\". Omit for a general summary."},
+                "reason": {"type": "string", "description": "For defer: one line naming what you are half-way through, e.g. \"renaming the auth header across six files\". It is pinned into the next summary."}
+            },
+            "additionalProperties": false
+        }),
+    )
+}
+
+fn mcp_manage() -> Value {
+    tool(
+        "mcp_manage",
+        "Create, edit, test, and inspect MCP servers. A server adds tools to this session, reachable through mcp_search and mcp_call, so use this tool when the user needs a capability no built-in tool covers (\"add the Playwright MCP\", \"why is the Sentry server failing\"). Actions: list, add, update, remove, enable, disable, restart, test, tools, auth, registry. add writes mcp.json, connects the server, and makes its tools callable at once. update patches fields on an existing server. test connects once and reports the handshake, latency, and tool names, so run it before saying a server works. registry searches the official MCP registry; prefer it over guessing a package name. auth opens the browser to sign in. Ask before installing a server the user did not name, and never report success without the status this tool returns. save:false connects a server for this session only.",
+        json!({
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["list", "add", "update", "remove", "enable", "disable", "restart", "test", "tools", "auth", "registry"],
+                    "description": "What to do."
+                },
+                "name": {
+                    "type": "string",
+                    "description": "Server id (lowercase, dashes allowed). Required for add/update/remove/enable/disable/restart/test/tools/auth."
+                },
+                "transport": {"type": "string", "enum": ["stdio", "http"], "description": "How Shape reaches the server. Inferred from `url` (http) or `command` (stdio)."},
+                "command": {"type": "string", "description": "stdio only: executable to launch, e.g. \"npx\", \"uvx\", \"docker\"."},
+                "args": {"type": "array", "items": {"type": "string"}, "description": "stdio only: arguments, e.g. [\"-y\", \"@playwright/mcp@latest\"]."},
+                "env": {"type": "object", "description": "stdio only: environment variables for the process. Reference secret env vars the user already has rather than pasting keys into the config.", "additionalProperties": {"type": "string"}},
+                "url": {"type": "string", "description": "http only: the MCP endpoint URL."},
+                "headers": {"type": "object", "description": "http only: extra request headers, e.g. an Authorization header the user supplied.", "additionalProperties": {"type": "string"}},
+                "auth": {"type": "string", "enum": ["none", "oauth"], "description": "http only: OAuth (default for URLs) or none."},
+                "enabled": {"type": "boolean", "description": "Whether the server is connected at all."},
+                "disabledTools": {"type": "array", "items": {"type": "string"}, "description": "Tool names from this server to keep hidden from the agent."},
+                "oauthClientId": {"type": "string", "description": "Pre-registered OAuth client id when the provider has no dynamic client registration."},
+                "save": {"type": "boolean", "description": "For add/update/test: write to mcp.json (default true). `test` with save:false validates a config without keeping it."},
+                "query": {"type": "string", "description": "registry: what to search for, e.g. \"playwright\" or \"postgres\"."},
+                "limit": {"type": "integer", "description": "registry/list: maximum entries to return (default 8)."}
+            },
+            "required": ["action"],
             "additionalProperties": false
         }),
     )

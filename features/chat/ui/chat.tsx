@@ -377,6 +377,7 @@ export default function Chat({
                             onFork={session.handleFork}
                             isFileEditResolved={session.isEditResolved}
                             activeChatTabId={session.activeChatTabId}
+                            contextSummarized={session.contextSummarized}
                             fullWidthBubbles={false}
                         />
                     </div>

@@ -1,8 +1,10 @@
 mod breakdown;
 mod repo_map;
+pub mod tokens;
 
-pub use breakdown::build_context_breakdown;
+pub use breakdown::{build_context_breakdown, context_limit_for_model};
 pub use repo_map::DEFAULT_REPO_MAP_TOKENS;
+pub use tokens::{chars_for_tokens, estimate_tokens, estimate_tokens_json, truncate_to_tokens};
 
 use crate::agent::context::repo_map::{build_repo_map, format_repo_map_section, RepoMapInput};
 use crate::agent::index::IndexState;

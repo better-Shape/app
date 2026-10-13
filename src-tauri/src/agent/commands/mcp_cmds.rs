@@ -104,6 +104,120 @@ pub fn mcp_clear_oauth(id: String) -> Result<(), AppError> {
     Ok(())
 }
 
+/// What the agent's `mcp_manage` tool can do, exposed to the UI as well, so a
+/// user action and an agent action share one implementation.
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpManageRequest {
+    pub action: String,
+    #[serde(default)]
+    pub id: Option<String>,
+    #[serde(default)]
+    pub server: Option<McpServerConfig>,
+    #[serde(default)]
+    pub enabled: Option<bool>,
+}
+
+#[tauri::command]
+pub async fn mcp_manage_servers(
+    request: McpManageRequest,
+    mcp_state: tauri::State<'_, McpState>,
+    app_handle: tauri::AppHandle,
+) -> Result<serde_json::Value, AppError> {
+    use crate::mcp::admin;
+    use tauri::Emitter;
+
+    let announce = |action: &str, id: Option<&str>| {
+        let _ = app_handle.emit("mcp-servers-changed", serde_json::json!({ "action": action, "id": id }));
+    };
+
+    let action = request.action.trim().to_ascii_lowercase();
+    let result = match action.as_str() {
+        "list" => serde_json::json!({
+            "servers": admin::load_servers().map_err(AppError::Message)?,
+            "statuses": mcp_state.get_status().map_err(AppError::Message)?,
+        }),
+        "add" | "update" => {
+            let cfg = request
+                .server
+                .ok_or_else(|| AppError::Message("`server` is required.".into()))?;
+            let previous = admin::upsert(&cfg).map_err(AppError::Message)?;
+            let status = mcp_state
+                .upsert_server(cfg.clone())
+                .map_err(AppError::Message)?;
+            announce(&action, Some(&cfg.id));
+            serde_json::json!({ "server": cfg, "status": status, "replaced": previous.is_some() })
+        }
+        "remove" => {
+            let id = request
+                .id
+                .ok_or_else(|| AppError::Message("`id` is required.".into()))?;
+            let removed = admin::remove(&id).map_err(AppError::Message)?;
+            let _ = mcp_state.remove_server(&id);
+            let _ = crate::mcp::credentials::delete_token(&id);
+            announce("remove", Some(&id));
+            serde_json::json!({ "removed": removed })
+        }
+        "enable" | "disable" => {
+            let id = request
+                .id
+                .ok_or_else(|| AppError::Message("`id` is required.".into()))?;
+            let enabled = request.enabled.unwrap_or(action == "enable");
+            admin::set_enabled(&id, enabled).map_err(AppError::Message)?;
+            let Some(mut cfg) = admin::load_server(&id).map_err(AppError::Message)? else {
+                return Err(AppError::Message(format!("'{id}' is not in mcp.json.")));
+            };
+            cfg.enabled = enabled;
+            let status = mcp_state
+                .upsert_server(cfg.clone())
+                .map_err(AppError::Message)?;
+            announce(&action, Some(&id));
+            serde_json::json!({ "server": cfg, "status": status })
+        }
+        "restart" => {
+            let id = request
+                .id
+                .ok_or_else(|| AppError::Message("`id` is required.".into()))?;
+            let status = mcp_state.restart_server(&id).map_err(AppError::Message)?;
+            announce("restart", Some(&id));
+            serde_json::json!({ "status": status })
+        }
+        "test" => {
+            let cfg = request
+                .server
+                .ok_or_else(|| AppError::Message("`server` is required.".into()))?;
+            serde_json::to_value(admin::test_config(&cfg)).map_err(|e| AppError::Message(e.to_string()))?
+        }
+        other => {
+            return Err(AppError::Message(format!(
+                "Unknown action '{other}'. Use: list, add, update, remove, enable, disable, restart, test."
+            )))
+        }
+    };
+    Ok(result)
+}
+
+/// Re-read `mcp.json` and connect exactly what it lists. Servers added by the
+/// agent (or hand-edited into the file) show up without restarting the app.
+#[tauri::command]
+pub fn mcp_reload_from_file(
+    mcp_state: tauri::State<'_, McpState>,
+) -> Result<Vec<McpStatusEntry>, AppError> {
+    let file_servers = crate::mcp::admin::load_servers().map_err(AppError::Message)?;
+    // Merge rather than replace: Settings-sourced servers never live in mcp.json,
+    // and dropping them here would silently disconnect whatever the UI pushed.
+    let file_ids: std::collections::HashSet<String> =
+        file_servers.iter().map(|s| s.id.clone()).collect();
+    let mut servers: Vec<McpServerConfig> = file_servers;
+    servers.extend(
+        mcp_state
+            .configs_snapshot()
+            .into_iter()
+            .filter(|s| !file_ids.contains(&s.id)),
+    );
+    mcp_state.sync_servers(servers).map_err(AppError::Message)
+}
+
 #[tauri::command]
 pub fn call_mcp_tool(
     qualified_name: String,

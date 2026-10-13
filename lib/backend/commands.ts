@@ -1,5 +1,5 @@
 ﻿import { invoke } from "@tauri-apps/api/core";
-import { ActivityTotals, BrowserHistoryEntry, BrowserInputEvent, BrowserPickedElement, BrowserTab, BrowserTabsPayload, ChatGenerationState, ChatMessage, CodebaseSearchHit, ContentSearchResult, Conversation, EslintLintResult, FileEntry, FileInfo, FileSearchResult, GitActivityPoint, GitFileParams, GitRepoInfo, GitHubAuthLoginResult, GitHubAuthStatus, GitLogEntry, GitSyncStatus, GitStashEntry, BlameLine, HistoryEntry, IndexStatus, McpServerConfig, McpStatusEntry, McpToolInfo, PackageInfo, OutlineResponse, ProjectState, ProjectStatsSnapshot, ReplaceResult, SearchOptions, TestDiscoveryResult, TestRunSummaryResult, ContentMatch } from "@/lib/backend/types";
+import { ActivityTotals, BrowserHistoryEntry, BrowserInputEvent, BrowserPickedElement, BrowserTab, BrowserTabsPayload, ChatGenerationState, ChatMessage, CodebaseSearchHit, CompactResult, CompactionStateView, ContentSearchResult, Conversation, EslintLintResult, FileEntry, FileInfo, FileSearchResult, GitActivityPoint, GitFileParams, GitRepoInfo, GitHubAuthLoginResult, GitHubAuthStatus, GitLogEntry, GitSyncStatus, GitStashEntry, BlameLine, HistoryEntry, IndexStatus, McpServerConfig, McpStatusEntry, McpToolInfo, PackageInfo, OutlineResponse, ProjectState, ProjectStatsSnapshot, ReplaceResult, SearchOptions, TestDiscoveryResult, TestRunSummaryResult, ContentMatch } from "@/lib/backend/types";
 
 type InvokeLogger = (command: string, durationMs: number) => void;
 
@@ -521,6 +521,8 @@ export const commands = {
         /** Models subagents may use (user settings). Never inherit the parent chat model. */
         subagentModels?: string[],
         subagentDefaultModel?: string,
+        /** Standing compaction instructions (Settings → Agents). */
+        compactInstructions?: string,
     ) =>
         invokeCommand<string>("send_chat_message", {
             message,
@@ -544,6 +546,7 @@ export const commands = {
             conversationKind: conversationKind ?? null,
             subagentModels: subagentModels ?? null,
             subagentDefaultModel: subagentDefaultModel ?? null,
+            compactInstructions: compactInstructions ?? null,
         }),
     captureHtmlPreview: (options: {
         html: string;
@@ -823,6 +826,25 @@ export const commands = {
     mcpClearOAuth: (id: string) => invokeCommand<void>("mcp_clear_oauth", { id }),
     callMcpTool: (qualifiedName: string, args: Record<string, unknown>) =>
         invokeCommand<string>("call_mcp_tool", { qualifiedName, arguments: args }),
+    /** Agent-equivalent server management: same code path `mcp_manage` uses. */
+    mcpManageServers: (request: {
+        action: "list" | "add" | "update" | "remove" | "enable" | "disable" | "restart" | "test";
+        id?: string;
+        server?: McpServerConfig;
+        enabled?: boolean;
+    }) => invokeCommand<Record<string, unknown>>("mcp_manage_servers", { request }),
+    /** Re-read mcp.json and reconnect. Merges with Settings-sourced servers. */
+    mcpReloadFromFile: () => invokeCommand<McpStatusEntry[]>("mcp_reload_from_file"),
+    // Context compaction
+    compactChat: (opts?: { focus?: string; instructions?: string; model?: string; accessToken?: string }) =>
+        invokeCommand<CompactResult>("compact_chat", {
+            focus: opts?.focus ?? null,
+            instructions: opts?.instructions ?? null,
+            model: opts?.model ?? null,
+            accessToken: opts?.accessToken ?? null,
+        }),
+    resetCompaction: () => invokeCommand<void>("reset_compaction"),
+    getCompactionState: () => invokeCommand<CompactionStateView>("get_compaction_state"),
     // Terminal command approval
     approveTerminalCommand: (id: string) => invokeCommand<string>("approve_terminal_command", { id }),
     rejectTerminalCommand: (id: string) => invokeCommand<void>("reject_terminal_command", { id }),

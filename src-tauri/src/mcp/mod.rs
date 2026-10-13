@@ -1,7 +1,9 @@
+pub mod admin;
 pub(crate) mod client;
 pub(crate) mod credentials;
 mod http_client;
 mod oauth;
+pub mod registry;
 mod types;
 
 pub use oauth::{handle_oauth_callback, start_oauth};
@@ -14,20 +16,20 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-enum ConnectedClient {
+pub(crate) enum ConnectedClient {
     Stdio(StdioClient),
     Http(HttpMcpClient),
 }
 
 impl ConnectedClient {
-    fn tools(&self) -> &[McpToolInfo] {
+    pub(crate) fn tools(&self) -> &[McpToolInfo] {
         match self {
             ConnectedClient::Stdio(c) => &c.tools,
             ConnectedClient::Http(c) => &c.tools,
         }
     }
 
-    fn last_error(&self) -> Option<String> {
+    pub(crate) fn last_error(&self) -> Option<String> {
         match self {
             ConnectedClient::Stdio(c) => c.last_error.clone(),
             ConnectedClient::Http(c) => c.last_error.clone(),
@@ -56,7 +58,7 @@ impl McpState {
         }
     }
 
-    fn connect_server(server: &McpServerConfig) -> Result<ConnectedClient, String> {
+    pub(crate) fn connect_server(server: &McpServerConfig) -> Result<ConnectedClient, String> {
         if server.transport == McpTransport::Http {
             let url = server
                 .url
@@ -82,6 +84,11 @@ impl McpState {
             // unless the worker is first moved to blocking mode via `block_in_place`.
             let rt = tokio::runtime::Handle::current();
             let auth = server.auth.clone();
+            let headers: Vec<(String, String)> = server
+                .headers
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
             let client = tokio::task::block_in_place(|| {
                 rt.block_on(HttpMcpClient::connect(
                     &server.id,
@@ -89,6 +96,7 @@ impl McpState {
                     url,
                     auth,
                     bearer,
+                    headers,
                 ))
             })?;
             return Ok(ConnectedClient::Http(client));
@@ -390,6 +398,106 @@ impl McpState {
         }
         Ok(text)
     }
+
+    /// Add or replace a single server without disturbing the others.
+    ///
+    /// The agent's `mcp_manage` tool writes `mcp.json` and then calls this: it
+    /// reconnects just the changed server, so servers the user added through
+    /// Settings (which never live in that file) keep running untouched.
+    pub fn upsert_server(&self, server: McpServerConfig) -> Result<McpStatusEntry, String> {
+        {
+            let mut configs = self.configs.lock().map_err(|e| e.to_string())?;
+            configs.retain(|c| c.id != server.id);
+            configs.push(server.clone());
+        }
+
+        let mut clients = self.clients.lock().map_err(|e| e.to_string())?;
+        clients.remove(&server.id);
+
+        if !server.enabled {
+            return Ok(McpStatusEntry {
+                id: server.id.clone(),
+                name: server.name.clone(),
+                status: McpServerStatus::Disabled,
+                tool_count: 0,
+                error: None,
+                auth: server.auth.clone(),
+            });
+        }
+
+        match Self::connect_server(&server) {
+            Ok(client) => {
+                let entry = McpStatusEntry {
+                    id: server.id.clone(),
+                    name: server.name.clone(),
+                    status: McpServerStatus::Connected,
+                    tool_count: client.tools().len(),
+                    error: client.last_error(),
+                    auth: server.auth.clone(),
+                };
+                clients.insert(server.id.clone(), Arc::new(Mutex::new(client)));
+                Ok(entry)
+            }
+            Err(e) if e == "NEEDS_AUTH" => Ok(McpStatusEntry {
+                id: server.id.clone(),
+                name: server.name.clone(),
+                status: McpServerStatus::NeedsAuth,
+                tool_count: 0,
+                error: None,
+                auth: server.auth.clone(),
+            }),
+            Err(e) => Ok(McpStatusEntry {
+                id: server.id.clone(),
+                name: server.name.clone(),
+                status: McpServerStatus::Error,
+                tool_count: 0,
+                error: Some(e),
+                auth: server.auth.clone(),
+            }),
+        }
+    }
+
+    /// Forget a server and drop its connection. Returns false when it was not
+    /// configured in the first place.
+    pub fn remove_server(&self, server_id: &str) -> Result<bool, String> {
+        let removed = {
+            let mut configs = self.configs.lock().map_err(|e| e.to_string())?;
+            let before = configs.len();
+            configs.retain(|c| c.id != server_id);
+            configs.len() != before
+        };
+        let mut clients = self.clients.lock().map_err(|e| e.to_string())?;
+        clients.remove(server_id);
+        Ok(removed)
+    }
+
+    /// Tools one connected server currently exposes.
+    pub fn tools_for_server(&self, server_id: &str) -> Result<Vec<McpToolInfo>, String> {
+        let clients = self.clients.lock().map_err(|e| e.to_string())?;
+        let Some(client) = clients.get(server_id) else {
+            return Ok(Vec::new());
+        };
+        let guard = client.lock().map_err(|e| e.to_string())?;
+        Ok(guard.tools().to_vec())
+    }
+
+    /// Configured servers exactly as the running state holds them.
+    pub fn configs_snapshot(&self) -> Vec<McpServerConfig> {
+        self.configs
+            .lock()
+            .map(|c| c.clone())
+            .unwrap_or_default()
+    }
+
+    /// Status for one server, if it is configured.
+    pub fn status_for(&self, server_id: &str) -> Result<Option<McpStatusEntry>, String> {
+        Ok(self
+            .get_status()?
+            .into_iter()
+            .find(|entry| entry.id == server_id))
+    }
+
+    /// Restart the current server.
 
     pub fn restart_server(&self, server_id: &str) -> Result<McpStatusEntry, String> {
         let configs = self.configs.lock().map_err(|e| e.to_string())?;

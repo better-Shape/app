@@ -25,6 +25,7 @@ type RawMcpEntry = {
     transport?: "stdio" | "http";
     url?: string;
     auth?: "none" | "oauth";
+    headers?: Record<string, string>;
     disabledTools?: string[];
     oauthClientId?: string;
 };
@@ -44,6 +45,7 @@ export function parseMcpJson(content: string): McpServerConfig[] {
         env: cfg.env ?? {},
         url: cfg.url,
         auth: cfg.auth ?? (cfg.url ? "oauth" : "none"),
+        headers: cfg.headers,
         enabled: cfg.disabled !== true,
         disabledTools: cfg.disabledTools ?? [],
         oauthClientId: cfg.oauthClientId,
@@ -72,6 +74,7 @@ export async function saveMcpServers(servers: McpServerConfig[]): Promise<void> 
             env: Object.keys(s.env).length ? s.env : undefined,
             url: s.url,
             auth: s.auth,
+            headers: s.headers,
             disabled: !s.enabled,
             disabledTools: s.disabledTools?.length ? s.disabledTools : undefined,
             oauthClientId: s.oauthClientId || undefined,
@@ -115,6 +118,7 @@ export async function mergePluginConfig(
             env: cfg.env ?? {},
             url: cfg.url,
             auth: cfg.auth ?? (cfg.url ? "oauth" : "none"),
+            headers: cfg.headers,
             enabled: cfg.disabled !== true,
             disabledTools: cfg.disabledTools ?? [],
             oauthClientId: cfg.oauthClientId,

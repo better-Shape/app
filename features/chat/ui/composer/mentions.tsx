@@ -29,7 +29,11 @@ import { cn } from "@/lib/utils";
 import { commands, useProjectState } from "@/lib/backend";
 import { formatMentionToken, type ChatMention } from "@/lib/chat/mentions";
 import { DESIGN_TOKEN_MENTIONS, designTokenById } from "@/lib/chat/design-mentions";
-import { workflowSlashToken, type AgentWorkflow } from "@/lib/chat/workflows";
+import {
+    BUILTIN_SLASH_COMMANDS,
+    workflowSlashToken,
+    type AgentWorkflow,
+} from "@/lib/chat/workflows";
 import { listDesignPreviewSessions, trySelectPendingDesignConcept } from "@/lib/agent-preview/store";
 import { hostnameOf } from "@/lib/ui/favicon";
 import { getPreviewCurrentUrl } from "@/features/preview/store";
@@ -365,23 +369,44 @@ export function MentionPicker({
         return fileMentions.slice(0, 8);
     }, [activeCategory, categoryItems, fileMentions]);
 
+    // Built-in commands come first, then the user's saved workflows.
     const slashItems = useMemo(() => {
         const needle = q.replace(/^\//, "").toLowerCase();
-        return workflows
-            .map((w) => {
-                const trigger = w.trigger.trim();
-                const triggerKey = trigger.replace(/^\/+/, "").toLowerCase();
-                const name = w.name.toLowerCase();
-                let score = 0;
-                if (!needle) score = 1;
-                else if (triggerKey === needle || trigger.toLowerCase() === `/${needle}`) score = 3;
-                else if (triggerKey.startsWith(needle) || name.startsWith(needle)) score = 2;
-                else if (triggerKey.includes(needle) || name.includes(needle)) score = 1;
-                return { w, score };
-            })
-            .filter((x) => x.score > 0)
+        const score = (keys: string[]) => {
+            if (!needle) return 1;
+            if (keys.some((k) => k === needle)) return 4;
+            if (keys.some((k) => k.startsWith(needle))) return 3;
+            if (keys.some((k) => k.includes(needle))) return 2;
+            return 0;
+        };
+        const builtins = BUILTIN_SLASH_COMMANDS.map((command) => {
+            const token = command.token.replace(/^\/+/, "").toLowerCase();
+            return {
+                id: `builtin:${command.token}`,
+                token: command.token,
+                name: command.name,
+                description: command.description,
+                argsHint: command.argsHint,
+                workflow: undefined as AgentWorkflow | undefined,
+                score: score([token, command.name.toLowerCase()]) + 0.5,
+            };
+        });
+        const saved = workflows.map((w) => {
+            const trigger = w.trigger.trim();
+            const triggerKey = trigger.replace(/^\/+/, "").toLowerCase();
+            return {
+                id: `workflow:${w.id}`,
+                token: workflowSlashToken(w),
+                name: w.name,
+                description: w.prompt,
+                argsHint: undefined as string | undefined,
+                workflow: w as AgentWorkflow | undefined,
+                score: score([triggerKey, w.name.toLowerCase()]),
+            };
+        });
+        return [...builtins, ...saved]
+            .filter((item) => item.score > 0)
             .sort((a, b) => b.score - a.score)
-            .map((x) => x.w)
             .slice(0, 20);
     }, [workflows, q]);
 
@@ -406,8 +431,8 @@ export function MentionPicker({
         onClose();
     };
 
-    const pickSlash = (w: AgentWorkflow) => {
-        onPick(`${workflowSlashToken(w)} `);
+    const pickSlash = (item: { token: string }) => {
+        onPick(`${item.token} `);
         onClose();
     };
 
@@ -451,8 +476,8 @@ export function MentionPicker({
                 borderless
                 value={filter}
                 onChange={(e) => setFilter(e.target.value)}
-                placeholder={mode === "slash" ? "Search workflows…" : "Add files, folders, docs..."}
-                aria-label={mode === "slash" ? "Search workflows" : "Search mentions"}
+                placeholder={mode === "slash" ? "Search commands…" : "Add files, folders, docs..."}
+                aria-label={mode === "slash" ? "Search commands" : "Search mentions"}
             />
 
             {mode === "mention" && activeCategory ? (
@@ -471,12 +496,12 @@ export function MentionPicker({
                 {mode === "slash" ? (
                     slashItems.length === 0 ? (
                         <div className="px-2.5 py-2 text-sm text-text-muted">
-                            No matching commands. Add workflows in Settings.
+                            No matching commands. Add workflows in Settings for your own.
                         </div>
                     ) : (
-                        slashItems.map((w, idx) => (
+                        slashItems.map((item, idx) => (
                             <button
-                                key={w.id}
+                                key={item.id}
                                 type="button"
                                 className={cn(
                                     "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm",
@@ -486,20 +511,25 @@ export function MentionPicker({
                                 )}
                                 onMouseDown={(e) => e.preventDefault()}
                                 onMouseEnter={() => setHighlight(idx)}
-                                onClick={() => pickSlash(w)}
+                                onClick={() => pickSlash(item)}
                             >
-                                {w.pluginToolkit ? (
+                                {item.workflow?.pluginToolkit ? (
                                     <PluginLogo
-                                        toolkit={w.pluginToolkit}
-                                        name={w.name}
+                                        toolkit={item.workflow.pluginToolkit}
+                                        name={item.name}
                                         size={14}
                                         className="rounded-sm"
                                     />
                                 ) : (
                                     <Icon icon={Code20Regular} className="shrink-0 text-text-muted" />
                                 )}
-                                <span className="min-w-0 flex-1 truncate font-medium">{workflowSlashToken(w)}</span>
-                                <span className="ml-auto max-w-[50%] truncate text-sm text-text-muted">{w.name}</span>
+                                <span className="min-w-0 flex-1 truncate font-medium">
+                                    {item.token}
+                                    {item.argsHint ? (
+                                        <span className="ml-1 text-text-muted">{item.argsHint}</span>
+                                    ) : null}
+                                </span>
+                                <span className="ml-auto max-w-[50%] truncate text-sm text-text-muted">{item.name}</span>
                             </button>
                         ))
                     )

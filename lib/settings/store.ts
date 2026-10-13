@@ -33,6 +33,8 @@ export interface McpServerConfig {
     env: Record<string, string>;
     url?: string;
     auth: "none" | "oauth";
+    /** Extra HTTP headers (API keys, tenant ids). Never logged. */
+    headers?: Record<string, string>;
     enabled: boolean;
     /** Tool names from this server that should not be exposed to the agent. */
     disabledTools?: string[];
@@ -103,6 +105,8 @@ export interface ShapeSettings {
         /** @deprecated Folded into customRules on load. Kept for storage compat. */
         customSystemPrompt: string;
         customRules: string;
+        /** Standing instructions for compaction — what every summary must keep. */
+        compactInstructions: string;
         mcpServers: McpServerConfig[];
         reviewAdversarialEnabled: boolean;
         /** Trigger phrase → prompt (+ optional plugin tool) injected on send. */
@@ -273,6 +277,7 @@ export const DEFAULT_SETTINGS: ShapeSettings = {
         subagentDefaultModel: "auto",
         customSystemPrompt: "",
         customRules: "",
+        compactInstructions: "",
         mcpServers: [],
         reviewAdversarialEnabled: true,
         workflows: [],
@@ -409,6 +414,8 @@ function mergeAiSettings(
     merged.pluginApprovalDefault = patch?.pluginApprovalDefault
         ?? base?.pluginApprovalDefault
         ?? DEFAULT_SETTINGS.ai.pluginApprovalDefault;
+    merged.compactInstructions =
+        patch?.compactInstructions ?? base?.compactInstructions ?? DEFAULT_SETTINGS.ai.compactInstructions;
     merged.workflows = patch?.workflows ?? base?.workflows ?? DEFAULT_SETTINGS.ai.workflows;
     merged.subagentModels = Array.isArray(patch?.subagentModels)
         ? patch.subagentModels

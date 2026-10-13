@@ -45,6 +45,9 @@ pub struct McpServerConfig {
     pub url: Option<String>,
     #[serde(default)]
     pub auth: McpAuthType,
+    /// Extra headers for HTTP servers (API keys, tenant ids). Never logged.
+    #[serde(default)]
+    pub headers: HashMap<String, String>,
     #[serde(default = "default_enabled")]
     pub enabled: bool,
     /// Tool names that should not be exposed to the agent.

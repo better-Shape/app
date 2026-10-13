@@ -365,6 +365,8 @@ export interface McpServerConfig {
     env: Record<string, string>;
     url?: string;
     auth: "none" | "oauth";
+    /** Extra HTTP headers (never shown to the agent, never logged). */
+    headers?: Record<string, string>;
     enabled: boolean;
     /** Tool names from this server that should not be exposed to the agent. */
     disabledTools?: string[];
@@ -372,6 +374,73 @@ export interface McpServerConfig {
     oauthClientId?: string;
     /** Runtime-only. Fetched when the agent needs it. Never written to mcp.json. */
     skillHint?: string;
+}
+
+/** One completed compaction pass, as reported by the backend. */
+export interface CompactionRecord {
+    id: string;
+    /** "manual" | "auto" | "tool" */
+    trigger: string;
+    focus?: string | null;
+    messagesBefore: number;
+    messagesAfter: number;
+    tokensBefore: number;
+    tokensAfter: number;
+    tokensSaved: number;
+    foldedStart: number;
+    foldedEnd: number;
+    summaryChars: number;
+    spillPath?: string | null;
+    timestamp: number;
+}
+
+export interface CompactResult {
+    record?: CompactionRecord | null;
+    messages: number;
+    tokensBefore: number;
+    tokensAfter: number;
+    /** Nothing old enough to fold — the chat is already small. */
+    alreadySmall: boolean;
+    error?: string | null;
+}
+
+/** A hold the agent asked for on automatic compaction. */
+export interface CompactionPauseView {
+    /** Why the agent asked to wait, in its own words. */
+    reason: string;
+    startedAt: number;
+    /** Wall-clock time the hold lapses at the latest, in seconds. */
+    expiresAt: number;
+    baselineTokens: number;
+    /** Automatic passes held off so far. */
+    skips: number;
+}
+
+export interface CompactionStateView {
+    /** Rolling-summary generation. Bumped on every successful pass. */
+    summaryVersion: number;
+    /** Every pass in this chat, oldest first (capped server-side). */
+    records: CompactionRecord[];
+    /** Newest first, at most five — for a compact history list. */
+    recent: CompactionRecord[];
+    totalPasses: number;
+    tokensSaved: number;
+    lastCompactedAt: number | null;
+    summaryChars: number;
+    breakerOpen: boolean;
+    consecutiveFailures: number;
+    lastFailure: string | null;
+    backoffUntil: number;
+    /** True while the agent is holding off the automatic pass. */
+    paused: boolean;
+    pause: CompactionPauseView | null;
+    /** Notes the agent pinned into the next summary. */
+    pins: string[];
+    /** Automatic passes held off in this chat. */
+    pauseSkips: number;
+    /** Holds ended because the window was nearly full. */
+    pauseOverrides: number;
+    lastOverride: string | null;
 }
 
 export interface McpStatusEntry {

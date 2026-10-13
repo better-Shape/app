@@ -322,6 +322,9 @@ pub fn run() {
             // agent
             agent::commands::send_chat::send_chat_message,
             agent::commands::send_chat::update_turn_policy,
+            agent::commands::compaction::compact_chat,
+            agent::commands::compaction::reset_compaction,
+            agent::commands::compaction::get_compaction_state,
             agent::commands::conversation::get_chat_history,
             agent::commands::conversation::get_chat_generation_state,
             agent::commands::conversation::clear_chat_history,
@@ -407,6 +410,8 @@ pub fn run() {
             agent::commands::mcp_cmds::mcp_complete_oauth,
             agent::commands::mcp_cmds::mcp_clear_oauth,
             agent::commands::mcp_cmds::call_mcp_tool,
+            agent::commands::mcp_cmds::mcp_manage_servers,
+            agent::commands::mcp_cmds::mcp_reload_from_file,
             // lint
             commands::ipc::lint::eslint_lint_file,
             commands::ipc::lint::prettier_format_file,

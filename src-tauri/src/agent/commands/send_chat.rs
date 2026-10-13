@@ -2,6 +2,7 @@
 use crate::agent::context::{
     build_context_breakdown, build_context_with_options, context_options_for_query,
 };
+use super::compaction;
 use super::history;
 use super::journals;
 use super::logging;
@@ -53,6 +54,8 @@ pub async fn send_chat_message(
     conversation_kind: Option<String>,
     subagent_models: Option<Vec<String>>,
     subagent_default_model: Option<String>,
+    /// Standing compaction instructions from Settings → Agents.
+    compact_instructions: Option<String>,
     state: tauri::State<'_, AgentState>,
     app_state: tauri::State<'_, AppState>,
     index_state: tauri::State<'_, crate::agent::index::IndexState>,
@@ -114,6 +117,10 @@ pub async fn send_chat_message(
                 t
             }
         });
+
+    let compact_instructions = compact_instructions
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
 
     logging::info(
         "chat",
@@ -180,7 +187,7 @@ pub async fn send_chat_message(
             }
             state.history.lock()?.clear();
             state.title.lock()?.take();
-            *state.history_summary.lock()? = None;
+            state.reset_compaction();
             *state.current_conversation_id.lock()? = None;
             *state.conversation_kind.lock()? = None;
             state.clear_design_preview_state();
@@ -447,60 +454,55 @@ pub async fn send_chat_message(
     // Mode instructions and workspace context ride on the latest user message.
     let final_system_prompt = prompt_parts.join("\n");
 
-    let history_snapshot = {
-        let mut snapshot = state.history.lock()?.clone();
-        if messages::history_char_count(&snapshot) > messages::HISTORY_CHAR_BUDGET {
-            let existing = state.history_summary.lock()?.clone();
-            let middle = messages::slice_for_compression(&snapshot);
-            if !middle.is_empty() {
-                let spill_note = crate::agent::tools::spill::spill_history_transcript(
-                    current_proj_path.as_deref().unwrap_or(""),
-                    &middle,
-                );
-                let prompt = format!(
-                    "Summarize this coding assistant conversation for future context. Preserve goals, decisions, files changed, errors fixed, and what the user is working on now. Be concise.\n\n{}",
-                    middle
-                );
-                if let Ok((summary, _, _)) = streaming::complete_chat_with_max_tokens(
-                    &client,
-                    &auth_token,
-                    &prompt,
-                    MODEL_TITLE_GEN,
-                    800,
-                    &proxy_base
-                        .clone()
-                        .with_turn(Some(turn_id.clone()), conversation_id.clone()),
-                )
-                .await
-                {
-                    let merged = match existing {
-                        Some(prev) => format!("{}\n\n{}", prev, summary),
-                        None => summary,
-                    };
-                    let merged = match &spill_note {
-                        Some(path) => format!(
-                            "{merged}\n\n[Full pre-summary transcript spilled to `{path}` — read_file/grep that path if you need details lost in this summary.]"
-                        ),
-                        None => merged,
-                    };
-                    *state.history_summary.lock()? = Some(merged.clone());
-                    snapshot = messages::apply_summary(&snapshot, Some(&merged));
-                    logging::info("chat", "Compressed older chat history into summary");
-                    let _ = app_handle.emit(
-                        "chat_context_summarized",
-                        json!({ "conversationId": conversation_id }),
-                    );
-                }
-            } else if let Some(ref s) = existing {
-                snapshot = messages::apply_summary(&snapshot, Some(s));
-                let _ = app_handle.emit(
-                    "chat_context_summarized",
-                    json!({ "conversationId": conversation_id }),
-                );
-            }
+    // ---- Context compaction -------------------------------------------------
+    // Cheapest tier first (see `commands::compaction`):
+    //   1. tool-result pruning happens inside the turn loop;
+    //   2. a stored rolling summary is re-applied here with no model call;
+    //   3. a real summarization pass runs only when the window is under pressure.
+    // `state.history` is never rewritten — the UI keeps the full transcript and
+    // only the payload the model receives is compacted.
+    let mut history_snapshot = state.history.lock()?.clone();
+    let raw_history_tokens = compaction::history_tokens(&history_snapshot);
+    let mut compacted_fresh = false;
+    if raw_history_tokens >= compaction::fill_line_tokens(&model_to_use) {
+        let mut req = compaction::CompactRequest::new(
+            &client,
+            &auth_token,
+            proxy_base.clone(),
+            &model_to_use,
+            "auto",
+        );
+        req.instructions = compact_instructions.clone();
+        req.project_path = current_proj_path.as_deref().unwrap_or("");
+        req.app_handle = Some(&app_handle);
+        if let Some(outcome) =
+            compaction::maybe_auto_compact(&state, &history_snapshot, req).await
+        {
+            let record = outcome.record;
+            logging::info("chat", &format!("Auto-{}", record.describe()));
+            let _ = app_handle.emit(
+                "chat_context_summarized",
+                json!({ "conversationId": conversation_id, "record": record }),
+            );
+            history_snapshot = outcome.history;
+            compacted_fresh = true;
         }
-        snapshot
-    };
+    }
+    if !compacted_fresh
+        && compaction::history_tokens(&history_snapshot)
+            >= compaction::drain_line_tokens(&model_to_use)
+    {
+        // A previous turn already folded this conversation: keep sending the
+        // smaller view instead of the raw transcript.
+        if let Some(applied) = compaction::apply_stored_summary(
+            &state,
+            &history_snapshot,
+            compaction::KEEP_RECENT_MESSAGES,
+            &model_to_use,
+        ) {
+            history_snapshot = applied;
+        }
+    }
     let mut api_history = messages::build_api_history(&history_snapshot);
     if super::caption::should_caption(&model_to_use, has_images) {
         streaming::emit_chat_status(
@@ -777,6 +779,41 @@ pub async fn send_chat_message(
                 "content": assistant_message.content,
             }),
         );
+
+        // Proactive compaction: the turn is already on screen, so this runs on
+        // the user's next-input window instead of inside their request. Folding
+        // here keeps the *following* turn cheap rather than compacting at the
+        // moment the window is already full.
+        if !project_path.is_empty() {
+            let history_snapshot = state.history.lock()?.clone();
+            if compaction::should_auto_compact(&history_snapshot, &model_to_use) {
+                let mut req = compaction::CompactRequest::new(
+                    &client,
+                    &auth_token,
+                    proxy_base.clone(),
+                    &model_to_use,
+                    "auto",
+                );
+                req.instructions = compact_instructions.clone();
+                req.project_path = &project_path;
+                req.app_handle = Some(&app_handle);
+                if let Some(outcome) =
+                    compaction::maybe_auto_compact(&state, &history_snapshot, req).await
+                {
+                    logging::info(
+                        "chat",
+                        &format!("Post-turn auto-{}", outcome.record.describe()),
+                    );
+                    let _ = app_handle.emit(
+                        "chat_context_summarized",
+                        json!({
+                            "conversationId": &owned_conversation_id,
+                            "record": outcome.record,
+                        }),
+                    );
+                }
+            }
+        }
 
         if let Some(path) = &current_proj_path {
             let _ = history::save_current_conversation(&state, path);

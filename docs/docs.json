@@ -32,7 +32,13 @@
           },
           {
             "group": "Agent",
-            "pages": ["agent/overview", "agent/plan", "agent/review", "agent/browser"]
+            "pages": [
+              "agent/overview",
+              "agent/plan",
+              "agent/review",
+              "agent/browser",
+              "agent/context"
+            ]
           },
           {
             "group": "Plugins",

@@ -306,6 +306,21 @@ pub fn clear_old_tool_results(api_messages: &mut [Value]) -> bool {
     }
     let mut pruned_read = false;
 
+    // Tier 2: drop payloads that are provably redundant — an older read of a
+    // path that was read again, or an exact duplicate — before falling back to
+    // lossy trimming. Nothing the model still needs is removed.
+    let redundant = super::compaction::prune_redundant_messages(api_messages);
+    if redundant > 0 {
+        total = api_messages.iter().map(content_len).sum();
+        super::logging::debug(
+            "messages",
+            &format!("Dropped {redundant} redundant tool results before trimming"),
+        );
+        if total <= TOOL_RESULT_SOFT_BUDGET {
+            return pruned_read;
+        }
+    }
+
     // Phase 1: trim verbose old results to a short head+tail excerpt. File reads are the
     // most expensive thing to reconstruct, so only touch them once everything else is trimmed.
     for reads_now in [false, true] {
@@ -379,8 +394,6 @@ fn protected_tool_round_index(api_messages: &[Value]) -> usize {
     tool_round_starts[tool_round_starts.len() - TOOL_RESULT_KEEP_ROUNDS]
 }
 
-/// ~15k tokens — fold older turns before the window gets expensive on cheap models.
-pub const HISTORY_CHAR_BUDGET: usize = 60_000;
 /// Soft cap on API history chars before middle turns are head/tail trimmed.
 const API_HISTORY_SOFT_BUDGET: usize = 40_000;
 const KEEP_RECENT_MESSAGES: usize = 10;
@@ -415,56 +428,6 @@ pub fn append_turn_context(api_messages: &mut [Value], context: &str) {
         }
         _ => {}
     }
-}
-
-pub fn history_char_count(history: &[ChatMessage]) -> usize {
-    history.iter().map(|m| m.content.len()).sum()
-}
-
-/// Middle slice of history to fold into a running summary (keeps first + recent turns).
-pub fn slice_for_compression(history: &[ChatMessage]) -> String {
-    if history.len() <= KEEP_RECENT_MESSAGES + 2 {
-        return String::new();
-    }
-    let end = history.len().saturating_sub(KEEP_RECENT_MESSAGES);
-    history[1..end]
-        .iter()
-        .map(|m| {
-            let body = strip_heavy_content_for_summary(&m.content);
-            let excerpt: String = body.chars().take(1_500).collect();
-            format!("[{}] {}", m.role, excerpt)
-        })
-        .collect::<Vec<_>>()
-        .join("\n\n")
-}
-
-pub fn apply_summary(history: &[ChatMessage], summary: Option<&str>) -> Vec<ChatMessage> {
-    let Some(summary) = summary.filter(|s| !s.trim().is_empty()) else {
-        return history.to_vec();
-    };
-    if history.len() <= KEEP_RECENT_MESSAGES + 1 {
-        return history.to_vec();
-    }
-
-    let mut out = Vec::new();
-    if let Some(first) = history.first() {
-        out.push(first.clone());
-    }
-    out.push(ChatMessage {
-        role: "user".to_string(),
-        content: format!(
-            "<chat_summary>\nEarlier conversation summary (for context):\n{}\n</chat_summary>",
-            summary.trim()
-        ),
-        timestamp: now_f64(),
-        stats: None,
-        model: None,
-        feedback: None,
-        hidden: false,
-    });
-    let start = history.len().saturating_sub(KEEP_RECENT_MESSAGES);
-    out.extend_from_slice(&history[start..]);
-    out
 }
 
 fn trim_middle_history(history: &[ChatMessage], soft_budget: usize) -> Vec<ChatMessage> {
@@ -513,13 +476,6 @@ pub(crate) fn strip_heavy_content_for_summary(content: &str) -> String {
     image_re
         .replace_all(content, "[attached image omitted from summary]")
         .to_string()
-}
-
-fn now_f64() -> f64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs_f64())
-        .unwrap_or(0.0)
 }
 
 #[cfg(test)]

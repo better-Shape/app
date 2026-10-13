@@ -151,6 +151,10 @@ pub struct Conversation {
     /// Conversation surface. Legacy `"multiwork"` values are treated as `"chat"`.
     #[serde(default = "default_conversation_kind")]
     pub kind: String,
+    /// Rolling compaction summary for this conversation's older turns. Persisted
+    /// so reopening a long chat does not re-send the whole raw history.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
 }
 
 fn default_conversation_kind() -> String {
@@ -260,6 +264,10 @@ pub struct AgentState {
     pub turn_meter: Mutex<HashMap<String, (usize, usize)>>,
     /// Compressed summary of older chat turns when history grows long.
     pub history_summary: Mutex<Option<String>>,
+    /// Compaction bookkeeping: pass history, circuit breaker, backoff.
+    pub compaction: Mutex<crate::agent::commands::compaction::CompactionState>,
+    /// Files the session read or wrote, newest first. Re-attached after a fold.
+    pub recent_files: Mutex<Vec<crate::agent::commands::compaction::RecentFile>>,
     /// Partial assistant turns keyed by conversation id. Several chats can run at once.
     pub in_flight: Mutex<HashMap<String, InFlightTurn>>,
     /// Debounce timestamp for persisting in-flight partial content.
@@ -312,6 +320,10 @@ impl AgentState {
             turn_policies: Mutex::new(HashMap::new()),
             turn_meter: Mutex::new(HashMap::new()),
             history_summary: Mutex::new(None),
+            compaction: Mutex::new(
+                crate::agent::commands::compaction::CompactionState::default(),
+            ),
+            recent_files: Mutex::new(Vec::new()),
             in_flight: Mutex::new(HashMap::new()),
             in_flight_last_save: Mutex::new(0.0),
             design_preview: Mutex::new(DesignPreviewState::default()),
@@ -320,6 +332,32 @@ impl AgentState {
             incognito: AtomicBool::new(false),
             subagent_models: Mutex::new(vec!["auto".to_string()]),
             subagent_default_model: Mutex::new("auto".to_string()),
+        }
+    }
+
+    /// Drop the compaction summary and its bookkeeping. Used when a chat is
+    /// cleared, replaced, or forked — a summary must never leak between chats.
+    pub fn reset_compaction(&self) {
+        if let Ok(mut guard) = self.history_summary.lock() {
+            *guard = None;
+        }
+        if let Ok(mut guard) = self.compaction.lock() {
+            guard.reset();
+        }
+        if let Ok(mut guard) = self.recent_files.lock() {
+            guard.clear();
+        }
+    }
+
+    /// The rolling summary currently applied to older turns.
+    pub fn current_summary(&self) -> Option<String> {
+        self.history_summary.lock().ok().and_then(|g| g.clone())
+    }
+
+    /// Replace the rolling summary (used when restoring a saved conversation).
+    pub fn set_current_summary(&self, summary: Option<String>) {
+        if let Ok(mut guard) = self.history_summary.lock() {
+            *guard = summary;
         }
     }
 

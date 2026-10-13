@@ -50,6 +50,48 @@ Send a message that needs the tool. If the server does not show up:
 3. Open the same folder again.
 4. Check that `command` is on your `PATH` when Shape starts. A tool that only works in your existing terminal session will fail here.
 
+## Let the agent manage servers
+
+You do not have to open Settings for this. Ask in chat, and Shape can add, change, test, or remove a server for you. The tools are `mcp_manage` (server lifecycle) and `mcp_search` / `mcp_call` (using the tools a server exposes).
+
+```
+Add the filesystem MCP server and test that it connects.
+```
+
+```
+What MCP servers do I have, and which ones are failing?
+```
+
+The agent can:
+
+- **List** servers and their status.
+- **Search the registry** for a server by name, then **add** it from the registry entry.
+- **Add, update, enable, disable, or remove** a server, with `command`/`args`/`env` for a local process or `url`/`headers` for a remote one.
+- **Test** a server and report the tool count and latency.
+- **Start sign-in** for a server that needs OAuth.
+- **List the tools** a server exposes.
+
+Servers the agent creates are written to the same `mcp.json` the Settings page reads, so they show up there too. Pass `save: false` to add a server for the current session only.
+
+Adding a server changes which tools Shape can call, so a mode that only reads will not do it. Approve the action like any other edit.
+
+### Headers
+
+Remote servers that authenticate with a header use `headers`:
+
+```json
+{
+  "mcpServers": {
+    "internal": {
+      "url": "https://mcp.example.com/mcp",
+      "headers": { "X-Api-Key": "..." }
+    }
+  }
+}
+```
+
+Shape sends those headers on every request to that server. When the server uses OAuth instead, Shape does not send a stored `Authorization` header — the OAuth token wins.
+
 ## The file on this machine
 
 `mcp.json` lives in Shape’s data folder, not in the repo. Do not put API keys in it. Use env vars the server already reads.

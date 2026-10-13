@@ -47,7 +47,7 @@ pub fn get_chat_history(
         state.history.lock()?.clear();
         state.title.lock()?.take();
         state.reset_title_meta();
-        *state.history_summary.lock()? = None;
+        state.reset_compaction();
         *state.current_conversation_id.lock()? = None;
         *current_project_lock = proj_path;
     }
@@ -111,7 +111,7 @@ pub fn clear_chat_history(state: tauri::State<'_, AgentState>) -> Result<(), App
     state.history.lock()?.clear();
     state.title.lock()?.take();
     state.reset_title_meta();
-    *state.history_summary.lock()? = None;
+    state.reset_compaction();
     *state.current_conversation_id.lock()? = None;
     state.clear_design_preview_state();
     state.clear_file_checkpoints();
@@ -235,7 +235,7 @@ pub fn new_chat(
     state.history.lock()?.clear();
     state.title.lock()?.take();
     state.reset_title_meta();
-    *state.history_summary.lock()? = None;
+    state.reset_compaction();
     *state.current_conversation_id.lock()? = None;
     *state.conversation_kind.lock()? = None;
     state.clear_design_preview_state();
@@ -295,6 +295,10 @@ pub fn load_conversation(
     state.set_title_meta(conv.title_locked, anchor);
     *state.current_conversation_id.lock()? = Some(id.clone());
     *state.conversation_kind.lock()? = Some("chat".to_string());
+    // Restore this conversation's rolling summary so a long chat does not have
+    // to re-send every raw turn after a restart.
+    state.reset_compaction();
+    state.set_current_summary(conv.summary.clone());
     state.clear_design_preview_state();
     state.replace_file_checkpoints(checkpoints::load_checkpoints(&id));
     state.set_incognito(false);

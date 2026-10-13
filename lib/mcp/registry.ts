@@ -18,6 +18,7 @@ function asStored(server: StoredMcp): StoredMcp {
         env: server.env,
         url: server.url,
         auth: server.auth,
+        headers: server.headers,
         enabled: server.enabled,
         disabledTools: server.disabledTools,
         oauthClientId: server.oauthClientId,

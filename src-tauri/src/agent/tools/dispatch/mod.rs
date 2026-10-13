@@ -197,6 +197,8 @@ pub async fn execute_tool(name: &str, args_json: &str, ctx: &ToolCtx<'_>) -> Too
         "design_review" => persona::tool_design_review(&args, ctx).await,
         "mcp_search" => meta::tool_mcp_search(&args, ctx).await,
         "mcp_call" => meta::tool_mcp_call_named(&args, ctx).await,
+        "mcp_manage" => meta::tool_mcp_manage(&args, ctx).await,
+        "compact_context" => meta::tool_compact_context(&args, ctx),
         "inspect_runtime" => meta::tool_inspect_runtime(&args, ctx).await,
         "ask_user" => meta::tool_ask_user(&args, ctx).await,
         "generate_svg" => crate::agent::tools::generate::tool_generate_svg(&args, ctx).await,

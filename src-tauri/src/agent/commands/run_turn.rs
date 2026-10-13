@@ -3,6 +3,7 @@ use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use tauri::Emitter;
 
+use super::compaction;
 use super::logging;
 use super::streaming::{self, ProxyContext};
 use crate::agent::model_router;
@@ -991,6 +992,17 @@ pub async fn run_agent_turn(mut config: AgentTurnConfig<'_>) -> Result<AgentTurn
                     edit_counts.remove(&abs);
                     edit_fail_counts.remove(&abs);
                     needs_reread.remove(&abs);
+                    compaction::remember_recent_file(config.agent_state, &abs, "read");
+                }
+                if let Some(SideEffect::FileWritten { path, .. }) = &tool_outcome.side_effect {
+                    let abs = resolve_abs(path, config.project_path);
+                    compaction::remember_recent_file(config.agent_state, &abs, "write");
+                }
+                if let Some(SideEffect::FilesWritten { files }) = &tool_outcome.side_effect {
+                    for (path, _) in files {
+                        let abs = resolve_abs(path, config.project_path);
+                        compaction::remember_recent_file(config.agent_state, &abs, "write");
+                    }
                 }
                 if let Some(SideEffect::PageScreenshot { tag }) = &tool_outcome.side_effect {
                     let tag = tag.clone();
@@ -1004,6 +1016,131 @@ pub async fn run_agent_turn(mut config: AgentTurnConfig<'_>) -> Result<AgentTurn
             // busts the cached prompt prefix (Claude Code uses cache_edits instead).
             if super::messages::clear_old_tool_results(config.api_messages) {
                 read_coverage.clear();
+            }
+
+            // Model-triggered context control (`compact_context`). Handled here,
+            // after every result is recorded, so the summary replaces that call's
+            // own tool result and tool-call pairing always stays valid.
+            if let Some(idx) = tool_calls.iter().position(|c| c.name == "compact_context") {
+                let call = &tool_calls[idx];
+                // `ToolCall.arguments` is the raw JSON string the model emitted.
+                let args = serde_json::from_str::<Value>(&call.arguments).unwrap_or(Value::Null);
+                let action = args
+                    .get("action")
+                    .and_then(|v| v.as_str())
+                    .map(|a| a.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "compact".to_string());
+                let text_arg = |key: &str| {
+                    args.get(key)
+                        .and_then(|v| v.as_str())
+                        .map(|v| v.trim().to_string())
+                        .filter(|v| !v.is_empty())
+                };
+
+                // A hold on the automatic pass: the agent knows what it is half-way
+                // through, the token counter does not.
+                if matches!(action.as_str(), "defer" | "pause" | "hold") {
+                    let reason = text_arg("reason").unwrap_or_else(|| {
+                        "the agent asked for room to finish the current step".to_string()
+                    });
+                    let tokens_now = config
+                        .agent_state
+                        .history
+                        .lock()
+                        .map(|h| compaction::history_tokens(&h))
+                        .unwrap_or(0);
+                    let ack = compaction::pause_auto(
+                        config.agent_state,
+                        &reason,
+                        tokens_now,
+                        config.model,
+                    );
+                    let message = match ack {
+                        Ok(ack) => format!(
+                            "Automatic compaction is on hold while you finish this step. I kept your \
+                             note: \"{}\". A manual /compact still works, and the hold ends by itself \
+                             after ~{} minutes, {}k tokens of growth, or {} skipped passes; it is also \
+                             overridden if the window reaches {}k tokens. Call compact_context \
+                             action:resume when the step is done.",
+                            ack.reason,
+                            (compaction::PAUSE_MAX_SECS / 60.0).round() as i64,
+                            ack.token_budget / 1000,
+                            ack.skips,
+                            ack.hard_ceiling_tokens / 1000,
+                        ),
+                        Err(e) => format!("Could not hold compaction: {e}. Continue the task."),
+                    };
+                    compaction::replace_tool_result(config.api_messages, &call.id, &message);
+                    compaction::announce_pause(config.app_handle, config.agent_state, true);
+                } else if matches!(action.as_str(), "resume" | "unpause") {
+                    let was_paused = compaction::resume_auto(config.agent_state).unwrap_or(false);
+                    let message = if was_paused {
+                        "Automatic compaction is active again; it will run at the next turn \
+                         boundary if the window needs it. The note you pinned stays with the next \
+                         summary. Continue the task."
+                    } else {
+                        "Automatic compaction was not on hold. Nothing to resume."
+                    };
+                    compaction::replace_tool_result(config.api_messages, &call.id, message);
+                    compaction::announce_pause(config.app_handle, config.agent_state, false);
+                } else {
+                let focus = text_arg("focus");
+                let mut req = compaction::CompactRequest::new(
+                    config.client,
+                    config.api_key,
+                    config.proxy_ctx.clone(),
+                    config.model,
+                    "tool",
+                );
+                req.focus = focus;
+                req.project_path = config.project_path;
+                req.app_handle = Some(config.app_handle);
+                match compaction::compact_api_messages(
+                    config.agent_state,
+                    &mut *config.api_messages,
+                    &call.id,
+                    req,
+                )
+                .await
+                {
+                    Ok(Some(record)) => {
+                        // The transcript those caches referred to no longer exists,
+                        // so previously-seen reads may be read again.
+                        read_coverage.clear();
+                        executed_readonly_calls.clear();
+                        read_paths.clear();
+                        logging::info(
+                            "chat",
+                            &format!("Model-triggered {}", record.describe()),
+                        );
+                    }
+                    Ok(None) => {
+                        compaction::replace_tool_result(
+                            config.api_messages,
+                            &call.id,
+                            "Nothing to compact — this conversation is already small. Continue the task.",
+                        );
+                    }
+                    Err(e) => {
+                        compaction::replace_tool_result(
+                            config.api_messages,
+                            &call.id,
+                            &format!("Compaction failed: {e}. Continue without it and keep responses focused."),
+                        );
+                    }
+                }
+                }
+            }
+
+            // The turn ended with a user-visible finish, so a hold on automatic
+            // compaction has done its job: the next boundary is a safe one.
+            if tool_calls.iter().any(|c| c.name == "finish") {
+                if let Ok(mut guard) = config.agent_state.compaction.lock() {
+                    if guard.resume_auto() {
+                        drop(guard);
+                        compaction::announce_pause(config.app_handle, config.agent_state, false);
+                    }
+                }
             }
 
             // Skip explore counting when every call was a duplicate or denied retry.
@@ -1369,6 +1506,7 @@ pub async fn run_agent_turn(mut config: AgentTurnConfig<'_>) -> Result<AgentTurn
                         file_cache_insert(&mut file_cache, abs.clone(), file_content);
                         edit_fail_counts.remove(&abs);
                         needs_reread.remove(&abs);
+                        compaction::remember_recent_file(config.agent_state, &abs, "write");
                     }
                     SideEffect::FilesWritten { files } => {
                         wrote_files = true;
@@ -1378,6 +1516,7 @@ pub async fn run_agent_turn(mut config: AgentTurnConfig<'_>) -> Result<AgentTurn
                             file_cache_insert(&mut file_cache, abs.clone(), file_content);
                             edit_fail_counts.remove(&abs);
                             needs_reread.remove(&abs);
+                            compaction::remember_recent_file(config.agent_state, &abs, "write");
                         }
                     }
                     SideEffect::FileDeleted { path } => {

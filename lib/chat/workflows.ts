@@ -82,22 +82,24 @@ export function matchWorkflows(message: string, workflows: AgentWorkflow[] | und
 export function slashCommandRanges(
     text: string,
     workflows: AgentWorkflow[] | undefined,
-): { start: number; end: number; token: string; workflow: AgentWorkflow }[] {
-    if (!workflows?.length) return [];
+): { start: number; end: number; token: string; workflow?: AgentWorkflow; builtin?: boolean }[] {
     const byKey = new Map<string, AgentWorkflow>();
-    for (const w of workflows) {
+    for (const w of workflows ?? []) {
         const key = slashKey(w.trigger || w.name);
         if (key && !byKey.has(key)) byKey.set(key, w);
     }
+    const builtins = new Set(BUILTIN_SLASH_COMMANDS.map((c) => c.token.toLowerCase()));
+    if (byKey.size === 0 && builtins.size === 0) return [];
     const re = /(^|\s)(\/[A-Za-z0-9_-]+)/g;
-    const ranges: { start: number; end: number; token: string; workflow: AgentWorkflow }[] = [];
+    const ranges: { start: number; end: number; token: string; workflow?: AgentWorkflow; builtin?: boolean }[] = [];
     let match: RegExpExecArray | null;
     while ((match = re.exec(text)) !== null) {
         const token = match[2]!;
         const workflow = byKey.get(slashKey(token));
-        if (!workflow) continue;
+        const builtin = builtins.has(token.toLowerCase());
+        if (!workflow && !builtin) continue;
         const start = match.index + match[1]!.length;
-        ranges.push({ start, end: start + token.length, token, workflow });
+        ranges.push({ start, end: start + token.length, token, workflow, builtin: builtin || undefined });
     }
     return ranges;
 }
@@ -140,4 +142,42 @@ export function applyWorkflows(message: string, workflows: AgentWorkflow[] | und
 
 function escapeAttr(value: string): string {
     return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+}
+
+/**
+ * Commands the app itself understands. They are matched before a message is
+ * sent (see `matchSlashCommand`) and never reach the model as text.
+ */
+export interface BuiltinSlashCommand {
+    token: string;
+    name: string;
+    description: string;
+    /** Shown in the picker after the token, e.g. `[focus]`. */
+    argsHint?: string;
+}
+
+export const BUILTIN_SLASH_COMMANDS: BuiltinSlashCommand[] = [
+    {
+        token: "/compact",
+        name: "Compact",
+        description: "Summarize older turns to free context. Add a focus, e.g. /compact keep the failing tests",
+        argsHint: "[focus]",
+    },
+];
+
+export interface MatchedSlashCommand {
+    command: BuiltinSlashCommand;
+    /** Everything after the token. */
+    argument: string;
+}
+
+/** Exact-match a built-in command at the start of a message. */
+export function matchSlashCommand(input: string): MatchedSlashCommand | null {
+    const trimmed = input.trim();
+    if (!trimmed.startsWith("/")) return null;
+    const space = trimmed.search(/\s/);
+    const token = (space === -1 ? trimmed : trimmed.slice(0, space)).toLowerCase();
+    const command = BUILTIN_SLASH_COMMANDS.find((c) => c.token === token);
+    if (!command) return null;
+    return { command, argument: space === -1 ? "" : trimmed.slice(space + 1).trim() };
 }

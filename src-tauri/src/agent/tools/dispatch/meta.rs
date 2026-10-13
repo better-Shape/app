@@ -1,11 +1,14 @@
 //! Plan, todos, finish, design, and MCP tools.
 
 use serde_json::{json, Value};
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 use base64::Engine;
+
+use std::collections::HashMap;
 
 use crate::agent::commands::streaming;
 use crate::agent::models::{DesignPickConcept, PendingAsk, PendingDesignPick};
+use crate::mcp::McpServerConfig;
 use crate::agent::tools::page_shot;
 use crate::commands::preview_render;
 
@@ -63,6 +66,663 @@ pub(super) async fn tool_mcp_call(name: &str, args_json: &str, ctx: &ToolCtx<'_>
         Err(e) => error_outcome(name, &e),
     }
 }
+/// Placeholder result for `compact_context`.
+///
+/// The real pass needs the whole round recorded and cannot run inside
+/// `futures::join_all`, so `run_turn` executes it right after the round and
+/// overwrites this message with the outcome. Anything still visible here means
+/// the pass never ran.
+pub(super) fn tool_compact_context(_args: &Value, _ctx: &ToolCtx<'_>) -> ToolOutcome {
+    ToolOutcome {
+        tool_result: "Compaction did not run. Continue the task, and retry later if the context still feels heavy.".into(),
+        ui_chunk: String::new(),
+        side_effect: None,
+    }
+}
+
+/// Build a server config from `mcp_manage` arguments. `existing` fills gaps on
+/// update so a partial patch does not silently wipe fields.
+fn mcp_config_from_args(
+    args: &Value,
+    existing: Option<&McpServerConfig>,
+) -> Result<McpServerConfig, String> {
+    use crate::mcp::{McpAuthType, McpTransport};
+
+    let id = args
+        .get("name")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(crate::mcp::admin::slug)
+        .or_else(|| existing.map(|c| c.id.clone()))
+        .ok_or_else(|| "`name` is required (the server id, e.g. \"playwright\").".to_string())?;
+
+    let url = args
+        .get("url")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .or_else(|| existing.and_then(|c| c.url.clone()));
+
+    let command = args
+        .get("command")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .or_else(|| existing.map(|c| c.command.clone()).filter(|c| !c.is_empty()))
+        .unwrap_or_default();
+
+    let transport = match args.get("transport").and_then(|v| v.as_str()) {
+        Some("http") => McpTransport::Http,
+        Some("stdio") => McpTransport::Stdio,
+        _ => match existing {
+            Some(c) => c.transport.clone(),
+            None if url.is_some() && command.is_empty() => McpTransport::Http,
+            None if !command.is_empty() => McpTransport::Stdio,
+            None => {
+                if url.is_some() {
+                    McpTransport::Http
+                } else {
+                    return Err(
+                        "Pass either `command` (stdio) or `url` (http) so Shape knows how to reach the server."
+                            .to_string(),
+                    );
+                }
+            }
+        },
+    };
+
+    let auth = match args.get("auth").and_then(|v| v.as_str()) {
+        Some("oauth") => McpAuthType::Oauth,
+        Some("none") => McpAuthType::None,
+        _ => match existing {
+            Some(c) => c.auth.clone(),
+            None if url.is_some() => McpAuthType::Oauth,
+            None => McpAuthType::None,
+        },
+    };
+
+    let string_list = |value: Option<&Value>| -> Vec<String> {
+        value
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|x| x.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let string_map = |value: Option<&Value>| -> HashMap<String, String> {
+        value
+            .and_then(|v| v.as_object())
+            .map(|obj| {
+                obj.iter()
+                    .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+
+    let name = args
+        .get("name")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| {
+            existing
+                .map(|c| c.name.clone())
+                .unwrap_or_else(|| id.clone())
+        });
+
+    Ok(McpServerConfig {
+        id,
+        name,
+        transport,
+        command,
+        args: if args.get("args").is_some() {
+            string_list(args.get("args"))
+        } else {
+            existing.map(|c| c.args.clone()).unwrap_or_default()
+        },
+        env: if args.get("env").is_some() {
+            string_map(args.get("env"))
+        } else {
+            existing.map(|c| c.env.clone()).unwrap_or_default()
+        },
+        url,
+        auth,
+        headers: if args.get("headers").is_some() {
+            string_map(args.get("headers"))
+        } else {
+            existing.map(|c| c.headers.clone()).unwrap_or_default()
+        },
+        enabled: args
+            .get("enabled")
+            .and_then(|v| v.as_bool())
+            .or_else(|| existing.map(|c| c.enabled))
+            .unwrap_or(true),
+        disabled_tools: if args.get("disabledTools").is_some() {
+            string_list(args.get("disabledTools"))
+        } else {
+            existing
+                .map(|c| c.disabled_tools.clone())
+                .unwrap_or_default()
+        },
+        oauth_client_id: args
+            .get("oauthClientId")
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+            .or_else(|| existing.and_then(|c| c.oauth_client_id.clone())),
+        skill_hint: existing.and_then(|c| c.skill_hint.clone()),
+    })
+}
+
+fn mcp_status_word(status: &crate::mcp::McpServerStatus) -> &'static str {
+    match status {
+        crate::mcp::McpServerStatus::Connected => "connected",
+        crate::mcp::McpServerStatus::NeedsAuth => "needs sign-in",
+        crate::mcp::McpServerStatus::Error => "error",
+        crate::mcp::McpServerStatus::Disabled => "disabled",
+    }
+}
+
+/// `mcp_manage` — create, edit, test, and manage MCP servers.
+pub(super) async fn tool_mcp_manage(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutcome {
+    use crate::mcp::admin;
+
+    let Some(mcp_state) = ctx.mcp_state else {
+        return error_outcome("mcp_manage", "MCP is not configured.");
+    };
+    let action = args
+        .get("action")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+    let name = args
+        .get("name")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    let save = args.get("save").and_then(|v| v.as_bool()).unwrap_or(true);
+
+    let fail = |msg: String| -> ToolOutcome {
+        // Surface validation/config problems as plain errors: the model is
+        // expected to fix its arguments and retry, not to give up.
+        error_outcome("mcp_manage", &msg)
+    };
+
+    let file_servers = || admin::load_servers().unwrap_or_default();
+
+    /// Announce that the server list changed so open Settings/pickers refresh.
+    fn announce(ctx: &ToolCtx<'_>, action: &str, id: Option<&str>) {
+        let _ = ctx.app_handle.emit(
+            "mcp-servers-changed",
+            json!({ "action": action, "id": id }),
+        );
+    }
+
+    match action.as_str() {
+        "list" => {
+            let configs = mcp_state.configs_snapshot();
+            let statuses = mcp_state.get_status().unwrap_or_default();
+            let file_ids: Vec<String> = file_servers().into_iter().map(|s| s.id).collect();
+            if configs.is_empty() {
+                return ToolOutcome {
+                    tool_result: format!(
+                        "No MCP servers configured. mcp.json: {}. Add one with mcp_manage action:add, or search the registry first (action:registry).",
+                        admin::config_path()
+                            .map(|p| p.to_string_lossy().to_string())
+                            .unwrap_or_else(|_| "unknown path".into())
+                    ),
+                    ui_chunk: "\n<tool_result>\n[mcp_manage]\nNo MCP servers configured.\n</tool_result>\n".into(),
+                    side_effect: None,
+                };
+            }
+            let mut text = format!("MCP servers ({}):\n", configs.len());
+            for cfg in &configs {
+                let status = statuses.iter().find(|s| s.id == cfg.id);
+                let word = status
+                    .map(|s| mcp_status_word(&s.status))
+                    .unwrap_or("not connected");
+                let tools = status.map(|s| s.tool_count).unwrap_or(0);
+                let origin = if file_ids.contains(&cfg.id) {
+                    "mcp.json"
+                } else {
+                    "settings"
+                };
+                text.push_str(&format!(
+                    "\n- {} [{}] — {} — {} tool(s){}",
+                    cfg.id,
+                    origin,
+                    word,
+                    tools,
+                    if cfg.transport == crate::mcp::McpTransport::Http {
+                        format!(" — {}", admin::describe_target(cfg))
+                    } else {
+                        String::new()
+                    }
+                ));
+                if let Some(err) = status.and_then(|s| s.error.as_deref()) {
+                    text.push_str(&format!("\nerror: {err}"));
+                }
+                let disabled = &cfg.disabled_tools;
+                if !disabled.is_empty() {
+                    text.push_str(&format!("\ndisabled tools: {}", disabled.join(", ")));
+                }
+            }
+            ToolOutcome {
+                tool_result: text.clone(),
+                ui_chunk: format!(
+                    "\n<tool_result>\n[mcp_manage]\n{}\n</tool_result>\n",
+                    escape_xml_text(&clip(&text, 1500))
+                ),
+                side_effect: None,
+            }
+        }
+
+        "add" | "update" => {
+            let is_add = action == "add";
+            let existing = name
+                .as_deref()
+                .and_then(|id| admin::load_server(id).ok().flatten());
+            if is_add {
+                if let Some(id) = name.as_deref() {
+                    if let Ok(Some(_)) = admin::load_server(id) {
+                        return fail(format!(
+                            "'{id}' already exists. Use action:update to change it, or action:remove first."
+                        ));
+                    }
+                }
+            } else if existing.is_none() {
+                return fail(format!(
+                    "'{}' is not configured. Use action:add first (or action:list to see servers).",
+                    name.unwrap_or_default()
+                ));
+            }
+            let cfg = match mcp_config_from_args(args, existing.as_ref()) {
+                Ok(cfg) => cfg,
+                Err(e) => return fail(e),
+            };
+            if let Err(e) = admin::validate(&cfg) {
+                return fail(e);
+            }
+            if save {
+                if let Err(e) = admin::upsert(&cfg) {
+                    return fail(format!("Could not write mcp.json: {e}"));
+                }
+            }
+            let entry = match mcp_state.upsert_server(cfg.clone()) {
+                Ok(entry) => entry,
+                Err(e) => return fail(format!("Server saved, but connecting failed: {e}")),
+            };
+            announce(ctx, if is_add { "add" } else { "update" }, Some(&cfg.id));
+            let tools = mcp_state.tools_for_server(&cfg.id).unwrap_or_default();
+            let mut text = format!(
+                "{} '{}' ({}).\nstatus: {}\ntarget: {}{}",
+                if is_add { "Added" } else { "Updated" },
+                cfg.id,
+                if save { "written to mcp.json" } else { "runtime only" },
+                mcp_status_word(&entry.status),
+                admin::describe_target(&cfg),
+                if save {
+                    String::new()
+                } else {
+                    "\nnot saved: pass save:true to keep it after restart".to_string()
+                }
+            );
+            if let Some(err) = &entry.error {
+                text.push_str(&format!("\nerror: {err}"));
+            }
+            if !tools.is_empty() {
+                text.push_str(&format!(
+                    "\ntools now callable via mcp_search/mcp_call: {}",
+                    tools
+                        .iter()
+                        .take(12)
+                        .map(|t| t.qualified_name.clone())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+            }
+            ToolOutcome {
+                tool_result: text.clone(),
+                ui_chunk: format!(
+                    "\n<tool_result>\n[mcp_manage]\n{}\n</tool_result>\n",
+                    escape_xml_text(&clip(&text, 1800))
+                ),
+                side_effect: None,
+            }
+        }
+
+        "remove" => {
+            let Some(id) = name else {
+                return fail("`name` is required for action:remove.".to_string());
+            };
+            let in_file = file_servers().iter().any(|s| s.id == id);
+            let removed_file = if in_file {
+                match admin::remove(&id) {
+                    Ok(v) => v,
+                    Err(e) => return fail(format!("Could not write mcp.json: {e}")),
+                }
+            } else {
+                false
+            };
+            let removed_live = mcp_state.remove_server(&id).unwrap_or(false);
+            if !removed_file && !removed_live {
+                if in_file {
+                    // File entry was gone by the time we removed it — still fine.
+                } else {
+                    return fail(format!(
+                        "'{id}' is not in mcp.json or the running list. Note: servers added through Settings are removed in Settings → MCP."
+                    ));
+                }
+            }
+            let _ = crate::mcp::credentials::delete_token(&id);
+            announce(ctx, "remove", Some(&id));
+            let text = if removed_file {
+                format!("Removed '{id}' from mcp.json and disconnected it.")
+            } else {
+                format!(
+                    "Disconnected '{id}' for this session. It is a Settings server, so remove it there to make it permanent."
+                )
+            };
+            ToolOutcome {
+                tool_result: text.clone(),
+                ui_chunk: format!(
+                    "\n<tool_result>\n[mcp_manage]\n{}\n</tool_result>\n",
+                    escape_xml_text(&text)
+                ),
+                side_effect: None,
+            }
+        }
+
+        "enable" | "disable" => {
+            let Some(id) = name else {
+                return fail(format!("`name` is required for action:{action}."));
+            };
+            let enable = action == "enable";
+            let in_file = file_servers().iter().any(|s| s.id == id);
+            if in_file {
+                match admin::set_enabled(&id, enable) {
+                    Ok(true) => {}
+                    Ok(false) => return fail(format!("'{id}' is not in mcp.json.")),
+                    Err(e) => return fail(format!("Could not write mcp.json: {e}")),
+                }
+            }
+            let Some(mut cfg) = admin::load_server(&id)
+                .ok()
+                .flatten()
+                .or_else(|| mcp_state.configs_snapshot().into_iter().find(|c| c.id == id))
+            else {
+                return fail(format!("'{id}' is not configured."));
+            };
+            cfg.enabled = enable;
+            match mcp_state.upsert_server(cfg) {
+                Ok(_) => {}
+                Err(e) => return fail(e),
+            }
+            announce(ctx, action.as_str(), Some(&id));
+            let text = format!(
+                "'{id}' {}.{}",
+                if enable { "enabled and reconnected" } else { "disabled — its tools are no longer offered" },
+                if in_file {
+                    ""
+                } else {
+                    " This server comes from Settings; the change lasts until the app reloads it."
+                }
+            );
+            ToolOutcome {
+                tool_result: text.clone(),
+                ui_chunk: format!(
+                    "\n<tool_result>\n[mcp_manage]\n{}\n</tool_result>\n",
+                    escape_xml_text(&text)
+                ),
+                side_effect: None,
+            }
+        }
+
+        "restart" => {
+            let Some(id) = name else {
+                return fail("`name` is required for action:restart.".to_string());
+            };
+            match mcp_state.restart_server(&id) {
+                Ok(entry) => {
+                    let tools = mcp_state.tools_for_server(&id).unwrap_or_default();
+                    let text = format!(
+                        "Reconnected '{}'. status: {}, {} tool(s){}",
+                        id,
+                        mcp_status_word(&entry.status),
+                        tools.len(),
+                        entry
+                            .error
+                            .as_deref()
+                            .map(|e| format!("\nerror: {e}"))
+                            .unwrap_or_default()
+                    );
+                    announce(ctx, "restart", Some(&id));
+                    ToolOutcome {
+                        tool_result: text.clone(),
+                        ui_chunk: format!(
+                            "\n<tool_result>\n[mcp_manage]\n{}\n</tool_result>\n",
+                            escape_xml_text(&clip(&text, 1200))
+                        ),
+                        side_effect: None,
+                    }
+                }
+                Err(e) => fail(format!("Could not restart '{id}': {e}")),
+            }
+        }
+
+        "test" => {
+            // Either test an existing server by name, or a full config passed
+            // inline (`save:false` = validate without keeping it).
+            let cfg = if let Some(id) = name.as_deref() {
+                let existing = admin::load_server(id).ok().flatten().or_else(|| {
+                    mcp_state
+                        .configs_snapshot()
+                        .into_iter()
+                        .find(|c| c.id == id)
+                });
+                match existing {
+                    Some(existing) => match mcp_config_from_args(args, Some(&existing)) {
+                        Ok(cfg) => cfg,
+                        Err(e) => return fail(e),
+                    },
+                    None if args.get("command").is_some() || args.get("url").is_some() => {
+                        match mcp_config_from_args(args, None) {
+                            Ok(cfg) => cfg,
+                            Err(e) => return fail(e),
+                        }
+                    }
+                    None => return fail(format!("'{id}' is not configured.")),
+                }
+            } else {
+                match mcp_config_from_args(args, None) {
+                    Ok(cfg) => cfg,
+                    Err(e) => return fail(e),
+                }
+            };
+
+            let report = admin::test_config(&cfg);
+            let mut text = format!(
+                "test '{}' ({}): {}\n{}",
+                cfg.id,
+                admin::describe_target(&cfg),
+                report.status,
+                if report.ok {
+                    format!(
+                        "{} tool(s) in {}ms{}",
+                        report.tool_count,
+                        report.latency_ms,
+                        if report.tools.is_empty() {
+                            String::new()
+                        } else {
+                            format!(": {}", report.tools.join(", "))
+                        }
+                    )
+                } else {
+                    report.error.clone().unwrap_or_default()
+                }
+            );
+            if report.ok && report.tool_count == 0 {
+                text.push_str("\nThe handshake worked but the server published no tools. Often it needs authentication or is a resources-only server.");
+            }
+            if report.status == "needs_auth" {
+                text.push_str(&format!(
+                    "\nNext: mcp_manage action:auth name:{} (the user approves in the browser).",
+                    cfg.id
+                ));
+            }
+            ToolOutcome {
+                tool_result: text.clone(),
+                ui_chunk: format!(
+                    "\n<tool_result>\n[mcp_manage]\n{}\n</tool_result>\n",
+                    escape_xml_text(&clip(&text, 1800))
+                ),
+                side_effect: None,
+            }
+        }
+
+        "tools" => {
+            let Some(id) = name else {
+                return fail("`name` is required for action:tools.".to_string());
+            };
+            let tools = match mcp_state.tools_for_server(&id) {
+                Ok(tools) => tools,
+                Err(e) => return fail(e),
+            };
+            if tools.is_empty() {
+                let status = mcp_state.get_status().unwrap_or_default();
+                let word = status
+                    .iter()
+                    .find(|s| s.id == id)
+                    .map(|s| mcp_status_word(&s.status))
+                    .unwrap_or("not connected");
+                let text = format!(
+                    "'{id}' exposes no tools right now (status: {word}). If it needs sign-in: mcp_manage action:auth name:{id}."
+                );
+                return ToolOutcome {
+                    tool_result: text.clone(),
+                    ui_chunk: format!(
+                        "\n<tool_result>\n[mcp_manage]\n{}\n</tool_result>\n",
+                        escape_xml_text(&text)
+                    ),
+                    side_effect: None,
+                };
+            }
+            let mut text = format!("'{}' tools ({}):", id, tools.len());
+            for tool in &tools {
+                let schema = serde_json::to_string(&tool.input_schema).unwrap_or_else(|_| "{}".into());
+                let schema = if schema.chars().count() > 900 {
+                    let head: String = schema.chars().take(900).collect();
+                    format!("{head}…")
+                } else {
+                    schema
+                };
+                text.push_str(&format!(
+                    "\n\n{} — {}\nargs: {}",
+                    tool.qualified_name,
+                    tool.description.trim(),
+                    schema
+                ));
+            }
+            ToolOutcome {
+                tool_result: text.clone(),
+                ui_chunk: format!(
+                    "\n<tool_result>\n[mcp_manage]\n{}\n</tool_result>\n",
+                    escape_xml_text(&clip(&text, 2000))
+                ),
+                side_effect: None,
+            }
+        }
+
+        "auth" => {
+            let Some(id) = name else {
+                return fail("`name` is required for action:auth.".to_string());
+            };
+            let Some(cfg) = mcp_state.configs_snapshot().into_iter().find(|c| c.id == id) else {
+                return fail(format!("'{id}' is not configured."));
+            };
+            if cfg.transport != crate::mcp::McpTransport::Http {
+                return fail(format!("'{id}' is a stdio server — it authenticates through its own env vars."));
+            }
+            // The flow opens the browser and waits for the loopback callback.
+            // Running it in the background keeps the agent turn responsive; the
+            // user approves when they are ready and the server reconnects.
+            let app = ctx.app_handle.clone();
+            let id_for_task = id.clone();
+            let url = cfg.url.clone().unwrap_or_default();
+            let client_id = cfg.oauth_client_id.clone();
+            tauri::async_runtime::spawn(async move {
+                // `start_oauth` lives outside `McpState`, so the long-running
+                // browser wait does not hold the state lock.
+                let result =
+                    crate::mcp::start_oauth(&id_for_task, &url, client_id.as_deref()).await;
+                let ok = result.is_ok();
+                let error = result.err();
+                if ok {
+                    if let Some(state) = app.try_state::<crate::mcp::McpState>() {
+                        let _ = state.restart_server(&id_for_task);
+                    }
+                }
+                let _ = app.emit(
+                    "mcp-servers-changed",
+                    json!({ "action": "auth", "id": id_for_task, "ok": ok, "error": error }),
+                );
+            });
+            let text = format!(
+                "Opened the browser to sign in to '{id}'. Approve there; the server connects automatically when the redirect finishes. Meanwhile you can keep working, and call mcp_search in a moment to use its tools."
+            );
+            ToolOutcome {
+                tool_result: text.clone(),
+                ui_chunk: format!(
+                    "\n<tool_result>\n[mcp_manage]\n{}\n</tool_result>\n",
+                    escape_xml_text(&text)
+                ),
+                side_effect: None,
+            }
+        }
+
+        "registry" => {
+            let query = args
+                .get("query")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            let limit = args
+                .get("limit")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(8) as usize;
+            match crate::mcp::registry::search(&query, limit).await {
+                Ok(results) => {
+                    let text = crate::mcp::registry::render_results(&query, &results);
+                    ToolOutcome {
+                        tool_result: text.clone(),
+                        ui_chunk: format!(
+                            "\n<tool_result>\n[mcp_manage]\n{}\n</tool_result>\n",
+                            escape_xml_text(&clip(&text, 2000))
+                        ),
+                        side_effect: None,
+                    }
+                }
+                Err(e) => fail(format!(
+                    "Registry search failed: {e}\nIf the registry is unreachable, configure the server manually from its docs (command/args for local, url for remote)."
+                )),
+            }
+        }
+
+        other => fail(format!(
+            "Unknown action '{other}'. Use: list, add, update, remove, enable, disable, restart, test, tools, auth, registry."
+        )),
+    }
+}
+
 pub(super) fn tool_save_plan(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutcome {
     if !ctx.mode.eq_ignore_ascii_case("plan") {
         return blocked_outcome("save_plan", "save_plan is only available in Plan mode.");

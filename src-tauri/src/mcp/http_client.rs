@@ -12,6 +12,8 @@ pub struct HttpMcpClient {
     pub auth: McpAuthType,
     /// Static bearer for auth:none + token paste (from mcp.json env).
     pub static_bearer: Option<String>,
+    /// Extra headers from the server config (never logged).
+    pub headers: Vec<(String, String)>,
     pub tools: Vec<McpToolInfo>,
     pub last_error: Option<String>,
     pub session_id: Option<String>,
@@ -25,6 +27,7 @@ impl HttpMcpClient {
         url: &str,
         auth: McpAuthType,
         static_bearer: Option<String>,
+        headers: Vec<(String, String)>,
     ) -> Result<Self, String> {
         let client = reqwest::Client::new();
         let mut http = Self {
@@ -33,6 +36,7 @@ impl HttpMcpClient {
             url: url.to_string(),
             auth,
             static_bearer,
+            headers,
             tools: Vec::new(),
             last_error: None,
             session_id: None,
@@ -104,6 +108,13 @@ impl HttpMcpClient {
         }
         if let Some(sid) = &self.session_id {
             req = req.header("Mcp-Session-Id", sid);
+        }
+        for (k, v) in &self.headers {
+            // Authorization is owned by the auth flow when OAuth is in use.
+            if self.auth == McpAuthType::Oauth && k.eq_ignore_ascii_case("authorization") {
+                continue;
+            }
+            req = req.header(k, v);
         }
 
         let resp = req

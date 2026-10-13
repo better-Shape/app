@@ -31,6 +31,7 @@ import { getVisibleModels, resolveChatModels, sanitizeEnabledModels, subagentMod
 import { getCatalogDefaultEnabledIds, getCatalogModels, isCatalogModelAllowed, useShapeCatalog } from "@/lib/catalog/store";
 import { useShapeAuth } from "@/lib/cloud/store";
 import { notify } from "@/features/notifications";
+import { matchSlashCommand } from "@/lib/chat/workflows";
 import { captureTelemetry, captureTelemetryError } from "@/lib/telemetry";
 import {
     isIncognitoChat,
@@ -790,6 +791,51 @@ export function useChatSession() {
     const skipQueueDrainRef = React.useRef(false);
     const forceSendRef = React.useRef(false);
 
+    /** `/compact [focus]` — summarize older turns without sending a chat turn. */
+    const runCompactCommand = async (focus: string): Promise<void> => {
+        if (!shapeAuth.loggedIn || !shapeAuth.accessToken) {
+            notify.error("Sign in to Shape to compact a chat.");
+            return;
+        }
+        if (isIncognitoChat()) {
+            notify.info("Incognito chats are not summarized.");
+            return;
+        }
+        try {
+            const result = await commands.compactChat({
+                focus: focus || undefined,
+                instructions: getSettings().ai.compactInstructions || undefined,
+                model: selectedModelRef.current || undefined,
+                accessToken: shapeAuth.accessToken ?? undefined,
+            });
+            if (result.error) {
+                notify.error("Could not compact this chat.", result.error);
+                return;
+            }
+            if (result.alreadySmall || !result.record) {
+                notify.info("Nothing to compact yet. This chat is still small.");
+                return;
+            }
+            setContextSummarized(true);
+            void captureTelemetry("chat_context_compacted", {
+                mode: selectedMode,
+                model: selectedModel,
+                messages_folded: result.record.messagesBefore - result.record.messagesAfter,
+                tokens_saved: result.record.tokensSaved,
+                manual: true,
+            });
+            notify.success(
+                `Compacted ${result.record.messagesBefore - result.record.messagesAfter} older messages.`,
+                `Saved about ${result.record.tokensSaved.toLocaleString()} tokens. The full transcript stays in this chat; the model now reads the summary.`,
+            );
+        } catch (err) {
+            notify.error(
+                "Could not compact this chat.",
+                err instanceof Error ? err.message : String(err),
+            );
+        }
+    };
+
     const handleSendMessage = async (overrideContent?: string): Promise<boolean> => {
         const messageContent = typeof overrideContent === "string" ? overrideContent : inputValue;
         const fromQueue = typeof overrideContent === "string";
@@ -849,6 +895,20 @@ export function useChatSession() {
             return uploadedFilesRef.current;
         };
         const readyFiles = await waitForAttachments();
+
+        // Built-in slash commands never reach the model.
+        const builtin = readyFiles.length === 0 ? matchSlashCommand(messageContent) : null;
+        if (builtin) {
+            try {
+                localStorage.removeItem("shape-chat-input");
+            } catch {
+                /* ignore */
+            }
+            if (builtin.command.token === "/compact") {
+                await runCompactCommand(builtin.argument);
+            }
+            return true;
+        }
 
         let userMsg = messageContent;
         const attachmentBlocks: string[] = [];
@@ -1023,6 +1083,9 @@ export function useChatSession() {
                 undefined,
                 subagentSend.models,
                 subagentSend.defaultModel,
+                // Standing compaction instructions ride along on every send so
+                // the backend's auto pass uses the same rules as `/compact`.
+                settings.ai.compactInstructions || undefined,
             );
             await refreshMetadata();
             return true;

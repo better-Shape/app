@@ -7,7 +7,7 @@ import { listen } from "@tauri-apps/api/event";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { commands } from "@/lib/backend";
-import type { IndexProgress, IndexStatus } from "@/lib/backend/types";
+import type { CompactionStateView, IndexProgress, IndexStatus } from "@/lib/backend/types";
 import {
     getCatalogDefaultEnabledIds,
     getCatalogModels,
@@ -34,6 +34,176 @@ import {
     MAX_CONTEXT_PRESETS,
 } from "../shared/controls";
 import { WorkflowsEditor } from "./workflows";
+import { notify } from "@/features/notifications";
+
+function CompactionEditor({ value }: { value: string }) {
+    const [draft, setDraft] = React.useState(value);
+    React.useEffect(() => setDraft(value), [value]);
+    const dirty = draft !== value;
+
+    return (
+        <SettingSection
+            id="settings-ai-compaction"
+            title="Compaction"
+            description="What every context summary must keep. Applied when Shape folds older turns to free the context window. Say /compact in chat to run it yourself."
+            action={
+                <Button
+                    size="sm"
+                    variant="ghost"
+                    className={SETTING_CONTROL_BTN}
+                    disabled={!dirty}
+                    onClick={() => updateSettingSection("ai", { compactInstructions: draft })}
+                >
+                    Save
+                </Button>
+            }
+            card={false}
+        >
+            <SettingCard>
+            <Textarea
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                placeholder="e.g. Always keep the agreed API shape, migration names, and any failing test output."
+                className="min-h-28 rounded-xl border-0 bg-transparent px-3.5 py-3 text-sm"
+            />
+            </SettingCard>
+        </SettingSection>
+    );
+}
+
+/** Live compaction state for the current chat: passes, tokens freed, undo. */
+function CompactionStatus() {
+    const [state, setState] = React.useState<CompactionStateView | null>(null);
+    const [busy, setBusy] = React.useState(false);
+
+    const refresh = React.useCallback(() => {
+        void commands
+            .getCompactionState()
+            .then(setState)
+            .catch(() => setState(null));
+    }, []);
+
+    React.useEffect(() => {
+        refresh();
+    }, [refresh]);
+
+    // The agent can hold automatic compaction mid-task; refresh when it does.
+    React.useEffect(() => {
+        let unlisten: (() => void) | undefined;
+        void listen("chat_compaction_paused", () => {
+            refresh();
+        })
+            .then((fn) => {
+                unlisten = fn;
+            })
+            .catch(() => undefined);
+        return () => unlisten?.();
+    }, [refresh]);
+
+    const passes = state?.totalPasses ?? 0;
+    const tokensSaved = state?.tokensSaved ?? 0;
+    const lastAt = state?.lastCompactedAt ?? null;
+    const summary = passes
+        ? `${passes} summar${passes === 1 ? "y" : "ies"} · about ${tokensSaved.toLocaleString()} tokens freed${
+              lastAt ? ` · last run ${new Date(lastAt * 1000).toLocaleString()}` : ""
+          }`
+        : "No summaries in this chat yet.";
+    const pause = state?.pause ?? null;
+    const pauseLine = pause
+        ? `Automatic compaction is on hold: ${pause.reason}. It lapses by ${new Date(
+              pause.expiresAt * 1000,
+          ).toLocaleTimeString()}, sooner if the chat grows or the window fills.`
+        : null;
+
+    const compactNow = async () => {
+        setBusy(true);
+        try {
+            const accessToken = getShapeAccessToken();
+            if (!accessToken) {
+                notify.error("Sign in to Shape first.", "Compaction runs through your Shape account.");
+                return;
+            }
+            const result = await commands.compactChat({ accessToken });
+            if (result.error) {
+                notify.error("Compaction failed.", result.error);
+            } else if (result.alreadySmall) {
+                notify.info("Nothing to fold yet.", "This chat is still small enough to send whole.");
+            } else {
+                notify.info("Context folded.", "The summary is applied from the next message.");
+            }
+            refresh();
+        } catch (err) {
+            notify.error("Could not compact.", err instanceof Error ? err.message : String(err));
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    const reset = async () => {
+        setBusy(true);
+        try {
+            await commands.resetCompaction();
+            notify.info(
+                "Compaction reset.",
+                "Earlier turns are sent in full again. Run /compact in the chat when you want a summary back.",
+            );
+            refresh();
+        } catch (err) {
+            notify.error("Could not reset compaction.", err instanceof Error ? err.message : String(err));
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    return (
+        <SettingSection
+            id="settings-ai-compaction-state"
+            title="Compaction now"
+            description="Older turns are folded into one summary when a chat fills the context window. Say /compact in the chat to do it yourself."
+            action={
+                <Button
+                    size="sm"
+                    variant="ghost"
+                    className={SETTING_CONTROL_BTN}
+                    disabled={busy || passes === 0}
+                    onClick={() => void reset()}
+                >
+                    Reset
+                </Button>
+            }
+            card={false}
+        >
+            <SettingCard>
+                <div className="px-3.5 py-3 text-sm text-text-secondary">{summary}</div>
+                {pauseLine ? (
+                    <div className="flex items-center gap-2 border-t border-border-subtle px-3.5 py-3 text-xs text-text-muted">
+                        <span className="min-w-0 flex-1">{pauseLine}</span>
+                        <Button
+                            size="sm"
+                            variant="ghost"
+                            className={SETTING_CONTROL_BTN}
+                            disabled={busy}
+                            onClick={() => void compactNow()}
+                        >
+                            Compact now
+                        </Button>
+                    </div>
+                ) : null}
+                {state?.lastOverride ? (
+                    <div className="border-t border-border-subtle px-3.5 py-3 text-xs text-text-muted">
+                        Last hold ended because {state.lastOverride}. The agent's note was still carried
+                        into the summary.
+                    </div>
+                ) : null}
+                {state?.lastFailure ? (
+                    <div className="border-t border-border-subtle px-3.5 py-3 text-xs text-text-muted">
+                        Last failure: {state.lastFailure}
+                    </div>
+                ) : null}
+            </SettingCard>
+        </SettingSection>
+    );
+}
 
 function RulesEditor({ value }: { value: string }) {
     const [draft, setDraft] = React.useState(value);
@@ -420,6 +590,7 @@ export function AiSettingsPanel({
                     />
                 </SettingRow>
             </SettingSection>
+            <CompactionStatus />
             <SettingSection id="settings-ai-context" title="Context">
                 <SettingRow title="Max context lines" description="How much of each file is sent with a turn.">
                     <SettingNumberSelect
@@ -504,7 +675,12 @@ export function AiSettingsPanel({
             </>
             ) : null}
 
-            {page === "rules" ? <RulesEditor value={a.customRules} /> : null}
+            {page === "rules" ? (
+                <>
+                    <RulesEditor value={a.customRules} />
+                    <CompactionEditor value={a.compactInstructions ?? ""} />
+                </>
+            ) : null}
             {page === "workflows" ? <WorkflowsEditor value={a.workflows ?? []} /> : null}
         </>
     );

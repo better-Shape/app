@@ -3,6 +3,7 @@ pub mod approvals;
 pub mod caption;
 pub mod checkpoints;
 pub mod commit_message;
+pub mod compaction;
 pub mod conversation;
 pub mod git_ai;
 pub mod history;

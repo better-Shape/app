@@ -101,7 +101,7 @@ function MentionRichText({ text }: { text: string }) {
     const slashRs = slashCommandRanges(text, workflows);
     const ranges: (
         | { kind: "mention"; start: number; end: number; mention: (typeof mentionRs)[number]["mention"] }
-        | { kind: "slash"; start: number; end: number; workflow: (typeof slashRs)[number]["workflow"]; token: string }
+        | { kind: "slash"; start: number; end: number; workflow?: (typeof slashRs)[number]["workflow"]; token: string }
     )[] = [
         ...mentionRs.map((r) => ({ kind: "mention" as const, ...r })),
         ...slashRs.map((r) => ({ kind: "slash" as const, ...r })),

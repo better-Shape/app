@@ -2,6 +2,7 @@
 
 import { ArrowLeft20Regular } from "@fluentui/react-icons/headless/svg/arrow-left";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { SearchInput } from "@/components/ui/search";
@@ -376,6 +377,19 @@ export function McpSettingsView() {
 
     useEffect(() => {
         void refresh();
+        // The agent can add, edit, enable or test servers through mcp_manage.
+        // Those changes land in mcp.json, so re-read instead of guessing.
+        let unlisten: (() => void) | undefined;
+        void listen<{ action?: string }>("mcp-servers-changed", () => {
+            void refresh();
+        })
+            .then((fn) => {
+                unlisten = fn;
+            })
+            .catch(() => {
+                /* not in a Tauri window */
+            });
+        return () => unlisten?.();
     }, [refresh]);
 
     const filtered = useMemo(() => {
