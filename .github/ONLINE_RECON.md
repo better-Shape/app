@@ -196,3 +196,24 @@ date: Tue Oct 13 21:53:20 UTC 2026
 ```
 
 </details>
+
+### The key channel is separate (third-party confirmation)
+
+Two independent write-ups agree with the probe above, and one of them is a
+post-mortem from a project that tried exactly what we considered:
+
+* `pi-opencode-zen` (deprecated 2026-09-23) — "OpenCode Zen shut down anonymous
+  free-tier access on its public API for all non-official clients. **This cannot
+  be bypassed by any headers or client emulation** — the official opencode v2
+  client uses a private, server-dispatched endpoint. The only remaining access
+  path is a paid API key. **The API-key channel is independent and is not
+  affected by this restriction**."
+  (https://pi.dev/packages/pi-opencode-zen)
+* Provider directories list the same free ids against `https://opencode.ai/zen/v1`
+  with "email account, no card required" and a Console API key
+  (https://itsfree.ai/provider/opencode-zen/, https://freellm.net/providers/opencode).
+
+So the honest, working configuration is: the user's own Console key (free ids
+included, no card needed) or a Go subscription, plus the session header their
+docs ask for. BetterShape sends exactly that, and its connection test now runs a
+real completion instead of trusting the anonymous model list.

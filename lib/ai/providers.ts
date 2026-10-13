@@ -210,7 +210,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     needsBaseUrl: false,
     keyHint: "oc_sk_… from opencode.ai/console",
     docsUrl: "https://opencode.ai/v2/docs/console/models/",
-    note: "Free models included with a Console account key; paid models bill credits.",
+    note: "Free ids come with a Console account key and rotate — Test connection imports the live list.",
     // Free models are free for OpenCode accounts but the gateway only serves
     // them to attributable traffic, so this needs the user's own Console key.
     defaultEnabled: false,
@@ -275,7 +275,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     needsBaseUrl: false,
     keyHint: "oc_sk_… from opencode.ai/console (Go plan)",
     docsUrl: "https://opencode.ai/v2/docs/console/go",
-    note: "Go / Go Plus subscription. Sends the per-conversation session header Go asks for.",
+    note: "Go / Go Plus subscription. Each conversation carries the session header Go asks for.",
     // A monthly subscription (Go / Go Plus). Go's docs validate third-party
     // coding agents that send their own user agent and a per-conversation
     // `x-opencode-session`; the app sends both.

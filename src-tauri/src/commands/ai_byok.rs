@@ -205,6 +205,13 @@ pub async fn ai_test_provider(
     }
 
     let models = collect_models(provider.kind, &body);
+
+    // OpenCode's gateways serve `/models` to anyone, so a 200 here says nothing
+    // about the key. Ask a free model to answer instead.
+    if ai_providers::is_opencode_gateway(&provider) {
+        return probe_opencode_connection(&client, &provider, &label, models, latency_ms).await;
+    }
+
     let message = if models.is_empty() {
         format!("{label} answered with {status}, but listed no models for this key.")
     } else {
@@ -221,6 +228,90 @@ pub async fn ai_test_provider(
         models,
         latency_ms,
     })
+}
+
+/// Ask an OpenCode gateway for one real answer.
+///
+/// Free ids are tried first: they answer for any Console account, so a success
+/// means "key works and the free models are usable", and a refusal surfaces the
+/// gateway's own reason instead of the anonymous model list hiding it.
+async fn probe_opencode_connection(
+    client: &reqwest::Client,
+    provider: &ResolvedProvider,
+    label: &str,
+    models: Vec<String>,
+    list_latency_ms: u64,
+) -> Result<ProviderTestReport, AppError> {
+    let probe_model = models
+        .iter()
+        .find(|id| id.ends_with("-free"))
+        .or_else(|| models.iter().find(|id| id.as_str() == "big-pickle"))
+        .or_else(|| models.first())
+        .cloned()
+        .unwrap_or_else(|| "big-pickle".to_string());
+    let model = strip_provider_prefix(&provider.id, &probe_model);
+
+    let body = serde_json::json!({
+        "model": model,
+        "messages": [{ "role": "user", "content": CHECK_PROMPT }],
+        "max_tokens": 16,
+        "stream": false,
+    });
+
+    let started = Instant::now();
+    let response = crate::agent::commands::provider_wire::request(
+        client,
+        provider,
+        &model,
+        &body,
+        false,
+        Some("bettershape-connection-test"),
+    )
+    .send()
+    .await?;
+    let status = response.status();
+    let text = response.text().await.unwrap_or_default();
+    let probe_latency_ms = started.elapsed().as_millis() as u64;
+
+    let (ok, message) = opencode_probe_verdict(
+        label,
+        status.as_u16(),
+        &text,
+        &model,
+        models.len(),
+        probe_latency_ms,
+    );
+    Ok(ProviderTestReport {
+        ok,
+        status: status.as_u16(),
+        message,
+        models,
+        latency_ms: list_latency_ms.max(probe_latency_ms),
+    })
+}
+
+/// Verdict for an OpenCode gateway probe. Pure so it can be tested offline.
+fn opencode_probe_verdict(
+    label: &str,
+    status: u16,
+    body: &str,
+    model: &str,
+    listed: usize,
+    latency_ms: u64,
+) -> (bool, String) {
+    if (200..300).contains(&status) {
+        return (
+            true,
+            format!(
+                "{label} accepted the key — `{model}` answered in {latency_ms} ms, and {listed} model{} are listed for it.",
+                if listed == 1 { "" } else { "s" }
+            ),
+        );
+    }
+    (
+        false,
+        ai_providers::describe_http_error(label, status, body),
+    )
 }
 
 /// First text out of a completion response, whatever wire format produced it.
@@ -345,8 +436,15 @@ pub async fn ai_check_provider(
     });
 
     let started = Instant::now();
+    // A stable session id: OpenCode's gateways ask every coding agent for one
+    // and answer 400 without it.
     let response = crate::agent::commands::provider_wire::request(
-        &client, &provider, &model, &body, false, None,
+        &client,
+        &provider,
+        &model,
+        &body,
+        false,
+        Some("bettershape-connection-check"),
     )
     .send()
     .await?;
@@ -546,6 +644,48 @@ mod tests {
         );
         assert_eq!(strip_provider_prefix("nvidia", "plain-slug"), "plain-slug");
         assert_eq!(strip_provider_prefix("nvidia", "  nvidia/x  "), "x");
+    }
+
+    #[test]
+    fn a_keyless_model_list_is_not_mistaken_for_a_working_key() {
+        // `/models` answers anonymously on OpenCode's gateways, so the test has
+        // to rely on the live probe. A refusal keeps the provider failing and
+        // the gateway's own reason is what the user sees.
+        let (ok, message) = opencode_probe_verdict(
+            "OpenCode Zen",
+            403,
+            r#"{"error":{"type":"FreeTierError","message":"OpenCode's free tier can only be used from within OpenCode."}}"#,
+            "ling-3.1-flash-free",
+            89,
+            12,
+        );
+        assert!(!ok);
+        assert!(message.contains("opencode.ai/console"), "{message}");
+
+        let (ok, message) = opencode_probe_verdict(
+            "OpenCode Zen",
+            200,
+            r#"{"choices":[{"message":{"content":"pong"}}]}"#,
+            "ling-3.1-flash-free",
+            89,
+            431,
+        );
+        assert!(ok);
+        assert!(message.contains("ling-3.1-flash-free"), "{message}");
+        assert!(message.contains("431"), "{message}");
+        assert!(message.contains("89 models"), "{message}");
+
+        // A Go subscription that is missing answers 401 with its own wording.
+        let (ok, message) = opencode_probe_verdict(
+            "OpenCode Go",
+            401,
+            r#"{"error":{"type":"server_error","message":"Upstream request failed: Go requires a credential"}}"#,
+            "longcat-2.5-preview-free",
+            23,
+            9,
+        );
+        assert!(!ok);
+        assert!(message.contains("opencode.ai/console"), "{message}");
     }
 
     #[test]
