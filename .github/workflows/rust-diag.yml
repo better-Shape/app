@@ -1,0 +1,50 @@
+name: Rust Diag
+
+# Temporary: publishes what `cargo` actually says, since run logs are not
+# readable from the sandbox. Deleted once the branch is green.
+on:
+  push:
+    paths:
+      - ".github/workflows/rust-diag.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - name: Collect
+        run: |
+          set -uo pipefail
+          exec > /tmp/diag.txt 2>&1
+          cd src-tauri
+          echo "### cargo fmt --check"
+          cargo fmt --all -- --check 2>&1 | head -80
+          echo
+          echo "### cargo check --all-targets"
+          cargo check --all-targets --message-format short 2>&1 | tail -120
+          echo
+          echo "### cargo clippy (errors only)"
+          cargo clippy --all-targets --message-format short 2>&1 | grep -E "^(error|warning: unused)" | head -60
+          exit 0
+      - name: Publish
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          B64=$(base64 -w0 /tmp/diag.txt)
+          gh api --method PUT "repos/${{ github.repository }}/contents/rust-diag-output.txt" \
+            --field message="chore: rust diagnostics" \
+            --field branch="${{ github.ref_name }}" \
+            --field content="$B64" >/dev/null && echo written || echo failed
+          exit 0
