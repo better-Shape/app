@@ -17,7 +17,7 @@ import { WindowConsole20Regular } from "@fluentui/react-icons/headless/svg/windo
 
 
 
-import { useEffect, useLayoutEffect, useMemo, useState, type RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { type IconGlyph, Icon } from "@/components/ui/icon";
 
@@ -417,18 +417,24 @@ export function MentionPicker({
         setHighlight(0);
     }, [activeCategory, filter, rootItems.length, slashItems.length, mode]);
 
-    const pickItem = (item: ChatMention) => {
-        if (item.kind === "design" && item.id) {
-            void trySelectPendingDesignConcept(item.id);
-        }
-        onPick(`${formatMentionToken(item)} `);
-        onClose();
-    };
+    const pickItem = useCallback(
+        (item: ChatMention) => {
+            if (item.kind === "design" && item.id) {
+                void trySelectPendingDesignConcept(item.id);
+            }
+            onPick(`${formatMentionToken(item)} `);
+            onClose();
+        },
+        [onPick, onClose],
+    );
 
-    const pickSlash = (w: AgentWorkflow) => {
-        onPick(`${workflowSlashToken(w)} `);
-        onClose();
-    };
+    const pickSlash = useCallback(
+        (w: AgentWorkflow) => {
+            onPick(`${workflowSlashToken(w)} `);
+            onClose();
+        },
+        [onPick, onClose],
+    );
 
     useEffect(() => {
         if (!open) return;
@@ -456,7 +462,7 @@ export function MentionPicker({
         };
         window.addEventListener("keydown", onKey, true);
         return () => window.removeEventListener("keydown", onKey, true);
-    }, [open, activeCategory, rootItems, slashItems, highlight, onClose, mode, listLen]);
+    }, [open, activeCategory, rootItems, slashItems, highlight, onClose, pickItem, pickSlash, mode, listLen]);
 
     if (!open || !pos) return null;
 

@@ -72,8 +72,7 @@ export function CheckpointRestoreDialog() {
             if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
                 e.stopPropagation();
-                if (dontAsk) updateSettingSection("privacy", { skipCheckpointRestoreConfirm: true });
-                const p = pending; pending = null; setOpen(false); setDontAsk(false); notifyListeners(); p?.resolve(true);
+                finish(true);
             }
         };
         window.addEventListener("keydown", onKey, true);
