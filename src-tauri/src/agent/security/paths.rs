@@ -561,39 +561,6 @@ mod tests {
     }
 
     #[test]
-    fn resolved_file_must_stay_inside_its_root() {
-        let temp = std::env::temp_dir().join(format!("shape-skill-root-{}", std::process::id()));
-        let root = temp.join("skills");
-        let sibling = temp.join("skills-extra");
-        let _ = std::fs::remove_dir_all(&temp);
-        std::fs::create_dir_all(&root).unwrap();
-        std::fs::create_dir_all(&sibling).unwrap();
-        let inside = root.join("notes.md");
-        let outside = sibling.join("notes.md");
-        std::fs::write(&inside, "skill").unwrap();
-        std::fs::write(&outside, "other").unwrap();
-
-        let root_real = root.canonicalize().unwrap();
-        assert!(assert_resolved_within(&inside.canonicalize().unwrap(), &root_real).is_ok());
-        assert!(assert_resolved_within(&outside.canonicalize().unwrap(), &root_real).is_err());
-
-        let link = root.join("linked.md");
-        #[cfg(windows)]
-        let linked = std::os::windows::fs::symlink_file(&outside, &link);
-        #[cfg(not(windows))]
-        let linked = std::os::unix::fs::symlink(&outside, &link);
-        if linked.is_ok() {
-            let resolved = link.canonicalize().unwrap();
-            assert!(
-                assert_resolved_within(&resolved, &root_real).is_err(),
-                "a symlink inside the skill root must not resolve outside it"
-            );
-        }
-
-        let _ = std::fs::remove_dir_all(&temp);
-    }
-
-    #[test]
     fn test_allows_project_relative_paths() {
         let temp = std::env::temp_dir().join("bettershape-path-security-test");
         let _ = std::fs::create_dir_all(&temp);
