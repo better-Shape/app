@@ -104,10 +104,7 @@ pub fn truncate_to_tokens(text: &str, max_tokens: usize) -> String {
     let head_len = char_budget * 2 / 3;
     let tail_len = char_budget.saturating_sub(head_len).max(60);
     let head: String = text.chars().take(head_len).collect();
-    let tail: String = text
-        .chars()
-        .skip(total.saturating_sub(tail_len))
-        .collect();
+    let tail: String = text.chars().skip(total.saturating_sub(tail_len)).collect();
     let omitted = total.saturating_sub(head_len + tail_len);
     format!("{head}\n\n… [{omitted} chars omitted to save context] …\n\n{tail}")
 }

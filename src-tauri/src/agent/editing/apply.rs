@@ -121,11 +121,17 @@ async fn call_fast_apply_model(
 
     let _ = api_key;
     let (provider, provider_model) = crate::agent::commands::streaming::resolve_provider(model)?;
-    let resp =
-        crate::agent::commands::streaming::provider_request(client, "", &provider, &provider_model, &body, false)
-            .send()
-        .await
-        .map_err(|e| AppError::Message(format!("fast-apply request failed: {}", e)))?;
+    let resp = crate::agent::commands::streaming::provider_request(
+        client,
+        "",
+        &provider,
+        &provider_model,
+        &body,
+        false,
+    )
+    .send()
+    .await
+    .map_err(|e| AppError::Message(format!("fast-apply request failed: {}", e)))?;
 
     if !resp.status().is_success() {
         let status = resp.status();

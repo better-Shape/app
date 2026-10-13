@@ -181,11 +181,11 @@ pub async fn generate_commit_message(
     prompt.push_str(&diff_trimmed);
 
     let commit_turn_id = uuid::Uuid::new_v4().to_string();
-    let commit_ctx = streaming::ProxyContext::new("commit")
-        .with_turn(Some(commit_turn_id), None);
+    let commit_ctx = streaming::ProxyContext::new("commit").with_turn(Some(commit_turn_id), None);
 
     let (message, _, _) =
-        streaming::complete_chat_with_max_tokens(&client, "", &prompt, model, 220, &commit_ctx).await?;
+        streaming::complete_chat_with_max_tokens(&client, "", &prompt, model, 220, &commit_ctx)
+            .await?;
     if message.is_empty() {
         return Err(AppError::Message(
             "Failed to generate commit message".to_string(),
@@ -235,8 +235,7 @@ pub async fn rewrite_open_file(
     );
     let client = Client::new();
     let turn_id = uuid::Uuid::new_v4().to_string();
-    let ctx = streaming::ProxyContext::new("file-edit")
-        .with_turn(Some(turn_id), None);
+    let ctx = streaming::ProxyContext::new("file-edit").with_turn(Some(turn_id), None);
     let (message, _, _) = streaming::complete_chat_with_max_tokens(
         &client,
         "",
@@ -265,8 +264,7 @@ pub async fn rewrite_text(prompt: String) -> Result<String, AppError> {
     }
     let client = Client::new();
     let turn_id = uuid::Uuid::new_v4().to_string();
-    let ctx = streaming::ProxyContext::new("rewrite")
-        .with_turn(Some(turn_id), None);
+    let ctx = streaming::ProxyContext::new("rewrite").with_turn(Some(turn_id), None);
     let (message, _, _) = streaming::complete_chat_with_max_tokens(
         &client,
         "",

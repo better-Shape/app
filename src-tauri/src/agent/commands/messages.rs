@@ -670,7 +670,10 @@ mod tests {
         assert!(shot.contains("Captured http://localhost:5173/"));
         assert!(!shot.contains("omitted"));
         assert!(
-            api.iter().any(|m| m["content"].as_str().unwrap_or("").starts_with("[duplicate")),
+            api.iter().any(|m| m["content"]
+                .as_str()
+                .unwrap_or("")
+                .starts_with("[duplicate")),
             "the repeated reads should have collapsed to notes"
         );
     }

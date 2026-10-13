@@ -215,7 +215,10 @@ mod tests {
     fn normalize_auto() {
         assert_eq!(normalize_model("auto"), AUTO_MODEL);
         assert_eq!(normalize_model("openrouter/auto"), AUTO_MODEL);
-        assert_eq!(normalize_model("anthropic/claude-sonnet-4"), "anthropic/claude-sonnet-4");
+        assert_eq!(
+            normalize_model("anthropic/claude-sonnet-4"),
+            "anthropic/claude-sonnet-4"
+        );
         assert_eq!(normalize_model_with_images("auto", true), AUTO_MODEL);
         assert_eq!(normalize_model_with_images("auto", false), AUTO_MODEL);
         assert_eq!(normalize_model(" openai/gpt-5 "), "openai/gpt-5");

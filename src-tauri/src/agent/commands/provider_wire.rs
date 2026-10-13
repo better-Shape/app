@@ -16,7 +16,7 @@ use reqwest::Client;
 use serde_json::{json, Map, Value};
 
 use crate::core::ai_providers::{
-    anthropic_endpoint, embeddings_endpoint, effort_budget, google_endpoint, openai_endpoint,
+    anthropic_endpoint, effort_budget, embeddings_endpoint, google_endpoint, openai_endpoint,
     ProviderKind, ResolvedProvider,
 };
 
@@ -259,7 +259,8 @@ fn openai_to_anthropic(body: &Value) -> Value {
                 push_anthropic_blocks(&mut converted, "assistant", blocks);
             }
             _ => {
-                let blocks = openai_content_to_anthropic(message.get("content").unwrap_or(&Value::Null));
+                let blocks =
+                    openai_content_to_anthropic(message.get("content").unwrap_or(&Value::Null));
                 if blocks.is_empty() {
                     continue;
                 }
@@ -272,7 +273,10 @@ fn openai_to_anthropic(body: &Value) -> Value {
     out.insert("model".to_string(), json!(model));
     out.insert("max_tokens".to_string(), json!(max_tokens));
     out.insert("messages".to_string(), json!(converted));
-    out.insert("stream".to_string(), json!(body.get("stream") == Some(&json!(true))));
+    out.insert(
+        "stream".to_string(),
+        json!(body.get("stream") == Some(&json!(true))),
+    );
     if !system.trim().is_empty() {
         // Cache the (large, stable) system prompt across a turn's round-trips.
         out.insert(
@@ -305,7 +309,8 @@ fn openai_to_anthropic(body: &Value) -> Value {
         }
     }
     if reasoning_enabled(body) && supports_thinking(model, ProviderKind::Anthropic) {
-        let budget = reasoning_budget(body, 4096).clamp(1024, max_tokens.saturating_sub(1024).max(1024) as u32);
+        let budget = reasoning_budget(body, 4096)
+            .clamp(1024, max_tokens.saturating_sub(1024).max(1024) as u32);
         out.insert(
             "thinking".to_string(),
             json!({ "type": "enabled", "budget_tokens": budget }),
@@ -480,7 +485,8 @@ fn openai_to_google(body: &Value) -> Value {
                 );
             }
             _ => {
-                let parts = openai_content_to_google(message.get("content").unwrap_or(&Value::Null));
+                let parts =
+                    openai_content_to_google(message.get("content").unwrap_or(&Value::Null));
                 if parts.is_empty() {
                     continue;
                 }
@@ -517,7 +523,10 @@ fn openai_to_google(body: &Value) -> Value {
             })
             .collect();
         if !declarations.is_empty() {
-            out.insert("tools".to_string(), json!([{ "functionDeclarations": declarations }]));
+            out.insert(
+                "tools".to_string(),
+                json!([{ "functionDeclarations": declarations }]),
+            );
         }
     }
 
@@ -525,7 +534,10 @@ fn openai_to_google(body: &Value) -> Value {
     generation.insert("maxOutputTokens".to_string(), json!(max_tokens));
     if reasoning_enabled(body) && supports_thinking(model, ProviderKind::Google) {
         let budget = reasoning_budget(body, 4096);
-        generation.insert("thinkingConfig".to_string(), json!({ "thinkingBudget": budget }));
+        generation.insert(
+            "thinkingConfig".to_string(),
+            json!({ "thinkingBudget": budget }),
+        );
     }
     out.insert("generationConfig".to_string(), Value::Object(generation));
 
@@ -664,9 +676,8 @@ fn anthropic_event_to_chunk(event: &Value, state: &mut WireState) -> Value {
             let block = event.get("content_block").cloned().unwrap_or_default();
             match block.get("type").and_then(|t| t.as_str()) {
                 Some("tool_use") => {
-                    let index = state.slot_for_block(
-                        event.get("index").and_then(|i| i.as_u64()).unwrap_or(0),
-                    );
+                    let index = state
+                        .slot_for_block(event.get("index").and_then(|i| i.as_u64()).unwrap_or(0));
                     json!({
                         "choices": [{
                             "delta": {
@@ -700,9 +711,8 @@ fn anthropic_event_to_chunk(event: &Value, state: &mut WireState) -> Value {
                     }}],
                 }),
                 "input_json_delta" => {
-                    let index = state.slot_for_block(
-                        event.get("index").and_then(|i| i.as_u64()).unwrap_or(0),
-                    );
+                    let index = state
+                        .slot_for_block(event.get("index").and_then(|i| i.as_u64()).unwrap_or(0));
                     json!({
                         "choices": [{
                             "delta": {
@@ -996,7 +1006,10 @@ mod tests {
             "content_block": {"type": "tool_use", "id": "toolu_1", "name": "read_file"}
         });
         let chunk = normalize_sse_event(ProviderKind::Anthropic, start, &mut state);
-        assert_eq!(chunk["choices"][0]["delta"]["tool_calls"][0]["function"]["name"], "read_file");
+        assert_eq!(
+            chunk["choices"][0]["delta"]["tool_calls"][0]["function"]["name"],
+            "read_file"
+        );
         assert_eq!(chunk["choices"][0]["delta"]["tool_calls"][0]["index"], 0);
 
         let delta = json!({
@@ -1104,7 +1117,10 @@ mod tests {
         });
         let out = normalize_completion(ProviderKind::Anthropic, anthropic);
         assert_eq!(out["choices"][0]["message"]["content"], "done");
-        assert_eq!(out["choices"][0]["message"]["tool_calls"][0]["function"]["name"], "ls");
+        assert_eq!(
+            out["choices"][0]["message"]["tool_calls"][0]["function"]["name"],
+            "ls"
+        );
         assert_eq!(out["choices"][0]["finish_reason"], "tool_calls");
         assert_eq!(out["usage"]["completion_tokens"], 7);
 

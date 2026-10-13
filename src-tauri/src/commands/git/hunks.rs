@@ -433,7 +433,8 @@ mod tests {
 
     #[test]
     fn stage_unstage_restore_hunk_roundtrip() {
-        let dir = std::env::temp_dir().join(format!("bettershape-hunk-test-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("bettershape-hunk-test-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
 
@@ -490,7 +491,8 @@ mod tests {
 
     #[test]
     fn stage_selected_lines_partial() {
-        let dir = std::env::temp_dir().join(format!("bettershape-hunk-lines-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("bettershape-hunk-lines-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
 

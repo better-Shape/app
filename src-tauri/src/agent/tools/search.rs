@@ -377,7 +377,10 @@ async fn tavily_search(client: &reqwest::Client, api_key: &str, query: &str) -> 
     }
     if let Some(results) = data.get("results").and_then(|r| r.as_array()) {
         for (i, item) in results.iter().enumerate() {
-            let title = item.get("title").and_then(|t| t.as_str()).unwrap_or("Untitled");
+            let title = item
+                .get("title")
+                .and_then(|t| t.as_str())
+                .unwrap_or("Untitled");
             let url = item.get("url").and_then(|u| u.as_str()).unwrap_or("");
             let content = item.get("content").and_then(|c| c.as_str()).unwrap_or("");
             out.push_str(&format!(
@@ -427,7 +430,10 @@ async fn brave_search(client: &reqwest::Client, api_key: &str, query: &str) -> S
         .and_then(|r| r.as_array())
     {
         for (i, item) in results.iter().enumerate() {
-            let title = item.get("title").and_then(|t| t.as_str()).unwrap_or("Untitled");
+            let title = item
+                .get("title")
+                .and_then(|t| t.as_str())
+                .unwrap_or("Untitled");
             let url = item.get("url").and_then(|u| u.as_str()).unwrap_or("");
             let description = item
                 .get("description")
@@ -436,7 +442,10 @@ async fn brave_search(client: &reqwest::Client, api_key: &str, query: &str) -> S
             out.push_str(&format!(
                 "{}. {title}\n   {url}\n   {}\n\n",
                 i + 1,
-                strip_html(description).chars().take(400).collect::<String>()
+                strip_html(description)
+                    .chars()
+                    .take(400)
+                    .collect::<String>()
             ));
         }
     }
@@ -502,7 +511,10 @@ pub async fn execute_visit_url(url: &str, _api_key: &str) -> Result<VisitUrlResu
             parsed.host_str().unwrap_or("").to_string(),
         )
     } else {
-        (body.chars().take(60_000).collect::<String>(), parsed.host_str().unwrap_or("").to_string())
+        (
+            body.chars().take(60_000).collect::<String>(),
+            parsed.host_str().unwrap_or("").to_string(),
+        )
     };
 
     if formatted.trim().is_empty() {

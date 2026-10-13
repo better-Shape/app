@@ -1,17 +1,17 @@
 //! Plan, todos, finish, design, and MCP tools.
 
 use base64::Engine;
+use base64::Engine;
 use serde_json::{json, Value};
 use tauri::{Emitter, Manager};
-use base64::Engine;
 
 use std::collections::HashMap;
 
 use crate::agent::commands::streaming;
 use crate::agent::models::{DesignPickConcept, PendingAsk, PendingDesignPick};
-use crate::mcp::McpServerConfig;
 use crate::agent::tools::page_shot;
 use crate::commands::preview_render;
+use crate::mcp::McpServerConfig;
 
 use super::common::{
     blocked_outcome, cleanup_pending_ask, cleanup_pending_design_pick, clip, error_outcome,
@@ -111,7 +111,11 @@ fn mcp_config_from_args(
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(str::to_string)
-        .or_else(|| existing.map(|c| c.command.clone()).filter(|c| !c.is_empty()))
+        .or_else(|| {
+            existing
+                .map(|c| c.command.clone())
+                .filter(|c| !c.is_empty())
+        })
         .unwrap_or_default();
 
     let transport = match args.get("transport").and_then(|v| v.as_str()) {
@@ -226,7 +230,9 @@ fn mcp_config_from_args(
 async fn approve_stdio_server(cfg: &McpServerConfig, ctx: &ToolCtx<'_>) -> Result<(), String> {
     use crate::agent::models::{AutoRunMode, PendingCommand};
 
-    let policy = ctx.agent_state.turn_policy_for(ctx.conversation_id.as_deref());
+    let policy = ctx
+        .agent_state
+        .turn_policy_for(ctx.conversation_id.as_deref());
     if policy.auto_run_mode == AutoRunMode::Always {
         return Ok(());
     }
@@ -314,10 +320,9 @@ pub(super) async fn tool_mcp_manage(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutc
 
     /// Announce that the server list changed so open Settings/pickers refresh.
     fn announce(ctx: &ToolCtx<'_>, action: &str, id: Option<&str>) {
-        let _ = ctx.app_handle.emit(
-            "mcp-servers-changed",
-            json!({ "action": action, "id": id }),
-        );
+        let _ = ctx
+            .app_handle
+            .emit("mcp-servers-changed", json!({ "action": action, "id": id }));
     }
 
     match action.as_str() {

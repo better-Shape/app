@@ -4,23 +4,45 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
 #[derive(Default)]
-struct IpcConfinementState { project_root: Option<PathBuf>, extra_roots: Vec<PathBuf>, granted_paths: HashSet<PathBuf> }
+struct IpcConfinementState {
+    project_root: Option<PathBuf>,
+    extra_roots: Vec<PathBuf>,
+    granted_paths: HashSet<PathBuf>,
+}
 
 fn ipc_lock() -> std::sync::MutexGuard<'static, IpcConfinementState> {
     static S: OnceLock<Mutex<IpcConfinementState>> = OnceLock::new();
-    S.get_or_init(|| Mutex::new(IpcConfinementState::default())).lock().unwrap_or_else(|p| p.into_inner())
+    S.get_or_init(|| Mutex::new(IpcConfinementState::default()))
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
 }
 
 pub fn resolve_path_for_confinement(p: &Path) -> Result<PathBuf, AppError> {
-    if p.components().any(|c| matches!(c, std::path::Component::ParentDir)) { return Err(AppError::Message("Path traversal (..).".into())); }
-    if p.exists() || p.symlink_metadata().is_ok() { return p.canonicalize().map_err(|e| AppError::Message(e.to_string())); }
+    if p.components()
+        .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
+        return Err(AppError::Message("Path traversal (..).".into()));
+    }
+    if p.exists() || p.symlink_metadata().is_ok() {
+        return p
+            .canonicalize()
+            .map_err(|e| AppError::Message(e.to_string()));
+    }
     let (mut t, mut c) = (Vec::new(), p);
     while let Some(pr) = c.parent() {
-        if let Some(n) = c.file_name() { t.push(n.to_os_string()); }
-        if pr.as_os_str().is_empty() { break; }
+        if let Some(n) = c.file_name() {
+            t.push(n.to_os_string());
+        }
+        if pr.as_os_str().is_empty() {
+            break;
+        }
         if pr.exists() || pr.symlink_metadata().is_ok() {
-            let mut b = pr.canonicalize().map_err(|e| AppError::Message(e.to_string()))?;
-            for x in t.into_iter().rev() { b.push(x); }
+            let mut b = pr
+                .canonicalize()
+                .map_err(|e| AppError::Message(e.to_string()))?;
+            for x in t.into_iter().rev() {
+                b.push(x);
+            }
             return Ok(b);
         }
         c = pr;
@@ -28,18 +50,30 @@ pub fn resolve_path_for_confinement(p: &Path) -> Result<PathBuf, AppError> {
     Ok(p.to_path_buf())
 }
 
-fn canonical_or_raw(p: &Path) -> PathBuf { resolve_path_for_confinement(p).unwrap_or_else(|_| p.to_path_buf()) }
+fn canonical_or_raw(p: &Path) -> PathBuf {
+    resolve_path_for_confinement(p).unwrap_or_else(|_| p.to_path_buf())
+}
 
 pub fn set_ipc_project_root(root: Option<&str>) {
     let mut g = ipc_lock();
-    g.project_root = root.map(str::trim).filter(|s| !s.is_empty()).map(|s| canonical_or_raw(Path::new(s)));
+    g.project_root = root
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| canonical_or_raw(Path::new(s)));
     g.extra_roots.clear();
     g.granted_paths.clear();
 }
 
 pub fn set_ipc_extra_roots(roots: Vec<String>) -> Result<(), AppError> {
     let mut next = Vec::new();
-    for s in roots.into_iter().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()) { assert_ipc_sensitive_only(&s)?; next.push(resolve_path_for_confinement(Path::new(&s))?); }
+    for s in roots
+        .into_iter()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+    {
+        assert_ipc_sensitive_only(&s)?;
+        next.push(resolve_path_for_confinement(Path::new(&s))?);
+    }
     ipc_lock().extra_roots = next;
     Ok(())
 }
@@ -47,24 +81,50 @@ pub fn set_ipc_extra_roots(roots: Vec<String>) -> Result<(), AppError> {
 pub fn grant_ipc_path(path: &str) -> Result<(), AppError> {
     assert_ipc_sensitive_only(path)?;
     let r = resolve_path_for_confinement(Path::new(path))?;
-    if r.is_dir() { return Err(AppError::Message("Cannot grant directory access.".into())); }
+    if r.is_dir() {
+        return Err(AppError::Message("Cannot grant directory access.".into()));
+    }
     ipc_lock().granted_paths.insert(r);
     Ok(())
 }
 
 pub fn is_protected_workspace_root(path: &str) -> bool {
-    resolve_path_for_confinement(Path::new(path)).map(|r| { let g = ipc_lock(); g.project_root.as_ref() == Some(&r) || g.extra_roots.contains(&r) }).unwrap_or(false)
+    resolve_path_for_confinement(Path::new(path))
+        .map(|r| {
+            let g = ipc_lock();
+            g.project_root.as_ref() == Some(&r) || g.extra_roots.contains(&r)
+        })
+        .unwrap_or(false)
 }
 
 fn builtin_allowed_roots() -> Vec<PathBuf> {
-    let mut r: Vec<PathBuf> = [dirs::data_local_dir(), dirs::config_dir(), dirs::data_dir()].into_iter().flatten().map(|d| canonical_or_raw(&d.join("BetterShape"))).collect();
-    r.push(canonical_or_raw(&std::env::temp_dir().join("bettershape-design-sandbox")));
-    if let Some(h) = dirs::home_dir() { for s in [".shape", ".claude", ".cursor", ".agents"] { r.push(canonical_or_raw(&h.join(s))); } }
+    let mut r: Vec<PathBuf> = [dirs::data_local_dir(), dirs::config_dir(), dirs::data_dir()]
+        .into_iter()
+        .flatten()
+        .map(|d| canonical_or_raw(&d.join("BetterShape")))
+        .collect();
+    r.push(canonical_or_raw(
+        &std::env::temp_dir().join("bettershape-design-sandbox"),
+    ));
+    if let Some(h) = dirs::home_dir() {
+        for s in [".shape", ".claude", ".cursor", ".agents"] {
+            r.push(canonical_or_raw(&h.join(s)));
+        }
+    }
     r
 }
 
 fn is_betterbetterbettershape_app_mcp_json(p: &Path) -> bool {
-    p.file_name().and_then(|n| n.to_str()).map(|n| n.eq_ignore_ascii_case("mcp.json")).unwrap_or(false) && [dirs::data_local_dir(), dirs::config_dir(), dirs::data_dir()].into_iter().flatten().any(|b| canonical_or_raw(p) == canonical_or_raw(&b.join("BetterShape").join("mcp.json")))
+    p.file_name()
+        .and_then(|n| n.to_str())
+        .map(|n| n.eq_ignore_ascii_case("mcp.json"))
+        .unwrap_or(false)
+        && [dirs::data_local_dir(), dirs::config_dir(), dirs::data_dir()]
+            .into_iter()
+            .flatten()
+            .any(|b| {
+                canonical_or_raw(p) == canonical_or_raw(&b.join("BetterShape").join("mcp.json"))
+            })
 }
 
 /// Sensitive file patterns that the AI should never read or write.
@@ -291,23 +351,66 @@ pub fn is_sensitive_path(path: &Path) -> bool {
 }
 
 pub fn assert_ipc_sensitive_only(path: &str) -> Result<(), AppError> {
-    if path.trim().is_empty() { return Err(AppError::Message("Path cannot be empty.".into())); }
+    if path.trim().is_empty() {
+        return Err(AppError::Message("Path cannot be empty.".into()));
+    }
     let p = PathBuf::from(path);
-    if p.components().any(|c| matches!(c, std::path::Component::ParentDir)) { return Err(AppError::Message("Path traversal (..) is not allowed.".into())); }
-    if is_betterbetterbettershape_app_mcp_json(&p) { return Ok(()); }
-    if is_sensitive_path(&p) || ["/.ssh/", "/.aws/", "/.gnupg/", "/.kube/", "/.azure/", "/.config/gcloud/", "/.docker/"].iter().any(|m| path.replace('\\', "/").to_ascii_lowercase().contains(m)) {
-        return Err(AppError::Message(format!("Access denied: '{path}' is sensitive.")));
+    if p.components()
+        .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
+        return Err(AppError::Message(
+            "Path traversal (..) is not allowed.".into(),
+        ));
+    }
+    if is_betterbetterbettershape_app_mcp_json(&p) {
+        return Ok(());
+    }
+    if is_sensitive_path(&p)
+        || [
+            "/.ssh/",
+            "/.aws/",
+            "/.gnupg/",
+            "/.kube/",
+            "/.azure/",
+            "/.config/gcloud/",
+            "/.docker/",
+        ]
+        .iter()
+        .any(|m| path.replace('\\', "/").to_ascii_lowercase().contains(m))
+    {
+        return Err(AppError::Message(format!(
+            "Access denied: '{path}' is sensitive."
+        )));
     }
     Ok(())
 }
 
 pub fn assert_ipc_path_allowed(path: &str) -> Result<(), AppError> {
     assert_ipc_sensitive_only(path)?;
-    let (pr, er, gp) = { let g = ipc_lock(); (g.project_root.clone(), g.extra_roots.clone(), g.granted_paths.clone()) };
+    let (pr, er, gp) = {
+        let g = ipc_lock();
+        (
+            g.project_root.clone(),
+            g.extra_roots.clone(),
+            g.granted_paths.clone(),
+        )
+    };
     let r = resolve_path_for_confinement(Path::new(path))?;
-    if is_sensitive_path(&r) && !is_betterbetterbettershape_app_mcp_json(&r) { return Err(AppError::Message(format!("Access denied: '{path}' is sensitive."))); }
-    if pr.as_ref().map(|x| r.starts_with(x)).unwrap_or(false) || er.iter().any(|x| r.starts_with(x)) || gp.contains(&r) || builtin_allowed_roots().iter().any(|x| r.starts_with(x)) { return Ok(()); }
-    Err(AppError::Message(format!("Access denied: '{path}' is outside workspace.")))
+    if is_sensitive_path(&r) && !is_betterbetterbettershape_app_mcp_json(&r) {
+        return Err(AppError::Message(format!(
+            "Access denied: '{path}' is sensitive."
+        )));
+    }
+    if pr.as_ref().map(|x| r.starts_with(x)).unwrap_or(false)
+        || er.iter().any(|x| r.starts_with(x))
+        || gp.contains(&r)
+        || builtin_allowed_roots().iter().any(|x| r.starts_with(x))
+    {
+        return Ok(());
+    }
+    Err(AppError::Message(format!(
+        "Access denied: '{path}' is outside workspace."
+    )))
 }
 
 /// Validate a path for read operations. Ensures it's within project and not sensitive.
@@ -405,10 +508,8 @@ mod tests {
 
     #[test]
     fn resolved_file_must_stay_inside_its_root() {
-        let temp = std::env::temp_dir().join(format!(
-            "bettershape-skill-root-{}",
-            std::process::id()
-        ));
+        let temp =
+            std::env::temp_dir().join(format!("bettershape-skill-root-{}", std::process::id()));
         let root = temp.join("skills");
         let sibling = temp.join("skills-extra");
         let _ = std::fs::remove_dir_all(&temp);
@@ -456,9 +557,21 @@ mod tests {
         let _ = (std::fs::create_dir_all(&p), std::fs::create_dir_all(&s));
         let (i, o) = (p.join("a.ts"), s.join("b.txt"));
         let _ = (std::fs::write(&i, ""), std::fs::write(&o, ""));
-        let (ps, is, os) = (p.to_string_lossy().to_string(), i.to_string_lossy().to_string(), o.to_string_lossy().to_string());
+        let (ps, is, os) = (
+            p.to_string_lossy().to_string(),
+            i.to_string_lossy().to_string(),
+            o.to_string_lossy().to_string(),
+        );
         set_ipc_project_root(Some(&ps));
-        assert!(assert_ipc_path_allowed(&is).is_ok() && assert_ipc_path_allowed(&p.join(".env").to_string_lossy()).is_err() && assert_ipc_path_allowed(&os).is_err() && grant_ipc_path(&os).is_ok() && assert_ipc_path_allowed(&os).is_ok() && grant_ipc_path(&s.to_string_lossy()).is_err() && is_protected_workspace_root(&ps));
+        assert!(
+            assert_ipc_path_allowed(&is).is_ok()
+                && assert_ipc_path_allowed(&p.join(".env").to_string_lossy()).is_err()
+                && assert_ipc_path_allowed(&os).is_err()
+                && grant_ipc_path(&os).is_ok()
+                && assert_ipc_path_allowed(&os).is_ok()
+                && grant_ipc_path(&s.to_string_lossy()).is_err()
+                && is_protected_workspace_root(&ps)
+        );
         set_ipc_project_root(None);
         assert!(assert_ipc_path_allowed(&os).is_err());
         let _ = std::fs::remove_dir_all(&b);

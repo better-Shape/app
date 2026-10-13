@@ -336,7 +336,8 @@ mod tests {
     /// Mock model script: create / read / list real files the way an agent turn would.
     #[test]
     fn mock_agent_tool_loop_stays_on_real_files() {
-        let dir = std::env::temp_dir().join(format!("bettershape-mock-agent-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("bettershape-mock-agent-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("src")).unwrap();
         std::fs::create_dir_all(dir.join("node_modules").join("left-pad")).unwrap();

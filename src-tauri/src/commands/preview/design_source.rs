@@ -392,7 +392,8 @@ fn merge_opening_attribute(opening: &str, name: &str, value: &str) -> Result<Str
             let quote = rest.as_bytes().first().copied();
             if quote != Some(b'"') && quote != Some(b'\'') {
                 return Err(AppError::Message(
-                    "This link is bound to a variable, so BetterShape left the code unchanged.".into(),
+                    "This link is bound to a variable, so BetterShape left the code unchanged."
+                        .into(),
                 ));
             }
             let quote_at = opening.len() - rest.len();
@@ -966,7 +967,8 @@ fn merge_react_style(opening: &str, styles: &BTreeMap<String, String>) -> Result
         let literal_start = value_start + whitespace;
         if !opening[literal_start..].starts_with("{{") {
             return Err(AppError::Message(
-                "This element uses a dynamic style expression. BetterShape will not overwrite it.".into(),
+                "This element uses a dynamic style expression. BetterShape will not overwrite it."
+                    .into(),
             ));
         }
         let Some(close_rel) = opening[literal_start + 2..].find("}}") else {
@@ -1039,7 +1041,8 @@ fn merge_html_style(opening: &str, styles: &BTreeMap<String, String>) -> Result<
             .ok_or_else(|| AppError::Message("Invalid style attribute.".into()))?;
         if quote != b'"' && quote != b'\'' {
             return Err(AppError::Message(
-                "This element uses a dynamic style expression. BetterShape will not overwrite it.".into(),
+                "This element uses a dynamic style expression. BetterShape will not overwrite it."
+                    .into(),
             ));
         }
         let start = quote_at + 1;
@@ -1396,8 +1399,10 @@ mod tests {
 
     #[test]
     fn resolves_and_patches_a_vite_react_element() {
-        let root =
-            std::env::temp_dir().join(format!("bettershape-design-source-{}", uuid::Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!(
+            "bettershape-design-source-{}",
+            uuid::Uuid::new_v4()
+        ));
         let src = root.join("src");
         std::fs::create_dir_all(&src).unwrap();
         std::fs::write(
@@ -1405,8 +1410,7 @@ mod tests {
             r#"{"dependencies":{"vite":"7","react":"19"}}"#,
         )
         .unwrap();
-        let source =
-            r#"export function App(){return <main className="hero shell">Hello BetterShape</main>}"#;
+        let source = r#"export function App(){return <main className="hero shell">Hello BetterShape</main>}"#;
         std::fs::write(src.join("App.tsx"), source).unwrap();
         let column = source.find("<main").unwrap() + 1;
 
@@ -1448,8 +1452,10 @@ mod tests {
 
     #[test]
     fn resolves_the_opening_tag_at_file_line_and_column() {
-        let root =
-            std::env::temp_dir().join(format!("bettershape-design-source-{}", uuid::Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!(
+            "bettershape-design-source-{}",
+            uuid::Uuid::new_v4()
+        ));
         let src = root.join("src");
         std::fs::create_dir_all(&src).unwrap();
         std::fs::write(
@@ -1502,8 +1508,10 @@ mod tests {
 
     #[test]
     fn resolves_webpack_internal_paths_and_nearby_lines() {
-        let root =
-            std::env::temp_dir().join(format!("bettershape-design-source-{}", uuid::Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!(
+            "bettershape-design-source-{}",
+            uuid::Uuid::new_v4()
+        ));
         let src = root.join("src");
         std::fs::create_dir_all(&src).unwrap();
         std::fs::write(
@@ -1537,7 +1545,8 @@ mod tests {
 
     #[test]
     fn resolves_next_chunk_url_to_app_page() {
-        let root = std::env::temp_dir().join(format!("bettershape-design-next-{}", uuid::Uuid::new_v4()));
+        let root =
+            std::env::temp_dir().join(format!("bettershape-design-next-{}", uuid::Uuid::new_v4()));
         let app = root.join("app");
         std::fs::create_dir_all(&app).unwrap();
         std::fs::write(
@@ -1609,7 +1618,8 @@ mod tests {
 
     #[test]
     fn refuses_instance_props_on_html_and_skips_node_modules() {
-        let root = std::env::temp_dir().join(format!("bettershape-design-safe-{}", uuid::Uuid::new_v4()));
+        let root =
+            std::env::temp_dir().join(format!("bettershape-design-safe-{}", uuid::Uuid::new_v4()));
         let src = root.join("src");
         let vendor = root.join("node_modules").join("ui");
         std::fs::create_dir_all(&src).unwrap();

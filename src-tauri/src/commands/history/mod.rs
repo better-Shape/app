@@ -33,7 +33,9 @@ fn file_history_dir(project_path: &str, file_path: &str) -> Result<PathBuf, AppE
 }
 
 fn legacy_file_history_dir(p: &str, f: &str) -> Result<PathBuf, AppError> {
-    Ok(history_root()?.join(hash_key(p)).join(hash_key(&normalize_relative(p, f))))
+    Ok(history_root()?
+        .join(hash_key(p))
+        .join(hash_key(&normalize_relative(p, f))))
 }
 
 fn normalize_relative(project_path: &str, file_path: &str) -> String {
@@ -59,9 +61,19 @@ pub fn save_history_version(
     let timestamp = chrono_like_timestamp();
     static C: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let (id, mut file) = loop {
-        let id = format!("{}-{:010}", timestamp * 1000, C.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
-        match fs::OpenOptions::new().write(true).create_new(true).open(dir.join(format!("{id}.json"))) {
-            Ok(f) => break (id, f), Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue, Err(e) => return Err(AppError::Io(e)),
+        let id = format!(
+            "{}-{:010}",
+            timestamp * 1000,
+            C.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        );
+        match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(dir.join(format!("{id}.json")))
+        {
+            Ok(f) => break (id, f),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(AppError::Io(e)),
         }
     };
 
@@ -106,10 +118,20 @@ pub fn get_file_history(
     }
 
     let mut dirs = vec![file_history_dir(project_path, file_path)?];
-    if let Ok(legacy) = legacy_file_history_dir(project_path, file_path) { if legacy != dirs[0] { dirs.push(legacy); } }
+    if let Ok(legacy) = legacy_file_history_dir(project_path, file_path) {
+        if legacy != dirs[0] {
+            dirs.push(legacy);
+        }
+    }
 
     let mut entries: Vec<HistoryEntry> = Vec::new();
-    for entry in dirs.iter().filter(|d| d.exists()).filter_map(|d| fs::read_dir(d).ok()).flatten().flatten() {
+    for entry in dirs
+        .iter()
+        .filter(|d| d.exists())
+        .filter_map(|d| fs::read_dir(d).ok())
+        .flatten()
+        .flatten()
+    {
         let path = entry.path();
         if path.extension().and_then(|e| e.to_str()) != Some("json") {
             continue;
@@ -153,8 +175,12 @@ pub fn restore_history_version(
     let dir = file_history_dir(project_path, file_path)?;
     let mut entry_path = dir.join(format!("{}.json", version_id));
     if !entry_path.exists() {
-        if let Ok(lp) = legacy_file_history_dir(project_path, file_path).map(|d| d.join(format!("{version_id}.json"))) {
-            if lp.exists() { entry_path = lp; }
+        if let Ok(lp) = legacy_file_history_dir(project_path, file_path)
+            .map(|d| d.join(format!("{version_id}.json")))
+        {
+            if lp.exists() {
+                entry_path = lp;
+            }
         }
     }
     if !entry_path.exists() {
@@ -197,7 +223,10 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
     let y = (d - d / 1460 + d / 36524 - d / 146096) / 365;
     let (yr, dy) = (y as i64 + e * 400, d - (365 * y + y / 4 - y / 100));
     let mp = (5 * dy + 2) / 153;
-    let (da, mo) = ((dy - (153 * mp + 2) / 5 + 1) as u32, (if mp < 10 { mp + 3 } else { mp - 9 }) as u32);
+    let (da, mo) = (
+        (dy - (153 * mp + 2) / 5 + 1) as u32,
+        (if mp < 10 { mp + 3 } else { mp - 9 }) as u32,
+    );
     (if mo <= 2 { yr + 1 } else { yr }, mo, da)
 }
 
@@ -205,5 +234,10 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
 mod tests {
     use super::*;
     #[test]
-    fn format_ts() { assert!(format_timestamp(0) == "1970-01-01 00:00:00" && format_timestamp(1_700_000_000) == "2023-11-14 22:13:20"); }
+    fn format_ts() {
+        assert!(
+            format_timestamp(0) == "1970-01-01 00:00:00"
+                && format_timestamp(1_700_000_000) == "2023-11-14 22:13:20"
+        );
+    }
 }

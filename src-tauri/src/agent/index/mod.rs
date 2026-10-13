@@ -301,8 +301,13 @@ impl IndexManager {
         });
 
         self.manifest.files = current_files;
-        self.manifest.last_indexed_at =
-            Some(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs_f64() * 1000.0);
+        self.manifest.last_indexed_at = Some(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs_f64()
+                * 1000.0,
+        );
 
         self.persist()?;
         Ok(self.status(false))
@@ -353,28 +358,27 @@ impl IndexManager {
                 text: chunk.text.clone(),
             });
             if batch.len() >= EMBED_BATCH {
-                stored = self
-                    .remote
-                    .sync_chunks(&mut self.embeddings, std::mem::take(&mut batch), first)?;
+                stored = self.remote.sync_chunks(
+                    &mut self.embeddings,
+                    std::mem::take(&mut batch),
+                    first,
+                )?;
                 batch = Vec::with_capacity(EMBED_BATCH);
             }
         }
 
         let full_replace = first;
         if !batch.is_empty() {
-            stored = self.remote.sync_chunks(&mut self.embeddings, batch, full_replace)?;
+            stored = self
+                .remote
+                .sync_chunks(&mut self.embeddings, batch, full_replace)?;
         } else if full_replace {
             self.embeddings.clear();
             stored = 0;
         }
 
         // Drop vectors for files that are gone.
-        let keep: HashSet<String> = self
-            .index
-            .chunks
-            .iter()
-            .map(|c| c.path.clone())
-            .collect();
+        let keep: HashSet<String> = self.index.chunks.iter().map(|c| c.path.clone()).collect();
         self.embeddings.retain_files(&keep);
 
         Ok(stored)

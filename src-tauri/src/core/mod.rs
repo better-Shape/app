@@ -1,10 +1,10 @@
 pub mod ai_providers;
 pub mod error;
-pub mod project_key;
 pub mod git_bin;
 pub mod mic;
 pub mod paths;
 pub mod process;
+pub mod project_key;
 pub mod ram_debug;
 pub mod result;
 pub mod state;

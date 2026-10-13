@@ -131,7 +131,10 @@ pub async fn mcp_manage_servers(
     use tauri::Emitter;
 
     let announce = |action: &str, id: Option<&str>| {
-        let _ = app_handle.emit("mcp-servers-changed", serde_json::json!({ "action": action, "id": id }));
+        let _ = app_handle.emit(
+            "mcp-servers-changed",
+            serde_json::json!({ "action": action, "id": id }),
+        );
     };
 
     let action = request.action.trim().to_ascii_lowercase();
@@ -224,9 +227,12 @@ pub fn mcp_reload_from_file(
     let mut previously_file_sourced = mcp_state.file_sourced_ids();
     previously_file_sourced.extend(crate::mcp::admin::written_ids_snapshot());
     let mut servers: Vec<McpServerConfig> = file_servers;
-    servers.extend(mcp_state.configs_snapshot().into_iter().filter(|s| {
-        !file_ids.contains(&s.id) && !previously_file_sourced.contains(&s.id)
-    }));
+    servers.extend(
+        mcp_state
+            .configs_snapshot()
+            .into_iter()
+            .filter(|s| !file_ids.contains(&s.id) && !previously_file_sourced.contains(&s.id)),
+    );
     mcp_state.remember_file_sourced(file_ids);
     mcp_state.sync_servers(servers).map_err(AppError::Message)
 }

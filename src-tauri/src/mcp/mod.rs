@@ -517,7 +517,10 @@ impl McpState {
 
     /// Ids the file provided at the last reload.
     pub fn file_sourced_ids(&self) -> std::collections::HashSet<String> {
-        self.file_sourced.lock().map(|s| s.clone()).unwrap_or_default()
+        self.file_sourced
+            .lock()
+            .map(|s| s.clone())
+            .unwrap_or_default()
     }
 
     /// Remember which ids the file provided.
@@ -539,10 +542,7 @@ impl McpState {
 
     /// Configured servers exactly as the running state holds them.
     pub fn configs_snapshot(&self) -> Vec<McpServerConfig> {
-        self.configs
-            .lock()
-            .map(|c| c.clone())
-            .unwrap_or_default()
+        self.configs.lock().map(|c| c.clone()).unwrap_or_default()
     }
 
     /// Restart the current server.

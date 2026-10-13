@@ -614,10 +614,7 @@ pub async fn start_oauth(
             if doc.get("redirect_uris").is_none() {
                 return Err("Local OAuth client metadata is malformed".to_string());
             }
-            (
-                cimd_client_id(port),
-                None,
-            )
+            (cimd_client_id(port), None)
         }
         ResolveClientStrategy::Dcr(reg) => {
             try_dynamic_client_registration(&client, &reg, auth_method, &redirect_uri).await?

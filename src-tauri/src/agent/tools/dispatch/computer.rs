@@ -36,7 +36,9 @@ pub(super) async fn tool_decide(args: &Value, _ctx: &ToolCtx<'_>) -> ToolOutcome
     );
     match crate::agent::commands::streaming::quick_complete(&decision_prompt, "decide", 100).await {
         Ok(text) => {
-            let cleaned = text.trim().trim_matches(|c: char| c == '"' || c == '`' || c == '.');
+            let cleaned = text
+                .trim()
+                .trim_matches(|c: char| c == '"' || c == '`' || c == '.');
             let choice = options
                 .iter()
                 .find(|option| option.eq_ignore_ascii_case(cleaned))

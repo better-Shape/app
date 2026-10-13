@@ -130,8 +130,7 @@ async fn complete_pull_request_prompt(
     let turn_id = uuid::Uuid::new_v4().to_string();
     let ctx = streaming::ProxyContext::new(purpose).with_turn(Some(turn_id), None);
     let (message, _, _) =
-        streaming::complete_chat_with_max_tokens(&client, "", &prompt, model, 700, &ctx)
-            .await?;
+        streaming::complete_chat_with_max_tokens(&client, "", &prompt, model, 700, &ctx).await?;
     if message.trim().is_empty() {
         return Err(AppError::Message(empty_message.into()));
     }
@@ -237,8 +236,7 @@ pub async fn review_pull_request(
     let turn_id = uuid::Uuid::new_v4().to_string();
     let ctx = streaming::ProxyContext::new("pr_review").with_turn(Some(turn_id), None);
     let (message, _, _) =
-        streaming::complete_chat_with_max_tokens(&client, "", &prompt, model, 700, &ctx)
-            .await?;
+        streaming::complete_chat_with_max_tokens(&client, "", &prompt, model, 700, &ctx).await?;
     if message.trim().is_empty() {
         return Err(AppError::Message("Failed to review pull request".into()));
     }
@@ -293,8 +291,7 @@ pub async fn draft_pull_request(
     let turn_id = uuid::Uuid::new_v4().to_string();
     let ctx = streaming::ProxyContext::new("pr_draft").with_turn(Some(turn_id), None);
     let (message, _, _) =
-        streaming::complete_chat_with_max_tokens(&client, "", &prompt, model, 700, &ctx)
-            .await?;
+        streaming::complete_chat_with_max_tokens(&client, "", &prompt, model, 700, &ctx).await?;
     if message.trim().is_empty() {
         return Err(AppError::Message("Failed to draft pull request".into()));
     }
@@ -367,8 +364,7 @@ pub async fn summarize_release(
     let turn_id = uuid::Uuid::new_v4().to_string();
     let ctx = streaming::ProxyContext::new("release_summary").with_turn(Some(turn_id), None);
     let (message, _, _) =
-        streaming::complete_chat_with_max_tokens(&client, "", &prompt, model, 700, &ctx)
-            .await?;
+        streaming::complete_chat_with_max_tokens(&client, "", &prompt, model, 700, &ctx).await?;
     if message.trim().is_empty() {
         return Err(AppError::Message("Failed to summarize release".into()));
     }
@@ -377,10 +373,7 @@ pub async fn summarize_release(
 
 /// One-shot AI explanation of a CI / Actions log for the Git Manager logs pane.
 #[tauri::command]
-pub async fn explain_ci_log(
-    log_text: String,
-    context: Option<String>,
-) -> Result<String, AppError> {
+pub async fn explain_ci_log(log_text: String, context: Option<String>) -> Result<String, AppError> {
     let client = Client::new();
     let model = MODEL_TITLE_GEN;
 
@@ -403,8 +396,7 @@ pub async fn explain_ci_log(
     let turn_id = uuid::Uuid::new_v4().to_string();
     let ctx = streaming::ProxyContext::new("ci_explain").with_turn(Some(turn_id), None);
     let (message, _, _) =
-        streaming::complete_chat_with_max_tokens(&client, "", &prompt, model, 700, &ctx)
-            .await?;
+        streaming::complete_chat_with_max_tokens(&client, "", &prompt, model, 700, &ctx).await?;
     if message.trim().is_empty() {
         return Err(AppError::Message("Failed to explain CI log".into()));
     }
@@ -552,8 +544,7 @@ pub async fn explain_git_changes(
     let turn_id = uuid::Uuid::new_v4().to_string();
     let ctx = streaming::ProxyContext::new("git_explain").with_turn(Some(turn_id), None);
     let (message, _, _) =
-        streaming::complete_chat_with_max_tokens(&client, "", &prompt, model, 450, &ctx)
-            .await?;
+        streaming::complete_chat_with_max_tokens(&client, "", &prompt, model, 450, &ctx).await?;
     if message.trim().is_empty() {
         return Err(AppError::Message("Failed to explain git changes".into()));
     }
@@ -562,11 +553,7 @@ pub async fn explain_git_changes(
 
 /// One-shot AI summary of a GitHub issue for the Git Manager detail pane.
 #[tauri::command]
-pub async fn summarize_issue(
-    owner: String,
-    repo: String,
-    number: u64,
-) -> Result<String, AppError> {
+pub async fn summarize_issue(owner: String, repo: String, number: u64) -> Result<String, AppError> {
     let client = Client::new();
     let model = MODEL_TITLE_GEN;
     let slug = format!("{owner}/{repo}");
@@ -615,8 +602,7 @@ pub async fn summarize_issue(
     let turn_id = uuid::Uuid::new_v4().to_string();
     let ctx = streaming::ProxyContext::new("issue_summary").with_turn(Some(turn_id), None);
     let (message, _, _) =
-        streaming::complete_chat_with_max_tokens(&client, "", &prompt, model, 500, &ctx)
-            .await?;
+        streaming::complete_chat_with_max_tokens(&client, "", &prompt, model, 500, &ctx).await?;
     if message.trim().is_empty() {
         return Err(AppError::Message("Failed to summarize issue".into()));
     }

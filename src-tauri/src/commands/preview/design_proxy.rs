@@ -95,10 +95,14 @@ fn assert_loopback_target(parsed: &url::Url, what: &str) -> Result<(), AppError>
     let ok = match parsed.host() {
         Some(url::Host::Ipv4(ip)) => ip.is_loopback(),
         Some(url::Host::Ipv6(ip)) => ip.is_loopback(),
-        Some(url::Host::Domain(d)) => { let l = d.to_ascii_lowercase(); l == "localhost" || l.ends_with(".localhost") }
+        Some(url::Host::Domain(d)) => {
+            let l = d.to_ascii_lowercase();
+            l == "localhost" || l.ends_with(".localhost")
+        }
         None => false,
     };
-    ok.then_some(()).ok_or_else(|| AppError::Message(format!("{what} requires loopback.")))
+    ok.then_some(())
+        .ok_or_else(|| AppError::Message(format!("{what} requires loopback.")))
 }
 
 fn origin_of(parsed: &url::Url) -> String {
@@ -120,15 +124,33 @@ fn proxy_src(listen_port: u16, parsed: &url::Url, token: Option<&str>) -> String
         out.push('?');
         out.push_str(q);
     }
-    if let Some(t) = token { out.push_str(&format!("{}{PROXY_TOKEN_PARAM}={t}", match parsed.query() { Some("") => "", Some(_) => "&", None => "?" })); }
-    if let Some(f) = parsed.fragment().filter(|f| !f.is_empty()) { out.push('#'); out.push_str(f); }
+    if let Some(t) = token {
+        out.push_str(&format!(
+            "{}{PROXY_TOKEN_PARAM}={t}",
+            match parsed.query() {
+                Some("") => "",
+                Some(_) => "&",
+                None => "?",
+            }
+        ));
+    }
+    if let Some(f) = parsed.fragment().filter(|f| !f.is_empty()) {
+        out.push('#');
+        out.push_str(f);
+    }
     out
 }
 
 fn extract_and_strip_proxy_token(q: Option<&str>, exp: &str) -> (bool, Option<String>) {
     let Some(q) = q else { return (false, None) };
     let (mut m, mut k) = (false, Vec::new());
-    for p in q.split('&').filter(|p| !p.is_empty()) { if let Some((PROXY_TOKEN_PARAM, v)) = p.split_once('=') { m |= v == exp; } else { k.push(p); } }
+    for p in q.split('&').filter(|p| !p.is_empty()) {
+        if let Some((PROXY_TOKEN_PARAM, v)) = p.split_once('=') {
+            m |= v == exp;
+        } else {
+            k.push(p);
+        }
+    }
     (m, (!k.is_empty()).then(|| k.join("&")))
 }
 
@@ -178,8 +200,21 @@ async fn handle_client(
         query_token_ok = matched;
         dest.set_query(cleaned_q.as_deref());
     }
-    let hdr = |k: &str| lines.clone().find_map(|l| l.split_once(':').and_then(|(n, v)| n.trim().eq_ignore_ascii_case(k).then_some(v.trim())));
-    let ref_ok = hdr("referer").and_then(|r| url::Url::parse(r).ok()).map(|u| extract_and_strip_proxy_token(u.query(), &token).0 || (u.host_str() == Some("127.0.0.1") && u.port() == Some(listen_port) && hdr("sec-fetch-site") == Some("same-origin"))).unwrap_or(false);
+    let hdr = |k: &str| {
+        lines.clone().find_map(|l| {
+            l.split_once(':')
+                .and_then(|(n, v)| n.trim().eq_ignore_ascii_case(k).then_some(v.trim()))
+        })
+    };
+    let ref_ok = hdr("referer")
+        .and_then(|r| url::Url::parse(r).ok())
+        .map(|u| {
+            extract_and_strip_proxy_token(u.query(), &token).0
+                || (u.host_str() == Some("127.0.0.1")
+                    && u.port() == Some(listen_port)
+                    && hdr("sec-fetch-site") == Some("same-origin"))
+        })
+        .unwrap_or(false);
     if !query_token_ok && !ref_ok {
         let _ = client.write_all(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 9\r\nConnection: close\r\n\r\nForbidden").await;
         return;
@@ -415,9 +450,35 @@ mod tests {
     use super::*;
     #[test]
     fn proxy_checks() {
-        for u in ["http://localhost:5173/", "http://127.0.0.1:3000/app", "http://[::1]:8080/", "http://app.localhost:5173/"] { assert!(assert_loopback_target(&url::Url::parse(u).unwrap(), "t").is_ok()); }
-        for u in ["http://192.168.1.10:5173/", "http://10.0.0.2/", "https://example.com/", "http://evil-localhost.com/"] { assert!(assert_loopback_target(&url::Url::parse(u).unwrap(), "t").is_err()); }
+        for u in [
+            "http://localhost:5173/",
+            "http://127.0.0.1:3000/app",
+            "http://[::1]:8080/",
+            "http://app.localhost:5173/",
+        ] {
+            assert!(assert_loopback_target(&url::Url::parse(u).unwrap(), "t").is_ok());
+        }
+        for u in [
+            "http://192.168.1.10:5173/",
+            "http://10.0.0.2/",
+            "https://example.com/",
+            "http://evil-localhost.com/",
+        ] {
+            assert!(assert_loopback_target(&url::Url::parse(u).unwrap(), "t").is_err());
+        }
         let out = rewrite_csp_frame_ancestors("default-src 'self'; frame-ancestors *");
-        assert!(!out.contains("frame-ancestors *") && out.contains("tauri.localhost") && extract_and_strip_proxy_token(Some("a=1&__betterbetterbetterbettershape_proxy_token=x&b=2"), "x") == (true, Some("a=1&b=2".into())) && !extract_and_strip_proxy_token(Some("__betterbetterbetterbettershape_proxy_token=y"), "x").0);
+        assert!(
+            !out.contains("frame-ancestors *")
+                && out.contains("tauri.localhost")
+                && extract_and_strip_proxy_token(
+                    Some("a=1&__betterbetterbetterbettershape_proxy_token=x&b=2"),
+                    "x"
+                ) == (true, Some("a=1&b=2".into()))
+                && !extract_and_strip_proxy_token(
+                    Some("__betterbetterbetterbettershape_proxy_token=y"),
+                    "x"
+                )
+                .0
+        );
     }
 }

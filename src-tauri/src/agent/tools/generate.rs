@@ -123,7 +123,11 @@ fn decode_image_payload(data: &Value) -> Result<GeneratedMedia, String> {
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(b64)
             .map_err(|e| format!("Could not decode the generated image: {e}"))?;
-        return Ok((data_url("image/png", &bytes), "image/png".to_string(), bytes));
+        return Ok((
+            data_url("image/png", &bytes),
+            "image/png".to_string(),
+            bytes,
+        ));
     }
     if let Some(url) = item.get("url").and_then(|v| v.as_str()) {
         return Ok((url.to_string(), "image/png".to_string(), Vec::new()));
@@ -131,9 +135,15 @@ fn decode_image_payload(data: &Value) -> Result<GeneratedMedia, String> {
     Err("The image provider returned an unexpected payload.".to_string())
 }
 
-async fn generate_image(provider: &crate::core::ai_providers::ResolvedProvider, prompt: &str) -> Result<GeneratedMedia, String> {
+async fn generate_image(
+    provider: &crate::core::ai_providers::ResolvedProvider,
+    prompt: &str,
+) -> Result<GeneratedMedia, String> {
     let client = reqwest::Client::new();
-    let url = format!("{}/images/generations", provider.base_url.trim_end_matches('/'));
+    let url = format!(
+        "{}/images/generations",
+        provider.base_url.trim_end_matches('/')
+    );
     let resp = client
         .post(&url)
         .header("Authorization", format!("Bearer {}", provider.api_key))
@@ -149,9 +159,13 @@ async fn generate_image(provider: &crate::core::ai_providers::ResolvedProvider, 
     let status = resp.status();
     let text = resp.text().await.unwrap_or_default();
     if !status.is_success() {
-        return Err(format!("Image error {status}: {}", text.chars().take(300).collect::<String>()));
+        return Err(format!(
+            "Image error {status}: {}",
+            text.chars().take(300).collect::<String>()
+        ));
     }
-    let data: Value = serde_json::from_str(&text).map_err(|e| format!("Could not read the image response: {e}"))?;
+    let data: Value = serde_json::from_str(&text)
+        .map_err(|e| format!("Could not read the image response: {e}"))?;
     let (mut data_url_out, mime, bytes) = decode_image_payload(&data)?;
     if bytes.is_empty() {
         let fetched = fetch_remote(&client, &data_url_out).await?;
@@ -197,9 +211,13 @@ async fn generate_image_edit(
     let status = resp.status();
     let text = resp.text().await.unwrap_or_default();
     if !status.is_success() {
-        return Err(format!("Image edit error {status}: {}", text.chars().take(300).collect::<String>()));
+        return Err(format!(
+            "Image edit error {status}: {}",
+            text.chars().take(300).collect::<String>()
+        ));
     }
-    let data: Value = serde_json::from_str(&text).map_err(|e| format!("Could not read the image response: {e}"))?;
+    let data: Value = serde_json::from_str(&text)
+        .map_err(|e| format!("Could not read the image response: {e}"))?;
     let (data_url_out, _, bytes) = decode_image_payload(&data)?;
     if bytes.is_empty() {
         let fetched = fetch_remote(&client, &data_url_out).await?;
@@ -236,7 +254,10 @@ async fn generate_audio(
     let status = resp.status();
     if !status.is_success() {
         let text = resp.text().await.unwrap_or_default();
-        return Err(format!("Audio error {status}: {}", text.chars().take(300).collect::<String>()));
+        return Err(format!(
+            "Audio error {status}: {}",
+            text.chars().take(300).collect::<String>()
+        ));
     }
     let bytes = resp
         .bytes()
@@ -288,7 +309,10 @@ async fn fetch_remote(client: &reqwest::Client, url: &str) -> Result<(String, Ve
         .await
         .map_err(|e| format!("Could not download the generated media: {e}"))?;
     if !resp.status().is_success() {
-        return Err(format!("Could not download the generated media ({})", resp.status()));
+        return Err(format!(
+            "Could not download the generated media ({})",
+            resp.status()
+        ));
     }
     let mime = resp
         .headers()
@@ -296,11 +320,7 @@ async fn fetch_remote(client: &reqwest::Client, url: &str) -> Result<(String, Ve
         .and_then(|v| v.to_str().ok())
         .unwrap_or("image/png")
         .to_string();
-    let bytes = resp
-        .bytes()
-        .await
-        .map_err(|e| e.to_string())?
-        .to_vec();
+    let bytes = resp.bytes().await.map_err(|e| e.to_string())?.to_vec();
     Ok((mime, bytes))
 }
 

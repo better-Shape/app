@@ -290,19 +290,78 @@ pub fn check_command_safety(command: &str) -> CommandSafety {
 }
 
 fn git_content_safety_reason(safe: &str, rest: &str) -> Option<String> {
-    if !matches!(safe, "git show" | "git log" | "git diff") { return None; }
-    if rest.contains(['"', '\'', '\\']) { return Some("Quoted or escaped git args require approval.".into()); }
+    if !matches!(safe, "git show" | "git log" | "git diff") {
+        return None;
+    }
+    if rest.contains(['"', '\'', '\\']) {
+        return Some("Quoted or escaped git args require approval.".into());
+    }
     let toks: Vec<&str> = rest.split_whitespace().collect();
     for t in &toks {
-        if t.starts_with("--output") || t.starts_with("--ext-diff") || t.starts_with("--textconv") { return Some("Git flag requires approval.".into()); }
+        if t.starts_with("--output") || t.starts_with("--ext-diff") || t.starts_with("--textconv") {
+            return Some("Git flag requires approval.".into());
+        }
         for c in [*t, t.rsplit(':').next().unwrap_or(t)] {
-            if !c.is_empty() && super::paths::is_sensitive_path(std::path::Path::new(c)) { return Some(format!("Sensitive git path '{c}'.")); }
+            if !c.is_empty() && super::paths::is_sensitive_path(std::path::Path::new(c)) {
+                return Some(format!("Sensitive git path '{c}'."));
+            }
         }
     }
-    let patch = toks.iter().any(|t| matches!(*t, "-p" | "-u" | "-c" | "--cc" | "--raw") || t.starts_with("--patch") || t.starts_with("--unified") || t.starts_with("--word-diff") || t.starts_with("--color-words") || t.starts_with("-l") || t.starts_with("-g") || t.starts_with("-u") || (t.starts_with("-s") && *t != "-s") || (t.starts_with('-') && !t.starts_with("--") && t[1..].chars().all(|c| c.is_ascii_alphanumeric()) && (t[1..].contains('p') || t[1..].contains('u') || t[1..].contains('c'))));
-    if safe == "git log" && patch { return Some("git log with patches requires approval.".into()); }
-    let safe_file = |p: &str| !p.is_empty() && !matches!(p, "." | "..") && !p.ends_with('/') && !p.contains(['*', '?', '[', ':']) && std::path::Path::new(p).extension().is_some() && !std::fs::metadata(p).map(|m| m.is_dir()).unwrap_or(false);
-    if safe != "git log" && !(safe == "git diff" && !patch && toks.iter().any(|t| matches!(*t, "--stat" | "--shortstat" | "--numstat" | "--name-only" | "--name-status" | "--summary" | "-s" | "--no-patch"))) && !(toks.iter().position(|t| *t == "--").map(|i| i + 1 < toks.len() && toks[i + 1..].iter().all(|p| safe_file(p))).unwrap_or(false) || (safe == "git show" && toks.len() == 1 && !toks[0].starts_with('-') && toks[0].split_once(':').map(|(r, p)| !r.is_empty() && safe_file(p)).unwrap_or(false))) {
+    let patch = toks.iter().any(|t| {
+        matches!(*t, "-p" | "-u" | "-c" | "--cc" | "--raw")
+            || t.starts_with("--patch")
+            || t.starts_with("--unified")
+            || t.starts_with("--word-diff")
+            || t.starts_with("--color-words")
+            || t.starts_with("-l")
+            || t.starts_with("-g")
+            || t.starts_with("-u")
+            || (t.starts_with("-s") && *t != "-s")
+            || (t.starts_with('-')
+                && !t.starts_with("--")
+                && t[1..].chars().all(|c| c.is_ascii_alphanumeric())
+                && (t[1..].contains('p') || t[1..].contains('u') || t[1..].contains('c')))
+    });
+    if safe == "git log" && patch {
+        return Some("git log with patches requires approval.".into());
+    }
+    let safe_file = |p: &str| {
+        !p.is_empty()
+            && !matches!(p, "." | "..")
+            && !p.ends_with('/')
+            && !p.contains(['*', '?', '[', ':'])
+            && std::path::Path::new(p).extension().is_some()
+            && !std::fs::metadata(p).map(|m| m.is_dir()).unwrap_or(false)
+    };
+    if safe != "git log"
+        && !(safe == "git diff"
+            && !patch
+            && toks.iter().any(|t| {
+                matches!(
+                    *t,
+                    "--stat"
+                        | "--shortstat"
+                        | "--numstat"
+                        | "--name-only"
+                        | "--name-status"
+                        | "--summary"
+                        | "-s"
+                        | "--no-patch"
+                )
+            }))
+        && !(toks
+            .iter()
+            .position(|t| *t == "--")
+            .map(|i| i + 1 < toks.len() && toks[i + 1..].iter().all(|p| safe_file(p)))
+            .unwrap_or(false)
+            || (safe == "git show"
+                && toks.len() == 1
+                && !toks[0].starts_with('-')
+                && toks[0]
+                    .split_once(':')
+                    .map(|(r, p)| !r.is_empty() && safe_file(p))
+                    .unwrap_or(false)))
+    {
         return Some("Git patch requires approval.".into());
     }
     None
@@ -547,8 +606,34 @@ mod tests {
 
     #[test]
     fn test_git_content_sensitive_paths_need_approval() {
-        for c in ["git show HEAD:.env", "git show HEAD:'.env'", "git show HEAD HEAD:src/main.rs", "git show --stat e69de29", "git diff", "git diff -- .", "git show HEAD:config/id_rsa", "git diff -- .env", "git diff HEAD -- certs/server.pem", "git log -p", "git log --patch -2", "git log --patch-with-stat", "git log -L1,5:src/main.rs"] { assert!(matches!(check_command_safety(c), CommandSafety::NeedsApproval { .. })); }
-        for c in ["git show HEAD:src/main.rs", "git log -1 --oneline", "git diff --stat", "git diff -- src/app.ts"] { assert_eq!(check_command_safety(c), CommandSafety::Safe); }
+        for c in [
+            "git show HEAD:.env",
+            "git show HEAD:'.env'",
+            "git show HEAD HEAD:src/main.rs",
+            "git show --stat e69de29",
+            "git diff",
+            "git diff -- .",
+            "git show HEAD:config/id_rsa",
+            "git diff -- .env",
+            "git diff HEAD -- certs/server.pem",
+            "git log -p",
+            "git log --patch -2",
+            "git log --patch-with-stat",
+            "git log -L1,5:src/main.rs",
+        ] {
+            assert!(matches!(
+                check_command_safety(c),
+                CommandSafety::NeedsApproval { .. }
+            ));
+        }
+        for c in [
+            "git show HEAD:src/main.rs",
+            "git log -1 --oneline",
+            "git diff --stat",
+            "git diff -- src/app.ts",
+        ] {
+            assert_eq!(check_command_safety(c), CommandSafety::Safe);
+        }
     }
 
     #[test]

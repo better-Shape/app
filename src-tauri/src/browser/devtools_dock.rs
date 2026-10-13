@@ -96,10 +96,13 @@ async fn json_list() -> Result<Vec<Value>, String> {
 }
 
 async fn iframe_session_id(page_ws: &str, want: &str) -> Result<String, String> {
-    let (mut socket, _) = tokio::time::timeout(Duration::from_secs(5), tokio_tungstenite::connect_async(page_ws))
-        .await
-        .map_err(|_| RESTART.to_string())?
-        .map_err(|_| RESTART.to_string())?;
+    let (mut socket, _) = tokio::time::timeout(
+        Duration::from_secs(5),
+        tokio_tungstenite::connect_async(page_ws),
+    )
+    .await
+    .map_err(|_| RESTART.to_string())?
+    .map_err(|_| RESTART.to_string())?;
     let session = wait_iframe(&mut socket, want).await?;
     Ok(session)
 }
@@ -209,10 +212,29 @@ async fn start_proxy(page_ws: String, want: String) -> Result<(u16, String), Str
             let want = want.clone();
             let exp_path = exp_path.clone();
             tauri::async_runtime::spawn(async move {
-                let Ok(frontend) = tokio_tungstenite::accept_hdr_async(stream, move |r: &tokio_tungstenite::tungstenite::handshake::server::Request, resp| {
-                    if r.uri().path() != exp_path || !r.headers().get("Origin").and_then(|v| v.to_str().ok()).map(|o| o == crate::browser::webview_debug::base_url()).unwrap_or(true) { return Err(tokio_tungstenite::tungstenite::http::Response::builder().status(403).body(None).unwrap()); }
-                    Ok(resp)
-                }).await else { return };
+                let Ok(frontend) = tokio_tungstenite::accept_hdr_async(
+                    stream,
+                    move |r: &tokio_tungstenite::tungstenite::handshake::server::Request, resp| {
+                        if r.uri().path() != exp_path
+                            || !r
+                                .headers()
+                                .get("Origin")
+                                .and_then(|v| v.to_str().ok())
+                                .map(|o| o == crate::browser::webview_debug::base_url())
+                                .unwrap_or(true)
+                        {
+                            return Err(tokio_tungstenite::tungstenite::http::Response::builder()
+                                .status(403)
+                                .body(None)
+                                .unwrap());
+                        }
+                        Ok(resp)
+                    },
+                )
+                .await
+                else {
+                    return;
+                };
                 relay(frontend, page_ws, want).await;
             });
         }
@@ -226,7 +248,12 @@ async fn relay(
     page_ws: String,
     want: String,
 ) {
-    let Ok(Ok((mut page, _))) = tokio::time::timeout(Duration::from_secs(5), tokio_tungstenite::connect_async(&page_ws)).await else {
+    let Ok(Ok((mut page, _))) = tokio::time::timeout(
+        Duration::from_secs(5),
+        tokio_tungstenite::connect_async(&page_ws),
+    )
+    .await
+    else {
         return;
     };
     let Ok(session) = wait_iframe(&mut page, &want).await else {

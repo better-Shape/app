@@ -576,21 +576,15 @@ async fn handle_compact_context(
     // A hold on the automatic pass: the agent knows what it is half-way
     // through, the token counter does not.
     if matches!(action.as_str(), "defer" | "pause" | "hold") {
-        let reason = text_arg("reason").unwrap_or_else(|| {
-            "the agent asked for room to finish the current step".to_string()
-        });
+        let reason = text_arg("reason")
+            .unwrap_or_else(|| "the agent asked for room to finish the current step".to_string());
         let tokens_now = config
             .agent_state
             .history
             .lock()
             .map(|h| compaction::history_tokens(&h))
             .unwrap_or(0);
-        let ack = compaction::pause_auto(
-            config.agent_state,
-            &reason,
-            tokens_now,
-            config.model,
-        );
+        let ack = compaction::pause_auto(config.agent_state, &reason, tokens_now, config.model);
         let message = match ack {
             Ok(ack) => format!(
                 "Automatic compaction is on hold while you finish this step. I kept your \
@@ -620,52 +614,51 @@ async fn handle_compact_context(
         compaction::replace_tool_result(config.api_messages, &call.id, message);
         compaction::announce_pause(config.app_handle, config.agent_state, false);
     } else {
-    let focus = text_arg("focus");
-    let mut req = compaction::CompactRequest::new(
-        config.client,
-        config.api_key,
-        config.proxy_ctx.clone(),
-        config.model,
-        "tool",
-    );
-    req.focus = focus;
-    req.instructions = config.compact_instructions.clone();
-    req.project_path = config.project_path;
-    req.app_handle = Some(config.app_handle);
-    match compaction::compact_api_messages(
-        config.agent_state,
-        &mut *config.api_messages,
-        &call.id,
-        req,
-    )
-    .await
-    {
-        Ok(Some(record)) => {
-            // The transcript those caches referred to no longer exists,
-            // so previously-seen reads may be read again.
-            read_coverage.clear();
-            executed_readonly_calls.clear();
-            read_paths.clear();
-            logging::info(
-                "chat",
-                &format!("Model-triggered {}", record.describe()),
-            );
+        let focus = text_arg("focus");
+        let mut req = compaction::CompactRequest::new(
+            config.client,
+            config.api_key,
+            config.proxy_ctx.clone(),
+            config.model,
+            "tool",
+        );
+        req.focus = focus;
+        req.instructions = config.compact_instructions.clone();
+        req.project_path = config.project_path;
+        req.app_handle = Some(config.app_handle);
+        match compaction::compact_api_messages(
+            config.agent_state,
+            &mut *config.api_messages,
+            &call.id,
+            req,
+        )
+        .await
+        {
+            Ok(Some(record)) => {
+                // The transcript those caches referred to no longer exists,
+                // so previously-seen reads may be read again.
+                read_coverage.clear();
+                executed_readonly_calls.clear();
+                read_paths.clear();
+                logging::info("chat", &format!("Model-triggered {}", record.describe()));
+            }
+            Ok(None) => {
+                compaction::replace_tool_result(
+                    config.api_messages,
+                    &call.id,
+                    "Nothing to compact — this conversation is already small. Continue the task.",
+                );
+            }
+            Err(e) => {
+                compaction::replace_tool_result(
+                    config.api_messages,
+                    &call.id,
+                    &format!(
+                        "Compaction failed: {e}. Continue without it and keep responses focused."
+                    ),
+                );
+            }
         }
-        Ok(None) => {
-            compaction::replace_tool_result(
-                config.api_messages,
-                &call.id,
-                "Nothing to compact — this conversation is already small. Continue the task.",
-            );
-        }
-        Err(e) => {
-            compaction::replace_tool_result(
-                config.api_messages,
-                &call.id,
-                &format!("Compaction failed: {e}. Continue without it and keep responses focused."),
-            );
-        }
-    }
     }
 }
 

@@ -355,9 +355,7 @@ impl AgentState {
             turn_policies: Mutex::new(HashMap::new()),
             turn_meter: Mutex::new(HashMap::new()),
             history_summary: Mutex::new(None),
-            compaction: Mutex::new(
-                crate::agent::commands::compaction::CompactionState::default(),
-            ),
+            compaction: Mutex::new(crate::agent::commands::compaction::CompactionState::default()),
             recent_files: Mutex::new(Vec::new()),
             in_flight: Mutex::new(HashMap::new()),
             in_flight_last_save: Mutex::new(0.0),

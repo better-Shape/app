@@ -178,11 +178,44 @@ pub async fn tool_browse(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutcome {
         Ok(ws) => ws,
         Err(err) => return fail(&format!("DevTools is not ready: {err}")),
     };
-    let mut blocked: Vec<String> = ["file:*", "*://localhost*", "*://*.localhost*", "*://127.*", "*://10.*", "*://169.254.*", "*://192.168.*", "*://0.0.0.0*", "*://[::1]*", "*://[fe80:*", "*://[fc*", "*://[fd*", "*://metadata*", "*://*.internal*", "*://*.local*"].into_iter().map(String::from).collect();
-    for b in 16..=31 { blocked.push(format!("*://172.{b}.*")); }
-    for b in 64..=127 { blocked.push(format!("*://100.{b}.*")); }
+    let mut blocked: Vec<String> = [
+        "file:*",
+        "*://localhost*",
+        "*://*.localhost*",
+        "*://127.*",
+        "*://10.*",
+        "*://169.254.*",
+        "*://192.168.*",
+        "*://0.0.0.0*",
+        "*://[::1]*",
+        "*://[fe80:*",
+        "*://[fc*",
+        "*://[fd*",
+        "*://metadata*",
+        "*://*.internal*",
+        "*://*.local*",
+    ]
+    .into_iter()
+    .map(String::from)
+    .collect();
+    for b in 16..=31 {
+        blocked.push(format!("*://172.{b}.*"));
+    }
+    for b in 64..=127 {
+        blocked.push(format!("*://100.{b}.*"));
+    }
     if action != "open" {
-        if let Err(e) = drive_all(&ws, vec![("Network.enable", json!({})), ("Network.setBlockedURLs", json!({ "urls": blocked.clone() }))]).await { return fail(&e); }
+        if let Err(e) = drive_all(
+            &ws,
+            vec![
+                ("Network.enable", json!({})),
+                ("Network.setBlockedURLs", json!({ "urls": blocked.clone() })),
+            ],
+        )
+        .await
+        {
+            return fail(&e);
+        }
     }
 
     let mut cursor_x = args
@@ -311,15 +344,29 @@ pub async fn tool_browse(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutcome {
         .await
         .unwrap_or_else(|_| "{}".into());
     let snap_v: Value = serde_json::from_str(&snap).unwrap_or(json!({}));
-    let title = snap_v.get("title").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let href = snap_v.get("href").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let title = snap_v
+        .get("title")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let href = snap_v
+        .get("href")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
     if !href.is_empty() && href != "about:blank" {
-        if let Err(err) = crate::agent::security::urls::validate_outbound_url_resolved(&href).await {
+        if let Err(err) = crate::agent::security::urls::validate_outbound_url_resolved(&href).await
+        {
             let _ = drive(&ws, "Page.navigate", json!({ "url": "about:blank" })).await;
-            return fail(&format!("Blocked redirect to restricted URL ({href}): {err}"));
+            return fail(&format!(
+                "Blocked redirect to restricted URL ({href}): {err}"
+            ));
         }
     }
-    let failed = snap_v.get("failed").and_then(|v| v.as_bool()).unwrap_or(false);
+    let failed = snap_v
+        .get("failed")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     if failed || page_failed(&href, &title) {
         return page_error(
             ctx,

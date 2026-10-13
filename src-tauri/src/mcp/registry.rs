@@ -92,7 +92,10 @@ fn flatten(entry: &Value) -> Option<RegistryServer> {
         .and_then(|arr| {
             arr.iter()
                 .find(|p| {
-                    let t = p.get("transport").and_then(|t| t.get("type")).and_then(|v| v.as_str());
+                    let t = p
+                        .get("transport")
+                        .and_then(|t| t.get("type"))
+                        .and_then(|v| v.as_str());
                     t == Some("stdio")
                 })
                 .or_else(|| arr.first())
@@ -228,11 +231,7 @@ pub fn render_results(query: &str, results: &[RegistryServer]) -> String {
             ));
         }
         if let Some(command) = &r.command {
-            out.push_str(&format!(
-                "run: {} {}\n",
-                command,
-                r.args.join(" ")
-            ));
+            out.push_str(&format!("run: {} {}\n", command, r.args.join(" ")));
         }
         if let Some(url) = &r.url {
             out.push_str(&format!("url: {url}\n"));

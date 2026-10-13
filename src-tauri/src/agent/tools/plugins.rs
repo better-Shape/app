@@ -195,10 +195,7 @@ pub async fn execute_plugin_tools(toolkit: &str, query: Option<&str>, _api_key: 
     }
     match composio_request("GET", &path, None).await {
         Ok(data) => {
-            let items = data
-                .get("items")
-                .cloned()
-                .unwrap_or_else(|| json!([]));
+            let items = data.get("items").cloned().unwrap_or_else(|| json!([]));
             serde_json::to_string_pretty(&items).unwrap_or_else(|_| "[]".to_string())
         }
         Err(e) => e,
@@ -297,7 +294,11 @@ pub async fn execute_plugin_search(
 async fn recommend_tool(query: &str, candidates: &[Value]) -> Option<String> {
     let slugs: Vec<String> = candidates
         .iter()
-        .filter_map(|c| c.get("slug").and_then(|s| s.as_str()).map(|s| s.to_string()))
+        .filter_map(|c| {
+            c.get("slug")
+                .and_then(|s| s.as_str())
+                .map(|s| s.to_string())
+        })
         .collect();
     if slugs.is_empty() {
         return None;
@@ -308,16 +309,12 @@ async fn recommend_tool(query: &str, candidates: &[Value]) -> Option<String> {
     );
     let client = reqwest::Client::new();
     let ctx = crate::agent::commands::streaming::ProxyContext::new("plugin-search");
-    let text = crate::agent::commands::streaming::complete_chat(
-        &client,
-        "",
-        &prompt,
-        "auto",
-        &ctx,
-    )
-    .await
-    .ok()?;
-    let cleaned = text.trim().trim_matches(|c: char| c == '"' || c == '`' || c == '.');
+    let text = crate::agent::commands::streaming::complete_chat(&client, "", &prompt, "auto", &ctx)
+        .await
+        .ok()?;
+    let cleaned = text
+        .trim()
+        .trim_matches(|c: char| c == '"' || c == '`' || c == '.');
     slugs
         .iter()
         .find(|slug| slug.eq_ignore_ascii_case(cleaned))
@@ -345,10 +342,7 @@ pub async fn execute_plugin_run(
                 }
             }
             if data.get("successful").and_then(|s| s.as_bool()) == Some(false) {
-                return format!(
-                    "ERROR: {}",
-                    sanitize_plugin_error(&data.to_string())
-                );
+                return format!("ERROR: {}", sanitize_plugin_error(&data.to_string()));
             }
             let payload = data.get("data").cloned().unwrap_or(data);
             serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string())
@@ -376,12 +370,66 @@ pub async fn fetch_steer(
     let read_only = mode == "ask" || mode == "plan";
 
     let mut packs = SteerPacks::all_on();
-    packs.terminal = !read_only && mentions(&text, &["run", "build", "test", "install", "npm", "cargo", "pnpm", "yarn", "serve", "start", "lint", "compile", "docker", "git "]);
+    packs.terminal = !read_only
+        && mentions(
+            &text,
+            &[
+                "run", "build", "test", "install", "npm", "cargo", "pnpm", "yarn", "serve",
+                "start", "lint", "compile", "docker", "git ",
+            ],
+        );
     packs.plugins = !mentions(&text, &["local", "offline", "this file", "this project"]);
-    packs.browse = mentions(&text, &["browser", "page", "url", "localhost", "http://", "https://", "site", "web", "click", "screenshot", "preview", "render"]);
-    packs.web = mentions(&text, &["search the web", "google", "latest", "news", "docs for", "documentation", "up to date", "release notes", "look up"]);
-    packs.media = mentions(&text, &["image", "logo", "icon", "svg", "illustration", "mockup", "design", "art", "audio", "voice"]);
-    packs.git = !mentions(&text, &["explain this function", "what does this do"]) || mentions(&text, &["git", "commit", "branch", "diff", "pull request", "merge"]);
+    packs.browse = mentions(
+        &text,
+        &[
+            "browser",
+            "page",
+            "url",
+            "localhost",
+            "http://",
+            "https://",
+            "site",
+            "web",
+            "click",
+            "screenshot",
+            "preview",
+            "render",
+        ],
+    );
+    packs.web = mentions(
+        &text,
+        &[
+            "search the web",
+            "google",
+            "latest",
+            "news",
+            "docs for",
+            "documentation",
+            "up to date",
+            "release notes",
+            "look up",
+        ],
+    );
+    packs.media = mentions(
+        &text,
+        &[
+            "image",
+            "logo",
+            "icon",
+            "svg",
+            "illustration",
+            "mockup",
+            "design",
+            "art",
+            "audio",
+            "voice",
+        ],
+    );
+    packs.git = !mentions(&text, &["explain this function", "what does this do"])
+        || mentions(
+            &text,
+            &["git", "commit", "branch", "diff", "pull request", "merge"],
+        );
 
     if read_only {
         // Read-only turns never write: keep the packs that can still read.
@@ -429,7 +477,8 @@ mod tests {
 
     #[test]
     fn steer_narrows_read_only_turns() {
-        let packs = futures::executor::block_on(fetch_steer("what does this do?", "Ask", None, None));
+        let packs =
+            futures::executor::block_on(fetch_steer("what does this do?", "Ask", None, None));
         assert!(!packs.terminal);
         assert!(!packs.media);
         assert!(packs.workspace);
@@ -437,8 +486,12 @@ mod tests {
 
     #[test]
     fn steer_enables_terminal_for_build_requests() {
-        let packs =
-            futures::executor::block_on(fetch_steer("run the tests and build the app", "Code", None, None));
+        let packs = futures::executor::block_on(fetch_steer(
+            "run the tests and build the app",
+            "Code",
+            None,
+            None,
+        ));
         assert!(packs.terminal);
     }
 

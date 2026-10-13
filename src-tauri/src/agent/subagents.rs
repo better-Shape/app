@@ -324,8 +324,8 @@ async fn run_subagent_inner(
 
     let model_norm = model_router::normalize_model(&model);
     let family = model_router::model_family(&model_router::concrete_model(&model_norm));
-    let ask_like = parent_mode.eq_ignore_ascii_case("ask")
-        || parent_mode.eq_ignore_ascii_case("plan");
+    let ask_like =
+        parent_mode.eq_ignore_ascii_case("ask") || parent_mode.eq_ignore_ascii_case("plan");
     let mut tools = if ask_like {
         schema::tools_for_mode_and_family("ask", family, vec![])
     } else {

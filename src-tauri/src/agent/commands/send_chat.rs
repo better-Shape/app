@@ -1,7 +1,4 @@
 //! Primary chat turn entrypoint.
-use crate::agent::context::{
-    build_context_breakdown, build_context_with_options, context_options_for_query,
-};
 use super::compaction;
 use super::history;
 use super::journals;
@@ -11,6 +8,9 @@ use super::run_turn;
 use super::streaming;
 use super::titles::{
     apply_generated_title, maybe_regenerate_title, text_for_title, title_from_message,
+};
+use crate::agent::context::{
+    build_context_breakdown, build_context_with_options, context_options_for_query,
 };
 use crate::agent::context::{
     build_context_breakdown, build_context_with_options, context_options_for_query,
@@ -447,13 +447,7 @@ pub async fn send_chat_message(
         let tid = turn_id.clone();
         let cid = conversation_id.clone();
         async move {
-            crate::agent::tools::plugins::fetch_steer(
-                &msg,
-                &mode,
-                Some(&tid),
-                cid.as_deref(),
-            )
-            .await
+            crate::agent::tools::plugins::fetch_steer(&msg, &mode, Some(&tid), cid.as_deref()).await
         }
     };
     let (steer, ctx_res) = tokio::join!(
@@ -541,8 +535,7 @@ pub async fn send_chat_message(
         req.instructions = compact_instructions.clone();
         req.project_path = current_proj_path.as_deref().unwrap_or("");
         req.app_handle = Some(&app_handle);
-        if let Some(outcome) =
-            compaction::maybe_auto_compact(&state, &history_snapshot, req).await
+        if let Some(outcome) = compaction::maybe_auto_compact(&state, &history_snapshot, req).await
         {
             let record = outcome.record;
             logging::info("chat", &format!("Auto-{}", record.describe()));

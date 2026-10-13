@@ -109,9 +109,9 @@ pub struct AiProviderConfig {
 impl AiProviderConfig {
     /// Semantic embeddings are on when an OpenAI-wire provider has a key.
     pub fn embeddings_enabled(&self) -> bool {
-        self.providers.iter().any(|p| {
-            p.kind == ProviderKind::OpenAi && p.enabled && !p.api_key.trim().is_empty()
-        })
+        self.providers
+            .iter()
+            .any(|p| p.kind == ProviderKind::OpenAi && p.enabled && !p.api_key.trim().is_empty())
     }
 
     fn find(&self, id: &str) -> Option<&ProviderEntry> {
@@ -257,7 +257,11 @@ fn split_model(model: &str) -> (Option<&str>, &str) {
 pub fn resolve_model(model: &str) -> Result<(ResolvedProvider, String), AppError> {
     let config = get_config().unwrap_or_default();
     let requested = model.trim();
-    let requested = if requested.is_empty() { "auto" } else { requested };
+    let requested = if requested.is_empty() {
+        "auto"
+    } else {
+        requested
+    };
 
     if requested == "auto" {
         let default = config.default_model.trim();

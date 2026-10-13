@@ -34,15 +34,28 @@ pub fn get_chat_history_path(proj_path: &str) -> std::path::PathBuf {
     path.push("BetterShape");
     path.push("chat_history");
     let _ = std::fs::create_dir_all(&path);
-    path.push(format!("{}.json", crate::core::project_key::stable_project_key(&normalize_project_path(proj_path))));
+    path.push(format!(
+        "{}.json",
+        crate::core::project_key::stable_project_key(&normalize_project_path(proj_path))
+    ));
     path
 }
 
 pub fn load_conversations(proj_path: &str) -> Vec<Conversation> {
     let file_path = get_chat_history_path(proj_path);
-    let l = file_path.with_file_name(format!("{:x}.json", crate::core::project_key::legacy_sip_hash(proj_path)));
-    let file_path = if !file_path.exists() && l.exists() { l } else { file_path };
-    logging::debug("history", &format!("Loading conversations from {:?}", file_path));
+    let l = file_path.with_file_name(format!(
+        "{:x}.json",
+        crate::core::project_key::legacy_sip_hash(proj_path)
+    ));
+    let file_path = if !file_path.exists() && l.exists() {
+        l
+    } else {
+        file_path
+    };
+    logging::debug(
+        "history",
+        &format!("Loading conversations from {:?}", file_path),
+    );
     if let Ok(content) = std::fs::read_to_string(&file_path) {
         if let Ok(convs) = serde_json::from_str(&content) {
             return convs;
@@ -318,7 +331,11 @@ pub fn upsert_conversation_snapshot(
         .lock()
         .map(|c| c.as_deref() == Some(id))
         .unwrap_or(false);
-    let summary = if is_live { state.current_summary() } else { None };
+    let summary = if is_live {
+        state.current_summary()
+    } else {
+        None
+    };
     let fold_end = if is_live { state.summary_fold_end() } else { 0 };
     if let Some(existing) = list.iter_mut().find(|c| c.id == id) {
         existing.history = history;

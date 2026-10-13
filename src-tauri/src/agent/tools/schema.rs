@@ -237,10 +237,25 @@ fn tool_fn_name(tool: &Value) -> &str {
 
 fn steer_pack_for(name: &str) -> Option<&'static str> {
     match name {
-        "read_file" | "list_dir" | "search_codebase" | "codebase_overview" | "search_files" | "grep"
-        | "create_directory" | "create_file" | "apply_patch" | "edit_file" | "delete_file"
-        | "rename_file" | "read_lints" | "screenshot_page" | "inspect_runtime"
-        | "design_review" | "render_design_previews" | "mcp_search" | "mcp_call"
+        "read_file"
+        | "list_dir"
+        | "search_codebase"
+        | "codebase_overview"
+        | "search_files"
+        | "grep"
+        | "create_directory"
+        | "create_file"
+        | "apply_patch"
+        | "edit_file"
+        | "delete_file"
+        | "rename_file"
+        | "read_lints"
+        | "screenshot_page"
+        | "inspect_runtime"
+        | "design_review"
+        | "render_design_previews"
+        | "mcp_search"
+        | "mcp_call"
         | "mcp_manage" => Some("workspace"),
         "plugin_search" | "plugin_run" => Some("plugins"),
         "plugin_list" | "plugin_tools" => Some("browse"),

@@ -484,9 +484,25 @@ pub async fn create_dir(path: String) -> Result<(), AppError> {
 }
 
 fn assert_delete_target_allowed(path: &str) -> Result<(), AppError> {
-    let (r, home) = (crate::agent::security::paths::resolve_path_for_confinement(Path::new(path))?, dirs::home_dir().map(|h| h.canonicalize().unwrap_or(h)));
-    if r.parent().is_none() || home.as_ref().map(|h| r == *h || (cfg!(any(windows, target_os = "macos")) && r.to_string_lossy().eq_ignore_ascii_case(&h.to_string_lossy()))).unwrap_or(false) || crate::agent::security::paths::is_protected_workspace_root(path) {
-        return Err(AppError::Message("Refusing to delete protected root.".into()));
+    let (r, home) = (
+        crate::agent::security::paths::resolve_path_for_confinement(Path::new(path))?,
+        dirs::home_dir().map(|h| h.canonicalize().unwrap_or(h)),
+    );
+    if r.parent().is_none()
+        || home
+            .as_ref()
+            .map(|h| {
+                r == *h
+                    || (cfg!(any(windows, target_os = "macos"))
+                        && r.to_string_lossy()
+                            .eq_ignore_ascii_case(&h.to_string_lossy()))
+            })
+            .unwrap_or(false)
+        || crate::agent::security::paths::is_protected_workspace_root(path)
+    {
+        return Err(AppError::Message(
+            "Refusing to delete protected root.".into(),
+        ));
     }
     Ok(())
 }
@@ -658,18 +674,31 @@ pub async fn copy_path(old_path: String, new_path: String) -> Result<(), AppErro
     let new_p = PathBuf::from(new_path);
     tokio::task::spawn_blocking(move || {
         if old_p.is_dir() {
-            let (old_c, new_c) = (crate::agent::security::paths::resolve_path_for_confinement(&old_p)?, crate::agent::security::paths::resolve_path_for_confinement(&new_p)?);
-            if new_p.starts_with(&old_p) || new_c.starts_with(&old_c) { return Err(AppError::Message("Cannot copy a directory into itself".into())); }
+            let (old_c, new_c) = (
+                crate::agent::security::paths::resolve_path_for_confinement(&old_p)?,
+                crate::agent::security::paths::resolve_path_for_confinement(&new_p)?,
+            );
+            if new_p.starts_with(&old_p) || new_c.starts_with(&old_c) {
+                return Err(AppError::Message(
+                    "Cannot copy a directory into itself".into(),
+                ));
+            }
             let mut stack = vec![old_p.clone()];
             while let Some(current) = stack.pop() {
-                let current_new = new_p.join(current.strip_prefix(&old_p).map_err(|e| AppError::Message(e.to_string()))?);
+                let current_new = new_p.join(
+                    current
+                        .strip_prefix(&old_p)
+                        .map_err(|e| AppError::Message(e.to_string()))?,
+                );
                 if !current_new.exists() {
                     fs::create_dir_all(&current_new).map_err(|e| AppError::Io(e))?;
                 }
                 for entry in fs::read_dir(current).map_err(|e| AppError::Io(e))? {
                     let entry = entry.map_err(|e| AppError::Io(e))?;
                     let file_type = entry.file_type().map_err(|e| AppError::Io(e))?;
-                    if file_type.is_symlink() { continue; }
+                    if file_type.is_symlink() {
+                        continue;
+                    }
                     let path = entry.path();
                     if file_type.is_dir() {
                         stack.push(path);
@@ -772,13 +801,37 @@ fn windows_gui_exe(name: &str) -> String {
     name.to_string()
 }
 
-const ALLOWED_OPEN_IN_APPS: &[&str] = &["explorer", "cursor", "vscode", "code", "zed", "windsurf", "subl", "idea", "webstorm", "pycharm", "goland", "rider", "fleet", "studio", "trae", "antigravity", "lapce", "emacs", "vim", "nvim", "hx"];
+const ALLOWED_OPEN_IN_APPS: &[&str] = &[
+    "explorer",
+    "cursor",
+    "vscode",
+    "code",
+    "zed",
+    "windsurf",
+    "subl",
+    "idea",
+    "webstorm",
+    "pycharm",
+    "goland",
+    "rider",
+    "fleet",
+    "studio",
+    "trae",
+    "antigravity",
+    "lapce",
+    "emacs",
+    "vim",
+    "nvim",
+    "hx",
+];
 
 pub async fn open_in_app(app: String, path: String) -> Result<(), AppError> {
     crate::agent::security::paths::assert_ipc_path_allowed(&path)?;
     tokio::task::spawn_blocking(move || {
         let key = app.to_lowercase();
-        if !ALLOWED_OPEN_IN_APPS.contains(&key.as_str()) { return Err(AppError::Message(format!("Unknown editor '{app}'."))); }
+        if !ALLOWED_OPEN_IN_APPS.contains(&key.as_str()) {
+            return Err(AppError::Message(format!("Unknown editor '{app}'.")));
+        }
         if key == "explorer" {
             #[cfg(target_os = "windows")]
             {
@@ -1929,7 +1982,8 @@ mod tests {
 
     #[test]
     fn watch_roots_stay_bounded_when_dependency_tree_is_huge() {
-        let root = std::env::temp_dir().join(format!("bettershape-watch-huge-{}", std::process::id()));
+        let root =
+            std::env::temp_dir().join(format!("bettershape-watch-huge-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(root.join("src")).unwrap();
         for i in 0..400 {

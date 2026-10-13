@@ -54,17 +54,22 @@ fn npx_command() -> &'static str {
 
 fn write_temp_file(file_path: &str, content: &str) -> Result<PathBuf, String> {
     let path = Path::new(file_path);
-    let ext = path
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("txt");
-    let stem = path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("lint");
-    let ext: String = ext.chars().filter(|c| c.is_ascii_alphanumeric()).take(12).collect();
-    let stem: String = stem.chars().filter(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-')).take(48).collect();
-    let (ext, stem) = (if ext.is_empty() { "txt" } else { &ext }, if stem.is_empty() { "lint" } else { &stem });
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("txt");
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("lint");
+    let ext: String = ext
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .take(12)
+        .collect();
+    let stem: String = stem
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-'))
+        .take(48)
+        .collect();
+    let (ext, stem) = (
+        if ext.is_empty() { "txt" } else { &ext },
+        if stem.is_empty() { "lint" } else { &stem },
+    );
     let temp_dir = std::env::temp_dir().join("bettershape-lint");
     std::fs::create_dir_all(&temp_dir).map_err(|e| e.to_string())?;
     let temp_path = temp_dir.join(format!("{}-{}.{}", stem, uuid_like(), ext));
@@ -153,7 +158,10 @@ pub fn eslint_lint_file(
 
     cmd.arg(&temp_display);
 
-    let output = cmd.output().map_err(|e| { let _ = std::fs::remove_file(&temp_path); format!("Failed to run eslint: {e}") })?;
+    let output = cmd.output().map_err(|e| {
+        let _ = std::fs::remove_file(&temp_path);
+        format!("Failed to run eslint: {e}")
+    })?;
     let stdout = String::from_utf8_lossy(&output.stdout);
     let diagnostics = parse_eslint_json(&stdout);
 

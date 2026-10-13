@@ -19,7 +19,15 @@ pub fn git_command() -> Result<Command, AppError> {
     let mut cmd = Command::new(git_executable()?);
     crate::core::process::apply_trusted_binary_env(&mut cmd);
     crate::core::process::hide_console(&mut cmd);
-    cmd.env_remove("GIT_DIR").env_remove("GIT_WORK_TREE").env("GIT_TERMINAL_PROMPT", "0").args(["-c", "core.fsmonitor=false", "-c", "protocol.ext.allow=never"]);
+    cmd.env_remove("GIT_DIR")
+        .env_remove("GIT_WORK_TREE")
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .args([
+            "-c",
+            "core.fsmonitor=false",
+            "-c",
+            "protocol.ext.allow=never",
+        ]);
     Ok(cmd)
 }
 

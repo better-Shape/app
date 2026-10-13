@@ -5,7 +5,6 @@
 /// Every request is built in OpenAI's chat-completions shape and translated by
 /// [`super::provider_wire`] to whatever wire format the selected provider
 /// speaks (OpenAI-compatible, Anthropic Messages, or Google Gemini).
-
 use futures::StreamExt;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -14,11 +13,11 @@ use std::time::Instant;
 use tauri::Emitter;
 use tauri::Manager;
 
-use crate::core::ai_providers::{resolve_model, ResolvedProvider};
-use crate::core::error::AppError;
 use super::logging;
 use super::provider_wire;
 use super::tool_call_leak_parser::{LeakedToolCallParser, ParsedLeakCall};
+use crate::core::ai_providers::{resolve_model, ResolvedProvider};
+use crate::core::error::AppError;
 use crate::core::error::AppError;
 
 /// Resolve the configured provider + provider-native model slug for a request.
@@ -262,7 +261,13 @@ pub async fn stream_chat(
     );
 
     let max_tokens = get_model_max_tokens(&provider_model);
-    logging::debug("stream", &format!("Using max_tokens={} for model={}", max_tokens, provider_model));
+    logging::debug(
+        "stream",
+        &format!(
+            "Using max_tokens={} for model={}",
+            max_tokens, provider_model
+        ),
+    );
 
     let mut body = json!({
         "model": provider_model,
@@ -283,7 +288,9 @@ pub async fn stream_chat(
         {
             body["session_id"] = json!(session);
         }
-        if provider.id.eq_ignore_ascii_case("openrouter") && provider_model.starts_with("anthropic/") {
+        if provider.id.eq_ignore_ascii_case("openrouter")
+            && provider_model.starts_with("anthropic/")
+        {
             // OpenRouter's top-level cache_control enables automatic breakpoint
             // placement for multi-turn chats.
             body["cache_control"] = json!({ "type": "ephemeral" });
@@ -992,7 +999,8 @@ pub async fn complete_chat_cancellable(
         body["reasoning"] = json!({ "enabled": false, "exclude": true });
     }
 
-    let send_fut = provider_request(client, api_key, &provider, &provider_model, &body, false).send();
+    let send_fut =
+        provider_request(client, api_key, &provider, &provider_model, &body, false).send();
 
     let resp = match cancel {
         Some(token) => {
@@ -1049,7 +1057,8 @@ pub async fn complete_chat_messages(
         "max_tokens": max_tokens,
     });
 
-    let send_fut = provider_request(client, api_key, &provider, &provider_model, &body, false).send();
+    let send_fut =
+        provider_request(client, api_key, &provider, &provider_model, &body, false).send();
 
     let resp = match cancel {
         Some(token) => {

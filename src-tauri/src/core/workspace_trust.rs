@@ -9,8 +9,13 @@ impl WorkspaceTrustState {
     }
 
     pub fn normalize(path: &str) -> String {
-        let win = cfg!(windows) || matches!(path.trim().as_bytes(), [b, b':', ..] if b.is_ascii_alphabetic());
-        let mut normalized = if win { path.trim().replace('\\', "/").to_lowercase() } else { path.trim().to_string() };
+        let win = cfg!(windows)
+            || matches!(path.trim().as_bytes(), [b, b':', ..] if b.is_ascii_alphabetic());
+        let mut normalized = if win {
+            path.trim().replace('\\', "/").to_lowercase()
+        } else {
+            path.trim().to_string()
+        };
         while normalized.ends_with('/') && normalized.len() > 1 {
             normalized.pop();
         }

@@ -1,10 +1,10 @@
 pub mod ai_config;
-pub mod ipc;
 pub mod desktop_notification;
 pub mod fs;
 pub mod git;
 pub mod github_auth;
 pub mod history;
+pub mod ipc;
 pub mod ipc;
 pub mod lint;
 pub mod open;
