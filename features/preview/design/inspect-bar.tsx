@@ -10,6 +10,7 @@ import { Icon } from "@/components/ui/icon";
 import { commands } from "@/lib/backend";
 import { useProjectState } from "@/lib/backend";
 import { cn } from "@/lib/utils";
+import { isLocalPreviewUrl } from "../store";
 import {
     DESIGN_BRIDGE_SCRIPT,
     type DesignElementSnapshot,
@@ -18,6 +19,33 @@ import { patchJsx } from "./jsx-source";
 import { isUserSourcePath } from "./library";
 
 type Tab = "radius" | "padding" | "gap";
+
+/** Matches no real page, so a canvas that is not a loopback preview gets no message. */
+const OFF_PREVIEW_ORIGIN = "https://preview.bettershape.invalid";
+
+/**
+ * The canvas keeps its real origin (`allow-same-origin`), so host messages are
+ * pinned to a loopback preview origin — the only place the design bridge is ever
+ * injected (design_bridge.rs `wrap_iframe_only`). A canvas that has navigated
+ * anywhere else matches nothing and receives no project path, and a loopback
+ * canvas that moved port still works because the live origin wins.
+ */
+function frameOrigin(frame: HTMLIFrameElement | null | undefined): string {
+    let live = "";
+    try {
+        live = frame?.contentWindow?.origin || "";
+    } catch {
+        /* cross-origin handle without `origin` */
+    }
+    if (live && isLocalPreviewUrl(live)) return live;
+    try {
+        const fromSrc = new URL(frame?.src || "").origin;
+        if (fromSrc !== "null" && isLocalPreviewUrl(fromSrc)) return fromSrc;
+    } catch {
+        /* no usable src */
+    }
+    return OFF_PREVIEW_ORIGIN;
+}
 
 function parsePx(value: string | undefined): number {
     if (!value) return 0;
@@ -68,14 +96,14 @@ export function DesignInspectOverlay({
         if (!enabled) {
             iframeRef.current?.contentWindow?.postMessage(
                 { type: "bettershape-design-set-mode", mode: "normal", projectRoot: project_path },
-                "*",
+                frameOrigin(iframeRef.current),
             );
             return;
         }
         void commands.registerDesignBridge(DESIGN_BRIDGE_SCRIPT).then(() => {
             iframeRef.current?.contentWindow?.postMessage(
                 { type: "bettershape-design-set-mode", mode: "select", projectRoot: project_path },
-                "*",
+                frameOrigin(iframeRef.current),
             );
         });
     }, [enabled, iframeRef, project_path]);
@@ -83,12 +111,16 @@ export function DesignInspectOverlay({
     useEffect(() => {
         if (!enabled) return;
         const onMessage = (event: MessageEvent) => {
+            // A selection is about to be written to disk by `apply`, so it must come
+            // from the loopback canvas frame and nowhere else.
+            if (event.source !== iframeRef.current?.contentWindow) return;
+            if (!isLocalPreviewUrl(event.origin)) return;
             const data = event.data;
             if (!data || typeof data !== "object") return;
             if (data.type === "bettershape-design-ready") {
                 iframeRef.current?.contentWindow?.postMessage(
                     { type: "bettershape-design-set-mode", mode: "select", projectRoot: project_path },
-                    "*",
+                    frameOrigin(iframeRef.current),
                 );
                 return;
             }
@@ -114,7 +146,7 @@ export function DesignInspectOverlay({
             if (!key) return;
             iframeRef.current?.contentWindow?.postMessage(
                 { type: "bettershape-design-apply-preview", styles, key },
-                "*",
+                frameOrigin(iframeRef.current),
             );
             if (persistTimer.current) clearTimeout(persistTimer.current);
             persistTimer.current = setTimeout(() => {

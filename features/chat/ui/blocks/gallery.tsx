@@ -86,6 +86,8 @@ function applyLiveTweaks(
     iframe: HTMLIFrameElement | null,
     tweaks: { radius: number; padding: number; gap: number },
 ) {
+    // The frame is sandboxed `allow-scripts` only, so its origin is opaque ("null")
+    // whatever the preview src points at — "*" is the only deliverable target here.
     try { iframe?.contentWindow?.postMessage({ type: "bettershape-preview-tweaks", tweaks }, "*"); } catch {}
     try {
         const doc = iframe?.contentDocument;

@@ -150,6 +150,7 @@ async function captureLivePage(req: CaptureRequestPayload, container: HTMLDivEle
 
     let done = false;
     let asked = false;
+    let expectedOrigin = "";
     let onMessage: ((event: MessageEvent) => void) | null = null;
 
     const report = (result: { pngPath?: string; error?: string }) => {
@@ -194,7 +195,7 @@ async function captureLivePage(req: CaptureRequestPayload, container: HTMLDivEle
                         maxWidth: req.width,
                         maxHeight: req.height,
                     },
-                    "*",
+                    expectedOrigin,
                 );
             } catch {
                 /* ignore */
@@ -204,6 +205,9 @@ async function captureLivePage(req: CaptureRequestPayload, container: HTMLDivEle
 
     onMessage = (event: MessageEvent) => {
         if (event.source !== iframe.contentWindow) return;
+        // The capture frame is the loopback design proxy (design_proxy.rs), so only
+        // that origin may answer; a page it redirected to must not supply the PNG.
+        if (!expectedOrigin || event.origin !== expectedOrigin) return;
         const data = event.data;
         if (!data || typeof data !== "object") return;
         const type = (data as { type?: string }).type;
@@ -228,6 +232,13 @@ async function captureLivePage(req: CaptureRequestPayload, container: HTMLDivEle
     try {
         const { commands } = await import("@/lib/backend");
         const info = await commands.startDesignProxy(url, "");
+        // The proxy is loopback-only (design_proxy.rs `assert_loopback_target`); pin
+        // both directions to it so a page it redirects to is neither asked nor heard.
+        try {
+            expectedOrigin = new URL(info.src).origin;
+        } catch {
+            expectedOrigin = "";
+        }
         iframe.src = info.src;
         container.appendChild(iframe);
     } catch (err) {

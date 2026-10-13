@@ -69,6 +69,33 @@ function joinProjectPath(root: string, relative: string) {
     return `${root.replace(/[/\\]+$/, "")}${separator}${relative.replace(/[/\\]/g, separator)}`;
 }
 
+/** Matches no real page, so a canvas that is not a loopback preview gets no message. */
+const OFF_PREVIEW_ORIGIN = "https://preview.bettershape.invalid";
+
+/**
+ * The canvas keeps its real origin (`allow-same-origin`), so host messages are
+ * pinned to a loopback preview origin — the only place the design bridge is ever
+ * injected (design_bridge.rs `wrap_iframe_only`). A canvas that has navigated
+ * anywhere else matches nothing and receives no project path, and a loopback
+ * canvas that moved port still works because the live origin wins.
+ */
+function frameOrigin(frame: HTMLIFrameElement | null | undefined): string {
+    let live = "";
+    try {
+        live = frame?.contentWindow?.origin || "";
+    } catch {
+        /* cross-origin handle without `origin` */
+    }
+    if (live && isLocalPreviewUrl(live)) return live;
+    try {
+        const fromSrc = new URL(frame?.src || "").origin;
+        if (fromSrc !== "null" && isLocalPreviewUrl(fromSrc)) return fromSrc;
+    } catch {
+        /* no usable src */
+    }
+    return OFF_PREVIEW_ORIGIN;
+}
+
 let persistQueue: Promise<void> = Promise.resolve();
 
 function enqueuePersist<T>(work: () => Promise<T>): Promise<T> {
@@ -634,6 +661,10 @@ export function DesignStudio({
     useEffect(() => {
         const onMessage = (event: MessageEvent) => {
             if (event.source !== iframeRef.current?.contentWindow) return;
+            // The design bridge is only injected into loopback frames
+            // (design_bridge.rs), so a canvas that navigated elsewhere has no
+            // business asking us to rewrite project sources.
+            if (!isLocalPreviewUrl(event.origin)) return;
             const data = event.data as {
                 type?: string;
                 element?: DesignElementSnapshot;
@@ -651,7 +682,7 @@ export function DesignStudio({
                 if (Array.isArray(data.themeTokens)) setThemeTokens(data.themeTokens);
                 iframeRef.current?.contentWindow?.postMessage(
                     { type: "bettershape-design-set-mode", mode: toolModeRef.current, projectRoot: designerRootRef.current },
-                    "*",
+                    frameOrigin(iframeRef.current),
                 );
             } else if (data.type === "bettershape-design-tokens" && Array.isArray(data.themeTokens)) {
                 setThemeTokens(data.themeTokens);
@@ -769,12 +800,13 @@ export function DesignStudio({
     }, [designerRoot, persistJsx, persistReorder, resolveElement]);
 
     const previewStyles = useCallback((styles: Record<string, string>) => {
-        const frame = iframeRef.current?.contentWindow;
+        const previewFrame = iframeRef.current;
+        const frame = previewFrame?.contentWindow;
         const key = selected?.key;
         if (frame) {
             frame.postMessage(
                 { type: "bettershape-design-apply-preview", styles, key },
-                "*",
+                frameOrigin(previewFrame),
             );
         }
         setSelected((current) =>
@@ -785,7 +817,7 @@ export function DesignStudio({
     useEffect(() => {
         iframeRef.current?.contentWindow?.postMessage(
             { type: "bettershape-design-set-mode", mode: toolMode, projectRoot: designerRoot },
-            "*",
+            frameOrigin(iframeRef.current),
         );
     }, [toolMode, ready, iframeSrc, designerRoot]);
 
@@ -793,7 +825,7 @@ export function DesignStudio({
         if (!ready) return;
         iframeRef.current?.contentWindow?.postMessage(
             { type: "bettershape-design-config", projectRoot: designerRoot },
-            "*",
+            frameOrigin(iframeRef.current),
         );
     }, [ready, designerRoot, iframeSrc]);
 
@@ -803,7 +835,7 @@ export function DesignStudio({
             if (result.file && result.content != null) {
                 commands.primeFileCache(result.file, result.content);
             }
-            iframeRef.current?.contentWindow?.postMessage({ type: "bettershape-design-refresh" }, "*");
+            iframeRef.current?.contentWindow?.postMessage({ type: "bettershape-design-refresh" }, frameOrigin(iframeRef.current));
         },
         [],
     );
@@ -880,7 +912,7 @@ export function DesignStudio({
             // Keep the canvas updated even if source mapping fails.
             iframeRef.current?.contentWindow?.postMessage(
                 { type: "bettershape-design-apply-preview", styles, key: current.key },
-                "*",
+                frameOrigin(iframeRef.current),
             );
             setSaved(false);
             try {
@@ -925,7 +957,7 @@ export function DesignStudio({
             if (!current) return;
             iframeRef.current?.contentWindow?.postMessage(
                 { type: "bettershape-design-set-text", key: current.key, text },
-                "*",
+                frameOrigin(iframeRef.current),
             );
             setSelected({ ...current, text });
             setSaved(false);
@@ -947,7 +979,7 @@ export function DesignStudio({
             if (!current) return;
             iframeRef.current?.contentWindow?.postMessage(
                 { type: "bettershape-design-set-attr", key: current.key, name, value },
-                "*",
+                frameOrigin(iframeRef.current),
             );
             setSelected({
                 ...current,
@@ -967,7 +999,8 @@ export function DesignStudio({
     );
 
     const patchComponent = useCallback((patch: ComponentOptionPatch) => {
-        const frame = iframeRef.current?.contentWindow;
+        const previewFrame = iframeRef.current;
+        const frame = previewFrame?.contentWindow;
         const current = selected;
         if (!current?.component) return;
         setSelected((now) => {
@@ -985,7 +1018,7 @@ export function DesignStudio({
             return { ...now, component: { ...now.component, properties } };
         });
         if (patch.field === "text") {
-            frame?.postMessage({ type: "bettershape-design-set-text", key: patch.key, text: String(patch.value) }, "*");
+            frame?.postMessage({ type: "bettershape-design-set-text", key: patch.key, text: String(patch.value) }, frameOrigin(previewFrame));
             void persistJsx(current, { text: String(patch.value) });
             return;
         }
@@ -1031,7 +1064,8 @@ export function DesignStudio({
     );
 
     const exportSelection = useCallback(async (scale: number, format: string) => {
-        const frame = iframeRef.current?.contentWindow;
+        const previewFrame = iframeRef.current;
+        const frame = previewFrame?.contentWindow;
         if (!frame) return;
         const requestId = crypto.randomUUID();
         const result = await new Promise<{ dataUrl?: string; width?: number; height?: number }>((resolve) => {
@@ -1054,7 +1088,7 @@ export function DesignStudio({
                 resolve(data);
             };
             window.addEventListener("message", onMessage);
-            frame.postMessage({ type: "bettershape-design-export", requestId, scale }, "*");
+            frame.postMessage({ type: "bettershape-design-export", requestId, scale }, frameOrigin(previewFrame));
         });
         if (!result.dataUrl) return;
         const image = await loadImage(result.dataUrl);
@@ -1214,6 +1248,7 @@ export function DesignStudio({
                                     referrerPolicy="no-referrer"
                                     onLoad={() => {
                                         window.setTimeout(() => {
+                                            const target = frameOrigin(iframeRef.current);
                                             const frame = iframeRef.current?.contentWindow;
                                             frame?.postMessage(
                                                 {
@@ -1221,9 +1256,9 @@ export function DesignStudio({
                                                     mode: toolModeRef.current,
                                                     projectRoot: designerRootRef.current,
                                                 },
-                                                "*",
+                                                target,
                                             );
-                                            frame?.postMessage({ type: "bettershape-design-refresh" }, "*");
+                                            frame?.postMessage({ type: "bettershape-design-refresh" }, target);
                                             try {
                                                 const href = frame?.location?.href;
                                                 if (href && href !== "about:blank") {
@@ -1307,7 +1342,7 @@ export function DesignStudio({
                             onAlign={(alignment: "center" | "center-x" | "center-y") =>
                                 iframeRef.current?.contentWindow?.postMessage(
                                     { type: "bettershape-design-align", alignment },
-                                    "*",
+                                    frameOrigin(iframeRef.current),
                                 )
                             }
                             onDuplicate={() => void applyStructure("duplicate")}

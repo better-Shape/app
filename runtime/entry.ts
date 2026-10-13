@@ -2,6 +2,44 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import { transform } from "sucrase";
 
+const TAURI_GLOBALS = ["__TAURI__", "__TAURI_INTERNALS__", "__TAURI_IPC__"];
+
+type PreviewTauriApi = {
+    webview?: { getCurrentWebview?: () => { emit: (e: string, p: unknown) => Promise<void> } };
+    event?: { emit: (e: string, p: unknown) => Promise<void> };
+};
+
+/**
+ * Kept before the preview frame is scrubbed: `signalPreviewReady` still emits
+ * through Tauri, but `mountPreview` runs agent/user-authored source and must not
+ * inherit the IPC surface of the frame it executes in.
+ */
+const HOST_TAURI = (window as Window & { __TAURI__?: PreviewTauriApi }).__TAURI__;
+
+/**
+ * `new Function` bodies below resolve free identifiers against this frame's
+ * global object, so anything left on `window` is reachable by preview code.
+ * Tauri injects `__TAURI_INTERNALS__` into every frame of the webview (there is
+ * no `app.security.pattern` isolation), and the registered commands include
+ * `pty_write` / `pty_start_user_shell` — arbitrary host command execution.
+ */
+function stripTauriIpc() {
+    const bag = window as unknown as Record<string, unknown>;
+    for (const key of TAURI_GLOBALS) {
+        try {
+            bag[key] = undefined;
+        } catch {
+            /* accessor without a setter */
+        }
+        try {
+            delete bag[key];
+        } catch {
+            /* non-configurable property */
+        }
+    }
+}
+stripTauriIpc();
+
 const BASE_LAYOUT_CSS = `
   html, body, #root { margin: 0; min-height: 100%; width: 100%; }
 `;
@@ -67,12 +105,7 @@ async function signalPreviewReady() {
     } catch {
         // ignore
     }
-    const tauri = (window as Window & {
-        __TAURI__?: {
-            webview?: { getCurrentWebview?: () => { emit: (e: string, p: unknown) => Promise<void> } };
-            event?: { emit: (e: string, p: unknown) => Promise<void> };
-        };
-    }).__TAURI__;
+    const tauri = HOST_TAURI;
     try {
         await tauri?.webview?.getCurrentWebview?.().emit("preview-ready", {});
         return;
@@ -141,7 +174,13 @@ export async function mountPreview(userCode: string, projectCss = "") {
     injectBaseLayoutCss();
     injectTailwindTheme(projectCss);
     const wrapped = compileUserCode(userCode);
-    const App = new Function("React", wrapped)(React) as React.ComponentType;
+    // Shadow the Tauri globals as parameters too: `delete` is a no-op when the
+    // injected properties turn out to be non-configurable, and parameters bind
+    // ahead of globals for bare-identifier access.
+    const App = new Function("React", ...TAURI_GLOBALS, wrapped)(
+        React,
+        ...TAURI_GLOBALS.map(() => undefined),
+    ) as React.ComponentType;
     const root = document.getElementById("root");
     if (!root) throw new Error("Missing #root");
     createRoot(root).render(React.createElement(App));

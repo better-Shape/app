@@ -92,6 +92,25 @@ function displayUrl(url: string) {
     return url;
 }
 
+/**
+ * The page frame browses arbitrary origins with its real origin intact
+ * (`allow-same-origin`), so host messages are pinned to the origin the frame is
+ * on right now — read live, so redirects and in-page navigation stay in sync.
+ */
+function frameOrigin(frame: HTMLIFrameElement | null | undefined): string {
+    try {
+        const live = frame?.contentWindow?.origin;
+        if (live && live !== "null") return live;
+    } catch {
+        /* cross-origin handle without `origin` */
+    }
+    try {
+        return new URL(frame?.src || "").origin;
+    } catch {
+        return "*";
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tab strip
 
@@ -918,13 +937,13 @@ export function BrowserView({
             type: "bettershape-browser-host",
             history: delta < 0 ? "back" : "forward",
             goto: url,
-        }, "*");
+        }, frameOrigin(frameRef.current));
     };
 
     const reloadPage = () => {
         if (!active?.url || showAgent) return;
         setTabs((prev) => prev.map((tab) => (tab.id === active.id ? { ...tab, error: null } : tab)));
-        frameRef.current?.contentWindow?.postMessage({ type: "bettershape-browser-host", reload: true }, "*");
+        frameRef.current?.contentWindow?.postMessage({ type: "bettershape-browser-host", reload: true }, frameOrigin(frameRef.current));
     };
 
     const chooseScheme = (next: ColorScheme) => {
@@ -939,9 +958,10 @@ export function BrowserView({
         seenScheme.current = scheme;
         void commands.browserSurfaceScheme(scheme).then(() => {
             if (cancel) return;
+            const target = frameOrigin(frameRef.current);
             const frame = frameRef.current?.contentWindow;
-            frame?.postMessage({ type: "bettershape-browser-host", scheme }, "*");
-            if (changed) frame?.postMessage({ type: "bettershape-browser-host", reload: true }, "*");
+            frame?.postMessage({ type: "bettershape-browser-host", scheme }, target);
+            if (changed) frame?.postMessage({ type: "bettershape-browser-host", reload: true }, target);
         });
         return () => {
             cancel = true;
@@ -959,7 +979,7 @@ export function BrowserView({
     useEffect(() => {
         const frame = frameRef.current;
         if (!frame) return;
-        const send = () => frame.contentWindow?.postMessage({ type: "bettershape-browser-host", pick: picking }, "*");
+        const send = () => frame.contentWindow?.postMessage({ type: "bettershape-browser-host", pick: picking }, frameOrigin(frame));
         send();
         frame.addEventListener("load", send);
         return () => frame.removeEventListener("load", send);

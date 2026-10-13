@@ -1573,6 +1573,11 @@ export const DESIGN_BRIDGE_SCRIPT = String.raw`
     post("bettershape-design-commit-styles", { element: snapshot(selected), styles: styles });
   }
   window.addEventListener("message", function (event) {
+    // Only the host drives this bridge. A nested frame inside the preview page
+    // can postMessage here as well, and the host trusts whatever this script
+    // reports (its replies are written back into project source files), so any
+    // sender other than the host window is ignored.
+    if (event.source !== window.parent) return;
     var data = event.data || {};
     if (data.type === "bettershape-design-set-mode") {
       if (typeof data.mode === "string" && data.mode) mode = data.mode;
