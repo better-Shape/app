@@ -519,6 +519,22 @@ fn emit_turn_chat_token(config: &AgentTurnConfig<'_>, chunk: impl Into<String>) 
     );
 }
 
+/// Whether this turn is the one the user is looking at. `recent_files` and the
+/// stored summary describe that chat, so a background turn for another
+/// conversation must not rewrite them.
+fn owns_live_chat(config: &AgentTurnConfig<'_>, conversation_id: &Option<String>) -> bool {
+    let live = config
+        .agent_state
+        .current_conversation_id
+        .lock()
+        .ok()
+        .and_then(|c| c.clone());
+    match live {
+        Some(live) => conversation_id.as_deref() == Some(live.as_str()),
+        None => true,
+    }
+}
+
 /// Run a model-requested `compact_context` call once its own tool result is on
 /// the wire, so any replacement lands on that result and the pairing of calls
 /// to results stays valid.
@@ -1119,16 +1135,22 @@ pub async fn run_agent_turn(mut config: AgentTurnConfig<'_>) -> Result<AgentTurn
                     edit_counts.remove(&abs);
                     edit_fail_counts.remove(&abs);
                     needs_reread.remove(&abs);
-                    compaction::remember_recent_file(config.agent_state, &abs, "read");
+                    if owns_live_chat(&config, &conversation_id) {
+                        compaction::remember_recent_file(config.agent_state, &abs, "read");
+                    }
                 }
                 if let Some(SideEffect::FileWritten { path, .. }) = &tool_outcome.side_effect {
                     let abs = resolve_abs(path, config.project_path);
-                    compaction::remember_recent_file(config.agent_state, &abs, "write");
+                    if owns_live_chat(&config, &conversation_id) {
+                        compaction::remember_recent_file(config.agent_state, &abs, "write");
+                    }
                 }
                 if let Some(SideEffect::FilesWritten { files }) = &tool_outcome.side_effect {
                     for (path, _) in files {
                         let abs = resolve_abs(path, config.project_path);
-                        compaction::remember_recent_file(config.agent_state, &abs, "write");
+                        if owns_live_chat(&config, &conversation_id) {
+                            compaction::remember_recent_file(config.agent_state, &abs, "write");
+                        }
                     }
                 }
                 if let Some(SideEffect::PageScreenshot { tag }) = &tool_outcome.side_effect {
@@ -1525,7 +1547,9 @@ pub async fn run_agent_turn(mut config: AgentTurnConfig<'_>) -> Result<AgentTurn
                         file_cache_insert(&mut file_cache, abs.clone(), file_content);
                         edit_fail_counts.remove(&abs);
                         needs_reread.remove(&abs);
-                        compaction::remember_recent_file(config.agent_state, &abs, "write");
+                        if owns_live_chat(&config, &conversation_id) {
+                            compaction::remember_recent_file(config.agent_state, &abs, "write");
+                        }
                     }
                     SideEffect::FilesWritten { files } => {
                         wrote_files = true;
@@ -1535,7 +1559,9 @@ pub async fn run_agent_turn(mut config: AgentTurnConfig<'_>) -> Result<AgentTurn
                             file_cache_insert(&mut file_cache, abs.clone(), file_content);
                             edit_fail_counts.remove(&abs);
                             needs_reread.remove(&abs);
-                            compaction::remember_recent_file(config.agent_state, &abs, "write");
+                            if owns_live_chat(&config, &conversation_id) {
+                                compaction::remember_recent_file(config.agent_state, &abs, "write");
+                            }
                         }
                     }
                     SideEffect::FileDeleted { path } => {

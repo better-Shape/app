@@ -248,8 +248,10 @@ async fn approve_stdio_server(cfg: &McpServerConfig, ctx: &ToolCtx<'_>) -> Resul
     if let Ok(mut pendings) = ctx.agent_state.pending_commands.lock() {
         pendings.insert(cmd_id.clone(), pending.clone());
     }
+    // Same shape as `run_terminal`'s card: the body's first line is the
+    // command the chat renders, followed by why it is waiting.
     let _ = ctx.emit_ui_token(format!(
-        "\n<terminal_command status=\"pending\" id=\"{}\" mcp=\"{}\"\nAwaiting approval: {}</terminal_command>\n",
+        "\n<terminal_command status=\"pending\" id=\"{}\" mcp=\">{}\nAwaiting approval: {}</terminal_command>\n",
         cmd_id, preview, pending.reason
     ));
     let _ = ctx.app_handle.emit("agent-command-pending", pending);
@@ -490,7 +492,11 @@ pub(super) async fn tool_mcp_manage(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutc
                     ));
                 }
             }
-            let _ = crate::mcp::credentials::delete_token(&id);
+            // A Settings server is only disconnected for this session, and it
+            // keeps its token: the sign-in would otherwise be needed again.
+            if removed_file {
+                let _ = crate::mcp::credentials::delete_token(&id);
+            }
             announce(ctx, "remove", Some(&id));
             let text = if removed_file {
                 format!("Removed '{id}' from mcp.json and disconnected it.")

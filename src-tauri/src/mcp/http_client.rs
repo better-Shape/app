@@ -7,7 +7,9 @@ static REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 
 /// Headers the transport sets itself. A configured header with one of these
 /// names would be appended as a duplicate and can break the session.
-const RESERVED_HEADERS: &[&str] = &["accept", "content-type", "mcp-session-id", "authorization"];
+/// `authorization` is handled separately: it is the credential when the server
+/// carries one in its config.
+const RESERVED_HEADERS: &[&str] = &["accept", "content-type", "mcp-session-id"];
 
 pub struct HttpMcpClient {
     pub server_id: String,
@@ -119,14 +121,18 @@ impl HttpMcpClient {
         if let Some(sid) = &self.session_id {
             req = req.header("Mcp-Session-Id", sid);
         }
+        // The transport owns Authorization when it has a token to send. With no
+        // token, a configured header is the credential (an API key, say), so it
+        // has to be sent rather than treated as a duplicate.
+        let transport_auth = token.is_some() || self.auth == McpAuthType::Oauth;
         for (k, v) in &self.headers {
-            // Authorization is owned by the auth flow when OAuth is in use.
-            if self.auth == McpAuthType::Oauth && k.eq_ignore_ascii_case("authorization") {
-                continue;
-            }
-            // Protocol headers are set above. A second copy of one of these can
-            // break the transport, so a configured header never wins here.
-            if RESERVED_HEADERS.iter().any(|r| k.eq_ignore_ascii_case(r)) {
+            if k.eq_ignore_ascii_case("authorization") {
+                if transport_auth {
+                    continue;
+                }
+            } else if RESERVED_HEADERS.iter().any(|r| k.eq_ignore_ascii_case(r)) {
+                // Protocol headers are set above. A second copy of one of these
+                // can break the transport.
                 continue;
             }
             req = req.header(k, v);

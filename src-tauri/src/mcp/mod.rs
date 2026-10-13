@@ -48,6 +48,9 @@ pub struct McpState {
     /// Per-server locks so a long tool call does not block status/sync/schema.
     clients: Mutex<HashMap<String, Arc<Mutex<ConnectedClient>>>>,
     configs: Mutex<Vec<McpServerConfig>>,
+    /// Serialises connect-then-insert. Two upserts for the same id could
+    /// otherwise finish in either order and leave the older connection live.
+    connecting: Mutex<()>,
 }
 
 impl McpState {
@@ -55,6 +58,7 @@ impl McpState {
         Self {
             clients: Mutex::new(HashMap::new()),
             configs: Mutex::new(Vec::new()),
+            connecting: Mutex::new(()),
         }
     }
 
@@ -405,6 +409,9 @@ impl McpState {
     /// reconnects just the changed server, so servers the user added through
     /// Settings (which never live in that file) keep running untouched.
     pub fn upsert_server(&self, server: McpServerConfig) -> Result<McpStatusEntry, String> {
+        // Held across the connect so a second upsert for this server cannot
+        // insert its client first and lose to the older connection.
+        let _connecting = self.connecting.lock().map_err(|e| e.to_string())?;
         {
             let mut configs = self.configs.lock().map_err(|e| e.to_string())?;
             configs.retain(|c| c.id != server.id);

@@ -391,19 +391,24 @@ export function MentionPicker({
                 score: score([token, command.name.toLowerCase()]) + 0.5,
             };
         });
-        const saved = workflows.map((w) => {
-            const trigger = w.trigger.trim();
-            const triggerKey = trigger.replace(/^\/+/, "").toLowerCase();
-            return {
-                id: `workflow:${w.id}`,
-                token: workflowSlashToken(w),
-                name: w.name,
-                description: w.prompt,
-                argsHint: undefined as string | undefined,
-                workflow: w as AgentWorkflow | undefined,
-                score: score([triggerKey, w.name.toLowerCase()]),
-            };
-        });
+        const builtinTokens = new Set(
+            BUILTIN_SLASH_COMMANDS.map((command) => command.token.toLowerCase()),
+        );
+        const saved = workflows
+            .filter((w) => !builtinTokens.has(workflowSlashToken(w).toLowerCase()))
+            .map((w) => {
+                const trigger = w.trigger.trim();
+                const triggerKey = trigger.replace(/^\/+/, "").toLowerCase();
+                return {
+                    id: `workflow:${w.id}`,
+                    token: workflowSlashToken(w),
+                    name: w.name,
+                    description: w.prompt,
+                    argsHint: undefined as string | undefined,
+                    workflow: w as AgentWorkflow | undefined,
+                    score: score([triggerKey, w.name.toLowerCase()]),
+                };
+            });
         return [...builtins, ...saved]
             .filter((item) => item.score > 0)
             .sort((a, b) => b.score - a.score)

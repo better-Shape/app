@@ -375,6 +375,18 @@ export function McpSettingsView() {
         }
     }, []);
 
+    // The agent changed one server. `refresh` would reconnect every configured
+    // server and drop unrelated sessions, so read the list and the status the
+    // agent already reports instead.
+    const refreshFromAgent = useCallback(async () => {
+        try {
+            setServers(await listMcpServers());
+            setStatuses(await commands.getMcpStatus());
+        } catch (err) {
+            notify.error(err instanceof Error ? err.message : "Could not load MCP servers.");
+        }
+    }, []);
+
     useEffect(() => {
         void refresh();
         // The agent can add, edit, enable or test servers through mcp_manage.
@@ -382,7 +394,7 @@ export function McpSettingsView() {
         let unlisten: (() => void) | undefined;
         let disposed = false;
         void listen<{ action?: string }>("mcp-servers-changed", () => {
-            void refresh();
+            void refreshFromAgent();
         })
             .then((fn) => {
                 if (disposed) {
@@ -398,7 +410,7 @@ export function McpSettingsView() {
             disposed = true;
             unlisten?.();
         };
-    }, [refresh]);
+    }, [refresh, refreshFromAgent]);
 
     const filtered = useMemo(() => {
         const q = query.trim().toLowerCase();
