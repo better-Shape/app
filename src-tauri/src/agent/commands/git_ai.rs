@@ -112,7 +112,7 @@ async fn complete_pull_request_prompt(
             file_lines.push(format!("- [{status}] {name} (+{a}/âˆ’{d})"));
         }
         if arr.len() > 80 {
-            file_lines.push(format!("- â€¦ and {} more files", arr.len() - 80));
+            file_lines.push(format!("- … and {} more files", arr.len() - 80));
         }
     }
 
@@ -465,7 +465,7 @@ pub async fn explain_git_changes(
             ));
         }
         "working" => {
-            // Staged-only â€” matches commit-message scope and stays fast.
+            // Staged-only — matches commit-message scope and stays fast.
             let diff = git::git_staged_diff(project_path.clone()).unwrap_or_default();
             if diff.trim().is_empty() {
                 return Err(AppError::Message(
@@ -525,7 +525,7 @@ pub async fn explain_git_changes(
             for f in conflicted.iter().take(12) {
                 let full = std::path::Path::new(&project_path).join(&f.path);
                 let body = std::fs::read_to_string(&full)
-                    .unwrap_or_else(|_| "(could not read file â€” binary or missing)".into());
+                    .unwrap_or_else(|_| "(could not read file — binary or missing)".into());
                 sections.push(format!(
                     "### {}\n{}\n",
                     f.path,
@@ -565,7 +565,7 @@ pub async fn summarize_issue(owner: String, repo: String, number: u64) -> Result
 
     if issue.get("pull_request").is_some() {
         return Err(AppError::Message(
-            "This is a pull request â€” open it under Pull requests to summarize.".into(),
+            "This is a pull request — open it under Pull requests to summarize.".into(),
         ));
     }
 
