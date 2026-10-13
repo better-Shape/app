@@ -220,6 +220,7 @@ vi.mock("@/lib/chat/incognito", () => ({
     isIncognitoChat: () => false,
     purgeIncognitoConversation: async () => {},
     setIncognitoChat: async () => {},
+    syncIncognitoFromBackend: async () => {},
 }));
 vi.mock("@/lib/chat/mentions", () => ({
     buildMessageWithMentions: async (m: string) => m,

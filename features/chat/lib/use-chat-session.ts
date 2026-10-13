@@ -39,6 +39,7 @@ import {
     isIncognitoChat,
     purgeIncognitoConversation,
     setIncognitoChat,
+    syncIncognitoFromBackend,
 } from "@/lib/chat/incognito";
 import { messageLengthBucket } from "@/lib/telemetry/sanitize";
 import { buildMessageWithMentions, type SelectionSnapshot } from "@/lib/chat/mentions";
@@ -760,6 +761,12 @@ export function useChatSession(
         window.addEventListener("bettershape-chat-refresh", handleRefresh);
         return () => window.removeEventListener("bettershape-chat-refresh", handleRefresh);
     }, [refreshHistory]);
+
+    // Incognito lives on the backend; adopt it so a reopened window agrees
+    // with the chat that is actually being recorded.
+    React.useEffect(() => {
+        void syncIncognitoFromBackend();
+    }, []);
 
     React.useEffect(() => {
         const handleEditorEditAction = (e: Event) => {
