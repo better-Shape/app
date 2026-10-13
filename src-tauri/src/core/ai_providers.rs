@@ -279,6 +279,17 @@ pub fn base_url_for(provider: &ProviderEntry) -> String {
     }
 }
 
+/// Nothing to put in the request's `model` field.
+///
+/// Sending an empty slug makes providers answer with an opaque "model not
+/// found"; naming the fix in Settings is more useful.
+fn no_model_selected_error() -> AppError {
+    AppError::Message(
+        "No model is selected. Pick one under Settings → Providers (or add model ids for your custom endpoint), then try again."
+            .to_string(),
+    )
+}
+
 fn no_provider_error() -> AppError {
     AppError::Message(
         "No model provider is configured. Add an API key in Settings → Providers, then try again."
@@ -350,9 +361,19 @@ pub fn resolve_model(model: &str) -> Result<(ResolvedProvider, String), AppError
         let default = config.default_model.trim();
         if default.is_empty() {
             // Fall back to the first enabled provider if the user never picked a
-            // default model, so a single-key setup still works out of the box.
+            // default model, so a single-key setup still works out of the box —
+            // but every request needs a model name, so take the first id the
+            // connection declares, and say so when it declares none.
             let provider = config.first_usable().ok_or_else(no_provider_error)?;
-            return Ok((from_entry(provider), String::new()));
+            let model = provider
+                .models
+                .iter()
+                .map(|model| model.trim())
+                .find(|model| !model.is_empty())
+                .ok_or_else(no_model_selected_error)?;
+            let prefix = format!("{}/", provider.id);
+            let model = model.strip_prefix(&prefix).unwrap_or(model);
+            return Ok((from_entry(provider), model.to_string()));
         }
         let (resolved, slug) = resolve_model(default)?;
         return Ok((resolved, slug));
@@ -384,17 +405,13 @@ pub fn resolve_model(model: &str) -> Result<(ResolvedProvider, String), AppError
     }
 
     let provider = config.first_usable().ok_or_else(no_provider_error)?;
-    // A bare provider name (`deepseek`) or an `auto` default that resolved to an
-    // empty model leaves nothing to send. Failing here names the fix instead of
-    // letting the provider answer with an opaque "model not found".
-    let slug = rest.trim();
-    if slug.is_empty() {
-        return Err(AppError::Message(
-            "No model is selected. Pick one under Settings → Providers (or add model ids for your custom endpoint), then try again."
-                .to_string(),
-        ));
+    // Rule 3: nobody claims the prefix, so the *whole* string is the model. A
+    // self-hosted gateway serving namespaced ids (`qwen/qwen3-coder`) needs the
+    // prefix; stripping it here would send a model that does not exist.
+    if requested.is_empty() {
+        return Err(no_model_selected_error());
     }
-    Ok((from_entry(provider), slug.to_string()))
+    Ok((from_entry(provider), requested.to_string()))
 }
 
 /// Provider + model used for codebase embeddings, when one is configured.
