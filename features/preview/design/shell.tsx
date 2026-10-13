@@ -268,6 +268,9 @@ export function DesignStudio({
 
     useEffect(() => {
         const onMessage = (event: MessageEvent) => {
+            // Only the canvas frame may report its own location; any other sender
+            // (another frame in the app, or a page that opened one) is dropped.
+            if (event.source !== iframeRef.current?.contentWindow) return;
             const data = event.data;
             if (!data || typeof data !== "object") return;
             if ((data as { type?: string }).type !== "bettershape-preview-navigate") return;

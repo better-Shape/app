@@ -51,7 +51,8 @@ export const PREVIEW_INITIALIZATION_SCRIPT = `(function () {
   };
 })();`;
 
-const TWEAK_LISTENER_JS = `try{window.addEventListener("message",(e)=>{const d=e&&e.data;if(!d||d.type!=="bettershape-preview-tweaks"||!d.tweaks)return;const t=d.tweaks,r=document.getElementById("root")||(document.body&&document.body.firstElementChild);if(!r||!r.style)return;for(const[k,p]of[["radius","borderRadius"],["padding","padding"],["gap","gap"]])if(typeof t[k]==="number")r.style[p]=t[k]+"px";if(r.firstElementChild&&r.firstElementChild.style&&typeof t.radius==="number")r.firstElementChild.style.borderRadius=t.radius+"px";});}catch(_){}`;
+// Only the embedding window (the gallery card that framed us) may restyle the preview.
+const TWEAK_LISTENER_JS = `try{window.addEventListener("message",(e)=>{if(!e||e.source!==window.parent)return;const d=e.data;if(!d||d.type!=="bettershape-preview-tweaks"||!d.tweaks)return;const t=d.tweaks,r=document.getElementById("root")||(document.body&&document.body.firstElementChild);if(!r||!r.style)return;for(const[k,p]of[["radius","borderRadius"],["padding","padding"],["gap","gap"]])if(typeof t[k]==="number")r.style[p]=t[k]+"px";if(r.firstElementChild&&r.firstElementChild.style&&typeof t.radius==="number")r.firstElementChild.style.borderRadius=t.radius+"px";});}catch(_){}`;
 
 export function buildPreviewReadyScript(): string {
     return `(async () => {
