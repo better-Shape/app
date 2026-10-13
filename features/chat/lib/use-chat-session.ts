@@ -4,6 +4,11 @@ import React from "react";
 import { listen } from "@tauri-apps/api/event";
 import { commands, Conversation, useProjectState } from "@/lib/backend";
 import { useChatStream } from "./chat-stream-store";
+import {
+    type ComposerPrefs,
+    readComposerPrefs,
+    writeComposerPrefs,
+} from "@/lib/chat/composer-prefs";
 import { NEW_CHAT_TAB_ID, DEMO_CHAT_TAB_ID, isEphemeralChatTabId, type ChatTab } from "../ui/shell/tabs";
 import { buildDemoChatMessages, isDemoChatPinned, setDemoChatPinned } from "./demo-chat";
 import { openChatHistoryMenu } from "../ui/shell/history";
@@ -100,42 +105,12 @@ function writePersistedChatTabs(
     }
 }
 
-const COMPOSER_PREFS_KEY = "shape-composer";
-
-type ComposerEffort = "low" | "high" | "ultra" | "max" | "super";
-type ComposerPrefs = { model?: string; effort?: ComposerEffort; fast?: boolean };
-
-function readComposerPrefs(): ComposerPrefs {
-    if (typeof window === "undefined") return {};
-    try {
-        const raw = localStorage.getItem(COMPOSER_PREFS_KEY);
-        if (!raw) return {};
-        const parsed = JSON.parse(raw) as ComposerPrefs;
-        const effort = parsed.effort;
-        const known = effort === "low" || effort === "high" || effort === "ultra" || effort === "max" || effort === "super";
-        return {
-            model: typeof parsed.model === "string" ? parsed.model : undefined,
-            effort: known ? effort : undefined,
-            fast: typeof parsed.fast === "boolean" ? parsed.fast : undefined,
-        };
-    } catch {
-        return {};
-    }
-}
 
 /** Priority routing when credits are healthy. Low balances stay on standard. */
 function priorityTierForCredits(remaining: number, included: number): string | null {
     if (!Number.isFinite(remaining) || remaining <= 0) return null;
     if (included > 0 && remaining / included < 0.2) return null;
     return "priority";
-}
-
-function writeComposerPrefs(prefs: ComposerPrefs) {
-    try {
-        localStorage.setItem(COMPOSER_PREFS_KEY, JSON.stringify(prefs));
-    } catch {
-        /* ignore */
-    }
 }
 
 export function useChatSession() {
@@ -904,8 +879,14 @@ export function useChatSession() {
             } catch {
                 /* ignore */
             }
-            if (builtin.command.token === "/compact") {
-                await runCompactCommand(builtin.argument);
+            try {
+                if (builtin.command.token === "/compact") {
+                    await runCompactCommand(builtin.argument);
+                }
+            } finally {
+                // The shared `finally` below never runs for this branch, so the
+                // guard has to be released here or the chat stops sending.
+                sendingInFlightRef.current = false;
             }
             return true;
         }

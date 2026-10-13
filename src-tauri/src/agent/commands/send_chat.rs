@@ -462,9 +462,23 @@ pub async fn send_chat_message(
     // `state.history` is never rewritten — the UI keeps the full transcript and
     // only the payload the model receives is compacted.
     let mut history_snapshot = state.history.lock()?.clone();
-    let raw_history_tokens = compaction::history_tokens(&history_snapshot);
+    // The stored summary costs nothing to apply, and it shows what the model
+    // would really receive. Measuring the raw transcript here would ask for a
+    // fresh summarizer pass on every turn once the raw history crossed the line.
+    let stored_view = if state.incognito() {
+        None
+    } else {
+        compaction::apply_stored_summary(
+            &state,
+            &history_snapshot,
+            compaction::KEEP_RECENT_MESSAGES,
+            &model_to_use,
+        )
+    };
+    let view_tokens =
+        compaction::history_tokens(stored_view.as_deref().unwrap_or(&history_snapshot));
     let mut compacted_fresh = false;
-    if raw_history_tokens >= compaction::fill_line_tokens(&model_to_use) {
+    if !state.incognito() && view_tokens >= compaction::fill_line_tokens(&model_to_use) {
         let mut req = compaction::CompactRequest::new(
             &client,
             &auth_token,
@@ -494,12 +508,7 @@ pub async fn send_chat_message(
     {
         // A previous turn already folded this conversation: keep sending the
         // smaller view instead of the raw transcript.
-        if let Some(applied) = compaction::apply_stored_summary(
-            &state,
-            &history_snapshot,
-            compaction::KEEP_RECENT_MESSAGES,
-            &model_to_use,
-        ) {
+        if let Some(applied) = stored_view {
             history_snapshot = applied;
         }
     }
@@ -740,7 +749,10 @@ pub async fn send_chat_message(
         ),
     );
 
+    // Filled by the turn-completion branch, run after the cleanup below.
+    let mut post_turn_compaction: Option<(String, String)> = None;
     // Stopped / restored turns must not append — history may already be truncated.
+
     if still_current && still_this_turn && !was_cancelled {
         assistant_message.content = maybe_regenerate_title(
             &app_handle,
@@ -780,43 +792,16 @@ pub async fn send_chat_message(
             }),
         );
 
-        // Proactive compaction: the turn is already on screen, so this runs on
-        // the user's next-input window instead of inside their request. Folding
-        // here keeps the *following* turn cheap rather than compacting at the
-        // moment the window is already full.
-        if !project_path.is_empty() {
-            let history_snapshot = state.history.lock()?.clone();
-            if compaction::should_auto_compact(&history_snapshot, &model_to_use) {
-                let mut req = compaction::CompactRequest::new(
-                    &client,
-                    &auth_token,
-                    proxy_base.clone(),
-                    &model_to_use,
-                    "auto",
-                );
-                req.instructions = compact_instructions.clone();
-                req.project_path = &project_path;
-                req.app_handle = Some(&app_handle);
-                if let Some(outcome) =
-                    compaction::maybe_auto_compact(&state, &history_snapshot, req).await
-                {
-                    logging::info(
-                        "chat",
-                        &format!("Post-turn auto-{}", outcome.record.describe()),
-                    );
-                    let _ = app_handle.emit(
-                        "chat_context_summarized",
-                        json!({
-                            "conversationId": &owned_conversation_id,
-                            "record": outcome.record,
-                        }),
-                    );
-                }
-            }
-        }
-
         if let Some(path) = &current_proj_path {
             let _ = history::save_current_conversation(&state, path);
+        }
+
+        // Proactive compaction: the turn is already on screen, so this runs on
+        // the user's next-input window instead of inside their request. The run
+        // itself is deferred past the cleanup below, so a slow summarizer cannot
+        // make the next send fail with "already generating".
+        if !project_path.is_empty() && !state.incognito() {
+            post_turn_compaction = Some((project_path.clone(), model_to_use.clone()));
         }
     } else if still_this_turn && !was_cancelled {
         // User started a new chat or switched conversations while this turn was
@@ -904,6 +889,39 @@ pub async fn send_chat_message(
 
     state.clear_in_flight_if(&turn_id);
     journals::clear_turn_journal(&owned_conversation_id, &turn_id);
+
+    // Last, on purpose: the turn is saved and the chat can take a new message
+    // while the summarizer works.
+    if let Some((project_path, model_used)) = post_turn_compaction {
+        let history_snapshot = state.history.lock()?.clone();
+        if compaction::should_auto_compact(&history_snapshot, &model_used) {
+            let mut req = compaction::CompactRequest::new(
+                &client,
+                &auth_token,
+                proxy_base.clone(),
+                &model_used,
+                "auto",
+            );
+            req.instructions = compact_instructions.clone();
+            req.project_path = &project_path;
+            req.app_handle = Some(&app_handle);
+            if let Some(outcome) =
+                compaction::maybe_auto_compact(&state, &history_snapshot, req).await
+            {
+                logging::info(
+                    "chat",
+                    &format!("Post-turn auto-{}", outcome.record.describe()),
+                );
+                let _ = app_handle.emit(
+                    "chat_context_summarized",
+                    json!({
+                        "conversationId": &owned_conversation_id,
+                        "record": outcome.record,
+                    }),
+                );
+            }
+        }
+    }
 
     crate::core::ram_debug::snapshot(
         "send_chat_end",

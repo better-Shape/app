@@ -380,16 +380,24 @@ export function McpSettingsView() {
         // The agent can add, edit, enable or test servers through mcp_manage.
         // Those changes land in mcp.json, so re-read instead of guessing.
         let unlisten: (() => void) | undefined;
+        let disposed = false;
         void listen<{ action?: string }>("mcp-servers-changed", () => {
             void refresh();
         })
             .then((fn) => {
+                if (disposed) {
+                    fn();
+                    return;
+                }
                 unlisten = fn;
             })
             .catch(() => {
                 /* not in a Tauri window */
             });
-        return () => unlisten?.();
+        return () => {
+            disposed = true;
+            unlisten?.();
+        };
     }, [refresh]);
 
     const filtered = useMemo(() => {

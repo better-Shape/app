@@ -282,7 +282,14 @@ pub fn upsert_conversation_snapshot(
     }
     let mut convs = state.conversations.lock()?;
     let list = project_conversation_list(&mut convs, proj_path);
-    let summary = state.current_summary();
+    // Background turns land here while the user is looking at another chat, and
+    // that chat's summary is not this conversation's summary.
+    let is_live = state
+        .current_conversation_id
+        .lock()
+        .map(|c| c.as_deref() == Some(id))
+        .unwrap_or(false);
+    let summary = if is_live { state.current_summary() } else { None };
     if let Some(existing) = list.iter_mut().find(|c| c.id == id) {
         existing.history = history;
         existing.title = title.to_string();

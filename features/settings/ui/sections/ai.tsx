@@ -7,6 +7,7 @@ import { listen } from "@tauri-apps/api/event";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { commands } from "@/lib/backend";
+import { composerModel } from "@/lib/chat/composer-prefs";
 import type { CompactionStateView, IndexProgress, IndexStatus } from "@/lib/backend/types";
 import {
     getCatalogDefaultEnabledIds,
@@ -72,7 +73,7 @@ function CompactionEditor({ value }: { value: string }) {
 }
 
 /** Live compaction state for the current chat: passes, tokens freed, undo. */
-function CompactionStatus() {
+function CompactionStatus({ instructions }: { instructions: string }) {
     const [state, setState] = React.useState<CompactionStateView | null>(null);
     const [busy, setBusy] = React.useState(false);
 
@@ -123,7 +124,13 @@ function CompactionStatus() {
                 notify.error("Sign in to Shape first.", "Compaction runs through your Shape account.");
                 return;
             }
-            const result = await commands.compactChat({ accessToken });
+            const result = await commands.compactChat({
+                accessToken,
+                // Same two values /compact sends, so the standing instructions
+                // apply to this run as well.
+                instructions: instructions.trim() || undefined,
+                model: composerModel(),
+            });
             if (result.error) {
                 notify.error("Compaction failed.", result.error);
             } else if (result.alreadySmall) {
@@ -590,7 +597,7 @@ export function AiSettingsPanel({
                     />
                 </SettingRow>
             </SettingSection>
-            <CompactionStatus />
+            <CompactionStatus instructions={a.compactInstructions ?? ""} />
             <SettingSection id="settings-ai-context" title="Context">
                 <SettingRow title="Max context lines" description="How much of each file is sent with a turn.">
                     <SettingNumberSelect

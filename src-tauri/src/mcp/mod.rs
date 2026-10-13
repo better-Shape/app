@@ -411,8 +411,10 @@ impl McpState {
             configs.push(server.clone());
         }
 
-        let mut clients = self.clients.lock().map_err(|e| e.to_string())?;
-        clients.remove(&server.id);
+        {
+            let mut clients = self.clients.lock().map_err(|e| e.to_string())?;
+            clients.remove(&server.id);
+        }
 
         if !server.enabled {
             return Ok(McpStatusEntry {
@@ -425,6 +427,9 @@ impl McpState {
             });
         }
 
+        // Connecting spawns a process or opens a socket. Doing that with the
+        // map locked would stall `get_status`, `all_tools` and `call_tool` for
+        // every other server until the handshake ends.
         match Self::connect_server(&server) {
             Ok(client) => {
                 let entry = McpStatusEntry {
@@ -435,6 +440,7 @@ impl McpState {
                     error: client.last_error(),
                     auth: server.auth.clone(),
                 };
+                let mut clients = self.clients.lock().map_err(|e| e.to_string())?;
                 clients.insert(server.id.clone(), Arc::new(Mutex::new(client)));
                 Ok(entry)
             }
@@ -489,9 +495,7 @@ impl McpState {
             .unwrap_or_default()
     }
 
-    /// Status for one server, if it is configured.
-        /// Restart the current server.
-
+    /// Restart the current server.
     pub fn restart_server(&self, server_id: &str) -> Result<McpStatusEntry, String> {
         let configs = self.configs.lock().map_err(|e| e.to_string())?;
         let server = configs

@@ -168,6 +168,9 @@ pub async fn restore_checkpoint(
             history.truncate(index);
         }
     }
+    // The stored fold boundary described the history that was just cut, so the
+    // next turn must not apply that summary to a different set of messages.
+    state.reset_compaction();
     // Drop design gate / sandbox so restore past Continue does not leave writes blocked.
     state.clear_design_preview_state();
 
@@ -484,6 +487,9 @@ pub fn fork_conversation(
     *state.history.lock()? = sliced;
     *state.title.lock()? = Some(new_title.clone());
     *state.current_conversation_id.lock()? = Some(new_id.clone());
+    // A fork starts a new conversation: the previous fold boundary and summary
+    // belong to the chat it was forked from.
+    state.reset_compaction();
     state.clear_design_preview_state();
     state.clear_file_checkpoints();
 

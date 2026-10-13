@@ -536,12 +536,21 @@ fn tool_targets(api_messages: &[Value]) -> std::collections::HashMap<String, Str
 /// view — the newer copy is still in the transcript.
 ///
 /// Returns the number of messages shortened.
-pub fn prune_redundant_messages(messages: &mut [Value]) -> usize {
+/// What a prune pass changed. `reads_dropped` matters to the caller: once a
+/// `read_file` result is a note, the turn's read bookkeeping no longer matches
+/// the conversation and the caller has to let those reads happen again.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct PruneReport {
+    pub pruned: usize,
+    pub reads_dropped: usize,
+}
+
+pub fn prune_redundant_messages(messages: &mut [Value]) -> PruneReport {
     // Newest target wins. Walk backwards so we see newer ones first.
     let targets = tool_targets(messages);
     let mut seen_target: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     let mut seen_hash: std::collections::HashMap<u64, usize> = std::collections::HashMap::new();
-    let mut pruned = 0usize;
+    let mut report = PruneReport::default();
 
     for i in (0..messages.len()).rev() {
         if messages[i].get("role").and_then(|r| r.as_str()) != Some("tool") {
@@ -552,18 +561,27 @@ pub fn prune_redundant_messages(messages: &mut [Value]) -> usize {
             .and_then(|c| c.as_str())
             .unwrap_or("")
             .to_string();
-        if content.is_empty() || content == SUPERSEDED_NOTE || content == DUPLICATE_NOTE {
+        // A guard note carries no payload of its own. Treating one as the
+        // newest copy of a file would blank the real result the note points
+        // back to.
+        if content.is_empty()
+            || content == SUPERSEDED_NOTE
+            || content == DUPLICATE_NOTE
+            || is_placeholder_result(&content)
+        {
             continue;
         }
 
         let digest = fnv1a(content.as_bytes());
-        if let Some(prev) = seen_hash.get(&digest) {
-            let note = DUPLICATE_NOTE.to_string();
+        if seen_hash.contains_key(&digest) {
+            let is_read = messages[i].get("name").and_then(|n| n.as_str()) == Some("read_file");
             if let Some(obj) = messages[i].as_object_mut() {
-                obj.insert("content".into(), Value::String(note));
-                pruned += 1;
+                obj.insert("content".into(), Value::String(DUPLICATE_NOTE.to_string()));
+                report.pruned += 1;
+                if is_read {
+                    report.reads_dropped += 1;
+                }
             }
-            let _ = prev;
             continue;
         }
         seen_hash.insert(digest, i);
@@ -575,17 +593,38 @@ pub fn prune_redundant_messages(messages: &mut [Value]) -> usize {
             .cloned();
         if let Some(target) = target {
             if seen_target.contains_key(&target) {
-                let note = SUPERSEDED_NOTE.to_string();
+                let is_read = target.starts_with("read_file:");
                 if let Some(obj) = messages[i].as_object_mut() {
-                    obj.insert("content".into(), Value::String(note));
-                    pruned += 1;
+                    obj.insert("content".into(), Value::String(SUPERSEDED_NOTE.to_string()));
+                    report.pruned += 1;
+                    if is_read {
+                        report.reads_dropped += 1;
+                    }
                 }
                 continue;
             }
             seen_target.insert(target, i);
         }
     }
-    pruned
+    report
+}
+
+/// Results that only carry a message about the call itself, never content a
+/// later message could supersede.
+fn is_placeholder_result(content: &str) -> bool {
+    const PREFIXES: &[&str] = &[
+        "DUPLICATE CALL BLOCKED",
+        "DUPLICATE READ BLOCKED",
+        "Access denied",
+        "You already ran plugin_search",
+        "You already listed that",
+        "Skip catalog dumps",
+        "Do not ask the user which plugin action",
+        "Compacted ",
+        "[cleared to save context]",
+        "[screenshot cleared",
+    ];
+    PREFIXES.iter().any(|p| content.starts_with(p))
 }
 
 fn fnv1a(bytes: &[u8]) -> u64 {
@@ -1170,16 +1209,32 @@ pub struct CompactionOutcome {
 ///
 /// Returns `Ok(None)` when there is nothing worth folding (short history, tiny
 /// span) and `Err` when the summarizer call or its output failed.
+/// The conversation the app is showing right now, if any.
+fn current_conversation_id(state: &AgentState) -> Option<String> {
+    state.current_conversation_id.lock().ok().and_then(|c| c.clone())
+}
+
 pub async fn compact_history(
     state: &AgentState,
     history: &[ChatMessage],
     req: CompactRequest<'_>,
 ) -> Result<Option<CompactionOutcome>, AppError> {
+    // Incognito means "this chat is not written down". A fold would send the
+    // transcript to the summarizer and archive it under the project.
+    if state.incognito() {
+        return Err(AppError::Message(
+            "Compaction is off in incognito chats: nothing here is summarized or written to disk."
+                .to_string(),
+        ));
+    }
     let Some(plan) = plan_compaction(history, req.keep_recent, drain_line_tokens(req.model)) else {
         logging::info("compaction", "No foldable span — history is already compact");
         return Ok(None);
     };
 
+    // This pass holds a model call open for a while, and the user can switch
+    // chats inside that window. A summary belongs to one conversation only.
+    let owned_conversation = current_conversation_id(state);
     let previous = state.history_summary.lock().ok().and_then(|g| g.clone());
     let pins = state
         .compaction
@@ -1272,6 +1327,14 @@ pub async fn compact_history(
     record.folded_end = plan.fold_end;
     record.summary_chars = stored.chars().count();
     record.spill_path = spill_path.clone();
+
+    if current_conversation_id(state) != owned_conversation {
+        logging::info(
+            "compaction",
+            "Conversation changed while summarizing — the summary was dropped",
+        );
+        return Ok(None);
+    }
 
     if let Ok(mut guard) = state.history_summary.lock() {
         *guard = Some(stored.clone());
@@ -1675,6 +1738,12 @@ pub async fn compact_chat(
     let Some(api_key) = access_token.filter(|t| !t.trim().is_empty()) else {
         return Err(AppError::Env("Sign in to Shape to compact a chat.".to_string()));
     };
+    if state.incognito() {
+        return Err(AppError::Message(
+            "Compaction is off in incognito chats: nothing here is summarized or written to disk."
+                .to_string(),
+        ));
+    }
     let project_path = app_state
         .0
         .lock()
@@ -2011,7 +2080,7 @@ mod tests {
             call("4", "grep", "{\"pattern\":\"y\"}"),
             tool("4", "grep", "same"),
         ];
-        let pruned = prune_redundant_messages(&mut messages);
+        let pruned = prune_redundant_messages(&mut messages).pruned;
         assert_eq!(pruned, 2);
         assert_eq!(messages.len(), 8);
         // Pairing is positional: the tool message stays where it is, only its
@@ -2045,7 +2114,7 @@ mod tests {
             call("2", "{\"path\":\"a.rs\",\"start_line\":200,\"end_line\":260}"),
             tool("2", "tail"),
         ];
-        assert_eq!(prune_redundant_messages(&mut messages), 0);
+        assert_eq!(prune_redundant_messages(&mut messages).pruned, 0);
         assert_eq!(messages[1]["content"], "head");
     }
 

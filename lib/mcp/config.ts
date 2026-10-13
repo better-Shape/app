@@ -80,7 +80,19 @@ export async function saveMcpServers(servers: McpServerConfig[]): Promise<void> 
             oauthClientId: s.oauthClientId || undefined,
         };
     }
-    const content = JSON.stringify({ mcpServers }, null, 2);
+    // The file can carry a $schema, notes, or other servers' keys. Replace only
+    // the mcpServers property so a save from Settings cannot drop them.
+    let existing: Record<string, unknown> = {};
+    try {
+        const raw = await commands.readMcpConfig();
+        const parsed: unknown = typeof raw === "string" ? JSON.parse(raw) : raw;
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+            existing = parsed as Record<string, unknown>;
+        }
+    } catch {
+        /* first write, or unreadable file: start fresh */
+    }
+    const content = JSON.stringify({ ...existing, mcpServers }, null, 2);
     await commands.writeMcpConfig(content);
 }
 

@@ -220,6 +220,58 @@ fn mcp_config_from_args(
     })
 }
 
+/// Ask before a model-supplied executable is written to `mcp.json` and
+/// launched. Same card as `run_terminal`, same escape hatch: the turn policy
+/// can say "stop asking".
+async fn approve_stdio_server(cfg: &McpServerConfig, ctx: &ToolCtx<'_>) -> Result<(), String> {
+    use crate::agent::models::{AutoRunMode, PendingCommand};
+
+    let policy = ctx.agent_state.turn_policy_for(ctx.conversation_id.as_deref());
+    if policy.auto_run_mode == AutoRunMode::Always {
+        return Ok(());
+    }
+
+    let cmd_id = format!("cmd-{}", uuid::Uuid::new_v4());
+    let preview = if cfg.args.is_empty() {
+        cfg.command.clone()
+    } else {
+        format!("{} {}", cfg.command, cfg.args.join(" "))
+    };
+    let pending = PendingCommand {
+        id: cmd_id.clone(),
+        command: preview.clone(),
+        safety: "needs_approval".to_string(),
+        reason: format!("Starts the MCP server '{}' as a local process.", cfg.id),
+        action: None,
+        payload: None,
+    };
+    if let Ok(mut pendings) = ctx.agent_state.pending_commands.lock() {
+        pendings.insert(cmd_id.clone(), pending.clone());
+    }
+    let _ = ctx.emit_ui_token(format!(
+        "\n<terminal_command status=\"pending\" id=\"{}\" mcp=\"{}\"\nAwaiting approval: {}</terminal_command>\n",
+        cmd_id, preview, pending.reason
+    ));
+    let _ = ctx.app_handle.emit("agent-command-pending", pending);
+    streaming::emit_chat_status(
+        ctx.app_handle,
+        json!({ "phase": "approval", "label": "Waiting for approval" }),
+    );
+
+    let decision = super::common::wait_for_command_decision(&cmd_id, ctx).await;
+    super::common::cleanup_pending_command(&cmd_id, ctx);
+    match decision {
+        super::common::ApprovalDecision::Approved => Ok(()),
+        super::common::ApprovalDecision::Rejected => Err(format!(
+            "'{}' was not approved. Nothing was written or started. Ask the user first if it should run.",
+            preview
+        )),
+        super::common::ApprovalDecision::Cancelled => {
+            Err("The turn was cancelled while waiting for approval.".to_string())
+        }
+    }
+}
+
 fn mcp_status_word(status: &crate::mcp::McpServerStatus) -> &'static str {
     match status {
         crate::mcp::McpServerStatus::Connected => "connected",
@@ -327,11 +379,14 @@ pub(super) async fn tool_mcp_manage(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutc
 
         "add" | "update" => {
             let is_add = action == "add";
-            let existing = name
+            // The file keys servers by slug, so "Playwright MCP" and
+            // "playwright-mcp" are the same entry.
+            let slug = name.as_deref().map(admin::slug);
+            let existing = slug
                 .as_deref()
                 .and_then(|id| admin::load_server(id).ok().flatten());
             if is_add {
-                if let Some(id) = name.as_deref() {
+                if let Some(id) = slug.as_deref() {
                     if let Ok(Some(_)) = admin::load_server(id) {
                         return fail(format!(
                             "'{id}' already exists. Use action:update to change it, or action:remove first."
@@ -350,6 +405,19 @@ pub(super) async fn tool_mcp_manage(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutc
             };
             if let Err(e) = admin::validate(&cfg) {
                 return fail(e);
+            }
+            // A stdio server is a program this machine will run on every
+            // launch. The user answers for it unless auto-run is on.
+            let starts_a_process = cfg.transport == crate::mcp::McpTransport::Stdio
+                && (is_add
+                    || existing
+                        .as_ref()
+                        .map(|old| old.command != cfg.command || old.args != cfg.args)
+                        .unwrap_or(true));
+            if starts_a_process {
+                if let Err(e) = approve_stdio_server(&cfg, ctx).await {
+                    return fail(e);
+                }
             }
             if save {
                 if let Err(e) = admin::upsert(&cfg) {

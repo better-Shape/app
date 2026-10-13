@@ -90,8 +90,14 @@ pub fn truncate_to_tokens(text: &str, max_tokens: usize) -> String {
     if estimate_tokens(text) <= max_tokens {
         return text.to_string();
     }
-    let char_budget = chars_for_tokens(max_tokens).max(120);
     let total = text.chars().count();
+    // Chars per token follows the script: CJK costs about one token per
+    // character, ASCII prose about one per four. Measure this text so the
+    // result honours `max_tokens` either way, with a little headroom for the
+    // marker below.
+    let per_token = (total as f64 / estimate_tokens(text).max(1) as f64).max(1.0);
+    let char_budget = ((max_tokens as f64) * per_token * 0.9) as usize;
+    let char_budget = char_budget.clamp(120, chars_for_tokens(max_tokens).max(120));
     if total <= char_budget {
         return text.to_string();
     }
@@ -138,6 +144,17 @@ mod tests {
         let tokens = estimate_tokens(cjk);
         assert!(tokens >= n, "tokens={tokens} chars={n}");
         assert!(tokens <= n * 2, "tokens={tokens} chars={n}");
+    }
+
+    #[test]
+    fn truncate_holds_the_budget_for_dense_text() {
+        let text: String = "文件内容很密集".repeat(4_000);
+        let out = truncate_to_tokens(&text, 1_000);
+        assert!(
+            estimate_tokens(&out) <= 1_200,
+            "truncated to {} tokens",
+            estimate_tokens(&out)
+        );
     }
 
     #[test]

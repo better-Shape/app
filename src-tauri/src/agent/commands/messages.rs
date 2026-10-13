@@ -309,13 +309,19 @@ pub fn clear_old_tool_results(api_messages: &mut [Value]) -> bool {
     // Tier 2: drop payloads that are provably redundant — an older read of a
     // path that was read again, or an exact duplicate — before falling back to
     // lossy trimming. Nothing the model still needs is removed.
-    let redundant = super::compaction::prune_redundant_messages(api_messages);
-    if redundant > 0 {
+    let report = super::compaction::prune_redundant_messages(api_messages);
+    if report.pruned > 0 {
         total = api_messages.iter().map(content_len).sum();
         super::logging::debug(
             "messages",
-            &format!("Dropped {redundant} redundant tool results before trimming"),
+            &format!(
+                "Dropped {} redundant tool results before trimming",
+                report.pruned
+            ),
         );
+        // A note took the place of a file read, so the caller has to drop the
+        // coverage it recorded for that read.
+        pruned_read |= report.reads_dropped > 0;
         if total <= TOOL_RESULT_SOFT_BUDGET {
             return pruned_read;
         }

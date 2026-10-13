@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::{Mutex, MutexGuard, OnceLock};
 
 /// `<data dir>/shape/mcp.json` — the same file Settings → Agents → MCP opens.
 pub fn config_path() -> Result<PathBuf, String> {
@@ -36,8 +37,25 @@ pub fn ensure_file() -> Result<PathBuf, String> {
     Ok(path)
 }
 
+/// Serialises every read-modify-write cycle on the file. The agent tool, the
+/// Tauri commands and the Settings screen all write `mcp.json`, and two writers
+/// that interleave lose one of the two changes.
+fn write_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
+
+fn lock_writes() -> Result<MutexGuard<'static, ()>, String> {
+    write_lock().lock().map_err(|e| e.to_string())
+}
+
 /// The whole document, or an empty one when the file is blank/corrupt.
 pub fn read_doc() -> Result<Value, String> {
+    let _guard = lock_writes()?;
+    read_doc_unlocked()
+}
+
+fn read_doc_unlocked() -> Result<Value, String> {
     let path = ensure_file()?;
     let raw = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
     if raw.trim().is_empty() {
@@ -52,10 +70,29 @@ pub fn read_doc() -> Result<Value, String> {
 
 /// Write the document atomically, keeping one backup.
 pub fn write_doc(doc: &Value) -> Result<(), String> {
-    let path = ensure_file()?;
     let body = serde_json::to_string_pretty(doc).map_err(|e| e.to_string())?;
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, format!("{body}\n")).map_err(|e| e.to_string())?;
+    let _guard = lock_writes()?;
+    write_text(&format!("{body}\n"))
+}
+
+/// Replace the file with `content` verbatim, under the same lock. Settings
+/// writes the whole document this way.
+pub fn write_raw(content: &str) -> Result<(), String> {
+    let _guard = lock_writes()?;
+    write_text(content)
+}
+
+fn write_doc_unlocked(doc: &Value) -> Result<(), String> {
+    let body = serde_json::to_string_pretty(doc).map_err(|e| e.to_string())?;
+    write_text(&format!("{body}\n"))
+}
+
+/// Temp file + rename, plus a `.bak`. The temp name carries the pid so two
+/// processes can never share one.
+fn write_text(body: &str) -> Result<(), String> {
+    let path = ensure_file()?;
+    let tmp = path.with_extension(format!("json.{}.tmp", std::process::id()));
+    std::fs::write(&tmp, body).map_err(|e| e.to_string())?;
     if path.exists() {
         let _ = std::fs::copy(&path, path.with_extension("json.bak"));
     }
@@ -271,6 +308,17 @@ pub fn validate(cfg: &McpServerConfig) -> Result<(), String> {
             if !(url.starts_with("https://") || url.starts_with("http://")) {
                 return Err(format!("`{url}` is not an http(s) URL."));
             }
+            // A bad name or value is stored by reqwest and only fails at send
+            // time, which reads as "the server is broken" instead of "your
+            // header is wrong".
+            for (name, value) in &cfg.headers {
+                if reqwest::header::HeaderName::from_bytes(name.as_bytes()).is_err() {
+                    return Err(format!("`{name}` is not a valid header name."));
+                }
+                if reqwest::header::HeaderValue::from_str(value).is_err() {
+                    return Err(format!("Header `{name}` has a value HTTP cannot carry."));
+                }
+            }
         }
     }
     Ok(())
@@ -279,7 +327,8 @@ pub fn validate(cfg: &McpServerConfig) -> Result<(), String> {
 /// Insert or replace one server. Returns the previous config when it existed.
 pub fn upsert(cfg: &McpServerConfig) -> Result<Option<McpServerConfig>, String> {
     validate(cfg)?;
-    let mut doc = read_doc()?;
+    let _guard = lock_writes()?;
+    let mut doc = read_doc_unlocked()?;
     let previous = doc
         .get("mcpServers")
         .and_then(|v| v.as_object())
@@ -289,26 +338,28 @@ pub fn upsert(cfg: &McpServerConfig) -> Result<Option<McpServerConfig>, String> 
         let servers = servers_object(&mut doc);
         servers.insert(cfg.id.clone(), entry_json(cfg));
     }
-    write_doc(&doc)?;
+    write_doc_unlocked(&doc)?;
     Ok(previous)
 }
 
 /// Remove one server. Returns `true` when the entry existed.
 pub fn remove(id: &str) -> Result<bool, String> {
-    let mut doc = read_doc()?;
+    let _guard = lock_writes()?;
+    let mut doc = read_doc_unlocked()?;
     let removed = {
         let servers = servers_object(&mut doc);
         servers.remove(id).is_some()
     };
     if removed {
-        write_doc(&doc)?;
+        write_doc_unlocked(&doc)?;
     }
     Ok(removed)
 }
 
 /// Flip a server on or off without touching its other fields.
 pub fn set_enabled(id: &str, enabled: bool) -> Result<bool, String> {
-    let mut doc = read_doc()?;
+    let _guard = lock_writes()?;
+    let mut doc = read_doc_unlocked()?;
     let found = {
         let servers = servers_object(&mut doc);
         match servers.get_mut(id).and_then(|v| v.as_object_mut()) {
@@ -324,7 +375,7 @@ pub fn set_enabled(id: &str, enabled: bool) -> Result<bool, String> {
         }
     };
     if found {
-        write_doc(&doc)?;
+        write_doc_unlocked(&doc)?;
     }
     Ok(found)
 }

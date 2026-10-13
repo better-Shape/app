@@ -36,8 +36,9 @@ pub fn read_mcp_config() -> Result<String, AppError> {
 
 #[tauri::command]
 pub fn write_mcp_config(content: String) -> Result<(), AppError> {
-    let path = ensure_mcp_config()?;
-    fs::write(&path, content).map_err(|e| AppError::Message(e.to_string()))
+    // Same lock and same temp-file dance as the agent tool, so a save from
+    // Settings cannot race one.
+    crate::mcp::admin::write_raw(&content).map_err(AppError::Message)
 }
 
 #[tauri::command]
@@ -163,7 +164,11 @@ pub async fn mcp_manage_servers(
                 .id
                 .ok_or_else(|| AppError::Message("`id` is required.".into()))?;
             let enabled = request.enabled.unwrap_or(action == "enable");
-            admin::set_enabled(&id, enabled).map_err(AppError::Message)?;
+            // Change nothing until the file confirms the server is there.
+            let changed = admin::set_enabled(&id, enabled).map_err(AppError::Message)?;
+            if !changed {
+                return Err(AppError::Message(format!("'{id}' is not in mcp.json.")));
+            }
             let Some(mut cfg) = admin::load_server(&id).map_err(AppError::Message)? else {
                 return Err(AppError::Message(format!("'{id}' is not in mcp.json.")));
             };

@@ -29,7 +29,13 @@ impl HttpMcpClient {
         static_bearer: Option<String>,
         headers: Vec<(String, String)>,
     ) -> Result<Self, String> {
-        let client = reqwest::Client::new();
+        // A dead endpoint must not hold a tool call open forever, and the
+        // handshake must fail fast enough to leave a clear error.
+        let client = reqwest::Client::builder()
+            .connect_timeout(std::time::Duration::from_secs(15))
+            .timeout(std::time::Duration::from_secs(300))
+            .build()
+            .map_err(|e| format!("Could not build the MCP HTTP client: {e}"))?;
         let mut http = Self {
             server_id: server_id.to_string(),
             server_name: server_name.to_string(),
@@ -112,6 +118,11 @@ impl HttpMcpClient {
         for (k, v) in &self.headers {
             // Authorization is owned by the auth flow when OAuth is in use.
             if self.auth == McpAuthType::Oauth && k.eq_ignore_ascii_case("authorization") {
+                continue;
+            }
+            // Protocol headers are set above. A second copy of one of these can
+            // break the transport, so a configured header never wins here.
+            if RESERVED_HEADERS.iter().any(|r| k.eq_ignore_ascii_case(r)) {
                 continue;
             }
             req = req.header(k, v);
