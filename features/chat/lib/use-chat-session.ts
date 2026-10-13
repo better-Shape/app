@@ -132,13 +132,6 @@ function readComposerPrefs(): ComposerPrefs {
     }
 }
 
-/** Priority routing when credits are healthy. Low balances stay on standard. */
-function priorityTierForCredits(remaining: number, included: number): string | null {
-    if (!Number.isFinite(remaining) || remaining <= 0) return null;
-    if (included > 0 && remaining / included < 0.2) return null;
-    return "priority";
-}
-
 function writeComposerPrefs(prefs: ComposerPrefs) {
     try {
         localStorage.setItem(COMPOSER_PREFS_KEY, JSON.stringify(prefs));
