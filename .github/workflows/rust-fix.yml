@@ -4,7 +4,9 @@ name: Rust fix (temporary)
 # so they can be fixed from an environment without a Rust toolchain.
 # Deleted before the branch is finished.
 on:
-  workflow_dispatch:
+  push:
+    branches:
+      - arena/0c0f702a-shape
 
 permissions:
   contents: write
