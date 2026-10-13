@@ -1,18 +1,18 @@
 <p align="center">
-  <a href="https://useshape.org">
+  <a href="https://github.com/Owie6789/BetterShape">
     <img src="./public/hero.png" alt="Chat next to the open folder" width="880">
   </a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/Owie6789/Shape/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/Owie6789/Shape?style=flat-square"></a>
-  <a href="https://github.com/Owie6789/Shape/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/Owie6789/Shape/ci.yml?style=flat-square&branch=main&label=ci"></a>
+  <a href="https://github.com/Owie6789/BetterShape/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/Owie6789/BetterShape?style=flat-square"></a>
+  <a href="https://github.com/Owie6789/BetterShape/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/Owie6789/BetterShape/ci.yml?style=flat-square&branch=main&label=ci"></a>
 </p>
 
 <p align="center">
-  <a href="https://useshape.org">Website</a> ·
-  <a href="https://useshape.org/docs">Docs</a> ·
-  <a href="https://useshape.org/download">Download</a> ·
+  <a href="https://github.com/Owie6789/BetterShape">Website</a> ·
+  <a href="https://github.com/Owie6789/BetterShape/tree/main/docs">Docs</a> ·
+  <a href="https://github.com/Owie6789/BetterShape/releases">Download</a> ·
   <a href="https://discord.gg/MMCEDVZKYf">Discord</a>
 </p>
 
@@ -34,7 +34,7 @@ Pick a mode before you send.
 
 Type `@` to attach a file or folder. Type `/` to run a saved prompt.
 
-[Agent](https://useshape.org/docs/agent/overview)
+[Agent](./docs/agent/overview.mdx)
 
 ## Models
 
@@ -42,7 +42,7 @@ Bring your own key. OpenAI, Anthropic, and Google are spoken natively, and any O
 
 ![Claude, GPT, Gemini, Grok, DeepSeek, Qwen](./docs/images/readme/models.svg)
 
-[Models](https://useshape.org/docs/get-started/models)
+[Models](./docs/get-started/models.mdx)
 
 ## Plugins
 
@@ -50,13 +50,13 @@ Connect GitHub, Figma, Linear, Slack, Notion, Stripe, Supabase, Vercel, and othe
 
 ![GitHub, Figma, Linear, Slack, Notion, Stripe, Supabase, Vercel](./docs/images/readme/plugins.svg)
 
-A plugin is a connected account. A tool that runs on your machine is [MCP](https://useshape.org/docs/customize/mcp).
+A plugin is a connected account. A tool that runs on your machine is [MCP](./docs/customize/mcp.mdx).
 
-[Plugins](https://useshape.org/docs/customize/plugins)
+[Plugins](./docs/customize/plugins.mdx)
 
 ## Install
 
-Windows 10 or 11, 64-bit. [Installer](https://useshape.org/download). Older builds: [Releases](https://github.com/useshape/Shape/releases).
+Windows 10 or 11, 64-bit. Installers are on [GitHub releases](https://github.com/Owie6789/BetterShape/releases); if none is published there, build from source below.
 
 Stable is the tested channel. On nightly you get the newest installer, and that installer can break.
 
@@ -69,7 +69,7 @@ npm install
 npm run tauri:dev
 ```
 
-[CONTRIBUTING.md](./CONTRIBUTING.md) and [local development](https://useshape.org/docs/developing/local-development).
+[CONTRIBUTING.md](./CONTRIBUTING.md) and [local development](./docs/developing/local-development.mdx).
 
 ```bash
 npm run test          # Vitest

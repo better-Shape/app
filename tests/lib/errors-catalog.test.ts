@@ -19,7 +19,7 @@ describe("error catalog", () => {
 
     it("builds docs urls with the numeric code", () => {
         expect(errorDocsUrl(BETTERSHAPE_ERRORS.AI_KEY_MISSING)).toBe(
-            "https://github.com/Owie6789/Shape/blob/main/docs/help/errors.md#2200",
+            "https://github.com/Owie6789/BetterShape/blob/main/docs/help/errors.md#2200",
         );
     });
 

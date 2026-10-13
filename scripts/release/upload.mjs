@@ -26,7 +26,7 @@ function parseArgs(argv) {
     publish: false,
     notesFile: null,
     prerelease: false,
-    repo: process.env.GITHUB_REPOSITORY || "Owie6789/Shape",
+    repo: process.env.GITHUB_REPOSITORY || "Owie6789/BetterShape",
     releaseId: null,
   };
   for (let i = 0; i < argv.length; i++) {

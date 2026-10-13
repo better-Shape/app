@@ -11,7 +11,7 @@
   "logo": {
     "light": "/logo/light.svg",
     "dark": "/logo/dark.svg",
-    "href": "https://useshape.org"
+    "href": "https://github.com/Owie6789/BetterShape"
   },
   "favicon": "/logo/icon.png",
   "appearance": {
@@ -88,18 +88,17 @@
   },
   "navbar": {
     "links": [
-      { "type": "github", "href": "https://github.com/useshape/Shape" }
+      { "type": "github", "href": "https://github.com/Owie6789/BetterShape" }
     ],
     "primary": {
       "type": "button",
       "label": "Download",
-      "href": "https://useshape.org/download"
+      "href": "https://github.com/Owie6789/BetterShape/releases"
     }
   },
   "footer": {
     "socials": {
-      "x": "https://x.com/useshape",
-      "github": "https://github.com/useshape/Shape",
+      "github": "https://github.com/Owie6789/BetterShape",
       "discord": "https://discord.com/invite/MMCEDVZKYf"
     }
   }

@@ -32,7 +32,7 @@ export function registryTarget(entry: McpRegistryEntry): string {
     return "no run command published";
 }
 
-/** Whether Shape can install this entry at all, and why not when it cannot. */
+/** Whether BetterShape can install this entry at all, and why not when it cannot. */
 export function registryInstallable(entry: McpRegistryEntry): { ok: boolean; reason?: string } {
     if (entry.command?.trim() || entry.url?.trim()) {
         return { ok: true };

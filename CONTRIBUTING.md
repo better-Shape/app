@@ -83,7 +83,7 @@ npm run test:rust     # Cargo
 npm run test:all      # Both
 ```
 
-A fork cannot sign in to BetterShape Cloud. Official builds can. Chat against a real account needs an installer from [download](https://useshape.org/download).
+BetterShape has no account system, so there is nothing to sign in to. Run it from source with `npm run tauri:dev`, or install a published build from [GitHub releases](https://github.com/Owie6789/BetterShape/releases).
 
 ## Where things live
 

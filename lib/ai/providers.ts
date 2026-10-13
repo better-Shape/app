@@ -184,7 +184,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     docsUrl: "https://openrouter.ai/keys",
     // Attribution headers OpenRouter uses for app rankings. Optional to them,
     // present in every official client, and harmless if the account ignores it.
-    headers: { "HTTP-Referer": "https://github.com/Owie6789/Shape", "X-Title": "BetterShape" },
+    headers: { "HTTP-Referer": "https://github.com/Owie6789/BetterShape", "X-Title": "BetterShape" },
     embeddings: true,
     embeddingModels: ["openai/text-embedding-3-small", "openai/text-embedding-3-large"],
     models: [
@@ -319,7 +319,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     // official opencode NIM plugin sends these three; a personal `nvapi-` key
     // bills to the user either way, so the value names this app.
     headers: {
-      "HTTP-Referer": "https://github.com/Owie6789/Shape",
+      "HTTP-Referer": "https://github.com/Owie6789/BetterShape",
       "X-Title": "BetterShape",
       "X-BILLING-INVOKE-ORIGIN": "BetterShape",
     },
@@ -357,7 +357,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     needsBaseUrl: false,
     keyHint: "llmgtwy_…",
     docsUrl: "https://llmgateway.io",
-    headers: { "HTTP-Referer": "https://github.com/Owie6789/Shape", "X-Title": "BetterShape", "X-Source": "bettershape" },
+    headers: { "HTTP-Referer": "https://github.com/Owie6789/BetterShape", "X-Title": "BetterShape", "X-Source": "bettershape" },
     models: [
       { id: "llmgateway/openai/gpt-5", name: "GPT-5", contextWindow: "400K", vision: true },
       { id: "llmgateway/anthropic/claude-sonnet-4.5", name: "Claude Sonnet 4.5", contextWindow: "200K", vision: true },
@@ -373,7 +373,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     needsBaseUrl: false,
     keyHint: "sk-ai-v1-…",
     docsUrl: "https://zenmux.ai",
-    headers: { "HTTP-Referer": "https://github.com/Owie6789/Shape", "X-Title": "BetterShape" },
+    headers: { "HTTP-Referer": "https://github.com/Owie6789/BetterShape", "X-Title": "BetterShape" },
     models: [
       { id: "zenmux/anthropic/claude-sonnet-4.5", name: "Claude Sonnet 4.5", contextWindow: "200K", vision: true },
       { id: "zenmux/openai/gpt-5", name: "GPT-5", contextWindow: "400K", vision: true },
@@ -389,7 +389,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     needsBaseUrl: false,
     keyHint: "kilo_…",
     docsUrl: "https://kilo.ai",
-    headers: { "HTTP-Referer": "https://github.com/Owie6789/Shape", "X-Title": "BetterShape" },
+    headers: { "HTTP-Referer": "https://github.com/Owie6789/BetterShape", "X-Title": "BetterShape" },
     models: [
       { id: "kilo/anthropic/claude-sonnet-4.5", name: "Claude Sonnet 4.5", contextWindow: "200K", vision: true },
       { id: "kilo/openai/gpt-5", name: "GPT-5", contextWindow: "400K", vision: true },

@@ -4,15 +4,15 @@ description: How a long thread stays inside the model's context window.
 order: 5
 ---
 
-Every turn re-sends the whole thread to the model: your messages, the agent's answers, and every tool result. The context window is finite, so a long thread runs out of room eventually. Input gets truncated, and Shape seems to forget what you said an hour ago.
+Every turn re-sends the whole thread to the model: your messages, the agent's answers, and every tool result. The context window is finite, so a long thread runs out of room eventually. Input gets truncated, and BetterShape seems to forget what you said an hour ago.
 
 A short chat never hits the limit. A long one does, and it helps to know what survives.
 
 ## What happens, in order
 
 1. **Tool output is trimmed.** Old tool results shrink to a head-and-tail excerpt. A result the model no longer needs, such as an older read of a file it read again later, becomes a one-line note.
-2. **Older turns are summarized.** Past roughly 74% of the window, Shape folds the older turns into one summary and keeps the newest turns word for word. That is compaction.
-3. **The summary is reused.** After the first fold, later turns send the summary plus the recent turns instead of the whole transcript, so Shape does not re-summarize on every message.
+2. **Older turns are summarized.** Past roughly 74% of the window, BetterShape folds the older turns into one summary and keeps the newest turns word for word. That is compaction.
+3. **The summary is reused.** After the first fold, later turns send the summary plus the recent turns instead of the whole transcript, so BetterShape does not re-summarize on every message.
 4. **Oversized output goes to disk.** A single tool result too big for the budget is written under `.bettershape/agent-out/` and the model gets the path.
 
 ## Run it yourself
@@ -36,7 +36,7 @@ The summary follows a fixed outline rather than a free-form recap:
 - Every user message, so early instructions survive.
 - Work in progress and the next step.
 
-Shape also re-attaches the five most recently read or written files, so the agent picks up where it left off instead of re-reading them.
+BetterShape also re-attaches the five most recently read or written files, so the agent picks up where it left off instead of re-reading them.
 
 Want every summary to carry something specific? An API shape, a set of migration names, a house tone? Write it once in Settings → Agents → Instructions → Compaction. Those instructions are appended to every compaction, manual or automatic.
 
@@ -71,5 +71,5 @@ Settings → Agents → Context shows what compaction has done in the open chat:
 ## When compaction does not run
 
 - Incognito chats are never summarized.
-- If the summary call fails, or the result is too short to be useful, Shape leaves the thread alone and retries later. It will not silently drop turns.
+- If the summary call fails, or the result is too short to be useful, BetterShape leaves the thread alone and retries later. It will not silently drop turns.
 - "Nothing to compact yet" means the thread is still small enough to send whole.

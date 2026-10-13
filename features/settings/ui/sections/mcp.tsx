@@ -155,7 +155,7 @@ function AddMcpDialog({
                     <AlertDialogDescription>
                         {mode === "registry"
                             ? "Install one from the official registry. It is written to mcp.json, and you can remove it later."
-                            : "Paste a server URL or a JSON config. This stays in Shape and is not written to mcp.json."}
+                            : "Paste a server URL or a JSON config. This stays in BetterShape and is not written to mcp.json."}
                     </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogBody className="flex flex-col gap-4">

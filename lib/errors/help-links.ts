@@ -3,7 +3,7 @@
  * the public repository so the app stays usable offline and self-built.
  */
 
-export const REPO_URL = "https://github.com/Owie6789/Shape";
+export const REPO_URL = "https://github.com/Owie6789/BetterShape";
 
 export const HELP_LINKS = {
   documentation: `${REPO_URL}#readme`,

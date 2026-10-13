@@ -62,7 +62,7 @@ const SKIP_SUBJECT_RE =
 
 // Release notes link to the repo that produced them: GitHub Actions sets
 // GITHUB_REPOSITORY, so a fork (BetterShape) no longer links to upstream.
-const DEFAULT_REPO = process.env.GITHUB_REPOSITORY || "Owie6789/Shape";
+const DEFAULT_REPO = process.env.GITHUB_REPOSITORY || "Owie6789/BetterShape";
 
 const CO_AUTHOR_RE =
     /^Co-authored-by:\s*(.+?)\s*<([^>]+)>\s*$/gim;

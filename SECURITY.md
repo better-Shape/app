@@ -14,13 +14,10 @@ may not receive backports unless noted in release notes.
 
 **Please do not open a public GitHub issue for security vulnerabilities.**
 
-Report security issues privately using one of the following:
+Report security issues privately through:
 
 1. **GitHub Security Advisories (preferred)**  
-   [Open a private advisory](https://github.com/useshape/Shape/security/advisories/new) on this repository.
-
-2. **Email**  
-   Send details to [hello@useshape.org](mailto:hello@useshape.org) with the subject line `BetterShape Security Report`.
+   [Open a private advisory](https://github.com/Owie6789/BetterShape/security/advisories/new) on this repository.
 
 Include as much detail as possible:
 

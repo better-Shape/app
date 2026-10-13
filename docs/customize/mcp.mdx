@@ -14,9 +14,9 @@ Use MCP when the tool runs on your machine or at a URL you already have. Use a [
 
 Open **Settings → Agents → MCP** and choose **Add server**. There are two tabs.
 
-**Browse the registry** searches the official MCP registry, the same index the agent searches. Search for a product or package name, check the command shown under a result, then choose **Install**. Shape writes the entry to `mcp.json` and connects it, so the server is there after a restart. If it needs a sign-in, Shape opens the browser flow.
+**Browse the registry** searches the official MCP registry, the same index the agent searches. Search for a product or package name, check the command shown under a result, then choose **Install**. BetterShape writes the entry to `mcp.json` and connects it, so the server is there after a restart. If it needs a sign-in, BetterShape opens the browser flow.
 
-**Paste a config** takes a server URL or a JSON config. Servers added this way stay in Shape and are not written to `mcp.json`.
+**Paste a config** takes a server URL or a JSON config. Servers added this way stay in BetterShape and are not written to `mcp.json`.
 
 Remove a server you added by pasting with **Remove**. That does not change `mcp.json`.
 
@@ -100,7 +100,7 @@ BetterShape sends those headers on every request to that server. When the server
 
 ## Let the agent manage servers
 
-You do not have to open Settings for this. Ask in chat, and Shape can add, change, test, or remove a server for you. The tools are `mcp_manage` (server lifecycle) and `mcp_search` / `mcp_call` (using the tools a server exposes).
+You do not have to open Settings for this. Ask in chat, and BetterShape can add, change, test, or remove a server for you. The tools are `mcp_manage` (server lifecycle) and `mcp_search` / `mcp_call` (using the tools a server exposes).
 
 ```
 Add the filesystem MCP server and test that it connects.
@@ -121,9 +121,9 @@ The agent can:
 
 Servers the agent creates are written to the same `mcp.json` the Settings page reads, so they show up there too. Pass `save: false` to add a server for the current session only.
 
-Adding a server changes which tools Shape can call, so a mode that only reads will not do it. Approve the action like any other edit.
+Adding a server changes which tools BetterShape can call, so a mode that only reads will not do it. Approve the action like any other edit.
 
-A local server is a program this machine will run, so the first time one is added, updated, or tested, Shape asks for approval in the chat and shows the exact command. Servers already in `mcp.json`, and everything you add yourself in Settings, are past that point. Set **Auto-run** to **Always** in Settings to stop the questions.
+A local server is a program this machine will run, so the first time one is added, updated, or tested, BetterShape asks for approval in the chat and shows the exact command. Servers already in `mcp.json`, and everything you add yourself in Settings, are past that point. Set **Auto-run** to **Always** in Settings to stop the questions.
 
 ### Headers
 
@@ -140,7 +140,7 @@ Remote servers that authenticate with a header use `headers`:
 }
 ```
 
-Shape sends those headers on every request to that server. When the server uses OAuth instead, Shape does not send a stored `Authorization` header — the OAuth token wins.
+BetterShape sends those headers on every request to that server. When the server uses OAuth instead, BetterShape does not send a stored `Authorization` header — the OAuth token wins.
 
 ## The file on this machine
 

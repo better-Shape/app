@@ -57,7 +57,7 @@ responding.
 ## 4500 — Update check failed
 
 This build has no update feed. Download the newest installer from
-[Releases](https://github.com/useshape/Shape/releases) and run it.
+[Releases](https://github.com/Owie6789/BetterShape/releases) and run it.
 
 ## 4600 — Semantic index unavailable
 

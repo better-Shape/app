@@ -165,7 +165,7 @@ Run `npm run test:all` before pushing non-trivial changes (per CONTRIBUTING.md).
 5. Tag & push: `npm run release -- 1.0.3 --tag --push` or `git push origin v1.0.3`
 6. Watch Release workflow on GitHub Actions.
 7. Verify draft release artifacts, then publish (handled by `upload.mjs` if `--publish`).
-8. Updater: `.sig` files ship with release, endpoint `https://www.useshape.org/api/updates/desktop` serves latest.
+8. Updater: `.sig` files ship with the release, but no updater plugin or endpoint is configured. `Help → Check for Updates` contacts no server — point users at GitHub releases.
 
 Nightly tags: `vX.Y.Z-nightly` or `vX.Y.Z-pre` → published as GitHub prerelease.
 

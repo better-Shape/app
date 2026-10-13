@@ -41,7 +41,7 @@ Skills (reusable instructions the agent can load) live under **Settings → Agen
 
 ## Built-in commands
 
-Shape ships a few commands that are not prompts. They run locally and never reach the model.
+BetterShape ships a few commands that are not prompts. They run locally and never reach the model.
 
 | Command | What it does |
 | --- | --- |
@@ -53,12 +53,12 @@ Long threads eventually fill the model's context window. `/compact` folds the ol
 
 Use it when:
 
-- The thread is long and Shape starts forgetting things you said earlier.
+- The thread is long and BetterShape starts forgetting things you said earlier.
 - You finished a stage of work and want to start the next one without the old noise.
 - A request failed because the context was too long.
 
-Add a focus to steer the summary: `/compact keep the migration plan and the API shapes`. Without a focus, Shape uses your standing compaction instructions from **Settings → Agents → Instructions → Compaction**.
+Add a focus to steer the summary: `/compact keep the migration plan and the API shapes`. Without a focus, BetterShape uses your standing compaction instructions from **Settings → Agents → Instructions → Compaction**.
 
-Shape also compacts on its own when a thread gets close to the window limit, so you rarely have to run this. The summary is the record of what was folded — everything before it stays in the transcript for you to scroll, and older turns are not deleted from the thread.
+BetterShape also compacts on its own when a thread gets close to the window limit, so you rarely have to run this. The summary is the record of what was folded — everything before it stays in the transcript for you to scroll, and older turns are not deleted from the thread.
 
 See [Context and compaction](/docs/agent/context) for what is kept and what is dropped.

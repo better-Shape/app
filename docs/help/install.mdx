@@ -10,22 +10,30 @@ There is no browser-only editor. You download the app, then open a folder on dis
 
 ## Download
 
-1. Get the installer from [useshape.org/download](https://useshape.org/download).
+1. Get the installer from [GitHub releases](https://github.com/Owie6789/BetterShape/releases).
 2. Run it.
 3. If Windows SmartScreen appears, choose **More info**, then **Run anyway**.
 4. Open BetterShape from the Start menu.
 
 If the installer will not run, you are on 32-bit Windows, or the download was cut short. Download it again.
 
-## Sign in after install
+## Add a model provider after install
 
-Sign in so chat and billing work. You can open files without an account. You cannot send a message without one.
+There is no account to create and nothing to sign in to. BetterShape has no server of its own,
+so chat runs once you supply a model key yourself.
+
+1. Open **Settings**, then **Providers**.
+2. Add a key for OpenAI, Anthropic, or Google — or any OpenAI-compatible endpoint.
+3. Pick a default model under **Settings**, then **AI**.
+
+Until a usable provider is configured, the composer stays disabled and says so. Everything else —
+opening files, editing, git, terminal — works without one.
 
 ## Updates
 
-Updates install on their own. **Help → Check for Updates** runs one now.
+This build has no update feed. **Help → Check for Updates** contacts no server.
 
-If an update fails, download a fresh installer and run it over the existing install.
+If you need a newer version, download a fresh installer from [GitHub releases](https://github.com/Owie6789/BetterShape/releases) and run it over the existing install.
 
 ## Uninstall
 
