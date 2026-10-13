@@ -5,7 +5,9 @@ export type RepoHistoryEntry = {
     lastOpenedAt: number;
 };
 
-const REPO_HISTORY_KEY = "shape:repo-history";
+const REPO_HISTORY_KEY = "bettershape:repo-history";
+/** Pre-rename key; migrated on first read. */
+const LEGACY_REPO_HISTORY_KEY = "shape:repo-history";
 const MAX_REPO_HISTORY_ITEMS = 15;
 /** How many recents the composer/empty-state dropdown lists. Older entries stay in history. */
 export const MAX_REPO_DROPDOWN_ITEMS = 8;
@@ -59,7 +61,15 @@ export function formatCompactAgo(timestamp: number): string {
 export function loadRepoHistory(): RepoHistoryEntry[] {
     if (typeof window === "undefined") return [];
     try {
-        const raw = window.localStorage.getItem(REPO_HISTORY_KEY);
+        let raw = window.localStorage.getItem(REPO_HISTORY_KEY);
+        if (!raw) {
+            const legacy = window.localStorage.getItem(LEGACY_REPO_HISTORY_KEY);
+            if (legacy) {
+                window.localStorage.setItem(REPO_HISTORY_KEY, legacy);
+                window.localStorage.removeItem(LEGACY_REPO_HISTORY_KEY);
+                raw = legacy;
+            }
+        }
         if (!raw) return [];
         const parsed = JSON.parse(raw) as RepoHistoryEntry[];
         if (!Array.isArray(parsed)) return [];

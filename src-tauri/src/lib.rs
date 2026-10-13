@@ -59,9 +59,6 @@ fn emit_bettershape_deep_link(app: &AppHandle, url: &str) {
     if url.contains("mcp/oauth") {
         let _ = app.emit("bettershape-mcp-oauth-callback", url);
         focus_main_window(app);
-    } else if url.contains("bettershape://auth") || url.contains("/auth/callback") {
-        let _ = app.emit("bettershape-oauth-callback", url);
-        focus_bettershape_windows(app);
     } else {
         focus_bettershape_windows(app);
     }

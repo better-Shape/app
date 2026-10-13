@@ -159,7 +159,7 @@ export function SkillsSettings() {
                 <div className="flex items-center gap-2 px-3.5 py-2 text-xs font-semibold text-text-muted uppercase">
                     <span>Discovered</span>
                     <span className="text-text-muted">&middot;</span>
-                    <span className="text-xs font-normal normal-case">.claude, .agents, .github, .shape and your folders</span>
+                    <span className="text-xs font-normal normal-case">.claude, .agents, .github, .bettershape and your folders</span>
                     <Button
                         variant="ghost"
                         size="icon"
