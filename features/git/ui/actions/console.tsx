@@ -176,10 +176,16 @@ export function ActionsConsole({ focus }: { focus: ActionsFocus }) {
         });
     }, [query, runs, selectedWorkflowId, statusFilter, workflows]);
 
+    const runsRequestRef = useRef(0);
     const loadRuns = useCallback(async () => {
+        // Each call gets a sequence number. A slower, older call must not overwrite the
+        // runs of a newer project or filter after it has finished.
+        const seq = ++runsRequestRef.current;
+        const isStale = () => seq !== runsRequestRef.current;
         setLoadingRuns(true);
         try {
             const resolved = await resolveOwnerRepo(project_path);
+            if (isStale()) return;
             setRepo(resolved);
             if (!resolved) {
                 setRuns([]);
@@ -214,6 +220,7 @@ export function ActionsConsole({ focus }: { focus: ActionsFocus }) {
                     const tb = b.updated_at ? Date.parse(b.updated_at) : 0;
                     return tb - ta;
                 });
+                if (isStale()) return;
                 setWorkflows(
                     ((workflowsRaw as { workflows?: WorkflowDef[] }).workflows ?? []).map((w) => ({
                         ...w,
@@ -234,6 +241,7 @@ export function ActionsConsole({ focus }: { focus: ActionsFocus }) {
                 nextRuns = ((runsRaw as { workflow_runs?: WorkflowRun[] }).workflow_runs ?? []).map(
                     (r) => ({ ...r, id: Number(r.id) }),
                 );
+                if (isStale()) return;
                 setWorkflows(
                     ((workflowsRaw as { workflows?: WorkflowDef[] }).workflows ?? []).map((w) => ({
                         ...w,
@@ -242,16 +250,18 @@ export function ActionsConsole({ focus }: { focus: ActionsFocus }) {
                 );
             }
 
+            if (isStale()) return;
             setRuns(nextRuns);
             setSelectedRunId((prev) => {
                 if (prev && nextRuns.some((r) => r.id === prev)) return prev;
                 return nextRuns[0]?.id ?? null;
             });
         } catch (e) {
+            if (isStale()) return;
             reportActionsError(e);
             setRuns([]);
         } finally {
-            setLoadingRuns(false);
+            if (!isStale()) setLoadingRuns(false);
         }
     }, [auth.loggedIn, focus, project_path, statusFilter]);
 
