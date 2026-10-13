@@ -18,6 +18,14 @@ describe("ipc", () => {
             commands.aiStoreKey("openai", "sk-live"),
             commands.aiDeleteKey("openai"),
             commands.aiLoadKeys(["openai", "service:search"]),
+            commands.aiCheckProvider("nvidia", {
+                kind: "openai",
+                apiKey: "nvapi-live",
+                baseUrl: "https://integrate.api.nvidia.com/v1",
+                model: "nvidia/deepseek-ai/deepseek-r1",
+                headers: { "X-Title": "BetterShape" },
+                authStyle: "bearer",
+            }),
         ]);
         expect(invoke).toHaveBeenCalledWith("ai_test_provider", {
             providerId: "openai",
@@ -33,6 +41,17 @@ describe("ipc", () => {
         expect(invoke).toHaveBeenCalledWith("ai_delete_key", { providerId: "openai" });
         expect(invoke).toHaveBeenCalledWith("ai_load_keys", {
             providerIds: ["openai", "service:search"],
+        });
+        // Every optional argument is sent explicitly: the Rust command takes
+        // Options, and a missing key would read as "no override".
+        expect(invoke).toHaveBeenCalledWith("ai_check_provider", {
+            providerId: "nvidia",
+            kind: "openai",
+            apiKey: "nvapi-live",
+            baseUrl: "https://integrate.api.nvidia.com/v1",
+            model: "nvidia/deepseek-ai/deepseek-r1",
+            headers: { "X-Title": "BetterShape" },
+            authStyle: "bearer",
         });
         for (const x of vi.mocked(invoke).mock.calls)
             for (const k of Object.keys((x[1] ?? {}) as Record<string, unknown>))

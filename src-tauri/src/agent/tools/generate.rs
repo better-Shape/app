@@ -146,7 +146,7 @@ async fn generate_image(
     );
     let resp = client
         .post(&url)
-        .header("Authorization", format!("Bearer {}", provider.api_key))
+        .headers(crate::core::ai_providers::request_headers(provider))
         .json(&json!({
             "model": "gpt-image-1",
             "prompt": prompt,
@@ -203,7 +203,7 @@ async fn generate_image_edit(
     let url = format!("{}/images/edits", provider.base_url.trim_end_matches('/'));
     let resp = client
         .post(&url)
-        .header("Authorization", format!("Bearer {}", provider.api_key))
+        .headers(crate::core::ai_providers::request_headers(provider))
         .multipart(form)
         .send()
         .await
@@ -241,7 +241,7 @@ async fn generate_audio(
     let url = format!("{}/audio/speech", provider.base_url.trim_end_matches('/'));
     let resp = client
         .post(&url)
-        .header("Authorization", format!("Bearer {}", provider.api_key))
+        .headers(crate::core::ai_providers::request_headers(provider))
         .json(&json!({
             "model": "gpt-4o-mini-tts",
             "voice": voice,

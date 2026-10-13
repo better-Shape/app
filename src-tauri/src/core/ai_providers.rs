@@ -60,6 +60,21 @@ pub struct ProviderEntry {
     pub models: Vec<String>,
     #[serde(default = "default_true")]
     pub enabled: bool,
+    /// The endpoint answers without an API key: local runtimes (Ollama, LM
+    /// Studio, vLLM) and gateways with a free tier. Without this the app could
+    /// not route to a keyless connection at all.
+    #[serde(default)]
+    pub keyless: bool,
+    /// Extra headers to send with every request to this provider. Gateways put
+    /// attribution or their own tokens here; the frontend merges the preset's
+    /// defaults in before pushing the config.
+    #[serde(default)]
+    pub headers: HashMap<String, String>,
+    /// Header the key travels in: `bearer` | `api-key` | `x-api-key` |
+    /// `x-goog-api-key` | `none`. Empty means "whatever this wire format
+    /// normally does".
+    #[serde(default)]
+    pub auth_style: String,
 }
 
 fn default_true() -> bool {
@@ -111,7 +126,7 @@ impl AiProviderConfig {
     pub fn embeddings_enabled(&self) -> bool {
         self.providers
             .iter()
-            .any(|p| p.kind == ProviderKind::OpenAi && p.enabled && !p.api_key.trim().is_empty())
+            .any(|p| p.kind == ProviderKind::OpenAi && entry_usable(p))
     }
 
     fn find(&self, id: &str) -> Option<&ProviderEntry> {
@@ -121,9 +136,7 @@ impl AiProviderConfig {
     }
 
     fn first_usable(&self) -> Option<&ProviderEntry> {
-        self.providers
-            .iter()
-            .find(|p| p.enabled && !p.api_key.trim().is_empty())
+        self.providers.iter().find(|p| entry_usable(p))
     }
 }
 
@@ -145,6 +158,16 @@ pub fn get_config() -> Option<AiProviderConfig> {
     store().read().ok().and_then(|guard| guard.clone())
 }
 
+/// Serializes tests that rewrite the process-global provider config.
+///
+/// Every module that calls [`set_config`] in a test takes this lock, so a test
+/// asserting on `resolve_model` never observes another test's providers.
+#[cfg(test)]
+pub(crate) fn config_test_lock() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 /// Model id used for `auto`, or empty when nothing is configured.
 pub fn default_model() -> String {
     get_config()
@@ -159,7 +182,7 @@ pub fn configured_provider_ids() -> Vec<String> {
             config
                 .providers
                 .iter()
-                .filter(|p| p.enabled && !p.api_key.trim().is_empty())
+                .filter(|p| entry_usable(p))
                 .map(|p| p.id.clone())
                 .collect()
         })
@@ -184,6 +207,13 @@ pub struct ResolvedProvider {
     pub label: String,
     pub api_key: String,
     pub base_url: String,
+    /// Requests may go out without credentials.
+    pub keyless: bool,
+    /// Connection headers, merged over the app's defaults.
+    pub headers: HashMap<String, String>,
+    /// `"api-key"`, `"x-api-key"`, `"bearer"`, `"none"`, or empty for the wire
+    /// format's default.
+    pub auth_style: String,
 }
 
 impl ResolvedProvider {
@@ -198,17 +228,35 @@ impl ResolvedProvider {
 }
 
 /// Aliases that map model prefixes onto configured provider ids.
+///
+/// Mirrors the settings registry: every alias here exists because another client
+/// (or an older build) writes that prefix for the same connection. Unknown
+/// prefixes fall through unchanged, so a self-hosted gateway that serves
+/// namespaced slugs still receives them intact.
 fn alias_provider_id(prefix: &str) -> &str {
     match prefix {
         "google-ai" | "gemini" | "googleai" => "google",
-        "x-ai" | "xai" => "xai",
-        "azure" | "azure-openai" | "chatgpt" => "openai",
-        "together" | "togetherai" => "together",
-        "fireworks" | "fireworksai" => "fireworks",
-        "moonshot" | "moonshotai" => "moonshot",
-        "z-ai" | "zai" | "zhipu" | "glm" => "zai",
+        "x-ai" => "xai",
+        "azureopenai" | "azure-openai" => "azure",
+        "together" | "togetherai" | "together-ai" => "together",
+        "fireworks" | "fireworksai" | "fireworks-ai" => "fireworks",
+        "moonshot" | "moonshotai" | "kimi" => "moonshot",
+        "z-ai" | "zhipu" | "zhipuai" | "glm" => "zai",
         "alibaba" | "dashscope" => "qwen",
-        "lmstudio" | "lm-studio" | "ollama" | "vllm" | "localhost" => "custom",
+        "opencode" | "opencode-zen" | "opencode-go" => "zen",
+        "opencode-zen-messages" => "zen-messages",
+        "nvidia-nim" | "nim" => "nvidia",
+        "llm-gateway" | "llmgtwy" => "llmgateway",
+        "cf-workers-ai" | "cloudflare-workers-ai" => "cloudflare",
+        "cf-gateway" | "cloudflare-ai-gateway" => "cloudflare-gateway",
+        "aigateway" | "vercel-ai-gateway" => "vercel",
+        "kilocode" | "kilo-code" => "kilo",
+        "digital-ocean" | "gradient-ai" => "digitalocean",
+        "lm-studio" => "lmstudio",
+        "veniceai" => "venice",
+        "minimaxi" => "minimax",
+        // Anything pointing at a machine of the user's own is the custom slot.
+        "local" | "localhost" => "custom",
         other => other,
     }
 }
@@ -260,7 +308,18 @@ fn from_entry(entry: &ProviderEntry) -> ResolvedProvider {
         },
         api_key: entry.api_key.trim().to_string(),
         base_url: base_url_for(entry),
+        keyless: entry.keyless,
+        headers: entry.headers.clone(),
+        auth_style: entry.auth_style.trim().to_ascii_lowercase(),
     }
+}
+
+/// True when a configured entry can serve a request.
+///
+/// Keyless connections (local runtimes, free tiers) are usable without a key;
+/// everything else needs one before it can be routed to.
+pub fn entry_usable(entry: &ProviderEntry) -> bool {
+    entry.enabled && (entry.keyless || !entry.api_key.trim().is_empty())
 }
 
 /// Split `anthropic/claude-sonnet-4.5` into `("anthropic", "claude-sonnet-4.5")`.
@@ -317,7 +376,7 @@ pub fn resolve_model(model: &str) -> Result<(ResolvedProvider, String), AppError
                     entry.id
                 )));
             }
-            if entry.api_key.trim().is_empty() {
+            if !entry_usable(entry) {
                 return Err(missing_key_error(entry));
             }
             return Ok((from_entry(entry), rest.to_string()));
@@ -350,7 +409,7 @@ pub fn embeddings_target() -> Option<(ResolvedProvider, String)> {
     let candidate = config
         .providers
         .iter()
-        .filter(|p| p.kind == ProviderKind::OpenAi && p.enabled && !p.api_key.trim().is_empty())
+        .filter(|p| p.kind == ProviderKind::OpenAi && entry_usable(p))
         .min_by_key(|p| match p.id.as_str() {
             "openai" => 0,
             "openrouter" => 1,
@@ -378,7 +437,7 @@ pub fn media_target() -> Option<ResolvedProvider> {
     let provider = config
         .providers
         .iter()
-        .filter(|p| p.kind == ProviderKind::OpenAi && p.enabled && !p.api_key.trim().is_empty())
+        .filter(|p| p.kind == ProviderKind::OpenAi && entry_usable(p))
         .min_by_key(|p| match p.id.as_str() {
             "openai" => 0,
             "openrouter" => 1,
@@ -392,7 +451,7 @@ pub fn media_target() -> Option<ResolvedProvider> {
 pub fn vision_model() -> String {
     let config = get_config().unwrap_or_default();
     for provider in &config.providers {
-        if !provider.enabled || provider.api_key.trim().is_empty() {
+        if !entry_usable(provider) {
             continue;
         }
         for model in &provider.models {
@@ -433,6 +492,95 @@ pub fn normalize_base_url(raw: &str, kind: ProviderKind) -> Result<String, Strin
         return Err("Base URL must start with http:// or https://".to_string());
     }
     Ok(trimmed.to_string())
+}
+
+/// What every outbound model request says it is.
+///
+/// Providers and gateways read the user agent to tell clients apart (the
+/// OpenCode Console, for example, identifies members by it), and some reject
+/// requests that arrive with none. `bettershape/<version>` is the honest form of
+/// that contract — it names this app and its version, exactly like the clients
+/// these gateways were built against.
+pub fn user_agent() -> String {
+    format!("bettershape/{}", env!("CARGO_PKG_VERSION"))
+}
+
+/// Header carrying the API key for this connection, or `None` for keyless
+/// endpoints and `auth_style: none`.
+///
+/// `auth_style` is what makes non-standard gateways routable without special
+/// cases: Azure wants `api-key`, Anthropic-compatible endpoints want `x-api-key`,
+/// and a self-hosted server behind its own proxy wants nothing at all.
+pub fn auth_header(provider: &ResolvedProvider) -> Option<(&'static str, String)> {
+    let key = provider.api_key.trim();
+    if key.is_empty() {
+        return None;
+    }
+    let name = match provider.auth_style.as_str() {
+        "api-key" => "api-key",
+        "x-api-key" => "x-api-key",
+        "bearer" => "Authorization",
+        "none" => return None,
+        _ => match provider.kind {
+            ProviderKind::Anthropic => "x-api-key",
+            // Google's Generative Language API looks for its own header name.
+            ProviderKind::Google => "x-goog-api-key",
+            ProviderKind::OpenAi => "Authorization",
+        },
+    };
+    let value = if name == "Authorization" {
+        format!("Bearer {key}")
+    } else {
+        key.to_string()
+    };
+    Some((name, value))
+}
+
+/// Header map for one model request: app identification, then the connection's
+/// own headers (which win), then the key — unless a connection header already
+/// carries that name.
+pub fn request_headers(provider: &ResolvedProvider) -> reqwest::header::HeaderMap {
+    let mut map = reqwest::header::HeaderMap::new();
+    if let Ok(value) = reqwest::header::HeaderValue::from_str(&user_agent()) {
+        map.insert(reqwest::header::USER_AGENT, value.clone());
+        map.insert(
+            reqwest::header::HeaderName::from_static("x-bettershape-client"),
+            value,
+        );
+    }
+    for (name, value) in &provider.headers {
+        // The body is always JSON, so a user-supplied content type or length
+        // would fight the serializer.
+        let name = name.trim();
+        if name.is_empty()
+            || name.eq_ignore_ascii_case("content-type")
+            || name.eq_ignore_ascii_case("content-length")
+        {
+            continue;
+        }
+        let value = value.trim();
+        if value.is_empty() {
+            continue;
+        }
+        let (Ok(name), Ok(value)) = (
+            reqwest::header::HeaderName::from_bytes(name.as_bytes()),
+            reqwest::header::HeaderValue::from_str(value),
+        ) else {
+            continue;
+        };
+        map.insert(name, value);
+    }
+    if let Some((name, value)) = auth_header(provider) {
+        if !map.contains_key(name) {
+            if let (Ok(name), Ok(value)) = (
+                reqwest::header::HeaderName::from_bytes(name.as_bytes()),
+                reqwest::header::HeaderValue::from_str(&value),
+            ) {
+                map.insert(name, value);
+            }
+        }
+    }
+    map
 }
 
 /// Chat-completions endpoint for OpenAI-wire providers.
@@ -493,7 +641,7 @@ fn status_advice(status: u16) -> &'static str {
         401 => "The API key was rejected. Check the key in Settings → Providers.",
         402 => "The provider account is out of credit or over its quota.",
         403 => "The key is valid but lacks access to this model or endpoint.",
-        404 => "The model or endpoint was not found. Check the model id and base URL.",
+        404 => "The model or endpoint was not found. Models are routed by their `provider/model` prefix, and the rest is sent to that provider unchanged.",
         407 => "A proxy in front of the provider is asking for authentication.",
         413 => "The request was too large. Start a new chat or lower the context setting.",
         422 => "The provider rejected the request body (often an unsupported parameter).",
@@ -533,7 +681,7 @@ pub fn effort_budget(effort: Option<&str>, fallback: u32) -> u32 {
 pub fn describe(config: &AiProviderConfig) -> String {
     let mut parts: HashMap<&str, usize> = HashMap::new();
     for provider in &config.providers {
-        if provider.enabled && !provider.api_key.trim().is_empty() {
+        if entry_usable(provider) {
             *parts.entry(provider.kind.as_str()).or_insert(0) += 1;
         }
     }
@@ -563,14 +711,24 @@ mod tests {
             base_url: String::new(),
             models: Vec::new(),
             enabled: true,
+            keyless: false,
+            headers: HashMap::new(),
+            auth_style: String::new(),
         }
     }
 
-    /// The active configuration is process-global; tests that rewrite it take
-    /// this lock so they never observe each other's providers.
+    /// A keyless connection: the shape local runtimes and free tiers push.
+    fn keyless_entry(id: &str, kind: ProviderKind) -> ProviderEntry {
+        ProviderEntry {
+            keyless: true,
+            ..entry(id, kind, "")
+        }
+    }
+
+    /// The active configuration is process-global; every test that rewrites it
+    /// takes the shared lock so they never observe each other's providers.
     fn config_lock() -> std::sync::MutexGuard<'static, ()> {
-        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-        LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+        super::config_test_lock()
     }
 
     #[test]
@@ -626,6 +784,191 @@ mod tests {
     }
 
     #[test]
+    fn provider_aliases_land_on_the_configured_connection() {
+        let _guard = config_lock();
+        set_config(config_with(
+            vec![
+                entry("zen", ProviderKind::OpenAi, "oc_sk_x"),
+                entry("nvidia", ProviderKind::OpenAi, "nvapi-x"),
+                entry("azure", ProviderKind::OpenAi, "az-key"),
+                entry("moonshot", ProviderKind::OpenAi, "sk-x"),
+            ],
+            "",
+        ));
+
+        for (requested, expected) in [
+            ("opencode/kimi-k2.6", "zen"),
+            ("nvidia-nim/deepseek-ai/deepseek-r1", "nvidia"),
+            ("azure-openai/gpt-5", "azure"),
+            ("kimi/kimi-k2-0905-preview", "moonshot"),
+        ] {
+            let (provider, _) = resolve_model(requested).unwrap();
+            assert_eq!(provider.id, expected, "{requested}");
+        }
+
+        // A prefix nobody configured still resolves to the first usable provider
+        // with the whole string as the slug, which is what self-hosted gateways
+        // serving namespaced ids rely on.
+        let (provider, model) = resolve_model("qwen/qwen3-coder").unwrap();
+        assert_eq!(provider.id, "zen");
+        assert_eq!(model, "qwen/qwen3-coder");
+    }
+
+    #[test]
+    fn keyless_providers_route_without_a_key() {
+        let _guard = config_lock();
+        set_config(config_with(
+            vec![keyless_entry("ollama", ProviderKind::OpenAi)],
+            "ollama/qwen2.5-coder:7b",
+        ));
+
+        let (provider, model) = resolve_model("auto").unwrap();
+        assert_eq!(provider.id, "ollama");
+        assert_eq!(model, "qwen2.5-coder:7b");
+        assert_eq!(configured_provider_ids(), vec!["ollama".to_string()]);
+
+        let (provider, model) = resolve_model("ollama/llama3.2:3b").unwrap();
+        assert_eq!(provider.id, "ollama");
+        assert_eq!(model, "llama3.2:3b");
+
+        // Disabling the connection takes it out of rotation again.
+        let mut disabled = keyless_entry("ollama", ProviderKind::OpenAi);
+        disabled.enabled = false;
+        set_config(config_with(vec![disabled], ""));
+        assert!(configured_provider_ids().is_empty());
+        assert!(resolve_model("auto").is_err());
+    }
+
+    #[test]
+    fn a_keyless_provider_that_is_turned_off_is_not_usable() {
+        let entry = ProviderEntry {
+            enabled: false,
+            ..keyless_entry("lmstudio", ProviderKind::OpenAi)
+        };
+        assert!(!entry_usable(&entry));
+    }
+
+    #[test]
+    fn auth_styles_choose_the_header() {
+        let base = ResolvedProvider {
+            id: "azure".into(),
+            kind: ProviderKind::OpenAi,
+            label: "Azure".into(),
+            api_key: "az-key".into(),
+            base_url: "https://example.openai.azure.com/openai/v1".into(),
+            keyless: false,
+            headers: HashMap::new(),
+            auth_style: String::new(),
+        };
+        // Wire default: bearer.
+        assert_eq!(
+            auth_header(&base),
+            Some(("Authorization", "Bearer az-key".to_string()))
+        );
+
+        let api_key_style = ResolvedProvider {
+            auth_style: "api-key".into(),
+            ..base.clone()
+        };
+        assert_eq!(
+            auth_header(&api_key_style),
+            Some(("api-key", "az-key".to_string()))
+        );
+
+        // `none` sends no credentials even when a key is present.
+        let no_auth = ResolvedProvider {
+            auth_style: "none".into(),
+            ..base.clone()
+        };
+        assert_eq!(auth_header(&no_auth), None);
+
+        // Anthropic and Google carry the raw key in their own headers.
+        let anthropic = ResolvedProvider {
+            kind: ProviderKind::Anthropic,
+            ..base.clone()
+        };
+        assert_eq!(
+            auth_header(&anthropic),
+            Some(("x-api-key", "az-key".to_string()))
+        );
+        let google = ResolvedProvider {
+            kind: ProviderKind::Google,
+            ..base.clone()
+        };
+        assert_eq!(
+            auth_header(&google),
+            Some(("x-goog-api-key", "az-key".to_string()))
+        );
+
+        // A keyless connection has nothing to send.
+        let keyless = ResolvedProvider {
+            api_key: String::new(),
+            keyless: true,
+            ..base
+        };
+        assert_eq!(auth_header(&keyless), None);
+    }
+
+    #[test]
+    fn request_headers_merge_identification_and_connection_values() {
+        let mut headers = HashMap::new();
+        headers.insert(
+            "HTTP-Referer".to_string(),
+            "https://example.test/".to_string(),
+        );
+        // Blank values and body-controlled headers never reach the wire.
+        headers.insert("X-Title".to_string(), "   ".to_string());
+        headers.insert("Content-Type".to_string(), "text/plain".to_string());
+        let provider = ResolvedProvider {
+            id: "nvidia".into(),
+            kind: ProviderKind::OpenAi,
+            label: "NVIDIA NIM".into(),
+            api_key: "nvapi-x".into(),
+            base_url: "https://integrate.api.nvidia.com/v1".into(),
+            keyless: false,
+            headers,
+            auth_style: String::new(),
+        };
+
+        let map = request_headers(&provider);
+        assert_eq!(
+            map.get(reqwest::header::USER_AGENT).unwrap(),
+            user_agent().as_str()
+        );
+        assert_eq!(
+            map.get("x-bettershape-client").unwrap(),
+            user_agent().as_str()
+        );
+        assert_eq!(map.get("HTTP-Referer").unwrap(), "https://example.test/");
+        assert!(map.get("X-Title").is_none());
+        assert_eq!(
+            map.get(reqwest::header::CONTENT_TYPE),
+            None,
+            "the serializer owns the content type"
+        );
+        assert_eq!(
+            map.get(reqwest::header::AUTHORIZATION).unwrap(),
+            "Bearer nvapi-x"
+        );
+
+        // A connection that names the auth header itself wins over the key field.
+        let mut override_headers = HashMap::new();
+        override_headers.insert(
+            "Authorization".to_string(),
+            "Bearer gateway-token".to_string(),
+        );
+        let overridden = ResolvedProvider {
+            headers: override_headers,
+            ..provider
+        };
+        let map = request_headers(&overridden);
+        assert_eq!(
+            map.get(reqwest::header::AUTHORIZATION).unwrap(),
+            "Bearer gateway-token"
+        );
+    }
+
+    #[test]
     fn endpoints_follow_the_wire_format() {
         let openai = ResolvedProvider {
             id: "openai".into(),
@@ -633,6 +976,9 @@ mod tests {
             label: "OpenAI".into(),
             api_key: "k".into(),
             base_url: "https://api.openai.com/v1".into(),
+            keyless: false,
+            headers: HashMap::new(),
+            auth_style: String::new(),
         };
         assert_eq!(
             openai_endpoint(&openai),

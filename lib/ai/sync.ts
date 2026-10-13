@@ -27,17 +27,29 @@ import {
     COMPOSIO_SECRET_ID,
     PROVIDER_PRESETS,
     SEARCH_SECRET_ID,
+    headerSecretId,
     toRustAiConfig,
     type RustAiConfig,
 } from "@/lib/ai/providers";
 import { readSecrets, vaultAvailable, writeSecret } from "@/lib/ai/vault";
 
-/** Every id the keychain may hold a secret under. */
-const SECRET_IDS = [
-    ...PROVIDER_PRESETS.map((preset) => preset.id),
-    SEARCH_SECRET_ID,
-    COMPOSIO_SECRET_ID,
-];
+/**
+ * Every id the keychain may hold a secret under: one per provider, one per
+ * connection header, and the two service keys. Header names come from the
+ * settings file, which keeps names and never values.
+ */
+function secretIds(): string[] {
+    const ids = new Set<string>([
+        ...PROVIDER_PRESETS.map((preset) => preset.id),
+        SEARCH_SECRET_ID,
+        COMPOSIO_SECRET_ID,
+    ]);
+    for (const preset of PROVIDER_PRESETS) {
+        const headers = getSettings().ai.providers.connections[preset.id]?.headers ?? {};
+        for (const name of Object.keys(headers)) ids.add(headerSecretId(preset.id, name));
+    }
+    return [...ids];
+}
 
 let lastSynced = "";
 let hydration: Promise<void> | null = null;
@@ -80,7 +92,7 @@ async function hydrateSecrets(): Promise<void> {
     const migrated = await pushSecretsToVault();
     setSecretsVaulted(migrated);
     if (!migrated) return;
-    applyVaultSecrets(await readSecrets(SECRET_IDS));
+    applyVaultSecrets(await readSecrets(secretIds()));
 }
 
 /**

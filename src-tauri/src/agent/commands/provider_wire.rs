@@ -16,7 +16,7 @@ use reqwest::Client;
 use serde_json::{json, Map, Value};
 
 use crate::core::ai_providers::{
-    anthropic_endpoint, effort_budget, google_endpoint, openai_endpoint, ProviderKind,
+    self, anthropic_endpoint, effort_budget, google_endpoint, openai_endpoint, ProviderKind,
     ResolvedProvider,
 };
 
@@ -85,6 +85,10 @@ fn text_of_content(content: &Value) -> String {
 // ---------------------------------------------------------------------------
 
 /// Provider-correct request for one completion call.
+///
+/// Credentials and headers come from the resolved connection: the key travels in
+/// whatever header the connection asks for ([`auth_header`]), the connection's
+/// own headers ride along, and keyless endpoints send no credentials at all.
 pub fn request(
     client: &Client,
     provider: &ResolvedProvider,
@@ -93,24 +97,19 @@ pub fn request(
     stream: bool,
 ) -> reqwest::RequestBuilder {
     let converted = to_provider_body(provider.kind, body);
-    match provider.kind {
-        ProviderKind::OpenAi => client
-            .post(openai_endpoint(provider))
-            .header("Authorization", format!("Bearer {}", provider.api_key))
-            .header("Content-Type", "application/json")
-            .json(&converted),
+    let builder = match provider.kind {
+        ProviderKind::OpenAi => client.post(openai_endpoint(provider)),
+        // Anthropic-compatible gateways (Moonshot, MiniMax, Z.ai, Zen) still
+        // want the protocol version header.
         ProviderKind::Anthropic => client
             .post(anthropic_endpoint(provider))
-            .header("x-api-key", provider.api_key.clone())
-            .header("anthropic-version", "2023-06-01")
-            .header("Content-Type", "application/json")
-            .json(&converted),
-        ProviderKind::Google => client
-            .post(google_endpoint(provider, model, stream))
-            .header("x-goog-api-key", provider.api_key.clone())
-            .header("Content-Type", "application/json")
-            .json(&converted),
-    }
+            .header("anthropic-version", "2023-06-01"),
+        ProviderKind::Google => client.post(google_endpoint(provider, model, stream)),
+    };
+    let builder = builder
+        .header("Content-Type", "application/json")
+        .headers(ai_providers::request_headers(provider));
+    builder.json(&converted)
 }
 
 /// OpenAI request body → the provider's own shape.

@@ -815,7 +815,21 @@ export const commands = {
     restoreCheckpoint: (index: number) => invokeCommand<void>("restore_checkpoint", { index }),
     // BYOK provider configuration
     setAiConfig: (config: {
-        providers: { id: string; kind: string; label: string; apiKey: string; baseUrl: string; models: string[]; enabled: boolean }[];
+        providers: {
+            id: string;
+            kind: string;
+            label: string;
+            apiKey: string;
+            baseUrl: string;
+            models: string[];
+            enabled: boolean;
+            /** Endpoint answers without a key (local runtime, free tier). */
+            keyless: boolean;
+            /** Extra request headers, preset defaults already merged in. */
+            headers: Record<string, string>;
+            /** `bearer` | `api-key` | `x-api-key` | `x-goog-api-key` | `none`. */
+            authStyle: string;
+        }[];
         defaultModel: string;
         embeddingModel: string;
         search: { provider: string; apiKey: string };
@@ -823,7 +837,21 @@ export const commands = {
     }) => invokeCommand<void>("set_ai_config", { config }),
     getAiConfig: () =>
         invokeCommand<{
-            providers: { id: string; kind: string; label: string; apiKey: string; baseUrl: string; models: string[]; enabled: boolean }[];
+            providers: {
+            id: string;
+            kind: string;
+            label: string;
+            apiKey: string;
+            baseUrl: string;
+            models: string[];
+            enabled: boolean;
+            /** Endpoint answers without a key (local runtime, free tier). */
+            keyless: boolean;
+            /** Extra request headers, preset defaults already merged in. */
+            headers: Record<string, string>;
+            /** `bearer` | `api-key` | `x-api-key` | `x-goog-api-key` | `none`. */
+            authStyle: string;
+        }[];
             defaultModel: string;
             embeddingModel: string;
             search: { provider: string; apiKey: string };
@@ -843,6 +871,36 @@ export const commands = {
             kind: kind ?? null,
             apiKey: apiKey ?? null,
             baseUrl: baseUrl ?? null,
+        }),
+    /**
+     * Send one tiny completion through the same wire the agent uses, to prove a
+     * connection can actually answer (not just list models).
+     */
+    aiCheckProvider: (
+        providerId: string,
+        opts?: {
+            kind?: string;
+            apiKey?: string;
+            baseUrl?: string;
+            model?: string;
+            headers?: Record<string, string>;
+            authStyle?: string;
+        },
+    ) =>
+        invokeCommand<{
+            ok: boolean;
+            status: number;
+            message: string;
+            models: string[];
+            latencyMs: number;
+        }>("ai_check_provider", {
+            providerId,
+            kind: opts?.kind ?? null,
+            apiKey: opts?.apiKey ?? null,
+            baseUrl: opts?.baseUrl ?? null,
+            model: opts?.model ?? null,
+            headers: opts?.headers ?? null,
+            authStyle: opts?.authStyle ?? null,
         }),
     /** True when this machine has a usable OS keychain for provider keys. */
     aiVaultSupported: () => invokeCommand<boolean>("ai_vault_supported"),

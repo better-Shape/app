@@ -185,8 +185,8 @@ impl RemoteIndexClient {
         let body = serde_json::json!({ "model": model, "input": texts });
         let resp = blocking_http_client()
             .post(&url)
-            .header("Authorization", format!("Bearer {}", provider.api_key))
             .header("Content-Type", "application/json")
+            .headers(crate::core::ai_providers::request_headers(&provider))
             .json(&body)
             .send()
             .map_err(|e| format!("Embeddings request failed: {e}"))?;

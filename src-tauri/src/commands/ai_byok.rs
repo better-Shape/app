@@ -14,6 +14,7 @@
 //! Every command here is local: the only network traffic is the user's own
 //! request to the provider they configured.
 
+use std::collections::HashMap;
 use std::time::Instant;
 
 use serde::Serialize;
@@ -27,6 +28,8 @@ const VAULT_SERVICE: &str = "bettershape-ai";
 const TEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
 /// Upper bound on discovered model ids sent back to the UI.
 const MAX_DISCOVERED_MODELS: usize = 300;
+/// Prompt for the live completion check. Short enough to cost nothing.
+const CHECK_PROMPT: &str = "Reply with the single word: pong";
 
 /// Result of probing one provider connection.
 #[derive(Debug, Clone, Serialize)]
@@ -83,6 +86,9 @@ fn resolve_target(
                 label: id.to_string(),
                 api_key: String::new(),
                 base_url: base,
+                keyless: false,
+                headers: HashMap::new(),
+                auth_style: String::new(),
             }
         }
     };
@@ -167,36 +173,19 @@ pub async fn ai_test_provider(
         .build()
         .map_err(AppError::Network)?;
 
+    // Same headers the agent sends: identification, the connection's own
+    // headers, and the key in whichever header this connection asks for.
     let request = match provider.kind {
-        ProviderKind::OpenAi => {
-            let mut request = client
-                .get(format!("{}/models", provider.base_url))
-                .header("Accept", "application/json");
-            if !provider.api_key.is_empty() {
-                request = request.header("Authorization", format!("Bearer {}", provider.api_key));
-            }
-            request
-        }
-        ProviderKind::Anthropic => {
-            let mut request = client
-                .get(format!("{}/v1/models?limit=100", provider.base_url))
-                .header("anthropic-version", "2023-06-01")
-                .header("Accept", "application/json");
-            if !provider.api_key.is_empty() {
-                request = request.header("x-api-key", provider.api_key.clone());
-            }
-            request
-        }
+        ProviderKind::OpenAi => client.get(format!("{}/models", provider.base_url)),
+        ProviderKind::Anthropic => client
+            .get(format!("{}/v1/models?limit=100", provider.base_url))
+            .header("anthropic-version", "2023-06-01"),
         ProviderKind::Google => {
-            let mut request = client
-                .get(format!("{}/v1beta/models?pageSize=200", provider.base_url))
-                .header("Accept", "application/json");
-            if !provider.api_key.is_empty() {
-                request = request.header("x-goog-api-key", provider.api_key.clone());
-            }
-            request
+            client.get(format!("{}/v1beta/models?pageSize=200", provider.base_url))
         }
-    };
+    }
+    .header("Accept", "application/json")
+    .headers(ai_providers::request_headers(&provider));
 
     let label = provider.label_or_id().to_string();
     let started = Instant::now();
@@ -230,6 +219,159 @@ pub async fn ai_test_provider(
         status: status.as_u16(),
         message,
         models,
+        latency_ms,
+    })
+}
+
+/// First text out of a completion response, whatever wire format produced it.
+fn first_reply_text(kind: ProviderKind, body: &str) -> Option<String> {
+    let json: serde_json::Value = serde_json::from_str(body).ok()?;
+    let text = match kind {
+        ProviderKind::OpenAi => json
+            .get("choices")?
+            .as_array()?
+            .first()?
+            .get("message")?
+            .get("content")?,
+        ProviderKind::Anthropic => json.get("content")?.as_array()?.first()?.get("text")?,
+        ProviderKind::Google => json
+            .get("candidates")?
+            .as_array()?
+            .first()?
+            .get("content")?
+            .get("parts")?
+            .as_array()?
+            .first()?
+            .get("text")?,
+    };
+    let text = text.as_str()?.trim();
+    if text.is_empty() {
+        return None;
+    }
+    Some(text.chars().take(200).collect())
+}
+
+/// Strip the `provider/` prefix the settings UI stores model ids with.
+fn strip_provider_prefix(id: &str, model: &str) -> String {
+    let prefix = format!("{}/", id.trim());
+    model
+        .trim()
+        .strip_prefix(&prefix)
+        .unwrap_or(model.trim())
+        .to_string()
+}
+
+/// Model to test a connection with when the caller did not name one: the first
+/// model the user enabled for it, else the app default when it belongs to it.
+fn saved_model(provider_id: &str) -> Option<String> {
+    let config = ai_providers::get_config()?;
+    let id = provider_id.trim();
+    let entry = config
+        .providers
+        .iter()
+        .find(|p| p.id.eq_ignore_ascii_case(id))?;
+    if let Some(model) = entry.models.first() {
+        let slug = strip_provider_prefix(&entry.id, model);
+        if !slug.is_empty() {
+            return Some(slug);
+        }
+    }
+    let default = config.default_model.trim();
+    let (prefix, rest) = default.split_once('/')?;
+    if prefix.eq_ignore_ascii_case(&entry.id) && !rest.is_empty() {
+        return Some(rest.to_string());
+    }
+    None
+}
+
+/// Send one tiny completion through the same wire the agent uses.
+///
+/// The model-list probe proves a key is valid; this proves a *completion* works:
+/// the wire format, the auth header, the connection's extra headers, and the
+/// model slug. If the list probe says "key accepted" and this says "answer
+/// received", a chat will work.
+#[tauri::command]
+pub async fn ai_check_provider(
+    provider_id: String,
+    kind: Option<String>,
+    api_key: Option<String>,
+    base_url: Option<String>,
+    model: Option<String>,
+    headers: Option<HashMap<String, String>>,
+    auth_style: Option<String>,
+) -> Result<ProviderTestReport, AppError> {
+    let mut provider = resolve_target(
+        &provider_id,
+        kind.as_deref(),
+        api_key.as_deref(),
+        base_url.as_deref(),
+    )?;
+    if let Some(headers) = headers {
+        provider.headers = headers
+            .into_iter()
+            .map(|(name, value)| (name.trim().to_string(), value.trim().to_string()))
+            .filter(|(name, value)| !name.is_empty() && !value.is_empty())
+            .collect();
+    }
+    if let Some(style) = auth_style {
+        let style = style.trim().to_ascii_lowercase();
+        if !style.is_empty() {
+            provider.auth_style = style;
+        }
+    }
+
+    let requested = model.unwrap_or_default();
+    let model = if requested.trim().is_empty() {
+        saved_model(&provider_id).ok_or_else(|| {
+            AppError::Message(
+                "Pick a model for this connection before checking it — the check sends one real request.".to_string(),
+            )
+        })?
+    } else {
+        strip_provider_prefix(&provider_id, &requested)
+    };
+
+    let client = reqwest::Client::builder()
+        .timeout(TEST_TIMEOUT)
+        .build()
+        .map_err(AppError::Network)?;
+
+    let label = provider.label_or_id().to_string();
+    let body = serde_json::json!({
+        "model": model,
+        "messages": [{ "role": "user", "content": CHECK_PROMPT }],
+        "max_tokens": 24,
+        "stream": false,
+    });
+
+    let started = Instant::now();
+    let response =
+        crate::agent::commands::provider_wire::request(&client, &provider, &model, &body, false)
+            .send()
+            .await?;
+    let status = response.status();
+    let text = response.text().await.unwrap_or_default();
+    let latency_ms = started.elapsed().as_millis() as u64;
+
+    if !status.is_success() {
+        return Ok(ProviderTestReport {
+            ok: false,
+            status: status.as_u16(),
+            message: ai_providers::describe_http_error(&label, status.as_u16(), &text),
+            models: Vec::new(),
+            latency_ms,
+        });
+    }
+
+    let message = match first_reply_text(provider.kind, &text) {
+        Some(reply) => format!("{label} answered in {latency_ms} ms: \"{reply}\"."),
+        None => format!("{label} answered with {status}, but returned no text — the model may be a non-chat endpoint."),
+    };
+    Ok(ProviderTestReport {
+        ok: true,
+        status: status.as_u16(),
+        message,
+        models: Vec::new(),
         latency_ms,
     })
 }
@@ -365,6 +507,44 @@ mod tests {
         )
         .is_err());
         assert!(resolve_target("  ", Some("openai"), None, None).is_err());
+    }
+
+    #[test]
+    fn reply_text_is_read_from_every_wire() {
+        let openai = r#"{"choices":[{"message":{"role":"assistant","content":"pong"}}]}"#;
+        assert_eq!(
+            first_reply_text(ProviderKind::OpenAi, openai),
+            Some("pong".to_string())
+        );
+
+        let anthropic = r#"{"content":[{"type":"text","text":"pong"}],"stop_reason":"end_turn"}"#;
+        assert_eq!(
+            first_reply_text(ProviderKind::Anthropic, anthropic),
+            Some("pong".to_string())
+        );
+
+        let google = r#"{"candidates":[{"content":{"parts":[{"text":"pong"}]}}]}"#;
+        assert_eq!(
+            first_reply_text(ProviderKind::Google, google),
+            Some("pong".to_string())
+        );
+
+        // A 200 with no text (tool call, empty stream) is not a reply.
+        assert_eq!(
+            first_reply_text(ProviderKind::OpenAi, r#"{"choices":[]}"#),
+            None
+        );
+        assert_eq!(first_reply_text(ProviderKind::OpenAi, "not json"), None);
+    }
+
+    #[test]
+    fn model_ids_lose_their_provider_prefix() {
+        assert_eq!(
+            strip_provider_prefix("nvidia", "nvidia/deepseek-ai/deepseek-r1"),
+            "deepseek-ai/deepseek-r1"
+        );
+        assert_eq!(strip_provider_prefix("nvidia", "plain-slug"), "plain-slug");
+        assert_eq!(strip_provider_prefix("nvidia", "  nvidia/x  "), "x");
     }
 
     #[test]

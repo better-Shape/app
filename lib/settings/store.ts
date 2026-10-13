@@ -7,6 +7,7 @@ import {
     defaultProvidersSettings,
     mergeProviderConnections,
     normalizeProvidersSettings,
+    parseHeaderSecretId,
     providerSecrets,
     redactProviderSecrets,
     type ProvidersSettings,
@@ -423,6 +424,20 @@ export function applyVaultSecrets(secrets: Record<string, string>): void {
     for (const [id, value] of Object.entries(secrets)) {
         const secret = value.trim();
         if (!secret) continue;
+        const header = parseHeaderSecretId(id);
+        if (header) {
+            const connection = connections[header.id];
+            // The name has to be in settings already: a stale keychain entry for
+            // a header the user removed must not resurrect itself.
+            if (connection && Object.prototype.hasOwnProperty.call(connection.headers, header.name) && !connection.headers[header.name]?.trim()) {
+                connections[header.id] = {
+                    ...connection,
+                    headers: { ...connection.headers, [header.name]: secret },
+                };
+                changed = true;
+            }
+            continue;
+        }
         const connection = connections[id as keyof typeof connections];
         if (connection && !connection.apiKey.trim()) {
             connections[id as keyof typeof connections] = { ...connection, apiKey: secret };

@@ -17,9 +17,21 @@ Keys go into the operating system's credential store:
 | Windows | Credential Manager |
 | Linux | Secret Service (gnome-keyring, KWallet) |
 
-The settings file keeps everything *except* secrets — base URLs, model picks, defaults. Keys are read back from the keychain at launch and handed to the Rust agent for the session, so nothing is written to disk in plain text. If a machine has no usable keychain, BetterShape says so in Settings → Providers and falls back to keeping keys in the settings file rather than locking you out of your own models.
+The settings file keeps everything *except* secrets — base URLs, model picks, header *names*, defaults. Keys — and the values of any connection headers, since gateways put tokens there — are read back from the keychain at launch and handed to the Rust agent for the session, so nothing is written to disk in plain text. If a machine has no usable keychain, BetterShape says so in Settings → Providers and falls back to keeping keys in the settings file rather than locking you out of your own models.
 
 Keys are never sent anywhere except the provider endpoint you configured (OpenAI, Anthropic, Google, or your own OpenAI-compatible base URL).
+
+## What leaves the machine
+
+| Feature | Traffic |
+| --- | --- |
+| Chat, tools, captions, images, speech | One HTTPS request per call to the provider you configured. |
+| Semantic code index | Embedding requests to the provider whose key you enabled, or nothing when that is off. |
+| Web search tool | The search provider you configured (Tavily or Brave), or nothing when it is off. |
+| Plugins tool | Composio, with your own Composio key. |
+| Everything else | Local files, a local index, local history. |
+
+Every request carries `bettershape/<version>` as its user agent plus the headers its provider's preset asks for (open the **Request headers & auth** section on a provider card to see them). Model ids are routed by their `provider/` prefix, so a request only ever goes to a provider you configured.
 
 ## Rules of thumb
 

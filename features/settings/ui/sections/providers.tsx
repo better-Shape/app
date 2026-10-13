@@ -23,18 +23,26 @@ import {
     PROVIDER_PRESETS,
     SEARCH_PROVIDERS,
     availableModels,
+    providerGroups,
+    providersForModelNames,
+    matchesProviderQuery,
     embeddingModelOptions,
     embeddingsAvailable,
+    formatHeaderLines,
     isConnectionUsable,
     keyFormatWarning,
     modelIdsFor,
     modelsWithProviderPrefix,
+    parseHeaderLines,
+    providerAuthStyle,
+    providerHeaders,
     providerPreset,
     searchKeyWarning,
+    type AuthStyle,
     type ProviderId,
     type ProvidersSettings,
 } from "@/lib/ai/providers";
-import { areSecretsVaulted, getSettings, updateSettingSection } from "@/lib/settings";
+import { areSecretsVaulted, useSettings, updateSettingSection } from "@/lib/settings";
 import { vaultAvailable } from "@/lib/ai/vault";
 import {
     SettingCard,
@@ -139,8 +147,15 @@ function ProviderCard({ id, providers }: { id: ProviderId; providers: ProvidersS
         models: string[];
     } | null>(null);
     const [imported, setImported] = React.useState(0);
+    const [checking, setChecking] = React.useState(false);
+    const [checkResult, setCheckResult] = React.useState<{ ok: boolean; message: string } | null>(null);
+    const [advancedOpen, setAdvancedOpen] = React.useState(
+        Object.keys(connection.headers ?? {}).length > 0 || Boolean(connection.authStyle),
+    );
+    const [matchedProviders, setMatchedProviders] = React.useState(0);
     const models = modelIdsFor(id, providers.connections);
     const usable = isConnectionUsable(id, providers.connections);
+    const presetHeaders = Object.entries(preset.headers ?? {});
 
     const testConnection = async () => {
         setTesting(true);
@@ -169,6 +184,37 @@ function ProviderCard({ id, providers }: { id: ProviderId; providers: ProvidersS
         }
     };
 
+    /**
+     * Send one real completion through the app's own wire — the only way to be
+     * sure a chat will answer (a model list can be served by a gateway that
+     * still rejects completions).
+     */
+    const checkConnection = async () => {
+        setChecking(true);
+        setCheckResult(null);
+        try {
+            const report = await commands.aiCheckProvider(id, {
+                kind: preset.kind,
+                apiKey: connection.apiKey,
+                baseUrl: connection.baseUrl || preset.baseUrl,
+                model: checkModel,
+                headers: providerHeaders(id, connection),
+                authStyle: providerAuthStyle(id, connection),
+            });
+            setCheckResult({
+                ok: report.ok,
+                message: report.ok ? `${report.message} (${report.latencyMs} ms)` : report.message,
+            });
+        } catch (error) {
+            setCheckResult({
+                ok: false,
+                message: error instanceof Error ? error.message : String(error),
+            });
+        } finally {
+            setChecking(false);
+        }
+    };
+
     /** Adopt the models the provider actually reported for this key. */
     const importModels = () => {
         if (!testResult || testResult.models.length === 0) return;
@@ -176,6 +222,11 @@ function ProviderCard({ id, providers }: { id: ProviderId; providers: ProvidersS
         update({ models: ids });
         setImported(ids.length);
     };
+
+    /** Model to check with: the first one this connection offers. */
+    const checkModel =
+        models[0] ??
+        (providers.defaultModel.startsWith(`${id}/`) ? providers.defaultModel : "");
 
     const update = (patch: Partial<typeof connection>) => {
         updateSettingSection("ai", {
@@ -209,6 +260,9 @@ function ProviderCard({ id, providers }: { id: ProviderId; providers: ProvidersS
                             {usable ? null : (
                                 <span className="text-xs text-text-muted">not configured</span>
                             )}
+                            {usable && preset.keyless && !connection.apiKey.trim() ? (
+                                <span className="text-xs text-text-muted">no key needed</span>
+                            ) : null}
                         </div>
                         <div className="text-sm text-text-muted">
                             {preset.kind === "openai"
@@ -248,6 +302,20 @@ function ProviderCard({ id, providers }: { id: ProviderId; providers: ProvidersS
                     >
                         {testing ? "Testing…" : "Test connection"}
                     </Button>
+                    <Button
+                        size="sm"
+                        variant="secondary"
+                        className={SETTING_CONTROL_BTN}
+                        disabled={checking || !checkModel}
+                        title={
+                            checkModel
+                                ? `Sends one short completion with ${checkModel}`
+                                : "Add a model id for this connection first"
+                        }
+                        onClick={() => void checkConnection()}
+                    >
+                        {checking ? "Checking…" : "Check chat"}
+                    </Button>
                     {testResult?.ok && testResult.models.length > 0 ? (
                         <Button
                             size="sm"
@@ -273,6 +341,18 @@ function ProviderCard({ id, providers }: { id: ProviderId; providers: ProvidersS
                     ) : null}
                 </div>
 
+                {checkResult ? (
+                    <div
+                        className={
+                            checkResult.ok
+                                ? "text-xs text-text-muted"
+                                : "text-xs whitespace-pre-line text-amber-500"
+                        }
+                    >
+                        {checkResult.message}
+                    </div>
+                ) : null}
+
                 {models.length > 0 ? (
                     <div className="text-xs text-text-muted">
                         <button
@@ -297,6 +377,64 @@ function ProviderCard({ id, providers }: { id: ProviderId; providers: ProvidersS
                     </div>
                 ) : null}
 
+                <div className="flex flex-col gap-2">
+                    <button
+                        type="button"
+                        className="self-start text-xs text-text-muted hover:text-text-primary"
+                        onClick={() => setAdvancedOpen((v) => !v)}
+                    >
+                        {advancedOpen ? "Hide request headers" : "Request headers & auth"}
+                    </button>
+                    {advancedOpen ? (
+                        <>
+                            <SettingRow
+                                title="Auth header"
+                                description="Where the key above is sent. Leave on the default unless the endpoint expects otherwise."
+                            >
+                                <SettingSelect
+                                    value={connection.authStyle}
+                                    onChange={(value) => update({ authStyle: value as AuthStyle | "" })}
+                                    options={[
+                                        {
+                                            value: "",
+                                            label: `Default (${providerAuthStyle(id, connection)})`,
+                                        },
+                                        { value: "bearer", label: "Authorization: Bearer" },
+                                        { value: "api-key", label: "api-key" },
+                                        { value: "x-api-key", label: "x-api-key" },
+                                        { value: "x-goog-api-key", label: "x-goog-api-key" },
+                                        { value: "none", label: "No auth header" },
+                                    ]}
+                                />
+                            </SettingRow>
+                            <SettingRow
+                                title="Extra headers"
+                                description="One Name: value per line. Values are stored in the OS keychain beside the key."
+                            >
+                                <textarea
+                                    value={formatHeaderLines(connection.headers)}
+                                    placeholder={"HTTP-Referer: https://example.com\nX-Tenant: acme"}
+                                    spellCheck={false}
+                                    rows={2}
+                                    onChange={(e) =>
+                                        update({ headers: parseHeaderLines(e.target.value) })
+                                    }
+                                    className="w-full rounded-md border border-border-secondary bg-transparent px-2 py-1 font-mono text-xs text-text-primary outline-none focus:border-accent"
+                                />
+                            </SettingRow>
+                            {presetHeaders.length > 0 ? (
+                                <div className="text-xs text-text-muted">
+                                    {preset.label} always sends{" "}
+                                    {presetHeaders
+                                        .map(([name, value]) => `${name}: ${value}`)
+                                        .join(", ")}
+                                    . Your lines above win on conflicts.
+                                </div>
+                            ) : null}
+                        </>
+                    ) : null}
+                </div>
+
                 {preset.id === "custom" ? (
                     <SettingRow
                         title="Extra model ids"
@@ -316,21 +454,81 @@ function ProviderCard({ id, providers }: { id: ProviderId; providers: ProvidersS
                         />
                     </SettingRow>
                 ) : null}
+
+                {preset.models.length === 0 && connection.extraModels.length > 0 ? (
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-text-muted">
+                        <Button
+                            size="sm"
+                            variant="ghost"
+                            className={SETTING_CONTROL_BTN}
+                            onClick={() => {
+                                const matched = providersForModelNames(
+                                    connection.extraModels,
+                                    providers.connections,
+                                );
+                                if (matched.length === 0) return;
+                                updateSettingSection("ai", {
+                                    providers: {
+                                        ...providers,
+                                        connections: Object.fromEntries(
+                                            Object.entries(providers.connections).map(([key, value]) => [
+                                                key,
+                                                matched.includes(key as ProviderId)
+                                                    ? { ...value, enabled: true }
+                                                    : value,
+                                            ]),
+                                        ) as typeof providers.connections,
+                                    },
+                                });
+                                setMatchedProviders(matched.length);
+                            }}
+                        >
+                            {matchedProviders > 0
+                                ? `${matchedProviders} providers enabled`
+                                : "Enable providers these models belong to"}
+                        </Button>
+                        {matchedProviders > 0 ? (
+                            <span>Add a key to them above, then Test connection.</span>
+                        ) : null}
+                    </div>
+                ) : null}
             </div>
         </SettingCard>
     );
 }
 
 export function ProvidersSettingsView() {
-    const settings = getSettings();
+    const settings = useSettings();
     const providers = settings.ai.providers;
     const models = availableModels(providers);
     const embeddable = embeddingsAvailable(providers);
     const embeddingOptions = embeddingModelOptions(providers);
     const vault = useVaultStatus();
+    const [query, setQuery] = React.useState("");
     // A provider with no known embedding defaults (a local runtime) needs the
     // model id typed in, so the select becomes a text field.
     const needsEmbeddingId = embeddable && embeddingOptions.length === 0;
+    // Configured connections first in each group, then everything else: the two
+    // or three the user actually keys are the ones they keep coming back to.
+    const groups = providerGroups()
+        .map((group) => ({
+            group: group.group,
+            presets: group.presets
+                .filter((preset) => matchesProviderQuery(preset, query))
+                .sort(
+                    (a, b) =>
+                        Number(isConnectionUsable(b.id, providers.connections)) -
+                        Number(isConnectionUsable(a.id, providers.connections)),
+                ),
+        }))
+        .filter((group) => group.presets.length > 0);
+    const configuredCount = PROVIDER_PRESETS.filter((preset) =>
+        isConnectionUsable(preset.id, providers.connections),
+    ).length;
+    const configuredLabel =
+        configuredCount === 0
+            ? "No providers configured yet"
+            : `${configuredCount} provider${configuredCount === 1 ? "" : "s"} ready`;
 
     return (
         <>
@@ -347,10 +545,35 @@ export function ProvidersSettingsView() {
                         KWallet) to store them encrypted.
                     </div>
                 ) : null}
-                <div className="flex flex-col gap-2.5">
-                    {PROVIDER_PRESETS.map((preset) => (
-                        <ProviderCard key={preset.id} id={preset.id} providers={providers} />
+                <div className="mb-2.5 flex flex-wrap items-center gap-2">
+                    <input
+                        type="search"
+                        value={query}
+                        placeholder="Search providers and models…"
+                        spellCheck={false}
+                        onChange={(e) => setQuery(e.target.value)}
+                        className="h-8 w-full max-w-xs rounded-md border border-border-secondary bg-transparent px-2 text-sm text-text-primary outline-none focus:border-accent"
+                    />
+                    <span className="text-xs text-text-muted">
+                        {configuredLabel}
+                    </span>
+                </div>
+                <div className="flex flex-col gap-4">
+                    {groups.map((group) => (
+                        <div key={group.group} className="flex flex-col gap-2.5">
+                            <div className="text-xs font-medium tracking-wide text-text-muted uppercase">
+                                {group.group}
+                            </div>
+                            {group.presets.map((preset) => (
+                                <ProviderCard key={preset.id} id={preset.id} providers={providers} />
+                            ))}
+                        </div>
                     ))}
+                    {groups.length === 0 ? (
+                        <div className="text-sm text-text-muted">
+                            No provider matches “{query}”.
+                        </div>
+                    ) : null}
                 </div>
             </SettingSection>
 

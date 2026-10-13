@@ -1321,10 +1321,15 @@ fn reasoning_config_for_model(model: &str, user_effort: Option<&str>) -> Option<
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use super::*;
     use crate::core::ai_providers::{AiProviderConfig, ProviderEntry, ProviderKind};
 
-    fn configure() {
+    /// Install a two-provider config and hold the shared config lock until the
+    /// returned guard is dropped, so a parallel test cannot replace it mid-run.
+    fn configure() -> std::sync::MutexGuard<'static, ()> {
+        let guard = crate::core::ai_providers::config_test_lock();
         crate::core::ai_providers::set_config(AiProviderConfig {
             providers: vec![
                 ProviderEntry {
@@ -1335,6 +1340,9 @@ mod tests {
                     base_url: String::new(),
                     models: Vec::new(),
                     enabled: true,
+                    keyless: false,
+                    headers: HashMap::new(),
+                    auth_style: String::new(),
                 },
                 ProviderEntry {
                     id: "anthropic".to_string(),
@@ -1344,16 +1352,20 @@ mod tests {
                     base_url: String::new(),
                     models: Vec::new(),
                     enabled: true,
+                    keyless: false,
+                    headers: HashMap::new(),
+                    auth_style: String::new(),
                 },
             ],
             default_model: "anthropic/claude-sonnet-4.5".to_string(),
             ..Default::default()
         });
+        guard
     }
 
     #[test]
     fn resolves_auto_to_the_configured_default() {
-        configure();
+        let _config = configure();
         let (provider, model) = resolve_provider("auto").unwrap();
         assert_eq!(provider.id, "anthropic");
         assert_eq!(model, "claude-sonnet-4.5");
@@ -1366,7 +1378,7 @@ mod tests {
 
     #[test]
     fn resolves_explicit_provider_prefixes() {
-        configure();
+        let _config = configure();
         let (provider, model) = resolve_provider("openai/gpt-5").unwrap();
         assert_eq!(provider.id, "openai");
         assert_eq!(model, "gpt-5");
@@ -1375,6 +1387,7 @@ mod tests {
 
     #[test]
     fn unconfigured_provider_surfaces_actionable_error() {
+        let _config = crate::core::ai_providers::config_test_lock();
         crate::core::ai_providers::set_config(AiProviderConfig::default());
         let err = resolve_provider("auto").unwrap_err().to_string();
         assert!(err.contains("Settings"), "unexpected error: {err}");
