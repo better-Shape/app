@@ -1409,23 +1409,26 @@ pub async fn run_agent_turn(mut config: AgentTurnConfig<'_>) -> Result<AgentTurn
                 }
             }
 
-            let ctx = ToolCtx {
-                project_path: config.project_path,
-                mode: config.mode,
-                app_handle: config.app_handle,
-                agent_state: config.agent_state,
-                client: config.client,
-                api_key: config.api_key,
-                model: config.model,
-                cancel: config.cancel.clone(),
-                index_state: config.index_state,
-                mcp_state: config.mcp_state,
-                pty_state: config.pty_state,
-                turn_id: turn_id.clone(),
-                conversation_id: conversation_id.clone(),
+            // Scoped so the borrows it holds end here: the compaction handler
+            // below needs `&mut config`.
+            let tool_outcome = {
+                let ctx = ToolCtx {
+                    project_path: config.project_path,
+                    mode: config.mode,
+                    app_handle: config.app_handle,
+                    agent_state: config.agent_state,
+                    client: config.client,
+                    api_key: config.api_key,
+                    model: config.model,
+                    cancel: config.cancel.clone(),
+                    index_state: config.index_state,
+                    mcp_state: config.mcp_state,
+                    pty_state: config.pty_state,
+                    turn_id: turn_id.clone(),
+                    conversation_id: conversation_id.clone(),
+                };
+                dispatch::execute_tool(&call.name, &call.arguments, &ctx).await
             };
-
-            let tool_outcome = dispatch::execute_tool(&call.name, &call.arguments, &ctx).await;
 
             // Writing to disk can change what read-only tools would return, so repeated
             // reads become legitimate again.

@@ -5,6 +5,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 static REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 
+/// Headers the transport sets itself. A configured header with one of these
+/// names would be appended as a duplicate and can break the session.
+const RESERVED_HEADERS: &[&str] = &["accept", "content-type", "mcp-session-id", "authorization"];
+
 pub struct HttpMcpClient {
     pub server_id: String,
     pub server_name: String,
