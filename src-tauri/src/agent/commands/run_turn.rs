@@ -495,6 +495,9 @@ pub struct AgentTurnConfig<'a> {
     pub proxy_ctx: ProxyContext,
     pub max_loops: usize,
     pub emit_complete: bool,
+    /// Standing compaction instructions from Settings, used when the model asks
+    /// for a fold mid-turn.
+    pub compact_instructions: Option<String>,
 }
 
 pub struct AgentTurnOutcome {
@@ -623,6 +626,7 @@ async fn handle_compact_context(
         "tool",
     );
     req.focus = focus;
+    req.instructions = config.compact_instructions.clone();
     req.project_path = config.project_path;
     req.app_handle = Some(config.app_handle);
     match compaction::compact_api_messages(

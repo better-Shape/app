@@ -617,6 +617,7 @@ pub async fn send_chat_message(
         proxy_ctx: proxy_base.clone(),
         max_loops: run_turn::max_loops_for_mode(&mode_to_use),
         emit_complete: true,
+        compact_instructions: compact_instructions.clone(),
     })
     .await
     {
@@ -894,7 +895,16 @@ pub async fn send_chat_message(
     // while the summarizer works.
     if let Some((project_path, model_used)) = post_turn_compaction {
         let history_snapshot = state.history.lock()?.clone();
-        if compaction::should_auto_compact(&history_snapshot, &model_used) {
+        // Measure what the model would receive, not the raw transcript: the raw
+        // view stays over the line once it has crossed it.
+        let view = compaction::apply_stored_summary(
+            &state,
+            &history_snapshot,
+            compaction::KEEP_RECENT_MESSAGES,
+            &model_used,
+        )
+        .unwrap_or_else(|| history_snapshot.clone());
+        if compaction::should_auto_compact(&view, &model_used) {
             let mut req = compaction::CompactRequest::new(
                 &client,
                 &auth_token,

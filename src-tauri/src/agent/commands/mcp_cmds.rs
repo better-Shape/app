@@ -213,13 +213,15 @@ pub fn mcp_reload_from_file(
     // and dropping them here would silently disconnect whatever the UI pushed.
     let file_ids: std::collections::HashSet<String> =
         file_servers.iter().map(|s| s.id.clone()).collect();
+    // A server the file used to provide and no longer does was deleted there, so
+    // it must not survive as a runtime-only entry. Settings servers were never
+    // in the file and are kept.
+    let previously_file_sourced = mcp_state.file_sourced_ids();
     let mut servers: Vec<McpServerConfig> = file_servers;
-    servers.extend(
-        mcp_state
-            .configs_snapshot()
-            .into_iter()
-            .filter(|s| !file_ids.contains(&s.id)),
-    );
+    servers.extend(mcp_state.configs_snapshot().into_iter().filter(|s| {
+        !file_ids.contains(&s.id) && !previously_file_sourced.contains(&s.id)
+    }));
+    mcp_state.remember_file_sourced(file_ids);
     mcp_state.sync_servers(servers).map_err(AppError::Message)
 }
 

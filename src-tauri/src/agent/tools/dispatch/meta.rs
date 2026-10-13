@@ -622,6 +622,16 @@ pub(super) async fn tool_mcp_manage(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutc
                 }
             };
 
+            // Testing a stdio server runs it. A command the model just invented
+            // gets the same approval as adding one.
+            if cfg.transport == crate::mcp::McpTransport::Stdio
+                && admin::load_server(&cfg.id).ok().flatten().is_none()
+            {
+                if let Err(e) = approve_stdio_server(&cfg, ctx).await {
+                    return fail(e);
+                }
+            }
+
             let report = admin::test_config(&cfg);
             let mut text = format!(
                 "test '{}' ({}): {}\n{}",
@@ -645,6 +655,19 @@ pub(super) async fn tool_mcp_manage(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutc
             );
             if report.ok && report.tool_count == 0 {
                 text.push_str("\nThe handshake worked but the server published no tools. Often it needs authentication or is a resources-only server.");
+            }
+            // `save:true` (the default) means "keep it if the test passes".
+            if report.ok && save {
+                match admin::upsert(&cfg) {
+                    Ok(_) => {
+                        let _ = mcp_state.upsert_server(cfg.clone());
+                        announce(ctx, "add", Some(&cfg.id));
+                        text.push_str("\nSaved to mcp.json and connected.");
+                    }
+                    Err(e) => text.push_str(&format!("\nThe test passed but saving failed: {e}")),
+                }
+            } else if report.ok && !save {
+                text.push_str("\nNot saved: it runs only for this session until save:true.");
             }
             if report.status == "needs_auth" {
                 text.push_str(&format!(

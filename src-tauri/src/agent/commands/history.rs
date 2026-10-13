@@ -223,11 +223,13 @@ fn save_current_conversation_inner(
         .and_then(|g| g.clone())
         .unwrap_or_else(|| "chat".to_string());
     let summary = state.current_summary();
+    let fold_end = state.summary_fold_end();
     if let Some(existing) = list.iter_mut().find(|c| c.id == id) {
         existing.history = history;
         existing.title = title;
         existing.timestamp = now_f64();
         existing.summary = summary.clone();
+        existing.summary_fold_end = fold_end;
         let (locked, anchor) = state.title_meta();
         existing.title_locked = locked;
         existing.title_anchor_turns = anchor;
@@ -253,6 +255,7 @@ fn save_current_conversation_inner(
             archived: false,
             kind,
             summary,
+            summary_fold_end: fold_end,
         });
         if let Some(last) = list.last_mut() {
             collapse_duplicate_assistants(&mut last.history);
@@ -290,12 +293,14 @@ pub fn upsert_conversation_snapshot(
         .map(|c| c.as_deref() == Some(id))
         .unwrap_or(false);
     let summary = if is_live { state.current_summary() } else { None };
+    let fold_end = if is_live { state.summary_fold_end() } else { 0 };
     if let Some(existing) = list.iter_mut().find(|c| c.id == id) {
         existing.history = history;
         existing.title = title.to_string();
         existing.timestamp = now_f64();
         if summary.is_some() {
             existing.summary = summary.clone();
+            existing.summary_fold_end = fold_end;
         }
         collapse_duplicate_assistants(&mut existing.history);
     } else {
@@ -310,6 +315,7 @@ pub fn upsert_conversation_snapshot(
             archived: false,
             kind: "chat".to_string(),
             summary,
+            summary_fold_end: fold_end,
         });
         if let Some(last) = list.last_mut() {
             collapse_duplicate_assistants(&mut last.history);

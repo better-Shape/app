@@ -276,6 +276,10 @@ export interface Conversation {
     /** Hidden from the sidebar; still opens from the command palette. */
     archived?: boolean;
     kind?: "chat" | "multiwork";
+    /** Rolling compaction summary, kept so a reopened chat sends less. */
+    summary?: string | null;
+    /** How many leading messages that summary covers. */
+    summary_fold_end?: number;
 }
 
 export interface BrowserTab {

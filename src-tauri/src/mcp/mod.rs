@@ -51,6 +51,10 @@ pub struct McpState {
     /// Serialises connect-then-insert. Two upserts for the same id could
     /// otherwise finish in either order and leave the older connection live.
     connecting: Mutex<()>,
+    /// Ids that were loaded from `mcp.json` the last time the file was read.
+    /// A server removed from the file is dropped on the next reload; one that
+    /// came from Settings is kept, because it never lives in that file.
+    file_sourced: Mutex<std::collections::HashSet<String>>,
 }
 
 impl McpState {
@@ -59,6 +63,7 @@ impl McpState {
             clients: Mutex::new(HashMap::new()),
             configs: Mutex::new(Vec::new()),
             connecting: Mutex::new(()),
+            file_sourced: Mutex::new(std::collections::HashSet::new()),
         }
     }
 
@@ -482,6 +487,18 @@ impl McpState {
         let mut clients = self.clients.lock().map_err(|e| e.to_string())?;
         clients.remove(server_id);
         Ok(removed)
+    }
+
+    /// Ids the file provided at the last reload.
+    pub fn file_sourced_ids(&self) -> std::collections::HashSet<String> {
+        self.file_sourced.lock().map(|s| s.clone()).unwrap_or_default()
+    }
+
+    /// Remember which ids the file provided.
+    pub fn remember_file_sourced(&self, ids: std::collections::HashSet<String>) {
+        if let Ok(mut guard) = self.file_sourced.lock() {
+            *guard = ids;
+        }
     }
 
     /// Tools one connected server currently exposes.

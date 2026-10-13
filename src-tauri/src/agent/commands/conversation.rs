@@ -301,7 +301,7 @@ pub fn load_conversation(
     // Restore this conversation's rolling summary so a long chat does not have
     // to re-send every raw turn after a restart.
     state.reset_compaction();
-    state.set_current_summary(conv.summary.clone());
+    state.restore_summary(conv.summary.clone(), conv.summary_fold_end);
     state.clear_design_preview_state();
     state.replace_file_checkpoints(checkpoints::load_checkpoints(&id));
     state.set_incognito(false);

@@ -1064,6 +1064,31 @@ pub fn apply_stored_summary(
     ))
 }
 
+/// Text of an API message. `content` is a string for most turns and an array of
+/// parts for a message that carries an image, where the parts hold the text
+/// beside the picture.
+fn api_content_text(message: &Value) -> String {
+    match message.get("content") {
+        Some(Value::String(text)) => text.clone(),
+        Some(Value::Array(parts)) => {
+            let mut out: Vec<String> = Vec::new();
+            for part in parts {
+                match part.get("type").and_then(|t| t.as_str()) {
+                    Some("text") => {
+                        if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
+                            out.push(text.to_string());
+                        }
+                    }
+                    Some("image_url") | Some("input_image") => out.push("[image]".to_string()),
+                    _ => {}
+                }
+            }
+            out.join("\n")
+        }
+        _ => String::new(),
+    }
+}
+
 /// Two user messages in a row are valid for some providers and rejected by
 /// others; merging is always safe and loses nothing.
 pub fn merge_adjacent_user_turns(messages: Vec<ChatMessage>) -> Vec<ChatMessage> {
@@ -1236,12 +1261,22 @@ pub async fn compact_history(
     // chats inside that window. A summary belongs to one conversation only.
     let owned_conversation = current_conversation_id(state);
     let previous = state.history_summary.lock().ok().and_then(|g| g.clone());
-    let pins = state
+    let (pins, already_covered) = state
         .compaction
         .lock()
-        .map(|g| g.prompt_pins())
+        .map(|g| (g.prompt_pins(), g.summary_fold_end))
         .unwrap_or_default();
-    let span = render_transcript(&history[plan.fold_start..plan.fold_end]);
+    // Summarize only what the stored summary does not cover yet, and hand the
+    // previous summary in as the base. Re-reading the whole span every pass is
+    // what erodes detail over a long session.
+    let span_start = if previous.is_some() && already_covered > plan.fold_start
+        && already_covered < plan.fold_end
+    {
+        already_covered
+    } else {
+        plan.fold_start
+    };
+    let span = render_transcript(&history[span_start..plan.fold_end]);
     let spill_path = if req.spill {
         crate::agent::tools::spill::spill_history_transcript(req.project_path, &span)
     } else {
@@ -1328,22 +1363,36 @@ pub async fn compact_history(
     record.summary_chars = stored.chars().count();
     record.spill_path = spill_path.clone();
 
-    if current_conversation_id(state) != owned_conversation {
-        logging::info(
-            "compaction",
-            "Conversation changed while summarizing — the summary was dropped",
-        );
-        return Ok(None);
-    }
-
-    if let Ok(mut guard) = state.history_summary.lock() {
-        *guard = Some(stored.clone());
-    }
-    if let Ok(mut guard) = state.compaction.lock() {
+    // The check and both writes happen under the compaction lock, which is also
+    // the lock a chat switch takes to clear this state. Either the switch wins
+    // (nothing is written) or the fold wins and the table is cleared after.
+    {
+        let Ok(mut guard) = state.compaction.lock() else {
+            return Ok(None);
+        };
+        if current_conversation_id(state) != owned_conversation {
+            logging::info(
+                "compaction",
+                "Conversation changed while summarizing — the summary was dropped",
+            );
+            return Ok(None);
+        }
         guard.mark_success(record.clone());
         // The fold carried the pinned notes, and a hold has nothing left to hold.
         guard.clear_pins();
         guard.resume_auto();
+        if let Ok(mut summary) = state.history_summary.lock() {
+            *summary = Some(stored.clone());
+        }
+    }
+
+    // Persist now rather than waiting for the next turn: the post-turn pass runs
+    // after the conversation was saved, and a manual fold may be the last thing
+    // that happens before the app closes.
+    if !req.project_path.is_empty() && current_conversation_id(state) == owned_conversation {
+        if let Err(e) = super::history::save_current_conversation(state, req.project_path) {
+            logging::warn("compaction", &format!("Could not save the summary: {e}"));
+        }
     }
 
     logging::info(
@@ -1461,7 +1510,7 @@ pub async fn compact_api_messages(
     let span_tokens = api_messages
         .iter()
         .take(fold_end)
-        .map(|m| estimate_tokens(m.get("content").and_then(|c| c.as_str()).unwrap_or("")) + 4)
+        .map(|m| estimate_tokens(&api_content_text(m)) + 4)
         .sum::<usize>();
     if span_tokens < MIN_SPAN_TOKENS {
         return Ok(None);
@@ -1476,11 +1525,7 @@ pub async fn compact_api_messages(
                 .and_then(|r| r.as_str())
                 .unwrap_or("user")
                 .to_string(),
-            content: m
-                .get("content")
-                .and_then(|c| c.as_str())
-                .unwrap_or("")
-                .to_string(),
+            content: api_content_text(m),
             timestamp: 0.0,
             stats: None,
             model: None,

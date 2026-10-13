@@ -377,6 +377,7 @@ async fn run_subagent_inner(
         proxy_ctx,
         max_loops: run_turn::max_loops_for_mode(mode),
         emit_complete: false,
+        compact_instructions: None,
     })
     .await
     .map_err(|e| e.to_string())?;

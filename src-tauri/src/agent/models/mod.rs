@@ -155,6 +155,10 @@ pub struct Conversation {
     /// so reopening a long chat does not re-send the whole raw history.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
+    /// How many messages from the start of `history` that summary covers. Saved
+    /// with it: without the boundary the summary cannot be applied again.
+    #[serde(default)]
+    pub summary_fold_end: usize,
 }
 
 fn default_conversation_kind() -> String {
@@ -359,6 +363,22 @@ impl AgentState {
         if let Ok(mut guard) = self.history_summary.lock() {
             *guard = summary;
         }
+    }
+
+    /// Restore a saved summary together with the span it covers.
+    pub fn restore_summary(&self, summary: Option<String>, fold_end: usize) {
+        self.set_current_summary(summary);
+        if let Ok(mut guard) = self.compaction.lock() {
+            guard.summary_fold_end = if summary.is_some() { fold_end } else { 0 };
+        }
+    }
+
+    /// How many leading messages the stored summary already covers.
+    pub fn summary_fold_end(&self) -> usize {
+        self.compaction
+            .lock()
+            .map(|g| g.summary_fold_end)
+            .unwrap_or(0)
     }
 
     pub fn incognito(&self) -> bool {
