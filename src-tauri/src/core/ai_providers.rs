@@ -675,9 +675,16 @@ mod tests {
             vec![entry("custom", ProviderKind::OpenAi, "k")],
             "",
         ));
-        // A connection whose model list is empty cannot serve a request.
-        let err = resolve_model("custom").unwrap_err().to_string();
+        // No default model and no prefix: there is nothing to put in `model`.
+        let err = resolve_model("auto").unwrap_err().to_string();
         assert!(err.contains("No model is selected"), "{err}");
+
+        // An unknown bare name is still passed through — some gateways name
+        // models after nothing in particular — but a prefixed id with an empty
+        // slug is a configuration mistake, not a model.
+        let (provider, slug) = resolve_model("mystery-model").unwrap();
+        assert_eq!(provider.id, "custom");
+        assert_eq!(slug, "mystery-model");
 
         set_config(config_with(
             vec![entry("custom", ProviderKind::OpenAi, "k")],

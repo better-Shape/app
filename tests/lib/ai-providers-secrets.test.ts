@@ -11,7 +11,7 @@ import {
     keyFormatWarning,
     keyOwnerHint,
     maskApiKey,
-    mergeProviderSecrets,
+    mergeProviderConnections,
     modelIdsFor,
     modelsWithProviderPrefix,
     providerSecrets,
@@ -70,7 +70,7 @@ describe("secret handling", () => {
         const loaded = redactProviderSecrets({ ai: { providers: live } }).ai.providers;
         loaded.defaultModel = "openai/gpt-5";
 
-        const merged = mergeProviderSecrets(live, loaded);
+        const merged = mergeProviderConnections(live, loaded);
 
         expect(merged.connections.openai.apiKey).toBe("sk-live");
         expect(merged.services.composio.apiKey).toBe("ck-live");
@@ -82,7 +82,7 @@ describe("secret handling", () => {
         const loaded: ProvidersSettings = {
             ...withKey("openai", "sk-new"),
         };
-        expect(mergeProviderSecrets(live, loaded).connections.openai.apiKey).toBe("sk-new");
+        expect(mergeProviderConnections(live, loaded).connections.openai.apiKey).toBe("sk-new");
     });
 });
 

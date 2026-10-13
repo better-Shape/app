@@ -513,7 +513,7 @@ export function redactProviderSecrets<T extends { ai: { providers: ProvidersSett
  * wipe the session's keys the first time a settings payload arrived from disk or
  * from the other window. Existing values always win for non-secret fields.
  */
-export function mergeProviderSecrets(live: ProvidersSettings, loaded: ProvidersSettings): ProvidersSettings {
+export function mergeProviderConnections(live: ProvidersSettings, loaded: ProvidersSettings): ProvidersSettings {
   const connections = {} as Record<ProviderId, ProviderConnection>;
   for (const preset of PROVIDER_PRESETS) {
     const current = live.connections[preset.id];

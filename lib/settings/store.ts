@@ -5,7 +5,7 @@ import { normalizeColorTheme, type ColorThemeId } from "./themes";
 import type { AgentWorkflow } from "@/lib/chat/workflows";
 import {
     defaultProvidersSettings,
-    mergeProviderSecrets,
+    mergeProviderConnections,
     normalizeProvidersSettings,
     providerSecrets,
     redactProviderSecrets,
@@ -558,7 +558,7 @@ function mergeSettings(
     // Storage carries no keys once the keychain is in use, so a payload coming
     // back from disk (or from the other window) must not blank the live ones.
     const ai = options?.preserveSecrets
-        ? { ...mergedAi, providers: mergeProviderSecrets(currentSettings.ai.providers, mergedAi.providers) }
+        ? { ...mergedAi, providers: mergeProviderConnections(currentSettings.ai.providers, mergedAi.providers) }
         : mergedAi;
     return {
         editor: { ...DEFAULT_SETTINGS.editor, ...base.editor, ...patch.editor },
