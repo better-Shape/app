@@ -144,13 +144,15 @@ fn flatten(entry: &Value) -> Option<RegistryServer> {
         }
     }
 
+    // Before the literal: `name` is moved into it below.
+    let id = id_from_name(&name);
     Some(RegistryServer {
         name,
+        id,
         description: one_line(&str_at(server, &["description"]).unwrap_or_default(), 240),
         version,
         registry_type,
         identifier,
-        id: id_from_name(&name),
         transport,
         url,
         command,
