@@ -1,7 +1,3 @@
 [1m[92m    Updating[0m crates.io index
 [1m[92m   Compiling[0m app v1.0.3 (/home/runner/work/Shape/Shape/src-tauri)
-src/agent/commands/provider_wire.rs:19:40: [1m[33mwarning[0m: unused import: `embeddings_endpoint`
-[1m[33mwarning[0m: `app` (lib test) generated 1 warning (1 duplicate)
-[1m[33mwarning[0m: `app` (lib) generated 1 warning (run `cargo fix --lib -p app` to apply 1 suggestion)
-[1m[92m    Finished[0m `dev` profile [unoptimized + debuginfo] target(s) in 19.55s
----
+[1m[92m    Finished[0m `dev` profile [unoptimized + debuginfo] target(s) in 14.56s

@@ -1,0 +1,36 @@
+[1m[92m   Compiling[0m app v1.0.3 (/home/runner/work/Shape/Shape/src-tauri)
+[1m[91merror[0m[1m: empty line after doc comment[0m
+  [1m[94m--> [0msrc/agent/model_router.rs:10:1
+   [1m[94m|[0m
+[1m[94m10[0m [1m[94m|[0m [1m[91m/[0m /// prefer SEARCH/REPLACE string edits.
+[1m[94m11[0m [1m[94m|[0m [1m[91m|[0m
+   [1m[94m|[0m [1m[91m|_^[0m
+[1m[94m12[0m [1m[94m|[0m   /// Auto selection id. Resolves to the configured default model.
+[1m[94m13[0m [1m[94m|[0m   pub const AUTO_MODEL: &str = "auto";
+   [1m[94m|[0m   [1m[94m--------------------[0m [1m[94mthe comment documents this constant item[0m
+   [1m[94m|[0m
+   [1m[94m= [0m[1mhelp[0m: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#empty_line_after_doc_comments
+   [1m[94m= [0m[1mnote[0m: `-D clippy::empty-line-after-doc-comments` implied by `-D warnings`
+   [1m[94m= [0m[1mhelp[0m: to override `-D warnings` add `#[allow(clippy::empty_line_after_doc_comments)]`
+   [1m[94m= [0m[1mhelp[0m: if the empty line is unintentional, remove it
+[1m[96mhelp[0m: if the comment should document the parent module use an inner doc comment
+   [1m[94m|[0m
+[1m[94m 1[0m [92m~ [0m//[92m![0m Model routing and family classification for the agent harness.
+[1m[94m 2[0m [92m~ [0m//[92m![0m
+[1m[94m 3[0m [92m~ [0m//[92m![0m BetterShape is bring-your-own-key: model ids are `provider/model`
+[1m[94m 4[0m [92m~ [0m//[92m![0m (`openai/gpt-5`, `anthropic/claude-sonnet-4.5`, `google/gemini-2.5-pro`,
+[1m[94m 5[0m [92m~ [0m//[92m![0m `openrouter/…`, `custom/…`). `auto` resolves at request time to the user's
+[1m[94m 6[0m [92m~ [0m//[92m![0m configured default model — never to a hardcoded vendor slug.
+[1m[94m 7[0m [92m~ [0m//[92m![0m
+[1m[94m 8[0m [92m~ [0m//[92m![0m Families drive per-model prompt overlays and tool shapes (Cursor-style harness
+[1m[94m 9[0m [92m~ [0m//[92m![0m customization): OpenAI-trained models prefer apply_patch; Anthropic/DeepSeek
+[1m[94m10[0m [92m~ [0m//[92m![0m prefer SEARCH/REPLACE string edits.
+   [1m[94m|[0m
+[1m[96mhelp[0m: if the documentation should include the empty line include it in the comment
+   [1m[94m|[0m
+[1m[94m11[0m [1m[94m| [0m[92m///[0m
+   [1m[94m|[0m
+
+[1m[91merror[0m: could not compile `app` (lib) due to 1 previous error
+[1m[33mwarning[0m: build failed, waiting for other jobs to finish...
+[1m[91merror[0m: could not compile `app` (lib test) due to 1 previous error
