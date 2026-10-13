@@ -275,6 +275,14 @@ pub fn resolve_model(model: &str) -> Result<(ResolvedProvider, String), AppError
         return Ok((resolved, slug));
     }
 
+    // `openrouter/auto` was the hosted router's own id. A user who configured
+    // an OpenRouter key still gets the real server-side router; without one the
+    // string is a legacy alias for `auto` rather than a model no provider can
+    // serve.
+    if requested.eq_ignore_ascii_case("openrouter/auto") && config.find("openrouter").is_none() {
+        return resolve_model("auto");
+    }
+
     let (prefix, rest) = split_model(requested);
     if let Some(prefix) = prefix {
         let id = alias_provider_id(prefix);

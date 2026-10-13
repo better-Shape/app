@@ -1,13 +1,13 @@
-/// Model routing and family classification for the agent harness.
-///
-/// BetterShape is bring-your-own-key: model ids are `provider/model`
-/// (`openai/gpt-5`, `anthropic/claude-sonnet-4.5`, `google/gemini-2.5-pro`,
-/// `openrouter/…`, `custom/…`). `auto` resolves at request time to the user's
-/// configured default model — never to a hardcoded vendor slug.
-///
-/// Families drive per-model prompt overlays and tool shapes (Cursor-style harness
-/// customization): OpenAI-trained models prefer apply_patch; Anthropic/DeepSeek
-/// prefer SEARCH/REPLACE string edits.
+//! Model routing and family classification for the agent harness.
+//!
+//! BetterShape is bring-your-own-key: model ids are `provider/model`
+//! (`openai/gpt-5`, `anthropic/claude-sonnet-4.5`, `google/gemini-2.5-pro`,
+//! `openrouter/…`, `custom/…`). `auto` resolves at request time to the user's
+//! configured default model — never to a hardcoded vendor slug.
+//!
+//! Families drive per-model prompt overlays and tool shapes (Cursor-style harness
+//! customization): OpenAI-trained models prefer apply_patch; Anthropic/DeepSeek
+//! prefer SEARCH/REPLACE string edits.
 
 /// Auto selection id. Resolves to the configured default model.
 pub const AUTO_MODEL: &str = "auto";
