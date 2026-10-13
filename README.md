@@ -1,13 +1,13 @@
 
-If you're using version 1.0.0, 1.0.1, or 1.0.2, we recommend manually updating to 1.0.3.
 
-# Shape
+
+# BetterShape
 
 <img src="./docs/logo/icon.svg" width="36" alt="Shape">
 
 A desktop agent for all your coding needs, plus so much more.
 
-[Website](https://useshape.org) · [Docs](https://useshape.org/docs) · [Download](https://useshape.org/download) · [Discord](https://discord.gg/MMCEDVZKYf)
+[Website](IN PROGRESS) · [Docs](IN PROGRESS) · [Download](IN PROGRESS) · [Discord](IN PROGRESS)
 
 ![Chat next to the open folder](./public/hero.png)
 
@@ -17,7 +17,7 @@ Suport for many models.
 
 ![Claude, GPT, Gemini, Grok, DeepSeek, Qwen](./docs/images/readme/models.svg)
 
-[Models](https://useshape.org/docs/get-started/models).
+[Models](IN PROGRESS).
 
 ## Plugins
 
@@ -25,11 +25,11 @@ Connect over 20+ plugins the agent can use.
 
 ![GitHub, Figma, Linear, Slack, Notion, Stripe, Supabase, Vercel](./docs/images/readme/plugins.svg)
 
-[Plugins](https://useshape.org/docs/customize/plugins)
+[Plugins](IN PROGRESS)
 
 ## Install
 
-Windows 10 or 11, 64-bit. [Installer](https://useshape.org/download). Older builds: [Releases](https://github.com/useshape/Shape/releases).
+Windows 10 or 11, 64-bit. [Installer](https://useshape.org/download). Older builds: [Releases](https://github.com/Owie6789/BetterShape/releases).
 
 Stable is the tested channel. Nightly ships latest and can break.
 
@@ -42,7 +42,7 @@ npm install
 npm run tauri:dev
 ```
 
-[CONTRIBUTING.md](./CONTRIBUTING.md) and [local development](https://useshape.org/docs/developing/local-development).
+[CONTRIBUTING.md](./CONTRIBUTING.md) and [local development](/docs/developing/local-development).
 
 ```bash
 npm run test          # Vitest
@@ -56,4 +56,4 @@ TypeScript, React, Next.js App Router, Tauri 2, Rust.
 
 [Business Source License 1.1](./LICENSE). Code you send is under the same license.
 
-Copyright © 2026 Shape.
+
