@@ -12,9 +12,13 @@ Use MCP when the tool runs on your machine or at a URL you already have. Use a [
 
 ## Add a server in Settings
 
-Open **Settings → Agents → MCP** and choose **Add server**. Paste the server URL, or paste its JSON config. Shape shows the server, then connects. If the server asks you to sign in, finish that in the browser.
+Open **Settings → Agents → MCP** and choose **Add server**. There are two tabs.
 
-Remove a server you added there with **Remove**. That does not change `mcp.json`.
+**Browse the registry** searches the official MCP registry, the same index the agent searches. Search for a product or package name, check the command shown under a result, then choose **Install**. Shape writes the entry to `mcp.json` and connects it, so the server is there after a restart. If it needs a sign-in, Shape opens the browser flow.
+
+**Paste a config** takes a server URL or a JSON config. Servers added this way stay in Shape and are not written to `mcp.json`.
+
+Remove a server you added by pasting with **Remove**. That does not change `mcp.json`.
 
 ## Open the file
 

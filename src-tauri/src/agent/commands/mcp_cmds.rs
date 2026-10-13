@@ -202,6 +202,67 @@ pub async fn mcp_manage_servers(
     Ok(result)
 }
 
+/// Search the official MCP registry from Settings.
+///
+/// Same client the agent's `mcp_manage` search action uses, so the browser and
+/// the agent see the same entries.
+#[tauri::command]
+pub async fn mcp_registry_search(
+    query: String,
+    limit: Option<usize>,
+) -> Result<Vec<crate::mcp::registry::RegistryServer>, AppError> {
+    crate::mcp::registry::search(&query, limit.unwrap_or(20))
+        .await
+        .map_err(AppError::Message)
+}
+
+/// Install a registry entry, from the entry the user picked.
+///
+/// Writes `mcp.json` through the same validated, atomic path the agent uses, so
+/// an install from Settings and an install from chat cannot drift apart.
+#[tauri::command]
+pub async fn mcp_registry_install(
+    entry: crate::mcp::registry::RegistryServer,
+    replace: Option<bool>,
+    mcp_state: tauri::State<'_, McpState>,
+    app_handle: tauri::AppHandle,
+) -> Result<serde_json::Value, AppError> {
+    use crate::mcp::admin;
+    use tauri::Emitter;
+
+    let cfg = crate::mcp::registry::config_from_registry(&entry).map_err(AppError::Message)?;
+    admin::validate(&cfg).map_err(AppError::Message)?;
+    // Refuse to overwrite quietly: an install button that replaces a server the
+    // user configured by hand would be the wrong kind of convenient.
+    let taken = admin::load_server(&cfg.id)
+        .map_err(AppError::Message)?
+        .is_some()
+        || mcp_state
+            .configs_snapshot()
+            .iter()
+            .any(|s| s.id == cfg.id);
+    if taken && !replace.unwrap_or(false) {
+        return Err(AppError::Message(format!(
+            "'{}' is already configured. Open it in the list, or remove it first.",
+            cfg.id
+        )));
+    }
+
+    let previous = admin::upsert(&cfg).map_err(AppError::Message)?;
+    let status = mcp_state
+        .upsert_server(cfg.clone())
+        .map_err(AppError::Message)?;
+    let _ = app_handle.emit(
+        "mcp-servers-changed",
+        serde_json::json!({ "action": "add", "id": cfg.id }),
+    );
+    Ok(serde_json::json!({
+        "server": cfg,
+        "status": status,
+        "replaced": previous.is_some(),
+    }))
+}
+
 /// Re-read `mcp.json` and connect exactly what it lists. Servers added by the
 /// agent (or hand-edited into the file) show up without restarting the app.
 #[tauri::command]

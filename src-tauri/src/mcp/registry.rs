@@ -11,17 +11,21 @@
 //! a registry outage must never break `mcp_manage`, so callers get an error
 //! string and the tool suggests manual configuration.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 const REGISTRY_BASE: &str = "https://registry.modelcontextprotocol.io";
 
 /// One installable server, flattened from the registry's nested schema.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RegistryServer {
     /// Reverse-DNS name, e.g. `io.github.microsoft/playwright-mcp`.
     pub name: String,
+    /// The id this entry installs under. Carried so a browser can tell "already
+    /// configured" from "not yet installed" without re-deriving it.
+    #[serde(default)]
+    pub id: String,
     pub description: String,
     pub version: String,
     /// `npm` | `pypi` | `nuget` | `oci` | `other`
@@ -146,6 +150,7 @@ fn flatten(entry: &Value) -> Option<RegistryServer> {
         version,
         registry_type,
         identifier,
+        id: id_from_name(&name),
         transport,
         url,
         command,
@@ -155,8 +160,95 @@ fn flatten(entry: &Value) -> Option<RegistryServer> {
 }
 
 /// Search the registry. Returns at most `limit` (clamped 1..=8) entries.
+/// The id a registry name will be stored under.
+///
+/// Registry names are reverse-DNS (`io.github.microsoft/playwright-mcp`), and
+/// the leaf is the part a person recognises. It also becomes the prefix of every
+/// tool name, so it stays short.
+pub fn id_from_name(name: &str) -> String {
+    let leaf = name.rsplit('/').next().unwrap_or(name);
+    let leaf = leaf.trim();
+    if leaf.is_empty() {
+        crate::mcp::admin::slug(name)
+    } else {
+        crate::mcp::admin::slug(leaf)
+    }
+}
+
+/// The id a registry entry is stored under. Matches the `id` field it carries.
+pub fn id_for(entry: &RegistryServer) -> String {
+    id_from_name(&entry.name)
+}
+
+/// Turn a registry entry into a server config, or say why it cannot be one.
+///
+/// Only the two shapes Shape can run are accepted: a package with a command
+/// (`npx -y pkg@version`, `uvx pkg`), or a hosted URL. An entry that publishes
+/// neither is not an install, it is a link to documentation.
+pub fn config_from_registry(entry: &RegistryServer) -> Result<crate::mcp::McpServerConfig, String> {
+    use crate::mcp::{McpAuthType, McpServerConfig, McpTransport};
+
+    // The entry carries its id; older payloads without one fall back to the name.
+    let id = if entry.id.trim().is_empty() {
+        id_for(entry)
+    } else {
+        entry.id.trim().to_string()
+    };
+    let name = if entry.name.trim().is_empty() {
+        id.clone()
+    } else {
+        entry.name.clone()
+    };
+
+    let mut config = McpServerConfig {
+        id,
+        name,
+        transport: McpTransport::Stdio,
+        command: String::new(),
+        args: Vec::new(),
+        env: std::collections::HashMap::new(),
+        url: None,
+        auth: McpAuthType::None,
+        headers: std::collections::HashMap::new(),
+        enabled: true,
+        disabled_tools: Vec::new(),
+        oauth_client_id: None,
+        skill_hint: None,
+    };
+
+    match entry.command.as_ref().filter(|c| !c.trim().is_empty()) {
+        Some(command) => {
+            config.command = command.clone();
+            config.args = entry.args.clone();
+        }
+        None => match entry.url.as_ref().filter(|u| !u.trim().is_empty()) {
+            Some(url) => {
+                config.transport = McpTransport::Http;
+                config.url = Some(url.clone());
+                // Hosted MCP servers overwhelmingly use OAuth; the user can
+                // switch it to a header or none in the detail view.
+                config.auth = McpAuthType::Oauth;
+            }
+            None => {
+                return Err(format!(
+                    "'{}' publishes no package Shape can run and no URL.{}",
+                    entry.name,
+                    entry
+                        .repository
+                        .as_ref()
+                        .map(|r| format!(" Its docs are at {r}."))
+                        .unwrap_or_default()
+                ));
+            }
+        },
+    }
+
+    Ok(config)
+}
+
 pub async fn search(query: &str, limit: usize) -> Result<Vec<RegistryServer>, String> {
-    let limit = limit.clamp(1, 8);
+    // The agent asks for a handful; the Settings browser shows more at once.
+    let limit = limit.clamp(1, 25);
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(12))
         .build()
@@ -352,5 +444,82 @@ mod tests {
     fn empty_results_suggest_a_shorter_query() {
         let out = render_results("nonsense", &[]);
         assert!(out.contains("No registry servers matched"));
+    }
+
+    fn entry(name: &str) -> RegistryServer {
+        RegistryServer {
+            name: name.into(),
+            id: id_from_name(name),
+            description: String::new(),
+            version: "1.0.0".into(),
+            registry_type: "npm".into(),
+            identifier: "pkg".into(),
+            transport: String::new(),
+            url: None,
+            command: None,
+            args: Vec::new(),
+            repository: None,
+        }
+    }
+
+    #[test]
+    fn the_leaf_of_a_reverse_dns_name_becomes_the_id() {
+        assert_eq!(id_from_name("io.github.microsoft/playwright-mcp"), "playwright-mcp");
+        assert_eq!(id_from_name("com.example/My_Server"), "my-server");
+        // No slash: the whole name, slugged.
+        assert_eq!(id_from_name("Sentry"), "sentry");
+        // Nothing usable still yields a usable id.
+        assert_eq!(id_from_name("!!!"), "mcp");
+        // The field the browser reads is the same value.
+        assert_eq!(entry("io.github.acme/files").id, "files");
+        assert_eq!(id_for(&entry("io.github.acme/files")), "files");
+    }
+
+    #[test]
+    fn a_package_entry_becomes_a_stdio_command() {
+        let mut e = entry("io.github.acme/files");
+        e.command = Some("npx".into());
+        e.args = vec!["-y".into(), "@acme/files-mcp@1.2.3".into()];
+        let cfg = config_from_registry(&e).expect("config");
+        assert_eq!(cfg.id, "files");
+        assert_eq!(cfg.transport, crate::mcp::McpTransport::Stdio);
+        assert_eq!(cfg.command, "npx");
+        assert_eq!(cfg.args, vec!["-y", "@acme/files-mcp@1.2.3"]);
+        assert!(cfg.url.is_none());
+        assert!(cfg.enabled);
+    }
+
+    #[test]
+    fn a_hosted_entry_becomes_an_oauth_url() {
+        let mut e = entry("io.github.acme/hosted");
+        e.url = Some("https://mcp.acme.dev/mcp".into());
+        let cfg = config_from_registry(&e).expect("config");
+        assert_eq!(cfg.transport, crate::mcp::McpTransport::Http);
+        assert_eq!(cfg.url.as_deref(), Some("https://mcp.acme.dev/mcp"));
+        assert_eq!(cfg.auth, crate::mcp::McpAuthType::Oauth);
+        assert!(cfg.command.is_empty());
+    }
+
+    #[test]
+    fn a_command_takes_precedence_over_a_url() {
+        // flatten() never produces both (a package reached by URL loses its
+        // command), so this only pins the order the two are read in.
+        let mut e = entry("io.github.acme/both");
+        e.url = Some("https://mcp.acme.dev/mcp".into());
+        e.command = Some("npx".into());
+        e.args = vec!["-y".into(), "pkg".into()];
+        let cfg = config_from_registry(&e).expect("config");
+        assert_eq!(cfg.transport, crate::mcp::McpTransport::Stdio);
+        assert_eq!(cfg.command, "npx");
+        assert!(cfg.url.is_none());
+    }
+
+    #[test]
+    fn an_entry_with_neither_a_command_nor_a_url_is_refused() {
+        let mut e = entry("io.github.acme/docs-only");
+        e.repository = Some("https://github.com/acme/docs".into());
+        let err = config_from_registry(&e).expect_err("refused");
+        assert!(err.contains("no package Shape can run"), "{err}");
+        assert!(err.contains("https://github.com/acme/docs"), "{err}");
     }
 }

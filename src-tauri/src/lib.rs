@@ -414,6 +414,8 @@ pub fn run() {
             agent::commands::mcp_cmds::call_mcp_tool,
             agent::commands::mcp_cmds::mcp_manage_servers,
             agent::commands::mcp_cmds::mcp_reload_from_file,
+            agent::commands::mcp_cmds::mcp_registry_search,
+            agent::commands::mcp_cmds::mcp_registry_install,
             // lint
             commands::ipc::lint::eslint_lint_file,
             commands::ipc::lint::prettier_format_file,
