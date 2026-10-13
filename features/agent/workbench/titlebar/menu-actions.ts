@@ -3,6 +3,7 @@ import { HELP_LINKS } from "@/lib/errors/help-links";
 import { isPopoutPath } from "@/lib/window/tauri-window";
 import { ensureWorkspaceTrust, notifyWorkspaceClosed, notifyWorkspaceOpened } from "@/lib/workspace/trust";
 import { clearExtraWorkspaceFolders } from "@/lib/workspace/folders";
+import { dispatchShortcutAction } from "@/lib/ui/shortcut-actions";
 import type { MenuActionContext } from "./types";
 import { getFileExtension, isImageExtension, isFontExtension } from "@/features/editor/lib/image-types";
 
@@ -232,23 +233,12 @@ export function createMenuActionHandler(ctx: MenuActionContext) {
             case "Command Palette...":
                 window.dispatchEvent(new CustomEvent("bettershape-command-palette"));
                 break;
+            // Keep one implementation: the shortcut dispatcher owns search entry.
             case "Find in Files":
-                window.dispatchEvent(new CustomEvent("bettershape-set-active-tab", { detail: "search" }));
-                window.dispatchEvent(
-                    new CustomEvent("bettershape-layout-toggle", {
-                        detail: { id: "primary-sidebar", value: true },
-                    }),
-                );
-                window.dispatchEvent(new CustomEvent("bettershape-search-mode", { detail: { mode: "search" } }));
+                dispatchShortcutAction("Find in Files", "Ctrl+Shift+F");
                 break;
             case "Replace in Files":
-                window.dispatchEvent(new CustomEvent("bettershape-set-active-tab", { detail: "search" }));
-                window.dispatchEvent(
-                    new CustomEvent("bettershape-layout-toggle", {
-                        detail: { id: "primary-sidebar", value: true },
-                    }),
-                );
-                window.dispatchEvent(new CustomEvent("bettershape-search-mode", { detail: { mode: "replace" } }));
+                dispatchShortcutAction("Replace in Files", "Ctrl+H");
                 break;
             case "New Terminal":
                 window.dispatchEvent(
