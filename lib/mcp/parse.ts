@@ -8,6 +8,8 @@ type RawEntry = {
     transport?: "stdio" | "http";
     url?: string;
     auth?: "none" | "oauth";
+    /** Extra HTTP headers (API keys, tenant ids). Never logged. */
+    headers?: Record<string, string>;
     disabledTools?: string[];
     oauthClientId?: string;
     name?: string;
@@ -42,6 +44,7 @@ export function serverFromEntry(id: string, cfg: RawEntry): McpServerConfig {
         env: cfg.env && typeof cfg.env === "object" ? cfg.env : {},
         url,
         auth: cfg.auth ?? (url ? "oauth" : "none"),
+        headers: cfg.headers && typeof cfg.headers === "object" ? cfg.headers : undefined,
         enabled: cfg.disabled !== true,
         disabledTools: cfg.disabledTools ?? [],
         oauthClientId: cfg.oauthClientId,

@@ -102,6 +102,23 @@ fn flatten(entry: &Value) -> Option<RegistryServer> {
         url = str_at(pkg, &["transport", "url"]);
     }
 
+    // A hosted server has no package at all: the registry puts its endpoint in
+    // `remotes` instead. Without this it came back with no way to reach it.
+    // Only when there is no local command either, so a runnable package is
+    // never turned into an HTTP server.
+    if url.is_none() && command.is_none() {
+        let remote = server
+            .get("remotes")
+            .and_then(|r| r.as_array())
+            .and_then(|arr| arr.iter().find(|r| str_at(r, &["url"]).is_some()));
+        if let Some(remote) = remote {
+            url = str_at(remote, &["url"]);
+            // Shape reaches both `streamable-http` and `sse` remotes with the
+            // same HTTP client, which follows whichever content type answers.
+            transport = "http".to_string();
+        }
+    }
+
     Some(RegistryServer {
         name,
         description: str_at(server, &["description"]).unwrap_or_default(),
@@ -172,17 +189,22 @@ pub fn render_results(query: &str, results: &[RegistryServer]) -> String {
     );
     for r in results {
         out.push_str(&format!(
-            "\nname: {}\ndescription: {}\npackage: {} ({}){}\n",
+            "\nname: {}\ndescription: {}\n",
             r.name,
-            r.description.trim(),
-            r.identifier,
-            r.registry_type,
-            if r.version.is_empty() {
-                String::new()
-            } else {
-                format!(" version {}", r.version)
-            }
+            r.description.trim()
         ));
+        if !r.identifier.is_empty() {
+            out.push_str(&format!(
+                "package: {} ({}){}\n",
+                r.identifier,
+                r.registry_type,
+                if r.version.is_empty() {
+                    String::new()
+                } else {
+                    format!(" version {}", r.version)
+                }
+            ));
+        }
         if let Some(command) = &r.command {
             out.push_str(&format!(
                 "run: {} {}\n",
@@ -260,6 +282,24 @@ mod tests {
         let flat = flatten(&entry).expect("flattened");
         assert_eq!(flat.transport, "http");
         assert_eq!(flat.url.as_deref(), Some("https://mcp.acme.dev"));
+    }
+
+    #[test]
+    fn hosted_entries_expose_their_remote_url() {
+        // A server with no package at all: the registry lists it under `remotes`.
+        let entry = json!({
+            "server": {
+                "name": "io.github.acme/hosted",
+                "description": "Hosted tools",
+                "remotes": [
+                    { "type": "streamable-http", "url": "https://mcp.acme.dev/mcp" }
+                ]
+            }
+        });
+        let flat = flatten(&entry).expect("flattened");
+        assert_eq!(flat.url.as_deref(), Some("https://mcp.acme.dev/mcp"));
+        assert_eq!(flat.transport, "http");
+        assert!(flat.command.is_none());
     }
 
     #[test]
