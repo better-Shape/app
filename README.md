@@ -3,7 +3,7 @@
 
 # BetterShape
 
-<img src="./docs/logo/icon.svg" width="36" alt="Shape">
+<img src="./docs/logo/icon.png" width="36" alt="Shape">
 
 A desktop agent for all your coding needs, plus so much more.
 

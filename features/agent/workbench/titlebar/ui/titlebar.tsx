@@ -4,8 +4,8 @@ import { ChevronLeft20Regular } from "@fluentui/react-icons/headless/svg/chevron
 
 
 import { useEffect, useMemo, useState } from "react";
-import Image from "next/image";
 import { Icon } from "@/components/ui/icon";
+import { ShapeLogo } from "@/components/ui/shape-logo";
 
 import { useProjectState } from "@/lib/backend";
 import { useKeyboardShortcuts } from "@/lib/ui/shortcuts";
@@ -18,10 +18,6 @@ import { TitlebarMenubar } from "../ui/app-menu";
 import { WindowControls } from "../ui/window-controls";
 import { TitlebarUpdateButton } from "../ui/update-button";
 import { GIT_WINDOW_TITLE_SLOT } from "@/features/git/ui/manager/chrome";
-
-// logo.svg is 46x56 — width must scale with height to avoid Next Image's
-// aspect-ratio warning (and the visual squish into a square icon).
-const LOGO_ASPECT_RATIO = 46 / 56;
 
 export default function Titlebar({ onboarding, settings, focus, title, onBack }: TitlebarProps) {
     useKeyboardShortcuts();
@@ -70,13 +66,7 @@ export default function Titlebar({ onboarding, settings, focus, title, onBack }:
                     <>
                         <div className="flex shrink-0 items-center">
                             <div className="window-appicon flex h-full w-5 ml-3 shrink-0 items-center justify-center">
-                                <Image
-                                    src="/logos/logo.svg"
-                                    alt="Logo"
-                                    width={Math.round(16 * LOGO_ASPECT_RATIO)}
-                                    height={16}
-                                    className="logo-invert rounded-sm"
-                                />
+                                <ShapeLogo size={16} className="rounded-sm" />
                             </div>
                         </div>
                         {!isFocus ? (
@@ -91,13 +81,7 @@ export default function Titlebar({ onboarding, settings, focus, title, onBack }:
                 ) : isCompact ? (
                     <div className="relative z-20 flex h-full shrink-0 items-center">
                         <div className="window-appicon flex h-full w-11 shrink-0 items-center justify-center">
-                            <Image
-                                src="/logos/logo.svg"
-                                alt="Logo"
-                                width={Math.round(16 * LOGO_ASPECT_RATIO)}
-                                height={16}
-                                className="logo-invert rounded-sm"
-                            />
+                            <ShapeLogo size={16} className="rounded-sm" />
                         </div>
                         {title === "Git" ? (
                             <div

@@ -8,9 +8,12 @@ export const metadata: Metadata = {
   title: "Shape",
   description: "Agent workspace",
   icons: {
-    icon: "/logos/app_icon.svg",
-    shortcut: "/logos/app_icon.svg",
-    apple: "/logos/app_icon.svg",
+    icon: [
+      { url: "/logos/app_icon.png", sizes: "512x512", type: "image/png" },
+      { url: "/favicon.ico", sizes: "any" },
+    ],
+    shortcut: "/favicon.ico",
+    apple: "/logos/app_icon.png",
   },
 };
 

@@ -13,7 +13,7 @@
     "dark": "/logo/dark.svg",
     "href": "https://useshape.org"
   },
-  "favicon": "/logo/icon.svg",
+  "favicon": "/logo/icon.png",
   "appearance": {
     "default": "dark"
   },

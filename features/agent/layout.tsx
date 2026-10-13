@@ -503,12 +503,12 @@ export function AgentLayout({ children }: { children: React.ReactNode }) {
                     aria-hidden
                 >
                     <Image
-                        src="/logos/logo.svg"
+                        src="/logos/logo.png"
                         alt="Shape"
                         width={52}
-                        height={64}
+                        height={52}
                         priority
-                        style={{ width: 52, height: "auto" }}
+                        style={{ width: 52, height: 52 }}
                         className={cn(
                             "logo-invert transition-opacity duration-500 ease-[var(--ease-out)]",
                             splashVisible ? "opacity-100" : "opacity-0",
