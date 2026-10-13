@@ -1,0 +1,97 @@
+name: Diagnose
+
+on:
+  push:
+    branches:
+      - arena/2628126c-shape
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  diagnose:
+    name: Diagnose Rust
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - run: npm ci
+
+      - name: Build runtime
+        run: npm run build:runtime
+
+      - name: Cargo check and test (capture output)
+        run: |
+          set +e
+          {
+            echo "### cargo check --all-targets"
+            cargo check --manifest-path src-tauri/Cargo.toml --all-targets 2>&1
+            echo "check_exit=$?"
+            echo
+            echo "### cargo test"
+            cargo test --manifest-path src-tauri/Cargo.toml 2>&1
+            echo "test_exit=$?"
+          } > /tmp/cargo.log 2>&1
+          tail -c 58000 /tmp/cargo.log > /tmp/tail.log
+          python3 - <<'PY' > /tmp/focus.log
+          import re
+          raw = open('/tmp/cargo.log', errors='replace').read().replace('^[', '\x1b')
+          lines = re.sub(r'\x1b\[[0-9;]*m', '', raw).splitlines()
+          out, kept = [], 0
+          for i, l in enumerate(lines):
+              if re.match(r'^(error|warning)(\[[A-Z0-9]+\])?:', l.strip()) and 'generated' not in l:
+                  out.append('\n'.join(lines[i:i + 8]))
+                  out.append('-' * 40)
+                  kept += 1
+                  if kept >= 40:
+                      break
+          print('\n'.join(out) if out else 'no error or warning headers')
+          PY
+          # The step has to fail when Cargo failed: a green step after a red
+          # compile is a diagnostic that lies.
+          check_exit=$(grep -o 'check_exit=[0-9]*' /tmp/cargo.log | tail -1 | cut -d= -f2)
+          test_exit=$(grep -o 'test_exit=[0-9]*' /tmp/cargo.log | tail -1 | cut -d= -f2)
+          if [ "${check_exit:-1}" != "0" ] || [ "${test_exit:-1}" != "0" ]; then
+            echo "cargo check=$check_exit test=$test_exit"
+            exit 1
+          fi
+
+      - name: Post the log as a PR comment
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR=$(gh api "repos/${{ github.repository }}/pulls?head=${{ github.repository_owner }}:${{ github.ref_name }}&state=open" --jq '.[0].number')
+          if [ -z "$PR" ] || [ "$PR" = "null" ]; then echo "no open PR"; exit 0; fi
+          {
+            echo "<!-- cargo-diagnostic -->"
+            echo "### diagnostics"
+            echo '```text'
+            if [ -f /tmp/focus.log ]; then cat /tmp/focus.log; else echo "Cargo did not run: an earlier step failed."; fi
+            echo '```'
+            echo
+            echo "### tail of the full log"
+            echo '```text'
+            if [ -f /tmp/tail.log ]; then cat /tmp/tail.log; else echo "Cargo did not run: an earlier step failed."; fi
+            echo '```'
+          } > /tmp/body.md
+          gh pr comment "$PR" --repo "${{ github.repository }}" --body-file /tmp/body.md

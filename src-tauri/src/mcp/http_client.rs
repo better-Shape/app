@@ -26,7 +26,6 @@ pub struct HttpMcpClient {
     client: reqwest::Client,
 }
 
-impl HttpMcpClient {
 /// Do the configured credential headers make this request carry a secret?
 fn carries_credentials(
     headers: &[(String, String)],
@@ -60,7 +59,7 @@ fn is_loopback_host(url: &reqwest::Url) -> bool {
     }
 }
 
-impl McpHttpClient {
+impl HttpMcpClient {
     pub async fn connect(
         server_id: &str,
         server_name: &str,
