@@ -322,9 +322,6 @@ pub fn run() {
             // agent
             agent::commands::send_chat::send_chat_message,
             agent::commands::send_chat::update_turn_policy,
-            agent::commands::compaction::compact_chat,
-            agent::commands::compaction::reset_compaction,
-            agent::commands::compaction::get_compaction_state,
             agent::commands::conversation::get_chat_history,
             agent::commands::conversation::get_chat_generation_state,
             agent::commands::conversation::clear_chat_history,
@@ -398,6 +395,11 @@ pub fn run() {
             agent::commands::indexing::get_index_status,
             agent::commands::indexing::set_index_embeddings,
             agent::commands::indexing::set_chat_memory_enabled,
+            // compaction
+            agent::commands::compaction::compact_chat,
+            agent::commands::compaction::reset_compaction,
+            agent::commands::compaction::get_compaction_state,
+            // mcp management
             agent::commands::mcp_cmds::sync_mcp_servers,
             agent::commands::mcp_cmds::get_mcp_config_path,
             agent::commands::mcp_cmds::ensure_mcp_config,
