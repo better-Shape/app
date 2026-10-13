@@ -16,8 +16,8 @@ use reqwest::Client;
 use serde_json::{json, Map, Value};
 
 use crate::core::ai_providers::{
-    anthropic_endpoint, effort_budget, embeddings_endpoint, google_endpoint, openai_endpoint,
-    ProviderKind, ResolvedProvider,
+    anthropic_endpoint, effort_budget, google_endpoint, openai_endpoint, ProviderKind,
+    ResolvedProvider,
 };
 
 /// Per-stream bookkeeping for providers whose deltas don't carry tool indexes.
