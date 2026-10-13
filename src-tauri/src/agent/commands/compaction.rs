@@ -1491,22 +1491,33 @@ pub async fn maybe_auto_compact(
 
 const API_TAIL_MESSAGES: usize = 14;
 
-/// Fold the middle of a *live* API transcript into a summary, in place.
+/// Tokens in a live API payload, as the model would see it.
+pub fn api_messages_tokens(messages: &[Value]) -> usize {
+    messages
+        .iter()
+        .map(|m| estimate_tokens(&api_content_text(m)) + 4)
+        .sum()
+}
+
+/// What a summarizer pass over a payload prefix produced.
+struct PayloadSummary {
+    stored: String,
+    span_tokens: usize,
+    tokens_before: usize,
+    messages_before: usize,
+    spill_path: Option<String>,
+}
+
+/// Summarize `api_messages[..fold_end]` into one block of text.
 ///
-/// The system message and the newest turns stay; the summary is written into the
-/// tool result of the `compact_context` call that triggered it, so tool-call
-/// pairing is never broken.
-pub async fn compact_api_messages(
+/// Shared by the `compact_context` tool and the mid-turn guard: both fold a live
+/// payload, and both must produce the same shape of summary.
+async fn summarize_payload_prefix(
     state: &AgentState,
-    api_messages: &mut Vec<Value>,
-    tool_call_id: &str,
-    req: CompactRequest<'_>,
-) -> Result<Option<CompactionRecord>, AppError> {
-    let tail_start = match api_tail_start(api_messages, API_TAIL_MESSAGES) {
-        Some(idx) => idx,
-        None => return Ok(None),
-    };
-    let fold_end = tail_start;
+    api_messages: &[Value],
+    fold_end: usize,
+    req: &CompactRequest<'_>,
+) -> Result<Option<PayloadSummary>, AppError> {
     let span_tokens = api_messages
         .iter()
         .take(fold_end)
@@ -1540,7 +1551,6 @@ pub async fn compact_api_messages(
     } else {
         None
     };
-    let owned_conversation = current_conversation_id(state);
     let previous = state.history_summary.lock().ok().and_then(|g| g.clone());
     let pins = state
         .compaction
@@ -1593,11 +1603,51 @@ pub async fn compact_api_messages(
         ));
     }
 
-    let tokens_before = api_messages
+    Ok(Some(PayloadSummary {
+        stored,
+        span_tokens,
+        tokens_before: api_messages_tokens(api_messages),
+        messages_before: api_messages.len(),
+        spill_path,
+    }))
+}
+
+/// Fold the middle of a *live* API transcript into a summary, in place.
+///
+/// The system message and the newest turns stay; the summary is written into the
+/// tool result of the `compact_context` call that triggered it, so tool-call
+/// pairing is never broken.
+pub async fn compact_api_messages(
+    state: &AgentState,
+    api_messages: &mut Vec<Value>,
+    tool_call_id: &str,
+    req: CompactRequest<'_>,
+) -> Result<Option<CompactionRecord>, AppError> {
+    let tail_start = match api_tail_start(api_messages, API_TAIL_MESSAGES) {
+        Some(idx) => idx,
+        None => return Ok(None),
+    };
+    let fold_end = tail_start;
+    let span_tokens = api_messages
         .iter()
-        .map(|m| estimate_tokens(m.get("content").and_then(|c| c.as_str()).unwrap_or("")) + 4)
+        .take(fold_end)
+        .map(|m| estimate_tokens(&api_content_text(m)) + 4)
         .sum::<usize>();
-    let messages_before = api_messages.len();
+    if span_tokens < MIN_SPAN_TOKENS {
+        return Ok(None);
+    }
+
+    let owned_conversation = current_conversation_id(state);
+    let Some(produced) = summarize_payload_prefix(state, api_messages, fold_end, &req).await? else {
+        return Ok(None);
+    };
+    let PayloadSummary {
+        stored,
+        span_tokens,
+        tokens_before,
+        messages_before,
+        spill_path,
+    } = produced;
 
     let note = format!(
         "Compacted {fold_end} earlier messages ({}k → {}k tokens). The summary is authoritative context now; the older transcript is gone.\n\n{stored}",
@@ -1659,6 +1709,149 @@ pub async fn compact_api_messages(
         let _ = app.emit("chat_compacted", json!({ "record": record }));
     }
 
+    Ok(Some(record))
+}
+
+/// Should a long turn fold its own payload right now?
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MidTurnDecision {
+    /// Under the fill line: nothing to do.
+    No,
+    /// Over the fill line, but the agent asked to finish its step first.
+    Wait,
+    /// Over the fill line with no hold: fold.
+    Fold,
+    /// At the hard ceiling: fold and end any hold, there is no room left.
+    Forced,
+}
+
+/// Decision for the mid-turn guard, kept pure so it can be tested directly.
+pub fn mid_turn_decision(tokens: usize, model: &str, held: bool) -> MidTurnDecision {
+    if tokens >= hard_ceiling_tokens(model) {
+        return MidTurnDecision::Forced;
+    }
+    if tokens < fill_line_tokens(model) {
+        return MidTurnDecision::No;
+    }
+    if held {
+        MidTurnDecision::Wait
+    } else {
+        MidTurnDecision::Fold
+    }
+}
+
+/// Fold the live payload in the middle of a long turn, if it needs it.
+///
+/// The pre-turn and post-turn checks cannot see a turn that runs for hundreds of
+/// tool loops, and an over-full payload is not a summary problem: the next call
+/// to the model fails outright. This runs before each model call of a turn, so a
+/// turn that outgrows its window folds and keeps going.
+///
+/// A hold the agent asked for is respected here, and loses only at the ceiling —
+/// the same rule the turn-boundary check follows.
+pub async fn maybe_shrink_payload(
+    state: &AgentState,
+    api_messages: &mut Vec<Value>,
+    req: CompactRequest<'_>,
+) -> Result<Option<CompactionRecord>, AppError> {
+    let tokens = api_messages_tokens(api_messages);
+    let held = {
+        let Ok(guard) = state.compaction.lock() else {
+            return Ok(None);
+        };
+        // Repeated failures already closed the circuit: do not add to it.
+        if guard.breaker_open() {
+            return Ok(None);
+        }
+        guard.pause.is_some()
+    };
+    let decision = mid_turn_decision(tokens, req.model, held);
+    match decision {
+        MidTurnDecision::No => return Ok(None),
+        MidTurnDecision::Wait => {
+            logging::debug(
+                "compaction",
+                "Mid-turn fold held off: the agent asked to finish its step first",
+            );
+            return Ok(None);
+        }
+        MidTurnDecision::Fold | MidTurnDecision::Forced => {}
+    }
+
+    let Some(fold_end) = api_tail_start(api_messages, API_TAIL_MESSAGES) else {
+        return Ok(None);
+    };
+    let owned_conversation = current_conversation_id(state);
+    let Some(produced) = summarize_payload_prefix(state, api_messages, fold_end, &req).await? else {
+        return Ok(None);
+    };
+    let PayloadSummary {
+        stored,
+        span_tokens,
+        tokens_before,
+        messages_before,
+        spill_path,
+    } = produced;
+
+    if decision == MidTurnDecision::Forced {
+        if let Ok(mut guard) = state.compaction.lock() {
+            let _ = guard.check_pause(tokens, hard_ceiling_tokens(req.model), now_f64());
+        }
+        logging::warn(
+            "compaction",
+            "Mid-turn fold ran past a hold: the context window was nearly full",
+        );
+    }
+
+    // The folded span is replaced by the boundary right after the system
+    // prompt, so every tool call after `fold_end` keeps its result.
+    let plan = CompactionPlan {
+        fold_start: 0,
+        fold_end,
+        tokens_before,
+        span_tokens,
+        tail_tokens: tokens_before.saturating_sub(span_tokens),
+    };
+    let boundary = boundary_message(&stored, &plan, "auto", spill_path.as_deref(), None);
+    let drain_from = 1usize.min(fold_end);
+    api_messages.drain(drain_from..fold_end);
+    api_messages.insert(
+        drain_from,
+        json!({ "role": boundary.role, "content": boundary.content }),
+    );
+
+    let tokens_after = api_messages_tokens(api_messages);
+    let mut record = CompactionRecord::new("auto", None);
+    record.messages_before = messages_before;
+    record.messages_after = api_messages.len();
+    record.tokens_before = tokens_before;
+    record.tokens_after = tokens_after;
+    record.tokens_saved = tokens_before.saturating_sub(tokens_after);
+    record.folded_start = 0;
+    record.folded_end = fold_end;
+    record.summary_chars = stored.chars().count();
+    record.spill_path = spill_path.clone();
+
+    // Same rule as the tool path: indices here count API messages, not history,
+    // and a pass that finished after the user switched chats is not recorded.
+    if current_conversation_id(state) != owned_conversation {
+        logging::info(
+            "compaction",
+            "Conversation changed while summarizing — the mid-turn fold was not recorded",
+        );
+        return Ok(None);
+    }
+    if let Ok(mut guard) = state.compaction.lock() {
+        guard.mark_success_payload_only(record.clone());
+    }
+    if let Some(app) = req.app_handle {
+        use tauri::Emitter;
+        let _ = app.emit("chat_compacted", json!({ "record": &record }));
+    }
+    logging::info(
+        "compaction",
+        &format!("Mid-turn auto-{}", record.describe()),
+    );
     Ok(Some(record))
 }
 
@@ -2277,6 +2470,47 @@ mod tests {
         assert!(state.pause.is_none() && state.pins.is_empty());
         assert_eq!(state.overrides, 0);
         assert_eq!(state.skips_total, 0);
+    }
+
+    #[test]
+    fn the_mid_turn_guard_respects_a_hold_until_the_ceiling() {
+        let model = "anthropic/claude-sonnet-4.6";
+        let fill = fill_line_tokens(model);
+        let ceiling = hard_ceiling_tokens(model);
+
+        assert_eq!(mid_turn_decision(fill - 1, model, false), MidTurnDecision::No);
+        assert_eq!(mid_turn_decision(fill, model, false), MidTurnDecision::Fold);
+        // A hold is the agent's say, and it holds below the ceiling.
+        assert_eq!(mid_turn_decision(fill, model, true), MidTurnDecision::Wait);
+        assert_eq!(
+            mid_turn_decision(ceiling - 1, model, true),
+            MidTurnDecision::Wait
+        );
+        // At the ceiling there is no room left to honour it.
+        assert_eq!(
+            mid_turn_decision(ceiling, model, true),
+            MidTurnDecision::Forced
+        );
+        assert_eq!(
+            mid_turn_decision(ceiling, model, false),
+            MidTurnDecision::Forced
+        );
+    }
+
+    #[test]
+    fn a_live_payload_is_measured_with_its_text_parts() {
+        let messages = vec![
+            json!({"role": "system", "content": "sys"}),
+            json!({"role": "user", "content": "hello there"}),
+            json!({"role": "user", "content": [
+                {"type": "text", "text": "what is this"},
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}}
+            ]}),
+        ];
+        let plain = api_messages_tokens(&messages);
+        assert!(plain > 0);
+        // The image part contributes its marker, not nothing.
+        assert!(plain > api_messages_tokens(&messages[..2]));
     }
 
     #[test]

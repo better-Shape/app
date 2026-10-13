@@ -751,6 +751,39 @@ pub async fn run_agent_turn(mut config: AgentTurnConfig<'_>) -> Result<AgentTurn
             logging::info("chat", "Cancelled by user");
             break;
         }
+        // A turn can run for hundreds of tool loops, and the payload grows the
+        // whole way. The turn-boundary checks cannot see any of that, so check
+        // here: an over-full payload does not summarize badly, it fails the call.
+        {
+            let mut req = compaction::CompactRequest::new(
+                config.client,
+                config.api_key,
+                config.proxy_ctx.clone(),
+                config.model,
+                "auto",
+            );
+            req.instructions = config.compact_instructions.clone();
+            req.project_path = config.project_path;
+            req.app_handle = Some(config.app_handle);
+            match compaction::maybe_shrink_payload(
+                config.agent_state,
+                config.api_messages,
+                req,
+            )
+            .await
+            {
+                Ok(Some(record)) => logging::info(
+                    "chat",
+                    &format!("Mid-turn auto-{}", record.describe()),
+                ),
+                Ok(None) => {}
+                Err(e) => logging::warn(
+                    "chat",
+                    &format!("Mid-turn compaction failed: {e}; continuing"),
+                ),
+            }
+        }
+
         if loop_count >= config.max_loops {
             logging::warn(
                 "chat",
