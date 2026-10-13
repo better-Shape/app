@@ -135,12 +135,12 @@ function GitManagerIntro({ children }: { children: React.ReactNode }) {
         return (
             <div className="flex h-full items-center justify-center bg-background">
                 <Image
-                    src="/logos/logo.svg"
+src="/logos/logo.png"
                     alt="BetterShape"
                     width={46}
-                    height={56}
+                    height={46}
                     priority
-                    style={{ width: 46, height: "auto" }}
+                    style={{ width: 46, height: 46 }}
                     className={cn(
                         "logo-invert transition-opacity duration-500 ease-out",
                         visible ? "opacity-100" : "opacity-0",

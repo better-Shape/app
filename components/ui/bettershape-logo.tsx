@@ -2,7 +2,8 @@
 
 import { cn } from "@/lib/utils";
 
-const LOGO_ASPECT_RATIO = 56 / 46;
+/** The photoreal mark needs a bit of room before its highlights read. */
+const PHOTOREAL_MIN_SIZE = 24;
 
 export function BetterShapeLogo({
     size = 32,
@@ -11,21 +12,22 @@ export function BetterShapeLogo({
     size?: number;
     className?: string;
 }) {
-    const height = Math.round(size * LOGO_ASPECT_RATIO);
+    const src =
+        size < PHOTOREAL_MIN_SIZE ? "/logos/logo-mono.png" : "/logos/logo.png";
     return (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-            src="/logos/logo.svg"
+src={src}
             alt="BetterShape"
             width={size}
-            height={height}
+            height={size}
             style={{
                 width: size,
-                height: "auto",
+                height: size,
                 minWidth: size,
-                minHeight: height,
+                minHeight: size,
                 maxWidth: size,
-                maxHeight: height,
+                maxHeight: size,
             }}
             className={cn("logo-invert shrink-0", className)}
             draggable={false}
