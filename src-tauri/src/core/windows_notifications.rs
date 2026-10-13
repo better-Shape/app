@@ -6,7 +6,7 @@
 
 use tauri_winrt_notification::{IconCrop, Toast};
 
-const APP_ID: &str = "com.shape.app";
+const APP_ID: &str = "com.bettershape.app";
 const DISPLAY_NAME: &str = "BetterShape";
 
 /// Register process AUMID + HKCU display name so toasts attribute to BetterShape.

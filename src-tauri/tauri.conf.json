@@ -2,7 +2,7 @@
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "BetterShape",
   "version": "1.0.3",
-  "identifier": "com.shape.app",
+  "identifier": "com.bettershape.app",
   "build": {
     "frontendDist": "../out",
     "devUrl": "http://localhost:48921",
