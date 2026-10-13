@@ -161,7 +161,6 @@ fn flatten(entry: &Value) -> Option<RegistryServer> {
     })
 }
 
-/// Search the registry. Returns at most `limit` (clamped 1..=8) entries.
 /// The id a registry name will be stored under.
 ///
 /// Registry names are reverse-DNS (`io.github.microsoft/playwright-mcp`), and
@@ -245,6 +244,9 @@ pub fn config_from_registry(entry: &RegistryServer) -> Result<crate::mcp::McpSer
     Ok(config)
 }
 
+/// Search the registry. Returns at most `limit` entries (clamped 1..=25).
+///
+/// Callers pass 8 (the agent) or 20 (the Settings browser).
 pub async fn search(query: &str, limit: usize) -> Result<Vec<RegistryServer>, String> {
     // The agent asks for a handful; the Settings browser shows more at once.
     let limit = limit.clamp(1, 25);

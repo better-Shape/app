@@ -34,7 +34,7 @@ fn carries_credentials(
 ) -> bool {
     !headers.is_empty()
         || static_bearer.as_ref().map(|t| !t.trim().is_empty()).unwrap_or(false)
-        || auth != McpAuthType::None
+        || *auth != McpAuthType::None
 }
 
 /// True when the URL points at this machine.
