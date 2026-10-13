@@ -7,8 +7,8 @@
 [1m[92m   Compiling[0m proc-macro2 v1.0.106
 [1m[92m   Compiling[0m indexmap v2.13.0
 [1m[92m   Compiling[0m quote v1.0.44
-[1m[92m   Compiling[0m syn v2.0.116
 [1m[92m   Compiling[0m heck v0.5.0
+[1m[92m   Compiling[0m syn v2.0.116
 [1m[92m   Compiling[0m serde_core v1.0.228
 [1m[92m   Compiling[0m itoa v1.0.17
 [1m[92m   Compiling[0m siphasher v1.0.2
@@ -22,71 +22,71 @@
 [1m[92m   Compiling[0m getrandom v0.2.17
 [1m[92m   Compiling[0m bitflags v2.11.0
 [1m[92m   Compiling[0m futures-core v0.3.32
-[1m[92m   Compiling[0m synstructure v0.13.2
-[1m[92m   Compiling[0m ppv-lite86 v0.2.21
 [1m[92m   Compiling[0m precomputed-hash v0.1.1
 [1m[92m   Compiling[0m new_debug_unreachable v1.0.6
 [1m[92m   Compiling[0m once_cell v1.21.3
+[1m[92m   Compiling[0m synstructure v0.13.2
 [1m[92m   Compiling[0m litemap v0.8.1
-[1m[92m   Compiling[0m writeable v0.6.2
+[1m[92m   Compiling[0m ppv-lite86 v0.2.21
 [1m[92m   Compiling[0m bytes v1.11.1
+[1m[92m   Compiling[0m writeable v0.6.2
 [1m[92m   Compiling[0m rand_core v0.6.4
+[1m[92m   Compiling[0m zmij v1.0.21
 [1m[92m   Compiling[0m rand_chacha v0.3.1
+[1m[92m   Compiling[0m rand v0.8.8
 [1m[92m   Compiling[0m serde_derive v1.0.228
 [1m[92m   Compiling[0m zerofrom-derive v0.1.6
 [1m[92m   Compiling[0m thiserror-impl v1.0.69
 [1m[92m   Compiling[0m yoke-derive v0.8.1
-[1m[92m   Compiling[0m zerovec-derive v0.11.2
 [1m[92m   Compiling[0m thiserror v1.0.69
+[1m[92m   Compiling[0m zerovec-derive v0.11.2
 [1m[92m   Compiling[0m zerofrom v0.1.6
 [1m[92m   Compiling[0m displaydoc v0.2.5
 [1m[92m   Compiling[0m yoke v0.8.1
 [1m[92m   Compiling[0m phf_macros v0.13.1
 [1m[92m   Compiling[0m zerotrie v0.2.3
-[1m[92m   Compiling[0m rand v0.8.8
-[1m[92m   Compiling[0m zerovec v0.11.5
-[1m[92m   Compiling[0m phf v0.13.1
-[1m[92m   Compiling[0m zmij v1.0.21
-[1m[92m   Compiling[0m tinystr v0.8.2
-[1m[92m   Compiling[0m potential_utf v0.1.4
-[1m[92m   Compiling[0m icu_collections v2.1.1
-[1m[92m   Compiling[0m icu_locale_core v2.1.1
 [1m[92m   Compiling[0m icu_normalizer_data v2.1.1
-[1m[92m   Compiling[0m serde v1.0.228
 [1m[92m   Compiling[0m phf_codegen v0.13.1
+[1m[92m   Compiling[0m zerovec v0.11.5
 [1m[92m   Compiling[0m dtoa v1.0.11
+[1m[92m   Compiling[0m phf v0.13.1
 [1m[92m   Compiling[0m futures-io v0.3.32
 [1m[92m   Compiling[0m dtoa-short v0.3.5
 [1m[92m   Compiling[0m icu_properties_data v2.1.2
 [1m[92m   Compiling[0m value-bag v1.12.0
-[1m[92m   Compiling[0m toml_datetime v0.6.11
-[1m[92m   Compiling[0m serde_spanned v0.6.9
 [1m[92m   Compiling[0m utf-8 v0.7.6
-[1m[92m   Compiling[0m toml_edit v0.22.27
-[1m[92m   Compiling[0m icu_provider v2.1.1
 [1m[92m   Compiling[0m log v0.4.29
-[1m[92m   Compiling[0m icu_properties v2.1.2
+[1m[92m   Compiling[0m tinystr v0.8.2
+[1m[92m   Compiling[0m potential_utf v0.1.4
+[1m[92m   Compiling[0m icu_locale_core v2.1.1
+[1m[92m   Compiling[0m icu_collections v2.1.1
 [1m[92m   Compiling[0m http v1.4.0
+[1m[92m   Compiling[0m serde v1.0.228
 [1m[92m   Compiling[0m phf_shared v0.11.3
 [1m[92m   Compiling[0m slab v0.4.12
+[1m[92m   Compiling[0m toml_datetime v0.6.11
+[1m[92m   Compiling[0m serde_spanned v0.6.9
+[1m[92m   Compiling[0m icu_provider v2.1.1
+[1m[92m   Compiling[0m toml_edit v0.22.27
 [1m[92m   Compiling[0m string_cache_codegen v0.6.1
+[1m[92m   Compiling[0m icu_properties v2.1.2
 [1m[92m   Compiling[0m regex-syntax v0.8.9
 [1m[92m   Compiling[0m utf8_iter v1.0.4
 [1m[92m   Compiling[0m web_atoms v0.2.4
 [1m[92m   Compiling[0m cssparser-macros v0.6.1
-[1m[92m   Compiling[0m toml v0.8.23
 [1m[92m   Compiling[0m fnv v1.0.7
-[1m[92m   Compiling[0m system-deps v6.2.2
 [1m[92m   Compiling[0m phf_generator v0.11.3
 [1m[92m   Compiling[0m thiserror-impl v2.0.18
-[1m[92m   Compiling[0m byteorder v1.5.0
 [1m[92m   Compiling[0m powerfmt v0.2.0
+[1m[92m   Compiling[0m toml v0.8.23
+[1m[92m   Compiling[0m system-deps v6.2.2
+[1m[92m   Compiling[0m byteorder v1.5.0
 [1m[92m   Compiling[0m lock_api v0.4.14
+[1m[92m   Compiling[0m thiserror v2.0.18
+[1m[92m   Compiling[0m getrandom v0.1.16
 [1m[92m   Compiling[0m glib-sys v0.18.1
 [1m[92m   Compiling[0m gobject-sys v0.18.0
-[1m[92m   Compiling[0m getrandom v0.1.16
 [1m[92m   Compiling[0m parking_lot_core v0.9.12
-[1m[92m   Compiling[0m thiserror v2.0.18
 [1m[92m   Compiling[0m num-conv v0.2.0
 [1m[92m   Compiling[0m bitflags v1.3.2
 [1m[92m   Compiling[0m time-core v0.1.8
@@ -99,11 +99,11 @@
 [1m[92m   Compiling[0m darling_core v0.23.0
 [1m[92m   Compiling[0m futures-channel v0.3.32
 [1m[92m   Compiling[0m selectors v0.36.1
-[1m[92m   Compiling[0m futures-macro v0.3.32
 [1m[92m   Compiling[0m derive_more-impl v2.1.1
+[1m[92m   Compiling[0m futures-macro v0.3.32
 [1m[92m   Compiling[0m futures-task v0.3.32
-[1m[92m   Compiling[0m base64 v0.22.1
 [1m[92m   Compiling[0m toml_writer v1.0.6+spec-1.1.0
+[1m[92m   Compiling[0m base64 v0.22.1
 [1m[92m   Compiling[0m futures-util v0.3.32
 [1m[92m   Compiling[0m serde_json v1.0.149
 [1m[92m   Compiling[0m derive_more v2.1.1
@@ -115,31 +115,31 @@
 [1m[92m   Compiling[0m unic-char-range v0.9.0
 [1m[92m   Compiling[0m same-file v1.0.6
 [1m[92m   Compiling[0m unic-common v0.9.0
-[1m[92m   Compiling[0m walkdir v2.5.0
 [1m[92m   Compiling[0m unic-ucd-version v0.9.0
+[1m[92m   Compiling[0m walkdir v2.5.0
 [1m[92m   Compiling[0m unic-char-property v0.9.0
 [1m[92m   Compiling[0m rand v0.7.3
 [1m[92m   Compiling[0m alloc-no-stdlib v2.0.4
 [1m[92m   Compiling[0m bit-vec v0.8.0
 [1m[92m   Compiling[0m bit-set v0.8.0
-[1m[92m   Compiling[0m darling_macro v0.23.0
 [1m[92m   Compiling[0m alloc-stdlib v0.2.2
-[1m[92m   Compiling[0m phf_generator v0.8.0
-[1m[92m   Compiling[0m darling v0.23.0
 [1m[92m   Compiling[0m phf_generator v0.10.0
-[1m[92m   Compiling[0m serde_with_macros v3.22.0
+[1m[92m   Compiling[0m darling_macro v0.23.0
+[1m[92m   Compiling[0m phf_generator v0.8.0
 [1m[92m   Compiling[0m unic-ucd-ident v0.9.0
+[1m[92m   Compiling[0m darling v0.23.0
+[1m[92m   Compiling[0m serde_with_macros v3.22.0
 [1m[92m   Compiling[0m string_cache_codegen v0.5.4
 [1m[92m   Compiling[0m icu_normalizer v2.1.1
 [1m[92m   Compiling[0m quick-xml v0.38.4
 [1m[92m   Compiling[0m foldhash v0.2.0
-[1m[92m   Compiling[0m idna_adapter v1.2.1
 [1m[92m   Compiling[0m futf v0.1.5
+[1m[92m   Compiling[0m idna_adapter v1.2.1
 [1m[92m   Compiling[0m markup5ever v0.14.1
 [1m[92m   Compiling[0m phf_macros v0.10.0
 [1m[92m   Compiling[0m phf_codegen v0.8.0
-[1m[92m   Compiling[0m brotli-decompressor v5.0.0
 [1m[92m   Compiling[0m anyhow v1.0.101
+[1m[92m   Compiling[0m brotli-decompressor v5.0.0
 [1m[92m   Compiling[0m string_cache v0.9.0
 [1m[92m   Compiling[0m getrandom v0.4.1
 [1m[92m   Compiling[0m cssparser v0.29.6
@@ -151,28 +151,28 @@
 [1m[92m   Compiling[0m brotli v8.0.2
 [1m[92m   Compiling[0m phf v0.10.1
 [1m[92m   Compiling[0m selectors v0.24.0
-[1m[92m   Compiling[0m tendril v0.4.3
 [1m[92m   Compiling[0m idna v1.1.0
+[1m[92m   Compiling[0m tendril v0.4.3
 [1m[92m   Compiling[0m string_cache v0.8.9
 [1m[92m   Compiling[0m phf v0.11.3
 [1m[92m   Compiling[0m aho-corasick v1.1.4
 [1m[92m   Compiling[0m glob v0.3.3
-[1m[92m   Compiling[0m servo_arc v0.2.0
 [1m[92m   Compiling[0m derive_more v0.99.20
 [1m[92m   Compiling[0m regex-automata v0.4.14
+[1m[92m   Compiling[0m servo_arc v0.2.0
 [1m[92m   Compiling[0m url v2.5.8
 [1m[92m   Compiling[0m markup5ever v0.38.0
 [1m[92m   Compiling[0m gdk-sys v0.18.2
-[1m[92m   Compiling[0m deranged v0.5.6
 [1m[92m   Compiling[0m fxhash v0.2.1
+[1m[92m   Compiling[0m deranged v0.5.6
 [1m[92m   Compiling[0m cssparser v0.36.0
 [1m[92m   Compiling[0m match_token v0.1.0
 [1m[92m   Compiling[0m serde_derive_internals v0.29.1
 [1m[92m   Compiling[0m indexmap v1.9.3
 [1m[92m   Compiling[0m time v0.3.47
 [1m[92m   Compiling[0m schemars_derive v0.8.22
-[1m[92m   Compiling[0m html5ever v0.29.1
 [1m[92m   Compiling[0m regex v1.12.3
+[1m[92m   Compiling[0m html5ever v0.29.1
 [1m[92m   Compiling[0m html5ever v0.38.0
 [1m[92m   Compiling[0m crossbeam-utils v0.8.21
 [1m[92m   Compiling[0m cfb v0.7.3
@@ -180,15 +180,15 @@
 [1m[92m   Compiling[0m erased-serde v0.4.9
 [1m[92m   Compiling[0m cargo-platform v0.1.9
 [1m[92m   Compiling[0m scopeguard v1.2.0
-[1m[92m   Compiling[0m schemars v0.8.22
-[1m[92m   Compiling[0m serde-untagged v0.1.9
 [1m[92m   Compiling[0m cargo_metadata v0.19.2
-[1m[92m   Compiling[0m dom_query v0.27.0
-[1m[92m   Compiling[0m json-patch v3.0.1
 [1m[92m   Compiling[0m infer v0.19.0
+[1m[92m   Compiling[0m serde-untagged v0.1.9
+[1m[92m   Compiling[0m schemars v0.8.22
+[1m[92m   Compiling[0m json-patch v3.0.1
+[1m[92m   Compiling[0m dom_query v0.27.0
 [1m[92m   Compiling[0m kuchikiki v0.8.8-speedreader
-[1m[92m   Compiling[0m urlpattern v0.3.0
 [1m[92m   Compiling[0m plist v1.8.0
+[1m[92m   Compiling[0m urlpattern v0.3.0
 [1m[92m   Compiling[0m serde_with v3.22.0
 [1m[92m   Compiling[0m proc-macro-error-attr v1.0.4
 [1m[92m   Compiling[0m proc-macro-error v1.0.4
@@ -208,20 +208,20 @@
 [1m[92m   Compiling[0m dirs-sys v0.5.0
 [1m[92m   Compiling[0m embed-resource v3.0.6
 [1m[92m   Compiling[0m percent-encoding v2.3.2
+[1m[92m   Compiling[0m glib-macros v0.18.5
 [1m[92m   Compiling[0m tauri-winres v0.3.5
 [1m[92m   Compiling[0m dirs v6.0.0
-[1m[92m   Compiling[0m glib-macros v0.18.5
 [1m[92m   Compiling[0m cargo_toml v0.22.3
-[1m[92m   Compiling[0m tokio-macros v2.6.1
 [1m[92m   Compiling[0m glib v0.18.5
+[1m[92m   Compiling[0m tokio-macros v2.6.1
 [1m[92m   Compiling[0m socket2 v0.6.2
-[1m[92m   Compiling[0m toml_edit v0.19.15
 [1m[92m   Compiling[0m tokio v1.49.0
+[1m[92m   Compiling[0m toml_edit v0.19.15
 [1m[92m   Compiling[0m proc-macro-crate v1.3.1
-[1m[92m   Compiling[0m memoffset v0.9.1
-[1m[92m   Compiling[0m typenum v1.19.0
 [1m[92m   Compiling[0m tauri-plugin v2.5.3
 [1m[92m   Compiling[0m tauri-build v2.6.2
+[1m[92m   Compiling[0m memoffset v0.9.1
+[1m[92m   Compiling[0m typenum v1.19.0
 [1m[92m   Compiling[0m gio v0.18.4
 [1m[92m   Compiling[0m cairo-rs v0.18.5
 [1m[92m   Compiling[0m simd-adler32 v0.3.8
@@ -233,17 +233,17 @@
 [1m[92m   Compiling[0m gtk3-macros v0.18.2
 [1m[92m   Compiling[0m form_urlencoded v1.2.2
 [1m[92m   Compiling[0m adler2 v2.0.1
-[1m[92m   Compiling[0m javascriptcore-rs-sys v1.1.1
 [1m[92m   Compiling[0m soup3-sys v0.5.0
+[1m[92m   Compiling[0m javascriptcore-rs-sys v1.1.1
+[1m[92m   Compiling[0m miniz_oxide v0.9.1
 [1m[92m   Compiling[0m crc32fast v1.5.0
 [1m[92m   Compiling[0m getrandom v0.3.4
-[1m[92m   Compiling[0m miniz_oxide v0.9.1
 [1m[92m   Compiling[0m block-buffer v0.10.4
 [1m[92m   Compiling[0m crypto-common v0.1.7
 [1m[92m   Compiling[0m time-macros v0.2.27
 [1m[92m   Compiling[0m webkit2gtk-sys v2.0.2
-[1m[92m   Compiling[0m num_threads v0.1.7
 [1m[92m   Compiling[0m unicode-segmentation v1.12.0
+[1m[92m   Compiling[0m num_threads v0.1.7
 [1m[92m   Compiling[0m digest v0.10.7
 [1m[92m   Compiling[0m flate2 v1.1.10
 [1m[92m   Compiling[0m miniz_oxide v0.8.9
@@ -254,12 +254,12 @@
 [1m[92m   Compiling[0m x11 v2.21.0
 [1m[92m   Compiling[0m tree-sitter-language v0.1.7
 [1m[92m   Compiling[0m raw-window-handle v0.6.2
-[1m[92m   Compiling[0m pango v0.18.3
-[1m[92m   Compiling[0m gdk-pixbuf v0.18.5
 [1m[92m   Compiling[0m parking v2.2.1
 [1m[92m   Compiling[0m winnow v0.7.14
-[1m[92m   Compiling[0m gdk v0.18.2
+[1m[92m   Compiling[0m pango v0.18.3
+[1m[92m   Compiling[0m gdk-pixbuf v0.18.5
 [1m[92m   Compiling[0m toml_parser v1.0.9+spec-1.1.0
+[1m[92m   Compiling[0m gdk v0.18.2
 [1m[92m   Compiling[0m soup3 v0.5.0
 [1m[92m   Compiling[0m javascriptcore-rs v1.1.2
 [1m[92m   Compiling[0m crossbeam-channel v0.5.15
@@ -310,30 +310,30 @@
 [1m[92m   Compiling[0m linux-raw-sys v0.11.0
 [1m[92m   Compiling[0m openssl-sys v0.9.117
 [1m[92m   Compiling[0m enumflags2 v0.7.12
-[1m[92m   Compiling[0m async-task v4.7.1
 [1m[92m   Compiling[0m rustix v1.1.3
+[1m[92m   Compiling[0m async-task v4.7.1
+[1m[92m   Compiling[0m zvariant v5.12.0
 [1m[92m   Compiling[0m webkit2gtk v2.0.2
-[1m[92m   Compiling[0m tauri-runtime v2.11.2
+[1m[92m   Compiling[0m muda v0.19.3
 [1m[92m   Compiling[0m libappindicator v0.9.0
 [1m[92m   Compiling[0m tao v0.35.3
-[1m[92m   Compiling[0m muda v0.19.3
 [1m[92m   Compiling[0m tray-icon v0.23.1
 [1m[92m   Compiling[0m polling v3.11.0
-[1m[92m   Compiling[0m tauri-runtime-wry v2.11.2
 [1m[92m   Compiling[0m async-io v2.6.0
-[1m[92m   Compiling[0m zvariant v5.12.0
+[1m[92m   Compiling[0m tauri-runtime v2.11.2
 [1m[92m   Compiling[0m const-random-macro v0.1.16
 [1m[92m   Compiling[0m httparse v1.10.1
+[1m[92m   Compiling[0m tauri-runtime-wry v2.11.2
 [1m[92m   Compiling[0m async-channel v2.5.0
 [1m[92m   Compiling[0m http-body v1.0.1
 [1m[92m   Compiling[0m foreign-types-shared v0.1.1
 [1m[92m   Compiling[0m hashbrown v0.15.5
 [1m[92m   Compiling[0m foreign-types v0.3.2
 [1m[92m   Compiling[0m tokio-util v0.7.18
-[1m[92m   Compiling[0m zbus_names v4.3.2
 [1m[92m   Compiling[0m const-random v0.1.18
-[1m[92m   Compiling[0m num-traits v0.2.19
 [1m[92m   Compiling[0m async-signal v0.2.14
+[1m[92m   Compiling[0m zbus_names v4.3.2
+[1m[92m   Compiling[0m num-traits v0.2.19
 [1m[92m   Compiling[0m async-lock v3.4.2
 [1m[92m   Compiling[0m piper v0.2.5
 [1m[92m   Compiling[0m rand_core v0.9.5
@@ -345,12 +345,12 @@
 [1m[92m   Compiling[0m want v0.3.1
 [1m[92m   Compiling[0m openssl v0.10.81
 [1m[92m   Compiling[0m crossbeam-deque v0.8.6
-[1m[92m   Compiling[0m async-process v2.5.0
 [1m[92m   Compiling[0m rand_chacha v0.9.0
+[1m[92m   Compiling[0m async-process v2.5.0
 [1m[92m   Compiling[0m blocking v1.6.2
 [1m[92m   Compiling[0m zbus_macros v5.16.0
-[1m[92m   Compiling[0m dlv-list v0.5.2
 [1m[92m   Compiling[0m h2 v0.4.13
+[1m[92m   Compiling[0m dlv-list v0.5.2
 [1m[92m   Compiling[0m async-executor v1.14.0
 [1m[92m   Compiling[0m async-broadcast v0.7.2
 [1m[92m   Compiling[0m tauri-plugin-deep-link v2.4.9
@@ -358,17 +358,17 @@
 [1m[92m   Compiling[0m async-trait v0.1.89
 [1m[92m   Compiling[0m cssparser-macros v0.7.1
 [1m[92m   Compiling[0m ordered-stream v0.2.0
-[1m[92m   Compiling[0m unicase v2.10.0
 [1m[92m   Compiling[0m hex v0.4.3
 [1m[92m   Compiling[0m openssl-probe v0.2.1
-[1m[92m   Compiling[0m hashbrown v0.14.5
 [1m[92m   Compiling[0m pin-utils v0.1.0
+[1m[92m   Compiling[0m hashbrown v0.14.5
 [1m[92m   Compiling[0m either v1.15.0
+[1m[92m   Compiling[0m unicase v2.10.0
 [1m[92m   Compiling[0m zbus v5.16.0
-[1m[92m   Compiling[0m hyper v1.8.1
 [1m[92m   Compiling[0m mime_guess v2.0.5
-[1m[92m   Compiling[0m ordered-multimap v0.7.3
 [1m[92m   Compiling[0m native-tls v0.2.18
+[1m[92m   Compiling[0m ordered-multimap v0.7.3
+[1m[92m   Compiling[0m hyper v1.8.1
 [1m[92m   Compiling[0m cssparser v0.37.0
 [1m[92m   Compiling[0m rand v0.9.5
 [1m[92m   Compiling[0m libz-sys v1.1.23
@@ -382,36 +382,36 @@
 [1m[92m   Compiling[0m sync_wrapper v1.0.2
 [1m[92m   Compiling[0m inotify-sys v0.1.5
 [1m[92m   Compiling[0m bstr v1.12.1
-[1m[92m   Compiling[0m arrayvec v0.7.6
 [1m[92m   Compiling[0m tower-layer v0.3.3
+[1m[92m   Compiling[0m arrayvec v0.7.6
 [1m[92m   Compiling[0m ipnet v2.11.0
 [1m[92m   Compiling[0m data-encoding v2.11.1
+[1m[92m   Compiling[0m rfd v0.16.0
 [1m[92m   Compiling[0m hyper-util v0.1.20
 [1m[92m   Compiling[0m globset v0.4.18
-[1m[92m   Compiling[0m rfd v0.16.0
 [1m[92m   Compiling[0m rust_decimal v1.40.0
 [1m[92m   Compiling[0m tower v0.5.3
 [1m[92m   Compiling[0m inotify v0.11.0
 [1m[92m   Compiling[0m libssh2-sys v0.3.1
-[1m[92m   Compiling[0m tokio-native-tls v0.3.1
 [1m[92m   Compiling[0m rayon-core v1.13.0
 [1m[92m   Compiling[0m rust-ini v0.21.3
+[1m[92m   Compiling[0m tokio-native-tls v0.3.1
 [1m[92m   Compiling[0m http-body-util v0.1.3
 [1m[92m   Compiling[0m sha1 v0.10.6
 [1m[92m   Compiling[0m convert_case v0.6.0
 [1m[92m   Compiling[0m is-docker v0.2.0
 [1m[92m   Compiling[0m notify-types v2.1.0
-[1m[92m   Compiling[0m iana-time-zone v0.1.65
 [1m[92m   Compiling[0m ryu v1.0.23
+[1m[92m   Compiling[0m iana-time-zone v0.1.65
 [1m[92m   Compiling[0m utf8-width v0.1.8
 [1m[92m   Compiling[0m iri-string v0.7.10
 [1m[92m   Compiling[0m zeroize v1.8.2
 [1m[92m   Compiling[0m rustls-pki-types v1.14.0
-[1m[92m   Compiling[0m byte-unit v5.2.0
-[1m[92m   Compiling[0m serde_urlencoded v0.7.1
 [1m[92m   Compiling[0m chrono v0.4.43
-[1m[92m   Compiling[0m notify v8.2.0
+[1m[92m   Compiling[0m byte-unit v5.2.0
 [1m[92m   Compiling[0m tower-http v0.6.8
+[1m[92m   Compiling[0m serde_urlencoded v0.7.1
+[1m[92m   Compiling[0m notify v8.2.0
 [1m[92m   Compiling[0m lightningcss-derive v1.0.0-alpha.43
 [1m[92m   Compiling[0m is-wsl v0.4.0
 [1m[92m   Compiling[0m hyper-tls v0.6.0
@@ -433,16 +433,16 @@
 [1m[92m   Compiling[0m encoding_rs v0.8.35
 [1m[92m   Compiling[0m instant v0.1.13
 [1m[92m   Compiling[0m downcast-rs v1.2.1
-[1m[92m   Compiling[0m streaming-iterator v0.1.9
 [1m[92m   Compiling[0m lazy_static v1.5.0
+[1m[92m   Compiling[0m streaming-iterator v0.1.9
 [1m[92m   Compiling[0m pathdiff v0.2.3
 [1m[92m   Compiling[0m openssl-probe v0.1.6
-[1m[92m   Compiling[0m urlencoding v2.1.3
 [1m[92m   Compiling[0m xxhash-rust v0.8.19
+[1m[92m   Compiling[0m urlencoding v2.1.3
 [1m[92m   Compiling[0m const-str v1.1.0
 [1m[92m   Compiling[0m shell-words v1.1.1
-[1m[92m   Compiling[0m portable-pty v0.9.0
 [1m[92m   Compiling[0m fsindex v0.3.1
+[1m[92m   Compiling[0m portable-pty v0.9.0
 [1m[92m   Compiling[0m lightningcss v1.0.0-alpha.72
 [1m[92m   Compiling[0m reqwest v0.12.28
 [1m[92m   Compiling[0m trash v5.2.6
@@ -453,6 +453,8 @@
 [1m[92m   Compiling[0m tauri-plugin-single-instance v2.4.2
 [1m[92m   Compiling[0m tokio-tungstenite v0.26.2
 [1m[92m   Compiling[0m open v5.3.6
+[1m[92m   Compiling[0m tree-sitter-c v0.24.1
+[1m[92m   Compiling[0m tree-sitter-python v0.25.0
 [1m[92m   Compiling[0m tree-sitter-json v0.24.8
 [1m[92m   Compiling[0m tree-sitter-go v0.25.0
 [1m[92m   Compiling[0m tree-sitter-md v0.5.2
@@ -465,97 +467,94 @@
 [1m[92m   Compiling[0m tree-sitter-rust v0.24.0
 [1m[92m   Compiling[0m tree-sitter-typescript v0.23.2
 [1m[92m   Compiling[0m tree-sitter-html v0.23.2
-[1m[92m   Compiling[0m tree-sitter-c v0.24.1
-[1m[92m   Compiling[0m tree-sitter-python v0.25.0
 [1m[92m   Compiling[0m fst v0.4.7
 [1m[92m   Compiling[0m nucleo-matcher v0.3.1
 [1m[92m   Compiling[0m futures v0.3.32
 [1m[92m   Compiling[0m bincode v1.3.3
 [1m[92m   Compiling[0m keyring v3.6.3
 [1m[92m   Compiling[0m dotenvy v0.15.7
-[1m[92m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 1m 49s
+[1m[92m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 2m 03s
 [1m[92m     Running[0m unittests src/lib.rs (src-tauri/target/debug/deps/app_lib-ea0c1f17256f051d)
 
 running 283 tests
-test agent::checkout::tests::slug_sanitizes ... ok
 test agent::checkout::tests::parse_isolation ... ok
 test agent::commands::adversarial_review::tests::runs_five_file_edits ... ok
-test agent::commands::adversarial_review::tests::runs_three_large_edits ... ok
 test agent::commands::adversarial_review::tests::skips_one_or_two_small_edits ... ok
+test agent::commands::adversarial_review::tests::runs_three_large_edits ... ok
+test agent::checkout::tests::slug_sanitizes ... ok
 test agent::commands::adversarial_review::tests::skips_when_nothing_was_written ... ok
 test agent::commands::caption::tests::captions_text_only_models ... ok
 test agent::commands::commit_message::tests::strip_fences_leaves_plain_text ... ok
-test agent::commands::compaction::tests::a_hold_carries_its_reason_into_the_prompt ... ok
 test agent::commands::commit_message::tests::strip_fences_removes_wrapping_markdown ... ok
+test agent::commands::compaction::tests::a_hold_carries_its_reason_into_the_prompt ... ok
 test agent::commands::compaction::tests::a_hold_defers_automatic_passes_then_lapses ... ok
 test agent::commands::compaction::tests::a_hold_lapses_on_time_and_on_budget ... ok
 test agent::commands::compaction::tests::a_reset_drops_the_hold_and_its_notes ... ok
 test agent::commands::compaction::tests::adjacent_user_turns_are_merged ... ok
-test agent::commands::compaction::tests::api_tail_start_requires_a_user_turn ... ok
 test agent::commands::compaction::tests::analysis_block_is_stripped_from_the_summary ... ok
+test agent::commands::compaction::tests::api_tail_start_requires_a_user_turn ... ok
 test agent::commands::caption::tests::replaces_pixels_with_caption ... ok
-test agent::commands::compaction::tests::chatter_before_the_sections_is_dropped ... ok
+test agent::commands::compaction::tests::circuit_breaker_opens_and_closes ... ok
 test agent::commands::compaction::tests::fill_line_sits_below_the_window ... ok
 test agent::commands::compaction::tests::low_yield_passes_start_a_backoff ... ok
-test agent::commands::compaction::tests::circuit_breaker_opens_and_closes ... ok
+test agent::commands::compaction::tests::chatter_before_the_sections_is_dropped ... ok
 test agent::commands::compaction::tests::pins_are_capped_and_deduplicated ... ok
-test agent::commands::caption::tests::extracts_named_data_urls ... ok
 test agent::commands::compaction::tests::prompt_merges_a_previous_summary_and_carries_focus ... ok
-test agent::commands::compaction::tests::prompt_without_previous_summary_asks_for_a_fresh_one ... ok
+test agent::commands::caption::tests::extracts_named_data_urls ... ok
 test agent::commands::compaction::tests::ranged_reads_of_one_file_are_not_superseded ... ok
 test agent::commands::compaction::tests::recent_files_are_deduplicated_and_ordered ... ok
+test agent::commands::compaction::tests::prompt_without_previous_summary_asks_for_a_fresh_one ... ok
 test agent::commands::compaction::tests::redundant_tool_results_are_shortened_but_kept_in_place ... ok
 test agent::commands::compaction::tests::short_history_never_compacts ... ok
-test agent::commands::compaction::tests::short_summaries_are_rejected ... ok
 test agent::commands::compaction::tests::recent_files_block_skips_missing_files ... ok
+test agent::commands::compaction::tests::short_summaries_are_rejected ... ok
 test agent::commands::compaction::tests::the_hard_ceiling_overrides_a_hold ... ok
 test agent::commands::history::tests::collapse_keeps_final_when_partial_then_full ... ok
 test agent::commands::history::tests::replace_or_push_replaces_partial_assistant ... ok
-test agent::commands::compaction::tests::applies_compaction_and_labels_the_boundary ... ok
 test agent::commands::messages::tests::build_messages_emits_image_url_for_vision_model ... ok
 test agent::commands::messages::tests::build_messages_ignores_assistant_image_tags_as_multipart ... ok
-test agent::commands::messages::tests::build_messages_omits_older_user_images ... ok
+test agent::commands::compaction::tests::applies_compaction_and_labels_the_boundary ... ok
 test agent::commands::messages::tests::build_messages_strips_images_for_text_only_model ... ok
-test agent::commands::compaction::tests::plan_keeps_a_whole_number_of_turns ... ok
+test agent::commands::messages::tests::build_messages_omits_older_user_images ... ok
 test agent::commands::messages::tests::duplicate_reads_are_dropped_without_touching_a_screenshot ... ok
+test agent::commands::messages::tests::screenshot_followup_injects_user_image_for_vision ... ok
 test agent::commands::messages::tests::cleared_screenshot_does_not_ask_for_another_capture ... ok
 test agent::commands::messages::tests::screenshot_followup_text_only_when_model_rejects_images ... ok
-test agent::commands::messages::tests::screenshot_followup_injects_user_image_for_vision ... ok
-test agent::commands::provider_wire::tests::anthropic_body_splits_system_and_merges_tool_results ... ok
+test agent::commands::compaction::tests::plan_keeps_a_whole_number_of_turns ... ok
+test agent::commands::messages::tests::trim_middle_history_preserves_recent_turns ... ok
 test agent::commands::messages::tests::truncate_with_ellipsis_keeps_head_and_tail ... ok
+test agent::commands::provider_wire::tests::anthropic_body_splits_system_and_merges_tool_results ... ok
 test agent::commands::provider_wire::tests::anthropic_text_and_stop_map_across ... ok
 test agent::commands::provider_wire::tests::anthropic_tool_use_streams_into_openai_deltas ... ok
 test agent::commands::provider_wire::tests::completions_normalize_to_openai_shape ... ok
 test agent::commands::provider_wire::tests::google_body_uses_contents_and_declarations ... ok
 test agent::commands::provider_wire::tests::google_function_calls_become_tool_call_deltas ... ok
 test agent::commands::provider_wire::tests::openai_wire_is_untouched ... ok
-test agent::commands::messages::tests::trim_middle_history_preserves_recent_turns ... ok
-test agent::commands::run_turn::reply_dedupe_tests::finished_howto_with_ill_is_not_incomplete ... ok
 test agent::commands::run_turn::reply_dedupe_tests::coda_after_answer_is_redundant ... ok
+test agent::commands::run_turn::reply_dedupe_tests::finished_howto_with_ill_is_not_incomplete ... ok
 test agent::commands::run_turn::reply_dedupe_tests::restated_answer_is_repeat_prose ... ok
 test agent::commands::run_turn::reply_dedupe_tests::trailing_let_me_is_incomplete ... ok
+test agent::commands::streaming::tests::resolves_auto_to_the_configured_default ... ok
 test agent::commands::streaming::tests::resolves_explicit_provider_prefixes ... ok
-test agent::commands::streaming::tests::resolves_auto_to_the_configured_default ... FAILED
-test agent::commands::terminal::tests::classify_dev_servers ... ok
 test agent::commands::streaming::tests::unconfigured_provider_surfaces_actionable_error ... ok
-test agent::commands::terminal::tests::strip_ansi_removes_csi_and_osc ... ok
+test agent::commands::terminal::tests::classify_dev_servers ... ok
 test agent::commands::terminal::tests::classify_one_shot_builds_and_installs ... ok
-test agent::commands::tool_call_leak_parser::tests::strips_complete_tool_code_json ... ok
+test agent::commands::terminal::tests::strip_ansi_removes_csi_and_osc ... ok
 test agent::commands::tool_call_leak_parser::tests::extracts_kimi_tool_call ... ok
-test agent::commands::tool_call_leak_parser::tests::strips_kimi_inline_tool ... ok
+test agent::commands::tool_call_leak_parser::tests::strips_complete_tool_code_json ... ok
 test agent::commands::tool_call_leak_parser::tests::strips_gemini_tool_code_fence ... ok
-test agent::context::breakdown::tests::parse_window_labels ... ok
+test agent::commands::tool_call_leak_parser::tests::strips_kimi_inline_tool ... ok
 test agent::context::breakdown::tests::breakdown_sums_buckets ... ok
+test agent::context::breakdown::tests::parse_window_labels ... ok
 test agent::context::tokens::tests::cjk_prices_about_one_per_char ... ok
-test agent::context::tokens::tests::empty_is_zero ... ok
 test agent::context::tokens::tests::code_prices_higher_than_chars_over_four ... ok
+test agent::context::tokens::tests::empty_is_zero ... ok
 test agent::context::tokens::tests::prose_is_about_a_token_per_word_plus_change ... ok
 test agent::context::tokens::tests::truncate_keeps_head_and_tail ... ok
-test agent::commands::run_turn::file_cache_tests::file_cache_drops_largest_when_over_cap ... ok
 test agent::context::tokens::tests::truncate_leaves_short_text_alone ... ok
 test agent::editing::apply_patch::tests::apply_hunks_unit ... ok
-test agent::editing::apply_patch::tests::parse_and_apply_update ... ok
-test agent::editing::apply_patch::tests::parse_add_file ... ok
+test agent::commands::run_turn::file_cache_tests::file_cache_drops_largest_when_over_cap ... ok
+test agent::context::tokens::tests::truncate_holds_the_budget_for_dense_text ... ok
 test agent::editing::sanity::tests::allows_reasonable_edit ... ok
 test agent::editing::sanity::tests::format_excerpt_caps_minified_long_lines ... ok
 test agent::editing::sanity::tests::format_excerpt_uses_window_for_large_files ... ok
@@ -563,29 +562,28 @@ test agent::editing::sanity::tests::rejects_catastrophic_shrink ... ok
 test agent::editing::sanity::tests::rejects_catastrophic_shrink_like_corgi_tailwind ... ok
 test agent::editing::sanity::tests::rejects_marker_leakage ... ok
 test agent::editing::speculative::tests::exact_match_replacement ... ok
+test agent::editing::speculative::tests::first_last_anchor_match ... ok
 test agent::editing::speculative::tests::has_incomplete_search_blocks_detects ... ok
 test agent::editing::speculative::tests::incomplete_block_does_not_apply ... ok
 test agent::editing::speculative::tests::incomplete_block_rejected ... ok
 test agent::editing::speculative::tests::trailing_whitespace_and_blank_edge_match ... ok
 test agent::editing::speculative::tests::whitespace_match_replacement ... ok
 test agent::editing::syntax_check::tests::clean_ts_has_no_errors ... ok
-test agent::editing::speculative::tests::first_last_anchor_match ... ok
 test agent::editing::syntax_check::tests::detects_js_syntax_error ... ok
 test agent::editing::syntax_check::tests::unsupported_ext_is_empty ... ok
-test agent::context::tokens::tests::truncate_holds_the_budget_for_dense_text ... ok
 test agent::index::ast_chunker::tests::json_without_chunk_roots_terminates ... ok
+test agent::index::ast_chunker::tests::long_lines_still_terminate ... ok
+test agent::index::ast_chunker::tests::markdown_uses_sliding_window ... ok
 test agent::index::ast_chunker::tests::rust_function_becomes_chunk ... ok
 test agent::index::embeddings::tests::cosine_search_ranks_the_closest_chunk ... ok
 test agent::index::embeddings::tests::mismatched_vector_lengths_are_skipped ... ok
-test agent::index::ast_chunker::tests::long_lines_still_terminate ... ok
 test agent::index::embeddings::tests::upsert_replaces_same_range_and_retains_existing_files ... ok
 test agent::index::hybrid::tests::rrf_boosts_overlapping_ranks ... ok
-test agent::index::ast_chunker::tests::markdown_uses_sliding_window ... ok
 test agent::model_router::tests::apply_patch_only_openai ... ok
 test agent::model_router::tests::auto_with_images_keeps_the_configured_model ... ok
 test agent::model_router::tests::classify_families ... ok
-test agent::model_router::tests::modes_with_screenshot_tool_keep_the_selected_model ... ok
 test agent::model_router::tests::editor_rewrite_stays_on_auto ... ok
+test agent::model_router::tests::modes_with_screenshot_tool_keep_the_selected_model ... ok
 test agent::model_router::tests::normalize_auto ... ok
 test agent::model_router::tests::path_only_attachment_is_not_image_content ... ok
 test agent::model_router::tests::switch_hint_when_families_differ ... ok
@@ -596,93 +594,95 @@ test agent::parent_resume::tests::coalesces_multiple_updates ... ok
 test agent::parent_resume::tests::ignores_worker_conversation_ids ... ok
 test agent::parent_resume::tests::queues_while_parent_turn_is_active ... ok
 test agent::prompts::tests::plan_md_stops_after_save ... ok
-test agent::security::commands::tests::test_auto_run_modes ... ok
-test agent::security::commands::tests::blocked_verbs_do_not_match_substrings ... ok
-test agent::security::commands::tests::test_cargo_check_needs_approval ... ok
 test agent::prompts::tests::system_md_forbids_weakening_tests ... ok
+test agent::security::commands::tests::blocked_verbs_do_not_match_substrings ... ok
+test agent::security::commands::tests::test_auto_run_modes ... ok
 test agent::security::commands::tests::test_blocked_commands ... ok
+test agent::security::commands::tests::test_cargo_check_needs_approval ... ok
+test agent::security::commands::tests::test_chained_safe_prefix_needs_approval ... ok
 test agent::security::commands::tests::test_destructive_git_needs_explicit_approval ... ok
+test agent::security::commands::tests::test_git_content_sensitive_paths_need_approval ... ok
 test agent::security::commands::tests::test_git_output_flag_needs_approval ... ok
 test agent::security::commands::tests::test_is_destructive_git ... ok
 test agent::security::commands::tests::test_needs_approval ... ok
-test agent::security::commands::tests::test_git_content_sensitive_paths_need_approval ... ok
 test agent::security::commands::tests::test_powershell_subexpression_needs_approval ... ok
-test agent::security::commands::tests::test_chained_safe_prefix_needs_approval ... ok
-test agent::security::commands::tests::test_scaffolding_warning_message ... ok
 test agent::security::commands::tests::test_safe_commands ... ok
-test agent::security::paths::tests::resolved_file_must_stay_inside_its_root ... ok
+test agent::security::commands::tests::test_scaffolding_warning_message ... ok
+test agent::commands::compaction::tests::stored_summary_is_only_applied_over_what_it_covers ... ok
+test agent::editing::apply_patch::tests::parse_add_file ... ok
 test agent::security::paths::tests::test_allows_project_relative_paths ... ok
+test agent::editing::apply_patch::tests::parse_and_apply_update ... ok
 test agent::security::paths::tests::test_sensitive_case_insensitive ... ok
-test agent::security::paths::tests::test_traversal_blocked ... ok
 test agent::security::paths::tests::test_sensitive_detection ... ok
-test agent::security::urls::tests::allows_https_and_localhost ... ok
+test agent::security::paths::tests::resolved_file_must_stay_inside_its_root ... ok
+test agent::security::paths::tests::test_traversal_blocked ... ok
 test agent::subagents::tests::accepts_allowed_model ... ok
+test agent::security::urls::tests::allows_https_and_localhost ... ok
 test agent::subagents::tests::auto_backend_slug_counts_as_auto ... ok
 test agent::security::urls::tests::blocks_file_and_metadata ... ok
 test agent::subagents::tests::default_clamped_to_allowlist ... ok
-test agent::subagents::tests::empty_allowlist_is_auto_even_if_opus_requested ... ok
 test agent::subagents::tests::rejects_unlisted_flagship ... ok
+test agent::subagents::tests::empty_allowlist_is_auto_even_if_opus_requested ... ok
 test agent::tools::browse::tests::percent_maps_into_the_viewport ... ok
 test agent::tools::dispatch::common::tests::error_outcome_ui_drops_fenced_file_dump ... ok
 test agent::tools::dispatch::computer::tests::check_done_rejects_empty_evidence ... ok
+test agent::tools::dispatch::meta::tests::plan_todos_requires_heading_and_checkbox ... ok
 test agent::tools::dispatch::meta::plan_storage_tests::plans_live_under_app_data_not_project ... ok
 test agent::tools::dispatch::meta::tests::update_todos_requires_exactly_one_in_progress_while_pending ... ok
-test agent::tools::dispatch::meta::tests::plan_todos_requires_heading_and_checkbox ... ok
-test agent::tools::dispatch::terminal::tests::formatting_stages_do_not_block_interception ... ok
 test agent::tools::dispatch::terminal::tests::read_shaped_one_liners_are_pointed_at_read_file ... ok
 test agent::tools::dispatch::terminal::tests::reads_powershell_named_parameters ... ok
+test agent::tools::dispatch::terminal::tests::formatting_stages_do_not_block_interception ... ok
 test agent::tools::dispatch::terminal::tests::reads_select_string_with_context ... ok
 test agent::tools::dispatch::terminal::tests::splits_on_separators_outside_quotes ... ok
 test agent::tools::dispatch::terminal::tests::strips_executable_paths_and_extensions ... ok
-test agent::tools::dispatch::terminal::tests::tokenizes_quoted_paths ... ok
 test agent::tools::dispatch::terminal::tests::valueless_flags_do_not_swallow_the_next_argument ... ok
-test agent::tools::files::tests::read_range_numbers_lines_and_pages ... ok
+test agent::tools::dispatch::terminal::tests::tokenizes_quoted_paths ... ok
 test agent::tools::page_shot::tests::ignores_non_loopback_remember ... ok
-test agent::tools::page_shot::tests::moves_trailing_image_up ... ok
+test agent::tools::files::tests::read_range_numbers_lines_and_pages ... ok
 test agent::tools::page_shot::tests::path_uses_remembered_origin ... ok
 test agent::tools::page_shot::tests::path_without_preview_errors ... ok
-test agent::security::paths::tests::test_ipc_confinement_blocks_outside_and_prefix_sibling ... ok
-test agent::tools::page_shot::tests::resolve_explicit_url ... ok
-test agent::tools::files::tests::mock_agent_tool_loop_stays_on_real_files ... ok
 test agent::tools::page_shot::tests::places_image_after_first_paragraph_not_the_end ... ok
+test agent::tools::page_shot::tests::resolve_explicit_url ... ok
 test agent::tools::page_shot::tests::resolve_rejects_remote ... ok
-test agent::tools::plugins::tests::gate_is_neutral_without_a_server ... ok
 test agent::tools::page_shot::tests::rewrites_hardcoded_loopback_to_preview_origin ... ok
+test agent::tools::plugins::tests::gate_is_neutral_without_a_server ... ok
 test agent::tools::plugins::tests::missing_key_is_explained ... ok
 test agent::tools::plugins::tests::steer_enables_terminal_for_build_requests ... ok
 test agent::tools::plugins::tests::steer_narrows_read_only_turns ... ok
 test agent::tools::runtime_inspect::tests::detects_electron ... ok
 test agent::tools::runtime_inspect::tests::detects_next_website ... ok
 test agent::tools::runtime_inspect::tests::detects_tauri ... ok
+test agent::tools::page_shot::tests::moves_trailing_image_up ... ok
 test agent::tools::runtime_inspect::tests::detects_wails ... ok
 test agent::tools::runtime_inspect::tests::godot_is_unsupported ... ok
-test agent::tools::runtime_inspect::tests::rust_cli_is_unsupported ... ok
 test agent::tools::runtime_inspect::tests::unsupported_message_is_honest ... ok
+test agent::tools::runtime_inspect::tests::rust_cli_is_unsupported ... ok
 test agent::tools::runtime_inspect::tests::winui_is_unsupported ... ok
 test agent::tools::schema::tests::ask_mode_has_no_screenshot_page ... ok
 test agent::tools::schema::tests::ask_mode_is_read_only ... ok
+test agent::tools::files::tests::mock_agent_tool_loop_stays_on_real_files ... ok
 test agent::tools::schema::tests::code_mode_includes_plugin_run ... ok
+test agent::tools::schema::tests::openai_family_gets_apply_patch_not_edit_file ... ok
 test agent::tools::schema::tests::deepseek_family_gets_edit_file_not_apply_patch ... ok
 test agent::tools::schema::tests::chat_memory_tools_only_when_enabled ... ok
-test agent::tools::schema::tests::openai_family_gets_apply_patch_not_edit_file ... ok
 test agent::tools::schema::tests::review_mode_includes_inspect_runtime ... ok
-test agent::tools::schema::tests::steer_drops_unused_packs_keeps_core ... ok
-test agent::tools::schema::tests::stable_tools_ignore_mode ... ok
 test agent::tools::schema::tests::steer_all_on_keeps_full_list ... ok
+test agent::tools::schema::tests::steer_drops_unused_packs_keeps_core ... ok
 test agent::tools::search::tests::html_becomes_readable_text ... ok
+test agent::tools::schema::tests::stable_tools_ignore_mode ... ok
 test agent::tools::search::tests::search_without_a_key_explains_itself ... ok
 test agent::tools::spill::tests::small_output_not_spilled ... ok
 test commands::fs::tests::created_dirs_do_not_add_watches_under_existing_roots ... ok
-test agent::tools::schema::tests::visual_mode_has_design_previews_code_does_not ... ok
 test commands::fs::tests::watch_roots_skip_dependency_trees ... ok
 test commands::git::branch_graph_layout_tests::cyclic_edges_do_not_stack_overflow ... ok
-test commands::git::clone_folder_name_tests::github_https_git_suffix ... ok
 test commands::git::branch_graph_layout_tests::star_graph_fans_out_horizontally ... ok
+test commands::git::clone_folder_name_tests::github_https_git_suffix ... ok
+test commands::git::clone_folder_name_tests::github_https_git_suffix_and_slash ... ok
+test agent::tools::schema::tests::visual_mode_has_design_previews_code_does_not ... ok
 test commands::git::clone_folder_name_tests::github_https_with_trailing_slash ... ok
 test commands::git::clone_folder_name_tests::query_string_is_ignored ... ok
-test commands::git::clone_folder_name_tests::github_https_git_suffix_and_slash ... ok
 test commands::git::clone_folder_name_tests::ssh_style ... ok
-test agent::commands::compaction::tests::stored_summary_is_only_applied_over_what_it_covers ... ok
+test agent::security::paths::tests::test_ipc_confinement_blocks_outside_and_prefix_sibling ... ok
 test commands::github_auth::tests::parse_gcm_list_ignores_whitespace_only_lines ... ok
 test commands::github_auth::tests::parse_gcm_list_multiple_accounts ... ok
 test commands::github_auth::tests::parse_gcm_list_single_account ... ok
@@ -710,60 +710,59 @@ test commands::preview::design_source::tests::inserts_astro_style ... ok
 test commands::preview::design_source::tests::merges_react_style_without_duplicate_keys ... ok
 test commands::preview::design_source::tests::preserves_commas_inside_existing_style_values ... ok
 test commands::preview::design_source::tests::recognizes_only_supported_frameworks ... ok
-test commands::outline::engine::tests::test_outline_engine_parsing_benchmark ... ok
-hint: Using 'master' as the name for the initial branch. This default branch name
-hint: Using 'master' as the name for the initial branch. This default branch name
-hint: will change to "main" in Git 3.0. To configure the initial branch name
-hint: to use in all of your new repositories, which will suppress this warning,
-hint: call:
-hint:
-hint: will change to "main" in Git 3.0. To configure the initial branch name
-hint: 	git config --global init.defaultBranch <name>
-hint: to use in all of your new repositories, which will suppress this warning,
-hint:
-hint: call:
-hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
-hint: 'development'. The just-created branch can be renamed via this command:
-hint:
-hint:
-hint: 	git config --global init.defaultBranch <name>
-hint: 	git branch -m <name>
-hint:
-hint:
-hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
-hint: Disable this message with "git config set advice.defaultBranchName false"
-hint: 'development'. The just-created branch can be renamed via this command:
-hint:
-hint: 	git branch -m <name>
-hint:
-hint: Disable this message with "git config set advice.defaultBranchName false"
-Initialized empty Git repository in /tmp/bettershape-hunk-test-10767/.git/
-Initialized empty Git repository in /tmp/bettershape-hunk-lines-10767/.git/
 test commands::preview::design_source::tests::refuses_instance_props_on_html_and_skips_node_modules ... ok
-test commands::preview::design_source::tests::resolves_and_patches_a_vite_react_element ... ok
-test commands::preview::design_source::tests::resolves_the_opening_tag_at_file_line_and_column ... ok
+hint: Using 'master' as the name for the initial branch. This default branch name
+hint: will change to "main" in Git 3.0. To configure the initial branch name
+hint: to use in all of your new repositories, which will suppress this warning,
+hint: call:
+hint:
+hint: 	git config --global init.defaultBranch <name>
+hint:
+hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+hint: 'development'. The just-created branch can be renamed via this command:
+hint:
+hint: 	git branch -m <name>
+hint:
+hint: Disable this message with "git config set advice.defaultBranchName false"
+Initialized empty Git repository in /tmp/bettershape-hunk-test-10801/.git/
+hint: Using 'master' as the name for the initial branch. This default branch name
+hint: will change to "main" in Git 3.0. To configure the initial branch name
+hint: to use in all of your new repositories, which will suppress this warning,
+hint: call:
+hint:
+hint: 	git config --global init.defaultBranch <name>
+hint:
+hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+hint: 'development'. The just-created branch can be renamed via this command:
+hint:
+hint: 	git branch -m <name>
+hint:
+hint: Disable this message with "git config set advice.defaultBranchName false"
+Initialized empty Git repository in /tmp/bettershape-hunk-lines-10801/.git/
+test commands::outline::engine::tests::test_outline_engine_parsing_benchmark ... ok
 test commands::preview::design_source::tests::resolves_next_chunk_url_to_app_page ... ok
+test commands::preview::design_source::tests::resolves_the_opening_tag_at_file_line_and_column ... ok
+test commands::preview::design_source::tests::resolves_webpack_internal_paths_and_nearby_lines ... ok
 test commands::preview::design_source::tests::tag_compat_and_unknown_dom_props ... ok
 test commands::pty::scrape_tests::next_dev_gets_hostname_flag ... ok
 test commands::pty::scrape_tests::pnpm_framework_script_gets_hostname ... ok
-test commands::preview::design_source::tests::resolves_webpack_internal_paths_and_nearby_lines ... ok
 test commands::pty::scrape_tests::run_commands_match_with_or_without_hostname ... ok
 test commands::pty::scrape_tests::scrape_ignores_casual_localhost_mentions ... ok
-test commands::pty::scrape_tests::scrape_stops_at_ansi ... ok
 test commands::pty::scrape_tests::scrape_next_js_banner ... ok
-test core::ai_providers::tests::effort_maps_to_budgets ... ok
+test commands::pty::scrape_tests::scrape_stops_at_ansi ... ok
 test commands::testing::tests::parsers ... ok
+test core::ai_providers::tests::effort_maps_to_budgets ... ok
 test core::ai_providers::tests::endpoints_follow_the_wire_format ... ok
+test core::ai_providers::tests::missing_key_is_an_error ... ok
 test core::ai_providers::tests::resolves_prefixed_ids ... ok
 test core::ai_providers::tests::unconfigured_setup_errors_clearly ... ok
-test core::ai_providers::tests::missing_key_is_an_error ... ok
 test core::git_bin::tests::allows_program_files_git ... ok
 test core::git_bin::tests::rejects_node_modules_git ... ok
 test core::paths::tests::same_project_with_and_without_prefix ... ok
 test core::paths::tests::strips_windows_extended_prefix ... ok
 test core::workspace_trust::tests::normalize_strips_trailing_slash ... ok
-test domain::git::parse::tests::parse_branch_current ... ok
 test core::workspace_trust::tests::trust_roundtrip ... ok
+test domain::git::parse::tests::parse_branch_current ... ok
 test domain::git::parse::tests::parse_branch_other ... ok
 test domain::git::parse::tests::parse_branch_skips_decorations ... ok
 test domain::git::parse::tests::parse_porcelain_ignores_short_lines ... ok
@@ -773,42 +772,40 @@ test domain::git::parse::tests::parse_porcelain_staged_added ... ok
 test mcp::admin::tests::describe_target_shows_headersless_targets_only ... ok
 test mcp::admin::tests::disabled_entries_stay_disabled ... ok
 test mcp::admin::tests::entry_round_trips_through_disk_shape ... ok
-test mcp::admin::tests::ids_are_restricted ... ok
 test mcp::admin::tests::env_values_are_never_echoed ... ok
+test mcp::admin::tests::ids_are_restricted ... ok
 test mcp::admin::tests::patch_only_touches_supplied_fields ... ok
 test mcp::admin::tests::slug_makes_tool_safe_ids ... ok
 test mcp::admin::tests::url_entries_infer_http_and_oauth ... ok
-test mcp::registry::tests::empty_results_suggest_a_shorter_query ... ok
 test mcp::admin::tests::validation_requires_a_target_per_transport ... ok
+test mcp::registry::tests::empty_results_suggest_a_shorter_query ... ok
 test mcp::registry::tests::entries_without_a_name_are_skipped ... ok
 test mcp::registry::tests::hosted_entries_expose_their_remote_url ... ok
 test mcp::registry::tests::npm_packages_gain_an_npx_command ... ok
 test mcp::registry::tests::pypi_packages_gain_uvx ... ok
 test mcp::registry::tests::remote_entries_expose_the_url ... ok
 test mcp::registry::tests::render_lists_packages_and_says_how_to_run_them ... ok
-[master (root-commit) 50a1438] init
+test commands::preview::design_source::tests::resolves_and_patches_a_vite_react_element ... ok
+[master (root-commit) 8b22ac5] init
  1 file changed, 5 insertions(+)
  create mode 100644 f.txt
-[master (root-commit) 6043193] init
+[master (root-commit) 56928a1] init
  1 file changed, 40 insertions(+)
  create mode 100644 f.txt
 test commands::git::hunks::tests::stage_selected_lines_partial ... ok
 test commands::git::hunks::tests::stage_unstage_restore_hunk_roundtrip ... ok
 
-failures:
+test result: ok. 283 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.61s
 
----- agent::commands::streaming::tests::resolves_auto_to_the_configured_default stdout ----
+[1m[92m     Running[0m unittests src/main.rs (src-tauri/target/debug/deps/app-97abe4c387ef838c)
 
-thread 'agent::commands::streaming::tests::resolves_auto_to_the_configured_default' (10830) panicked at src/agent/commands/streaming.rs:1303:9:
-assertion `left == right` failed
-  left: "openai"
- right: "anthropic"
-note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+running 0 tests
 
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
-failures:
-    agent::commands::streaming::tests::resolves_auto_to_the_configured_default
+[1m[92m   Doc-tests[0m app_lib
 
-test result: FAILED. 282 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.18s
+running 0 tests
 
-[1m[91merror[0m: test failed, to rerun pass `--lib`
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

@@ -1,3 +1,3 @@
 [1m[92m    Updating[0m crates.io index
 [1m[92m   Compiling[0m app v1.0.3 (/home/runner/work/Shape/Shape/src-tauri)
-[1m[92m    Finished[0m `dev` profile [unoptimized + debuginfo] target(s) in 14.56s
+[1m[92m    Finished[0m `dev` profile [unoptimized + debuginfo] target(s) in 10.85s
