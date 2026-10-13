@@ -544,16 +544,25 @@ impl McpState {
 
     /// Restart the current server.
     pub fn restart_server(&self, server_id: &str) -> Result<McpStatusEntry, String> {
-        let configs = self.configs.lock().map_err(|e| e.to_string())?;
-        let server = configs
-            .iter()
-            .find(|s| s.id == server_id)
-            .cloned()
-            .ok_or_else(|| "Server not found".to_string())?;
-        drop(configs);
+        // Held across the connect, like `upsert_server`: otherwise an upsert can
+        // finish between this read and this insert, and the older connection
+        // wins. Reading the config keeps its own short lock.
+        let _connecting = self.connecting.lock().map_err(|e| e.to_string())?;
+        let server = {
+            let configs = self.configs.lock().map_err(|e| e.to_string())?;
+            configs
+                .iter()
+                .find(|s| s.id == server_id)
+                .cloned()
+                .ok_or_else(|| "Server not found".to_string())?
+        };
 
-        let mut clients = self.clients.lock().map_err(|e| e.to_string())?;
-        clients.remove(server_id);
+        // Drop the old client, then connect with no map locked: a handshake can
+        // take seconds and must not stall status or tool calls.
+        {
+            let mut clients = self.clients.lock().map_err(|e| e.to_string())?;
+            clients.remove(server_id);
+        }
 
         if !server.enabled {
             return Ok(McpStatusEntry {
@@ -576,6 +585,7 @@ impl McpState {
                     error: client.last_error(),
                     auth: server.auth.clone(),
                 };
+                let mut clients = self.clients.lock().map_err(|e| e.to_string())?;
                 clients.insert(server.id, Arc::new(Mutex::new(client)));
                 Ok(entry)
             }

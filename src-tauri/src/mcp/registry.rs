@@ -190,12 +190,9 @@ pub fn id_for(entry: &RegistryServer) -> String {
 pub fn config_from_registry(entry: &RegistryServer) -> Result<crate::mcp::McpServerConfig, String> {
     use crate::mcp::{McpAuthType, McpServerConfig, McpTransport};
 
-    // The entry carries its id; older payloads without one fall back to the name.
-    let id = if entry.id.trim().is_empty() {
-        id_for(entry)
-    } else {
-        entry.id.trim().to_string()
-    };
+    // Always derived from the name, never taken from the caller: this runs from
+    // a webview, and the id decides which entry in `mcp.json` is written.
+    let id = id_for(entry);
     let name = if entry.name.trim().is_empty() {
         id.clone()
     } else {

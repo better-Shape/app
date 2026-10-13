@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -34,18 +34,24 @@ export function RegistryInstallPanel({
     const [searching, setSearching] = useState(false);
     const [installing, setInstalling] = useState<string | null>(null);
     const [error, setError] = useState("");
+    // Enter in the box submits while a search is still running, so an older
+    // response can arrive last. Only the newest request may write state.
+    const searchSeq = useRef(0);
 
     const search = useCallback(async () => {
+        const seq = ++searchSeq.current;
         setSearching(true);
         setError("");
         try {
             const found = await commands.mcpRegistrySearch(query);
+            if (seq !== searchSeq.current) return;
             setResults(found);
         } catch (err) {
+            if (seq !== searchSeq.current) return;
             setResults(null);
             setError(err instanceof Error ? err.message : "Could not reach the registry.");
         } finally {
-            setSearching(false);
+            if (seq === searchSeq.current) setSearching(false);
         }
     }, [query]);
 
@@ -57,10 +63,12 @@ export function RegistryInstallPanel({
             try {
                 const result = await commands.mcpRegistryInstall(entry);
                 const status: McpStatusEntry = result.status;
+                let signedIn = true;
                 if (status.status === "needs_auth" && result.server.url) {
                     try {
                         await commands.mcpStartOAuth(result.server.id);
                     } catch (err) {
+                        signedIn = false;
                         notify.error(
                             err instanceof Error
                                 ? err.message
@@ -68,7 +76,9 @@ export function RegistryInstallPanel({
                         );
                     }
                 }
-                notify.success(`${result.server.name} added.`);
+                // One message, and it matches what happened: an install that
+                // needs a sign-in nobody completed is not a plain success.
+                if (signedIn) notify.success(`${result.server.name} added.`);
                 onInstalled();
             } catch (err) {
                 setError(err instanceof Error ? err.message : "Could not install that server.");

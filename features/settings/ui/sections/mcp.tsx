@@ -528,7 +528,10 @@ export function McpSettingsView() {
                     setOpenId(id);
                     void refresh();
                 }}
-                onRefresh={() => void refresh()}
+                // A light refresh, not `refresh`: a registry install already
+                // connected its own server, and reconnecting all of them would
+                // drop sessions that have nothing to do with this.
+                onRefresh={() => void refreshFromAgent()}
                 existingIds={new Set(servers.map((server) => server.id))}
             />
         </div>

@@ -772,10 +772,19 @@ pub async fn run_agent_turn(mut config: AgentTurnConfig<'_>) -> Result<AgentTurn
             )
             .await
             {
-                Ok(Some(record)) => logging::info(
-                    "chat",
-                    &format!("Mid-turn auto-{}", record.describe()),
-                ),
+                Ok(Some(record)) => {
+                    // The transcript those caches referred to is gone, so a file
+                    // the model read before the fold can be read again. Without
+                    // this, a repeat read is refused as a duplicate and the model
+                    // is told to scroll back to content that no longer exists.
+                    read_coverage.clear();
+                    executed_readonly_calls.clear();
+                    read_paths.clear();
+                    logging::info(
+                        "chat",
+                        &format!("Mid-turn auto-{}", record.describe()),
+                    );
+                }
                 Ok(None) => {}
                 Err(e) => logging::warn(
                     "chat",
