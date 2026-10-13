@@ -28,7 +28,6 @@ use tauri::{Emitter, Manager};
 use history::now_f64;
 
 const MODEL_DEFAULT: &str = "auto";
-const MODEL_TITLE_GEN: &str = "auto";
 
 #[tauri::command]
 pub async fn send_chat_message(

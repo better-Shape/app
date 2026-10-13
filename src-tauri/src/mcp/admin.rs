@@ -68,13 +68,6 @@ fn read_doc_unlocked() -> Result<Value, String> {
     }
 }
 
-/// Write the document atomically, keeping one backup.
-pub fn write_doc(doc: &Value) -> Result<(), String> {
-    let body = serde_json::to_string_pretty(doc).map_err(|e| e.to_string())?;
-    let _guard = lock_writes()?;
-    write_text(&format!("{body}\n"))
-}
-
 /// Replace the file with `content` verbatim, under the same lock. Settings
 /// writes the whole document this way.
 pub fn write_raw(content: &str) -> Result<(), String> {
