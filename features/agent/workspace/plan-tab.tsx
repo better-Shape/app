@@ -100,7 +100,6 @@ export function PlanTabView({ path, markdown }: { path: string; markdown?: strin
             disposed = true;
             unlisten?.();
         };
-        // eslint-disable-next-line react-hooks/exhaustive-deps -- applySource is stable per render
     }, [absPath]);
 
     const flush = useCallback(async () => {

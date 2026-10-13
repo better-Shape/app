@@ -69,6 +69,23 @@ function brandFromText(text: string): Brand | null {
     return BRANDS.find((brand) => brand.test.test(value)) ?? null;
 }
 
+/**
+ * A result URL is whatever the search provider wrote after `URL: `, so it is
+ * untrusted text, not a vetted link. Only `http:`/`https:` may become an href;
+ * a `javascript:` URI would run in the app's own origin on click.
+ *
+ * `hostnameOf` cannot do this job — it exists for display and coerces any
+ * string into a hostname by prepending `https://`, so it never rejects.
+ */
+function safeHref(url: string): string | null {
+    try {
+        const parsed = new URL(url.trim());
+        return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.href : null;
+    } catch {
+        return null;
+    }
+}
+
 function brandForStep(query: string, sources: WebSearchResult[]): Brand | null {
     const hosts = sources.map((source) => hostnameOf(source.url)).filter(Boolean);
     if (hosts.length > 0) {
@@ -104,16 +121,10 @@ function SiteMark({ url, brand, size = 14 }: { url?: string; brand?: Brand | nul
 
 function SourceRow({ result }: { result: WebSearchResult }) {
     const host = hostnameOf(result.url);
-    return (
-        <a
-            href={result.url || undefined}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={cn(
-                "group/line flex min-w-0 items-center gap-2 py-0.5",
-                result.url ? "" : "pointer-events-none",
-            )}
-        >
+    const href = safeHref(result.url);
+    const className = "group/line flex min-w-0 items-center gap-2 py-0.5";
+    const body = (
+        <>
             <span className="flex size-4 shrink-0 items-center justify-center">
                 <SiteMark url={result.url} size={14} />
             </span>
@@ -125,6 +136,12 @@ function SourceRow({ result }: { result: WebSearchResult }) {
                     {host}
                 </span>
             ) : null}
+        </>
+    );
+    if (!href) return <span className={className}>{body}</span>;
+    return (
+        <a href={href} target="_blank" rel="noopener noreferrer" className={className}>
+            {body}
         </a>
     );
 }
@@ -138,6 +155,7 @@ function SourceStack({ sources }: { sources: WebSearchResult[] }) {
         <span className="inline-flex items-center">
             {shown.map((source, index) => {
                 const host = hostnameOf(source.url);
+                const href = safeHref(source.url);
                 const mark = (
                     <span
                         className="relative flex size-4 items-center justify-center rounded-full bg-surface-2 ring-2 ring-panel transition-transform duration-[var(--transition-fast)] hover:z-20 hover:-translate-y-0.5"
@@ -148,8 +166,8 @@ function SourceStack({ sources }: { sources: WebSearchResult[] }) {
                 );
                 return (
                     <Tooltip key={`${source.url}-${index}`} content={host ? `${source.title} · ${host}` : source.title}>
-                        {source.url ? (
-                            <a href={source.url} target="_blank" rel="noopener noreferrer" className="relative">
+                        {href ? (
+                            <a href={href} target="_blank" rel="noopener noreferrer" className="relative">
                                 {mark}
                             </a>
                         ) : (

@@ -3,7 +3,6 @@
 import { ArrowLeft20Regular } from "@fluentui/react-icons/headless/svg/arrow-left";
 import { Circle20Filled } from "@fluentui/react-icons/headless/svg/circle";
 import { Dismiss20Regular } from "@fluentui/react-icons/headless/svg/dismiss";
-import { Document20Regular } from "@fluentui/react-icons/headless/svg/document";
 import { LayoutColumnTwo20Regular } from "@fluentui/react-icons/headless/svg/layout-column-two";
 import { LayoutRowTwo20Regular } from "@fluentui/react-icons/headless/svg/layout-row-two";
 

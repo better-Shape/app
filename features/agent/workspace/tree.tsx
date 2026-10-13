@@ -296,6 +296,9 @@ export function FileTree({
         const clip = getFileClipboard();
         if (clip?.mode === "cut") for (const path of clip.paths) set.add(pathKey(path));
         return set;
+        // `clipboardTick` is a cache-invalidation tick, not a value the body reads:
+        // dropping it would freeze `cutPaths` at the value from first render.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [clipboardTick]);
 
     const select = useCallback((entry: FileEntry) => {

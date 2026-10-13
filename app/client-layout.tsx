@@ -16,7 +16,6 @@ import { isMainTauriWindow, isTauriRuntime } from "@/lib/window/tauri-window";
 import { FilterProvider } from "@/features/git/ui/manager/filter-context";
 import { SuppressNativeTooltips } from "@/components/ui/suppress-native-tooltips";
 import { CommandPaletteBridge } from "@/features/agent/palette";
-import { cn } from "@/lib/utils";
 import { DesignPreviewCaptureHost } from "@/features/chat/ui/design-capture";
 import { WebviewReconnect } from "@/components/layout/webview-reconnect";
 

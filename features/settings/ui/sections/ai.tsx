@@ -12,7 +12,6 @@ import type { CompactionStateView, IndexProgress, IndexStatus } from "@/lib/back
 import {
     getCatalogDefaultEnabledIds,
     getCatalogModels,
-    isCatalogModelAllowed,
     useBetterShapeCatalog,
 } from "@/lib/catalog/store";
 

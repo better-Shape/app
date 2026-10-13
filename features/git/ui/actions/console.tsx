@@ -74,7 +74,7 @@ export function ActionsConsole({ focus }: { focus: ActionsFocus }) {
     const [runs, setRuns] = useState<WorkflowRun[]>([]);
     const [workflows, setWorkflows] = useState<WorkflowDef[]>([]);
     const [selectedRunId, setSelectedRunId] = useState<number | null>(null);
-    const [selectedWorkflowId, setSelectedWorkflowId] = useState<number | null>(null);
+    const [selectedWorkflowId] = useState<number | null>(null);
     const [jobs, setJobs] = useState<WorkflowJob[]>([]);
     const [artifacts, setArtifacts] = useState<Artifact[]>([]);
     const [selectedJobId, setSelectedJobId] = useState<number | null>(null);
@@ -131,14 +131,6 @@ export function ActionsConsole({ focus }: { focus: ActionsFocus }) {
         }
         return filtered;
     }, [logHighlight, logs, stepFilterActive]);
-
-    const filteredWorkflows = useMemo(() => {
-        const q = query.trim().toLowerCase();
-        if (!q) return workflows;
-        return workflows.filter((w) =>
-            [w.name, w.path, w.state].join(" ").toLowerCase().includes(q),
-        );
-    }, [query, workflows]);
 
     const filteredRuns = useMemo(() => {
         const q = query.trim().toLowerCase();
@@ -263,7 +255,7 @@ export function ActionsConsole({ focus }: { focus: ActionsFocus }) {
         } finally {
             if (!isStale()) setLoadingRuns(false);
         }
-    }, [auth.loggedIn, focus, project_path, statusFilter]);
+    }, [auth.loggedIn, project_path, statusFilter]);
 
     const loadRunDetail = useCallback(
         async (runId: number) => {
@@ -343,7 +335,7 @@ export function ActionsConsole({ focus }: { focus: ActionsFocus }) {
                             // Approximate scroll by line
                             const before = (el.textContent ?? "").slice(0, idx);
                             const line = before.split("\n").length;
-                            parent && (parent.scrollTop = Math.max(0, (line - 3) * 14));
+                            if (parent) parent.scrollTop = Math.max(0, (line - 3) * 14);
                         }
                     }
                 });
@@ -554,10 +546,8 @@ export function ActionsConsole({ focus }: { focus: ActionsFocus }) {
         </li>
     );
 
-    const showWorkflowList = false;
     const jobsMode = "jobs" as const;
     const logsPreferred = 200;
-    const jobsPreferred = 220;
 
     if (!auth.loggedIn) {
         return (
@@ -572,83 +562,6 @@ export function ActionsConsole({ focus }: { focus: ActionsFocus }) {
             </div>
         );
     }
-
-    const workflowsListPane = (
-        <div className="workbench-panel flex h-full min-h-0 flex-col overflow-hidden border border-border-subtle bg-panel">
-            <div className="shrink-0 px-2 py-1.5 text-xs font-medium text-text-muted">
-                Workflows {loadingRuns ? "…" : `(${filteredWorkflows.length})`}
-            </div>
-            <ScrollArea className="min-h-0 flex-1 p-1">
-                {filteredWorkflows.length === 0 ? (
-                    <p className="px-2 py-3 text-sm text-text-muted">No workflow definitions.</p>
-                ) : (
-                    <ul className="flex flex-col gap-0.5">
-                        {filteredWorkflows.map((wf) => (
-                            <li key={wf.id}>
-                                <div
-                                    className={cn(
-                                        "flex flex-col gap-1 rounded-lg px-2 py-2",
-                                        selectedWorkflowId === wf.id
-                                            ? "bg-panel-hover"
-                                            : "hover:bg-panel-hover/60",
-                                    )}
-                                >
-                                    <button
-                                        type="button"
-                                        className="flex w-full flex-col gap-0.5 text-left"
-                                        onClick={() => {
-                                            setSelectedWorkflowId(wf.id);
-                                            setDetailTab("jobs");
-                                            const match = runs.find(
-                                                (r) =>
-                                                    r.workflow_id === wf.id ||
-                                                    r.path === wf.path ||
-                                                    r.name === wf.name,
-                                            );
-                                            if (match) setSelectedRunId(match.id);
-                                        }}
-                                    >
-                                        <div className="flex items-center justify-between gap-2">
-                                            <span className="truncate text-sm text-text-primary">
-                                                {wf.name}
-                                            </span>
-                                            <span className="shrink-0 text-2xs capitalize text-text-muted">
-                                                {wf.state}
-                                            </span>
-                                        </div>
-                                        <span className="truncate text-xs text-text-muted">
-                                            {wf.path}
-                                        </span>
-                                    </button>
-                                    <div className="flex gap-1">
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            className="h-6 px-2 text-2xs"
-                                            disabled={dispatchBusy}
-                                            onClick={() => void openDispatch(wf)}
-                                        >
-                                            Run workflow…
-                                        </Button>
-                                        {wf.html_url ? (
-                                            <Button
-                                                variant="ghost"
-                                                size="sm"
-                                                className="h-6 px-2 text-2xs"
-                                                onClick={() => openUrl(wf.html_url)}
-                                            >
-                                                GitHub
-                                            </Button>
-                                        ) : null}
-                                    </div>
-                                </div>
-                            </li>
-                        ))}
-                    </ul>
-                )}
-            </ScrollArea>
-        </div>
-    );
 
     const jobsLogsSplit = (
         <Panel
@@ -828,6 +741,7 @@ export function ActionsConsole({ focus }: { focus: ActionsFocus }) {
                                                 {selectedRun!.actor?.login ? (
                                                     <span className="flex shrink-0 items-center gap-1.5 text-xs text-text-muted">
                                                         {actorAvatarUrl(selectedRun!.actor) ? (
+                                                            // eslint-disable-next-line @next/next/no-img-element -- plain <img> is intentional: dynamic or data-URL sources in a static export, where next/image needs fixed dimensions
                                                             <img
                                                                 src={
                                                                     actorAvatarUrl(

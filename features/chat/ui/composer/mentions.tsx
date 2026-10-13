@@ -72,7 +72,9 @@ export function MentionPicker({
     onClose,
     anchorRef,
     boxRef,
-    caretIndex,
+    // Accepted for call-site shape; the picker's geometry uses the textarea
+    // ref directly, so this is not read. `_` marks it deliberately unread.
+    caretIndex: _caretIndex,
     mode = "mention",
     workflows = [],
 }: {
@@ -94,7 +96,6 @@ export function MentionPicker({
     const [plugins, setPlugins] = useState<PluginRow[]>(() => peekPluginsCache()?.plugins ?? []);
     const [skills, setSkills] = useState<Skill[]>(() => listSkills());
     const { scan } = useSkillIndex();
-    const scanItems = scan?.items ?? [];
     const [activeCategory, setActiveCategory] = useState<CategoryId>(null);
     const [highlight, setHighlight] = useState(0);
     const [pos, setPos] = useState<{ left: number; top: number; width: number } | null>(null);
@@ -250,6 +251,9 @@ export function MentionPicker({
             }
         }
         return tokens;
+        // `open` is a refresh trigger, not a value the body reads: it re-reads the
+        // design-preview sessions from storage each time the picker opens.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [open]);
 
     const fileMentions: ChatMention[] = useMemo(() => {
@@ -314,7 +318,7 @@ export function MentionPicker({
             // own folders can be mentioned without importing them first.
             const installedIds = new Set(skills.map((skill) => skill.id));
             const rows: ChatMention[] = [...installed];
-            for (const item of scanItems) {
+            for (const item of scan?.items ?? []) {
                 if (item.projectPath !== (project_path ?? "")) continue;
                 const id = skillIdFromName(item.name);
                 if (installedIds.has(id)) continue;
@@ -377,7 +381,7 @@ export function MentionPicker({
             return items;
         }
         return [];
-    }, [activeCategory, fileMentions, files, chats, designItems, mcpServers, pluginMentions, skills, scanItems, project_path, q, filter]);
+    }, [activeCategory, fileMentions, files, chats, designItems, mcpServers, pluginMentions, skills, scan, project_path, q, filter]);
 
     const rootItems = useMemo(() => {
         if (activeCategory) return categoryItems;

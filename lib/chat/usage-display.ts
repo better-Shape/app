@@ -52,7 +52,7 @@ export function formatMessageUsageLine(
 /** Separate usage fields; omit anything without data. */
 export function formatMessageUsageRows(
     stats: MessageUsageStats | undefined,
-    model?: string | null,
+    _model?: string | null,
 ): Array<{ label: string; value: string }> {
     if (!stats) return [];
     const rows: Array<{ label: string; value: string }> = [];

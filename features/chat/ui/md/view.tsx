@@ -2,7 +2,6 @@
 
 import { Checkmark20Regular } from "@fluentui/react-icons/headless/svg/checkmark";
 import { Clipboard20Regular } from "@fluentui/react-icons/headless/svg/clipboard";
-import { DataTrending20Regular } from "@fluentui/react-icons/headless/svg/data-trending";
 
 
 
@@ -292,6 +291,7 @@ function useRevealText(full: string, live: boolean): string {
     shownRef.current = shown;
     const wasLive = useRef(live);
     if (live) wasLive.current = true;
+    const moreToShow = shown < len;
 
     useEffect(() => {
         // Finished message that never streamed in this mount — show fully.
@@ -326,7 +326,7 @@ function useRevealText(full: string, live: boolean): string {
         };
         raf = requestAnimationFrame(tick);
         return () => cancelAnimationFrame(raf);
-    }, [len, live, shown < len]);
+    }, [len, live, moreToShow]);
 
     return full.slice(0, shown);
 }

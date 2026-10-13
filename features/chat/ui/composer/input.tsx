@@ -2,25 +2,18 @@
 
 import { Add20Regular } from "@fluentui/react-icons/headless/svg/add";
 import { ArrowUp20Regular } from "@fluentui/react-icons/headless/svg/arrow-up";
-import { Calendar20Regular } from "@fluentui/react-icons/headless/svg/calendar";
-import { Chat20Filled } from "@fluentui/react-icons/headless/svg/chat";
 import { Checkmark20Regular } from "@fluentui/react-icons/headless/svg/checkmark";
-import { ChevronDown20Regular } from "@fluentui/react-icons/headless/svg/chevron-down";
-import { CodeTextEdit20Filled, CodeTextEdit20Regular } from "@fluentui/react-icons/headless/svg/code-text-edit";
-import { Color20Regular } from "@fluentui/react-icons/headless/svg/color";
-import { Copy20Regular } from "@fluentui/react-icons/headless/svg/copy";
-import { ChatMultiple20Filled, ChatMultiple20Regular } from "@fluentui/react-icons/headless/svg/chat-multiple";
-import { CalendarMultiple24Filled, CalendarMultiple24Regular } from "@fluentui/react-icons/headless/svg/calendar-multiple";
-import { ColorLine24Filled, ColorLine24Regular } from "@fluentui/react-icons/headless/svg/color-line";
+import { CodeTextEdit20Filled } from "@fluentui/react-icons/headless/svg/code-text-edit";
+import { ChatMultiple20Filled } from "@fluentui/react-icons/headless/svg/chat-multiple";
+import { CalendarMultiple24Filled } from "@fluentui/react-icons/headless/svg/calendar-multiple";
+import { ColorLine24Filled } from "@fluentui/react-icons/headless/svg/color-line";
 import { Incognito24Filled } from "@fluentui/react-icons/headless/svg/incognito";
 import { Document20Regular } from "@fluentui/react-icons/headless/svg/document";
 import { DocumentText20Regular } from "@fluentui/react-icons/headless/svg/document-text";
-import { Eye20Regular } from "@fluentui/react-icons/headless/svg/eye";
-import { FolderAdd24Filled, FolderAdd24Regular } from "@fluentui/react-icons/headless/svg/folder-add";
-import { Connected24Filled, Connected24Regular } from "@fluentui/react-icons/headless/svg/connected";
-import { DocumentEdit24Filled, DocumentEdit24Regular } from "@fluentui/react-icons/headless/svg/document-edit";
-import { MoviesAndTv24Filled, MoviesAndTv24Regular } from "@fluentui/react-icons/headless/svg/movies-and-tv";
-import { Image20Regular } from "@fluentui/react-icons/headless/svg/image";
+import { FolderAdd24Filled } from "@fluentui/react-icons/headless/svg/folder-add";
+import { Connected24Filled } from "@fluentui/react-icons/headless/svg/connected";
+import { DocumentEdit24Filled } from "@fluentui/react-icons/headless/svg/document-edit";
+import { MoviesAndTv24Filled } from "@fluentui/react-icons/headless/svg/movies-and-tv";
 
 
 
@@ -86,7 +79,6 @@ import {
     getCatalogDefaultEnabledIds,
     getCatalogModels,
     getCatalogProviderOrder,
-    isCatalogModelAllowed,
     useBetterShapeCatalog,
 } from "@/lib/catalog/store";
 import { useSettings } from "@/lib/settings";
@@ -138,15 +130,6 @@ function formatContextWindow(raw?: string): string {
     const t = (raw ?? "").trim();
     if (!t) return "";
     return t.replace(/([0-9.]+)\s*K\b/i, "$1k").replace(/([0-9.]+)\s*M\b/i, "$1m");
-}
-
-function contextWindowTokens(raw?: string): number | null {
-    const t = (raw ?? "").trim();
-    const m = t.match(/^([0-9.]+)\s*([KM])$/i);
-    if (!m) return null;
-    const n = Number(m[1]);
-    if (!Number.isFinite(n) || n <= 0) return null;
-    return m[2].toUpperCase() === "M" ? Math.round(n * 1_000_000) : Math.round(n * 1000);
 }
 
 const ModelTooltip = ({
@@ -380,7 +363,7 @@ function SwapText({
             if (!el) return;
             setClipping(el.scrollWidth > el.clientWidth + 1);
         });
-    }, [leaving]);
+    }, []);
 
     React.useLayoutEffect(() => {
         fitWidth();
@@ -557,7 +540,9 @@ export function ChatInput({
     onRemoveQueuedMessage,
     onSendQueuedNow,
     projectRuleFiles = [],
-    onNewChat,
+    // Wired by `features/chat/ui/chat.tsx` but not consumed by any control yet.
+    // Kept so the caller's intent survives; `_` marks it as deliberately unread.
+    onNewChat: _onNewChat,
     variant = "default",
 }: Omit<ChatInputProps, "webSearch" | "setWebSearch" | "handleFileUpload">) {
 

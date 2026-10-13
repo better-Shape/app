@@ -10,7 +10,6 @@ const subscribeWindowResize = (onChange: () => void) => {
     return () => window.removeEventListener("resize", onChange);
 };
 const getWindowWidth = () => window.innerWidth;
-import Image from "next/image";
 import { Icon } from "@/components/ui/icon";
 import { BetterShapeLogo } from "@/components/ui/bettershape-logo";
 

@@ -34,8 +34,12 @@ jobs:
       - run: npm ci
 
       - name: ESLint
-        # Now 0 errors, 224 warnings after downgrading strict React 19 rules to warnings
-        # This step now properly gates merges - fails on errors
+        # Now 0 errors, 148 warnings. The remaining 148 are react-hooks/*
+        # (set-state-in-effect, refs, preserve-manual-memoization, purity,
+        # immutability), which this config deliberately downgrades to warnings
+        # with a TODO to re-enable as errors after cleanup. Fixing them is a
+        # cross-app refactor, not a lint change.
+        # This step gates merges on errors only.
         run: |
           set -o pipefail
           npm run lint 2>&1 | tee eslint-report.txt

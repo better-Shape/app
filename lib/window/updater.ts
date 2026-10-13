@@ -14,18 +14,8 @@ export type UpdateStatus =
 type Listener = () => void;
 
 let status: UpdateStatus = { kind: "idle" };
-let dismissedVersion: string | null = null;
 const DISMISS_KEY = "bettershape-update-dismissed-version";
 const listeners = new Set<Listener>();
-
-function loadDismissedVersion(): string | null {
-  if (typeof window === "undefined") return null;
-  try {
-    return localStorage.getItem(DISMISS_KEY);
-  } catch {
-    return null;
-  }
-}
 
 function persistDismissedVersion(version: string | null) {
   if (typeof window === "undefined") return;
@@ -36,8 +26,6 @@ function persistDismissedVersion(version: string | null) {
     /* ignore */
   }
 }
-
-dismissedVersion = loadDismissedVersion();
 
 function emit() {
   for (const l of listeners) l();
@@ -79,7 +67,6 @@ export function subscribeUpdateStatus(listener: Listener): () => void {
 /** Hide the titlebar chip until a newer version is published. */
 export function dismissAvailableUpdate(): void {
   if (status.kind !== "available") return;
-  dismissedVersion = status.version;
   persistDismissedVersion(status.version);
   setStatus({ kind: "idle" });
 }

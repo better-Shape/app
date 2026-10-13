@@ -15,7 +15,7 @@ function isExplorerFocused(): boolean {
 }
 
 /** Dispatch a keybinding action by label. Returns true if handled locally. */
-export function dispatchShortcutAction(label: string, key: string): boolean {
+export function dispatchShortcutAction(label: string, _key: string): boolean {
     switch (label) {
         case "Find in Files":
             openSearchSidebar("search");

@@ -1,6 +1,5 @@
 "use client";
 
-import { ArrowLeft20Regular } from "@fluentui/react-icons/headless/svg/arrow-left";
 import { ArrowSync20Regular } from "@fluentui/react-icons/headless/svg/arrow-sync";
 import { BranchRequest20Regular } from "@fluentui/react-icons/headless/svg/branch-request";
 import { ChevronDown20Regular } from "@fluentui/react-icons/headless/svg/chevron-down";
@@ -28,8 +27,7 @@ import { formatCommandError } from "@/lib/errors/format";
 import { notify } from "@/features/notifications";
 import { Tooltip } from "@/components/ui/tooltip";
 import { GitHubDetailPane } from "./detail";
-import { GitMarkdown } from "./markdown";
-import { GitDetailSkeleton, GitListSkeleton } from "@/features/git/ui/shared/skeletons";
+import { GitListSkeleton } from "@/features/git/ui/shared/skeletons";
 import { GitChromeActions } from "@/features/git/ui/manager/chrome";
 import { CreatePullRequestDialog } from "./create-pr-dialog";
 import { Panel } from "@/features/panels";
@@ -46,16 +44,6 @@ type GhItem = {
     number?: number;
     author?: string;
     body?: string;
-};
-
-type GhDetail = {
-    title: string;
-    status?: string;
-    author?: string;
-    body?: string;
-    url?: string;
-    subtitle?: string;
-    meta?: string;
 };
 
 export type GitHubListSection = "issues" | "pull-requests";
@@ -192,115 +180,6 @@ async function parseApi(path: string): Promise<unknown> {
     return typeof raw === "string" ? JSON.parse(raw) : raw;
 }
 
-function StateBadge({ status }: { status?: string }) {
-    if (!status) return null;
-    return (
-        <span
-            className={cn(
-                "inline-flex shrink-0 items-center rounded-md px-1.5 py-0.5 text-xs font-medium",
-                statusTone(status),
-                "bg-panel-hover",
-            )}
-        >
-            {status}
-        </span>
-    );
-}
-
-function SimpleDetailPane({
-    detail,
-    loading,
-    onBack,
-}: {
-    detail: GhDetail | null;
-    loading: boolean;
-    onBack: () => void;
-}) {
-    return (
-        <div className="workbench-panel flex h-full min-h-0 flex-col overflow-hidden bg-editor">
-            {!detail && loading ? (
-                <>
-                    <div className="flex shrink-0 items-center gap-2 px-3 py-2">
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 w-7 shrink-0 px-0"
-                            onClick={onBack}
-                            aria-label="Back to list"
-                        >
-                            <Icon icon={ArrowLeft20Regular} />
-                        </Button>
-                    </div>
-                    <GitDetailSkeleton />
-                </>
-            ) : !detail ? (
-                <div className="flex h-full items-center justify-center p-6 text-sm text-text-muted">
-                    Select an item
-                </div>
-            ) : (
-                <>
-                    <div className="flex shrink-0 flex-col gap-2 px-3 py-3">
-                        <div className="flex items-start gap-2">
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-7 w-7 shrink-0 px-0"
-                                onClick={onBack}
-                                aria-label="Back to list"
-                            >
-                                <Icon icon={ArrowLeft20Regular} />
-                            </Button>
-                            <ItemStatusIcon status={detail?.status} />
-                            <div className="min-w-0 flex-1">
-                                <div className="flex flex-wrap items-center gap-2">
-                                    <h2 className="min-w-0 text-sm font-medium text-text-primary">
-                                        {detail.title}
-                                    </h2>
-                                    <StateBadge status={detail?.status} />
-                                </div>
-                                {detail?.subtitle ? (
-                                    <p className="mt-0.5 truncate text-xs text-text-muted">
-                                        {detail.subtitle}
-                                    </p>
-                                ) : null}
-                            </div>
-                            {detail?.url ? (
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-7 shrink-0 gap-1 px-2"
-                                    onClick={() => {
-                                        if (detail.url) void commands.openUrlExternal(detail.url);
-                                    }}
-                                >
-                                    <Icon icon={Open20Regular} />
-                                    Open on GitHub
-                                </Button>
-                            ) : null}
-                        </div>
-                        <div className="flex flex-wrap items-center gap-3 pl-9 text-xs text-text-muted">
-                            {detail?.author ? <span>@{detail.author}</span> : null}
-                            {detail?.meta ? <span>{detail.meta}</span> : null}
-                            {loading ? <span>Refreshing…</span> : null}
-                        </div>
-                    </div>
-                    <ScrollArea className="min-h-0 flex-1">
-                        <div className="px-3 py-3">
-                            {detail?.body?.trim() ? (
-                                <GitMarkdown content={detail.body} />
-                            ) : (
-                                <p className="text-sm text-text-muted">
-                                    {loading ? "Loading details…" : "No description."}
-                                </p>
-                            )}
-                        </div>
-                    </ScrollArea>
-                </>
-            )}
-        </div>
-    );
-}
-
 export function GitHubSection({ section }: { section: GitHubListSection }) {
     const meta = SECTION_META[section];
     const { project_path } = useProjectState();
@@ -312,8 +191,6 @@ export function GitHubSection({ section }: { section: GitHubListSection }) {
     const [repo, setRepo] = useState<{ owner: string; repo: string } | null>(null);
     const [issueState, setIssueState] = useState<IssueStateFilter>("open");
     const [selectedId, setSelectedId] = useState<string | number | null>(null);
-    const [detail, setDetail] = useState<GhDetail | null>(null);
-    const [detailLoading, setDetailLoading] = useState(false);
     const [createPrOpen, setCreatePrOpen] = useState(false);
 
     const load = useCallback(async () => {
@@ -358,7 +235,6 @@ export function GitHubSection({ section }: { section: GitHubListSection }) {
 
     useEffect(() => {
         setSelectedId(null);
-        setDetail(null);
         setItems([]);
         setError(null);
     }, [section, issueState]);
@@ -379,75 +255,6 @@ export function GitHubSection({ section }: { section: GitHubListSection }) {
         () => filtered.find((item) => item.id === selectedId) ?? null,
         [filtered, selectedId],
     );
-
-    useEffect(() => {
-        if (!selectedItem) {
-            setDetail(null);
-            setDetailLoading(false);
-            return;
-        }
-
-        const fromList: GhDetail = {
-            title: selectedItem.title,
-            status: selectedItem.status,
-            author: selectedItem.author,
-            body: selectedItem.body,
-            url: selectedItem.url,
-            subtitle: selectedItem.subtitle,
-            meta: selectedItem.meta,
-        };
-        setDetail(fromList);
-
-        if (
-            !repo ||
-            !supportsStateFilter(section) ||
-            selectedItem.number == null
-        ) {
-            setDetailLoading(false);
-            return;
-        }
-
-        let cancelled = false;
-        setDetailLoading(true);
-        const path =
-            section === "pull-requests"
-                ? `/repos/${repo.owner}/${repo.repo}/pulls/${selectedItem.number}`
-                : `/repos/${repo.owner}/${repo.repo}/issues/${selectedItem.number}`;
-
-        void parseApi(path)
-            .then((raw) => {
-                if (cancelled) return;
-                const d = raw as Record<string, unknown>;
-                const user =
-                    d.user && typeof d.user === "object"
-                        ? (d.user as { login?: string }).login
-                        : selectedItem.author;
-                setDetail({
-                    title: String(d.title ?? selectedItem.title),
-                    status: String(d.state ?? selectedItem.status ?? ""),
-                    author: user,
-                    body: typeof d.body === "string" ? d.body : selectedItem.body,
-                    url:
-                        typeof d.html_url === "string"
-                            ? d.html_url
-                            : selectedItem.url,
-                    subtitle: selectedItem.subtitle,
-                    meta: formatRelative(d.updated_at ?? d.created_at) || selectedItem.meta,
-                });
-            })
-            .catch(() => {
-                if (!cancelled) {
-                    // Keep list-derived detail; body may already be present from the list payload.
-                }
-            })
-            .finally(() => {
-                if (!cancelled) setDetailLoading(false);
-            });
-
-        return () => {
-            cancelled = true;
-        };
-    }, [repo, section, selectedItem]);
 
     const emptyLabel = supportsStateFilter(section)
         ? meta.empty(issueState)

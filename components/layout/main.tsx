@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect } from "react";
 import { useProjectState, commands, getProjectSnapshot } from "@/lib/backend";
 import { usePathname } from "next/navigation";
 import { AgentLayout, openProject } from "@/features/agent";

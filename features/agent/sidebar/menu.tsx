@@ -1,6 +1,5 @@
 "use client";
 
-import { ArrowExit20Regular } from "@fluentui/react-icons/headless/svg/arrow-exit";
 import { Compose20Regular } from "@fluentui/react-icons/headless/svg/compose";
 import { FolderOpen20Regular } from "@fluentui/react-icons/headless/svg/folder-open";
 import { Open20Regular } from "@fluentui/react-icons/headless/svg/open";

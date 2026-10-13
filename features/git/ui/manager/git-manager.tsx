@@ -93,7 +93,6 @@ function GitManagerIntro({ children }: { children: React.ReactNode }) {
 
     useEffect(() => {
         let cancelled = false;
-        let t1: number | undefined;
         let t2: number | undefined;
 
         try {
@@ -109,7 +108,7 @@ function GitManagerIntro({ children }: { children: React.ReactNode }) {
             if (!cancelled) setVisible(true);
         });
 
-        t1 = window.setTimeout(() => {
+        const t1 = window.setTimeout(() => {
             if (cancelled) return;
             setVisible(false);
             t2 = window.setTimeout(() => {
@@ -293,7 +292,6 @@ function GitManagerGate() {
 function ManagerShell() {
     const search = useSearchParams();
     const pathname = usePathname();
-    const { project_path } = useProjectState();
     const { section, setSection } = useFilter();
     const { resetLoading } = useLoading();
     const { navPortalTarget, sidebarExpanded = true, onClose } = useContext(GitEmbedCtx);
