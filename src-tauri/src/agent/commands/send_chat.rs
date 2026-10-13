@@ -54,7 +54,7 @@ pub async fn send_chat_message(
     conversation_kind: Option<String>,
     subagent_models: Option<Vec<String>>,
     subagent_default_model: Option<String>,
-    /// Standing compaction instructions from Settings → Agents.
+    // Standing compaction instructions from Settings → Agents.
     compact_instructions: Option<String>,
     state: tauri::State<'_, AgentState>,
     app_state: tauri::State<'_, AppState>,
