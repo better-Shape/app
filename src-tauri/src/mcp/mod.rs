@@ -490,14 +490,7 @@ impl McpState {
     }
 
     /// Status for one server, if it is configured.
-    pub fn status_for(&self, server_id: &str) -> Result<Option<McpStatusEntry>, String> {
-        Ok(self
-            .get_status()?
-            .into_iter()
-            .find(|entry| entry.id == server_id))
-    }
-
-    /// Restart the current server.
+        /// Restart the current server.
 
     pub fn restart_server(&self, server_id: &str) -> Result<McpStatusEntry, String> {
         let configs = self.configs.lock().map_err(|e| e.to_string())?;

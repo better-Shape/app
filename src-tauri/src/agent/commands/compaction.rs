@@ -263,11 +263,7 @@ pub struct CompactionState {
 }
 
 impl CompactionState {
-    pub fn latest(&self) -> Option<&CompactionRecord> {
-        self.records.last()
-    }
-
-    /// Record a pass over the *conversation history*, where `folded_end` is an
+        /// Record a pass over the *conversation history*, where `folded_end` is an
     /// index into that history. Later sends can reuse the boundary directly.
     pub fn mark_success(&mut self, record: CompactionRecord) {
         self.summary_fold_end = record.folded_end;
@@ -1168,7 +1164,6 @@ impl<'a> CompactRequest<'a> {
 pub struct CompactionOutcome {
     pub record: CompactionRecord,
     pub history: Vec<ChatMessage>,
-    pub summary: String,
 }
 
 /// Fold older turns of `history` into the rolling summary.
@@ -1308,7 +1303,6 @@ pub async fn compact_history(
     Ok(Some(CompactionOutcome {
         record,
         history: new_history,
-        summary: stored,
     }))
 }
 
@@ -1893,11 +1887,13 @@ mod tests {
         let plan = plan_compaction(&history, 4, 4_000).unwrap();
         let summary = "1. Primary Request and Intent: ship the thing.\n".repeat(20);
         let out = apply_compaction(&history, &plan, &summary, "manual", Some("t.txt"), None);
-        assert_eq!(out.len(), history.len() - plan.messages_folded() + 1);
+        // The boundary is a user turn and the kept tail starts on a user turn,
+        // so those two merge: one message replaces the folded span, minus the merge.
+        assert_eq!(out.len(), history.len() - plan.messages_folded());
         assert!(out[0].content.contains(BOUNDARY_OPEN));
         assert!(out[0].content.contains("t.txt"));
         assert!(out[0].content.contains("ship the thing"));
-        assert_eq!(out[1].role, "user");
+        assert_eq!(out[1].role, "assistant");
         assert!(history_tokens(&out) < plan.tokens_before);
     }
 
@@ -2022,7 +2018,9 @@ mod tests {
         // payload changes, so the API shape is still valid.
         assert_eq!(messages[1]["content"], SUPERSEDED_NOTE);
         assert_eq!(messages[3]["content"], "new a");
-        assert_eq!(messages[7]["content"], DUPLICATE_NOTE);
+        // The newest copy wins, so the earlier duplicate is the one dropped.
+        assert_eq!(messages[5]["content"], DUPLICATE_NOTE);
+        assert_eq!(messages[7]["content"], "same");
     }
 
     #[test]
@@ -2068,7 +2066,9 @@ mod tests {
         let applied = apply_stored_summary(&state, &history, KEEP_RECENT_MESSAGES, "auto")
             .expect("summary applied");
         assert_eq!(applied[0].content.starts_with("<compacted_history>"), true);
-        assert_eq!(applied.len(), history.len() - 20 + 1);
+        // Boundary plus the kept tail, with the boundary merged into the first
+        // kept user turn.
+        assert_eq!(applied.len(), history.len() - 20);
     }
 
     #[test]

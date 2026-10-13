@@ -78,11 +78,6 @@ fn is_wide_script(ch: char) -> bool {
     )
 }
 
-/// Tokens for a JSON value rendered the way it is sent to the model.
-pub fn estimate_tokens_json(value: &serde_json::Value) -> usize {
-    estimate_tokens(&value.to_string())
-}
-
 /// Characters that fit in `tokens` of budget, for callers that trim by chars.
 pub fn chars_for_tokens(tokens: usize) -> usize {
     tokens.saturating_mul(4)
@@ -143,13 +138,6 @@ mod tests {
         let tokens = estimate_tokens(cjk);
         assert!(tokens >= n, "tokens={tokens} chars={n}");
         assert!(tokens <= n * 2, "tokens={tokens} chars={n}");
-    }
-
-    #[test]
-    fn json_estimate_tracks_rendered_value() {
-        let value = json!({"path": "src/main.rs", "start_line": 10, "end_line": 40});
-        let rendered = value.to_string();
-        assert_eq!(estimate_tokens_json(&value), estimate_tokens(&rendered));
     }
 
     #[test]

@@ -617,8 +617,10 @@ mod tests {
         assert!(!serde_json::to_string(&api).unwrap().contains("image_url"));
     }
 
+    /// Eight identical reads are removed by the duplicate pass, which brings the
+    /// payload under budget on its own. Nothing lossy should happen after that.
     #[test]
-    fn cleared_screenshot_does_not_ask_for_another_capture() {
+    fn duplicate_reads_are_dropped_without_touching_a_screenshot() {
         let mut api = vec![
             json!({"role":"assistant","tool_calls":[{"id":"1"}]}),
             json!({
@@ -636,6 +638,36 @@ mod tests {
             }));
         }
         clear_old_tool_results(&mut api);
+        let shot = api[1]["content"].as_str().unwrap();
+        assert!(shot.contains("Captured http://localhost:5173/"));
+        assert!(!shot.contains("omitted"));
+        assert!(
+            api.iter().any(|m| m["content"].as_str().unwrap_or("").starts_with("[duplicate")),
+            "the repeated reads should have collapsed to notes"
+        );
+    }
+
+    /// Results already too short to trim, and too many to fit, force the clear
+    /// pass. A cleared screenshot must tell the model not to capture again.
+    #[test]
+    fn cleared_screenshot_does_not_ask_for_another_capture() {
+        let mut api = vec![
+            json!({"role":"assistant","tool_calls":[{"id":"1"}]}),
+            json!({
+                "role": "tool",
+                "name": "screenshot_page",
+                "content": "Captured http://localhost:5173/ ".repeat(40)
+            }),
+        ];
+        for i in 0..420 {
+            api.push(json!({"role":"assistant","tool_calls":[{"id": format!("a{i}")}]}));
+            api.push(json!({
+                "role": "tool",
+                "name": "read_file",
+                "content": format!("result {i} {}", "y".repeat(500))
+            }));
+        }
+        assert!(clear_old_tool_results(&mut api));
         let shot = api[1]["content"].as_str().unwrap();
         assert!(shot.contains("Do not call screenshot_page again"));
         assert!(!shot.contains("re-call the tool"));
