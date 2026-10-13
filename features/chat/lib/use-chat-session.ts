@@ -112,8 +112,7 @@ function writePersistedChatTabs(
 
 const COMPOSER_PREFS_KEY = "bettershape-composer";
 
-type ComposerEffort = "low" | "high" | "ultra" | "max" | "super";
-type ComposerPrefs = { model?: string; effort?: ComposerEffort; fast?: boolean };
+type ComposerPrefs = { model?: string; effort?: ReasoningEffort; fast?: boolean };
 
 function readComposerPrefs(): ComposerPrefs {
     if (typeof window === "undefined") return {};

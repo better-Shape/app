@@ -80,7 +80,7 @@ export const DESIGN_BRIDGE_SCRIPT = String.raw`
     return;
   }
 
-  var PREFIX = "__betterbetterbetterbettershape_design_";
+  var PREFIX = "__bettershape_design_";
   var selected = null;
   var hovered = null;
   var mode = "normal";

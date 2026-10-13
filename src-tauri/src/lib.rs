@@ -55,19 +55,19 @@ use core::state::AppState;
 use domain::terminal::service::PtyState;
 use tauri::{AppHandle, Emitter, Manager};
 
-fn emit_betterbetterbettershape_deep_link(app: &AppHandle, url: &str) {
+fn emit_bettershape_deep_link(app: &AppHandle, url: &str) {
     if url.contains("mcp/oauth") {
         let _ = app.emit("bettershape-mcp-oauth-callback", url);
         focus_main_window(app);
     } else if url.contains("bettershape://auth") || url.contains("/auth/callback") {
         let _ = app.emit("bettershape-oauth-callback", url);
-        focus_betterbetterbettershape_windows(app);
+        focus_bettershape_windows(app);
     } else {
-        focus_betterbetterbettershape_windows(app);
+        focus_bettershape_windows(app);
     }
 }
 
-fn focus_betterbetterbettershape_windows(app: &AppHandle) {
+fn focus_bettershape_windows(app: &AppHandle) {
     for label in ["main", "onboarding", "settings", "branch"] {
         if let Some(window) = app.get_webview_window(label) {
             let _ = window.show();
@@ -81,7 +81,7 @@ fn focus_main_window(app: &AppHandle) {
         let _ = window.show();
         let _ = window.set_focus();
     } else {
-        focus_betterbetterbettershape_windows(app);
+        focus_bettershape_windows(app);
     }
 }
 
@@ -114,11 +114,11 @@ pub fn run() {
             builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
                 for arg in &argv {
                     if arg.contains("bettershape://") {
-                        emit_betterbetterbettershape_deep_link(app, arg);
+                        emit_bettershape_deep_link(app, arg);
                         return;
                     }
                 }
-                focus_betterbetterbettershape_windows(app);
+                focus_bettershape_windows(app);
             }));
         }
     }
@@ -145,7 +145,7 @@ pub fn run() {
                 let handle = app.handle().clone();
                 app.deep_link().on_open_url(move |event| {
                     for url in event.urls() {
-                        emit_betterbetterbettershape_deep_link(&handle, url.as_ref());
+                        emit_bettershape_deep_link(&handle, url.as_ref());
                     }
                 });
             }

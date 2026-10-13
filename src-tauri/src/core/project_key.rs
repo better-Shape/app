@@ -26,7 +26,7 @@ pub fn stable_project_key(p: &str) -> String {
     )
 }
 
-pub fn betterbetterbetterbettershape_index_key(p: &str) -> String {
+pub fn bettershape_index_key(p: &str) -> String {
     let k = stable_project_key(p);
     let b = dirs::data_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))

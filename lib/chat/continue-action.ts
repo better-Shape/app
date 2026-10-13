@@ -2,7 +2,7 @@
 
 export type BetterShapeContinueAction = { type: "plan_build"; path: string; title: string };
 
-const ACTION_RE = /<betterbetterbetterbettershape_action\s+type="(plan_build)"([^>]*)\/>\s*/i;
+const ACTION_RE = /<bettershape_action\s+type="(plan_build)"([^>]*)\/>\s*/i;
 
 function attr(attrs: string, name: string): string {
     return attrs.match(new RegExp(`${name}="([^"]*)"`))?.[1] ?? "";
@@ -32,7 +32,7 @@ export function buildPlanBuildMessage(path: string, title?: string): string {
     const safeTitle = (title || "Plan").replace(/"/g, "'");
     const safePath = path.replace(/"/g, "'");
     return [
-        `<betterbetterbetterbettershape_action type="plan_build" path="${safePath}" title="${safeTitle}" />`,
+        `<bettershape_action type="plan_build" path="${safePath}" title="${safeTitle}" />`,
         "Continue.",
         "",
         `Build the plan at ${path}. Follow it step by step.`,

@@ -397,7 +397,7 @@ impl IndexManager {
 }
 
 fn index_storage_dir(project_path: &str) -> PathBuf {
-    let hash = crate::core::project_key::betterbetterbetterbettershape_index_key(project_path);
+    let hash = crate::core::project_key::bettershape_index_key(project_path);
     dirs::data_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join("bettershape-index")

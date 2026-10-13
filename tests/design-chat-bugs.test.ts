@@ -5,7 +5,7 @@ import { parseMessageContent } from "@/features/chat/ui/md/renderer";
 describe("parseBetterShapeContinueAction", () => {
     it("still parses plan_build continue actions", () => {
         const content = [
-            '<betterbetterbetterbettershape_action type="plan_build" path="PLAN.md" title="Ship it" />',
+            '<bettershape_action type="plan_build" path="PLAN.md" title="Ship it" />',
             "Continue.",
         ].join("\n");
         const parsed = parseBetterShapeContinueAction(content);

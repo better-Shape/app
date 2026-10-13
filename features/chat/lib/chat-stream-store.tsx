@@ -623,7 +623,7 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
                     if (
                         !error &&
                         (priorUser?.content?.includes("Selected design concept") ||
-                            priorUser?.content?.includes('<betterbetterbetterbettershape_action type="design_selected"'))
+                            priorUser?.content?.includes('<bettershape_action type="design_selected"'))
                     ) {
                         void commands.cleanupDesignSandbox();
                     }

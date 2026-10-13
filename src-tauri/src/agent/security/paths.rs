@@ -114,7 +114,7 @@ fn builtin_allowed_roots() -> Vec<PathBuf> {
     r
 }
 
-fn is_betterbetterbettershape_app_mcp_json(p: &Path) -> bool {
+fn is_bettershape_app_mcp_json(p: &Path) -> bool {
     p.file_name()
         .and_then(|n| n.to_str())
         .map(|n| n.eq_ignore_ascii_case("mcp.json"))
@@ -362,7 +362,7 @@ pub fn assert_ipc_sensitive_only(path: &str) -> Result<(), AppError> {
             "Path traversal (..) is not allowed.".into(),
         ));
     }
-    if is_betterbetterbettershape_app_mcp_json(&p) {
+    if is_bettershape_app_mcp_json(&p) {
         return Ok(());
     }
     if is_sensitive_path(&p)
@@ -396,7 +396,7 @@ pub fn assert_ipc_path_allowed(path: &str) -> Result<(), AppError> {
         )
     };
     let r = resolve_path_for_confinement(Path::new(path))?;
-    if is_sensitive_path(&r) && !is_betterbetterbettershape_app_mcp_json(&r) {
+    if is_sensitive_path(&r) && !is_bettershape_app_mcp_json(&r) {
         return Err(AppError::Message(format!(
             "Access denied: '{path}' is sensitive."
         )));
@@ -530,6 +530,42 @@ mod tests {
     fn resolved_file_must_stay_inside_its_root() {
         let temp =
             std::env::temp_dir().join(format!("bettershape-skill-root-{}", std::process::id()));
+        let root = temp.join("skills");
+        let sibling = temp.join("skills-extra");
+        let _ = std::fs::remove_dir_all(&temp);
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&sibling).unwrap();
+        let inside = root.join("notes.md");
+        let outside = sibling.join("notes.md");
+        std::fs::write(&inside, "skill").unwrap();
+        std::fs::write(&outside, "other").unwrap();
+
+        let root_real = root.canonicalize().unwrap();
+        assert!(assert_resolved_within(&inside.canonicalize().unwrap(), &root_real).is_ok());
+        assert!(assert_resolved_within(&outside.canonicalize().unwrap(), &root_real).is_err());
+
+        let link = root.join("linked.md");
+        #[cfg(windows)]
+        let linked = std::os::windows::fs::symlink_file(&outside, &link);
+        #[cfg(not(windows))]
+        let linked = std::os::unix::fs::symlink(&outside, &link);
+        if linked.is_ok() {
+            let resolved = link.canonicalize().unwrap();
+            assert!(
+                assert_resolved_within(&resolved, &root_real).is_err(),
+                "a symlink inside the skill root must not resolve outside it"
+            );
+        }
+
+        let _ = std::fs::remove_dir_all(&temp);
+    }
+
+    #[test]
+    fn resolved_file_must_stay_inside_its_root() {
+        let temp = std::env::temp_dir().join(format!(
+            "shape-skill-root-{}",
+            std::process::id()
+        ));
         let root = temp.join("skills");
         let sibling = temp.join("skills-extra");
         let _ = std::fs::remove_dir_all(&temp);

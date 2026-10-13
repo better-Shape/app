@@ -114,7 +114,7 @@ fn origin_of(parsed: &url::Url) -> String {
     )
 }
 
-const PROXY_TOKEN_PARAM: &str = "__betterbetterbetterbettershape_proxy_token";
+const PROXY_TOKEN_PARAM: &str = "__bettershape_proxy_token";
 
 fn proxy_src(listen_port: u16, parsed: &url::Url, token: Option<&str>) -> String {
     // Listener is bound to 127.0.0.1 — using "localhost" here can hit ::1 on Windows
@@ -471,11 +471,11 @@ mod tests {
             !out.contains("frame-ancestors *")
                 && out.contains("tauri.localhost")
                 && extract_and_strip_proxy_token(
-                    Some("a=1&__betterbetterbetterbettershape_proxy_token=x&b=2"),
+                    Some("a=1&__bettershape_proxy_token=x&b=2"),
                     "x"
                 ) == (true, Some("a=1&b=2".into()))
                 && !extract_and_strip_proxy_token(
-                    Some("__betterbetterbetterbettershape_proxy_token=y"),
+                    Some("__bettershape_proxy_token=y"),
                     "x"
                 )
                 .0
