@@ -6,8 +6,11 @@ use tauri::{Emitter, Manager};
 
 use std::collections::HashMap;
 
+use std::collections::HashMap;
+
 use crate::agent::commands::streaming;
 use crate::agent::models::{DesignPickConcept, PendingAsk, PendingDesignPick};
+use crate::mcp::McpServerConfig;
 use crate::agent::tools::page_shot;
 use crate::commands::preview_render;
 use crate::mcp::McpServerConfig;

@@ -1,5 +1,5 @@
 ﻿import { invoke } from "@tauri-apps/api/core";
-import { ActivityTotals, BrowserHistoryEntry, BrowserInputEvent, BrowserPickedElement, BrowserTab, BrowserTabsPayload, ChatGenerationState, ChatMessage, CodebaseSearchHit, CompactResult, CompactionStateView, ContentSearchResult, Conversation, EslintLintResult, FileEntry, FileInfo, FileSearchResult, GitActivityPoint, GitFileParams, GitRepoInfo, GitHubAuthLoginResult, GitHubAuthStatus, GitLogEntry, GitSyncStatus, GitStashEntry, BlameLine, HistoryEntry, IndexStatus, McpServerConfig, McpStatusEntry, McpToolInfo, PackageInfo, OutlineResponse, ProjectState, ProjectStatsSnapshot, ReplaceResult, SearchOptions, TestDiscoveryResult, TestRunSummaryResult, ContentMatch } from "@/lib/backend/types";
+import { ActivityTotals, BrowserHistoryEntry, BrowserInputEvent, BrowserPickedElement, BrowserTab, BrowserTabsPayload, ChatGenerationState, ChatMessage, CodebaseSearchHit, CompactResult, CompactionStateView, ContentSearchResult, Conversation, EslintLintResult, FileEntry, FileInfo, FileSearchResult, GitActivityPoint, GitFileParams, GitRepoInfo, GitHubAuthLoginResult, GitHubAuthStatus, GitLogEntry, GitSyncStatus, GitStashEntry, BlameLine, HistoryEntry, IndexStatus, McpRegistryEntry, McpServerConfig, McpStatusEntry, McpToolInfo, PackageInfo, OutlineResponse, ProjectState, ProjectStatsSnapshot, ReplaceResult, SearchOptions, TestDiscoveryResult, TestRunSummaryResult, ContentMatch } from "@/lib/backend/types";
 
 type InvokeLogger = (command: string, durationMs: number) => void;
 
@@ -868,6 +868,15 @@ export const commands = {
     }) => invokeCommand<Record<string, unknown>>("mcp_manage_servers", { request }),
     /** Re-read mcp.json and reconnect. Merges with Settings-sourced servers. */
     mcpReloadFromFile: () => invokeCommand<McpStatusEntry[]>("mcp_reload_from_file"),
+    /** Search the official MCP registry (same client the agent uses). */
+    mcpRegistrySearch: (query: string, limit?: number) =>
+        invokeCommand<McpRegistryEntry[]>("mcp_registry_search", { query, limit: limit ?? 20 }),
+    /** Install a registry entry into mcp.json through the validated write path. */
+    mcpRegistryInstall: (entry: McpRegistryEntry, replace?: boolean) =>
+        invokeCommand<{ server: McpServerConfig; status: McpStatusEntry; replaced: boolean }>(
+            "mcp_registry_install",
+            { entry, replace: replace ?? false },
+        ),
     // Context compaction
     compactChat: (opts?: { focus?: string; instructions?: string; model?: string }) =>
         invokeCommand<CompactResult>("compact_chat", {

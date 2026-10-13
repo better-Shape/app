@@ -121,19 +121,20 @@ impl McpState {
         .map(ConnectedClient::Stdio)
     }
 
-    pub fn sync_servers(
-        &self,
-        servers: Vec<McpServerConfig>,
-    ) -> Result<Vec<McpStatusEntry>, String> {
+    pub fn sync_servers(&self, servers: Vec<McpServerConfig>) -> Result<Vec<McpStatusEntry>, String> {
+        // This replaces every config and every connection at once, so it must not
+        // interleave with a single-server upsert, restart or removal.
+        let _connecting = self.connecting.lock().map_err(|e| e.to_string())?;
         {
             let mut configs = self.configs.lock().map_err(|e| e.to_string())?;
             *configs = servers.clone();
         }
 
-        let mut clients = self.clients.lock().map_err(|e| e.to_string())?;
-        clients.clear();
-
         let mut statuses = Vec::new();
+        // Built aside and swapped in at the end: the old connections keep
+        // answering while the new ones handshake, instead of every server going
+        // dark for the length of the sync.
+        let mut fresh: HashMap<String, Arc<Mutex<ConnectedClient>>> = HashMap::new();
 
         for server in servers {
             if !server.enabled {
@@ -159,7 +160,7 @@ impl McpState {
                         error: client.last_error(),
                         auth: server.auth.clone(),
                     });
-                    clients.insert(server.id.clone(), Arc::new(Mutex::new(client)));
+                    fresh.insert(server.id.clone(), Arc::new(Mutex::new(client)));
                 }
                 Err(e) if e == "NEEDS_AUTH" => {
                     statuses.push(McpStatusEntry {
@@ -183,6 +184,11 @@ impl McpState {
                     });
                 }
             }
+        }
+
+        {
+            let mut clients = self.clients.lock().map_err(|e| e.to_string())?;
+            *clients = fresh;
         }
 
         Ok(statuses)
@@ -517,10 +523,7 @@ impl McpState {
 
     /// Ids the file provided at the last reload.
     pub fn file_sourced_ids(&self) -> std::collections::HashSet<String> {
-        self.file_sourced
-            .lock()
-            .map(|s| s.clone())
-            .unwrap_or_default()
+        self.file_sourced.lock().map(|s| s.clone()).unwrap_or_default()
     }
 
     /// Remember which ids the file provided.
@@ -542,21 +545,33 @@ impl McpState {
 
     /// Configured servers exactly as the running state holds them.
     pub fn configs_snapshot(&self) -> Vec<McpServerConfig> {
-        self.configs.lock().map(|c| c.clone()).unwrap_or_default()
+        self.configs
+            .lock()
+            .map(|c| c.clone())
+            .unwrap_or_default()
     }
 
     /// Restart the current server.
     pub fn restart_server(&self, server_id: &str) -> Result<McpStatusEntry, String> {
-        let configs = self.configs.lock().map_err(|e| e.to_string())?;
-        let server = configs
-            .iter()
-            .find(|s| s.id == server_id)
-            .cloned()
-            .ok_or_else(|| "Server not found".to_string())?;
-        drop(configs);
+        // Held across the connect, like `upsert_server`: otherwise an upsert can
+        // finish between this read and this insert, and the older connection
+        // wins. Reading the config keeps its own short lock.
+        let _connecting = self.connecting.lock().map_err(|e| e.to_string())?;
+        let server = {
+            let configs = self.configs.lock().map_err(|e| e.to_string())?;
+            configs
+                .iter()
+                .find(|s| s.id == server_id)
+                .cloned()
+                .ok_or_else(|| "Server not found".to_string())?
+        };
 
-        let mut clients = self.clients.lock().map_err(|e| e.to_string())?;
-        clients.remove(server_id);
+        // Drop the old client, then connect with no map locked: a handshake can
+        // take seconds and must not stall status or tool calls.
+        {
+            let mut clients = self.clients.lock().map_err(|e| e.to_string())?;
+            clients.remove(server_id);
+        }
 
         if !server.enabled {
             return Ok(McpStatusEntry {
@@ -579,6 +594,7 @@ impl McpState {
                     error: client.last_error(),
                     auth: server.auth.clone(),
                 };
+                let mut clients = self.clients.lock().map_err(|e| e.to_string())?;
                 clients.insert(server.id, Arc::new(Mutex::new(client)));
                 Ok(entry)
             }

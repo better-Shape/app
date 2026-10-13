@@ -26,6 +26,39 @@ pub struct HttpMcpClient {
     client: reqwest::Client,
 }
 
+/// Do the configured credential headers make this request carry a secret?
+fn carries_credentials(
+    headers: &[(String, String)],
+    static_bearer: &Option<String>,
+    auth: &McpAuthType,
+) -> bool {
+    !headers.is_empty()
+        || static_bearer.as_ref().map(|t| !t.trim().is_empty()).unwrap_or(false)
+        || *auth != McpAuthType::None
+}
+
+/// True when the URL points at this machine.
+///
+/// Plain http to a server you run yourself is fine; to anywhere else it would
+/// put the credential on the wire in the clear. `localhost`, name suffixes that
+/// end in it, and any literal loopback address (v4, v6, bracketed or not) count.
+fn is_loopback_host(url: &reqwest::Url) -> bool {
+    let Some(host) = url.host_str() else {
+        return false;
+    };
+    let bare = host
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .to_ascii_lowercase();
+    if bare == "localhost" || bare.ends_with(".localhost") {
+        return true;
+    }
+    match bare.parse::<std::net::IpAddr>() {
+        Ok(ip) => ip.is_loopback(),
+        Err(_) => false,
+    }
+}
+
 impl HttpMcpClient {
     pub async fn connect(
         server_id: &str,
@@ -71,15 +104,9 @@ impl HttpMcpClient {
         // would put the key or token on the wire in the clear.
         if let Ok(parsed) = reqwest::Url::parse(url) {
             if parsed.scheme() == "http" {
-                let host = parsed.host_str().unwrap_or_default();
-                let local = host == "localhost"
-                    || host == "127.0.0.1"
-                    || host == "::1"
-                    || host == "0.0.0.0"
-                    || host.ends_with(".localhost");
-                let carries_credentials =
-                    !headers.is_empty() || static_bearer.is_some() || auth != McpAuthType::None;
-                if !local && carries_credentials {
+                if !is_loopback_host(&parsed)
+                    && carries_credentials(&headers, &static_bearer, &auth)
+                {
                     return Err(format!(
                         "Refusing to send credentials to {url} over plain http. Use an https URL, or keep the server on localhost."
                     ));
@@ -124,12 +151,7 @@ impl HttpMcpClient {
         }
     }
 
-    async fn rpc(
-        &mut self,
-        token: Option<&str>,
-        method: &str,
-        params: Value,
-    ) -> Result<Value, String> {
+    async fn rpc(&mut self, token: Option<&str>, method: &str, params: Value) -> Result<Value, String> {
         match self.rpc_once(token, method, &params).await {
             Ok(v) => Ok(v),
             Err(err) if self.auth == McpAuthType::Oauth && is_unauthorized(&err) => {
@@ -192,11 +214,7 @@ impl HttpMcpClient {
             .await
             .map_err(|e| format!("HTTP MCP request failed: {}", e))?;
 
-        if let Some(sid) = resp
-            .headers()
-            .get("mcp-session-id")
-            .and_then(|v| v.to_str().ok())
-        {
+        if let Some(sid) = resp.headers().get("mcp-session-id").and_then(|v| v.to_str().ok()) {
             self.session_id = Some(sid.to_string());
         }
 
@@ -219,9 +237,7 @@ impl HttpMcpClient {
             return Err(format!("HTTP MCP error {}: {}", status, text));
         }
 
-        let json = if content_type.contains("text/event-stream")
-            || text.trim_start().starts_with("event:")
-        {
+        let json = if content_type.contains("text/event-stream") || text.trim_start().starts_with("event:") {
             parse_sse_jsonrpc(&text)?
         } else {
             serde_json::from_str::<Value>(&text)
@@ -354,4 +370,50 @@ fn parse_sse_jsonrpc(body: &str) -> Result<Value, String> {
         }
     }
     last.ok_or_else(|| "No JSON-RPC payload in SSE response".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn url(text: &str) -> reqwest::Url {
+        reqwest::Url::parse(text).expect("url")
+    }
+
+    #[test]
+    fn loopback_hosts_are_recognised() {
+        assert!(is_loopback_host(&url("http://localhost:3000/mcp")));
+        assert!(is_loopback_host(&url("http://127.0.0.1:3000/mcp")));
+        assert!(is_loopback_host(&url("http://127.5.5.5/mcp")));
+        assert!(is_loopback_host(&url("http://[::1]:3000/mcp")));
+        assert!(is_loopback_host(&url("http://api.localhost/mcp")));
+    }
+
+    #[test]
+    fn every_other_host_is_not_loopback() {
+        assert!(!is_loopback_host(&url("http://mcp.example.com/mcp")));
+        assert!(!is_loopback_host(&url("http://10.0.0.7:8080/mcp")));
+        assert!(!is_loopback_host(&url("http://[2001:db8::1]/mcp")));
+        // A name that merely mentions it is not it.
+        assert!(!is_loopback_host(&url("http://localhost.evil.com/mcp")));
+    }
+
+    #[test]
+    fn credentials_are_seen_in_any_of_the_three_places() {
+        let none: Vec<(String, String)> = Vec::new();
+        assert!(!carries_credentials(&none, &None, &McpAuthType::None));
+        assert!(carries_credentials(
+            &[("X-Api-Key".into(), "k".into())],
+            &None,
+            &McpAuthType::None
+        ));
+        assert!(carries_credentials(
+            &none,
+            &Some("token".into()),
+            &McpAuthType::None
+        ));
+        assert!(carries_credentials(&none, &None, &McpAuthType::Oauth));
+        // An empty bearer is not a credential.
+        assert!(!carries_credentials(&none, &Some("   ".into()), &McpAuthType::None));
+    }
 }

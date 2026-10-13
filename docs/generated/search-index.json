@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "builtAt": "2026-10-13T17:32:47.904Z",
+  "builtAt": "2026-10-13T16:41:28.495Z",
   "pages": [
     {
       "slug": [
@@ -8,11 +8,11 @@
         "quickstart"
       ],
       "title": "Quickstart",
-      "description": "Install BetterShape, open a folder, and send one task.",
+      "description": "Install Shape, open a folder, and send one task.",
       "order": 1,
       "section": "Get Started",
       "href": "/docs/get-started/quickstart",
-      "body": "BetterShape is a desktop app. You open a project folder, describe the work in chat, and review the edits before they stay. 1. Go to useshape.org/download. 2. Run the installer. 3. Open BetterShape from the Start menu. BetterShape needs Windows 10 or 11, 64 bit. If Windows SmartScreen appears, choose More info , then Run anyway . Open Settings → Providers and paste an API key from OpenAI, Anthropic, Google, OpenRouter, or any OpenAI compatible endpoint. Keys are stored on this machine and used only for your own requests. You can open files and edit without a key. Chat needs one, and tells you in the composer when none is configured. Use Open folder (or Ctrl+K then Ctrl+O ) and pick the project you want to work on. BetterShape stays in that folder until you open a different one. Chat, search, and Git all run against this folder. Open the repo root, not a nested package, unless you only want that package in context. Type in the composer at the bottom of chat. Start small so you can see how BetterShape edits files. Examples that work well: “Rename the primary button on the home page to Get started.” “Explain app/page.tsx in a few sentences.” “Add a loading state to the settings save button.” Press Enter to send. BetterShape reads the project, answers in the thread, and may edit files. Type @ and pick a file. That file is attached to the message. Use this when you already know which file matters, instead of hoping BetterShape finds it. Type / to run a saved prompt. See slash commands. When BetterShape edits a file, the diff shows in the thread. Keep the change if it matches what you asked. Skip it if it is wrong or too broad. Ask a follow up if it is close. Nothing is committed for you. When you want a commit, see Commits. The composer has a mode switch. Use Code for edits. Use Ask when you only want an explanation. Use Plan for a larger change. Use Review when something is broken. Details are on Agent. Pick the model from the composer's model menu. Everything your key can reach is available. See Models."
+      "body": "Shape is a desktop app. You open a project folder, describe the work in chat, and review the edits before they stay. 1. Go to useshape.org/download. 2. Run the installer. 3. Open Shape from the Start menu. Shape needs Windows 10 or 11, 64 bit. If Windows SmartScreen appears, choose More info , then Run anyway . Sign in with the account you use for chat and billing. You can still open files without signing in. You cannot send a message until you do. If the browser window never comes back to the app, close it, sign out from Help , and sign in again. See troubleshooting. Use Open folder (or Ctrl+K then Ctrl+O ) and pick the project you want to work on. Shape stays in that folder until you open a different one. Chat, search, and Git all run against this folder. Open the repo root, not a nested package, unless you only want that package in context. Type in the composer at the bottom of chat. Start small so you can see how Shape edits files. Examples that work well: “Rename the primary button on the home page to Get started.” “Explain app/page.tsx in a few sentences.” “Add a loading state to the settings save button.” Press Enter to send. Shape reads the project, answers in the thread, and may edit files. Type @ and pick a file. That file is attached to the message. Use this when you already know which file matters, instead of hoping Shape finds it. Type / to run a saved prompt. See slash commands. When Shape edits a file, the diff shows in the thread. Keep the change if it matches what you asked. Skip it if it is wrong or too broad. Ask a follow up if it is close. Nothing is committed for you. When you want a commit, see Commits. The composer has a mode switch. Use Code for edits. Use Ask when you only want an explanation. Use Plan for a larger change. Use Review when something is broken. Details are on Agent. Check the plan and remaining credits on Billing. Free includes Auto only. Paid plans can pick a named model. See Models."
     },
     {
       "slug": [
@@ -20,11 +20,11 @@
         "models"
       ],
       "title": "Models",
-      "description": "Add your own provider keys and pick any model they offer.",
+      "description": "Auto is included. Named models spend credits on a paid plan.",
       "order": 2,
       "section": "Get Started",
       "href": "/docs/get-started/models",
-      "body": "Every message uses a model. You pick it from the model menu in chat. Open Settings → Providers and paste an API key for the provider you use: Provider Key from Notes OpenAI platform.openai.com GPT models, embeddings, images, speech. Anthropic console.anthropic.com Claude models. Google aistudio.google.com Gemini models. OpenRouter openrouter.ai One key for many providers. xAI, DeepSeek, Groq, Mistral their dashboards OpenAI compatible. Custom your own endpoint Any OpenAI compatible base URL, including a local runtime. Chat works as soon as one provider is enabled with a key. Without one, BetterShape says so instead of failing mid turn. The model menu lists the models your key can reach, plus anything extra you add by hand. The default is Auto , which uses your first configured provider unless you set a different default in Settings → Providers . Codebase search uses an OpenAI compatible /embeddings endpoint. Point Embedding model at one your provider offers, or turn embeddings off; keyword search and the file index still work. Image, speech, and caption tools need an OpenAI wire provider. They use the same key as chat. Your provider bills you directly. BetterShape shows the tokens spent on the last turn in the composer ring, not a credit balance. Client trust and provider keys Plugins"
+      "body": "Every message uses a model. You pick it from the model menu in chat. Auto is included on every plan, including Free. Use it unless you have a reason to pick a named model. Auto is the default. Leave it there for most work. Paid plans can pick a named model (Claude, GPT, Gemini, Grok, and others in the catalog). Named models spend credits. Harder tasks and longer threads spend more. Credits reset each month. Unused credits do not carry over. If a named model is greyed out, the current plan does not include it. Change the plan on Billing. Plan Price What you get Free $0 Auto Plus $15 / month Auto and named models, 450 credits Pro $50 / month Auto and named models, 1,800 credits Max $150 / month Auto and named models, 5,800 credits Change your plan on Billing. Usage for the current period is on the same page. Everyday edits: Auto. A large refactor or a long plan: a named model on a paid plan. You are out of credits: Auto still runs while the Auto pool has quota. If send fails, wait for the reset or change plan. A credit is not one message. One turn can spend a fraction of a credit or several, depending on how much context and work the model does. The usage graph on the dashboard shows credits over recent days."
     },
     {
       "slug": [
@@ -32,11 +32,11 @@
         "overview"
       ],
       "title": "Agent",
-      "description": "Chat with the open folder. BetterShape reads, answers, and can edit files.",
+      "description": "Chat with the open folder. Shape reads, answers, and can edit files.",
       "order": 1,
       "section": "Agent",
       "href": "/docs/agent/overview",
-      "body": "Chat sits next to your files. You describe the work. BetterShape reads the open folder, answers in the thread, and can edit files when you ask it to. You stay in control of what is kept. Every edit shows a diff. You still commit with Git when you want a commit. Switch the mode on the composer before you send. The mode applies to that message. Code edits files and can run commands. This is the default for building. Ask answers without changing the project. Use it to read a file, compare options, or explain an error. Plan writes the approach first and waits. See Plan. Visual works on UI. Describe the screen, or pair it with the in app browser. Review looks for a bug and proposes a small fix. See Review. If you send a Code request that is actually a question, BetterShape may still try to edit. Switch to Ask when you do not want files to move. Type @ and pick a file or folder. That path goes with the message. Use @ when: You already know the file. The name is common ( button.tsx exists in more than one place). You want BetterShape to stay inside one package of a monorepo. You can attach more than one. Keep the set small. Extra files add noise. Type / to run a slash command. Use this for work you repeat: a commit message, a PR checklist, a test pass. Every file edit shows a diff in the thread. 1. Read the diff. 2. Keep it, skip it, or say what to change. 3. Repeat until the thread is done. BetterShape does not push to GitHub on its own. See Commits when you want a commit. Start a new chat when the topic changes. A long thread about one bug will confuse a later request about a different feature. Ctrl+Shift+L opens a new chat. Chat can use a connected plugin (GitHub, Slack, Linear, and similar) or a local MCP server. Connect those first, then mention the task in the message."
+      "body": "Chat sits next to your files. You describe the work. Shape reads the open folder, answers in the thread, and can edit files when you ask it to. You stay in control of what is kept. Every edit shows a diff. You still commit with Git when you want a commit. Switch the mode on the composer before you send. The mode applies to that message. Code edits files and can run commands. This is the default for building. Ask answers without changing the project. Use it to read a file, compare options, or explain an error. Plan writes the approach first and waits. See Plan. Visual works on UI. Describe the screen, or pair it with the in app browser. Review looks for a bug and proposes a small fix. See Review. If you send a Code request that is actually a question, Shape may still try to edit. Switch to Ask when you do not want files to move. Type @ and pick a file or folder. That path goes with the message. Use @ when: You already know the file. The name is common ( button.tsx exists in more than one place). You want Shape to stay inside one package of a monorepo. You can attach more than one. Keep the set small. Extra files add noise. Type / to run a slash command. Use this for work you repeat: a commit message, a PR checklist, a test pass. Every file edit shows a diff in the thread. 1. Read the diff. 2. Keep it, skip it, or say what to change. 3. Repeat until the thread is done. Shape does not push to GitHub on its own. See Commits when you want a commit. Start a new chat when the topic changes. A long thread about one bug will confuse a later request about a different feature. Ctrl+Shift+L opens a new chat. Chat can use a connected plugin (GitHub, Slack, Linear, and similar) or a local MCP server. Connect those first, then mention the task in the message."
     },
     {
       "slug": [
@@ -44,11 +44,11 @@
         "plan"
       ],
       "title": "Plan",
-      "description": "Agree on the steps before BetterShape edits files.",
+      "description": "Agree on the steps before Shape edits files.",
       "order": 2,
       "section": "Agent",
       "href": "/docs/agent/plan",
-      "body": "Use Plan when the work is large enough that you want to see the steps first. A rename in one file does not need Plan. A new settings page across several files does. Plan writes the approach into .bettershape/plans/ and shows it in the thread. It does not start editing until you continue. The plan is a file you can read and change. If a step is wrong, fix it in the thread before you build. 1. Switch the composer to Plan . 2. Describe the change in the same way you would in Code. Include the goal, the files you know about, and anything that must not change. 3. Wait for the plan in the thread. 4. Edit the plan if a step is off. Say which step and why. 5. Continue when you want BetterShape to build it. If you already know the change is one file, skip Plan and use Code. Good Plan prompts name the outcome and the limits: “Add a password field to account settings. Do not change billing.” “Split the homepage hero into its own component. Keep the current copy.” Weak prompts skip the limit. BetterShape will fill in the blanks, and you will spend a turn undoing that. Building uses the plan as the checklist. If the implementation drifts, say so in the same thread. Start a new Plan only if the goal itself changed. When the build is done, read the diffs the same way you would after Code. Keep or skip each file. Commit when you are ready. See Commits."
+      "body": "Use Plan when the work is large enough that you want to see the steps first. A rename in one file does not need Plan. A new settings page across several files does. Plan writes the approach into .shape/plans/ and shows it in the thread. It does not start editing until you continue. The plan is a file you can read and change. If a step is wrong, fix it in the thread before you build. 1. Switch the composer to Plan . 2. Describe the change in the same way you would in Code. Include the goal, the files you know about, and anything that must not change. 3. Wait for the plan in the thread. 4. Edit the plan if a step is off. Say which step and why. 5. Continue when you want Shape to build it. If you already know the change is one file, skip Plan and use Code. Good Plan prompts name the outcome and the limits: “Add a password field to account settings. Do not change billing.” “Split the homepage hero into its own component. Keep the current copy.” Weak prompts skip the limit. Shape will fill in the blanks, and you will spend a turn undoing that. Building uses the plan as the checklist. If the implementation drifts, say so in the same thread. Start a new Plan only if the goal itself changed. When the build is done, read the diffs the same way you would after Code. Keep or skip each file. Commit when you are ready. See Commits."
     },
     {
       "slug": [
@@ -60,7 +60,7 @@
       "order": 3,
       "section": "Agent",
       "href": "/docs/agent/review",
-      "body": "Use Review when something is broken, or when a change feels risky and you want a second look. It is not for rewriting a feature. The Review mark in the composer is the purple mask icon. There is no separate Debug mode. Review looks for the cause first, then proposes a small fix. You still keep or skip the diff. It works best when you give it a signal: A stack trace from the terminal. A failing test name. @ on the file that throws. The last change you made, in one sentence. “It doesn’t work” is not enough. BetterShape will guess, and the guess is often the wrong file. 1. Switch the composer to Review . 2. Paste the error or point at the file. 3. Read the finding in the thread. It should name the cause, not only restyle the code. 4. Keep the fix if it is small and correct. Skip it if it refactors past the bug. After a multi file change, you can run Review on the same thread and ask it to list what is actually wrong. That still lands as diffs you can keep or skip. Do not use Review as a formatter. If you want tests written, say that in Code . If you want a second pass on a pull request, say which PR. See GitHub."
+      "body": "Use Review when something is broken, or when a change feels risky and you want a second look. It is not for rewriting a feature. The Review mark in the composer is the purple mask icon. There is no separate Debug mode. Review looks for the cause first, then proposes a small fix. You still keep or skip the diff. It works best when you give it a signal: A stack trace from the terminal. A failing test name. @ on the file that throws. The last change you made, in one sentence. “It doesn’t work” is not enough. Shape will guess, and the guess is often the wrong file. 1. Switch the composer to Review . 2. Paste the error or point at the file. 3. Read the finding in the thread. It should name the cause, not only restyle the code. 4. Keep the fix if it is small and correct. Skip it if it refactors past the bug. After a multi file change, you can run Review on the same thread and ask it to list what is actually wrong. That still lands as diffs you can keep or skip. Do not use Review as a formatter. If you want tests written, say that in Code . If you want a second pass on a pull request, say which PR. See GitHub."
     },
     {
       "slug": [
@@ -72,7 +72,7 @@
       "order": 4,
       "section": "Agent",
       "href": "/docs/agent/browser",
-      "body": "Use the in app browser when you want to edit the live page instead of describing the UI in chat. This is not the same as Visual mode in the composer. Visual mode asks the agent to design. The browser lets you click the page in front of you. 1. Run your app the way you usually do ( npm run dev , and so on). 2. Copy the local URL (for example http://localhost:3000 ). 3. Open that URL in BetterShape’s browser. This works with Next.js, Vite, Astro, and Remix. The app has to be running. BetterShape does not start it for you. If the preview cannot reach localhost, the dev server is not up, or it is bound to another host. See troubleshooting. Select an element and change it. BetterShape writes the same change into the source. You still review the diff in the thread. Keep it if the source matches what you changed on the page. Skip it if it touched the wrong file. Layout and copy changes map cleanly when the element is in one component. Shared components update every screen that uses them. That is correct. Read the diff before you keep it. Styles that come from a design token may change the token, not a one off class. You can still send a Visual or Code message while the browser is open. Say which screen you have open if the app has more than one route. When you are done, go back to Code for logic that is not on the page."
+      "body": "Use the in app browser when you want to edit the live page instead of describing the UI in chat. This is not the same as Visual mode in the composer. Visual mode asks the agent to design. The browser lets you click the page in front of you. 1. Run your app the way you usually do ( npm run dev , and so on). 2. Copy the local URL (for example http://localhost:3000 ). 3. Open that URL in Shape’s browser. This works with Next.js, Vite, Astro, and Remix. The app has to be running. Shape does not start it for you. If the preview cannot reach localhost, the dev server is not up, or it is bound to another host. See troubleshooting. Select an element and change it. Shape writes the same change into the source. You still review the diff in the thread. Keep it if the source matches what you changed on the page. Skip it if it touched the wrong file. Layout and copy changes map cleanly when the element is in one component. Shared components update every screen that uses them. That is correct. Read the diff before you keep it. Styles that come from a design token may change the token, not a one off class. You can still send a Visual or Code message while the browser is open. Say which screen you have open if the app has more than one route. When you are done, go back to Code for logic that is not on the page."
     },
     {
       "slug": [
@@ -84,7 +84,7 @@
       "order": 5,
       "section": "Agent",
       "href": "/docs/agent/context",
-      "body": "Every turn re sends the whole thread to the model: your messages, the agent's answers, and every tool result. The context window is finite, so a long thread runs out of room eventually. Input gets truncated, and BetterShape seems to forget what you said an hour ago. A short chat never hits the limit. A long one does, and it helps to know what survives. 1. Tool output is trimmed. Old tool results shrink to a head and tail excerpt. A result the model no longer needs, such as an older read of a file it read again later, becomes a one line note. 2. Older turns are summarized. Past roughly 74% of the window, BetterShape folds the older turns into one summary and keeps the newest turns word for word. That is compaction. 3. The summary is reused. After the first fold, later turns send the summary plus the recent turns instead of the whole transcript, so BetterShape does not re summarize on every message. 4. Oversized output goes to disk. A single tool result too big for the budget is written under .bettershape/agent out/ and the model gets the path. Manual compaction uses the same engine as the automatic pass, so a thread you compacted by hand keeps working the same way. The agent can also compact mid task when a turn is running long. The summary follows a fixed outline rather than a free form recap: The request and the intent, including anything you ruled out. Technical concepts and the shape of the solution. Files and code sections, with the important snippets. Errors, fixes, and rejected approaches. Problems solved and the state of the work. Every user message, so early instructions survive. Work in progress and the next step. BetterShape also re attaches the five most recently read or written files, so the agent picks up where it left off instead of re reading them. Want every summary to carry something specific? An API shape, a set of migration names, a house tone? Write it once in Settings → Agents → Instructions → Compaction. Those instructions are appended to every compaction, manual or automatic. Automatic compaction picks its moment from a token count, and a token count cannot tell whether the agent is half way through a rename across six files. When it is, the agent can hold the automatic pass. It calls compact context on its own, with a one line reason: That call is the hold, not a summary of the work. The reason is pinned into the next summary, so the thing it was protecting survives the fold. A hold is bounded, because an unbounded one would let the window overflow, and a truncated window loses more than a summary does: It lapses after about 15 minutes, or 16k tokens of growth, or 3 skipped passes. It is overridden when the chat reaches about 92% of the window. /compact from you always works, and a finished turn clears the hold. A fold is saved as it happens, so a summary survives a restart and a reopened chat does not send the raw history again. Only the part no summary covers yet is sent to be summarized, and the previous summary is handed in as the base. Settings → Agents → Context shows the hold, its reason, and a Compact now button while one is active. Compaction changes what the model reads, not what you keep. The earlier messages stay in the chat, with a marker where the summary took over. The pre compaction transcript is archived under .bettershape/agent out/ , so the agent can grep it when a detail is missing. Each chat keeps its own summary. Opening another thread, or starting a new one, starts from that thread's history. Settings → Agents → Context shows what compaction has done in the open chat: how many passes, how many tokens it freed. Reset goes back to sending the raw transcript, and since nothing was deleted, nothing is lost. Incognito chats are never summarized. If the summary call fails, or the result is too short to be useful, BetterShape leaves the thread alone and retries later. It will not silently drop turns. \"Nothing to compact yet\" means the thread is still small enough to send whole."
+      "body": "Every turn re sends the whole thread to the model: your messages, the agent's answers, and every tool result. The context window is finite, so a long thread runs out of room eventually. Input gets truncated, and Shape seems to forget what you said an hour ago. A short chat never hits the limit. A long one does, and it helps to know what survives. 1. Tool output is trimmed. Old tool results shrink to a head and tail excerpt. A result the model no longer needs, such as an older read of a file it read again later, becomes a one line note. 2. Older turns are summarized. Past roughly 74% of the window, Shape folds the older turns into one summary and keeps the newest turns word for word. That is compaction. 3. The summary is reused. After the first fold, later turns send the summary plus the recent turns instead of the whole transcript, so Shape does not re summarize on every message. 4. Oversized output goes to disk. A single tool result too big for the budget is written under .shape/agent out/ and the model gets the path. Manual compaction uses the same engine as the automatic pass, so a thread you compacted by hand keeps working the same way. The agent can also compact mid task when a turn is running long. The summary follows a fixed outline rather than a free form recap: The request and the intent, including anything you ruled out. Technical concepts and the shape of the solution. Files and code sections, with the important snippets. Errors, fixes, and rejected approaches. Problems solved and the state of the work. Every user message, so early instructions survive. Work in progress and the next step. Shape also re attaches the five most recently read or written files, so the agent picks up where it left off instead of re reading them. Want every summary to carry something specific? An API shape, a set of migration names, a house tone? Write it once in Settings → Agents → Instructions → Compaction. Those instructions are appended to every compaction, manual or automatic. Automatic compaction picks its moment from a token count, and a token count cannot tell whether the agent is half way through a rename across six files. When it is, the agent can hold the automatic pass. It calls compact context on its own, with a one line reason: That call is the hold, not a summary of the work. The reason is pinned into the next summary, so the thing it was protecting survives the fold. A hold is bounded, because an unbounded one would let the window overflow, and a truncated window loses more than a summary does: It lapses after about 15 minutes, or 16k tokens of growth, or 3 skipped passes. It is overridden when the chat reaches about 92% of the window. It is checked before every model call in a turn, not only between turns. A single run of work can take hundreds of tool calls, and a window that fills up in the middle of one fails the call outright, so the check happens mid turn too. /compact from you always works, and a finished turn clears the hold. A fold is saved as it happens, so a summary survives a restart and a reopened chat does not send the raw history again. Only the part no summary covers yet is sent to be summarized, and the previous summary is handed in as the base. Settings → Agents → Context shows the hold, its reason, and a Compact now button while one is active. Compaction changes what the model reads, not what you keep. The earlier messages stay in the chat, with a marker where the summary took over. The pre compaction transcript is archived under .shape/agent out/ , so the agent can grep it when a detail is missing. Each chat keeps its own summary. Opening another thread, or starting a new one, starts from that thread's history. Settings → Agents → Context shows what compaction has done in the open chat: how many passes, how many tokens it freed. Reset goes back to sending the raw transcript, and since nothing was deleted, nothing is lost. Incognito chats are never summarized. If the summary call fails, or the result is too short to be useful, Shape leaves the thread alone and retries later. It will not silently drop turns. \"Nothing to compact yet\" means the thread is still small enough to send whole."
     },
     {
       "slug": [
@@ -96,7 +96,7 @@
       "order": 1,
       "section": "Customize",
       "href": "/docs/customize/plugins",
-      "body": "Plugins let chat use GitHub, Slack, Linear, Stripe, and similar accounts. You connect the account once, then mention the task in a message. Plugins run through your own Composio account. Add its API key in Settings → Agents → Plugins first (composio.com → API keys). A tool that runs on your machine is MCP. 1. Open Settings → Agents → Plugins . 2. Pick the service. 3. Sign in in the browser window and allow access. 4. Return to BetterShape. You can disconnect from the same place. Disconnecting stops new chat turns from using that account. It does not delete past threads. Say what you need in plain language. You do not need a special syntax. Examples: “Open a pull request for this branch.” “List my Linear issues tagged bug.” “Post a summary of this diff to the engineering Slack channel.” If the plugin is not connected, BetterShape cannot call it. Connect it first, then send the message again. Signing in for GitHub loads pull requests and related data for the open folder. A GitHub plugin is for chat. You may need both, depending on what you are doing. Sign in again. Check that the account has access to the repo or workspace you named. Then send a shorter message that names the repo or channel."
+      "body": "Plugins let chat use GitHub, Slack, Linear, Stripe, and similar accounts. You connect the account once, then mention the task in a message. You must be signed in. A plugin is not a local tool. A tool that runs on your machine is MCP. 1. Open Settings → Agents → Plugins . 2. Pick the service. 3. Sign in in the browser window and allow access. 4. Return to Shape. You can disconnect from the same place. Disconnecting stops new chat turns from using that account. It does not delete past threads. Say what you need in plain language. You do not need a special syntax. Examples: “Open a pull request for this branch.” “List my Linear issues tagged bug.” “Post a summary of this diff to the engineering Slack channel.” If the plugin is not connected, Shape cannot call it. Connect it first, then send the message again. Signing in for GitHub loads pull requests and related data for the open folder. A GitHub plugin is for chat. You may need both, depending on what you are doing. Sign in again. Check that the account has access to the repo or workspace you named. Then send a shorter message that names the repo or channel."
     },
     {
       "slug": [
@@ -104,11 +104,11 @@
         "mcp"
       ],
       "title": "MCP",
-      "description": "Add a local tool server BetterShape can call from chat.",
+      "description": "Add a local tool server Shape can call from chat.",
       "order": 2,
       "section": "Customize",
       "href": "/docs/customize/mcp",
-      "body": "MCP servers are tools BetterShape can call from chat. Add one in Settings → Agents → MCP , or keep a server in mcp.json if you want it in a file. Servers you add in Settings stay in BetterShape. They are not written into mcp.json . A server in mcp.json is picked up on its own. You do not have to add it again in Settings. Use MCP when the tool runs on your machine or at a URL you already have. Use a plugin when the tool is an outside account. Open Settings → Agents → MCP and choose Add server . Paste the server URL, or paste its JSON config. BetterShape shows the server, then connects. If the server asks you to sign in, finish that in the browser. Remove a server you added there with Remove . That does not change mcp.json . On the MCP page, choose Open mcp.json . If the file does not exist yet, BetterShape creates it. Use command when BetterShape should start the process. Use url if the server is already running. Save the file. Name the server something you will recognize in chat. The name is what you will refer to, not the package name. Send a message that needs the tool. If the server does not show up: 1. Save mcp.json . 2. Open Settings → Agents → MCP again. BetterShape reloads the file. 3. Open the same folder again. 4. Check that command is on your PATH when BetterShape starts. A tool that only works in your existing terminal session will fail here. You do not have to open Settings for this. Ask in chat, and BetterShape can add, change, test, or remove a server for you. The tools are mcp manage (server lifecycle) and mcp search / mcp call (using the tools a server exposes). The agent can: List servers and their status. Search the registry for a server by name, then add it from the registry entry. Add, update, enable, disable, or remove a server, with command / args / env for a local process or url / headers for a remote one. Test a server and report the tool count and latency. A test that passes saves the server unless you pass save: false . Start sign in for a server that needs OAuth. List the tools a server exposes. Servers the agent creates are written to the same mcp.json the Settings page reads, so they show up there too. Pass save: false to add a server for the current session only. Adding a server changes which tools BetterShape can call, so a mode that only reads will not do it. Approve the action like any other edit. A local server is a program this machine will run, so the first time one is added, updated, or tested, BetterShape asks for approval in the chat and shows the exact command. Servers already in mcp.json , and everything you add yourself in Settings, are past that point. Set Auto run to Always in Settings to stop the questions. Remote servers that authenticate with a header use headers : BetterShape sends those headers on every request to that server. When the server uses OAuth instead, BetterShape does not send a stored Authorization header — the OAuth token wins. mcp.json lives in BetterShape’s data folder, not in the repo. Do not put API keys in it. Use env vars the server already reads. Delete the entry from mcp.json and save. Restart BetterShape if the tool still appears."
+      "body": "MCP servers are tools Shape can call from chat. Add one in Settings → Agents → MCP , or keep a server in mcp.json if you want it in a file. Servers you add in Settings stay in Shape. They are not written into mcp.json . A server in mcp.json is picked up on its own. You do not have to add it again in Settings. Use MCP when the tool runs on your machine or at a URL you already have. Use a plugin when the tool is an outside account. Open Settings → Agents → MCP and choose Add server . There are two tabs. Browse the registry searches the official MCP registry, the same index the agent searches. Search for a product or package name, check the command shown under a result, then choose Install . Shape writes the entry to mcp.json and connects it, so the server is there after a restart. If it needs a sign in, Shape opens the browser flow. Paste a config takes a server URL or a JSON config. Servers added this way stay in Shape and are not written to mcp.json . Remove a server you added by pasting with Remove . That does not change mcp.json . On the MCP page, choose Open mcp.json . If the file does not exist yet, Shape creates it. Use command when Shape should start the process. Use url if the server is already running. Save the file. Name the server something you will recognize in chat. The name is what you will refer to, not the package name. Send a message that needs the tool. If the server does not show up: 1. Save mcp.json . 2. Open Settings → Agents → MCP again. Shape reloads the file. 3. Open the same folder again. 4. Check that command is on your PATH when Shape starts. A tool that only works in your existing terminal session will fail here. You do not have to open Settings for this. Ask in chat, and Shape can add, change, test, or remove a server for you. The tools are mcp manage (server lifecycle) and mcp search / mcp call (using the tools a server exposes). The agent can: List servers and their status. Search the registry for a server by name, then add it from the registry entry. Add, update, enable, disable, or remove a server, with command / args / env for a local process or url / headers for a remote one. Test a server and report the tool count and latency. A test that passes saves the server unless you pass save: false . Start sign in for a server that needs OAuth. List the tools a server exposes. Servers the agent creates are written to the same mcp.json the Settings page reads, so they show up there too. Pass save: false to add a server for the current session only. Adding a server changes which tools Shape can call, so a mode that only reads will not do it. Approve the action like any other edit. A local server is a program this machine will run, so the first time one is added, updated, or tested, Shape asks for approval in the chat and shows the exact command. Servers already in mcp.json , and everything you add yourself in Settings, are past that point. Set Auto run to Always in Settings to stop the questions. Remote servers that authenticate with a header use headers : Shape sends those headers on every request to that server. When the server uses OAuth instead, Shape does not send a stored Authorization header — the OAuth token wins. mcp.json lives in Shape’s data folder, not in the repo. Do not put API keys in it. Use env vars the server already reads. Delete the entry from mcp.json and save. Restart Shape if the tool still appears."
     },
     {
       "slug": [
@@ -120,7 +120,7 @@
       "order": 3,
       "section": "Customize",
       "href": "/docs/customize/slash-commands",
-      "body": "A slash command is a name plus a prompt you reuse. Type / in chat to pick one. Use this for work you do the same way every time: writing a commit message, checking a PR, generating tests in a fixed shape. 1. Open Settings → Agents → Workflows . 2. Give it a short name. That name is what you type after / . 3. Write the prompt you want BetterShape to follow. Be specific about the output: a commit message, a list of risks, a test file, and so on. 4. Save it. Keep the prompt as the instructions, not as a one off about the current branch. The current project still comes from the open folder and the thread. Type / in the composer and choose the command. You can add extra text after it, such as /commit focus on the billing page . A trigger phrase in a normal message can run it too, if you set one on the command. Write it like you would brief a person who has never seen this repo: What to look at ( @ files, or “the diff in source control”). What to produce. What to avoid (“do not change snapshots”). Bad commands are one word. “Review” with no standard is not a command. The Review mode already exists. Open Settings → Agents → Workflows again. Change the prompt, or delete the command. Existing threads do not change. Skills (reusable instructions the agent can load) live under Settings → Agents → Skills . They are separate from slash commands. BetterShape ships a few commands that are not prompts. They run locally and never reach the model. Command What it does /compact [focus] Summarize the earlier part of the thread and keep going. Long threads eventually fill the model's context window. /compact folds the older turns into one summary, keeps the newest turns verbatim, and continues in the same thread. Use it when: The thread is long and BetterShape starts forgetting things you said earlier. You finished a stage of work and want to start the next one without the old noise. A request failed because the context was too long. Add a focus to steer the summary: /compact keep the migration plan and the API shapes . Without a focus, BetterShape uses your standing compaction instructions from Settings → Agents → Instructions → Compaction . BetterShape also compacts on its own when a thread gets close to the window limit, so you rarely have to run this. The summary is the record of what was folded — everything before it stays in the transcript for you to scroll, and older turns are not deleted from the thread. See Context and compaction for what is kept and what is dropped."
+      "body": "A slash command is a name plus a prompt you reuse. Type / in chat to pick one. Use this for work you do the same way every time: writing a commit message, checking a PR, generating tests in a fixed shape. 1. Open Settings → Agents → Workflows . 2. Give it a short name. That name is what you type after / . 3. Write the prompt you want Shape to follow. Be specific about the output: a commit message, a list of risks, a test file, and so on. 4. Save it. Keep the prompt as the instructions, not as a one off about the current branch. The current project still comes from the open folder and the thread. Type / in the composer and choose the command. You can add extra text after it, such as /commit focus on the billing page . A trigger phrase in a normal message can run it too, if you set one on the command. Write it like you would brief a person who has never seen this repo: What to look at ( @ files, or “the diff in source control”). What to produce. What to avoid (“do not change snapshots”). Bad commands are one word. “Review” with no standard is not a command. The Review mode already exists. Open Settings → Agents → Workflows again. Change the prompt, or delete the command. Existing threads do not change. Skills (reusable instructions the agent can load) live under Settings → Agents → Skills . They are separate from slash commands. Shape ships a few commands that are not prompts. They run locally and never reach the model. Command What it does /compact [focus] Summarize the earlier part of the thread and keep going. Long threads eventually fill the model's context window. /compact folds the older turns into one summary, keeps the newest turns verbatim, and continues in the same thread. Use it when: The thread is long and Shape starts forgetting things you said earlier. You finished a stage of work and want to start the next one without the old noise. A request failed because the context was too long. Add a focus to steer the summary: /compact keep the migration plan and the API shapes . Without a focus, Shape uses your standing compaction instructions from Settings → Agents → Instructions → Compaction . Shape also compacts on its own when a thread gets close to the window limit, so you rarely have to run this. The summary is the record of what was folded — everything before it stays in the transcript for you to scroll, and older turns are not deleted from the thread. See Context and compaction for what is kept and what is dropped."
     },
     {
       "slug": [
@@ -132,7 +132,7 @@
       "order": 1,
       "section": "Git",
       "href": "/docs/git/commits",
-      "body": "BetterShape does not commit when it edits a file. You keep or skip the diff in chat first. Then you commit what is actually on disk. In Code mode, ask it to commit. Name the files if you only want some of them. Read the message it drafts before you let it run. This uses the open folder’s git repo. Open the repo root, not a nested package, unless that package is its own repo. Open the terminal ( Ctrl+ ) and run git the way you usually do. Stage, commit, and push from there if you prefer. View → Git Manager opens the commit graph in the workspace. Use it to see history on the current folder. A GitHub login is only needed for remotes hosted on GitHub, pull requests, issues, and Actions. Local commits work without it. See GitHub. Keep or skip the diffs in the chat thread first. Then commit what is actually in the working tree. Skipping a diff in chat and committing the same file from disk will still include that file if it is still changed on disk."
+      "body": "Shape does not commit when it edits a file. You keep or skip the diff in chat first. Then you commit what is actually on disk. In Code mode, ask it to commit. Name the files if you only want some of them. Read the message it drafts before you let it run. This uses the open folder’s git repo. Open the repo root, not a nested package, unless that package is its own repo. Open the terminal ( Ctrl+ ) and run git the way you usually do. Stage, commit, and push from there if you prefer. View → Git Manager opens the commit graph in the workspace. Use it to see history on the current folder. A GitHub login is only needed for remotes hosted on GitHub, pull requests, issues, and Actions. Local commits work without it. See GitHub. Keep or skip the diffs in the chat thread first. Then commit what is actually in the working tree. Skipping a diff in chat and committing the same file from disk will still include that file if it is still changed on disk."
     },
     {
       "slug": [
@@ -144,7 +144,7 @@
       "order": 2,
       "section": "Git",
       "href": "/docs/git/github",
-      "body": "Sign in with GitHub when the open folder has a github.com remote. This login is separate from the account you use for chat. A local only repo has nothing to load from GitHub. Open a pull request from the workspace, or ask chat after you connect the GitHub plugin. Finish the browser step, then return to BetterShape. If data is missing, sign in again, and confirm the open folder is the repo you think it is ( git remote v in the terminal). 1. Commit and push the branch. See Commits. 2. Open a pull request from BetterShape, or ask chat to open one if the GitHub plugin is connected. 3. Read the title and body. BetterShape can draft them from the branch. You confirm before it is published. Do not publish a PR for a folder that is not the repo you meant to open. Asking chat to “open a PR” uses a plugin if you connected one. GitHub login is for the open folder’s github.com remote. Use whichever matches the task. Sign out of GitHub from the same place you signed in. Chat is unaffected — it uses your model provider keys."
+      "body": "Sign in with GitHub when the open folder has a github.com remote. This login is separate from the account you use for chat. A local only repo has nothing to load from GitHub. Open a pull request from the workspace, or ask chat after you connect the GitHub plugin. Finish the browser step, then return to Shape. If data is missing, sign in again, and confirm the open folder is the repo you think it is ( git remote v in the terminal). 1. Commit and push the branch. See Commits. 2. Open a pull request from Shape, or ask chat to open one if the GitHub plugin is connected. 3. Read the title and body. Shape can draft them from the branch. You confirm before it is published. Do not publish a PR for a folder that is not the repo you meant to open. Asking chat to “open a PR” uses a plugin if you connected one. GitHub login is for the open folder’s github.com remote. Use whichever matches the task. Sign out of GitHub from the same place you signed in. Chat sign in is unchanged."
     },
     {
       "slug": [
@@ -156,7 +156,7 @@
       "order": 1,
       "section": "Help",
       "href": "/docs/help/install",
-      "body": "BetterShape is a desktop app for Windows 10 or 11, 64 bit. There is no browser only editor. You download the app, then open a folder on disk. 1. Get the installer from useshape.org/download. 2. Run it. 3. If Windows SmartScreen appears, choose More info , then Run anyway . 4. Open BetterShape from the Start menu. If the installer will not run, you are on 32 bit Windows, or the download was cut short. Download it again. Sign in so chat and billing work. You can open files without an account. You cannot send a message without one. Updates install on their own. Help → Check for Updates runs one now. If an update fails, download a fresh installer and run it over the existing install. Uninstall from Windows Settings like any other desktop app. Your project files on disk are not deleted. Local BetterShape data for the app may remain under your user folder. Open a folder and send a task."
+      "body": "Shape is a desktop app for Windows 10 or 11, 64 bit. There is no browser only editor. You download the app, then open a folder on disk. 1. Get the installer from useshape.org/download. 2. Run it. 3. If Windows SmartScreen appears, choose More info , then Run anyway . 4. Open Shape from the Start menu. If the installer will not run, you are on 32 bit Windows, or the download was cut short. Download it again. Sign in so chat and billing work. You can open files without an account. You cannot send a message without one. Updates install on their own. Help → Check for Updates runs one now. If an update fails, download a fresh installer and run it over the existing install. Uninstall from Windows Settings like any other desktop app. Your project files on disk are not deleted. Local Shape data for the app may remain under your user folder. Open a folder and send a task."
     },
     {
       "slug": [
@@ -180,7 +180,7 @@
       "order": 3,
       "section": "Help",
       "href": "/docs/help/faq",
-      "body": "Editing files, search, and the terminal work without a connection. Chat and Git push/pull need one. No. BetterShape has no account, no plan, and no credits. You pay your model provider directly for what you use. Not by default. Chat sends the files and context you include in a turn, plus what the agent reads to do the task. Local editing does not require chat. That is the only way chat works. Add a key in Settings → Providers — OpenAI, Anthropic, Google, OpenRouter, or any OpenAI compatible endpoint. Nothing is proxied through a server we run. Windows 10 or 11, 64 bit. See Install. No. There is no BetterShape account. The only credentials in the app are the provider keys you add and the Git host login you use for push and pull."
+      "body": "Editing files works without a connection. Chat does not. Git push and pull need a connection too. No. They reset each month. Plans are on Models. Not by default. Chat sends the files and context you include in a turn, plus what the agent reads to do the task. Local editing does not require chat. Named models on a paid plan run through Shape. Local editing does not need a key. There is no setting to paste a personal provider key for chat. Windows 10 or 11, 64 bit. See Install. No. A fork cannot sign in to Shape Cloud. Official builds can. You can still run a local build and edit files. See local development. Account security is on the website under dashboard settings. Sign in, password, and email all use the same account you sign into the app with."
     },
     {
       "slug": [
@@ -188,11 +188,11 @@
         "troubleshooting"
       ],
       "title": "Troubleshooting",
-      "description": "When install, keys, or chat fail.",
+      "description": "When install, sign-in, or chat fails.",
       "order": 4,
       "section": "Help",
       "href": "/docs/help/troubleshooting",
-      "body": "Start with the matching heading. If none of these fit, contact with the version from Help → About . It needs Windows 10 or 11, 64 bit. Download the installer again from useshape.org/download and run it. If it opens and closes immediately, run it once more after a reboot. If it still fails, send the version you tried to install. Open Settings → Providers and add an API key. BetterShape calls the provider directly with that key; there is no account to sign in to. If a key is set and send still fails, the provider returned the error — the status line under the message names the provider and the HTTP status. The menu lists the models offered by presets, plus anything in Extra models on the provider card. Add the id by hand if your provider serves a model we do not list. Start your app first, then open that URL in the browser. localhost has to be the same machine. A URL on another device will not load in BetterShape’s preview. Sign in with GitHub and open a folder whose remote is on github.com. A fork or an org the GitHub account cannot see will look empty. Save mcp.json , restart BetterShape, and open the folder again. The command has to exist on PATH for the app, not only for a terminal you already opened. See MCP. Use Help → Check for Updates . If it still reports the old version, install over it from download."
+      "body": "Start with the matching heading. If none of these fit, contact with the account email and the version from Help → About . It needs Windows 10 or 11, 64 bit. Download the installer again from useshape.org/download and run it. If it opens and closes immediately, run it once more after a reboot. If it still fails, send the version you tried to install. Finish the step in the browser, then return to the app. If the browser is stuck: 1. Close the browser tab. 2. Sign out from the app if you are halfway in. 3. Sign in again. Do not paste a password into chat. Check the plan and remaining credits on Billing. Free includes Auto only. A named model on Free will not send. If you are on a paid plan and send still fails, switch to Auto once. If Auto works, the named model is the problem for that turn. If Auto also fails, check status. Start your app first, then open that URL in the browser. localhost has to be the same machine. A URL on another device will not load in Shape’s preview. Sign in with GitHub and open a folder whose remote is on github.com. A fork or an org the GitHub account cannot see will look empty. Save mcp.json , restart Shape, and open the folder again. The command has to exist on PATH for the app, not only for a terminal you already opened. See MCP. Use Help → Check for Updates . If it still reports the old version, install over it from download."
     },
     {
       "slug": [
@@ -204,7 +204,7 @@
       "order": 5,
       "section": "Help",
       "href": "/docs/help/contact",
-      "body": "Product questions go to contact. Include: The version from Help → About . What you tried, and what happened instead. Do not send API keys, provider tokens, or a dump of .env files. There is nothing to bill here: BetterShape has no account and no subscription. Model usage is billed by the provider whose key you added. Security issues go through SECURITY.md on GitHub. Do not file those as a normal product question. If a provider's API is down, check that provider's status page before you write in."
+      "body": "Billing, account, and product questions go to contact. Include: The email on the account. The version from Help → About . What you tried, and what happened instead. Do not send passwords, backup codes, or a dump of .env files. For charges, cancelled plans, or a missing upgrade, use the same contact form and say it is billing. Have the last four of the payment method if you can. Security issues go through SECURITY.md on GitHub. Do not file those as a normal product question. If chat, sign in, or billing is down for everyone, check status before you write in."
     }
   ],
   "chunks": [
@@ -216,7 +216,7 @@
       ],
       "href": "/docs/get-started/quickstart",
       "heading": null,
-      "text": "BetterShape is a desktop app. You open a project folder, describe the work in chat, and review the edits before they stay.",
+      "text": "Shape is a desktop app. You open a project folder, describe the work in chat, and review the edits before they stay.",
       "title": "Quickstart",
       "section": "Get Started"
     },
@@ -228,19 +228,19 @@
       ],
       "href": "/docs/get-started/quickstart",
       "heading": "Install the app",
-      "text": "1. Go to useshape.org/download. 2. Run the installer. 3. Open BetterShape from the Start menu. BetterShape needs Windows 10 or 11, 64 bit. If Windows SmartScreen appears, choose More info , then Run anyway .",
+      "text": "1. Go to useshape.org/download. 2. Run the installer. 3. Open Shape from the Start menu. Shape needs Windows 10 or 11, 64 bit. If Windows SmartScreen appears, choose More info , then Run anyway .",
       "title": "Quickstart",
       "section": "Get Started"
     },
     {
-      "id": "get-started/quickstart#add-a-provider-key",
+      "id": "get-started/quickstart#sign-in",
       "slug": [
         "get-started",
         "quickstart"
       ],
       "href": "/docs/get-started/quickstart",
-      "heading": "Add a provider key",
-      "text": "Open Settings → Providers and paste an API key from OpenAI, Anthropic, Google, OpenRouter, or any OpenAI compatible endpoint. Keys are stored on this machine and used only for your own requests. You can open files and edit without a key. Chat needs one, and tells you in the composer when none is configured.",
+      "heading": "Sign in",
+      "text": "Sign in with the account you use for chat and billing. You can still open files without signing in. You cannot send a message until you do. If the browser window never comes back to the app, close it, sign out from Help , and sign in again. See troubleshooting.",
       "title": "Quickstart",
       "section": "Get Started"
     },
@@ -252,7 +252,7 @@
       ],
       "href": "/docs/get-started/quickstart",
       "heading": "Open a folder",
-      "text": "Use Open folder (or Ctrl+K then Ctrl+O ) and pick the project you want to work on. BetterShape stays in that folder until you open a different one. Chat, search, and Git all run against this folder. Open the repo root, not a nested package, unless you only want that package in context.",
+      "text": "Use Open folder (or Ctrl+K then Ctrl+O ) and pick the project you want to work on. Shape stays in that folder until you open a different one. Chat, search, and Git all run against this folder. Open the repo root, not a nested package, unless you only want that package in context.",
       "title": "Quickstart",
       "section": "Get Started"
     },
@@ -264,7 +264,7 @@
       ],
       "href": "/docs/get-started/quickstart",
       "heading": "Send a first task",
-      "text": "Type in the composer at the bottom of chat. Start small so you can see how BetterShape edits files. Examples that work well: “Rename the primary button on the home page to Get started.” “Explain app/page.tsx in a few sentences.” “Add a loading state to the settings save button.” Press Enter to send. BetterShape reads the project, answers in the thread, and may edit files.",
+      "text": "Type in the composer at the bottom of chat. Start small so you can see how Shape edits files. Examples that work well: “Rename the primary button on the home page to Get started.” “Explain app/page.tsx in a few sentences.” “Add a loading state to the settings save button.” Press Enter to send. Shape reads the project, answers in the thread, and may edit files.",
       "title": "Quickstart",
       "section": "Get Started"
     },
@@ -276,7 +276,7 @@
       ],
       "href": "/docs/get-started/quickstart",
       "heading": "Point it at a file",
-      "text": "Type @ and pick a file. That file is attached to the message. Use this when you already know which file matters, instead of hoping BetterShape finds it. Type / to run a saved prompt. See slash commands.",
+      "text": "Type @ and pick a file. That file is attached to the message. Use this when you already know which file matters, instead of hoping Shape finds it. Type / to run a saved prompt. See slash commands.",
       "title": "Quickstart",
       "section": "Get Started"
     },
@@ -288,7 +288,7 @@
       ],
       "href": "/docs/get-started/quickstart",
       "heading": "Review the diff",
-      "text": "When BetterShape edits a file, the diff shows in the thread. Keep the change if it matches what you asked. Skip it if it is wrong or too broad. Ask a follow up if it is close. Nothing is committed for you. When you want a commit, see Commits.",
+      "text": "When Shape edits a file, the diff shows in the thread. Keep the change if it matches what you asked. Skip it if it is wrong or too broad. Ask a follow up if it is close. Nothing is committed for you. When you want a commit, see Commits.",
       "title": "Quickstart",
       "section": "Get Started"
     },
@@ -312,7 +312,7 @@
       ],
       "href": "/docs/get-started/quickstart",
       "heading": "If chat will not send",
-      "text": "Pick the model from the composer's model menu. Everything your key can reach is available. See Models.",
+      "text": "Check the plan and remaining credits on Billing. Free includes Auto only. Paid plans can pick a named model. See Models.",
       "title": "Quickstart",
       "section": "Get Started"
     },
@@ -329,74 +329,62 @@
       "section": "Get Started"
     },
     {
-      "id": "get-started/models#add-a-provider",
+      "id": "get-started/models#auto",
       "slug": [
         "get-started",
         "models"
       ],
       "href": "/docs/get-started/models",
-      "heading": "Add a provider",
-      "text": "Open Settings → Providers and paste an API key for the provider you use: Provider Key from Notes OpenAI platform.openai.com GPT models, embeddings, images, speech. Anthropic console.anthropic.com Claude models. Google aistudio.google.com Gemini models. OpenRouter openrouter.ai One key for many providers. xAI, DeepSeek, Groq, Mistral their dashboards OpenAI compatible. Custom your own endpoint Any OpenAI compatible base URL, including a local runtime. Chat works as soon as one provider is enabled with a key. Without one, BetterShape says so instead of failing mid turn.",
+      "heading": "Auto",
+      "text": "Auto is included on every plan, including Free. Use it unless you have a reason to pick a named model. Auto is the default. Leave it there for most work.",
       "title": "Models",
       "section": "Get Started"
     },
     {
-      "id": "get-started/models#pick-a-model",
+      "id": "get-started/models#named-models",
       "slug": [
         "get-started",
         "models"
       ],
       "href": "/docs/get-started/models",
-      "heading": "Pick a model",
-      "text": "The model menu lists the models your key can reach, plus anything extra you add by hand. The default is Auto , which uses your first configured provider unless you set a different default in Settings → Providers .",
+      "heading": "Named models",
+      "text": "Paid plans can pick a named model (Claude, GPT, Gemini, Grok, and others in the catalog). Named models spend credits. Harder tasks and longer threads spend more. Credits reset each month. Unused credits do not carry over. If a named model is greyed out, the current plan does not include it. Change the plan on Billing.",
       "title": "Models",
       "section": "Get Started"
     },
     {
-      "id": "get-started/models#embeddings-and-search",
+      "id": "get-started/models#plans",
       "slug": [
         "get-started",
         "models"
       ],
       "href": "/docs/get-started/models",
-      "heading": "Embeddings and search",
-      "text": "Codebase search uses an OpenAI compatible /embeddings endpoint. Point Embedding model at one your provider offers, or turn embeddings off; keyword search and the file index still work.",
+      "heading": "Plans",
+      "text": "Plan Price What you get Free $0 Auto Plus $15 / month Auto and named models, 450 credits Pro $50 / month Auto and named models, 1,800 credits Max $150 / month Auto and named models, 5,800 credits Change your plan on Billing. Usage for the current period is on the same page.",
       "title": "Models",
       "section": "Get Started"
     },
     {
-      "id": "get-started/models#media",
+      "id": "get-started/models#how-to-choose",
       "slug": [
         "get-started",
         "models"
       ],
       "href": "/docs/get-started/models",
-      "heading": "Media",
-      "text": "Image, speech, and caption tools need an OpenAI wire provider. They use the same key as chat.",
+      "heading": "How to choose",
+      "text": "Everyday edits: Auto. A large refactor or a long plan: a named model on a paid plan. You are out of credits: Auto still runs while the Auto pool has quota. If send fails, wait for the reset or change plan.",
       "title": "Models",
       "section": "Get Started"
     },
     {
-      "id": "get-started/models#cost",
+      "id": "get-started/models#what-a-credit-is-not",
       "slug": [
         "get-started",
         "models"
       ],
       "href": "/docs/get-started/models",
-      "heading": "Cost",
-      "text": "Your provider bills you directly. BetterShape shows the tokens spent on the last turn in the composer ring, not a credit balance.",
-      "title": "Models",
-      "section": "Get Started"
-    },
-    {
-      "id": "get-started/models#related",
-      "slug": [
-        "get-started",
-        "models"
-      ],
-      "href": "/docs/get-started/models",
-      "heading": "Related",
-      "text": "Client trust and provider keys Plugins",
+      "heading": "What a credit is not",
+      "text": "A credit is not one message. One turn can spend a fraction of a credit or several, depending on how much context and work the model does. The usage graph on the dashboard shows credits over recent days.",
       "title": "Models",
       "section": "Get Started"
     },
@@ -408,7 +396,7 @@
       ],
       "href": "/docs/agent/overview",
       "heading": null,
-      "text": "Chat sits next to your files. You describe the work. BetterShape reads the open folder, answers in the thread, and can edit files when you ask it to. You stay in control of what is kept. Every edit shows a diff. You still commit with Git when you want a commit.",
+      "text": "Chat sits next to your files. You describe the work. Shape reads the open folder, answers in the thread, and can edit files when you ask it to. You stay in control of what is kept. Every edit shows a diff. You still commit with Git when you want a commit.",
       "title": "Agent",
       "section": "Agent"
     },
@@ -420,7 +408,7 @@
       ],
       "href": "/docs/agent/overview",
       "heading": "Modes",
-      "text": "Switch the mode on the composer before you send. The mode applies to that message. Code edits files and can run commands. This is the default for building. Ask answers without changing the project. Use it to read a file, compare options, or explain an error. Plan writes the approach first and waits. See Plan. Visual works on UI. Describe the screen, or pair it with the in app browser. Review looks for a bug and proposes a small fix. See Review. If you send a Code request that is actually a question, BetterShape may still try to edit. Switch to Ask when you do not want files to move.",
+      "text": "Switch the mode on the composer before you send. The mode applies to that message. Code edits files and can run commands. This is the default for building. Ask answers without changing the project. Use it to read a file, compare options, or explain an error. Plan writes the approach first and waits. See Plan. Visual works on UI. Describe the screen, or pair it with the in app browser. Review looks for a bug and proposes a small fix. See Review. If you send a Code request that is actually a question, Shape may still try to edit. Switch to Ask when you do not want files to move.",
       "title": "Agent",
       "section": "Agent"
     },
@@ -432,7 +420,7 @@
       ],
       "href": "/docs/agent/overview",
       "heading": "Attach a file",
-      "text": "Type @ and pick a file or folder. That path goes with the message. Use @ when: You already know the file. The name is common ( button.tsx exists in more than one place). You want BetterShape to stay inside one package of a monorepo. You can attach more than one. Keep the set small. Extra files add noise.",
+      "text": "Type @ and pick a file or folder. That path goes with the message. Use @ when: You already know the file. The name is common ( button.tsx exists in more than one place). You want Shape to stay inside one package of a monorepo. You can attach more than one. Keep the set small. Extra files add noise.",
       "title": "Agent",
       "section": "Agent"
     },
@@ -456,7 +444,7 @@
       ],
       "href": "/docs/agent/overview",
       "heading": "After a change",
-      "text": "Every file edit shows a diff in the thread. 1. Read the diff. 2. Keep it, skip it, or say what to change. 3. Repeat until the thread is done. BetterShape does not push to GitHub on its own. See Commits when you want a commit.",
+      "text": "Every file edit shows a diff in the thread. 1. Read the diff. 2. Keep it, skip it, or say what to change. 3. Repeat until the thread is done. Shape does not push to GitHub on its own. See Commits when you want a commit.",
       "title": "Agent",
       "section": "Agent"
     },
@@ -504,7 +492,7 @@
       ],
       "href": "/docs/agent/plan",
       "heading": "What it writes",
-      "text": "Plan writes the approach into .bettershape/plans/ and shows it in the thread. It does not start editing until you continue. The plan is a file you can read and change. If a step is wrong, fix it in the thread before you build.",
+      "text": "Plan writes the approach into .shape/plans/ and shows it in the thread. It does not start editing until you continue. The plan is a file you can read and change. If a step is wrong, fix it in the thread before you build.",
       "title": "Plan",
       "section": "Agent"
     },
@@ -516,7 +504,7 @@
       ],
       "href": "/docs/agent/plan",
       "heading": "How to run it",
-      "text": "1. Switch the composer to Plan . 2. Describe the change in the same way you would in Code. Include the goal, the files you know about, and anything that must not change. 3. Wait for the plan in the thread. 4. Edit the plan if a step is off. Say which step and why. 5. Continue when you want BetterShape to build it. If you already know the change is one file, skip Plan and use Code.",
+      "text": "1. Switch the composer to Plan . 2. Describe the change in the same way you would in Code. Include the goal, the files you know about, and anything that must not change. 3. Wait for the plan in the thread. 4. Edit the plan if a step is off. Say which step and why. 5. Continue when you want Shape to build it. If you already know the change is one file, skip Plan and use Code.",
       "title": "Plan",
       "section": "Agent"
     },
@@ -528,7 +516,7 @@
       ],
       "href": "/docs/agent/plan",
       "heading": "What to put in the request",
-      "text": "Good Plan prompts name the outcome and the limits: “Add a password field to account settings. Do not change billing.” “Split the homepage hero into its own component. Keep the current copy.” Weak prompts skip the limit. BetterShape will fill in the blanks, and you will spend a turn undoing that.",
+      "text": "Good Plan prompts name the outcome and the limits: “Add a password field to account settings. Do not change billing.” “Split the homepage hero into its own component. Keep the current copy.” Weak prompts skip the limit. Shape will fill in the blanks, and you will spend a turn undoing that.",
       "title": "Plan",
       "section": "Agent"
     },
@@ -564,7 +552,7 @@
       ],
       "href": "/docs/agent/review",
       "heading": "What it does",
-      "text": "Review looks for the cause first, then proposes a small fix. You still keep or skip the diff. It works best when you give it a signal: A stack trace from the terminal. A failing test name. @ on the file that throws. The last change you made, in one sentence. “It doesn’t work” is not enough. BetterShape will guess, and the guess is often the wrong file.",
+      "text": "Review looks for the cause first, then proposes a small fix. You still keep or skip the diff. It works best when you give it a signal: A stack trace from the terminal. A failing test name. @ on the file that throws. The last change you made, in one sentence. “It doesn’t work” is not enough. Shape will guess, and the guess is often the wrong file.",
       "title": "Review",
       "section": "Agent"
     },
@@ -612,7 +600,7 @@
       ],
       "href": "/docs/agent/browser",
       "heading": "Start the page",
-      "text": "1. Run your app the way you usually do ( npm run dev , and so on). 2. Copy the local URL (for example http://localhost:3000 ). 3. Open that URL in BetterShape’s browser. This works with Next.js, Vite, Astro, and Remix. The app has to be running. BetterShape does not start it for you. If the preview cannot reach localhost, the dev server is not up, or it is bound to another host. See troubleshooting.",
+      "text": "1. Run your app the way you usually do ( npm run dev , and so on). 2. Copy the local URL (for example http://localhost:3000 ). 3. Open that URL in Shape’s browser. This works with Next.js, Vite, Astro, and Remix. The app has to be running. Shape does not start it for you. If the preview cannot reach localhost, the dev server is not up, or it is bound to another host. See troubleshooting.",
       "title": "Browser",
       "section": "Agent"
     },
@@ -624,7 +612,7 @@
       ],
       "href": "/docs/agent/browser",
       "heading": "Edit the page",
-      "text": "Select an element and change it. BetterShape writes the same change into the source. You still review the diff in the thread. Keep it if the source matches what you changed on the page. Skip it if it touched the wrong file.",
+      "text": "Select an element and change it. Shape writes the same change into the source. You still review the diff in the thread. Keep it if the source matches what you changed on the page. Skip it if it touched the wrong file.",
       "title": "Browser",
       "section": "Agent"
     },
@@ -660,7 +648,7 @@
       ],
       "href": "/docs/agent/context",
       "heading": null,
-      "text": "Every turn re sends the whole thread to the model: your messages, the agent's answers, and every tool result. The context window is finite, so a long thread runs out of room eventually. Input gets truncated, and BetterShape seems to forget what you said an hour ago. A short chat never hits the limit. A long one does, and it helps to know what survives.",
+      "text": "Every turn re sends the whole thread to the model: your messages, the agent's answers, and every tool result. The context window is finite, so a long thread runs out of room eventually. Input gets truncated, and Shape seems to forget what you said an hour ago. A short chat never hits the limit. A long one does, and it helps to know what survives.",
       "title": "Context and compaction",
       "section": "Agent"
     },
@@ -672,7 +660,7 @@
       ],
       "href": "/docs/agent/context",
       "heading": "What happens, in order",
-      "text": "1. Tool output is trimmed. Old tool results shrink to a head and tail excerpt. A result the model no longer needs, such as an older read of a file it read again later, becomes a one line note. 2. Older turns are summarized. Past roughly 74% of the window, BetterShape folds the older turns into one summary and keeps the newest turns word for word. That is compaction. 3. The summary is reused. After the first fold, later turns send the summary plus the recent turns instead of the whole transcript, so BetterShape does not re summarize on every message. 4. Oversized output goes to disk. A single tool result too big for the budget is written under .bettershape/agent out/ and the model gets the path.",
+      "text": "1. Tool output is trimmed. Old tool results shrink to a head and tail excerpt. A result the model no longer needs, such as an older read of a file it read again later, becomes a one line note. 2. Older turns are summarized. Past roughly 74% of the window, Shape folds the older turns into one summary and keeps the newest turns word for word. That is compaction. 3. The summary is reused. After the first fold, later turns send the summary plus the recent turns instead of the whole transcript, so Shape does not re summarize on every message. 4. Oversized output goes to disk. A single tool result too big for the budget is written under .shape/agent out/ and the model gets the path.",
       "title": "Context and compaction",
       "section": "Agent"
     },
@@ -696,7 +684,7 @@
       ],
       "href": "/docs/agent/context",
       "heading": "What the summary keeps",
-      "text": "The summary follows a fixed outline rather than a free form recap: The request and the intent, including anything you ruled out. Technical concepts and the shape of the solution. Files and code sections, with the important snippets. Errors, fixes, and rejected approaches. Problems solved and the state of the work. Every user message, so early instructions survive. Work in progress and the next step. BetterShape also re attaches the five most recently read or written files, so the agent picks up where it left off instead of re reading them. Want every summary to carry something specific? An API shape, a set of migration names, a house tone? Write it once in Settings → Agents → Instructions → Compaction. Those instructions are appended to every compaction, manual or automatic.",
+      "text": "The summary follows a fixed outline rather than a free form recap: The request and the intent, including anything you ruled out. Technical concepts and the shape of the solution. Files and code sections, with the important snippets. Errors, fixes, and rejected approaches. Problems solved and the state of the work. Every user message, so early instructions survive. Work in progress and the next step. Shape also re attaches the five most recently read or written files, so the agent picks up where it left off instead of re reading them. Want every summary to carry something specific? An API shape, a set of migration names, a house tone? Write it once in Settings → Agents → Instructions → Compaction. Those instructions are appended to every compaction, manual or automatic.",
       "title": "Context and compaction",
       "section": "Agent"
     },
@@ -708,7 +696,7 @@
       ],
       "href": "/docs/agent/context",
       "heading": "When the agent slows compaction down",
-      "text": "Automatic compaction picks its moment from a token count, and a token count cannot tell whether the agent is half way through a rename across six files. When it is, the agent can hold the automatic pass. It calls compact context on its own, with a one line reason: That call is the hold, not a summary of the work. The reason is pinned into the next summary, so the thing it was protecting survives the fold. A hold is bounded, because an unbounded one would let the window overflow, and a truncated window loses more than a summary does: It lapses after about 15 minutes, or 16k tokens of growth, or 3 skipped passes. It is overridden when the chat reaches about 92% of the window. /compact from you always works, and a finished turn clears the hold. A fold is saved as it happens, so a summary survives a restart and a reopened chat does not send the raw history again. Only the part no summary covers yet is sent to be summarized, and the previous summary is handed in as the base. Settings → Agents → Context shows the hold, its reason, and a Compact now button while one is active.",
+      "text": "Automatic compaction picks its moment from a token count, and a token count cannot tell whether the agent is half way through a rename across six files. When it is, the agent can hold the automatic pass. It calls compact context on its own, with a one line reason: That call is the hold, not a summary of the work. The reason is pinned into the next summary, so the thing it was protecting survives the fold. A hold is bounded, because an unbounded one would let the window overflow, and a truncated window loses more than a summary does: It lapses after about 15 minutes, or 16k tokens of growth, or 3 skipped passes. It is overridden when the chat reaches about 92% of the window. It is checked before every model call in a turn, not only between turns. A single run of work can take hundreds of tool calls, and a window that fills up in the middle of one fails the call outright, so the check happens mid turn too. /compact from you always works, and a finished turn clears the hold. A fold is saved as it happens, so a summary survives a restart and a reopened chat does not send the raw history again. Only the part no summary covers yet is sent to be summarized, and the previous summary is handed in as the base. Settings → Agents → Context shows the hold, its reason, and a Compact now button while one is active.",
       "title": "Context and compaction",
       "section": "Agent"
     },
@@ -720,7 +708,7 @@
       ],
       "href": "/docs/agent/context",
       "heading": "What you still see",
-      "text": "Compaction changes what the model reads, not what you keep. The earlier messages stay in the chat, with a marker where the summary took over. The pre compaction transcript is archived under .bettershape/agent out/ , so the agent can grep it when a detail is missing. Each chat keeps its own summary. Opening another thread, or starting a new one, starts from that thread's history. Settings → Agents → Context shows what compaction has done in the open chat: how many passes, how many tokens it freed. Reset goes back to sending the raw transcript, and since nothing was deleted, nothing is lost.",
+      "text": "Compaction changes what the model reads, not what you keep. The earlier messages stay in the chat, with a marker where the summary took over. The pre compaction transcript is archived under .shape/agent out/ , so the agent can grep it when a detail is missing. Each chat keeps its own summary. Opening another thread, or starting a new one, starts from that thread's history. Settings → Agents → Context shows what compaction has done in the open chat: how many passes, how many tokens it freed. Reset goes back to sending the raw transcript, and since nothing was deleted, nothing is lost.",
       "title": "Context and compaction",
       "section": "Agent"
     },
@@ -732,7 +720,7 @@
       ],
       "href": "/docs/agent/context",
       "heading": "When compaction does not run",
-      "text": "Incognito chats are never summarized. If the summary call fails, or the result is too short to be useful, BetterShape leaves the thread alone and retries later. It will not silently drop turns. \"Nothing to compact yet\" means the thread is still small enough to send whole.",
+      "text": "Incognito chats are never summarized. If the summary call fails, or the result is too short to be useful, Shape leaves the thread alone and retries later. It will not silently drop turns. \"Nothing to compact yet\" means the thread is still small enough to send whole.",
       "title": "Context and compaction",
       "section": "Agent"
     },
@@ -744,7 +732,7 @@
       ],
       "href": "/docs/customize/plugins",
       "heading": null,
-      "text": "Plugins let chat use GitHub, Slack, Linear, Stripe, and similar accounts. You connect the account once, then mention the task in a message. Plugins run through your own Composio account. Add its API key in Settings → Agents → Plugins first (composio.com → API keys). A tool that runs on your machine is MCP.",
+      "text": "Plugins let chat use GitHub, Slack, Linear, Stripe, and similar accounts. You connect the account once, then mention the task in a message. You must be signed in. A plugin is not a local tool. A tool that runs on your machine is MCP.",
       "title": "Plugins",
       "section": "Customize"
     },
@@ -756,7 +744,7 @@
       ],
       "href": "/docs/customize/plugins",
       "heading": "Connect an account",
-      "text": "1. Open Settings → Agents → Plugins . 2. Pick the service. 3. Sign in in the browser window and allow access. 4. Return to BetterShape. You can disconnect from the same place. Disconnecting stops new chat turns from using that account. It does not delete past threads.",
+      "text": "1. Open Settings → Agents → Plugins . 2. Pick the service. 3. Sign in in the browser window and allow access. 4. Return to Shape. You can disconnect from the same place. Disconnecting stops new chat turns from using that account. It does not delete past threads.",
       "title": "Plugins",
       "section": "Customize"
     },
@@ -768,7 +756,7 @@
       ],
       "href": "/docs/customize/plugins",
       "heading": "Use it in chat",
-      "text": "Say what you need in plain language. You do not need a special syntax. Examples: “Open a pull request for this branch.” “List my Linear issues tagged bug.” “Post a summary of this diff to the engineering Slack channel.” If the plugin is not connected, BetterShape cannot call it. Connect it first, then send the message again.",
+      "text": "Say what you need in plain language. You do not need a special syntax. Examples: “Open a pull request for this branch.” “List my Linear issues tagged bug.” “Post a summary of this diff to the engineering Slack channel.” If the plugin is not connected, Shape cannot call it. Connect it first, then send the message again.",
       "title": "Plugins",
       "section": "Customize"
     },
@@ -804,7 +792,7 @@
       ],
       "href": "/docs/customize/mcp",
       "heading": null,
-      "text": "MCP servers are tools BetterShape can call from chat. Add one in Settings → Agents → MCP , or keep a server in mcp.json if you want it in a file. Servers you add in Settings stay in BetterShape. They are not written into mcp.json . A server in mcp.json is picked up on its own. You do not have to add it again in Settings. Use MCP when the tool runs on your machine or at a URL you already have. Use a plugin when the tool is an outside account.",
+      "text": "MCP servers are tools Shape can call from chat. Add one in Settings → Agents → MCP , or keep a server in mcp.json if you want it in a file. Servers you add in Settings stay in Shape. They are not written into mcp.json . A server in mcp.json is picked up on its own. You do not have to add it again in Settings. Use MCP when the tool runs on your machine or at a URL you already have. Use a plugin when the tool is an outside account.",
       "title": "MCP",
       "section": "Customize"
     },
@@ -816,7 +804,7 @@
       ],
       "href": "/docs/customize/mcp",
       "heading": "Add a server in Settings",
-      "text": "Open Settings → Agents → MCP and choose Add server . Paste the server URL, or paste its JSON config. BetterShape shows the server, then connects. If the server asks you to sign in, finish that in the browser. Remove a server you added there with Remove . That does not change mcp.json .",
+      "text": "Open Settings → Agents → MCP and choose Add server . There are two tabs. Browse the registry searches the official MCP registry, the same index the agent searches. Search for a product or package name, check the command shown under a result, then choose Install . Shape writes the entry to mcp.json and connects it, so the server is there after a restart. If it needs a sign in, Shape opens the browser flow. Paste a config takes a server URL or a JSON config. Servers added this way stay in Shape and are not written to mcp.json . Remove a server you added by pasting with Remove . That does not change mcp.json .",
       "title": "MCP",
       "section": "Customize"
     },
@@ -828,7 +816,7 @@
       ],
       "href": "/docs/customize/mcp",
       "heading": "Open the file",
-      "text": "On the MCP page, choose Open mcp.json . If the file does not exist yet, BetterShape creates it.",
+      "text": "On the MCP page, choose Open mcp.json . If the file does not exist yet, Shape creates it.",
       "title": "MCP",
       "section": "Customize"
     },
@@ -840,7 +828,7 @@
       ],
       "href": "/docs/customize/mcp",
       "heading": "Add a server",
-      "text": "Use command when BetterShape should start the process. Use url if the server is already running. Save the file. Name the server something you will recognize in chat. The name is what you will refer to, not the package name.",
+      "text": "Use command when Shape should start the process. Use url if the server is already running. Save the file. Name the server something you will recognize in chat. The name is what you will refer to, not the package name.",
       "title": "MCP",
       "section": "Customize"
     },
@@ -852,7 +840,7 @@
       ],
       "href": "/docs/customize/mcp",
       "heading": "Try it",
-      "text": "Send a message that needs the tool. If the server does not show up: 1. Save mcp.json . 2. Open Settings → Agents → MCP again. BetterShape reloads the file. 3. Open the same folder again. 4. Check that command is on your PATH when BetterShape starts. A tool that only works in your existing terminal session will fail here.",
+      "text": "Send a message that needs the tool. If the server does not show up: 1. Save mcp.json . 2. Open Settings → Agents → MCP again. Shape reloads the file. 3. Open the same folder again. 4. Check that command is on your PATH when Shape starts. A tool that only works in your existing terminal session will fail here.",
       "title": "MCP",
       "section": "Customize"
     },
@@ -864,7 +852,7 @@
       ],
       "href": "/docs/customize/mcp",
       "heading": "Let the agent manage servers",
-      "text": "You do not have to open Settings for this. Ask in chat, and BetterShape can add, change, test, or remove a server for you. The tools are mcp manage (server lifecycle) and mcp search / mcp call (using the tools a server exposes). The agent can: List servers and their status. Search the registry for a server by name, then add it from the registry entry. Add, update, enable, disable, or remove a server, with command / args / env for a local process or url / headers for a remote one. Test a server and report the tool count and latency. A test that passes saves the server unless you pass save: false . Start sign in for a server that needs OAuth. List the tools a server exposes. Servers the agent creates are written to the same mcp.json the Settings page reads, so they show up there too. Pass save: false to add a server for the current session only. Adding a server changes which tools BetterShape can call, so a mode that only reads will not do it. Approve the action like any other edit. A local server is a program this machine will run, so the first time one is added, updated, or tested, BetterShape asks for approval in the chat and shows the exact command. Servers already in mcp.json , and everything you add yourself in Settings, are past that point. Set Auto run to Always in Settings to stop the questions.",
+      "text": "You do not have to open Settings for this. Ask in chat, and Shape can add, change, test, or remove a server for you. The tools are mcp manage (server lifecycle) and mcp search / mcp call (using the tools a server exposes). The agent can: List servers and their status. Search the registry for a server by name, then add it from the registry entry. Add, update, enable, disable, or remove a server, with command / args / env for a local process or url / headers for a remote one. Test a server and report the tool count and latency. A test that passes saves the server unless you pass save: false . Start sign in for a server that needs OAuth. List the tools a server exposes. Servers the agent creates are written to the same mcp.json the Settings page reads, so they show up there too. Pass save: false to add a server for the current session only. Adding a server changes which tools Shape can call, so a mode that only reads will not do it. Approve the action like any other edit. A local server is a program this machine will run, so the first time one is added, updated, or tested, Shape asks for approval in the chat and shows the exact command. Servers already in mcp.json , and everything you add yourself in Settings, are past that point. Set Auto run to Always in Settings to stop the questions.",
       "title": "MCP",
       "section": "Customize"
     },
@@ -876,7 +864,7 @@
       ],
       "href": "/docs/customize/mcp",
       "heading": "Headers",
-      "text": "Remote servers that authenticate with a header use headers : BetterShape sends those headers on every request to that server. When the server uses OAuth instead, BetterShape does not send a stored Authorization header — the OAuth token wins.",
+      "text": "Remote servers that authenticate with a header use headers : Shape sends those headers on every request to that server. When the server uses OAuth instead, Shape does not send a stored Authorization header — the OAuth token wins.",
       "title": "MCP",
       "section": "Customize"
     },
@@ -888,7 +876,7 @@
       ],
       "href": "/docs/customize/mcp",
       "heading": "The file on this machine",
-      "text": "mcp.json lives in BetterShape’s data folder, not in the repo. Do not put API keys in it. Use env vars the server already reads.",
+      "text": "mcp.json lives in Shape’s data folder, not in the repo. Do not put API keys in it. Use env vars the server already reads.",
       "title": "MCP",
       "section": "Customize"
     },
@@ -900,7 +888,7 @@
       ],
       "href": "/docs/customize/mcp",
       "heading": "Remove a server",
-      "text": "Delete the entry from mcp.json and save. Restart BetterShape if the tool still appears.",
+      "text": "Delete the entry from mcp.json and save. Restart Shape if the tool still appears.",
       "title": "MCP",
       "section": "Customize"
     },
@@ -924,7 +912,7 @@
       ],
       "href": "/docs/customize/slash-commands",
       "heading": "Add one",
-      "text": "1. Open Settings → Agents → Workflows . 2. Give it a short name. That name is what you type after / . 3. Write the prompt you want BetterShape to follow. Be specific about the output: a commit message, a list of risks, a test file, and so on. 4. Save it. Keep the prompt as the instructions, not as a one off about the current branch. The current project still comes from the open folder and the thread.",
+      "text": "1. Open Settings → Agents → Workflows . 2. Give it a short name. That name is what you type after / . 3. Write the prompt you want Shape to follow. Be specific about the output: a commit message, a list of risks, a test file, and so on. 4. Save it. Keep the prompt as the instructions, not as a one off about the current branch. The current project still comes from the open folder and the thread.",
       "title": "Slash commands",
       "section": "Customize"
     },
@@ -972,7 +960,7 @@
       ],
       "href": "/docs/customize/slash-commands",
       "heading": "Built-in commands",
-      "text": "BetterShape ships a few commands that are not prompts. They run locally and never reach the model. Command What it does /compact [focus] Summarize the earlier part of the thread and keep going.",
+      "text": "Shape ships a few commands that are not prompts. They run locally and never reach the model. Command What it does /compact [focus] Summarize the earlier part of the thread and keep going.",
       "title": "Slash commands",
       "section": "Customize"
     },
@@ -984,7 +972,7 @@
       ],
       "href": "/docs/customize/slash-commands",
       "heading": "/compact",
-      "text": "Long threads eventually fill the model's context window. /compact folds the older turns into one summary, keeps the newest turns verbatim, and continues in the same thread. Use it when: The thread is long and BetterShape starts forgetting things you said earlier. You finished a stage of work and want to start the next one without the old noise. A request failed because the context was too long. Add a focus to steer the summary: /compact keep the migration plan and the API shapes . Without a focus, BetterShape uses your standing compaction instructions from Settings → Agents → Instructions → Compaction . BetterShape also compacts on its own when a thread gets close to the window limit, so you rarely have to run this. The summary is the record of what was folded — everything before it stays in the transcript for you to scroll, and older turns are not deleted from the thread. See Context and compaction for what is kept and what is dropped.",
+      "text": "Long threads eventually fill the model's context window. /compact folds the older turns into one summary, keeps the newest turns verbatim, and continues in the same thread. Use it when: The thread is long and Shape starts forgetting things you said earlier. You finished a stage of work and want to start the next one without the old noise. A request failed because the context was too long. Add a focus to steer the summary: /compact keep the migration plan and the API shapes . Without a focus, Shape uses your standing compaction instructions from Settings → Agents → Instructions → Compaction . Shape also compacts on its own when a thread gets close to the window limit, so you rarely have to run this. The summary is the record of what was folded — everything before it stays in the transcript for you to scroll, and older turns are not deleted from the thread. See Context and compaction for what is kept and what is dropped.",
       "title": "Slash commands",
       "section": "Customize"
     },
@@ -996,7 +984,7 @@
       ],
       "href": "/docs/git/commits",
       "heading": null,
-      "text": "BetterShape does not commit when it edits a file. You keep or skip the diff in chat first. Then you commit what is actually on disk.",
+      "text": "Shape does not commit when it edits a file. You keep or skip the diff in chat first. Then you commit what is actually on disk.",
       "title": "Commits",
       "section": "Git"
     },
@@ -1080,7 +1068,7 @@
       ],
       "href": "/docs/git/github",
       "heading": "Sign in",
-      "text": "Open a pull request from the workspace, or ask chat after you connect the GitHub plugin. Finish the browser step, then return to BetterShape. If data is missing, sign in again, and confirm the open folder is the repo you think it is ( git remote v in the terminal).",
+      "text": "Open a pull request from the workspace, or ask chat after you connect the GitHub plugin. Finish the browser step, then return to Shape. If data is missing, sign in again, and confirm the open folder is the repo you think it is ( git remote v in the terminal).",
       "title": "GitHub",
       "section": "Git"
     },
@@ -1092,7 +1080,7 @@
       ],
       "href": "/docs/git/github",
       "heading": "Open a pull request",
-      "text": "1. Commit and push the branch. See Commits. 2. Open a pull request from BetterShape, or ask chat to open one if the GitHub plugin is connected. 3. Read the title and body. BetterShape can draft them from the branch. You confirm before it is published. Do not publish a PR for a folder that is not the repo you meant to open.",
+      "text": "1. Commit and push the branch. See Commits. 2. Open a pull request from Shape, or ask chat to open one if the GitHub plugin is connected. 3. Read the title and body. Shape can draft them from the branch. You confirm before it is published. Do not publish a PR for a folder that is not the repo you meant to open.",
       "title": "GitHub",
       "section": "Git"
     },
@@ -1116,7 +1104,7 @@
       ],
       "href": "/docs/git/github",
       "heading": "Sign out",
-      "text": "Sign out of GitHub from the same place you signed in. Chat is unaffected — it uses your model provider keys.",
+      "text": "Sign out of GitHub from the same place you signed in. Chat sign in is unchanged.",
       "title": "GitHub",
       "section": "Git"
     },
@@ -1128,7 +1116,7 @@
       ],
       "href": "/docs/help/install",
       "heading": null,
-      "text": "BetterShape is a desktop app for Windows 10 or 11, 64 bit. There is no browser only editor. You download the app, then open a folder on disk.",
+      "text": "Shape is a desktop app for Windows 10 or 11, 64 bit. There is no browser only editor. You download the app, then open a folder on disk.",
       "title": "Install",
       "section": "Help"
     },
@@ -1140,7 +1128,7 @@
       ],
       "href": "/docs/help/install",
       "heading": "Download",
-      "text": "1. Get the installer from useshape.org/download. 2. Run it. 3. If Windows SmartScreen appears, choose More info , then Run anyway . 4. Open BetterShape from the Start menu. If the installer will not run, you are on 32 bit Windows, or the download was cut short. Download it again.",
+      "text": "1. Get the installer from useshape.org/download. 2. Run it. 3. If Windows SmartScreen appears, choose More info , then Run anyway . 4. Open Shape from the Start menu. If the installer will not run, you are on 32 bit Windows, or the download was cut short. Download it again.",
       "title": "Install",
       "section": "Help"
     },
@@ -1176,7 +1164,7 @@
       ],
       "href": "/docs/help/install",
       "heading": "Uninstall",
-      "text": "Uninstall from Windows Settings like any other desktop app. Your project files on disk are not deleted. Local BetterShape data for the app may remain under your user folder.",
+      "text": "Uninstall from Windows Settings like any other desktop app. Your project files on disk are not deleted. Local Shape data for the app may remain under your user folder.",
       "title": "Install",
       "section": "Help"
     },
@@ -1248,7 +1236,7 @@
       ],
       "href": "/docs/help/faq",
       "heading": "Can I work offline?",
-      "text": "Editing files, search, and the terminal work without a connection. Chat and Git push/pull need one.",
+      "text": "Editing files works without a connection. Chat does not. Git push and pull need a connection too.",
       "title": "FAQ",
       "section": "Help"
     },
@@ -1259,19 +1247,19 @@
         "faq"
       ],
       "href": "/docs/help/faq",
-      "heading": "Is there a free tier or a credit balance?",
-      "text": "No. BetterShape has no account, no plan, and no credits. You pay your model provider directly for what you use.",
+      "heading": "Do credits roll over?",
+      "text": "No. They reset each month. Plans are on Models.",
       "title": "FAQ",
       "section": "Help"
     },
     {
-      "id": "help/faq#does-bettershape-upload-my-project",
+      "id": "help/faq#does-shape-upload-my-project",
       "slug": [
         "help",
         "faq"
       ],
       "href": "/docs/help/faq",
-      "heading": "Does BetterShape upload my project?",
+      "heading": "Does Shape upload my project?",
       "text": "Not by default. Chat sends the files and context you include in a turn, plus what the agent reads to do the task. Local editing does not require chat.",
       "title": "FAQ",
       "section": "Help"
@@ -1284,7 +1272,7 @@
       ],
       "href": "/docs/help/faq",
       "heading": "Can I use my own model key?",
-      "text": "That is the only way chat works. Add a key in Settings → Providers — OpenAI, Anthropic, Google, OpenRouter, or any OpenAI compatible endpoint. Nothing is proxied through a server we run.",
+      "text": "Named models on a paid plan run through Shape. Local editing does not need a key. There is no setting to paste a personal provider key for chat.",
       "title": "FAQ",
       "section": "Help"
     },
@@ -1301,14 +1289,26 @@
       "section": "Help"
     },
     {
-      "id": "help/faq#is-there-anything-to-sign-in-to",
+      "id": "help/faq#can-i-sign-in-from-a-fork-of-the-app",
       "slug": [
         "help",
         "faq"
       ],
       "href": "/docs/help/faq",
-      "heading": "Is there anything to sign in to?",
-      "text": "No. There is no BetterShape account. The only credentials in the app are the provider keys you add and the Git host login you use for push and pull.",
+      "heading": "Can I sign in from a fork of the app?",
+      "text": "No. A fork cannot sign in to Shape Cloud. Official builds can. You can still run a local build and edit files. See local development.",
+      "title": "FAQ",
+      "section": "Help"
+    },
+    {
+      "id": "help/faq#where-do-i-change-my-password-or-email",
+      "slug": [
+        "help",
+        "faq"
+      ],
+      "href": "/docs/help/faq",
+      "heading": "Where do I change my password or email?",
+      "text": "Account security is on the website under dashboard settings. Sign in, password, and email all use the same account you sign into the app with.",
       "title": "FAQ",
       "section": "Help"
     },
@@ -1320,7 +1320,7 @@
       ],
       "href": "/docs/help/troubleshooting",
       "heading": null,
-      "text": "Start with the matching heading. If none of these fit, contact with the version from Help → About .",
+      "text": "Start with the matching heading. If none of these fit, contact with the account email and the version from Help → About .",
       "title": "Troubleshooting",
       "section": "Help"
     },
@@ -1343,20 +1343,20 @@
         "troubleshooting"
       ],
       "href": "/docs/help/troubleshooting",
-      "heading": "Chat says no provider is configured",
-      "text": "Open Settings → Providers and add an API key. BetterShape calls the provider directly with that key; there is no account to sign in to. If a key is set and send still fails, the provider returned the error — the status line under the message names the provider and the HTTP status.",
+      "heading": "Sign-in never finishes",
+      "text": "Finish the step in the browser, then return to the app. If the browser is stuck: 1. Close the browser tab. 2. Sign out from the app if you are halfway in. 3. Sign in again. Do not paste a password into chat.",
       "title": "Troubleshooting",
       "section": "Help"
     },
     {
-      "id": "help/troubleshooting#a-model-does-not-appear-in-the-menu",
+      "id": "help/troubleshooting#chat-will-not-send",
       "slug": [
         "help",
         "troubleshooting"
       ],
       "href": "/docs/help/troubleshooting",
-      "heading": "A model does not appear in the menu",
-      "text": "The menu lists the models offered by presets, plus anything in Extra models on the provider card. Add the id by hand if your provider serves a model we do not list.",
+      "heading": "Chat will not send",
+      "text": "Check the plan and remaining credits on Billing. Free includes Auto only. A named model on Free will not send. If you are on a paid plan and send still fails, switch to Auto once. If Auto works, the named model is the problem for that turn. If Auto also fails, check status.",
       "title": "Troubleshooting",
       "section": "Help"
     },
@@ -1368,7 +1368,7 @@
       ],
       "href": "/docs/help/troubleshooting",
       "heading": "The preview cannot reach localhost",
-      "text": "Start your app first, then open that URL in the browser. localhost has to be the same machine. A URL on another device will not load in BetterShape’s preview.",
+      "text": "Start your app first, then open that URL in the browser. localhost has to be the same machine. A URL on another device will not load in Shape’s preview.",
       "title": "Troubleshooting",
       "section": "Help"
     },
@@ -1392,7 +1392,7 @@
       ],
       "href": "/docs/help/troubleshooting",
       "heading": "MCP tools do not appear",
-      "text": "Save mcp.json , restart BetterShape, and open the folder again. The command has to exist on PATH for the app, not only for a terminal you already opened. See MCP.",
+      "text": "Save mcp.json , restart Shape, and open the folder again. The command has to exist on PATH for the app, not only for a terminal you already opened. See MCP.",
       "title": "Troubleshooting",
       "section": "Help"
     },
@@ -1416,7 +1416,7 @@
       ],
       "href": "/docs/help/contact",
       "heading": null,
-      "text": "Product questions go to contact. Include: The version from Help → About . What you tried, and what happened instead. Do not send API keys, provider tokens, or a dump of .env files.",
+      "text": "Billing, account, and product questions go to contact. Include: The email on the account. The version from Help → About . What you tried, and what happened instead. Do not send passwords, backup codes, or a dump of .env files.",
       "title": "Contact",
       "section": "Help"
     },
@@ -1428,7 +1428,7 @@
       ],
       "href": "/docs/help/contact",
       "heading": "Billing",
-      "text": "There is nothing to bill here: BetterShape has no account and no subscription. Model usage is billed by the provider whose key you added.",
+      "text": "For charges, cancelled plans, or a missing upgrade, use the same contact form and say it is billing. Have the last four of the payment method if you can.",
       "title": "Contact",
       "section": "Help"
     },
@@ -1452,7 +1452,7 @@
       ],
       "href": "/docs/help/contact",
       "heading": "Status",
-      "text": "If a provider's API is down, check that provider's status page before you write in.",
+      "text": "If chat, sign in, or billing is down for everyone, check status before you write in.",
       "title": "Contact",
       "section": "Help"
     }

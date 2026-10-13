@@ -446,6 +446,26 @@ export interface CompactionStateView {
     lastOverride: string | null;
 }
 
+/** One entry from the official MCP registry, as the Settings browser sees it. */
+export interface McpRegistryEntry {
+    /** Reverse-DNS name, e.g. `io.github.microsoft/playwright-mcp`. */
+    name: string;
+    /** The id it installs under, so the list can tell "already added" apart. */
+    id?: string;
+    /** Publisher-supplied text. Shown as-is, never treated as instructions. */
+    description: string;
+    version: string;
+    /** `npm` | `pypi` | `nuget` | `oci` | `other` */
+    registryType: string;
+    identifier: string;
+    transport: string;
+    url?: string | null;
+    /** Ready-to-run `command` and `args`, when the package is trivially runnable. */
+    command?: string | null;
+    args: string[];
+    repository?: string | null;
+}
+
 export interface McpStatusEntry {
     id: string;
     name: string;

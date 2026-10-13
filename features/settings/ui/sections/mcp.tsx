@@ -36,6 +36,7 @@ import {
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { SettingCard, SettingRow, SettingSection, SettingSwitch, SETTING_CONTROL_BTN } from "../shared/controls";
+import { RegistryInstallPanel } from "./mcp-registry";
 
 function statusLabel(status: McpStatusEntry["status"] | undefined): string {
     if (status === "connected") return "Connected";
@@ -95,11 +96,16 @@ function AddMcpDialog({
     open,
     onClose,
     onAdded,
+    onRefresh,
+    existingIds,
 }: {
     open: boolean;
     onClose: () => void;
     onAdded: (id: string) => void;
+    onRefresh: () => void;
+    existingIds: Set<string>;
 }) {
+    const [mode, setMode] = useState<"paste" | "registry">("registry");
     const [paste, setPaste] = useState("");
     const [busy, setBusy] = useState(false);
     const parsed = useMemo(() => (paste.trim() ? parseMcpPaste(paste) : { servers: [] as McpServerConfig[] }), [paste]);
@@ -109,6 +115,7 @@ function AddMcpDialog({
         if (!open) {
             setPaste("");
             setBusy(false);
+            setMode("registry");
         }
     }, [open]);
 
@@ -146,48 +153,75 @@ function AddMcpDialog({
                 <AlertDialogHeader>
                     <AlertDialogTitle>Add MCP server</AlertDialogTitle>
                     <AlertDialogDescription>
-                        Paste a server URL or a JSON config. This stays in BetterShape and is not written to mcp.json.
+                        {mode === "registry"
+                            ? "Install one from the official registry. It is written to mcp.json, and you can remove it later."
+                            : "Paste a server URL or a JSON config. This stays in Shape and is not written to mcp.json."}
                     </AlertDialogDescription>
                 </AlertDialogHeader>
-                <AlertDialogBody>
-                    <Textarea
-                        value={paste}
-                        onChange={(event) => setPaste(event.target.value)}
-                        placeholder={'https://example.com/mcp\n\nor\n\n{ "url": "https://example.com/mcp" }'}
-                        className="min-h-32 font-mono text-sm"
-                    />
-                    {parsed.error && paste.trim() ? (
-                        <p className="text-sm text-error">{parsed.error}</p>
+                <AlertDialogBody className="flex flex-col gap-4">
+                    <div className="flex items-center gap-1 squircle-xl bg-surface-3 p-1">
+                        {(["registry", "paste"] as const).map((value) => (
+                            <button
+                                key={value}
+                                type="button"
+                                disabled={busy}
+                                onClick={() => setMode(value)}
+                                className={cn(
+                                    "flex-1 rounded-lg px-3 py-1.5 text-sm transition-colors",
+                                    mode === value
+                                        ? "bg-panel-hover text-text-primary"
+                                        : "text-text-muted hover:text-text-primary",
+                                )}
+                            >
+                                {value === "registry" ? "Browse the registry" : "Paste a config"}
+                            </button>
+                        ))}
+                    </div>
+                    {mode === "registry" ? (
+                        <RegistryInstallPanel existingIds={existingIds} onInstalled={onRefresh} />
                     ) : null}
-                    {preview && !parsed.error ? (
-                        <div className="flex items-start gap-3 squircle-2xl bg-surface-3 p-3">
-                            <ServerMark name={preview.name} url={preview.url} />
-                            <div className="min-w-0">
-                                <div className="text-md font-medium text-text-primary">{preview.name}</div>
-                                <div className="mt-1 text-sm text-text-muted">
-                                    {preview.transport === "http" ? preview.url : `${preview.command} ${preview.args.join(" ")}`.trim()}
-                                </div>
-                                <div className="mt-1 text-sm text-text-muted">
-                                    {preview.auth === "oauth" ? "Signs in with the server’s OAuth flow" : "No sign-in"}
+                    <div className={cn("flex flex-col gap-3", mode === "registry" && "hidden")}>
+                        <Textarea
+                            value={paste}
+                            onChange={(event) => setPaste(event.target.value)}
+                            placeholder={'https://example.com/mcp\n\nor\n\n{ "url": "https://example.com/mcp" }'}
+                            className="min-h-32 font-mono text-sm"
+                        />
+                        {parsed.error && paste.trim() ? (
+                            <p className="text-sm text-error">{parsed.error}</p>
+                        ) : null}
+                        {preview && !parsed.error ? (
+                            <div className="flex items-start gap-3 squircle-2xl bg-surface-3 p-3">
+                                <ServerMark name={preview.name} url={preview.url} />
+                                <div className="min-w-0">
+                                    <div className="text-md font-medium text-text-primary">{preview.name}</div>
+                                    <div className="mt-1 text-sm text-text-muted">
+                                        {preview.transport === "http" ? preview.url : `${preview.command} ${preview.args.join(" ")}`.trim()}
+                                    </div>
+                                    <div className="mt-1 text-sm text-text-muted">
+                                        {preview.auth === "oauth" ? "Signs in with the server’s OAuth flow" : "No sign-in"}
+                                    </div>
                                 </div>
                             </div>
-                        </div>
                     ) : null}
+                    </div>
                 </AlertDialogBody>
                 <AlertDialogFooter>
                     <AlertDialogCancel asChild>
                         <Button type="button" variant="ghost" size="sm" className={SETTING_CONTROL_BTN} disabled={busy}>
-                            Cancel
+                            {mode === "registry" ? "Done" : "Cancel"}
                         </Button>
                     </AlertDialogCancel>
-                    <Button
-                        type="button"
-                        size="sm"
-                        disabled={busy || !preview || Boolean(parsed.error)}
-                        onClick={() => void connect()}
-                    >
-                        {busy ? "Connecting…" : "Connect"}
-                    </Button>
+                    {mode === "paste" ? (
+                        <Button
+                            type="button"
+                            size="sm"
+                            disabled={busy || !preview || Boolean(parsed.error)}
+                            onClick={() => void connect()}
+                        >
+                            {busy ? "Connecting…" : "Connect"}
+                        </Button>
+                    ) : null}
                 </AlertDialogFooter>
             </AlertDialogContent>
         </AlertDialog>
@@ -494,6 +528,11 @@ export function McpSettingsView() {
                     setOpenId(id);
                     void refresh();
                 }}
+                // A light refresh, not `refresh`: a registry install already
+                // connected its own server, and reconnecting all of them would
+                // drop sessions that have nothing to do with this.
+                onRefresh={() => void refreshFromAgent()}
+                existingIds={new Set(servers.map((server) => server.id))}
             />
         </div>
     );

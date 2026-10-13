@@ -46,21 +46,19 @@ pub fn sync_mcp_servers(
     servers: Vec<McpServerConfig>,
     mcp_state: tauri::State<'_, McpState>,
 ) -> Result<Vec<McpStatusEntry>, AppError> {
-    mcp_state.sync_servers(servers).map_err(AppError::Message)
+    mcp_state
+        .sync_servers(servers)
+        .map_err(|e| AppError::Message(e))
 }
 
 #[tauri::command]
-pub fn get_mcp_status(
-    mcp_state: tauri::State<'_, McpState>,
-) -> Result<Vec<McpStatusEntry>, AppError> {
-    mcp_state.get_status().map_err(AppError::Message)
+pub fn get_mcp_status(mcp_state: tauri::State<'_, McpState>) -> Result<Vec<McpStatusEntry>, AppError> {
+    mcp_state.get_status().map_err(|e| AppError::Message(e))
 }
 
 #[tauri::command]
-pub fn get_mcp_tools(
-    mcp_state: tauri::State<'_, McpState>,
-) -> Result<Vec<crate::mcp::McpToolInfo>, AppError> {
-    mcp_state.all_tools().map_err(AppError::Message)
+pub fn get_mcp_tools(mcp_state: tauri::State<'_, McpState>) -> Result<Vec<crate::mcp::McpToolInfo>, AppError> {
+    mcp_state.all_tools().map_err(|e| AppError::Message(e))
 }
 
 #[tauri::command]
@@ -68,7 +66,7 @@ pub fn restart_mcp_server(
     id: String,
     mcp_state: tauri::State<'_, McpState>,
 ) -> Result<McpStatusEntry, AppError> {
-    mcp_state.restart_server(&id).map_err(AppError::Message)
+    mcp_state.restart_server(&id).map_err(|e| AppError::Message(e))
 }
 
 #[tauri::command]
@@ -80,10 +78,10 @@ pub async fn mcp_start_oauth(
     let server_id = mcp_state
         .start_server_oauth(&id)
         .await
-        .map_err(AppError::Message)?;
+        .map_err(|e| AppError::Message(e))?;
     mcp_state
         .restart_server(&server_id)
-        .map_err(AppError::Message)?;
+        .map_err(|e| AppError::Message(e))?;
     Ok(server_id)
 }
 
@@ -94,10 +92,10 @@ pub async fn mcp_complete_oauth(
 ) -> Result<String, AppError> {
     let server_id = crate::mcp::handle_oauth_callback(&callback_url)
         .await
-        .map_err(AppError::Message)?;
+        .map_err(|e| AppError::Message(e))?;
     mcp_state
         .restart_server(&server_id)
-        .map_err(AppError::Message)?;
+        .map_err(|e| AppError::Message(e))?;
     Ok(server_id)
 }
 
@@ -131,10 +129,7 @@ pub async fn mcp_manage_servers(
     use tauri::Emitter;
 
     let announce = |action: &str, id: Option<&str>| {
-        let _ = app_handle.emit(
-            "mcp-servers-changed",
-            serde_json::json!({ "action": action, "id": id }),
-        );
+        let _ = app_handle.emit("mcp-servers-changed", serde_json::json!({ "action": action, "id": id }));
     };
 
     let action = request.action.trim().to_ascii_lowercase();
@@ -207,6 +202,67 @@ pub async fn mcp_manage_servers(
     Ok(result)
 }
 
+/// Search the official MCP registry from Settings.
+///
+/// Same client the agent's `mcp_manage` search action uses, so the browser and
+/// the agent see the same entries.
+#[tauri::command]
+pub async fn mcp_registry_search(
+    query: String,
+    limit: Option<usize>,
+) -> Result<Vec<crate::mcp::registry::RegistryServer>, AppError> {
+    crate::mcp::registry::search(&query, limit.unwrap_or(20))
+        .await
+        .map_err(AppError::Message)
+}
+
+/// Install a registry entry, from the entry the user picked.
+///
+/// Writes `mcp.json` through the same validated, atomic path the agent uses, so
+/// an install from Settings and an install from chat cannot drift apart.
+#[tauri::command]
+pub async fn mcp_registry_install(
+    entry: crate::mcp::registry::RegistryServer,
+    replace: Option<bool>,
+    mcp_state: tauri::State<'_, McpState>,
+    app_handle: tauri::AppHandle,
+) -> Result<serde_json::Value, AppError> {
+    use crate::mcp::admin;
+    use tauri::Emitter;
+
+    let cfg = crate::mcp::registry::config_from_registry(&entry).map_err(AppError::Message)?;
+    admin::validate(&cfg).map_err(AppError::Message)?;
+    // Refuse to overwrite quietly: an install button that replaces a server the
+    // user configured by hand would be the wrong kind of convenient.
+    let taken = admin::load_server(&cfg.id)
+        .map_err(AppError::Message)?
+        .is_some()
+        || mcp_state
+            .configs_snapshot()
+            .iter()
+            .any(|s| s.id == cfg.id);
+    if taken && !replace.unwrap_or(false) {
+        return Err(AppError::Message(format!(
+            "'{}' is already configured. Open it in the list, or remove it first.",
+            cfg.id
+        )));
+    }
+
+    let previous = admin::upsert(&cfg).map_err(AppError::Message)?;
+    let status = mcp_state
+        .upsert_server(cfg.clone())
+        .map_err(AppError::Message)?;
+    let _ = app_handle.emit(
+        "mcp-servers-changed",
+        serde_json::json!({ "action": "add", "id": cfg.id }),
+    );
+    Ok(serde_json::json!({
+        "server": cfg,
+        "status": status,
+        "replaced": previous.is_some(),
+    }))
+}
+
 /// Re-read `mcp.json` and connect exactly what it lists. Servers added by the
 /// agent (or hand-edited into the file) show up without restarting the app.
 #[tauri::command]
@@ -227,12 +283,9 @@ pub fn mcp_reload_from_file(
     let mut previously_file_sourced = mcp_state.file_sourced_ids();
     previously_file_sourced.extend(crate::mcp::admin::written_ids_snapshot());
     let mut servers: Vec<McpServerConfig> = file_servers;
-    servers.extend(
-        mcp_state
-            .configs_snapshot()
-            .into_iter()
-            .filter(|s| !file_ids.contains(&s.id) && !previously_file_sourced.contains(&s.id)),
-    );
+    servers.extend(mcp_state.configs_snapshot().into_iter().filter(|s| {
+        !file_ids.contains(&s.id) && !previously_file_sourced.contains(&s.id)
+    }));
     mcp_state.remember_file_sourced(file_ids);
     mcp_state.sync_servers(servers).map_err(AppError::Message)
 }
@@ -246,5 +299,5 @@ pub fn call_mcp_tool(
     let args_json = serde_json::to_string(&arguments).unwrap_or_else(|_| "{}".to_string());
     mcp_state
         .call_tool(&qualified_name, &args_json)
-        .map_err(AppError::Message)
+        .map_err(|e| AppError::Message(e))
 }

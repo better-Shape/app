@@ -55,6 +55,46 @@ Policies worth knowing when you touch it:
 - **Holds**: automatic passes only, never `/compact`. `CompactionState::check_pause` lets a hold skip three passes, 16k tokens of growth, or 15 minutes, and the hard ceiling (92% of the window) overrides it. The hold's reason is pushed into `pins`, which `build_compaction_prompt` renders as notes the summary must keep.
 - **Reconstruction**: after a fold, the five most recently read or written files are re-attached, and the model is told to re-read only what the summary does not cover.
 
+## MCP management (`mcp_manage`)
+
+`mcp_manage` lets an agent do everything the MCP settings page can do, without the user opening it:
+
+| Action | Effect |
+| --- | --- |
+| `list` | Configured servers, their status, transport, and tool counts. |
+| `add` / `update` | Validate and write an entry to `mcp.json`, then connect it without disturbing other servers. |
+| `remove` | Delete the entry, drop the connection, and clear a stored OAuth token. |
+| `enable` / `disable` | Flip `disabled` in the file and reconnect (or disconnect). |
+| `restart` | Reconnect one server, e.g. after its command changed. |
+| `test` | Connect once, list tools, report tool count and latency. `save: false` tests a config without writing it. |
+| `tools` | Tools one connected server exposes. |
+| `auth` | Start the OAuth sign-in flow for an HTTP server (browser + loopback callback). |
+| `registry` | Search the MCP registry (`registry.modelcontextprotocol.io`) and return installable entries. |
+
+The tool is defined in `src-tauri/src/agent/tools/schema.rs`, dispatched in `src-tauri/src/agent/tools/dispatch/meta.rs`, and the file/validation logic lives in `src-tauri/src/mcp/admin.rs`. It is available in every mode, but a read-only mode cannot call it, because mode gating follows the same rule as the other mutating tools.
+
+Mutations emit an `mcp-servers-changed` window event, which the MCP settings page listens to so it re-reads without a manual reload.
+
+## Context compaction (`compact_context`)
+
+Compaction is an engine (`src-tauri/src/agent/commands/compaction.rs`) with a thin tool on top. The tool is not executed by the normal dispatcher: `run_turn.rs` intercepts it, folds the older API messages into a summary, replaces the tool result with the summary, and continues the loop with the freed budget. `dispatch/meta.rs` keeps a fallback arm that explains the tool when the interception is not reached.
+
+The same engine backs:
+
+- the `chat_context_summarized` event emitted when an automatic pass runs,
+- the `/compact` slash command in the composer,
+- the `compact_chat` / `get_compaction_state` / `reset_compaction` Tauri commands.
+
+The tool takes an `action`: `compact` (default) folds now, `defer` holds the automatic pass with a `reason`, and `resume` ends the hold.
+
+Policies worth knowing when you touch it:
+
+- **Tiers**: tool-result pruning → redundant-result notes → span fold → spill to `.shape/agent-out/`.
+- **Hysteresis**: compaction triggers at 74% of the effective window and stops once the tail fits under 45%, so it does not re-run on every message. The trigger sits in the 70 to 75 percent band on purpose: a pass run at the ceiling prices in the model's own sense of running out of room.
+- **Circuit breaker**: three consecutive failures (or a low-yield pass) open a backoff window instead of retrying in a loop.
+- **Holds**: automatic passes only, never `/compact`. `CompactionState::check_pause` lets a hold skip three passes, 16k tokens of growth, or 15 minutes, and the hard ceiling (92% of the window) overrides it. The hold's reason is pushed into `pins`, which `build_compaction_prompt` renders as notes the summary must keep.
+- **Reconstruction**: after a fold, the five most recently read or written files are re-attached, and the model is told to re-read only what the summary does not cover.
+
 ## Related
 
 - [Architecture](/docs/developing/architecture)
