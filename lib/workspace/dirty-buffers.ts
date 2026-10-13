@@ -1,6 +1,10 @@
 /**
  * Persist unsaved editor buffers across restarts so dirty markdown/text
  * survives app quit without forcing a save prompt every time.
+ *
+ * Storage is a JSON array of buffers, not an object keyed by path: a buffer
+ * carries its own path, so a path named `__proto__` can never address a
+ * property on a shared prototype.
  */
 
 const STORAGE_KEY = "bettershape-dirty-buffers-v1";
@@ -12,68 +16,72 @@ export type DirtyBuffer = {
     updatedAt: number;
 };
 
-/** Property names that would walk the prototype chain if written to a plain object. */
 const UNSAFE_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
-function emptyMap(): Record<string, DirtyBuffer> {
-    // Null prototype: a stored path like `__proto__` is a key, never a mutation.
-    return Object.create(null) as Record<string, DirtyBuffer>;
+function isUsableBuffer(value: unknown): value is DirtyBuffer {
+    if (!value || typeof value !== "object") return false;
+    const buffer = value as Partial<DirtyBuffer>;
+    return (
+        typeof buffer.path === "string" &&
+        buffer.path.length > 0 &&
+        !UNSAFE_KEYS.has(buffer.path) &&
+        typeof buffer.content === "string" &&
+        typeof buffer.savedContent === "string" &&
+        typeof buffer.updatedAt === "number"
+    );
 }
 
-function isSafeKey(key: string): boolean {
-    return key.length > 0 && !UNSAFE_KEYS.has(key);
-}
-
-function readAll(): Record<string, DirtyBuffer> {
-    if (typeof window === "undefined") return emptyMap();
+/** Buffers by path. A Map also keeps a path like `__proto__` as plain data. */
+function readAll(): Map<string, DirtyBuffer> {
+    const map = new Map<string, DirtyBuffer>();
+    if (typeof window === "undefined") return map;
     try {
         const raw = localStorage.getItem(STORAGE_KEY);
-        if (!raw) return emptyMap();
+        if (!raw) return map;
         const parsed = JSON.parse(raw) as unknown;
-        if (!parsed || typeof parsed !== "object") return emptyMap();
-        const map = emptyMap();
-        for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
-            if (!isSafeKey(key) || !value || typeof value !== "object") continue;
-            map[key] = value as DirtyBuffer;
+        const entries = Array.isArray(parsed)
+            ? parsed
+            : Object.values((parsed ?? {}) as Record<string, unknown>);
+        for (const entry of entries) {
+            if (isUsableBuffer(entry)) map.set(entry.path, entry);
         }
-        return map;
     } catch {
-        return emptyMap();
+        /* unreadable / private mode — start clean */
     }
+    return map;
 }
 
-function writeAll(map: Record<string, DirtyBuffer>) {
+function writeAll(map: Map<string, DirtyBuffer>) {
     if (typeof window === "undefined") return;
     try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(map));
+        localStorage.setItem(STORAGE_KEY, JSON.stringify([...map.values()]));
     } catch {
         /* quota / private mode */
     }
 }
 
 export function saveDirtyBuffer(path: string, content: string, savedContent: string) {
-    if (!isSafeKey(path)) return;
+    if (!path || UNSAFE_KEYS.has(path)) return;
     const map = readAll();
     if (content === savedContent) {
-        delete map[path];
+        map.delete(path);
     } else {
-        map[path] = { path, content, savedContent, updatedAt: Date.now() };
+        map.set(path, { path, content, savedContent, updatedAt: Date.now() });
     }
     writeAll(map);
 }
 
 export function clearDirtyBuffer(path: string) {
-    if (!isSafeKey(path)) return;
+    if (!path || UNSAFE_KEYS.has(path)) return;
     const map = readAll();
-    if (!(path in map)) return;
-    delete map[path];
+    if (!map.delete(path)) return;
     writeAll(map);
 }
 
 export function loadDirtyBuffer(path: string): DirtyBuffer | null {
-    return readAll()[path] ?? null;
+    return readAll().get(path) ?? null;
 }
 
 export function listDirtyBuffers(): DirtyBuffer[] {
-    return Object.values(readAll()).sort((a, b) => b.updatedAt - a.updatedAt);
+    return [...readAll().values()].sort((a, b) => b.updatedAt - a.updatedAt);
 }

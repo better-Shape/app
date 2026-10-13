@@ -6,7 +6,7 @@ function normalizeWorkspacePath(path: string): string {
     return /^[a-zA-Z]:[\\/]/.test(path) || path.includes("\\") ? slashed.toLowerCase() : slashed;
 }
 
-function loadTrustedSet(): Set<string> {
+function readTrustedPaths(): Set<string> {
     if (typeof window === "undefined") return new Set();
     try {
         const raw = localStorage.getItem(STORAGE_KEY);
@@ -19,7 +19,7 @@ function loadTrustedSet(): Set<string> {
     }
 }
 
-function saveTrustedSet(set: Set<string>): void {
+function writeTrustedPaths(set: Set<string>): void {
     if (typeof window === "undefined") return;
     localStorage.setItem(STORAGE_KEY, JSON.stringify([...set]));
 }
@@ -36,13 +36,13 @@ function syncRustTrust(path: string, trusted: boolean): Promise<void> {
 
 export function isWorkspaceTrusted(path: string | null | undefined): boolean {
     if (!path) return false;
-    return loadTrustedSet().has(normalizeWorkspacePath(path));
+    return readTrustedPaths().has(normalizeWorkspacePath(path));
 }
 
 export function trustWorkspace(path: string): void {
-    const set = loadTrustedSet();
+    const set = readTrustedPaths();
     set.add(normalizeWorkspacePath(path));
-    saveTrustedSet(set);
+    writeTrustedPaths(set);
     void syncRustTrust(path, true);
     if (typeof window !== "undefined") {
         window.dispatchEvent(new CustomEvent("bettershape-workspace-trusted", { detail: { path } }));
@@ -50,15 +50,15 @@ export function trustWorkspace(path: string): void {
 }
 
 export function untrustWorkspace(path: string): void {
-    const set = loadTrustedSet();
+    const set = readTrustedPaths();
     set.delete(normalizeWorkspacePath(path));
-    saveTrustedSet(set);
+    writeTrustedPaths(set);
     void syncRustTrust(path, false);
     if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("bettershape-workspace-untrusted", { detail: { path } }));
 }
 
 export function listTrustedWorkspaces(): string[] {
-    return [...loadTrustedSet()];
+    return [...readTrustedPaths()];
 }
 
 export async function ensureWorkspaceTrust(path: string): Promise<boolean> {
