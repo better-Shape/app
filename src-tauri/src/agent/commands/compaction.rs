@@ -1835,10 +1835,34 @@ pub async fn maybe_shrink_payload(
     let boundary = boundary_message(&stored, &plan, "auto", spill_path.as_deref(), None);
     let drain_from = 1usize.min(fold_end);
     api_messages.drain(drain_from..fold_end);
-    api_messages.insert(
-        drain_from,
-        json!({ "role": boundary.role, "content": boundary.content }),
-    );
+    // The tail starts on a user turn, so the boundary would sit in front of one:
+    // two user messages in a row, which some providers reject. Join them, the
+    // same way a folded history does.
+    let joins_next = api_messages
+        .get(drain_from)
+        .map(|m| {
+            m.get("role").and_then(|r| r.as_str()) == Some("user")
+                && m.get("content").map(|c| c.is_string()).unwrap_or(false)
+        })
+        .unwrap_or(false);
+    if joins_next {
+        if let Some(Value::Object(obj)) = api_messages.get_mut(drain_from) {
+            let tail = obj
+                .get("content")
+                .and_then(|c| c.as_str())
+                .unwrap_or("")
+                .to_string();
+            obj.insert(
+                "content".into(),
+                Value::String(format!("{}\n\n{}", boundary.content, tail)),
+            );
+        }
+    } else {
+        api_messages.insert(
+            drain_from,
+            json!({ "role": boundary.role, "content": boundary.content }),
+        );
+    }
 
     let tokens_after = api_messages_tokens(api_messages);
     let mut record = CompactionRecord::new("auto", None);
