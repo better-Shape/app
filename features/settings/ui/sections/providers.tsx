@@ -257,12 +257,21 @@ function ProviderCard({ id, providers }: { id: ProviderId; providers: ProvidersS
                                     <Icon icon={Link20Regular} />
                                 </button>
                             ) : null}
-                            {usable ? null : (
-                                <span className="text-xs text-text-muted">not configured</span>
-                            )}
-                            {usable && preset.keyless && !connection.apiKey.trim() ? (
-                                <span className="text-xs text-text-muted">no key needed</span>
-                            ) : null}
+                            <span className="flex shrink-0 items-center gap-1 text-xs font-normal text-text-muted">
+                                <span
+                                    className={
+                                        usable
+                                            ? "h-1.5 w-1.5 rounded-full bg-emerald-500"
+                                            : "h-1.5 w-1.5 rounded-full bg-text-muted"
+                                    }
+                                    aria-hidden
+                                />
+                                {!usable
+                                    ? "not configured"
+                                    : preset.keyless && !connection.apiKey.trim()
+                                      ? "no key needed"
+                                      : "ready"}
+                            </span>
                         </div>
                         <div className="text-sm text-text-muted">
                             {preset.kind === "openai"
@@ -514,16 +523,22 @@ export function ProvidersSettingsView() {
     // Configured connections first in each group, then everything else: the two
     // or three the user actually keys are the ones they keep coming back to.
     const groups = providerGroups()
-        .map((group) => ({
-            group: group.group,
-            presets: group.presets
+        .map((group) => {
+            const presets = group.presets
                 .filter((preset) => matchesProviderQuery(preset, query))
                 .sort(
                     (a, b) =>
                         Number(isConnectionUsable(b.id, providers.connections)) -
                         Number(isConnectionUsable(a.id, providers.connections)),
-                ),
-        }))
+                );
+            return {
+                group: group.group,
+                presets,
+                ready: presets.filter((preset) =>
+                    isConnectionUsable(preset.id, providers.connections),
+                ).length,
+            };
+        })
         .filter((group) => group.presets.length > 0);
     const configuredCount = PROVIDER_PRESETS.filter((preset) =>
         isConnectionUsable(preset.id, providers.connections),
@@ -564,8 +579,15 @@ export function ProvidersSettingsView() {
                 <div className="flex flex-col gap-4">
                     {groups.map((group) => (
                         <div key={group.group} className="flex flex-col gap-2.5">
-                            <div className="text-xs font-medium tracking-wide text-text-muted uppercase">
-                                {group.group}
+                            <div className="flex items-baseline gap-2">
+                                <span className="text-xs font-medium tracking-wide text-text-muted uppercase">
+                                    {group.group}
+                                </span>
+                                {group.ready > 0 ? (
+                                    <span className="text-xs text-text-muted">
+                                        {group.ready} of {group.presets.length} ready
+                                    </span>
+                                ) : null}
                             </div>
                             {group.presets.map((preset) => (
                                 <ProviderCard key={preset.id} id={preset.id} providers={providers} />
