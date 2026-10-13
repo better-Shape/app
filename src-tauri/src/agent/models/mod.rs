@@ -367,9 +367,10 @@ impl AgentState {
 
     /// Restore a saved summary together with the span it covers.
     pub fn restore_summary(&self, summary: Option<String>, fold_end: usize) {
+        let covered = if summary.is_some() { fold_end } else { 0 };
         self.set_current_summary(summary);
         if let Ok(mut guard) = self.compaction.lock() {
-            guard.summary_fold_end = if summary.is_some() { fold_end } else { 0 };
+            guard.summary_fold_end = covered;
         }
     }
 

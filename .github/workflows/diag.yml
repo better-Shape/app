@@ -52,7 +52,8 @@ jobs:
           tail -c 58000 /tmp/cargo.log > /tmp/tail.log
           python3 - <<'PY' > /tmp/focus.log
           import re
-          lines = open('/tmp/cargo.log', errors='replace').read().splitlines()
+          raw = open('/tmp/cargo.log', errors='replace').read().replace('^[', '\x1b')
+          lines = re.sub(r'\x1b\[[0-9;]*m', '', raw).splitlines()
           out, kept = [], 0
           for i, l in enumerate(lines):
               if re.match(r'^(error|warning)(\[[A-Z0-9]+\])?:', l.strip()) and 'generated' not in l:

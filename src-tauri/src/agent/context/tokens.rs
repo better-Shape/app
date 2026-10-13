@@ -115,7 +115,6 @@ pub fn truncate_to_tokens(text: &str, max_tokens: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
 
     #[test]
     fn empty_is_zero() {
