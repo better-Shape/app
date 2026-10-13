@@ -67,13 +67,15 @@ The agent can:
 - **List** servers and their status.
 - **Search the registry** for a server by name, then **add** it from the registry entry.
 - **Add, update, enable, disable, or remove** a server, with `command`/`args`/`env` for a local process or `url`/`headers` for a remote one.
-- **Test** a server and report the tool count and latency.
+- **Test** a server and report the tool count and latency. A test that passes saves the server unless you pass `save: false`.
 - **Start sign-in** for a server that needs OAuth.
 - **List the tools** a server exposes.
 
 Servers the agent creates are written to the same `mcp.json` the Settings page reads, so they show up there too. Pass `save: false` to add a server for the current session only.
 
 Adding a server changes which tools Shape can call, so a mode that only reads will not do it. Approve the action like any other edit.
+
+A local server is a program this machine will run, so the first time one is added, updated, or tested, Shape asks for approval in the chat and shows the exact command. Servers already in `mcp.json`, and everything you add yourself in Settings, are past that point. Set **Auto-run** to **Always** in Settings to stop the questions.
 
 ### Headers
 

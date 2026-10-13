@@ -55,6 +55,7 @@ A hold is bounded, because an unbounded one would let the window overflow, and a
 - It lapses after about 15 minutes, or 16k tokens of growth, or 3 skipped passes.
 - It is overridden when the chat reaches about 92% of the window.
 - `/compact` from you always works, and a finished turn clears the hold.
+- A fold is saved as it happens, so a summary survives a restart and a reopened chat does not send the raw history again. Only the part no summary covers yet is sent to be summarized, and the previous summary is handed in as the base.
 
 Settings → Agents → Context shows the hold, its reason, and a **Compact now** button while one is active.
 
