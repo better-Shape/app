@@ -32,7 +32,7 @@ it("uploads only strictly collected nightly installers while retaining explicit 
 it("bounds dependency installation and reports failures including step timeouts", () => {
     const installers = steps("build-installers");
     const install = installers.find((step) => step.name === "Install locked dependencies")!;
-    expect(install["timeout-minutes"]).toBe(15);
+    expect(install["timeout-minutes"]).toBe(25);
     expect(install.run).toContain("npm ci --ignore-scripts");
     expect(install.run).toContain("set -euo pipefail");
     const report = installers.find((step) => step.name === "Report native build failure")!;

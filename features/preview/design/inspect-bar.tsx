@@ -3,14 +3,15 @@
 import { TextFontSize20Regular } from "@fluentui/react-icons/headless/svg/text-font-size";
 
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 
 import { commands } from "@/lib/backend";
 import { useProjectState } from "@/lib/backend";
 import { cn } from "@/lib/utils";
-import { isLocalPreviewUrl } from "../store";
+import { notify } from "@/features/notifications";
+import { acceptsDesignMessage, authorizeDesignPreview, designMessageOrigin, scopeDesignBridge, type DesignAuthorization } from "./authorization";
 import {
     DESIGN_BRIDGE_SCRIPT,
     type DesignElementSnapshot,
@@ -19,33 +20,6 @@ import { patchJsx } from "./jsx-source";
 import { isUserSourcePath } from "./library";
 
 type Tab = "radius" | "padding" | "gap";
-
-/** Matches no real page, so a canvas that is not a loopback preview gets no message. */
-const OFF_PREVIEW_ORIGIN = "https://preview.bettershape.invalid";
-
-/**
- * The canvas keeps its real origin (`allow-same-origin`), so host messages are
- * pinned to a loopback preview origin — the only place the design bridge is ever
- * injected (design_bridge.rs `wrap_iframe_only`). A canvas that has navigated
- * anywhere else matches nothing and receives no project path, and a loopback
- * canvas that moved port still works because the live origin wins.
- */
-function frameOrigin(frame: HTMLIFrameElement | null | undefined): string {
-    let live = "";
-    try {
-        live = frame?.contentWindow?.origin || "";
-    } catch {
-        /* cross-origin handle without `origin` */
-    }
-    if (live && isLocalPreviewUrl(live)) return live;
-    try {
-        const fromSrc = new URL(frame?.src || "").origin;
-        if (fromSrc !== "null" && isLocalPreviewUrl(fromSrc)) return fromSrc;
-    } catch {
-        /* no usable src */
-    }
-    return OFF_PREVIEW_ORIGIN;
-}
 
 function parsePx(value: string | undefined): number {
     if (!value) return 0;
@@ -77,6 +51,10 @@ export function DesignInspectOverlay({
     onToggle: () => void;
 }) {
     const { project_path } = useProjectState();
+    const authorizationRef = useRef<DesignAuthorization | null>(null);
+    const activated = useRef(false);
+    const projectPathRef = useRef(project_path ?? "");
+    useLayoutEffect(() => { projectPathRef.current = project_path ?? ""; }, [project_path]);
     const [selected, setSelected] = useState<DesignElementSnapshot | null>(null);
     const [frameSize, setFrameSize] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
     const [tab, setTab] = useState<Tab>("radius");
@@ -95,17 +73,40 @@ export function DesignInspectOverlay({
     useEffect(() => {
         if (!enabled) {
             iframeRef.current?.contentWindow?.postMessage(
-                { type: "bettershape-design-set-mode", mode: "normal", projectRoot: project_path },
-                frameOrigin(iframeRef.current),
+                { type: "bettershape-design-set-mode", mode: "normal" },
+                designMessageOrigin(authorizationRef.current, projectPathRef.current),
             );
+            activated.current = false;
+            authorizationRef.current = null;
             return;
         }
-        void commands.registerDesignBridge(DESIGN_BRIDGE_SCRIPT).then(() => {
+        // Only explicit activation grants access. A project switch or a frame
+        // navigation must not silently authorize an unrelated localhost page.
+        if (!activated.current) {
+            activated.current = true;
+            authorizationRef.current = authorizeDesignPreview(projectPathRef.current, iframeRef.current?.src ?? "");
+        }
+        const authorization = authorizationRef.current;
+        if (!authorization || authorization.projectPath !== projectPathRef.current) {
+            authorizationRef.current = null;
+            setSelected(null);
+            return;
+        }
+        let cancelled = false;
+        void commands.registerDesignBridge(scopeDesignBridge(DESIGN_BRIDGE_SCRIPT, authorization)).then(() => {
+            if (cancelled || authorizationRef.current !== authorization || authorization.projectPath !== projectPathRef.current) return;
             iframeRef.current?.contentWindow?.postMessage(
                 { type: "bettershape-design-set-mode", mode: "select", projectRoot: project_path },
-                frameOrigin(iframeRef.current),
+                designMessageOrigin(authorizationRef.current, projectPathRef.current),
             );
+        }).catch(() => {
+            if (!cancelled && authorizationRef.current === authorization) {
+                authorizationRef.current = null;
+                setSelected(null);
+                notify.error("Could not start design inspection");
+            }
         });
+        return () => { cancelled = true; };
     }, [enabled, iframeRef, project_path]);
 
     useEffect(() => {
@@ -113,14 +114,13 @@ export function DesignInspectOverlay({
         const onMessage = (event: MessageEvent) => {
             // A selection is about to be written to disk by `apply`, so it must come
             // from the loopback canvas frame and nowhere else.
-            if (event.source !== iframeRef.current?.contentWindow) return;
-            if (!isLocalPreviewUrl(event.origin)) return;
+            if (!acceptsDesignMessage(event, iframeRef.current, authorizationRef.current, projectPathRef.current)) return;
             const data = event.data;
             if (!data || typeof data !== "object") return;
             if (data.type === "bettershape-design-ready") {
                 iframeRef.current?.contentWindow?.postMessage(
                     { type: "bettershape-design-set-mode", mode: "select", projectRoot: project_path },
-                    frameOrigin(iframeRef.current),
+                    designMessageOrigin(authorizationRef.current, projectPathRef.current),
                 );
                 return;
             }
@@ -146,7 +146,7 @@ export function DesignInspectOverlay({
             if (!key) return;
             iframeRef.current?.contentWindow?.postMessage(
                 { type: "bettershape-design-apply-preview", styles, key },
-                frameOrigin(iframeRef.current),
+                designMessageOrigin(authorizationRef.current, projectPathRef.current),
             );
             if (persistTimer.current) clearTimeout(persistTimer.current);
             persistTimer.current = setTimeout(() => {

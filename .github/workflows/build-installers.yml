@@ -78,7 +78,9 @@ jobs:
           cache-key: installers-${{ matrix.arch }}
 
       - name: Install locked dependencies
-        timeout-minutes: 15
+        # Native Windows ARM npm ci took 17m10s in run 38613470080. Keep a
+        # bounded step, but allow measured successful installs enough headroom.
+        timeout-minutes: 25
         shell: bash
         run: |
           set -euo pipefail

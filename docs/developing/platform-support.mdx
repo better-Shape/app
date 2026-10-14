@@ -17,21 +17,27 @@ BetterShape is being expanded from its Windows origins to Windows, macOS, and Li
 | Linux | x86_64 | Ubuntu 22.04, `x86_64-unknown-linux-gnu` | `.deb`, `.rpm`, `.AppImage` |
 | Linux | ARM64 | Ubuntu 24.04 ARM, `aarch64-unknown-linux-gnu` | `.deb`, `.rpm`, `.AppImage` |
 
-All targets above still require **install smoke tests**. The previous draft’s installer run exposed failures on Windows x86_64, Linux ARM64, and cross-compiled Intel macOS; those are not shipped targets. Intel builds now use a native Intel runner, and failures publish a diagnostic excerpt as a check annotation. A successful Linux build does not validate Windows/macOS `cfg`-gated Rust, and even a native Intel build still needs an install smoke test.
+All targets above still require **install smoke tests**. Earlier Windows x86_64 and Linux ARM64 failures have been fixed and their installer jobs now produce artifacts. Intel builds use a native Intel runner rather than cross-compiling macOS dependencies. Failures publish a diagnostic excerpt as a check annotation. A successful Linux build does not validate Windows/macOS `cfg`-gated Rust.
 
 ## Artifact evidence (not an install-support claim)
 
-[Installer run 38605331739](https://github.com/better-Shape/app/actions/runs/38605331739),
-at absorbed commit `535bb6c9106a9d7eda2359b0ed9d4bfeefcddba9`, produced:
+[Installer run 38613470080](https://github.com/better-Shape/app/actions/runs/38613470080),
+at commit `61047fdea284f870abb95900d395aa33f1a33a14`, produced these artifacts
+(verified through the GitHub artifacts API on 14 October 2026):
 
-- `bettershape-macos-aarch64` — artifact `11916881538`, 18,736,491 bytes.
-- `bettershape-linux-x86_64` — artifact `11915986310`, 131,641,553 bytes.
+| Artifact | Artifact ID | Archive bytes |
+| --- | --- | ---: |
+| `bettershape-windows-x86_64` | `11919437319` | 13,880,872 |
+| `bettershape-macos-aarch64` | `11919491412` | 18,739,649 |
+| `bettershape-linux-x86_64` | `11919531319` | 131,653,865 |
+| `bettershape-linux-aarch64` | `11920551265` | 126,265,940 |
 
-The GitHub artifacts API and successful collector jobs confirm those archives
-exist. They have **not** been downloaded, installed, or smoke-tested here, and
-they do not include subsequent source changes. Test artifacts expire after 14
-days. Windows ARM64 was still building at this checkpoint; the other three jobs
-failed. Do not treat this as a green matrix or a production release.
+The successful collector jobs validate nonempty requested formats (including
+all three Linux package formats). These archives have **not** been downloaded,
+installed, or smoke-tested here, and they do not include subsequent source
+changes. Test artifacts expire after 14 days. Windows ARM64 and Intel macOS were
+still building at this checkpoint. Do not treat this as a green matrix or a
+production release.
 
 ## Downloading and verifying a test build
 
