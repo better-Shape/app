@@ -35,14 +35,14 @@ jobs:
             arch: aarch64
             target: aarch64-pc-windows-msvc
             bundles: nsis
-          # `macos-13` is retired from actions/runner-images; Intel is cross-compiled
-          # from the arm64 runner because the macOS SDK ships x86_64 slices.
+          # Use native runners for both architectures; SDK slices alone do not
+          # cross-compile native dependencies such as OpenSSL.
           - runner: macos-latest
             os: macos
             arch: aarch64
             target: aarch64-apple-darwin
             bundles: dmg
-          - runner: macos-latest
+          - runner: macos-15-intel
             os: macos
             arch: x86_64
             target: x86_64-apple-darwin
@@ -51,6 +51,11 @@ jobs:
             os: linux
             arch: x86_64
             target: x86_64-unknown-linux-gnu
+            bundles: deb,appimage,rpm
+          - runner: ubuntu-24.04-arm
+            os: linux
+            arch: aarch64
+            target: aarch64-unknown-linux-gnu
             bundles: deb,appimage,rpm
     env:
       # AppImage bundling runs the downloaded linuxdeploy AppImages, which need FUSE2.

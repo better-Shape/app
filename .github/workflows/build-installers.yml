@@ -40,14 +40,14 @@ jobs:
             arch: aarch64
             target: aarch64-pc-windows-msvc
             bundles: nsis
-          # `macos-13` is retired from actions/runner-images, so Intel is produced by
-          # cross-compiling on the arm64 runner: the macOS SDK ships x86_64 slices.
+          # Use native runners for both architectures; SDK slices alone do not
+          # cross-compile native dependencies such as OpenSSL.
           - runner: macos-latest
             os: macos
             arch: aarch64
             target: aarch64-apple-darwin
             bundles: dmg
-          - runner: macos-latest
+          - runner: macos-15-intel
             os: macos
             arch: x86_64
             target: x86_64-apple-darwin
@@ -89,11 +89,25 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ -n "${{ matrix.target }}" ]; then
-            npm run tauri -- build --bundles "${{ matrix.bundles }}" --target "${{ matrix.target }}"
-          else
-            npm run tauri -- build --bundles "${{ matrix.bundles }}"
+          ARGS=(build --bundles "${{ matrix.bundles }}")
+          if [ -n "${{ matrix.target }}" ]; then ARGS+=(--target "${{ matrix.target }}"); fi
+          set +e
+          npm run tauri -- "${ARGS[@]}" 2>&1 | tee "$RUNNER_TEMP/tauri-build.log"
+          STATUS=${PIPESTATUS[0]}
+          set -e
+          if [ "$STATUS" -ne 0 ]; then
+            node scripts/build/report-failure.mjs "$RUNNER_TEMP/tauri-build.log"
+            exit "$STATUS"
           fi
+
+      - name: Upload native build diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-build-log-${{ matrix.os }}-${{ matrix.arch }}
+          path: ${{ runner.temp }}/tauri-build.log
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Collect installer
         shell: bash

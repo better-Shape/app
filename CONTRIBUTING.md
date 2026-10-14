@@ -121,3 +121,8 @@ Keep `package.json`, Tauri, and Cargo versions in sync with `npm run sync-versio
 ## Security
 
 Private reports only. [SECURITY.md](./SECURITY.md).
+
+Use npm and the checked-in `package-lock.json` for this repository. CI installs
+with `npm ci`; do not add a second package-manager lockfile with a divergent
+dependency graph. Project tooling can still detect and run other package managers
+in the workspaces opened by BetterShape.

@@ -4,7 +4,7 @@ description: Installer targets, verification status, and test-install requiremen
 order: 3
 ---
 
-BetterShape is being expanded from its Windows origins to Windows, macOS, and Linux. **A configured build target is not a shipped or tested platform.** No installer produced from this draft has been verified here. The table below describes the test-build workflow, not a production support promise.
+BetterShape is being expanded from its Windows origins to Windows, macOS, and Linux. **A configured build target is not a shipped or tested platform.** Installer artifacts and runtime smoke tests are tracked separately below. The table below describes the test-build workflow, not a production support promise.
 
 ## Test-build matrix
 
@@ -13,11 +13,25 @@ BetterShape is being expanded from its Windows origins to Windows, macOS, and Li
 | Windows | x86_64 | `windows-latest`, host MSVC | NSIS `.exe` |
 | Windows | ARM64 | `windows-11-arm`, `aarch64-pc-windows-msvc` | NSIS `.exe` |
 | macOS | Apple Silicon | `macos-latest`, `aarch64-apple-darwin` | `.dmg` containing the `.app` |
-| macOS | Intel | Cross-compiled on `macos-latest`, `x86_64-apple-darwin` | `.dmg` containing the `.app` |
+| macOS | Intel | `macos-15-intel`, `x86_64-apple-darwin` | `.dmg` containing the `.app` |
 | Linux | x86_64 | Ubuntu 22.04, `x86_64-unknown-linux-gnu` | `.deb`, `.rpm`, `.AppImage` |
 | Linux | ARM64 | Ubuntu 24.04 ARM, `aarch64-unknown-linux-gnu` | `.deb`, `.rpm`, `.AppImage` |
 
-All targets above are **awaiting successful installer artifacts and install smoke tests for this draft**. A successful Linux build does not validate Windows/macOS `cfg`-gated Rust, and a cross-compiled Intel macOS package is not proof it runs on Intel hardware.
+All targets above still require **install smoke tests**. The previous draft’s installer run exposed failures on Windows x86_64, Linux ARM64, and cross-compiled Intel macOS; those are not shipped targets. Intel builds now use a native Intel runner, and failures publish a diagnostic excerpt as a check annotation. A successful Linux build does not validate Windows/macOS `cfg`-gated Rust, and even a native Intel build still needs an install smoke test.
+
+## Artifact evidence (not an install-support claim)
+
+[Installer run 38605331739](https://github.com/better-Shape/app/actions/runs/38605331739),
+at absorbed commit `535bb6c9106a9d7eda2359b0ed9d4bfeefcddba9`, produced:
+
+- `bettershape-macos-aarch64` — artifact `11916881538`, 18,736,491 bytes.
+- `bettershape-linux-x86_64` — artifact `11915986310`, 131,641,553 bytes.
+
+The GitHub artifacts API and successful collector jobs confirm those archives
+exist. They have **not** been downloaded, installed, or smoke-tested here, and
+they do not include subsequent source changes. Test artifacts expire after 14
+days. Windows ARM64 was still building at this checkpoint; the other three jobs
+failed. Do not treat this as a green matrix or a production release.
 
 ## Downloading and verifying a test build
 

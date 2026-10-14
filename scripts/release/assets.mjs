@@ -23,8 +23,8 @@ import {
     rmSync,
     statSync,
 } from "node:fs";
-import { basename, dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { basename, dirname, join, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -117,11 +117,19 @@ function zipWindows(paths, outZip) {
  * (`.dmg`, `.deb`, `.rpm`, `.AppImage`), so just copy them to --out-dir.
  * `.app` is a directory and cannot be a release asset on its own — tar it.
  */
-function collectUnixBundles(releaseDir, outDir) {
+export function collectUnixBundles(releaseDir, outDir, arch, platform = process.platform) {
     const bundleRoot = join(releaseDir, "bundle");
     if (!existsSync(bundleRoot)) {
-        console.log(`No bundle directory at ${bundleRoot}; nothing to collect.`);
-        return;
+        throw new Error(`No bundle directory at ${bundleRoot}`);
+    }
+    const required = platform === "darwin" ? ["dmg", "macos"] : ["deb", "rpm", "appimage"];
+    const extensions = { dmg: ".dmg", macos: ".app", deb: ".deb", rpm: ".rpm", appimage: ".AppImage" };
+    for (const format of required) {
+        const directory = join(bundleRoot, format);
+        if (!existsSync(directory) || !readdirSync(directory).some((name) => {
+            const entry = statSync(join(directory, name));
+            return name.endsWith(extensions[format]) && (format === "macos" ? entry.isDirectory() : entry.isFile() && entry.size > 0);
+        })) throw new Error(`Missing or empty ${format} release asset under ${bundleRoot}`);
     }
     let copied = 0;
     for (const dir of UNIX_BUNDLE_DIRS) {
@@ -130,7 +138,7 @@ function collectUnixBundles(releaseDir, outDir) {
         for (const name of readdirSync(src)) {
             const full = join(src, name);
             if (statSync(full).isDirectory()) {
-                archiveDirectory(full, outDir);
+                if (name.endsWith(".app")) { archiveDirectory(full, outDir, arch); copied += 1; }
                 continue;
             }
             const dest = join(outDir, name);
@@ -139,27 +147,17 @@ function collectUnixBundles(releaseDir, outDir) {
             copied += 1;
         }
     }
-    if (copied === 0) {
-        console.log(
-            `No release assets under ${bundleRoot} ` +
-                `(looked in ${UNIX_BUNDLE_DIRS.join(", ")}); nothing to collect.`,
-        );
-    }
+    if (copied === 0) throw new Error(`No release assets under ${bundleRoot}`);
 }
 
-function archiveDirectory(dir, outDir) {
-    const dest = join(outDir, `${basename(dir)}.tar.gz`);
+function archiveDirectory(dir, outDir, arch) {
+    const dest = join(outDir, `${basename(dir, ".app")}-${arch}.app.tar.gz`);
     if (existsSync(dest)) rmSync(dest);
     // -C so the archive holds `Foo.app/...`, and tar keeps the symlinks and
     // permissions a .app bundle's code signature depends on.
-    try {
-        execFileSync("tar", ["-czf", dest, "-C", dirname(dir), basename(dir)], {
-            stdio: "inherit",
-        });
-    } catch (err) {
-        console.warn(`Could not archive ${dir} (is tar installed?): ${err.message}`);
-        return;
-    }
+    execFileSync("tar", ["-czf", dest, "-C", dirname(dir), basename(dir)], {
+        stdio: "inherit",
+    });
     console.log(`Wrote ${dest}`);
 }
 
@@ -171,7 +169,7 @@ function main() {
 
     if (!IS_WINDOWS) {
         console.log(`Collecting ${process.platform} assets from ${releaseDir}`);
-        collectUnixBundles(releaseDir, outDir);
+        collectUnixBundles(releaseDir, outDir, arch);
         return;
     }
 
@@ -214,4 +212,4 @@ function main() {
     console.log(`Wrote ${zipDest} (${zipPaths.length} entries)`);
 }
 
-main();
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) main();
