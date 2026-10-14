@@ -1,59 +1,45 @@
 "use client";
 
-import { Add20Regular } from "@fluentui/react-icons/headless/svg/add";
-import { Checkmark } from "@/components/ui/checkmark";
-import { ChevronRight20Regular } from "@fluentui/react-icons/headless/svg/chevron-right";
+import { ArrowUndo20Regular } from "@fluentui/react-icons/headless/svg/arrow-undo";
+import { Collections20Regular } from "@fluentui/react-icons/headless/svg/collections";
 import { Compose20Regular } from "@fluentui/react-icons/headless/svg/compose";
-import { Copy20Regular } from "@fluentui/react-icons/headless/svg/copy";
-import { Delete20Filled } from "@fluentui/react-icons/headless/svg/delete";
-import { Edit20Regular } from "@fluentui/react-icons/headless/svg/edit";
+import { Dismiss20Regular } from "@fluentui/react-icons/headless/svg/dismiss";
 import { Filter20Regular } from "@fluentui/react-icons/headless/svg/filter";
 import { FolderOpen20Regular } from "@fluentui/react-icons/headless/svg/folder-open";
-import { MailInbox20Regular } from "@fluentui/react-icons/headless/svg/mail-inbox";
 import { MoreHorizontal20Regular } from "@fluentui/react-icons/headless/svg/more-horizontal";
-import { Open20Regular } from "@fluentui/react-icons/headless/svg/open";
-import { Pin20Filled } from "@fluentui/react-icons/headless/svg/pin";
-import { Pin20Regular } from "@fluentui/react-icons/headless/svg/pin";
 import { Search20Regular } from "@fluentui/react-icons/headless/svg/search";
-import { Eclipse } from "loading-dev";
 
 import {
-    Fragment,
     useCallback,
     useEffect,
     useMemo,
-    useRef,
     useState,
     useSyncExternalStore,
     type ReactNode,
 } from "react";
 import { commands, useProjectState } from "@/lib/backend";
 import type { Conversation } from "@/lib/backend/types";
-import { Icon, type IconGlyph } from "@/components/ui/icon";
+import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 import { Tooltip } from "@/components/ui/tooltip";
-import { useIsChatGenerating } from "@/features/chat/lib/generating-chats";
 import { NEW_CHAT_TAB_ID } from "@/features/chat/ui/shell/tabs";
 import {
     clearChatUnread,
+    getChatColors,
+    getChatColorsServer,
+    getCollections,
+    getCollectionsServer,
     getPinnedChatIds,
     getPinnedChatIdsServer,
     getUnreadChatIds,
     getUnreadChatIdsServer,
     markChatUnread,
-    CHAT_COLOR_HEX,
     setChatPinned,
-    type ChatColor,
+    subscribeChatColors,
+    subscribeCollections,
     subscribePinnedChats,
     subscribeUnreadChats,
 } from "@/lib/sidebar/chat-list-meta";
-import {
-    ContextMenu,
-    ContextMenuContent,
-    ContextMenuItem,
-    ContextMenuSeparator,
-    ContextMenuTrigger,
-} from "@/components/ui/context";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -67,28 +53,44 @@ import {
 import {
     applySubagentEvent,
     getSubagents,
-    openSubagent,
     subscribeSubagents,
-    type SubagentCard,
 } from "@/features/agent/subagents/store";
 import { listen } from "@tauri-apps/api/event";
 import { useChatStreamOptional } from "@/features/chat/lib/chat-stream-store";
+import { useGeneratingChatIds } from "@/features/chat/lib/generating-chats";
 import { ScrollArea } from "@/components/ui/scroll";
-type ChatSort = "recent" | "oldest" | "name-asc" | "name-desc";
-type ChatFilter = "all" | "pinned" | "unread";
+import { CollectionDialog } from "./collection-dialog";
+import {
+    buildChatLifecycleActions,
+    renderLifecycleActions,
+    type ChatLifecycleHandlers,
+    type ChatLifecycleTarget,
+} from "./lifecycle";
+import {
+    ChatShelves,
+    SORT_OPTIONS,
+    buildShelves,
+    type ChatShelfId,
+    type ChatSort,
+} from "./sections";
+import {
+    CHAT_UNDO_WINDOW_MS,
+    dismissChatUndo,
+    pendingRemovalChatIds,
+    pendingRemovalChatIdsServer,
+    pushChatUndo,
+    subscribeChatUndo,
+    undoChat,
+    useChatUndo,
+} from "./undo";
+
+export type ChatFilter = "all" | "pinned" | "unread";
 
 const SORT_KEY = "bettershape-sidebar-chat-sort";
 const FILTER_OPTIONS: { value: ChatFilter; label: string }[] = [
     { value: "all", label: "All sessions" },
     { value: "pinned", label: "Pinned" },
     { value: "unread", label: "Unread" },
-];
-
-const SORT_OPTIONS: { value: ChatSort; label: string }[] = [
-    { value: "recent", label: "Recent" },
-    { value: "oldest", label: "Oldest" },
-    { value: "name-asc", label: "Name A–Z" },
-    { value: "name-desc", label: "Name Z–A" },
 ];
 
 function loadSort(): ChatSort {
@@ -134,356 +136,57 @@ function HeaderIconBtn({
     );
 }
 
-function nestedDot(status: string, column?: string): string {
-    if (status === "error") return "bg-error";
-    if (status === "cancelled") return "bg-text-muted";
-    if (status === "done" || column === "done") return "bg-success";
-    if (column === "review") return "bg-warning";
-    return "bg-accent";
-}
-
-function ChatRow({
-    id,
-    title,
-    path,
-    active,
-    pinned,
-    unread,
-    color,
-    subagents,
-    selecting = false,
-    selected = false,
-    onToggleSelect,
-}: {
-    id: string;
-    title: string;
-    path: string;
-    active: boolean;
-    pinned: boolean;
-    unread: boolean;
-    color: ChatColor | null;
-    subagents: SubagentCard[];
-    /** Where this row sits inside a collection stack. */
-    edge?: "none" | "only" | "first" | "mid" | "last";
-    selecting?: boolean;
-    selected?: boolean;
-    onToggleSelect?: () => void;
-}) {
-    const generating = useIsChatGenerating(id);
-    const [renaming, setRenaming] = useState(false);
-    const [draft, setDraft] = useState(title);
-    const [expanded, setExpanded] = useState(false);
-    const nestedCount = subagents.length;
-    // Expand the row the first time its subagents appear. Tracked during render, not in an effect.
-    const [seenWorkers, setSeenWorkers] = useState(0);
-    if (seenWorkers !== nestedCount) {
-        setSeenWorkers(nestedCount);
-        if (seenWorkers === 0 && nestedCount > 0) setExpanded(true);
-    }
-    const inputRef = useRef<HTMLInputElement>(null);
-
+/** The drain bar under the undo card. Keyed per entry so it restarts each time. */
+function UndoCountdown() {
+    const [draining, setDraining] = useState(false);
     useEffect(() => {
-        if (!renaming) return;
-        inputRef.current?.focus();
-        inputRef.current?.select();
-    }, [renaming]);
-
-    const openChat = () => {
-        clearChatUnread(id);
-        window.dispatchEvent(new CustomEvent("bettershape-chat-load", { detail: { id } }));
-    };
-
-    const commitRename = () => {
-        const next = draft.trim();
-        setRenaming(false);
-        if (!next || next === title) {
-            setDraft(title);
-            return;
-        }
-        window.dispatchEvent(
-            new CustomEvent("bettershape-chat-rename", { detail: { id, title: next } }),
-        );
-        window.dispatchEvent(new CustomEvent("bettershape-chat-refresh"));
-    };
-
-    const remove = () => {
-        void commands.deleteConversation(id).catch(() => {});
-        window.dispatchEvent(new CustomEvent("bettershape-chat-close-tab", { detail: { id } }));
-        window.dispatchEvent(new CustomEvent("bettershape-chat-refresh"));
-    };
-
-    const archive = () => {
-        void commands
-            .setConversationArchived(id, true)
-            .then(() => window.dispatchEvent(new CustomEvent("bettershape-chat-refresh")))
-            .catch(() => {});
-        window.dispatchEvent(new CustomEvent("bettershape-chat-close-tab", { detail: { id } }));
-    };
-
-    const startRename = () => {
-        setDraft(title);
-        setRenaming(true);
-    };
-
-    const actions: { key: string; label: string; icon: IconGlyph; run: () => void; danger?: boolean; sep?: boolean }[] = [
-        { key: "open", label: "Open", icon: Open20Regular, run: openChat },
-        { key: "pin", label: pinned ? "Unpin" : "Pin", icon: Pin20Regular, run: () => setChatPinned(id, !pinned) },
-        { key: "rename", label: "Rename", icon: Edit20Regular, run: startRename },
-        { key: "new", label: "New Chat", icon: Add20Regular, run: () => window.dispatchEvent(new CustomEvent("bettershape-chat-new")) },
-        { key: "copy", label: "Copy Title", icon: Copy20Regular, sep: true, run: () => void navigator.clipboard.writeText(title) },
-        ...(path
-            ? [{ key: "reveal", label: "Reveal Folder", icon: FolderOpen20Regular, run: () => void commands.revealPath(path).catch(() => {}) }]
-            : []),
-        { key: "archive", label: "Archive", icon: MailInbox20Regular, sep: true, run: archive },
-        { key: "delete", label: "Delete", icon: Delete20Filled, danger: true, run: remove },
-    ];
-
-    const menuItems = (
-        Item: (props: { onClick?: () => void; className?: string; children?: ReactNode }) => ReactNode,
-        Separator: () => ReactNode,
-    ) =>
-        actions.map((action) => (
-            <Fragment key={action.key}>
-                {action.sep ? Separator() : null}
-                <Item onClick={action.run} className={action.danger ? "text-error" : undefined}>
-                    <Icon icon={action.icon} />
-                    {action.label}
-                </Item>
-            </Fragment>
-        ));
-
-    const fade = "1.25rem";
-
+        const frame = window.requestAnimationFrame(() => {
+            window.requestAnimationFrame(() => setDraining(true));
+        });
+        return () => window.cancelAnimationFrame(frame);
+    }, []);
     return (
-        <div
+        <span
+            aria-hidden
             className={cn(
-                "flex flex-col overflow-hidden",
-                color && "bg-[color-mix(in_oklch,var(--chat-tint)_22%,transparent)] text-text-primary",
-                color && active && "bg-[color-mix(in_oklch,var(--chat-tint)_30%,transparent)]",
+                "absolute inset-x-0 bottom-0 h-[3px] origin-left bg-accent",
+                "transition-transform ease-linear",
+                draining ? "scale-x-0" : "scale-x-100",
             )}
-            style={color ? { ["--chat-tint" as string]: CHAT_COLOR_HEX[color] } : undefined}
-        >
-            <ContextMenu>
-                <ContextMenuTrigger asChild>
-                    <div
-                        className={cn(
-                            "group/chat relative flex h-10 w-full items-center gap-1 px-2 text-sm",
-                            !color && "squircle-2xl",
-                            "transition-colors duration-[var(--transition-fast)] ease-[var(--ease-out)]",
-                            !color && (active ? "bg-panel-hover text-text-primary" : "text-text-primary hover:bg-panel-hover"),
-                            color && "text-text-primary hover:bg-[color-mix(in_oklch,var(--chat-tint)_12%,transparent)]",
-                        )}
-                    >
-                        {renaming ? (
-                            <input
-                                ref={inputRef}
-                                value={draft}
-                                onChange={(e) => setDraft(e.target.value)}
-                                onBlur={commitRename}
-                                onKeyDown={(e) => {
-                                    if (e.key === "Enter") {
-                                        e.preventDefault();
-                                        commitRename();
-                                    }
-                                    if (e.key === "Escape") {
-                                        e.preventDefault();
-                                        setDraft(title);
-                                        setRenaming(false);
-                                    }
-                                }}
-                                className="w-full rounded bg-transparent px-0 text-sm text-text-primary outline-none ring-1 ring-border"
-                                onClick={(e) => e.stopPropagation()}
-                            />
-                        ) : (
-                            <>
-                                <button
-                                    type="button"
-                                    onClick={(event) => {
-                                        if (event.ctrlKey || event.metaKey) {
-                                            onToggleSelect?.();
-                                            return;
-                                        }
-                                        openChat();
-                                    }}
-                                    className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                                >
-                                    <span
-                                        className={cn(
-                                            "grid shrink-0 transition-[grid-template-columns,opacity,margin] duration-200 ease-[var(--ease-out)]",
-                                            selecting ? "mr-1 grid-cols-[14px] opacity-100" : "grid-cols-[0px] opacity-0",
-                                        )}
-                                    >
-                                        <span className="overflow-hidden">
-                                            <Checkmark
-                                                checked={selected}
-                                                onCheckedChange={() => onToggleSelect?.()}
-                                            />
-                                        </span>
-                                    </span>
-                                    <span
-                                        className="block min-w-0 flex-1 overflow-hidden whitespace-nowrap text-sm font-normal text-text-primary"
-                                        style={{
-                                            maskImage: `linear-gradient(to right, #000 0, #000 calc(100% - ${fade}), transparent)`,
-                                        }}
-                                    >
-                                        {title}
-                                    </span>
-                                </button>
-                                <span className="flex shrink-0 items-center gap-1">
-                                    {generating ? (
-                                        <Eclipse size={12} className="text-text-muted" aria-hidden />
-                                    ) : null}
-                                    {unread ? (
-                                        <span className="size-2 shrink-0 rounded-full bg-accent" aria-label="Unread" />
-                                    ) : null}
-                                </span>
-                                <span className="flex shrink-0 items-center">
-                                    <span className="grid grid-cols-[0fr] overflow-hidden transition-[grid-template-columns] duration-150 ease-[var(--ease-out)] group-hover/chat:grid-cols-[1fr] group-has-[[data-state=open]]/chat:grid-cols-[1fr]">
-                                    <span className="flex min-w-0 overflow-hidden">
-                                    {pinned ? null : (
-                                    <Tooltip content="Pin" side="bottom">
-                                        <button
-                                            type="button"
-                                            aria-label="Pin"
-                                            onClick={() => setChatPinned(id, true)}
-                                            className="flex size-6 items-center justify-center rounded-md text-text-muted hover:bg-panel-active hover:text-text-primary"
-                                        >
-                                            <Icon icon={Pin20Regular} className="icon-sm" />
-                                        </button>
-                                    </Tooltip>
-                                    )}
-                                    <DropdownMenu modal={false}>
-                                        <Tooltip content="Chat actions" side="bottom">
-                                        <DropdownMenuTrigger asChild>
-                                            <button
-                                                type="button"
-                                                aria-label="Chat actions"
-                                                className="flex size-6 items-center justify-center rounded-md text-text-muted hover:bg-panel-active hover:text-text-primary"
-                                            >
-                                                <Icon icon={MoreHorizontal20Regular} className="icon-sm" />
-                                            </button>
-                                        </DropdownMenuTrigger>
-                                        </Tooltip>
-                                        <DropdownMenuContent side="bottom" align="end" sideOffset={6} className="min-w-48">
-                                            {menuItems(
-                                                (props) => <DropdownMenuItem {...props} />,
-                                                () => <DropdownMenuSeparator />,
-                                            )}
-                                        </DropdownMenuContent>
-                                    </DropdownMenu>
-                                    </span>
-                                    </span>
-                                    {pinned ? (
-                                        <Tooltip content="Unpin" side="bottom">
-                                            <button
-                                                type="button"
-                                                aria-label="Unpin"
-                                                onClick={() => setChatPinned(id, false)}
-                                                className="flex size-6 items-center justify-center rounded-md text-text-primary"
-                                            >
-                                                <Icon icon={Pin20Filled} className="icon-sm" />
-                                            </button>
-                                        </Tooltip>
-                                    ) : null}
-                                </span>
-                                {nestedCount > 0 ? (
-                                    <button
-                                        type="button"
-                                        aria-label={expanded ? "Hide agents" : "Show agents"}
-                                        aria-expanded={expanded}
-                                        onClick={() => setExpanded((open) => !open)}
-                                        className="flex size-5 shrink-0 items-center justify-center text-text-muted"
-                                    >
-                                        <Icon
-                                            icon={ChevronRight20Regular}
-                                            className={cn(
-                                                "icon-sm transition-transform duration-[var(--transition-fast)] ease-[var(--ease-out)]",
-                                                expanded && "rotate-90",
-                                            )}
-                                        />
-                                    </button>
-                                ) : null}
-                            </>
-                        )}
-                    </div>
-                </ContextMenuTrigger>
-                <ContextMenuContent className="min-w-48">
-                    {menuItems(
-                        (props) => <ContextMenuItem {...props} />,
-                        () => <ContextMenuSeparator />,
-                    )}
-                </ContextMenuContent>
-            </ContextMenu>
-            {expanded && nestedCount > 0 ? (
-                <div className="flex flex-col">
-                    {subagents.map((card) => (
-                        <button
-                            key={`s-${card.id}`}
-                            type="button"
-                            onClick={() => {
-                                clearChatUnread(id);
-                                window.dispatchEvent(new CustomEvent("bettershape-chat-load", { detail: { id } }));
-                                openSubagent(card.id);
-                            }}
-                            className={cn(
-                                "flex h-8 items-center gap-2 pr-2 pl-7 text-left text-sm text-text-secondary",
-                                color
-                                    ? "hover:bg-[color-mix(in_oklch,var(--chat-tint)_16%,transparent)] hover:text-text-primary"
-                                    : "hover:bg-panel-hover hover:text-text-primary",
-                            )}
-                        >
-                            <span className={cn("size-1.5 shrink-0 rounded-full", nestedDot(card.status))} aria-hidden />
-                            <span className="block min-w-0 flex-1 overflow-hidden whitespace-nowrap [mask-image:linear-gradient(to_right,#000_0,#000_calc(100%-1.5rem),transparent)]">
-                                {card.title}
-                            </span>
-                        </button>
-                    ))}
-                </div>
-            ) : null}
-        </div>
+            style={{ transitionDuration: `${CHAT_UNDO_WINDOW_MS}ms` }}
+        />
     );
 }
 
-function SessionRow({
-    chat,
-    projectPath,
-    activeId,
-    pinned,
-    unread,
-    color,
-    subagents,
-    edge = "none",
-    selecting,
-    selected,
-    onToggleSelect,
-}: {
-    chat: Conversation;
-    projectPath: string;
-    activeId: string | null;
-    pinned: boolean;
-    unread: boolean;
-    color: ChatColor | null;
-    subagents: SubagentCard[];
-    edge?: "none" | "only" | "first" | "mid" | "last";
-    selecting: boolean;
-    selected: boolean;
-    onToggleSelect: () => void;
-}) {
+function UndoBar() {
+    const entry = useChatUndo();
+    if (!entry) return null;
     return (
-        <ChatRow
-            id={chat.id}
-            title={chat.title?.trim() || "Untitled"}
-            path={chat.project_path || projectPath}
-            active={chat.id === activeId}
-            pinned={pinned}
-            unread={unread}
-            color={color}
-            subagents={subagents}
-            edge={edge}
-            selecting={selecting}
-            selected={selected}
-            onToggleSelect={onToggleSelect}
-        />
+        <div
+            data-chat-undo={entry.kind}
+            role="status"
+            aria-live="polite"
+            className="relative mx-1.5 mb-1 flex items-center gap-2 squircle-2xl border border-border-subtle bg-surface-3 px-2 py-1.5 shadow-lg"
+        >
+            <span className="min-w-0 flex-1 truncate text-sm text-text-primary">{entry.label}</span>
+            <button
+                type="button"
+                onClick={() => undoChat()}
+                className="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-sm text-text-secondary transition-colors duration-[var(--transition-fast)] ease-[var(--ease-out)] hover:bg-panel-hover hover:text-text-primary"
+            >
+                <Icon icon={ArrowUndo20Regular} className="icon-sm" />
+                Undo
+            </button>
+            <button
+                type="button"
+                aria-label="Dismiss undo"
+                onClick={() => dismissChatUndo()}
+                className="flex size-6 shrink-0 items-center justify-center rounded-md text-text-muted transition-colors duration-[var(--transition-fast)] ease-[var(--ease-out)] hover:bg-panel-hover hover:text-text-primary"
+            >
+                <Icon icon={Dismiss20Regular} className="icon-sm" />
+            </button>
+            <UndoCountdown key={entry.id} />
+        </div>
     );
 }
 
@@ -500,16 +203,20 @@ export function ChatList({
     const [filter, setFilter] = useState<ChatFilter>("all");
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
     const [activeId, setActiveId] = useState<string | null>(null);
+    const [collapsed, setCollapsed] = useState<ReadonlySet<ChatShelfId>>(() => new Set());
+    const [collectionDraft, setCollectionDraft] = useState<string[] | null>(null);
 
-    const pinnedIds = useSyncExternalStore(
-        subscribePinnedChats,
-        getPinnedChatIds,
-        getPinnedChatIdsServer,
-    );
-    const unreadIds = useSyncExternalStore(
-        subscribeUnreadChats,
-        getUnreadChatIds,
-        getUnreadChatIdsServer,
+    const pinnedIds = useSyncExternalStore(subscribePinnedChats, getPinnedChatIds, getPinnedChatIdsServer);
+    const unreadIds = useSyncExternalStore(subscribeUnreadChats, getUnreadChatIds, getUnreadChatIdsServer);
+    const colors = useSyncExternalStore(subscribeChatColors, getChatColors, getChatColorsServer);
+    const collections = useSyncExternalStore(subscribeCollections, getCollections, getCollectionsServer);
+    const generatingIds = useGeneratingChatIds();
+    // Same store, different projection: a chat inside a live archive or delete
+    // entry is off screen until the entry is undone or swept.
+    const hiddenIds = useSyncExternalStore(
+        subscribeChatUndo,
+        pendingRemovalChatIds,
+        pendingRemovalChatIdsServer,
     );
     const allSubagents = useSyncExternalStore(subscribeSubagents, getSubagents, getSubagents);
 
@@ -590,53 +297,198 @@ export function ChatList({
         setActiveId(viewedChatId);
     }, [viewedChatId]);
 
-    const visible = useMemo(() => {
-        const live = chats.filter((c) => !c.archived);
-        const sorted = [...live];
-        sorted.sort((a, b) => {
-            const aPin = pinnedIds.has(a.id);
-            const bPin = pinnedIds.has(b.id);
-            if (aPin !== bPin) return aPin ? -1 : 1;
-            if (sort === "name-asc") {
-                return (a.title || "").localeCompare(b.title || "", undefined, {
-                    sensitivity: "base",
-                });
+    const openChat = useCallback((id: string) => {
+        clearChatUnread(id);
+        window.dispatchEvent(new CustomEvent("bettershape-chat-load", { detail: { id } }));
+    }, []);
+
+    const refresh = useCallback(() => {
+        window.dispatchEvent(new CustomEvent("bettershape-chat-refresh"));
+    }, []);
+
+    const nameOf = useCallback(
+        (ids: readonly string[]) => {
+            if (ids.length > 1) return `${ids.length} sessions`;
+            const title = chats.find((chat) => chat.id === ids[0])?.title?.trim();
+            return title ? `“${title}”` : "this session";
+        },
+        [chats],
+    );
+
+    const pinChats = useCallback(
+        (ids: readonly string[], pinned: boolean) => {
+            for (const id of ids) setChatPinned(id, pinned);
+            pushChatUndo({
+                kind: "pin",
+                chatId: ids[0],
+                label: `${pinned ? "Pinned" : "Unpinned"} ${nameOf(ids)}`,
+                revert: () => {
+                    for (const id of ids) setChatPinned(id, !pinned);
+                },
+            });
+        },
+        [nameOf],
+    );
+
+    const archiveChats = useCallback(
+        (ids: readonly string[]) => {
+            for (const id of ids) void commands.setConversationArchived(id, true).catch(() => {});
+            for (const id of ids) {
+                window.dispatchEvent(new CustomEvent("bettershape-chat-close-tab", { detail: { id } }));
             }
-            if (sort === "name-desc") {
-                return (b.title || "").localeCompare(a.title || "", undefined, {
-                    sensitivity: "base",
-                });
-            }
-            const delta = (a.timestamp || 0) - (b.timestamp || 0);
-            return sort === "oldest" ? delta : -delta;
-        });
-        return sorted;
-    }, [chats, sort, pinnedIds]);
+            refresh();
+            pushChatUndo({
+                kind: "archive",
+                chatId: ids[0],
+                label: `Archived ${nameOf(ids)}`,
+                revert: () => {
+                    for (const id of ids) void commands.setConversationArchived(id, false).catch(() => {});
+                    refresh();
+                },
+            });
+        },
+        [nameOf, refresh],
+    );
+
+    const removeChats = useCallback(
+        (ids: readonly string[]) => {
+            // Nothing can bring a conversation back once the backend has it, so the
+            // delete is only sent once the undo window has closed. The row leaves
+            // the list now and the conversation outlives it by five seconds.
+            pushChatUndo({
+                kind: "delete",
+                chatId: ids[0],
+                label: `Deleted ${nameOf(ids)}`,
+                commit: () => {
+                    for (const id of ids) void commands.deleteConversation(id).catch(() => {});
+                    for (const id of ids) {
+                        window.dispatchEvent(new CustomEvent("bettershape-chat-close-tab", { detail: { id } }));
+                    }
+                    refresh();
+                },
+            });
+        },
+        [nameOf, refresh],
+    );
+
+    const handlers = useMemo<ChatLifecycleHandlers>(
+        () => ({
+            open: openChat,
+            setPinned: pinChats,
+            markUnread: markChatUnread,
+            copyTitle: (title) => void navigator.clipboard.writeText(title),
+            revealFolder: (path) => void commands.revealPath(path).catch(() => {}),
+            archive: archiveChats,
+            remove: removeChats,
+            addToCollection: (ids) => setCollectionDraft([...ids]),
+        }),
+        [openChat, pinChats, archiveChats, removeChats],
+    );
+
+    useEffect(() => {
+        const onKey = (event: KeyboardEvent) => {
+            if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+            if (event.key.toLowerCase() !== "z" || event.shiftKey) return;
+            const target = event.target as HTMLElement | null;
+            if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
+            // Capture phase, and only swallow the key once something came back:
+            // with nothing pending, another surface's own mod+Z still fires.
+            const entry = undoChat();
+            if (!entry) return;
+            event.preventDefault();
+            event.stopPropagation();
+        };
+        window.addEventListener("keydown", onKey, true);
+        return () => window.removeEventListener("keydown", onKey, true);
+    }, []);
+
+    const live = useMemo(() => chats.filter((chat) => !chat.archived), [chats]);
 
     const filtered = useMemo(() => {
-        if (filter === "pinned") return visible.filter((c) => pinnedIds.has(c.id));
-        if (filter === "unread") return visible.filter((c) => unreadIds.has(c.id));
-        return visible;
-    }, [visible, filter, pinnedIds, unreadIds]);
+        if (filter === "pinned") return live.filter((chat) => pinnedIds.has(chat.id));
+        if (filter === "unread") return live.filter((chat) => unreadIds.has(chat.id));
+        return live;
+    }, [live, filter, pinnedIds, unreadIds]);
 
-    const selected = new Set(selectedIds);
-    const toggleSelect = (id: string) => {
-        setSelectedIds((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]));
-    };
+    const sections = useMemo(
+        () =>
+            buildShelves({
+                chats: filtered,
+                sort,
+                pinned: pinnedIds,
+                generating: generatingIds,
+                activeId,
+                hidden: hiddenIds,
+            }),
+        [filtered, sort, pinnedIds, generatingIds, activeId, hiddenIds],
+    );
 
-    const rowProps = (chat: Conversation) => ({
-        chat,
-        projectPath: project_path || "",
-        activeId,
-        pinned: pinnedIds.has(chat.id),
-        unread: unreadIds.has(chat.id),
-        color: null as ChatColor | null,
-        edge: "none" as const,
-        subagents: allSubagents.filter((card) => card.parentId === chat.id),
-        selecting: selectedIds.length > 0,
-        selected: selected.has(chat.id),
-        onToggleSelect: () => toggleSelect(chat.id),
-    });
+    const toggleSelect = useCallback((id: string) => {
+        setSelectedIds((current) =>
+            current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
+        );
+    }, []);
+
+    const toggleShelf = useCallback((shelf: ChatShelfId) => {
+        setCollapsed((current) => {
+            const next = new Set(current);
+            if (next.has(shelf)) next.delete(shelf);
+            else next.add(shelf);
+            return next;
+        });
+    }, []);
+
+    const selectedTargets = useMemo<ChatLifecycleTarget[]>(
+        () =>
+            filtered
+                .filter((chat) => selectedIds.includes(chat.id))
+                .map((chat) => ({
+                    id: chat.id,
+                    title: chat.title?.trim() || "Untitled",
+                    path: chat.project_path || project_path || "",
+                    pinned: pinnedIds.has(chat.id),
+                })),
+        [filtered, selectedIds, pinnedIds, project_path],
+    );
+
+    const collectionOf = useCallback(
+        (chatId: string) => collections.find((entry) => entry.chatIds.includes(chatId))?.name ?? null,
+        [collections],
+    );
+
+    const rowProps = useCallback(
+        (chat: Conversation) => ({
+            title: chat.title?.trim() || "Untitled",
+            path: chat.project_path || project_path || "",
+            timestamp: chat.timestamp || 0,
+            collection: collectionOf(chat.id),
+            active: chat.id === activeId,
+            pinned: pinnedIds.has(chat.id),
+            unread: unreadIds.has(chat.id),
+            color: colors[chat.id] ?? null,
+            subagents: allSubagents.filter((card) => card.parentId === chat.id),
+            selecting: selectedIds.length > 0,
+            selected: selectedIds.includes(chat.id),
+            onToggleSelect: () => toggleSelect(chat.id),
+            onOpen: () => openChat(chat.id),
+            onTogglePin: (next: boolean) => pinChats([chat.id], next),
+            handlers,
+        }),
+        [
+            activeId,
+            allSubagents,
+            collectionOf,
+            colors,
+            handlers,
+            openChat,
+            pinChats,
+            pinnedIds,
+            project_path,
+            selectedIds,
+            toggleSelect,
+            unreadIds,
+        ],
+    );
 
     const openCommandPalette = () => {
         window.dispatchEvent(
@@ -644,6 +496,18 @@ export function ChatList({
                 detail: { placeholder: "Search…" },
             }),
         );
+    };
+
+    const allCollapsed = sections.length > 1 && sections.every((section) => collapsed.has(section.id));
+    const setAllCollapsed = (next: boolean) => {
+        setCollapsed(next ? new Set<ChatShelfId>(sections.map((section) => section.id)) : new Set<ChatShelfId>());
+    };
+
+    const selectionPrimitives = {
+        Item: (props: { onClick?: () => void; className?: string; children?: ReactNode }) => (
+            <DropdownMenuItem {...props} />
+        ),
+        Separator: () => <DropdownMenuSeparator />,
     };
 
     return (
@@ -692,6 +556,53 @@ export function ChatList({
                             </DropdownMenuRadioGroup>
                         </DropdownMenuContent>
                     </DropdownMenu>
+                    <DropdownMenu modal={false}>
+                        <Tooltip content="Sessions actions" side="bottom" delayDuration={80}>
+                            <DropdownMenuTrigger asChild>
+                                <button
+                                    type="button"
+                                    aria-label="Sessions actions"
+                                    className="flex size-7 items-center justify-center rounded-md text-text-muted transition-colors duration-[var(--transition-fast)] ease-[var(--ease-out)] hover:bg-panel-hover hover:text-text-primary data-[state=open]:bg-panel-hover data-[state=open]:text-text-primary"
+                                >
+                                    <Icon icon={MoreHorizontal20Regular} />
+                                </button>
+                            </DropdownMenuTrigger>
+                        </Tooltip>
+                        <DropdownMenuContent align="end" className="min-w-48">
+                            <DropdownMenuLabel>
+                                {selectedIds.length > 0 ? `${selectedIds.length} selected` : "Sessions"}
+                            </DropdownMenuLabel>
+                            {selectedTargets.length > 0 ? (
+                                <>
+                                    {renderLifecycleActions(
+                                        buildChatLifecycleActions(selectedTargets, handlers),
+                                        selectionPrimitives,
+                                    )}
+                                    <DropdownMenuItem onClick={() => setCollectionDraft([...selectedIds])}>
+                                        <Icon icon={Collections20Regular} />
+                                        Add to collection
+                                    </DropdownMenuItem>
+                                    <DropdownMenuSeparator />
+                                </>
+                            ) : null}
+                            <DropdownMenuItem
+                                disabled={selectedIds.length === 0}
+                                onClick={() => setSelectedIds([])}
+                            >
+                                Clear selection
+                            </DropdownMenuItem>
+                            {sections.length > 1 ? (
+                                <DropdownMenuItem onClick={() => setAllCollapsed(!allCollapsed)}>
+                                    {allCollapsed ? "Expand all sections" : "Collapse all sections"}
+                                </DropdownMenuItem>
+                            ) : null}
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem onClick={onNewChat}>
+                                <Icon icon={Compose20Regular} />
+                                New chat
+                            </DropdownMenuItem>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
                     <HeaderIconBtn label="New chat" onClick={onNewChat}>
                         <Icon icon={Compose20Regular} />
                     </HeaderIconBtn>
@@ -718,13 +629,20 @@ export function ChatList({
                         <span>New chat</span>
                     </button>
                 ) : (
-                    <div className="space-y-0.5">
-                        {filtered.map((c) => (
-                            <SessionRow key={c.id} {...rowProps(c)} />
-                        ))}
-                    </div>
+                    <ChatShelves
+                        sections={sections}
+                        rowProps={rowProps}
+                        collapsed={collapsed}
+                        onToggleShelf={toggleShelf}
+                    />
                 )}
             </ScrollArea>
+
+            <UndoBar />
+
+            {collectionDraft ? (
+                <CollectionDialog chatIds={collectionDraft} onClose={() => setCollectionDraft(null)} />
+            ) : null}
         </div>
     );
 }
