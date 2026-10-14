@@ -1,3 +1,6 @@
+import type { ChangeSpec, EditorState, SelectionRange } from "@codemirror/state";
+import type { Command, EditorView } from "@codemirror/view";
+
 /**
  * Line/selection transforms that the command palette offers under
  * `editor.action.*` but that `@codemirror/commands` does not ship. Each one
@@ -5,9 +8,6 @@
  * a multi-cursor selection is transformed atomically and the selection maps
  * correctly instead of being re-read mid-loop.
  */
-
-import type { ChangeSpec, EditorSelectionRange, EditorState } from "@codemirror/state";
-import type { Command, EditorView } from "@codemirror/view";
 
 export type CaseMode = "lower" | "upper" | "title";
 
@@ -19,7 +19,7 @@ export type CaseMode = "lower" | "upper" | "title";
  * final newline and drag an empty line into the sort or join, so step back one
  * line when that is all the range added.
  */
-function selectedLineRange(state: EditorState, range: EditorSelectionRange): [number, number] | null {
+function selectedLineRange(state: EditorState, range: SelectionRange): [number, number] | null {
     const first = state.doc.lineAt(range.from);
     let lastNumber = state.doc.lineAt(range.to).number;
     if (lastNumber > first.number && state.doc.line(lastNumber).length === 0) {
