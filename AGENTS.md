@@ -159,7 +159,7 @@ Install skills only with `npx skills add <owner>/<repo> -s <skill> -a universal 
 - Skill discovery in `lib/chat/skill-roots.ts` reads `.claude/skills`, `.agents/skills`, `.github/skills` and `.bettershape/skills`. In this repository `.claude/skills` and `.agents/skills` resolve to the same folder, so each vendored skill is listed twice, and the `.agents/skills` row is shadowed. That is expected until the scanner de-duplicates by real path.
 - `docs/` is the Mintlify product documentation, and `scripts/build/docs-index.mjs` indexes every file under it. Internal engineering documents belong in `engineering/`, `.dump/` or the root, never in `docs/`.
 - The CI jobs on every pull request are `Lint & Typecheck`, `Test JS (Vitest)`, `Static Checks (macOS)`, `Test Rust (Cargo)`, `Rust Lints (fmt, clippy)`, `Build Next.js`, `Version Sync Check`, `Security Audit` and `CI Success`. `Dependency Review`, `CodeQL` and `Zizmor` run from `security.yml`. `PR Title Lint` and `Check Large Files & Secrets` run from `pr.yml`.
-- CodeRabbit auto-reviews only pull requests whose base is `main` (`auto_review.base_branches` in `.coderabbit.yaml`). For a PR against any other base, request the review with a PR comment that says `@coderabbitai review`, and say in the PR that you did.
+- CodeRabbit auto-reviews only pull requests whose base is `main` (`auto_review.base_branches` in `.coderabbit.yaml`). For a PR against any other base, request the review with a PR comment that says `@coderabbitai review`, and say in the PR that you did. CodeAnt needs the `@codeant-ai review` tag on every pull request, as the review bots section describes.
 
 ## Do not
 
@@ -169,6 +169,14 @@ Install skills only with `npx skills add <owner>/<repo> -s <skill> -a universal 
 - Open an unattended agent PR. The human reviews every PR before it merges.
 - Edit a generated file by hand, or commit a file larger than 5 MB outside `.agents/` without a reason the PR states.
 
+### Review bots
+
+Three bots review pull requests. Tag each one as this section says.
+
+- CodeRabbit. Tag `@coderabbitai review` in a pull request comment to request a review. Tagging works on this repository, so use it for every pull request, whatever its base, and record the request in the pull request.
+- CodeAnt. Tag `@codeant-ai review` on every pull request, every time. The tag is mandatory even when CodeAnt has already approved. After each push or fix round, tag it again and wait until CodeAnt approves the new head. An earlier approval does not carry over to a new head.
+- Kilocode bot. Tag `@kilocode-bot` only to ask a question or to delegate work you cannot do from your sandbox. Use it for research on blocked domains, for fetching files you cannot reach, and for work that needs a network or a tool your sandbox does not have. Write the request so it names the exact files, the exact question and the exact output you need back. Treat its answer as evidence to verify, not as a verdict. Do not delegate a change to the Kilocode bot that you can make and verify yourself.
+
 ### Filing workflow
 
 Use this workflow whenever a task ends in a pull request. It covers every change that writes code, tests, tooling, configuration, workflows, skills or documentation with an operational impact.
@@ -177,10 +185,10 @@ Use this workflow whenever a task ends in a pull request. It covers every change
 2. Research before you edit. Apply the code research gate. Record the queries, sources, edge cases and failed attempts in a collapsible block in the pull request description.
 3. Apply the review protocol. Load `REVIEW.md`, which points to `FULL-REVIEW.md`, and apply Part I and the relevant Part II sections to your own diff. Fix every critical, major, minor, nitpick and UI finding, and repeat the pre-push loop until a pass finds nothing new.
 4. Run the local gates before every push. For a Rust or TypeScript change, run the TypeScript gates and the Cargo gates from the verification gate list. Report each gate as passed, failed or not run, with the head SHA. A gate that cannot run in your sandbox is reported as not run, with the reason written in the pull request. Do not push a change that fails a gate you can run.
-5. Open the pull request. Write the description as the filing rules above require. When the base is not `main`, request the CodeRabbit review by comment, as the facts section describes.
+5. Open the pull request. Write the description as the filing rules above require. Tag `@coderabbitai review` and `@codeant-ai review` as the review bots section describes.
 6. Watch CI and review together. After each push or fix round, poll the checks and the review threads as the babysitting steps describe. Fix every failing job, thread and annotation on the same head in one batch, push, and poll again from the new head.
 7. Wait for quiet. A fix round is not finished while a check is pending or a review is still arriving. After the last push, wait at least ten minutes. Keep polling through that window, and do not report to the human until it passes with no new review and no new failure.
-8. Report once. Return to the human with the pull request link only when all of these hold on the same head: every required check is green, no review thread is unresolved, and the ten minute quiet window passed with no new review. Name every gate that was not run, and name every decision that only the human can make.
+8. Report once. Return to the human with the pull request link only when all of these hold on the same head: every required check is green, CodeAnt has approved that head, no review thread is unresolved, and the ten minute quiet window passed with no new review. Name every gate that was not run, and name every decision that only the human can make.
 
 ## Plans, research and decisions
 
