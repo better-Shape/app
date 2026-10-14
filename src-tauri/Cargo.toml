@@ -82,10 +82,14 @@ windows-core = "0.61"
 keyring = { version = "3", features = ["windows-native"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.4"
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSArray", "NSEnumerator", "NSObject", "NSString"] }
+objc2-web-kit = { version = "0.3.2", default-features = false, features = ["std", "WKUserScript", "WKUserContentController"] }
 # Keychain, via the same reasoning as windows-native above.
 keyring = { version = "3", features = ["apple-native"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
+webkit2gtk = { version = "2.0.2", features = ["v2_40"] }
 # The freedesktop Secret Service API (GNOME Keyring, KWallet). `crypto-rust`
 # keeps OpenSSL out of the tree; `sync` because the callers are sync functions
 # on a blocking thread already.

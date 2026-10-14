@@ -1,27 +1,17 @@
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
-use std::sync::Mutex;
-
 use tauri::{AppHandle, Manager};
+use tokio::sync::{oneshot, Mutex};
 
 use crate::core::error::AppError;
 
-struct BridgeInstall {
-    hash: u64,
-    script_id: Option<String>,
-}
-
-static INSTALL: Mutex<Option<BridgeInstall>> = Mutex::new(None);
-
-fn script_hash(script: &str) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    script.hash(&mut hasher);
-    hasher.finish()
-}
+// The lock covers native acknowledgement, not just scheduling on the UI thread.
+static REGISTRATION: Mutex<()> = Mutex::const_new(());
+#[cfg(windows)]
+type Completion = oneshot::Sender<Result<(), String>>;
 
 fn wrap_iframe_only(script: &str) -> String {
     format!(
-        r#"(function(){{
+        r#"/* bettershape-design-bridge */
+(function(){{
 try {{
   if (window.top === window) return;
   var loc = location || {{}};
@@ -46,46 +36,50 @@ if (document.readyState === "complete") {{
     )
 }
 
-/// Inject the design-mode bridge into every future iframe document (WebView2).
-/// The preview iframe keeps its real localhost URL — no proxy, no reload-to-proxy.
+/// Register the guarded bridge in future iframe documents; acknowledge native installation.
 #[tauri::command]
-pub fn register_design_bridge(app: AppHandle, script: String) -> Result<(), AppError> {
+pub async fn register_design_bridge(app: AppHandle, script: String) -> Result<(), AppError> {
+    let _registration = REGISTRATION.lock().await;
+    let win = app
+        .get_webview_window("main")
+        .ok_or_else(|| AppError::Message("The main webview is unavailable.".into()))?;
     let wrapped = wrap_iframe_only(&script);
-    let hash = script_hash(&wrapped);
-    let previous_id = {
-        let mut guard = INSTALL.lock().unwrap_or_else(|e| e.into_inner());
-        if guard.as_ref().is_some_and(|st| st.hash == hash) {
-            return Ok(());
-        }
-        let prev = guard.take().and_then(|st| st.script_id);
-        *guard = Some(BridgeInstall {
-            hash,
-            script_id: None,
-        });
-        prev
-    };
-    let Some(win) = app.get_webview_window("main") else {
-        *INSTALL.lock().unwrap_or_else(|e| e.into_inner()) = None;
-        return Ok(());
-    };
+    let (send, receive) = oneshot::channel();
     win.with_webview(move |webview| {
+        if send.is_closed() {
+            return;
+        }
         #[cfg(windows)]
-        if let Err(err) = install_on_windows(&webview, &wrapped, previous_id) {
-            log::warn!("design bridge inject failed: {err}");
-            *INSTALL.lock().unwrap_or_else(|e| e.into_inner()) = None;
-        }
+        install_on_windows(&webview, &wrapped, send);
         #[cfg(target_os = "macos")]
-        if let Err(err) = install_on_macos(&webview, &wrapped) {
-            log::warn!("design bridge inject failed (macos): {err}");
-            *INSTALL.lock().unwrap_or_else(|e| e.into_inner()) = None;
-        }
-        #[cfg(not(any(windows, target_os = "macos")))]
+        let _ = send.send(install_on_macos(&webview, &wrapped));
+        #[cfg(target_os = "linux")]
+        let _ = send.send(install_on_linux(&webview, &wrapped));
+        #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
         {
-            let _ = (webview, wrapped, previous_id);
-            *INSTALL.lock().unwrap_or_else(|e| e.into_inner()) = None;
+            let _ = (webview, wrapped);
+            let _ = send.send(Err(
+                "Design inspection is unavailable on this platform.".into()
+            ));
         }
     })
-    .map_err(|e| AppError::Message(e.to_string()))
+    .map_err(|error| AppError::Message(error.to_string()))?;
+    await_registration(receive, std::time::Duration::from_secs(10)).await
+}
+
+async fn await_registration(
+    receive: oneshot::Receiver<Result<(), String>>,
+    timeout: std::time::Duration,
+) -> Result<(), AppError> {
+    match tokio::time::timeout(timeout, receive).await {
+        Ok(Ok(result)) => result.map_err(AppError::Message),
+        Ok(Err(_)) => Err(AppError::Message(
+            "The webview closed before installing the design bridge.".into(),
+        )),
+        Err(_) => Err(AppError::Message(
+            "Timed out installing the design bridge.".into(),
+        )),
+    }
 }
 
 /// Print design-mode diagnostics to the BetterShape log target only — never the project PTY.
@@ -101,44 +95,193 @@ pub fn design_mode_log(level: String, message: String) {
 }
 
 #[cfg(windows)]
-fn install_on_windows(
-    webview: &tauri::webview::PlatformWebview,
-    script: &str,
-    previous_id: Option<String>,
-) -> Result<(), String> {
+fn install_on_windows(webview: &tauri::webview::PlatformWebview, script: &str, send: Completion) {
+    use std::{cell::RefCell, rc::Rc, sync::Mutex};
     use webview2_com::AddScriptToExecuteOnDocumentCreatedCompletedHandler;
     use windows_core::HSTRING;
 
-    unsafe {
-        let controller = webview.controller();
-        let core = controller.CoreWebView2().map_err(|e| e.to_string())?;
-        if let Some(id) = previous_id {
-            let _ = core.RemoveScriptToExecuteOnDocumentCreated(&HSTRING::from(id));
-        }
-        let handler =
-            AddScriptToExecuteOnDocumentCreatedCompletedHandler::create(Box::new(|_hr, id| {
-                let script_id = id.to_string();
-                if !script_id.is_empty() {
-                    if let Ok(mut guard) = INSTALL.lock() {
-                        if let Some(st) = guard.as_mut() {
-                            st.script_id = Some(script_id);
+    static SCRIPT_ID: Mutex<Option<String>> = Mutex::new(None);
+    let completion = Rc::new(RefCell::new(Some(send)));
+    let callback_completion = Rc::clone(&completion);
+    // Tauri runs this closure on the owning WebView2 UI thread. COM handles do
+    // not leave that thread; only the Send-capable completion crosses back.
+    let result = unsafe {
+        (|| {
+            let core = webview
+                .controller()
+                .CoreWebView2()
+                .map_err(|error| error.to_string())?;
+            let callback_core = core.clone();
+            let handler = AddScriptToExecuteOnDocumentCreatedCompletedHandler::create(Box::new(
+                move |hr, id| {
+                    let Some(send) = callback_completion.borrow_mut().take() else {
+                        return Ok(());
+                    };
+                    let new_id = id.to_string();
+                    if !hr.is_ok() || new_id.is_empty() {
+                        let _ =
+                            send.send(Err(format!("WebView2 rejected the design bridge: {hr:?}")));
+                        return Ok(());
+                    }
+                    if send.is_closed() {
+                        let _ = callback_core.RemoveScriptToExecuteOnDocumentCreated(
+                            &HSTRING::from(new_id.as_str()),
+                        );
+                        return Ok(());
+                    }
+                    let previous = SCRIPT_ID
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner())
+                        .clone();
+                    if let Some(previous) = previous {
+                        if let Err(error) = callback_core
+                            .RemoveScriptToExecuteOnDocumentCreated(&HSTRING::from(previous))
+                        {
+                            let _ = callback_core.RemoveScriptToExecuteOnDocumentCreated(
+                                &HSTRING::from(new_id.as_str()),
+                            );
+                            let _ = send
+                                .send(Err(format!("Could not replace the design bridge: {error}")));
+                            return Ok(());
                         }
                     }
-                }
-                Ok(())
-            }));
-        core.AddScriptToExecuteOnDocumentCreated(&HSTRING::from(script), &handler)
-            .map_err(|e| e.to_string())?;
+                    *SCRIPT_ID.lock().unwrap_or_else(|error| error.into_inner()) =
+                        Some(new_id.clone());
+                    if send.send(Ok(())).is_err() {
+                        let _ = callback_core
+                            .RemoveScriptToExecuteOnDocumentCreated(&HSTRING::from(new_id));
+                        *SCRIPT_ID.lock().unwrap_or_else(|error| error.into_inner()) = None;
+                    }
+                    Ok(())
+                },
+            ));
+            core.AddScriptToExecuteOnDocumentCreated(&HSTRING::from(script), &handler)
+                .map_err(|error| error.to_string())
+        })()
+    };
+    if let Err(error) = result {
+        if let Some(send) = completion.borrow_mut().take() {
+            let _ = send.send(Err(error));
+        }
     }
-    Ok(())
 }
 
 #[cfg(target_os = "macos")]
 fn install_on_macos(webview: &tauri::webview::PlatformWebview, script: &str) -> Result<(), String> {
-    // WKWebView counterpart to WebView2 AddScriptToExecuteOnDocumentCreated.
-    // The injected script itself guards to localhost iframe documents only.
-    let _ = webview;
-    let _ = script;
-    log::info!("design bridge: macOS injection path registered (user-script best-effort)");
+    use objc2::{MainThreadMarker, MainThreadOnly};
+    use objc2_foundation::NSString;
+    use objc2_web_kit::{WKUserContentController, WKUserScript, WKUserScriptInjectionTime};
+
+    let main =
+        MainThreadMarker::new().ok_or("Design bridge installation requires the main thread.")?;
+    // Tauri's controller pointer is a live WKUserContentController for this
+    // with_webview callback. Keep it borrowed only for the callback's lifetime.
+    unsafe {
+        let controller = (webview.controller() as *const WKUserContentController)
+            .as_ref()
+            .ok_or("The WebKit user-content controller is unavailable.")?;
+        let script = WKUserScript::initWithSource_injectionTime_forMainFrameOnly(
+            WKUserScript::alloc(main),
+            &NSString::from_str(script),
+            WKUserScriptInjectionTime::AtDocumentStart,
+            false,
+        );
+        let existing = controller.userScripts();
+        controller.removeAllUserScripts();
+        for previous in existing.iter() {
+            if !previous
+                .source()
+                .to_string()
+                .starts_with("/* bettershape-design-bridge */")
+            {
+                controller.addUserScript(&previous);
+            }
+        }
+        controller.addUserScript(&script);
+    }
     Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn install_on_linux(webview: &tauri::webview::PlatformWebview, script: &str) -> Result<(), String> {
+    use std::cell::RefCell;
+    use webkit2gtk::{
+        UserContentInjectedFrames, UserContentManager, UserContentManagerExt, UserScript,
+        UserScriptInjectionTime, WebViewExt,
+    };
+    thread_local! {
+        static INSTALLED: RefCell<Option<(UserContentManager, UserScript)>> = const { RefCell::new(None) };
+    }
+    let manager = webview
+        .inner()
+        .user_content_manager()
+        .ok_or("The WebKit user-content manager is unavailable.")?;
+    let script = UserScript::new(
+        script,
+        UserContentInjectedFrames::AllFrames,
+        UserScriptInjectionTime::Start,
+        &[],
+        &[],
+    );
+    manager.add_script(&script);
+    // Remove only our script. Tauri's IPC/bootstrap scripts must survive.
+    INSTALLED.with(|installed| {
+        if let Some((previous_manager, previous_script)) =
+            installed.replace(Some((manager, script)))
+        {
+            previous_manager.remove_script(&previous_script);
+        }
+    });
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wrapped_bridge_is_identifiable_and_gated_to_preview_iframes() {
+        let wrapped = wrap_iframe_only("example();");
+        assert!(wrapped.starts_with("/* bettershape-design-bridge */"));
+        assert!(wrapped.contains("if (window.top === window) return"));
+        assert!(wrapped.contains("h !== \"localhost\""));
+        assert!(wrapped.contains("port === \"48921\""));
+        assert!(wrapped.contains("example();"));
+    }
+
+    #[tokio::test]
+    async fn registration_waits_for_successful_native_acknowledgement() {
+        let (send, receive) = oneshot::channel();
+        let task = tokio::spawn(await_registration(
+            receive,
+            std::time::Duration::from_secs(1),
+        ));
+        tokio::task::yield_now().await;
+        assert!(!task.is_finished());
+        send.send(Ok(())).unwrap();
+        assert!(task.await.unwrap().is_ok());
+    }
+
+    #[tokio::test]
+    async fn registration_rejects_native_failure_closed_channel_and_timeout() {
+        let (send, receive) = oneshot::channel();
+        send.send(Err("native rejected".into())).unwrap();
+        assert!(
+            await_registration(receive, std::time::Duration::from_secs(1))
+                .await
+                .is_err()
+        );
+        let (send, receive) = oneshot::channel();
+        drop(send);
+        assert!(
+            await_registration(receive, std::time::Duration::from_secs(1))
+                .await
+                .is_err()
+        );
+        let (send, receive) = oneshot::channel();
+        assert!(await_registration(receive, std::time::Duration::ZERO)
+            .await
+            .is_err());
+        assert!(send.is_closed());
+    }
 }
