@@ -36,6 +36,7 @@ import {
 } from "@/components/ui/dropdown";
 import { commands } from "@/lib/backend";
 import type { BrowserHistoryEntry, BrowserPickedElement, BrowserTab } from "@/lib/backend/types";
+import { isWindows } from "@/lib/platform";
 import { hostnameOf } from "@/lib/ui/favicon";
 import { cn } from "@/lib/utils";
 import { AgentControlBar, BrowseStage } from "@/features/chat/ui/blocks/browse-frame";
@@ -108,6 +109,32 @@ function frameOrigin(frame: HTMLIFrameElement | null | undefined): string {
         return new URL(frame?.src || "").origin;
     } catch {
         return "*";
+    }
+}
+
+/**
+ * The framed page only answers `bettershape-browser-host` where the host can
+ * inject into it. Windows does that through the WebView2 API; on macOS and
+ * Linux nothing reaches the page, so the frame is driven from here instead:
+ * `Location.reload` is callable cross-origin and the element is ours either way.
+ */
+export function steerFrame(
+    frame: HTMLIFrameElement | null | undefined,
+    action: "reload" | "goto",
+    url = "",
+): boolean {
+    if (isWindows() || !frame) return false;
+    try {
+        if (action === "goto") {
+            frame.src = url;
+            return true;
+        }
+        const target = frame.contentWindow;
+        if (!target) return false;
+        target.location.reload();
+        return true;
+    } catch {
+        return false;
     }
 }
 
@@ -938,12 +965,14 @@ export function BrowserView({
             history: delta < 0 ? "back" : "forward",
             goto: url,
         }, frameOrigin(frameRef.current));
+        steerFrame(frameRef.current, "goto", url);
     };
 
     const reloadPage = () => {
         if (!active?.url || showAgent) return;
         setTabs((prev) => prev.map((tab) => (tab.id === active.id ? { ...tab, error: null } : tab)));
         frameRef.current?.contentWindow?.postMessage({ type: "bettershape-browser-host", reload: true }, frameOrigin(frameRef.current));
+        steerFrame(frameRef.current, "reload");
     };
 
     const chooseScheme = (next: ColorScheme) => {

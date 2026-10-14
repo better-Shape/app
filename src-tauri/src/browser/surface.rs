@@ -225,7 +225,11 @@ static FRAME_URL: Mutex<String> = Mutex::new(String::new());
 static SCHEME: Mutex<String> = Mutex::new(String::new());
 static SCRIPT_IDS: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
-fn script_source() -> String {
+/// The host script with the current colour scheme baked in.
+///
+/// Shared by the Windows WebView2 path (`install_script`) and the off-Windows
+/// all-frames plugin (`host_script_plugin`), so the two can never drift.
+pub fn host_script() -> String {
     let scheme = SCHEME.lock().unwrap_or_else(|p| p.into_inner()).clone();
     let mode = if scheme == "light" || scheme == "dark" {
         scheme
@@ -314,7 +318,7 @@ fn install_script(core: &webview2_com::Microsoft::Web::WebView2::Win32::ICoreWeb
     use webview2_com::AddScriptToExecuteOnDocumentCreatedCompletedHandler;
     use windows_core::PCWSTR;
 
-    let source = script_source();
+    let source = host_script();
     let wide: Vec<u16> = source.encode_utf16().chain(std::iter::once(0)).collect();
     let done = AddScriptToExecuteOnDocumentCreatedCompletedHandler::create(Box::new(|hr, id| {
         if hr.is_ok() {

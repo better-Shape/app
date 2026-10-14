@@ -192,7 +192,9 @@ pub fn eslint_lint_file(
     let stdout = String::from_utf8_lossy(&output.stdout);
     let parsed = parse_eslint_json(&stdout);
     let diagnostics = parsed.clone().unwrap_or_default();
-    let error = parsed.is_none().then(|| eslint_failure_reason(&output, &stdout));
+    let error = parsed
+        .is_none()
+        .then(|| eslint_failure_reason(&output, &stdout));
 
     let fixed_content = if apply_fix {
         std::fs::read_to_string(&temp_path).ok()
