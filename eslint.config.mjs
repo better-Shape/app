@@ -54,14 +54,15 @@ const eslintConfig = defineConfig([
     "build/**",
     "next-env.d.ts",
     "src-tauri/target/**",
-    // Vendored agent-skill bundles, not application source. `.claude/skills/**`
-    // holds 96 files of third-party skill content (63 md, 16 py, 5 js) including
-    // a 548 KB bundle (`live-browser.js`) and a single-line minified UMD bundle
-    // (`modern-screenshot.umd.js`). Nothing in `app/`, `features/`, `lib/` or
-    // `src-tauri/` imports or executes them — `lib/chat/discover-skills.ts` only
-    // reads `.md` skill definitions. Linting them reports minifier artefacts,
-    // not defects.
+    // Agent-skill bundles, not application source. `.claude/skills` is a symlink
+    // to `.agents/skills`, and the skill bodies include third-party minified
+    // bundles. Nothing in `app/`, `features/`, `lib/` or `src-tauri/` imports or
+    // executes them. Linting them reports minifier artefacts, not defects.
     ".claude/**",
+    // Vendored skill trees (`npx skills`), recorded in skills-lock.json. Their
+    // fixtures include .tsx files that are not application source, and nothing
+    // under .agents is imported by the app or bundled into a build.
+    ".agents/**",
     // One-off migration scripts not part of app
     "src-tauri/scripts/**",
     // Generated docs search index

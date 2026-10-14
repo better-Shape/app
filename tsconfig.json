@@ -38,6 +38,8 @@
   ],
   "exclude": [
     "node_modules",
+    ".agents",
+    ".claude",
     "tests",
     "**/*.test.ts",
     "**/*.test.tsx"

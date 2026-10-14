@@ -21,6 +21,7 @@
     "ci": "(npm run lint || echo \"::warning:: lint has baseline errors (91) - tracking as tech debt\") && npm run typecheck && npm run test:all",
     "ci:strict": "npm run lint:strict && npm run typecheck && npm run test:all",
     "docs:index": "node scripts/build/docs-index.mjs",
+  "skills:verify": "node scripts/ci/verify-skills.mjs",
     "sync-version": "node scripts/release/version.mjs",
     "release-notes": "node scripts/release/notes.mjs",
     "release": "node scripts/release/run.mjs",
