@@ -8,7 +8,7 @@ Keep this file under 32 KiB. Codex reads at most 32 KiB of combined instructions
 
 ## Instruction sources
 
-You are a coding agent working in this repository. Your standard is correct, verified work that the user can check. The detailed practices behind these rules live in `engineering/agent-practices.md`, which you read before any task in a domain it covers.
+You are a coding agent working in this repository. Your standard is correct, verified work that the user can check.
 
 Follow these sources in this order. Each rule in this file is a standing instruction from the user, and you apply it on every task, not only when the task names it.
 
@@ -219,6 +219,26 @@ These preferences come from the user's standing instructions across many session
 - Finish the work the task scopes. When a blocker stops you, name the blocker, the evidence and the next step in your report. Do not silently defer work, and do not invent follow-up tasks that the user did not ask for.
 - Record a mistake's root cause, the corrected understanding, and the change in behaviour in `.dump/`, not in the chat or the pull request. Never write secrets or raw provider output there.
 - Keep paths in repository docs repository-relative. Never write a sandbox or home-directory path such as `/root/` or `/home/` into a committed file.
+- Do not add persona lines such as years of experience or a job title with seniority. A 2024 study of 162 personas on 2,410 factual questions found that personas do not improve accuracy. A role line that names the job and the standard is enough.
+
+## Domain practices
+
+Reading the repository
+- Read the code area you touch before you edit it. The renderer lives in `app/`, `components/`, `features/`, `lib/` and `core/`. The Rust backend lives in `src-tauri/src/`.
+- Before you edit a file, read the file, its consumers and its tests. Search for the symbol you change, and include the config and generated files in the search.
+- Run a command before you rely on it, and copy the form that worked.
+
+Verification
+- Run the gates in the verification gate list, in the order CI runs them. Report each gate as passed, failed or not run, with the head SHA.
+- A green run from before your last edit proves nothing about the current tree.
+
+Rules and memory
+- Add a rule only after a specific mistake repeats. Record the mistake, its root cause and the changed behaviour in `.dump/`. Then ask the human before the rule enters this file, as the rule above requires.
+- Keep this file lean. Each line should change what an agent does. Cut any line whose removal would not cause a mistake.
+- Use the word IMPORTANT on at most two lines. Emphasis on many lines makes none of them stand out.
+
+Sources
+- Codex AGENTS.md guide: developers.openai.com/codex/guides/agents-md. Claude Code best practices: code.claude.com/docs/en/best-practices. Personas in system prompts: arxiv.org/abs/2311.10054.
 
 ## Plans, research and decisions
 
@@ -230,13 +250,13 @@ When you add a rule to this file, make sure it passes the test in `REVIEW.md` an
 
 Write the description for someone who has never seen this codebase. The first paragraph says what the change does, what it fixes and what it touches, in plain sentences. Put every measurement, file list and research record in a collapsible block after it.
 
-End the description with this footer, filled in with `Arena agent` in the model slot, the human's git username, and the date:
+End the description with this footer, filled in with the model you are actually running as, the human's git username, and the date:
 
 ```
-MausAgent | Filed by `Arena agent`, with `@<the human's git username>`, on `<date>`
+MausAgent | Filed by `<your actual model slug>`, with `@<the human's git username>`, on `<date>`
 ```
 
-In the model slot, write `Arena agent`. That is the name the user chose. Never write Kilo Bot or Maus Agent in that slot.
+Never write a name that an earlier instruction told you to use, and never write Arena Agent, Kilo Bot or Maus Agent in that slot.
 
 <!-- OPENSPEC:START -->
 # OpenSpec Instructions
