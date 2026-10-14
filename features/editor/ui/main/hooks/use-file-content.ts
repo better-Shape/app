@@ -36,6 +36,7 @@ export function useFileContent(
 
         let loadSeq = 0;
         const loadFile = async (showLoading = true) => {
+            if (cancelled) return;
             const seq = ++loadSeq;
             if (showLoading) setLoading(true);
             setError(null);
@@ -65,7 +66,6 @@ export function useFileContent(
                     // Stale commit/diff tabs from a previous project — don't look
                     // up their SHAs in the newly opened repo.
                     if (!project_path) {
-                        if (cancelled) return;
                         setOriginalContent("");
                         setContent("");
                         setLoading(false);
@@ -87,7 +87,6 @@ export function useFileContent(
                         !realPath.replace(/\\/g, '/').toLowerCase().startsWith(project_path.replace(/\\/g, '/').toLowerCase()) &&
                         !isCommitDiff
                     ) {
-                        if (cancelled) return;
                         setOriginalContent("");
                         setContent("");
                         setLoading(false);
@@ -101,7 +100,7 @@ export function useFileContent(
                     try {
                         if (isCommitDiff && commitHash) {
                             const res = await commands.gitGetCommitFileContent(repoAtStart, gitRelativePath, commitHash);
-                            if (cancelled) return;
+                            if (cancelled || seq !== loadSeq) return;
                             orig = res[0];
                             mod = res[1];
                         } else if (staged) {
@@ -109,7 +108,7 @@ export function useFileContent(
                                 commands.gitGetItemContent(repoAtStart, gitRelativePath, true),
                                 commands.gitGetItemContent(repoAtStart, gitRelativePath, false)
                             ]);
-                            if (cancelled) return;
+                            if (cancelled || seq !== loadSeq) return;
                             orig = o;
                             mod = m;
                         } else {
@@ -117,12 +116,12 @@ export function useFileContent(
                                 commands.gitGetItemContent(repoAtStart, gitRelativePath, false).catch(() => ""),
                                 commands.readFile(absPath).catch(() => "")
                             ]);
-                            if (cancelled) return;
+                            if (cancelled || seq !== loadSeq) return;
                             orig = o;
                             mod = m;
                         }
                     } catch (e) {
-                        if (cancelled) return;
+                        if (cancelled || seq !== loadSeq) return;
                         const msg = e instanceof Error ? e.message : String(e);
                         const isMissingRev =
                             msg.includes("revspec") ||
@@ -138,7 +137,7 @@ export function useFileContent(
                         }
                         console.warn("Git content load failed:", e);
                         const fallback = await commands.readFile(absPath).catch(() => "");
-                        if (cancelled) return;
+                        if (cancelled || seq !== loadSeq) return;
                         orig = fallback;
                         mod = fallback;
                     }
@@ -187,7 +186,7 @@ export function useFileContent(
                     );
                 }
             } catch (err: unknown) {
-                if (cancelled) return;
+                if (cancelled || seq !== loadSeq) return;
                 const errorStr = (err as string | Error)?.toString() || String(err);
                 const errorMsg = errorStr.startsWith("Message: ") ? errorStr.replace("Message: ", "") : errorStr;
 
@@ -218,11 +217,13 @@ export function useFileContent(
         loadFile(cached === undefined);
 
         const unlistenPromise = listen<string>("bettershape-file-edited", (event) => {
+            if (cancelled) return;
             const cleanPayload = event.payload.replace(/\\/g, '/').toLowerCase();
             const cleanPath = path.replace(/\\/g, '/').toLowerCase();
             if (cleanPayload === cleanPath) {
                 commands.invalidateFileCache(path);
-                void import("@/lib/workspace/dirty-buffers").then(async ({ clearDirtyBuffer, loadDirtyBuffer }) => {
+                void import("@/lib/workspace/dirty-buffers").then(({ clearDirtyBuffer, loadDirtyBuffer }) => {
+                    if (cancelled) return;
                     const dirty = loadDirtyBuffer(path);
                     clearDirtyBuffer(path);
                     void commands.markFileDirty(path, false);
@@ -239,10 +240,11 @@ export function useFileContent(
 
         const norm = (r: string) => { const s = r.replace(/\\/g, "/").replace(/\/+$/, ""); return /^[a-zA-Z]:[\\/]/.test(r) || r.includes("\\") ? s.toLowerCase() : s; };
         const unlistenChangedPromise = listen<string[]>("bettershape-files-changed", (event) => {
+            if (cancelled) return;
             commands.invalidateAllFileCaches();
             if (!(Array.isArray(event.payload) ? event.payload : []).some((p) => typeof p === "string" && norm(p) === norm(path))) return;
             commands.invalidateFileCache(path);
-            void import("@/lib/workspace/dirty-buffers").then(({ loadDirtyBuffer }) => { if (!loadDirtyBuffer(path)) loadFile(false); });
+            void import("@/lib/workspace/dirty-buffers").then(({ loadDirtyBuffer }) => { if (!cancelled && !loadDirtyBuffer(path)) loadFile(false); });
         });
 
         const onGitRefresh = () => {
