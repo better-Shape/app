@@ -34,6 +34,20 @@ let runtime: Runtime | null = null;
 let starting: { command: string; cwd: string; promise: Promise<number> } | null = null;
 const readyListeners = new Set<ReadyListener>();
 let lastReadyUrl: string | null = null;
+let announcedReady: { id: number; url: string } | null = null;
+type PreviewReady = { id: number; url: string; source?: "output" | "probe" };
+
+/** Only a live run's own output can grant design editing; a port probe cannot. */
+export function getBackgroundPreviewService(): { ptyId: number; projectPath: string; url: string } | null {
+    if (!runtime || announcedReady?.id !== runtime.ptyId) return null;
+    return { ptyId: runtime.ptyId, projectPath: runtime.cwd, url: announcedReady.url };
+}
+
+function rememberReady(event: PreviewReady) {
+    if (event.source !== "output" && announcedReady?.id === event.id) return;
+    if (event.source === "output") announcedReady = { id: event.id, url: event.url };
+    emitReady(event.url);
+}
 
 function preferIpv4DevCommand(command: string): string {
     const t = command.trim();
@@ -54,9 +68,16 @@ export function spawnCwd(path: string): string {
 }
 
 export function sameProjectPath(a: string, b: string): boolean {
-    const norm = (value: string) =>
-        spawnCwd(value).replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
-    return norm(a) === norm(b);
+    if (!a || !b) return false;
+    const norm = (value: string) => {
+        const path = spawnCwd(value).replace(/\\/g, "/");
+        const minimum = /^[a-z]:\//i.test(path) ? 3 : 1;
+        let end = path.length;
+        while (end > minimum && path[end - 1] === "/") end -= 1;
+        return path.slice(0, end);
+    };
+    const windows = /^(?:[a-z]:|\\\\|\/\/)/i.test(a) && /^(?:[a-z]:|\\\\|\/\/)/i.test(b);
+    return windows ? norm(a).toLowerCase() === norm(b).toLowerCase() : norm(a) === norm(b);
 }
 
 /** Compare run commands ignoring hostname flags Rust may add. */
@@ -131,10 +152,10 @@ async function attachListeners(ptyId: number) {
         }
     });
 
-    const unReady = await listen<{ id: number; url: string }>("preview-ready", (ev) => {
+    const unReady = await listen<PreviewReady>("preview-ready", (ev) => {
         if (ev.payload.id !== ptyId) return;
         console.info("[preview] ready event", ev.payload.url);
-        emitReady(ev.payload.url);
+        rememberReady(ev.payload);
     });
 
     return { unOut, unExit, unReady };
@@ -174,47 +195,58 @@ export async function ensureBackgroundRun(command: string, cwdOverride?: string)
 
         startDevRun(trimmed);
         lastReadyUrl = null;
+        announcedReady = null;
 
         // Listen for preview-ready BEFORE spawn. Next can boot in <1s; attaching
         // after invoke was racing the event and leaving Design Mode on a white canvas.
         const { listen } = await import("@tauri-apps/api/event");
         const { invoke } = await import("@tauri-apps/api/core");
         const spawnId: { current: number | null } = { current: null };
-        const earlyReady = await listen<{ id: number; url: string }>("preview-ready", (ev) => {
-            if (spawnId.current === null || ev.payload.id !== spawnId.current) return;
+        const earlyEvents = new Map<number, PreviewReady>();
+        const earlyReady = await listen<PreviewReady>("preview-ready", (ev) => {
+            if (spawnId.current === null) {
+                if (earlyEvents.get(ev.payload.id)?.source === "output" && ev.payload.source !== "output") return;
+                if (earlyEvents.size < 32 || earlyEvents.has(ev.payload.id)) earlyEvents.set(ev.payload.id, ev.payload);
+                return;
+            }
+            if (ev.payload.id !== spawnId.current) return;
             console.info("[preview] ready event (early)", ev.payload.url);
-            emitReady(ev.payload.url);
+            rememberReady(ev.payload);
         });
 
         console.info("[preview] invoking pty_spawn_run", trimmed);
-        const ptyId = await invoke<number>("pty_spawn_run", {
-            cwd,
-            command: trimmed,
-        });
-        spawnId.current = ptyId;
-        console.info("[preview] pty_spawn_run =>", ptyId);
+        try {
+            const ptyId = await invoke<number>("pty_spawn_run", {
+                cwd,
+                command: trimmed,
+            });
+            spawnId.current = ptyId;
+            const early = earlyEvents.get(ptyId);
+            if (early) rememberReady(early);
+            console.info("[preview] pty_spawn_run =>", ptyId);
 
-        setDevRunPtyId(ptyId);
-        const listeners = await attachListeners(ptyId);
-        earlyReady();
+            setDevRunPtyId(ptyId);
+            const listeners = await attachListeners(ptyId);
 
-        registerBoundTerminalTab({
-            title: `Run: ${trimmed.split(/\s+/).slice(0, 3).join(" ")}`,
-            cwd,
-            shell: resolveDefaultTerminalShell(),
-            boundPtyId: ptyId,
-        });
+            registerBoundTerminalTab({
+                title: `Run: ${trimmed.split(/\s+/).slice(0, 3).join(" ")}`,
+                cwd,
+                shell: resolveDefaultTerminalShell(),
+                boundPtyId: ptyId,
+            });
 
-        runtime = {
-            ptyId,
-            command: trimmed,
-            cwd,
-            unOut: () => listeners.unOut(),
-            unExit: () => listeners.unExit(),
-            unReady: () => listeners.unReady(),
-        };
+            runtime = {
+                ptyId,
+                command: trimmed,
+                cwd,
+                unOut: () => listeners.unOut(),
+                unExit: () => listeners.unExit(),
+                unReady: () => listeners.unReady(),
+            };
 
-        return ptyId;
+            if (lastReadyUrl) emitReady(lastReadyUrl);
+            return ptyId;
+        } finally { earlyReady(); }
     })();
     starting = { command: trimmed, cwd, promise };
 
@@ -229,6 +261,7 @@ export async function stopBackgroundRun() {
     const current = runtime;
     runtime = null;
     lastReadyUrl = null;
+    announcedReady = null;
     if (!current) {
         clearDevRun();
         return;

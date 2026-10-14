@@ -476,6 +476,7 @@ struct PtyExit {
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PreviewReadyEvent {
+    source: &'static str,
     pub id: u32,
     pub url: String,
 }
@@ -640,6 +641,7 @@ async fn probe_preview_until_ready(app: AppHandle, id: u32, command: String) {
                 let _ = app.emit(
                     "preview-ready",
                     PreviewReadyEvent {
+                        source: "probe",
                         id,
                         url: url.clone(),
                     },
@@ -1342,6 +1344,7 @@ async fn spawn_pty_with_command(
                             let _ = app_for_thread.emit(
                                 "preview-ready",
                                 PreviewReadyEvent {
+                                    source: "output",
                                     id: session_id,
                                     url,
                                 },

@@ -11,7 +11,7 @@ import { commands } from "@/lib/backend";
 import { useProjectState } from "@/lib/backend";
 import { cn } from "@/lib/utils";
 import { notify } from "@/features/notifications";
-import { acceptsDesignMessage, authorizeDesignPreview, designMessageOrigin, scopeDesignBridge, type DesignAuthorization } from "./authorization";
+import { acceptsDesignMessage, authorizeDesignPreview, isCurrentDesignAuthorization, designMessageOrigin, scopeDesignBridge, type DesignAuthorization } from "./authorization";
 import {
     DESIGN_BRIDGE_SCRIPT,
     type DesignElementSnapshot,
@@ -63,6 +63,15 @@ export function DesignInspectOverlay({
     const [gap, setGap] = useState(8);
     const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+    useEffect(() => () => {
+        if (persistTimer.current) clearTimeout(persistTimer.current);
+        iframeRef.current?.contentWindow?.postMessage(
+            { type: "bettershape-design-set-mode", mode: "normal" },
+            designMessageOrigin(authorizationRef.current, project_path ?? ""),
+        );
+        authorizationRef.current = null;
+    }, [project_path, enabled, iframeRef]);
+
     // Turning design mode off clears the selection (adjusting state during render, no effect).
     const [seenEnabled, setSeenEnabled] = useState(enabled);
     if (enabled !== seenEnabled) {
@@ -87,14 +96,14 @@ export function DesignInspectOverlay({
             authorizationRef.current = authorizeDesignPreview(projectPathRef.current, iframeRef.current?.src ?? "");
         }
         const authorization = authorizationRef.current;
-        if (!authorization || authorization.projectPath !== projectPathRef.current) {
+        if (!authorization || !isCurrentDesignAuthorization(authorization, projectPathRef.current)) {
             authorizationRef.current = null;
             setSelected(null);
             return;
         }
         let cancelled = false;
         void commands.registerDesignBridge(scopeDesignBridge(DESIGN_BRIDGE_SCRIPT, authorization)).then(() => {
-            if (cancelled || authorizationRef.current !== authorization || authorization.projectPath !== projectPathRef.current) return;
+            if (cancelled || authorizationRef.current !== authorization || !isCurrentDesignAuthorization(authorization, projectPathRef.current)) return;
             iframeRef.current?.contentWindow?.postMessage(
                 { type: "bettershape-design-set-mode", mode: "select", projectRoot: project_path },
                 designMessageOrigin(authorizationRef.current, projectPathRef.current),
@@ -143,14 +152,17 @@ export function DesignInspectOverlay({
     const apply = useCallback(
         (styles: Record<string, string>) => {
             const key = selected?.key;
-            if (!key) return;
+            const authorization = authorizationRef.current;
+            if (!key || !isCurrentDesignAuthorization(authorization, projectPathRef.current)) return;
             iframeRef.current?.contentWindow?.postMessage(
                 { type: "bettershape-design-apply-preview", styles, key },
                 designMessageOrigin(authorizationRef.current, projectPathRef.current),
             );
             if (persistTimer.current) clearTimeout(persistTimer.current);
             persistTimer.current = setTimeout(() => {
-                void persistStyles(project_path, selected, styles);
+                if (authorizationRef.current === authorization && isCurrentDesignAuthorization(authorization, projectPathRef.current)) {
+                    void persistStyles(project_path, selected, styles);
+                }
             }, 420);
         },
         [iframeRef, project_path, selected],

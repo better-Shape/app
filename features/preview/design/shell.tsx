@@ -48,7 +48,7 @@ import { DragEdge } from "./resize";
 import { DesignToolbar, createBrowserTab, faviconFromUrl, pushTabUrl, tabTitleFromUrl, type BrowserTab } from "./toolbar";
 import { DesignSelectionPrompt } from "./selection-prompt";
 import type { DesignToolMode } from "./bottom-toolbar";
-import { acceptsDesignMessage, authorizeDesignPreview, designMessageOrigin, scopeDesignBridge, type DesignAuthorization } from "./authorization";
+import { acceptsDesignMessage, authorizeDesignPreview, isCurrentDesignAuthorization, designMessageOrigin, scopeDesignBridge, type DesignAuthorization } from "./authorization";
 
 type SourceTarget = {
     file: string;
@@ -139,23 +139,6 @@ function loadImage(src: string) {
     });
 }
 
-function loopbackPreviewUrl(raw: string): string {
-    try {
-        const url = new URL(raw.includes("://") ? raw : `http://${raw}`);
-        if (
-            url.hostname === "localhost"
-            || url.hostname === "0.0.0.0"
-            || url.hostname === "[::1]"
-            || url.hostname === "::1"
-        ) {
-            url.hostname = "127.0.0.1";
-        }
-        return url.toString();
-    } catch {
-        return raw;
-    }
-}
-
 export function DesignStudio({
     onClose: _onClose,
     projectPath,
@@ -197,8 +180,11 @@ export function DesignStudio({
     const injectedBridge = useRef("");
     const toolModeRef = useRef(toolMode);
     const designerRootRef = useRef(designerRoot);
-    toolModeRef.current = toolMode;
-    designerRootRef.current = designerRoot;
+    useLayoutEffect(() => {
+        toolModeRef.current = toolMode;
+        designerRootRef.current = designerRoot;
+    }, [toolMode, designerRoot]);
+    useLayoutEffect(() => { authorizationRef.current = null; }, [projectPath, bootRoot]);
 
     useEffect(() => {
         setBootRoot(projectPath);
@@ -532,6 +518,7 @@ export function DesignStudio({
         let cancelled = false;
         let unsubscribeReady = () => {};
         let opened = false;
+        const ownerAtBoot = projectPathRef.current;
         let opening: Promise<boolean> | null = null;
         authorizationRef.current = null;
         setBooting(true);
@@ -572,18 +559,18 @@ export function DesignStudio({
                     if (opened) return Promise.resolve(true);
                     if (opening) return opening;
                     opening = (async () => {
-                        if (cancelled || !sameProjectPath(getBackgroundRunCwd() || "", info.projectRoot)) return false;
-                        const authorization = authorizeDesignPreview(bootRoot, url);
+                        if (cancelled || projectPathRef.current !== ownerAtBoot || !sameProjectPath(getBackgroundRunCwd() || "", info.projectRoot)) return false;
+                        const authorization = authorizeDesignPreview(info.projectRoot, url);
                         if (!authorization) return false;
                         await commands.registerDesignBridge(scopeDesignBridge(DESIGN_BRIDGE_SCRIPT, authorization));
                         if (cancelled) return false;
                         const reachable = await commands.probePreviewUrl(url);
-                        if (cancelled || !reachable) return false;
+                        if (cancelled || projectPathRef.current !== ownerAtBoot || !reachable || !isCurrentDesignAuthorization(authorization, info.projectRoot)) return false;
                         authorizationRef.current = authorization;
                         setBootError(null);
                         opened = true;
                         // Load the scraped URL directly — WebView2 injects the bridge into iframes.
-                        await navigatePreview(loopbackPreviewUrl(url), { replace: true });
+                        await navigatePreview(url, { replace: true });
                         return true;
                     })().catch((cause: unknown) => {
                         if (!cancelled) setBootError(cause instanceof Error ? cause.message : "Could not connect to the project preview.");
@@ -595,7 +582,7 @@ export function DesignStudio({
                 };
 
                 unsubscribeReady = subscribePreviewReady((url) => {
-                    void openWhenReachable(loopbackPreviewUrl(url));
+                    void openWhenReachable(url);
                 });
 
                 const runningHere =
@@ -603,18 +590,14 @@ export function DesignStudio({
                     && sameProjectPath(getBackgroundRunCwd()!, info.projectRoot);
                 const existingUrl = runningHere ? getLastPreviewReadyUrl() : null;
                 // Prefer the URL scraped from the terminal (actual bound port).
-                if (existingUrl && (await openWhenReachable(loopbackPreviewUrl(existingUrl)))) {
+                if (existingUrl && (await openWhenReachable(existingUrl))) {
                     /* opened */
                 } else {
                     await ensureBackgroundRun(dev.command, info.projectRoot);
                     for (let attempt = 0; attempt < 60 && !cancelled && !opened; attempt += 1) {
                         const announced = getLastPreviewReadyUrl();
-                        if (announced && (await openWhenReachable(loopbackPreviewUrl(announced)))) {
+                        if (announced && (await openWhenReachable(announced))) {
                             break;
-                        }
-                        if (attempt >= 10) {
-                            const hint = loopbackPreviewUrl(dev.urlHint);
-                            if (await openWhenReachable(hint)) break;
                         }
                         await new Promise((resolve) => window.setTimeout(resolve, 500));
                     }
@@ -641,7 +624,7 @@ export function DesignStudio({
     useEffect(() => {
         if (!ready) return;
         const authorization = authorizationRef.current;
-        if (!authorization || authorization.projectPath !== projectPathRef.current) return;
+        if (!authorization || !isCurrentDesignAuthorization(authorization, designerRootRef.current)) return;
         if (injectedBridge.current === DESIGN_BRIDGE_SCRIPT) return;
         const first = injectedBridge.current === "";
         injectedBridge.current = DESIGN_BRIDGE_SCRIPT;
@@ -654,7 +637,7 @@ export function DesignStudio({
 
     useEffect(() => {
         const onMessage = (event: MessageEvent) => {
-            if (!acceptsDesignMessage(event, iframeRef.current, authorizationRef.current, projectPathRef.current)) return;
+            if (!acceptsDesignMessage(event, iframeRef.current, authorizationRef.current, designerRootRef.current)) return;
             if (!event.data || typeof event.data !== "object") return;
             const data = event.data as {
                 type?: string;
@@ -673,7 +656,7 @@ export function DesignStudio({
                 if (Array.isArray(data.themeTokens)) setThemeTokens(data.themeTokens);
                 iframeRef.current?.contentWindow?.postMessage(
                     { type: "bettershape-design-set-mode", mode: toolModeRef.current, projectRoot: designerRootRef.current },
-                    designMessageOrigin(authorizationRef.current, projectPathRef.current),
+                    designMessageOrigin(authorizationRef.current, designerRootRef.current),
                 );
             } else if (data.type === "bettershape-design-tokens" && Array.isArray(data.themeTokens)) {
                 setThemeTokens(data.themeTokens);
@@ -797,7 +780,7 @@ export function DesignStudio({
         if (frame) {
             frame.postMessage(
                 { type: "bettershape-design-apply-preview", styles, key },
-                designMessageOrigin(authorizationRef.current, projectPathRef.current),
+                designMessageOrigin(authorizationRef.current, designerRootRef.current),
             );
         }
         setSelected((current) =>
@@ -808,7 +791,7 @@ export function DesignStudio({
     useEffect(() => {
         iframeRef.current?.contentWindow?.postMessage(
             { type: "bettershape-design-set-mode", mode: toolMode, projectRoot: designerRoot },
-            designMessageOrigin(authorizationRef.current, projectPathRef.current),
+            designMessageOrigin(authorizationRef.current, designerRootRef.current),
         );
     }, [toolMode, ready, iframeSrc, designerRoot]);
 
@@ -816,7 +799,7 @@ export function DesignStudio({
         if (!ready) return;
         iframeRef.current?.contentWindow?.postMessage(
             { type: "bettershape-design-config", projectRoot: designerRoot },
-            designMessageOrigin(authorizationRef.current, projectPathRef.current),
+            designMessageOrigin(authorizationRef.current, designerRootRef.current),
         );
     }, [ready, designerRoot, iframeSrc]);
 
@@ -826,7 +809,7 @@ export function DesignStudio({
             if (result.file && result.content != null) {
                 commands.primeFileCache(result.file, result.content);
             }
-            iframeRef.current?.contentWindow?.postMessage({ type: "bettershape-design-refresh" }, designMessageOrigin(authorizationRef.current, projectPathRef.current));
+            iframeRef.current?.contentWindow?.postMessage({ type: "bettershape-design-refresh" }, designMessageOrigin(authorizationRef.current, designerRootRef.current));
         },
         [],
     );
@@ -903,7 +886,7 @@ export function DesignStudio({
             // Keep the canvas updated even if source mapping fails.
             iframeRef.current?.contentWindow?.postMessage(
                 { type: "bettershape-design-apply-preview", styles, key: current.key },
-                designMessageOrigin(authorizationRef.current, projectPathRef.current),
+                designMessageOrigin(authorizationRef.current, designerRootRef.current),
             );
             setSaved(false);
             try {
@@ -948,7 +931,7 @@ export function DesignStudio({
             if (!current) return;
             iframeRef.current?.contentWindow?.postMessage(
                 { type: "bettershape-design-set-text", key: current.key, text },
-                designMessageOrigin(authorizationRef.current, projectPathRef.current),
+                designMessageOrigin(authorizationRef.current, designerRootRef.current),
             );
             setSelected({ ...current, text });
             setSaved(false);
@@ -970,7 +953,7 @@ export function DesignStudio({
             if (!current) return;
             iframeRef.current?.contentWindow?.postMessage(
                 { type: "bettershape-design-set-attr", key: current.key, name, value },
-                designMessageOrigin(authorizationRef.current, projectPathRef.current),
+                designMessageOrigin(authorizationRef.current, designerRootRef.current),
             );
             setSelected({
                 ...current,
@@ -1009,7 +992,7 @@ export function DesignStudio({
             return { ...now, component: { ...now.component, properties } };
         });
         if (patch.field === "text") {
-            frame?.postMessage({ type: "bettershape-design-set-text", key: patch.key, text: String(patch.value) }, designMessageOrigin(authorizationRef.current, projectPathRef.current));
+            frame?.postMessage({ type: "bettershape-design-set-text", key: patch.key, text: String(patch.value) }, designMessageOrigin(authorizationRef.current, designerRootRef.current));
             void persistJsx(current, { text: String(patch.value) });
             return;
         }
@@ -1079,7 +1062,7 @@ export function DesignStudio({
                 resolve(data);
             };
             window.addEventListener("message", onMessage);
-            frame.postMessage({ type: "bettershape-design-export", requestId, scale }, designMessageOrigin(authorizationRef.current, projectPathRef.current));
+            frame.postMessage({ type: "bettershape-design-export", requestId, scale }, designMessageOrigin(authorizationRef.current, designerRootRef.current));
         });
         if (!result.dataUrl) return;
         const image = await loadImage(result.dataUrl);
@@ -1239,7 +1222,7 @@ export function DesignStudio({
                                     referrerPolicy="no-referrer"
                                     onLoad={() => {
                                         window.setTimeout(() => {
-                                            const target = designMessageOrigin(authorizationRef.current, projectPathRef.current);
+                                            const target = designMessageOrigin(authorizationRef.current, designerRootRef.current);
                                             const frame = iframeRef.current?.contentWindow;
                                             frame?.postMessage(
                                                 {
@@ -1333,7 +1316,7 @@ export function DesignStudio({
                             onAlign={(alignment: "center" | "center-x" | "center-y") =>
                                 iframeRef.current?.contentWindow?.postMessage(
                                     { type: "bettershape-design-align", alignment },
-                                    designMessageOrigin(authorizationRef.current, projectPathRef.current),
+                                    designMessageOrigin(authorizationRef.current, designerRootRef.current),
                                 )
                             }
                             onDuplicate={() => void applyStructure("duplicate")}

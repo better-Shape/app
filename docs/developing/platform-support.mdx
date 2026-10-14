@@ -21,21 +21,22 @@ All targets above still require **install smoke tests**. Earlier Windows x86_64 
 
 ## Artifact evidence (not an install-support claim)
 
-[Installer run 38613470080](https://github.com/better-Shape/app/actions/runs/38613470080),
-at commit `61047fdea284f870abb95900d395aa33f1a33a14`, produced these artifacts
+[Installer run 38624859970](https://github.com/better-Shape/app/actions/runs/38624859970),
+at commit `b65c6d93b276ed64cf106bd5d94eade1a650e72c`, produced these artifacts
 (verified through the GitHub artifacts API on 14 October 2026):
 
 | Artifact | Artifact ID | Archive bytes |
 | --- | --- | ---: |
-| `bettershape-windows-x86_64` | `11919437319` | 13,880,872 |
-| `bettershape-macos-aarch64` | `11919491412` | 18,739,649 |
-| `bettershape-linux-x86_64` | `11919531319` | 131,653,865 |
-| `bettershape-linux-aarch64` | `11920551265` | 126,265,940 |
+| `bettershape-linux-aarch64` | `11924735296` | 126,265,469 |
+| `bettershape-linux-x86_64` | `11925725013` | 131,655,705 |
+| `bettershape-macos-aarch64` | `11926035100` | 18,744,218 |
+| `bettershape-windows-aarch64` | `11926005289` | 13,136,893 |
+| `bettershape-windows-x86_64` | `11923614053` | 13,882,782 |
 
 The successful collector jobs validate nonempty requested formats (including
 all three Linux package formats). These archives have **not** been downloaded,
 installed, or smoke-tested here, and they do not include subsequent source
-changes. Test artifacts expire after 14 days. Windows ARM64 and Intel macOS were
+changes. Test artifacts expire after 14 days. Windows ARM64 now has a produced installer; Intel macOS was
 still building at this checkpoint. Do not treat this as a green matrix or a
 production release.
 

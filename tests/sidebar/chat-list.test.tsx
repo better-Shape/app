@@ -56,6 +56,7 @@ let restoreLayout: () => void;
 let restoreResize: () => void;
 let host: HTMLElement;
 let root: Root;
+let shortcutModifier: "ctrlKey" | "metaKey" = "ctrlKey";
 
 function domRect(top: number, height: number): DOMRect {
     return {
@@ -123,7 +124,7 @@ function clickPin(id: string) {
 function pressUndoOn(target: EventTarget) {
     act(() => {
         target.dispatchEvent(
-            new KeyboardEvent("keydown", { key: "z", ctrlKey: true, bubbles: true, cancelable: true }),
+            new KeyboardEvent("keydown", { key: "z", [shortcutModifier]: true, bubbles: true, cancelable: true }),
         );
     });
 }
@@ -134,7 +135,10 @@ function clearPins() {
     resetChatUndoForTests();
 }
 
+describe.each([["Windows", "ctrlKey"], ["Darwin", "metaKey"]] as const)("sectioned session list on %s", (userAgent, modifier) => {
 beforeEach(async () => {
+    shortcutModifier = modifier;
+    vi.stubGlobal("navigator", { userAgent });
     clearPins();
     restoreMotion = stubReducedMotion(false);
     animation = installAnimationStub();
@@ -169,9 +173,10 @@ afterEach(() => {
     animation.restore();
     clearPins();
     document.body.innerHTML = "";
+    vi.unstubAllGlobals();
 });
 
-describe("sectioned session list", () => {
+
     it("renders every chat with a motion id and no headers when one shelf holds them all", () => {
         expect(rowOrder()).toEqual(["d", "a", "c", "b"]);
         expect(shelfHeaders()).toHaveLength(0);
@@ -326,7 +331,7 @@ describe("sectioned session list", () => {
         });
         act(() => {
             window.dispatchEvent(
-                new KeyboardEvent("keydown", { key: "z", ctrlKey: true, shiftKey: true, bubbles: true }),
+                new KeyboardEvent("keydown", { key: "z", [shortcutModifier]: true, shiftKey: true, bubbles: true }),
             );
         });
         expect(getPinnedChatIds().has("c")).toBe(true);
@@ -350,7 +355,6 @@ describe("sectioned session list", () => {
         expect(getPinnedChatIds().has("c")).toBe(false);
         expect(rowOrder()).toEqual(["d", "a", "c", "b"]);
     });
-});
 
 it("moves snoozed rows through the existing animated shelf layout", () => {
     const before = animation.calls.length;
@@ -367,13 +371,13 @@ it("jumps in visible shelf order and ignores composition and editable fields", (
     document.body.appendChild(input);
     try {
         clickPin("c");
-        act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "1", ctrlKey: true, bubbles: true })));
+        act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "1", [shortcutModifier]: true, bubbles: true })));
         expect(opened.mock.calls[0][0].detail.id).toBe("c");
-        act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "2", ctrlKey: true, isComposing: true, bubbles: true })));
-        act(() => input.dispatchEvent(new KeyboardEvent("keydown", { key: "2", ctrlKey: true, bubbles: true })));
+        act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "2", [shortcutModifier]: true, isComposing: true, bubbles: true })));
+        act(() => input.dispatchEvent(new KeyboardEvent("keydown", { key: "2", [shortcutModifier]: true, bubbles: true })));
         expect(opened).toHaveBeenCalledTimes(1);
         act(() => host.querySelector<HTMLElement>('[data-shelf-header="pinned"]')?.click());
-        act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "1", ctrlKey: true, bubbles: true })));
+        act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "1", [shortcutModifier]: true, bubbles: true })));
         expect(opened.mock.calls[1][0].detail.id).toBe("d");
     } finally { window.removeEventListener("bettershape-chat-load", opened); input.remove(); }
 });
@@ -447,4 +451,6 @@ it("filters sessions only after IME composition ends and does not open on compos
         expect(host.querySelector('input[aria-label="Search sessions"]')).toBeNull();
         expect(rowOrder()).toEqual(["d", "a", "c", "b"]);
     } finally { window.removeEventListener("bettershape-chat-load", opened); }
+});
+
 });

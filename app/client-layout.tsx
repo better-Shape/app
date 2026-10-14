@@ -9,6 +9,7 @@ import { NotificationProvider } from "@/components/ui/notification";
 import { GlobalContextMenu } from "@/core/providers/menu";
 import { ChatStreamProvider } from "@/features/chat/lib/chat-stream-store";
 import { initSettings } from "@/lib/settings";
+import { notify } from "@/features/notifications";
 import { initGitHubAuth } from "@/lib/github/store";
 import { CheckpointRestoreDialog } from "@/features/chat/ui/shell/checkpoint-restore-dialog";
 import { installBenignErrorFilters } from "@/lib/editor/benign-errors";
@@ -57,7 +58,9 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
             if (!isMain) return;
         };
 
-        void bootstrap();
+        void bootstrap().catch(() => {
+            if (!cancelled) notify.error("Could not initialize app settings", "Reload the app to try again.");
+        });
         return () => { cancelled = true; stopAiSync?.(); };
     }, []);
 
@@ -139,9 +142,8 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
 
     useEffect(() => {
         const init = async () => {
-            const { getCurrentWindow } = await import("@tauri-apps/api/window");
-
             try {
+                const { getCurrentWindow } = await import("@tauri-apps/api/window");
                 const currentWindow = getCurrentWindow();
                 if (currentWindow.label !== "main") return;
 
