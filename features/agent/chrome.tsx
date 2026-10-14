@@ -7,8 +7,12 @@ import type { ReactNode } from "react";
 import { Icon } from "@/components/ui/icon";
 
 import { cn } from "@/lib/utils";
+import { usePlatform } from "@/lib/platform";
 import { Tooltip } from "@/components/ui/tooltip";
-import { WindowControlsSpacer } from "@/features/agent/workbench/titlebar/ui/window-controls";
+import {
+    WindowControls,
+    WindowControlsSpacer,
+} from "@/features/agent/workbench/titlebar/ui/window-controls";
 
 export const AGENT_TABS_SLOT = "bettershape-agent-tabs";
 export const AGENT_CHROME_ACTIONS_SLOT = "bettershape-agent-chrome-actions";
@@ -59,6 +63,7 @@ export function AgentChrome({
     onToggleSidebar,
     onSidebarHoverStart,
     onSidebarHoverEnd,
+    windowControls,
 }: {
     rightOpen: boolean;
     onToggleRight: () => void;
@@ -69,9 +74,20 @@ export function AgentChrome({
     onToggleSidebar?: () => void;
     onSidebarHoverStart?: () => void;
     onSidebarHoverEnd?: () => void;
+    windowControls?: {
+        isMaximized: boolean;
+        onMinimize: () => void;
+        onToggleMaximize: () => void;
+        onClose: () => void;
+    };
 }) {
+    const isMac = usePlatform() === "macos";
+
     return (
         <div className="relative z-30 flex h-titlebar shrink-0 items-stretch overflow-hidden bg-transparent" data-tauri-drag-region>
+            {isMac && windowControls ? (
+                <WindowControls {...windowControls} surface="panel" spacer={false} />
+            ) : null}
             {!sidebarOpen && onToggleSidebar ? (
                 <div
                     data-sidebar-peek-toggle=""
@@ -100,7 +116,7 @@ export function AgentChrome({
                         <Icon icon={PanelRight20Filled} />
                     </Btn>
                 ) : null}
-                {padWindowControls ? <WindowControlsSpacer /> : null}
+                {padWindowControls && !isMac ? <WindowControlsSpacer /> : null}
             </div>
         </div>
     );

@@ -18,6 +18,8 @@ import { ProjectQuickPickHost } from "@/features/chat/ui/shell/project-pick";
 import { startAgentBackgroundExitToasts } from "@/features/chat/lib/agent-terminal-notify";
 import { useWindowControls } from "@/features/agent/workbench/titlebar/hooks/use-window-controls";
 import { WindowControls } from "@/features/agent/workbench/titlebar/ui/window-controls";
+import { usePlatform } from "@/lib/platform";
+import { normalizePath } from "@/lib/path/utils";
 import { NewFilePromptHost } from "./workspace/new-file-prompt";
 
 const MIN_WORKSPACE = 360;
@@ -530,6 +532,7 @@ export function AgentLayout({ children }: { children: React.ReactNode }) {
     const rightExpanded = workspaceOpen && showWorkspace && workspaceFits && !zenMode;
     const sidebarShown = sidebarOpen && !zenMode;
     const { isMaximized, minimize, toggleMaximize, close } = useWindowControls();
+    const isMac = usePlatform() === "macos";
 
     return (
         <div className="relative flex h-full min-h-0 w-full overflow-hidden bg-sidebar">
@@ -588,6 +591,12 @@ src="/logos/logo.png"
                     onToggleSidebar={toggleSidebar}
                     onSidebarHoverStart={openSidebarFlyout}
                     onSidebarHoverEnd={closeSidebarFlyout}
+                    windowControls={{
+                        isMaximized,
+                        onMinimize: minimize,
+                        onToggleMaximize: () => void toggleMaximize(),
+                        onClose: close,
+                    }}
                 />
                 <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
                 <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
@@ -604,7 +613,7 @@ src="/logos/logo.png"
                             ) : project_path ? (
                                 <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
                                     <Chat
-                                        key={project_path.replace(/\//g, "\\").toLowerCase()}
+                                        key={normalizePath(project_path).toLowerCase()}
                                         className="bg-transparent"
                                     />
                                 </div>
@@ -668,14 +677,16 @@ src="/logos/logo.png"
                 </div>
                 {project_path ? <Status /> : null}
             </div>
-            <WindowControls
-                isMaximized={isMaximized}
-                onMinimize={minimize}
-                onToggleMaximize={() => void toggleMaximize()}
-                onClose={close}
-                surface="panel"
-                spacer={false}
-            />
+            {isMac ? null : (
+                <WindowControls
+                    isMaximized={isMaximized}
+                    onMinimize={minimize}
+                    onToggleMaximize={() => void toggleMaximize()}
+                    onClose={close}
+                    surface="panel"
+                    spacer={false}
+                />
+            )}
         </div>
     );
 }

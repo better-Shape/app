@@ -1,6 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
+import { isWindows } from "@/lib/platform";
 import { normalizeColorTheme, type ColorThemeId } from "./themes";
 import type { AgentWorkflow } from "@/lib/chat/workflows";
 import {
@@ -659,13 +660,10 @@ export function resolveDefaultTerminalShell(): "powershell" | "cmd" | "gitbash" 
     if (shell === "cmd") return "cmd";
     if (shell === "git-bash") return "gitbash";
     if (shell === "powershell") return "powershell";
-    if (typeof navigator !== "undefined") {
-        const platform = navigator.platform?.toLowerCase() ?? "";
-        const userAgent = navigator.userAgent?.toLowerCase() ?? "";
-        if (platform.includes("win") || userAgent.includes("windows")) {
-            return "powershell";
-        }
+    if (isWindows()) {
+        return "powershell";
     }
+    // The shell union has no POSIX member yet, so macOS / Linux still land here.
     return "powershell";
 }
 

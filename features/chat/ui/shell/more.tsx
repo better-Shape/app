@@ -15,13 +15,15 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown";
 import { openSettingsWindow } from "@/lib/window/open-settings";
+import { getPlatform } from "@/lib/platform";
 import { notify } from "@/features/notifications";
 
 async function downloadDiagnostics() {
     const payload = {
         exportedAt: new Date().toISOString(),
         userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "",
-        platform: typeof navigator !== "undefined" ? navigator.platform : "",
+        platform: getPlatform(),
+        platformRaw: typeof navigator !== "undefined" ? navigator.platform : "",
         url: typeof window !== "undefined" ? window.location.href : "",
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });

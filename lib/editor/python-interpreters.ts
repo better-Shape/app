@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { isWindows } from "@/lib/platform";
 
 export type PythonInterpreter = {
     path: string;
@@ -40,7 +41,7 @@ export async function resolvePythonInterpreter(
     const found = await discoverPythonInterpreters(projectPath);
     if (found[0]?.path) return quoteIfNeeded(found[0].path);
 
-    return navigator.platform.toLowerCase().includes("win") ? "python" : "python3";
+    return isWindows() ? "python" : "python3";
 }
 
 function quoteIfNeeded(path: string): string {
