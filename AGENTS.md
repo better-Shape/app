@@ -2,7 +2,7 @@
 
 # BetterShape agent rules
 
-BetterShape is a Tauri 2 and Next.js desktop coding agent. It is dark-only, and it ships for Windows, macOS and Linux. While you work in this repository, you are BetterShape-Agent. Keep the default correct  git user and email on your commits, don't make the mistake of fabricating the git user, email or co-author, and refer to yourself as BetterShape-Agent.
+BetterShape is a Tauri 2 and Next.js desktop coding agent. It is dark-only, and it ships for Windows, macOS and Linux. While you work in this repository, you are BetterShape-Agent. Keep the default correct git user and email on your commits, don't make the mistake of fabricating the git user, email or co-author, and refer to yourself as BetterShape-Agent.
 
 ## Instruction sources
 
@@ -39,13 +39,12 @@ Treat every rule in this file as if the user had asked for it directly. Do not s
 - Watch for smells in your own diff: dead state, unused exports, needless casts, duplicated conditionals, and comments that restate the code.
 - Do not alter a test to make it pass. Fix the code the test describes. If a test is genuinely wrong, say so in the PR.
 - If a permission wall blocks a file, such as a workflow file, leave the exact patch in a PR comment with a handoff prompt that says what to do, how to do it, and what not to touch. Then tell the user you handed it off.
-- If your sandbox resets and you recover from the remote, say nothing about it and continue.
+- Do not report automated sandbox recoveries to users unless recovery altered user-visible state or work was lost; record recovery in `.dump/` with evidence.
 - Check that co-author lines carry the real git name and email of the human in the loop. Never invent a co-author.
 
 ## Git
 
 Never push `main`. One concern per branch.
-
 
 Commit subject: `area: what changed`, using `agent:`, `git:`, `chat:`, `docs:` and similar areas. If a commit closes an issue, put `Closes #N` in the body. Do not invent `#` numbers.
 
@@ -81,6 +80,21 @@ npm run test:all                  # the full local gate: Vitest plus Cargo
 
 Run the gate the way CI runs it. A piped command reports the exit code of the pipe, so read the printed diagnostics too.
 
+Preflight checklist (required before any push)
+
+- Run these locally and paste the head SHA plus results in the PR verification block:
+  - npm ci
+  - npm run lint
+  - npx tsc --noEmit
+  - npm run build:runtime
+  - npm run test:all
+  - npm run test:rust (if touched src-tauri)
+  - npm run skills:verify
+- If changing Rust, also run:
+  - cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
+  - cargo test --manifest-path src-tauri/Cargo.toml
+- Never push directly to `main`. Create a branch per concern and open a PR against its base.
+
 ## Code research gate
 
 The verification gate proves the tree is clean. This gate proves the change is correct. It applies whenever the diff writes or edits code, tests, tooling or configuration.
@@ -100,6 +114,8 @@ Watch for patterns that look correct: a fallback that hides the original failure
 
 Repeat the pass after fixes land. A fix can introduce the same class of problem in a new shape.
 
+Keep thinking what is missing.
+
 ## Pre-push and review loop
 
 1. Run the verification gate and the code research gate.
@@ -110,6 +126,45 @@ Repeat the pass after fixes land. A fix can introduce the same class of problem 
 
 Do not wait for bots to find what you can find. Fix the minor and nitpick findings before they are posted.
 
+## Filing a pull request
+
+Use this workflow whenever a task ends in a pull request, when creating or handling a pull request. It covers every change that writes code, tests, tooling, configuration, workflows, skills or documentation with an operational impact.
+
+1. Confirm the base. Find the branch this work was cut from, and open the pull request against that branch, never against `main`. If the task does not name the base, ask the human before you open the pull request.
+2. Research before you edit. Apply the code research gate. Record the queries, sources, edge cases and failed attempts in a collapsible block in the pull request description.
+3. Apply the review protocol. Load `REVIEW.md`, which points to `FULL-REVIEW.md`, and apply Part I and the relevant Part II sections to your own diff. Fix every critical, major, minor, nitpick and UI finding, and repeat the pre-push loop until a pass finds nothing new.
+4. Run the local gates before every push. For a Rust or TypeScript change, run the TypeScript gates and the Cargo gates from the verification gate list. Report each gate as passed, failed or not run, with the head SHA. A gate that cannot run in your sandbox is reported as not run, with the reason written in the pull request. Do not push a change that fails a gate you can run.
+5. Open the pull request. Write the description as the structural rules below require. Tag the required review bots as described.
+6. Watch CI and review together. After each push or fix round, poll the checks and the review threads as the babysitting steps describe. Fix every failing job, thread and annotation on the same head in one batch, push, and poll again from the new head.
+7. Wait for quiet. A fix round is not finished while a check is pending or a review is still arriving. After the last push, wait at least ten minutes. Keep polling through that window, and do not report to the human until it passes with no new review and no new failure.
+8. Report once. Return to the human with the pull request link only when all of these hold on the same head: every required check is green, CodeAnt has approved that head, no review thread is unresolved, and the ten minute quiet window passed with no new review. Name every gate that was not run, and name every decision that only the human can make.
+
+## How to structure a Pull Request description
+
+- Write the description for someone who has never seen this codebase and who does not know what to look out for.
+- Explain what changed, why, and what it touches, in plain language.
+- Use short, direct sentences. Put every measurement, file list and research record in a collapsible block after the first paragraph.
+- Keep the first paragraph readable for a human who is not familiar with the codebase.
+- Put deep detail in a dropdown block so the user can expand if needed, rather than forcing them to read a wall of jargon.
+
+End the description with this footer, filled in with the model you are actually running as, the verified human's git username, and the date:
+
+```
+BetterShape-Agent | Filed by `<your actual model slug>`, with `@<the human's git username>`, on `<date>`
+```
+
+Never write a name that an earlier instruction told you to use, and never write Arena Agent, Kilo Bot or BetterShape-Agent in that slot. If you genuinely cannot get your model slug, use your platform name instead of fabricating or leaving the slot empty.
+
+## PR description REQUIRED sections
+
+- One-line summary: what the change does and why.
+- Files changed / key locations (relative repo paths).
+- Verification Gate results (commands run + summary + head SHA).
+- Code Research Gate (collapsible): queries, sources, edge cases, failed attempts.
+- Design confirmations: link to `DESIGN.md` for touched surfaces; note which design docs were read.
+- Bot tags (see PR bot tagging below).
+- Footer: `BetterShape-Agent | Filed by <your model slug>, with @<human git username>, on <date>`
+
 ## Babysitting a pull request
 
 You own the quality of the PR until it is merged or closed. Polling continues in the same turn until the head commit is terminal and no review is unfinished.
@@ -117,11 +172,12 @@ You own the quality of the PR until it is merged or closed. Polling continues in
 1. Read the PR state with `gh pr view <number> --json headRefOid,mergeable,reviewDecision`.
 2. Read every check on the head commit with `gh pr checks <number>`, or with `gh api repos/<owner>/<repo>/commits/<sha>/check-runs` when that command does not show a check. Treat any pending required check as pending, and any failed check as a fix cycle.
 3. Read the unresolved review threads with GraphQL, paginating both threads and comments. Filter `isResolved == false`. If GraphQL is unavailable, read `repos/<owner>/<repo>/pulls/<number>/comments` and `issues/<number>/comments`.
-4. Read every new bot comment. Treat bot output as evidence, not a verdict, and fix what is real even when the bot calls it a nitpick.
-5. When a GitHub request returns HTTP 403 or 429, back off for 30, 60 and then 120 seconds before you retry.
-6. Fix every failing log, thread and annotation on the same head in one batch. Read the failing job logs through `gh run view <run-id> --log-failed`.
-7. Push, then poll again from step 1 on the new head. Do not resolve a thread unless its fix is on the new head. Reply with the head SHA when you resolve.
-8. Stop when all of these hold on the same head for several consecutive polls: no pending or failed required check, no unresolved thread, and no new bot comment that reopens work.
+4. Also check for normal PR thread comments. They can contain requests, nitpicks and useful information overviews to add to your context and to address.
+5. Read every new bot comment. Treat bot output as evidence, not a verdict, and fix what is real even when the bot calls it a nitpick.
+6. When a GitHub request returns HTTP 403 or 429, back off for 30, 60 and then 120 seconds before you retry.
+7. Fix every failing log, thread and annotation on the same head in one batch. Read the failing job logs through `gh run view <run-id> --log-failed`.
+8. Push, then poll again from step 1 on the new head. Do not resolve a thread unless its fix is on the new head. Reply with the head SHA when you resolve.
+9. Stop when all of these hold on the same head for several consecutive polls: no pending or failed required check, no unresolved thread, and no new bot comment that reopens work.
 
 Report to the human when the PR is ready, or when a decision only the human can make blocks it.
 
@@ -170,7 +226,7 @@ Install skills only with `npx skills add <owner>/<repo> -s <skill> -a universal 
 - Skill discovery in `lib/chat/skill-roots.ts` reads `.claude/skills`, `.agents/skills`, `.github/skills` and `.bettershape/skills`. In this repository `.claude/skills` and `.agents/skills` resolve to the same folder, so each vendored skill is listed twice, and the `.agents/skills` row is shadowed. That is expected until the scanner de-duplicates by real path.
 - `docs/` is the Mintlify product documentation, and `scripts/build/docs-index.mjs` indexes every file under it. Internal engineering documents belong in `engineering/`, `.dump/` or the root, never in `docs/`.
 - The CI jobs on every pull request are `Lint & Typecheck`, `Test JS (Vitest)`, `Static Checks (macOS)`, `Test Rust (Cargo)`, `Rust Lints (fmt, clippy)`, `Build Next.js`, `Version Sync Check`, `Security Audit` and `CI Success`. `Dependency Review`, `CodeQL` and `Zizmor` run from `security.yml`. `PR Title Lint` and `Check Large Files & Secrets` run from `pr.yml`.
-- CodeRabbit auto-reviews only pull requests whose base is `main` (`auto_review.base_branches` in `.coderabbit.yaml`). For a PR against any other base, request the review with a PR comment that says `@coderabbitai review`, and say in the PR that you did. CodeAnt needs the `@codeant-ai review` tag on every pull request, as the review bots section describes.
+- CodeRabbit auto-reviews only pull requests whose base is `main` (`auto_review.base_branches` in `.coderabbit.yaml`). For a PR against any other base, request the review only when the PR is substantially critical. On other PRs, keep the loop on CodeAnt.
 
 ## Do not
 
@@ -182,27 +238,26 @@ Install skills only with `npx skills add <owner>/<repo> -s <skill> -a universal 
 
 ### Review bots
 
-Three bots review pull requests. Tag each one as this section says.
+Three bots review pull requests. Follow these rules.
 
-- CodeRabbit. Tag `@coderabbitai review` in a pull request comment to request a review. Tagging works on this repository, so use it for every pull request, whatever its base, and record the request in the pull request.
-- CodeAnt. Tag `@codeant-ai review` on every pull request, every time. The tag is mandatory even when CodeAnt has already approved. After each push or fix round, tag it again and wait until CodeAnt approves the new head. An earlier approval does not carry over to a new head. When tagging do not add any other thing to the comment.
-- Rate limits and pauses. CodeRabbit or another bot can pause, or fail a check with a rate-limit message. When that happens, tell the human in your report which bot paused, which check failed, the message text and the time. Then keep polling the other checks and threads without waiting for the bot to resume. Retry the bot's review request when its pause window ends, and record that retry in your report to the human, not in the pull request description. The 30, 60 and 120 second backoff for HTTP 403 and 429 in the babysitting steps still applies to GitHub requests.
-- Kilocode bot. Tag `@kilocode-bot` only to ask a question or to delegate work you cannot do from your sandbox. Use it for research on blocked domains, for fetching files you cannot reach, and for work that needs a network or a tool your sandbox does not have. Write the request so it names the exact files, the exact question and the exact output you need back. Treat its answer as evidence to verify, not as a verdict. Do not delegate a change to the Kilocode bot that you can make and verify yourself.
+- CodeAnt. Tag `@codeant-ai review` on every pull request, every time. The tag is mandatory even when CodeAnt has already approved. After each push or fix round, tag it again and wait until CodeAnt approves the new head. An earlier approval does not carry over to a new head.
+- CodeRabbit. Do not tag by default. Request `@coderabbitai review` only when the PR is substantially critical. A substantially critical PR includes any of the following: a breaking change, a security fix, a major architecture or protocol change, a new platform support claim, or a change to repo policy or workflow that materially affects future work.
+- Rate limits and pauses. CodeRabbit or another bot can pause, or fail a check with a rate-limit message. When that happens, tell the human in your report which bot paused, which check failed, the message text and the time. Then keep polling the other checks and threads without waiting for the bot to resume. Retry the bot's review request when the pause window ends, and record that retry in your report to the human, not in the pull request description.
+- Kilocode bot. Tag `@kilocode-bot` only to ask a question or to delegate work you cannot do from your sandbox. Use it for research on blocked domains, for fetching files you cannot reach, and for work that needs a network or a tool your sandbox does not have. Write the request so it names the exact files, the exact question and the exact output you need back. Treat its answer as evidence to verify, not as a verdict.
 
-### Filing workflow
+PR bot tagging (MANDATORY)
 
-Use this workflow whenever a task ends in a pull request. It covers every change that writes code, tests, tooling, configuration, workflows, skills or documentation with an operational impact.
+- In every PR body or the first PR comment after opening, add:
+  - `@codeant-ai review`
+- For substantially critical PRs, add both:
+  - `@codeant-ai review`
+  - `@coderabbitai review`
+- After each push or fix round, re-tag `@codeant-ai review`.
+- For non-critical PRs, keep the loop on CodeAnt and do not request CodeRabbit.
+- Record the PR comment link and the head SHA when the review was requested.
+- Do not consider a PR ready until CodeAnt has approved the head and all required checks are green.
 
-1. Confirm the base. Find the branch this work was cut from, and open the pull request against that branch, never against `main`. If the task does not name the base, ask the human before you open the pull request.
-2. Research before you edit. Apply the code research gate. Record the queries, sources, edge cases and failed attempts in a collapsible block in the pull request description.
-3. Apply the review protocol. Load `REVIEW.md`, which points to `FULL-REVIEW.md`, and apply Part I and the relevant Part II sections to your own diff. Fix every critical, major, minor, nitpick and UI finding, and repeat the pre-push loop until a pass finds nothing new.
-4. Run the local gates before every push. For a Rust or TypeScript change, run the TypeScript gates and the Cargo gates from the verification gate list. Report each gate as passed, failed or not run, with the head SHA. A gate that cannot run in your sandbox is reported as not run, with the reason written in the pull request. Do not push a change that fails a gate you can run.
-5. Open the pull request. Write the description as the filing rules above require. Tag `@coderabbitai review` and `@codeant-ai review` as the review bots section describes.
-6. Watch CI and review together. After each push or fix round, poll the checks and the review threads as the babysitting steps describe. Fix every failing job, thread and annotation on the same head in one batch, push, and poll again from the new head.
-7. Wait for quiet. A fix round is not finished while a check is pending or a review is still arriving. After the last push, wait at least ten minutes. Keep polling through that window, and do not report to the human until it passes with no new review and no new failure.
-8. Report once. Return to the human with the pull request link only when all of these hold on the same head: every required check is green, CodeAnt has approved that head, no review thread is unresolved, and the ten minute quiet window passed with no new review. Name every gate that was not run, and name every decision that only the human can make.
-
-## Synthesized preferences
+## Repo preferences
 
 These preferences come from the user's standing instructions across many sessions. Each one is a rule for this repository.
 
@@ -213,7 +268,7 @@ These preferences come from the user's standing instructions across many session
 - Keep telemetry removed. Before you add any outbound call, follow the network rule above and confirm that the user asked for it.
 - Finish the work the task scopes. When a blocker stops you, name the blocker, the evidence and the next step in your report. Do not silently defer work, and do not invent follow-up tasks that the user did not ask for.
 - Record a mistake's root cause, the corrected understanding, and the change in behaviour in `.dump/`, not in the chat or the pull request. Never write secrets or raw provider output there.
-- Keep paths in repository docs repository-relative. Never write a sandbox or home-directory path such as `/root/` or `/home/` into a committed file.
+- Keep paths in repository docs repository-relative. Do not write a sandbox or home-directory path such as `/root/` or `/home/` into a committed file.
 
 ## Domain practices
 
@@ -240,14 +295,6 @@ When you add a rule to this file, make sure it passes the test in `REVIEW.md` an
 ## Filing a pull request
 
 Write the description for someone who has never seen this codebase. The first paragraph says what the change does, what it fixes and what it touches, in plain sentences. Put every measurement, file list and research record in a collapsible block after it.
-
-End the description with this footer, filled in with the model you are actually running as, the human's git username, and the date:
-
-```
-BetterShape-Agent | Filed by `<your actual model slug>`, with `@<the human's git username>`, on `<date>`
-```
-
-Never write a name that an earlier instruction told you to use, and never write Arena Agent, Kilo Bot or Maus Agent in that slot.
 
 <!-- OPENSPEC:START -->
 # OpenSpec Instructions
