@@ -1,13 +1,9 @@
 "use client";
 
 import { ArrowLeft20Regular } from "@fluentui/react-icons/headless/svg/arrow-left";
-import { ArrowSortDown20Regular } from "@fluentui/react-icons/headless/svg/arrow-sort-down";
 import { ArrowSync20Regular } from "@fluentui/react-icons/headless/svg/arrow-sync";
-import { BranchRequest20Regular } from "@fluentui/react-icons/headless/svg/branch-request";
 import { Chat20Filled } from "@fluentui/react-icons/headless/svg/chat";
-import { Checkmark20Regular } from "@fluentui/react-icons/headless/svg/checkmark";
 import { ChevronDown20Regular } from "@fluentui/react-icons/headless/svg/chevron-down";
-import { Filter20Regular } from "@fluentui/react-icons/headless/svg/filter";
 import { MoreHorizontal20Regular } from "@fluentui/react-icons/headless/svg/more-horizontal";
 import { Open20Regular } from "@fluentui/react-icons/headless/svg/open";
 
@@ -18,7 +14,6 @@ import { Icon } from "@/components/ui/icon";
 
 
 import { Button } from "@/components/ui/button";
-import { SearchInput } from "@/components/ui/search";
 import { FileIcon } from "@/components/ui/file-icon";
 import {
     DropdownMenu,
@@ -30,37 +25,19 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { commands, useProjectState } from "@/lib/backend";
 import { loginGitHub, useGitHubAuth } from "@/lib/github/store";
-import { cn } from "@/lib/utils";
 import { GitMarkdown } from "@/features/git/ui/github/markdown";
 import { notify } from "@/features/notifications";
+import { PullRequestsList, type IssueStateFilter } from "./list";
+import {
+    mapPullRows,
+    mergeableFrom,
+    parseJson,
+    type PrCi,
+    type PrItem,
+} from "./mapping";
+import { settlePrOverrides } from "./overrides";
+import { apiSortParam, type PrSortMode } from "./ranking";
 import { selectPr, usePrUi } from "./store";
-
-type IssueStateFilter = "open" | "closed" | "all";
-type PrSort = "updated" | "created";
-
-type PrLabel = { name: string; color: string };
-
-type PrItem = {
-    id: string;
-    number: number;
-    title: string;
-    url?: string;
-    status: string;
-    draft?: boolean;
-    author?: string;
-    avatar?: string;
-    repo: string;
-    updated: string;
-    body?: string;
-    labels: PrLabel[];
-    additions?: number;
-    deletions?: number;
-    headRef?: string;
-    baseRef?: string;
-    headSha?: string;
-    comments?: number;
-    ci?: "success" | "pending" | "failure" | "unknown";
-};
 
 type PrFile = {
     filename: string;
@@ -86,36 +63,13 @@ async function resolveOwnerRepo(projectPath: string | null) {
     }
 }
 
-function formatRelative(iso: unknown): string {
-    if (typeof iso !== "string" || !iso) return "";
-    const t = Date.parse(iso);
-    if (Number.isNaN(t)) return "";
-    const mins = Math.round((Date.now() - t) / 60_000);
-    if (mins < 1) return "just now";
-    if (mins < 60) return `${mins}m ago`;
-    const hrs = Math.round(mins / 60);
-    if (hrs < 48) return `${hrs}h ago`;
-    return `${Math.round(hrs / 24)}d ago`;
-}
-
-function parseJson(raw: unknown) {
-    return typeof raw === "string" ? JSON.parse(raw) : raw;
-}
-
-function ciFromStatus(state: string | undefined): PrItem["ci"] {
-    if (state === "success") return "success";
-    if (state === "pending") return "pending";
-    if (state === "failure" || state === "error") return "failure";
-    return "unknown";
-}
-
 export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" | "full" }) {
     const { project_path } = useProjectState();
     const auth = useGitHubAuth();
     const prUi = usePrUi();
     const [query, setQuery] = useState("");
     const [state, setState] = useState<IssueStateFilter>("open");
-    const [sort, setSort] = useState<PrSort>("updated");
+    const [sort, setSort] = useState<PrSortMode>("updated");
     const [items, setItems] = useState<PrItem[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -144,77 +98,11 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
                 return;
             }
             const raw = await commands.githubApiGet(
-                `/repos/${resolved.owner}/${resolved.repo}/pulls?state=${state}&sort=${sort}&direction=desc&per_page=50`,
+                `/repos/${resolved.owner}/${resolved.repo}/pulls?state=${state}&sort=${apiSortParam(sort)}&direction=desc&per_page=50`,
             );
-            const data = parseJson(raw);
-            const list = Array.isArray(data) ? data : [];
-            const slug = `${resolved.owner}/${resolved.repo}`;
-            const mapped: PrItem[] = list.map((row: Record<string, unknown>) => {
-                const user =
-                    row.user && typeof row.user === "object"
-                        ? (row.user as { login?: string; avatar_url?: string })
-                        : undefined;
-                const head =
-                    row.head && typeof row.head === "object"
-                        ? (row.head as { ref?: string; sha?: string })
-                        : undefined;
-                const base =
-                    row.base && typeof row.base === "object"
-                        ? (row.base as { ref?: string })
-                        : undefined;
-                const number = typeof row.number === "number" ? row.number : Number(row.number);
-                const labels = Array.isArray(row.labels)
-                    ? row.labels
-                          .map((l) => {
-                              if (!l || typeof l !== "object") return null;
-                              const label = l as { name?: string; color?: string };
-                              if (!label.name) return null;
-                              return { name: label.name, color: label.color || "666666" };
-                          })
-                          .filter((l): l is PrLabel => Boolean(l))
-                    : [];
-                return {
-                    id: String(row.id ?? row.number),
-                    number: Number.isFinite(number) ? number : 0,
-                    title: String(row.title ?? `#${row.number}`),
-                    url: typeof row.html_url === "string" ? row.html_url : undefined,
-                    status: String(row.state ?? ""),
-                    draft: Boolean(row.draft),
-                    author: user?.login,
-                    avatar: user?.avatar_url,
-                    repo: slug,
-                    updated: formatRelative(row.updated_at ?? row.created_at),
-                    body: typeof row.body === "string" ? row.body : undefined,
-                    labels,
-                    comments: typeof row.comments === "number" ? row.comments : undefined,
-                    headRef: head?.ref,
-                    baseRef: base?.ref,
-                    headSha: head?.sha,
-                };
-            });
+            const mapped = mapPullRows(parseJson(raw), `${resolved.owner}/${resolved.repo}`);
+            settlePrOverrides(mapped);
             setItems(mapped);
-
-            const withSha = mapped.filter((p) => p.headSha).slice(0, 20);
-            void Promise.all(
-                withSha.map(async (pr) => {
-                    try {
-                        const statusRaw = await commands.githubApiGet(
-                            `/repos/${resolved.owner}/${resolved.repo}/commits/${pr.headSha}/status`,
-                        );
-                        const status = parseJson(statusRaw) as { state?: string };
-                        return { id: pr.id, ci: ciFromStatus(status.state) };
-                    } catch {
-                        return { id: pr.id, ci: "unknown" as const };
-                    }
-                }),
-            ).then((results) => {
-                setItems((prev) =>
-                    prev.map((item) => {
-                        const hit = results.find((r) => r.id === item.id);
-                        return hit ? { ...item, ci: hit.ci } : item;
-                    }),
-                );
-            });
         } catch (e) {
             setItems([]);
             setError(e instanceof Error ? e.message : "Could not load pull requests.");
@@ -227,24 +115,14 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
         void load();
     }, [load]);
 
-    const filtered = useMemo(() => {
-        const q = query.trim().toLowerCase();
-        if (!q) return items;
-        const labelQ = q.startsWith("label:") ? q.slice(6).trim() : null;
-        return items.filter((item) => {
-            if (labelQ) {
-                return item.labels.some((l) => l.name.toLowerCase().includes(labelQ));
-            }
-            return (
-                item.title.toLowerCase().includes(q) ||
-                item.author?.toLowerCase().includes(q) ||
-                `#${item.number}`.includes(q) ||
-                item.labels.some((l) => l.name.toLowerCase().includes(q))
-            );
-        });
-    }, [items, query]);
+    const onCiResolved = useCallback((id: string, ci: PrCi) => {
+        setItems((prev) => prev.map((item) => (item.id === id ? { ...item, ci } : item)));
+    }, []);
 
-    const selected = filtered.find((i) => i.id === selectedId) ?? items.find((i) => i.id === selectedId) ?? null;
+    const selected = useMemo(
+        () => items.find((item) => item.id === selectedId) ?? null,
+        [items, selectedId],
+    );
 
     useEffect(() => {
         if (!selected || !repo) {
@@ -288,6 +166,8 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
                     .filter((p, i, all) => all.findIndex((x) => x.login === p.login) === i);
                 setReviewers(merged);
                 setCommentCount(Number(detail.comments ?? selected.comments ?? 0));
+                const head = detail.head as { ref?: string; sha?: string } | undefined;
+                const base = detail.base as { ref?: string } | undefined;
                 setItems((prev) =>
                     prev.map((item) =>
                         item.id === selected.id
@@ -297,6 +177,10 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
                                   deletions: Number(detail.deletions ?? item.deletions ?? 0),
                                   comments: Number(detail.comments ?? item.comments ?? 0),
                                   body: typeof detail.body === "string" ? detail.body : item.body,
+                                  headRef: head?.ref ?? item.headRef,
+                                  baseRef: base?.ref ?? item.baseRef,
+                                  headSha: head?.sha ?? item.headSha,
+                                  mergeable: mergeableFrom(detail),
                               }
                             : item,
                     ),
@@ -564,141 +448,22 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
     }
 
     return (
-        <div className="flex h-full min-h-0 flex-col bg-panel">
-            <div className="flex shrink-0 items-center gap-2 px-3 pb-2 pt-3">
-                <span className="text-sm font-medium text-text-primary">Pull Requests</span>
-            </div>
-            <div className="flex shrink-0 items-center gap-1 px-3 pb-3">
-                <div className="min-w-0 flex-1">
-                    <SearchInput
-                        value={query}
-                        onChange={(e) => setQuery(e.target.value)}
-                        placeholder="Search pull requests, or label:bug"
-                    />
-                </div>
-                <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                        <button
-                            type="button"
-                            aria-label="Sort"
-                            className="flex size-7 items-center justify-center rounded-md text-text-muted hover:bg-panel-hover hover:text-text-primary"
-                        >
-                            <Icon icon={ArrowSortDown20Regular} />
-                        </button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="min-w-36">
-                        <DropdownMenuItem onClick={() => setSort("updated")}>Recently updated</DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setSort("created")}>Newest</DropdownMenuItem>
-                    </DropdownMenuContent>
-                </DropdownMenu>
-                <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                        <button
-                            type="button"
-                            aria-label="Filters"
-                            className="flex size-7 items-center justify-center rounded-md text-text-muted hover:bg-panel-hover hover:text-text-primary"
-                        >
-                            <Icon icon={Filter20Regular} />
-                        </button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="min-w-32">
-                        {(["open", "closed", "all"] as const).map((value) => (
-                            <DropdownMenuItem key={value} onClick={() => setState(value)}>
-                                {state === value ? <Icon icon={Checkmark20Regular} /> : <span className="size-4" />}
-                                <span className="capitalize">{value}</span>
-                            </DropdownMenuItem>
-                        ))}
-                    </DropdownMenuContent>
-                </DropdownMenu>
-                <button
-                    type="button"
-                    aria-label="Refresh"
-                    onClick={() => void load()}
-                    className="flex size-7 items-center justify-center rounded-md text-text-muted hover:bg-panel-hover hover:text-text-primary"
-                >
-                    <Icon icon={ArrowSync20Regular} />
-                </button>
-            </div>
-            <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-4">
-                {loading && items.length === 0 ? (
-                    <p className="px-2 py-3 text-sm text-text-muted">Loading…</p>
-                ) : error && items.length === 0 ? (
-                    <div className="flex flex-col gap-2 px-2 py-3">
-                        <p className="text-sm text-text-muted">{error}</p>
-                        {!auth.loggedIn ? (
-                            <Button variant="secondary" size="sm" className="w-fit" onClick={() => void loginGitHub()}>
-                                Sign in with GitHub
-                            </Button>
-                        ) : null}
-                    </div>
-                ) : filtered.length === 0 ? (
-                    <p className="px-2 py-3 text-sm text-text-muted">No pull requests</p>
-                ) : (
-                    <>
-                        <p className="px-2.5 pb-1 text-xs text-text-muted">Others</p>
-                        <ul className="flex flex-col">
-                            {filtered.map((item) => (
-                                <li key={item.id}>
-                                    <button
-                                        type="button"
-                                        onClick={() => selectPr(item.id)}
-                                        className="flex w-full gap-2.5 rounded-lg px-2.5 py-2 text-left hover:bg-panel-hover"
-                                    >
-                                        <Icon
-                                            icon={BranchRequest20Regular}
-                                            className={cn(
-                                                "mt-0.5 shrink-0",
-                                                item.status === "open" ? "text-success" : "text-text-muted",
-                                            )}
-                                        />
-                                        <span className="min-w-0 flex-1">
-                                            <span className="block truncate text-sm font-medium text-text-primary">
-                                                {item.title}
-                                            </span>
-                                            <span className="mt-0.5 flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-text-muted">
-                                                <span>#{item.number}</span>
-                                                <span>·</span>
-                                                <span className="truncate">{item.repo}</span>
-                                                {item.avatar ? (
-                                                    // eslint-disable-next-line @next/next/no-img-element
-                                                    <img src={item.avatar} alt="" className="size-3.5 rounded-full" />
-                                                ) : null}
-                                                {item.labels.slice(0, 2).map((label) => (
-                                                    <span
-                                                        key={label.name}
-                                                        className="rounded-full px-1.5 py-px text-2xs"
-                                                        style={{
-                                                            backgroundColor: `#${label.color}22`,
-                                                            color: `#${label.color}`,
-                                                        }}
-                                                    >
-                                                        {label.name}
-                                                    </span>
-                                                ))}
-                                                {typeof item.additions === "number" ? (
-                                                    <span className="text-success">+{item.additions}</span>
-                                                ) : null}
-                                                {typeof item.deletions === "number" ? (
-                                                    <span className="text-error">−{item.deletions}</span>
-                                                ) : null}
-                                                {item.updated ? <span>{item.updated}</span> : null}
-                                            </span>
-                                        </span>
-                                        {item.ci === "success" ? (
-                                            <Icon icon={Checkmark20Regular} className="mt-0.5 shrink-0 text-success" />
-                                        ) : item.ci === "failure" ? (
-                                            <span className="mt-1 size-2 shrink-0 rounded-full bg-error" />
-                                        ) : item.ci === "pending" ? (
-                                            <span className="mt-1 size-2 shrink-0 rounded-full bg-warning" />
-                                        ) : null}
-                                    </button>
-                                </li>
-                            ))}
-                        </ul>
-                    </>
-                )}
-            </div>
-        </div>
+        <PullRequestsList
+            items={items}
+            loading={loading}
+            error={error}
+            signedIn={auth.loggedIn}
+            repo={repo}
+            query={query}
+            onQueryChange={setQuery}
+            sort={sort}
+            onSortChange={setSort}
+            state={state}
+            onStateChange={setState}
+            onRefresh={() => void load()}
+            onSignIn={() => void loginGitHub()}
+            onCiResolved={onCiResolved}
+        />
     );
 }
 
