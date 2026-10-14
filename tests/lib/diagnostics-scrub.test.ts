@@ -17,10 +17,12 @@ const TOKENS = [
   join("sk", "-live-", "abcdefghijklmnopqrstuvwx"),
 ];
 
+const PEM_START_WORDS = ["BEGIN", "RSA"].join(" ");
+const PEM_KEY_WORDS = ["PRIVATE", "KEY"].join(" ");
 const PEM = [
-  "-----BEGIN RSA PRIVATE KEY-----",
+  `-----${PEM_START_WORDS} ${PEM_KEY_WORDS}-----`,
   "MIIBOgIBAAJBAKj34GkxFhD90vcNLYLInFEX6Ppy1tPf9Cnzj4p4WGeKLs1Pt8Qu",
-  "-----END RSA PRIVATE KEY-----",
+  `-----END RSA ${PEM_KEY_WORDS}-----`,
 ].join("\n");
 
 describe("redactText", () => {
@@ -31,7 +33,7 @@ describe("redactText", () => {
     });
 
     it("removes a PEM private key block", () => {
-        expect(redactText(`key follows\n${PEM}\ntrailing`)).not.toContain("BEGIN RSA PRIVATE KEY");
+        expect(redactText(`key follows\n${PEM}\ntrailing`)).not.toContain(`${PEM_START_WORDS} ${PEM_KEY_WORDS}`);
     });
 
     it("removes credentials supplied as key/value pairs", () => {
