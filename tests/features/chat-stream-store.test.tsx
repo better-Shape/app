@@ -328,3 +328,20 @@ it.each(["command", "edit"])("scopes %s approvals and resolutions to their emitt
     emit(`agent-${kind}-resolved`, { id: "approval-b", conversationId: "B", turnId: "t-b", approved: false });
     expect(api.turnPhase).toBe("thinking");
 });
+
+it("keeps an optimistic replacement alive when old events arrive before its chat_started", async () => {
+    await mount(null);
+    emit("chat_started", { conversationId: "A", turnId: "old" });
+    act(() => { api.showConversation("A"); api.appendUserOptimistic("new request", "A", "new-request"); });
+    emit("chat_token", { conversationId: "A", turnId: "old", chunk: "obsolete text" });
+    emit("chat_status", { conversationId: "A", turnId: "old", phase: "approval" });
+    emit("chat_complete", { conversationId: "A", turnId: "old", error: "Cancelled" });
+    expect(api.isLoading).toBe(true);
+    expect(api.turnPhase).toBe("thinking");
+    expect(api.messages.some((message) => message.content.includes("obsolete"))).toBe(false);
+    emit("chat_started", { conversationId: "A", turnId: "new", requestId: "new-request" });
+    emit("chat_token", { conversationId: "A", turnId: "new", chunk: "new response" });
+    expect(api.turnId).toBe("new");
+    expect(api.isLoading).toBe(true);
+    expect(api.messages.some((message) => message.content.includes("new response"))).toBe(true);
+});

@@ -55,7 +55,7 @@ jobs:
         run: |
           set -euo pipefail
           # Determine expected tag: GITHUB_REF_NAME for tag push, INPUT_TAG for manual dispatch
-          # Use env var INPUT_TAG to avoid injection via direct ${{ inputs.tag }} expansion in shell
+          # Keep the dispatch input in INPUT_TAG; never interpolate it into shell source, including comments.
           if [[ "${GITHUB_REF:-}" == refs/tags/* ]]; then
             TAG="${GITHUB_REF_NAME#v}"
             echo "Tag push: $TAG from $GITHUB_REF_NAME"

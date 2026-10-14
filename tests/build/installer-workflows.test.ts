@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { load } from "js-yaml";
 import { expect, it } from "vitest";
 
-type Step = { "timeout-minutes"?: number; name?: string; run?: string; if?: string; uses?: string; with?: { path?: string } };
+type Step = { env?: Record<string, string>; "timeout-minutes"?: number; name?: string; run?: string; if?: string; uses?: string; with?: { path?: string } };
 type Workflow = { jobs: Record<string, { steps?: Step[] }> };
 const workflow = (name: string) => load(readFileSync(`.github/workflows/${name}.yml`, "utf8")) as Workflow;
 const steps = (name: string) => Object.values(workflow(name).jobs).flatMap((job) => job.steps ?? []);
@@ -38,4 +38,21 @@ it("bounds dependency installation and reports failures including step timeouts"
     const report = installers.find((step) => step.name === "Report native build failure")!;
     expect(report.if).toBe("failure()");
     expect(report.run).toContain('node scripts/build/report-failure.mjs < "$RUNNER_TEMP/tauri-build.log"');
+});
+
+it("scans the real PR base/head instead of main and does not hide diff errors", () => {
+    const check = steps("pr").find((step) => step.name === "Check for accidentally committed secrets patterns")!;
+    expect(check.env?.BASE_SHA).toBe("${{ github.event.pull_request.base.sha }}");
+    expect(check.env?.HEAD_SHA).toBe("${{ github.event.pull_request.head.sha }}");
+    expect(check.run).toContain('DIFF=$(git diff "$BASE_SHA...$HEAD_SHA" --unified=0)');
+    expect(check.run).not.toContain("origin/main");
+    expect(check.run).not.toContain("git diff HEAD~1");
+    expect(check.run?.match(/> \/dev\/null; then/g)).toHaveLength(2);
+});
+
+it("keeps dispatch tag input out of generated shell source, including comments", () => {
+    const validate = steps("release").find((step) => step.name === "Assert tag matches package.json")!;
+    expect(validate.env?.INPUT_TAG).toBe("${{ inputs.tag }}");
+    expect(validate.run).not.toContain("${{ inputs.tag }}");
+    expect(validate.run).toContain('"${INPUT_TAG:-}"');
 });

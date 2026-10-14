@@ -32,14 +32,14 @@ import {
     toRustAiConfig,
     type RustAiConfig,
 } from "@/lib/ai/providers";
-import { readSecrets, vaultAvailable, writeSecret, writtenSecretIds } from "@/lib/ai/vault";
+import { knownSecretIds, readSecrets, recordSecretDeletions, vaultAvailable, writeSecret, writtenSecretIds } from "@/lib/ai/vault";
 
 /**
  * Every id the keychain may hold a secret under: one per provider, one per
  * connection header, and the two service keys. Header names come from the
  * settings file, which keeps names and never values.
  */
-function secretIds(): string[] {
+function configuredSecretIds(): string[] {
     const ids = new Set<string>([
         ...PROVIDER_PRESETS.map((preset) => preset.id),
         SEARCH_SECRET_ID,
@@ -76,7 +76,9 @@ export async function syncAiConfig(): Promise<void> {
 async function pushSecretsToVault(prune = true): Promise<boolean> {
     const secrets = providerSecretsForVault();
     let stored = true;
-    const ids = new Set([...Object.keys(secrets), ...(prune ? writtenSecretIds() : [])]);
+    const configured = new Set(configuredSecretIds());
+    const orphaned = prune ? knownSecretIds().filter((id) => !configured.has(id)) : [];
+    const ids = new Set([...Object.keys(secrets), ...(prune ? writtenSecretIds() : []), ...orphaned]);
     for (const id of ids) {
         if (!(await writeSecret(id, secrets[id] ?? ""))) stored = false;
     }
@@ -94,7 +96,7 @@ async function hydrateSecrets(touched: Set<string>): Promise<void> {
     const migrated = await pushSecretsToVault(false);
     setSecretsVaulted(migrated);
     if (!migrated) return;
-    const loaded = await readSecrets(secretIds());
+    const loaded = await readSecrets([...new Set([...configuredSecretIds(), ...knownSecretIds()])]);
     // A clear/edit made while the keychain was opening must win over that read.
     for (const id of touched) delete loaded[id];
     applyVaultSecrets(loaded);
@@ -112,7 +114,7 @@ export function initAiConfigSync(): () => void {
     const touched = new Set<string>();
     const sync = async () => {
         if (areSecretsVaulted() && !(await pushSecretsToVault())) {
-            notify.error("Could not update saved credentials", "Unlock your system keychain and try the change again. Your saved key may not have changed.");
+            notify.error("Could not update saved credentials", "Unlock the system keychain or free local storage, then retry. Your saved credentials may not have changed.");
         }
         await syncAiConfig();
     };
@@ -122,14 +124,16 @@ export function initAiConfigSync(): () => void {
         });
     };
     const unsubscribe = subscribeSettings(() => {
+        const next = providerSecretsForVault();
+        const removed = Object.keys(observed).filter((id) => !next[id]);
+        if (!recordSecretDeletions(removed)) notify.error("Could not save credential removal", "Local storage is unavailable or full. Make space or enable storage, then retry before closing the app.");
         if (booting) {
-            const next = providerSecretsForVault();
             for (const id of new Set([...Object.keys(observed), ...Object.keys(next)])) {
                 if (observed[id] !== next[id]) touched.add(id);
             }
-            observed = next;
-            return; // The first reconciliation includes edits made during hydration.
         }
+        observed = next;
+        if (booting) return; // The first reconciliation includes edits made during hydration.
         enqueue();
     });
     // Hydration and subsequent edits share one queue: a slow write can never

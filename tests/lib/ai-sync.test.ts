@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
-    secrets: {} as Record<string, string>, vaulted: false,
+    secrets: {} as Record<string, string>, headers: { Authorization: "" } as Record<string, string>, vaulted: false,
     listeners: new Set<() => void>(), vault: new Map<string, string>(),
     load: vi.fn(), store: vi.fn(), remove: vi.fn(), configure: vi.fn(), error: vi.fn(),
 }));
@@ -14,9 +14,10 @@ vi.mock("@/lib/settings", () => ({
     areSecretsVaulted: () => state.vaulted,
     setSecretsVaulted: (value: boolean) => { state.vaulted = value; },
     providerSecretsForVault: () => ({ ...state.secrets }),
-    getSettings: () => ({ ai: { providers: { connections: { custom: { headers: { Authorization: "" } } } } } }),
+    getSettings: () => ({ ai: { providers: { connections: { custom: { headers: state.headers } } } } }),
     applyVaultSecrets: (secrets: Record<string, string>) => {
-        state.secrets = { ...secrets, ...state.secrets };
+        const allowed = new Set(["openai", "custom", "service:search", "service:composio", ...Object.keys(state.headers).map((name) => `header:custom:${name}`)]);
+        state.secrets = { ...Object.fromEntries(Object.entries(secrets).filter(([id]) => allowed.has(id))), ...state.secrets };
         for (const listener of state.listeners) listener();
     },
     subscribeSettings: (listener: () => void) => { state.listeners.add(listener); return () => { state.listeners.delete(listener); }; },
@@ -35,6 +36,8 @@ function change(secrets: Record<string, string>) {
 }
 beforeEach(async () => {
     vi.resetModules();
+    localStorage.clear();
+    state.headers = { Authorization: "" };
     state.secrets = {}; state.vaulted = false; state.vault.clear(); state.listeners.clear();
     state.load.mockReset().mockImplementation(async (ids: string[]) => ids.flatMap((id) => state.vault.has(id) ? [{ id, apiKey: state.vault.get(id)! }] : []));
     state.store.mockReset().mockImplementation(async (id: string, secret: string) => { state.vault.set(id, secret); });
@@ -109,4 +112,79 @@ it("stops watching settings on unsubscribe", async () => {
     stop = sync.initAiConfigSync(); await sync.aiConfigReady(); stop();
     change({ openai: "example-after-stop" }); await sync.aiConfigReady();
     expect(state.store).not.toHaveBeenCalled();
+});
+
+it("retries a failed removed-header deletion after restart without resurrecting the value", async () => {
+    const id = "header:custom:Authorization";
+    state.vault.set(id, "example-header-token");
+    stop = sync.initAiConfigSync(); await sync.aiConfigReady();
+    state.remove.mockRejectedValueOnce(new Error("Locked"));
+    state.headers = {};
+    change({}); await sync.aiConfigReady();
+    expect(state.vault.has(id)).toBe(true);
+    expect(JSON.stringify(localStorage)).not.toContain("example-header-token");
+    stop();
+    const vault = await import("@/lib/ai/vault"); vault.__resetVaultCacheForTesting();
+    expect(vault.knownSecretIds()).toContain(id);
+    stop = sync.initAiConfigSync(); await sync.aiConfigReady();
+    expect(state.vault.has(id)).toBe(false);
+    expect(state.secrets).toEqual({});
+    // Re-adding the name after another restart cannot restore the old key.
+    stop(); vault.__resetVaultCacheForTesting(); state.headers = { Authorization: "" };
+    stop = sync.initAiConfigSync(); await sync.aiConfigReady();
+    expect(state.secrets).toEqual({});
+});
+
+it("does not hydrate a credential whose write-ahead deletion survived an interrupted session", async () => {
+    const vault = await import("@/lib/ai/vault");
+    state.vault.set("openai", "example-stale");
+    expect(vault.recordSecretDeletions(["openai"])).toBe(true);
+    vault.__resetVaultCacheForTesting();
+    state.remove.mockRejectedValueOnce(new Error("Still locked"));
+    stop = sync.initAiConfigSync(); await sync.aiConfigReady();
+    expect(state.secrets).toEqual({});
+    expect(state.vault.get("openai")).toBe("example-stale");
+    change({}); await sync.aiConfigReady();
+    expect(state.vault.has("openai")).toBe(false);
+});
+
+it("prunes an inventoried header absent from settings even if it could not be read", async () => {
+    const vault = await import("@/lib/ai/vault");
+    const id = "header:custom:Removed";
+    await vault.writeSecret(id, "example-orphan");
+    vault.__resetVaultCacheForTesting();
+    state.load.mockResolvedValue([]);
+    stop = sync.initAiConfigSync(); await sync.aiConfigReady();
+    expect(state.remove).toHaveBeenCalledWith(id);
+    expect(state.vault.has(id)).toBe(false);
+});
+
+it("keeps a deliberate re-entry when a clear overtook a pending first write", async () => {
+    stop = sync.initAiConfigSync(); await sync.aiConfigReady();
+    let finish!: () => void;
+    state.store.mockImplementationOnce((id: string, secret: string) => new Promise<void>((resolve) => {
+        finish = () => { state.vault.set(id, secret); resolve(); };
+    }));
+    change({ openai: "example-reentered" });
+    await vi.waitFor(() => expect(state.store).toHaveBeenCalled());
+    change({});
+    change({ openai: "example-reentered" });
+    finish(); await sync.aiConfigReady();
+    stop();
+    const vault = await import("@/lib/ai/vault"); vault.__resetVaultCacheForTesting();
+    state.secrets = {};
+    stop = sync.initAiConfigSync(); await sync.aiConfigReady();
+    expect(state.secrets.openai).toBe("example-reentered");
+});
+
+it("refuses a keychain mutation without durable metadata, and can retry in this session", async () => {
+    stop = sync.initAiConfigSync(); await sync.aiConfigReady();
+    const write = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("Quota exceeded"); });
+    try {
+        change({ openai: "example-unsaved" }); await sync.aiConfigReady();
+        expect(state.store).not.toHaveBeenCalled();
+        expect(state.error).toHaveBeenCalled();
+    } finally { write.mockRestore(); }
+    change({ openai: "example-unsaved" }); await sync.aiConfigReady();
+    expect(state.vault.get("openai")).toBe("example-unsaved");
 });

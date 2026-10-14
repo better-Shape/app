@@ -21,6 +21,62 @@ import { commands } from "@/lib/backend";
  * not touch the key costs nothing.
  */
 const written = new Map<string, string>();
+const pendingDeletions = new Set<string>();
+const writeRevisions = new Map<string, number>();
+function nextRevision(id: string): number {
+    const revision = (writeRevisions.get(id) ?? 0) + 1;
+    writeRevisions.set(id, revision);
+    return revision;
+}
+function isPendingDeletion(id: string): boolean {
+    return pendingDeletions.has(id) || inventoryState(id) === "delete";
+}
+
+// Only IDs and deletion intent live here, never credential values. Per-ID
+// entries avoid losing unrelated IDs when two windows update the inventory.
+const INVENTORY_PREFIX = "bettershape-ai-vault-entry:";
+type InventoryState = "stored" | "delete";
+
+function inventoryKey(id: string): string { return `${INVENTORY_PREFIX}${encodeURIComponent(id)}`; }
+function inventoryState(id: string): string | null {
+    try { return window.localStorage.getItem(inventoryKey(id)); }
+    catch { return null; }
+}
+function inventoryEntries(): Array<[string, InventoryState]> {
+    const entries: Array<[string, InventoryState]> = [];
+    try {
+        for (let index = 0; index < window.localStorage.length; index += 1) {
+            const key = window.localStorage.key(index);
+            if (!key?.startsWith(INVENTORY_PREFIX)) continue;
+            const state = window.localStorage.getItem(key);
+            if (state !== "stored" && state !== "delete") continue;
+            try {
+                const id = decodeURIComponent(key.slice(INVENTORY_PREFIX.length));
+                if (id) entries.push([id, state]);
+            } catch { /* Ignore malformed metadata, never interpret it as a credential. */ }
+        }
+    } catch { /* An unavailable metadata store cannot grant deletion authority. */ }
+    return entries;
+}
+function recordInventory(id: string, state: InventoryState): boolean {
+    try { window.localStorage.setItem(inventoryKey(id), state); return true; }
+    catch { return false; }
+}
+
+/** Includes IDs whose header/provider is no longer present in current settings. */
+export function knownSecretIds(): string[] { return [...new Set([...inventoryEntries().map(([id]) => id), ...pendingDeletions])]; }
+
+/** Synchronous write-ahead intent: survives exit while a keychain operation is pending. */
+export function recordSecretDeletions(ids: string[]): boolean {
+    let recorded = true;
+    for (const id of ids) {
+        nextRevision(id);
+        pendingDeletions.add(id);
+        written.delete(id);
+        if (!recordInventory(id, "delete")) recorded = false;
+    }
+    return recorded;
+}
 
 let supported: boolean | null = null;
 
@@ -44,6 +100,8 @@ export function __setVaultAvailableForTesting(value: boolean | null): void {
 /** Forget the write cache (tests, and after a deliberate clear). */
 export function __resetVaultCacheForTesting(): void {
     written.clear();
+    pendingDeletions.clear();
+    writeRevisions.clear();
     supported = null;
 }
 
@@ -52,13 +110,14 @@ export async function readSecrets(ids: string[]): Promise<Record<string, string>
     if (ids.length === 0) return {};
     if (!(await vaultAvailable())) return {};
     try {
-        const rows = await commands.aiLoadKeys(ids);
+        const rows = await commands.aiLoadKeys(ids.filter((id) => !isPendingDeletion(id)));
         const out: Record<string, string> = {};
         for (const row of rows) {
             const key = row.apiKey.trim();
-            if (key) {
+            // The user may clear a credential while this read is awaiting IPC.
+            if (key && !isPendingDeletion(row.id)) {
                 out[row.id] = key;
-                written.set(row.id, key);
+                if (recordInventory(row.id, "stored")) written.set(row.id, key);
             }
         }
         return out;
@@ -70,35 +129,47 @@ export async function readSecrets(ids: string[]): Promise<Record<string, string>
 /** Store a secret (empty clears it). Returns false when no keychain is usable. */
 export async function writeSecret(id: string, value: string): Promise<boolean> {
     const secret = value.trim();
-    if (written.get(id) === secret) return true;
+    if (secret && written.get(id) === secret) return true;
     if (!(await vaultAvailable())) return false;
+    // Record BEFORE touching the keychain. A failed/interrupted deletion must
+    // remain discoverable even after its header name disappears from settings.
+    if (secret ? !recordInventory(id, "stored") : !recordSecretDeletions([id])) return false;
+    const revision = nextRevision(id);
+    if (secret) pendingDeletions.delete(id);
     try {
         if (secret) {
             await commands.aiStoreKey(id, secret);
         } else {
             await commands.aiDeleteKey(id);
         }
-        written.set(id, secret);
+        // A newer local intent may have arrived while IPC was pending. Do not
+        // cache an obsolete success or erase that intent's retry marker.
+        if (writeRevisions.get(id) === revision) {
+            written.set(id, secret);
+            if (!secret) {
+                pendingDeletions.delete(id);
+                try {
+                    if (inventoryState(id) === "delete") window.localStorage.removeItem(inventoryKey(id));
+                } catch { /* Keeping a tombstone is safe; the next launch retries cleanup. */ }
+            }
+        }
         return true;
     } catch {
-        // Keep the cache untouched so the next settings change retries.
+        // Failed stores stay uncached; failed deletions retain their tombstones.
         return false;
     }
 }
 
-/** Remove a secret entirely (also used when a provider is reset). */
-export async function forgetSecret(id: string): Promise<void> {
-    written.delete(id);
-    if (!(await vaultAvailable())) return;
-    try {
-        await commands.aiDeleteKey(id);
-        written.set(id, "");
-    } catch {
-        /* nothing stored, or no keychain — either way nothing to remove */
-    }
+/** Remove a secret entirely, retaining durable retry intent if the keychain is locked. */
+export async function forgetSecret(id: string): Promise<boolean> {
+    return writeSecret(id, "");
 }
 
-/** Ids this session has written, used to prune secrets of removed providers. */
+/** Cached nonempty keys plus pending deletions that must retry across restarts. */
 export function writtenSecretIds(): string[] {
-    return [...written.entries()].filter(([, value]) => value).map(([id]) => id);
+    return [...new Set([
+        ...[...written.entries()].filter(([, value]) => value).map(([id]) => id),
+        ...inventoryEntries().filter(([, state]) => state === "delete").map(([id]) => id),
+        ...pendingDeletions,
+    ])];
 }

@@ -68,6 +68,9 @@ jobs:
           echo "✓ No large files"
 
       - name: Check for accidentally committed secrets patterns
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
           # Heuristic: look for actual secret values, not variable names or secret references
@@ -76,8 +79,11 @@ jobs:
           # Instead, only filter the specific GitHub Actions secret reference syntax
           # Obfuscate private key pattern to avoid this file being flagged as secret by scanners
           # Do NOT filter out private-key markers before scanning - that would allow evasion
-          DIFF=$(git diff origin/main...HEAD --unified=0 || git diff HEAD~1 --unified=0 || true)
-          # Only filter out the exact ${{ secrets.* }} reference pattern
+          # Review the actual PR, including non-main draft bases. A missing ref
+          # must fail the check rather than silently scanning nothing.
+          : "${BASE_SHA:?Missing PR base SHA}" "${HEAD_SHA:?Missing PR head SHA}"
+          DIFF=$(git diff "$BASE_SHA...$HEAD_SHA" --unified=0)
+          # Only filter exact GitHub Actions secret-reference placeholders
           FILTERED=$(echo "$DIFF" | sed -E 's/\$\{\{\s*secrets\.[^}]+\}\}//g' || true)
           # Build private key pattern from parts to avoid literal in file triggering self-detection
           P1="BEG"
@@ -93,13 +99,13 @@ jobs:
           # Excluding those pattern definitions keeps the check honest instead of
           # forcing the scrubber to hide the marker it exists to find.
           DESC_RE='PRIVATE KEY-----.{0,3}\[|BEGIN \[A-Z'
-          if echo "$FILTERED" | grep -v "P1=" | grep -v "P2=" | grep -v "P3=" | grep -v "P4=" | grep -v "PRIVATE_KEY_PATTERN=" | grep -vE "$DESC_RE" | grep -Ei "(${PRIVATE_KEY_PATTERN}|sk-ant-[a-zA-Z0-9-]{20,}|sk-proj-[a-zA-Z0-9-]{20,}|ghp_[a-zA-Z0-9]{36}|gho_[a-zA-Z0-9]{36}|AKIA[0-9A-Z]{16})" | grep -v "example" | grep -v ".gitignore"; then
+          if echo "$FILTERED" | grep -v "P1=" | grep -v "P2=" | grep -v "P3=" | grep -v "P4=" | grep -v "PRIVATE_KEY_PATTERN=" | grep -vE "$DESC_RE" | grep -Ei "(${PRIVATE_KEY_PATTERN}|sk-ant-[a-zA-Z0-9-]{20,}|sk-proj-[a-zA-Z0-9-]{20,}|ghp_[a-zA-Z0-9]{36}|gho_[a-zA-Z0-9]{36}|AKIA[0-9A-Z]{16})" | grep -v "example" | grep -v ".gitignore" > /dev/null; then
             echo "::error::Potential secret value detected in diff - please review"
             echo "If this is a false positive (e.g. docs), add 'example' comment or adjust filter"
             exit 1
           fi
           # Also check for aws_secret_access_key pattern separately
-          if echo "$FILTERED" | grep -Ei "aws_secret_access_key.*[A-Za-z0-9/+=]{40}" | grep -v "example" | grep -v ".gitignore"; then
+          if echo "$FILTERED" | grep -Ei "aws_secret_access_key.*[A-Za-z0-9/+=]{40}" | grep -v "example" | grep -v ".gitignore" > /dev/null; then
             echo "::error::Potential AWS secret detected"
             exit 1
           fi

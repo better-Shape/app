@@ -403,7 +403,7 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
             const key = resolveLiveKey(conversationId);
             if (!key || ignoredIdsRef.current.has(key)) return;
             const live = liveTurnsRef.current.get(key);
-            if (!live || (turnId && live.turnId && turnId !== live.turnId)) return;
+            if (!live || (turnId && turnId !== live.turnId)) return;
             update(live);
             setChatGenerating(live.conversationId, true);
             setChatActivity(live.conversationId, live.turnPhase);
@@ -512,7 +512,7 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
                     const convId = key === PENDING_KEY ? null : key;
                     if (convId && ignoredIdsRef.current.has(convId)) return;
                     const current = liveTurnsRef.current.get(key);
-                    if (meta?.turnId && current?.turnId && meta.turnId !== current.turnId) return;
+                    if (meta?.turnId && meta.turnId !== current?.turnId) return;
                     patchLive(convId, (live) => {
                         if (meta?.turnId) live.turnId = meta.turnId;
                         live.messages = appendAssistantChunk(live.messages, chunk);
@@ -547,7 +547,7 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
                 if (isForeignConversation(conversationId)) return;
                 if (turnId) finishedTurns.add(turnId);
                 const current = conversationId ? liveTurnsRef.current.get(conversationId) : undefined;
-                if (turnId && current?.turnId && turnId !== current.turnId) return;
+                if (turnId && turnId !== current?.turnId) return;
                 setChatActivity(conversationId, error === "Cancelled" ? "cancelled" : error ? "failed" : "completed", error);
                 if (!error && stats) {
                     void import("@/lib/chat/last-turn-usage").then(({ setLastTurnUsage }) => {
