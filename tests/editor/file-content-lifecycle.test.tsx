@@ -24,6 +24,7 @@ function deferred<T>() { let resolve!: (value: T) => void; let reject!: (reason:
 beforeEach(() => {
     vi.resetAllMocks(); state.events.clear();
     state.commands.readFile.mockResolvedValue("new disk");
+    state.commands.markFileDirty.mockResolvedValue(undefined);
     state.commands.gitGetItemContent.mockResolvedValue("new git");
     state.commands.gitGetCommitFileContent.mockResolvedValue(["new original", "new modified"]);
     host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
@@ -72,4 +73,12 @@ it("does not restart a file read from an expired file-change callback", async ()
     act(() => { state.events.get("bettershape-files-changed")?.({ payload: ["/repo/file.ts"] }); root?.unmount(); root = undefined; });
     await act(async () => {});
     expect(state.commands.readFile).toHaveBeenCalledTimes(1);
+});
+
+it.each(["bettershape-file-edited", "bettershape-files-changed"])("reports a rejected %s reload without leaking backend details", async (event) => {
+    await render("/repo/file.ts");
+    state.loadDirtyBuffer.mockImplementationOnce(() => { throw new Error("private detail"); });
+    await act(async () => state.events.get(event)?.({ payload: event === "bettershape-file-edited" ? "/repo/file.ts" : ["/repo/file.ts"] }));
+    expect(state.error).toHaveBeenCalledWith("File Error", "Could not refresh the editor. Save your changes before reopening the file.");
+    expect(state.clearDirtyBuffer).not.toHaveBeenCalled();
 });

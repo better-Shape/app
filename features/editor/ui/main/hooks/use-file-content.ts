@@ -34,6 +34,9 @@ export function useFileContent(
             setLoading(true);
         }
 
+        const reportLoadFailure = () => {
+            if (!cancelled) notify.error("File Error", "Could not refresh the editor. Save your changes before reopening the file.");
+        };
         let loadSeq = 0;
         const loadFile = async (showLoading = true) => {
             if (cancelled) return;
@@ -156,7 +159,7 @@ export function useFileContent(
                         setContent(dirty.content);
                         savedContentRef.current = data;
                         currentContent = dirty.content;
-                        void commands.markFileDirty(path, true);
+                        void commands.markFileDirty(path, true).catch(reportLoadFailure);
                     } else {
                         setContent(data);
                         savedContentRef.current = data;
@@ -214,7 +217,7 @@ export function useFileContent(
             }
         };
 
-        loadFile(cached === undefined);
+        void loadFile(cached === undefined).catch(reportLoadFailure);
 
         const unlistenPromise = listen<string>("bettershape-file-edited", (event) => {
             if (cancelled) return;
@@ -226,15 +229,15 @@ export function useFileContent(
                     if (cancelled) return;
                     const dirty = loadDirtyBuffer(path);
                     clearDirtyBuffer(path);
-                    void commands.markFileDirty(path, false);
+                    void commands.markFileDirty(path, false).catch(reportLoadFailure);
                     if (dirty) {
                         notify.info(
                             "File updated by agent",
                             "Unsaved editor changes were replaced by the agent's write.",
                         );
                     }
-                    loadFile(false);
-                });
+                    return loadFile(false);
+                }).catch(reportLoadFailure);
             }
         });
 
@@ -244,12 +247,14 @@ export function useFileContent(
             commands.invalidateAllFileCaches();
             if (!(Array.isArray(event.payload) ? event.payload : []).some((p) => typeof p === "string" && norm(p) === norm(path))) return;
             commands.invalidateFileCache(path);
-            void import("@/lib/workspace/dirty-buffers").then(({ loadDirtyBuffer }) => { if (!cancelled && !loadDirtyBuffer(path)) loadFile(false); });
+            void import("@/lib/workspace/dirty-buffers").then(({ loadDirtyBuffer }) => {
+                if (!cancelled && !loadDirtyBuffer(path)) return loadFile(false);
+            }).catch(reportLoadFailure);
         });
 
         const onGitRefresh = () => {
             if (!isDiff) return;
-            loadFile(false);
+            void loadFile(false).catch(reportLoadFailure);
         };
         window.addEventListener("bettershape-git-refresh", onGitRefresh);
 
