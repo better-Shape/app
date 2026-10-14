@@ -18,19 +18,43 @@ concurrency:
 
 jobs:
   build-check:
-    name: Nightly Build Check (Windows ${{ matrix.arch }})
+    name: Nightly Build Check (${{ matrix.os }} ${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 60
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
         include:
           - runner: windows-latest
+            os: windows
             arch: x86_64
             target: ""
+            bundles: nsis
           - runner: windows-11-arm
+            os: windows
             arch: aarch64
             target: aarch64-pc-windows-msvc
+            bundles: nsis
+          # `macos-13` is retired from actions/runner-images; Intel is cross-compiled
+          # from the arm64 runner because the macOS SDK ships x86_64 slices.
+          - runner: macos-latest
+            os: macos
+            arch: aarch64
+            target: aarch64-apple-darwin
+            bundles: dmg
+          - runner: macos-latest
+            os: macos
+            arch: x86_64
+            target: x86_64-apple-darwin
+            bundles: dmg
+          - runner: ubuntu-22.04
+            os: linux
+            arch: x86_64
+            target: x86_64-unknown-linux-gnu
+            bundles: deb,appimage,rpm
+    env:
+      # AppImage bundling runs the downloaded linuxdeploy AppImages, which need FUSE2.
+      APPIMAGE_EXTRACT_AND_RUN: "1"
     steps:
       - uses: actions/checkout@v4
 
@@ -39,7 +63,7 @@ jobs:
         with:
           install-rust: "true"
           rust-targets: ${{ matrix.target }}
-          install-system-deps: "false"
+          install-system-deps: ${{ runner.os == 'Linux' && 'true' || 'false' }}
           cache-key: nightly-${{ matrix.arch }}
 
       - run: npm ci
@@ -72,6 +96,7 @@ jobs:
         run: npm run build:runtime
 
       - name: Build Tauri (NSIS)
+        if: runner.os == 'Windows'
         shell: bash
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -91,6 +116,17 @@ jobs:
             npm run tauri -- build --bundles nsis
           fi
 
+      - name: Build Tauri (macOS/Linux)
+        # No signing secrets needed: bundle.createUpdaterArtifacts is false and there
+        # is no tauri-plugin-updater in the dependency tree. Nightly mac/Linux builds
+        # therefore run even in a fork that has no secrets - the Windows entries above
+        # keep producing the placeholder that publish-nightly already knows to skip.
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run tauri -- build --bundles "${{ matrix.bundles }}" --target "${{ matrix.target }}"
+
       - name: Verify build output exists
         shell: bash
         run: |
@@ -99,10 +135,17 @@ jobs:
             echo "Build was skipped due to missing secrets - placeholder exists"
             exit 0
           fi
-          # Check for expected installer
-          if ! find src-tauri/target -name "*.exe" -path "*/bundle/nsis/*" | grep -q .; then
-            echo "::error::No NSIS installer found after build"
-            find src-tauri/target -type f -name "*.exe" | head -n 20 || true
+          if [ -n "${{ matrix.target }}" ]; then
+            BUNDLE_DIR="src-tauri/target/${{ matrix.target }}/release/bundle"
+          else
+            BUNDLE_DIR="src-tauri/target/release/bundle"
+          fi
+          # Check for the expected installer for this platform
+          if ! find "$BUNDLE_DIR" -maxdepth 2 -type f \
+                \( -name '*.exe' -o -name '*.dmg' -o -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' \) \
+                -print -quit 2>/dev/null | grep -q .; then
+            echo "::error::No installer found after build under $BUNDLE_DIR"
+            find "$BUNDLE_DIR" -type f 2>/dev/null | head -n 20 || true
             exit 1
           fi
           echo "✓ Installer found"
@@ -110,9 +153,13 @@ jobs:
       - name: Upload nightly artifact
         uses: actions/upload-artifact@v4
         with:
-          name: nightly-${{ matrix.arch }}
+          name: nightly-${{ matrix.os }}-${{ matrix.arch }}
           path: |
             src-tauri/target/**/bundle/nsis/*.exe
+            src-tauri/target/**/bundle/dmg/*.dmg
+            src-tauri/target/**/bundle/deb/*.deb
+            src-tauri/target/**/bundle/rpm/*.rpm
+            src-tauri/target/**/bundle/appimage/*.AppImage
             dist/nightly-placeholder/
             dist/version.txt
             dist/nightly-version.txt
@@ -207,9 +254,12 @@ jobs:
             echo "No artifacts to publish - skipping"
             exit 0
           fi
-          # Ensure we have actual installers (recursive search, not just top-level)
-          if ! find dist/nightly -name "*.exe" | grep -q .; then
-            echo "::error::No exe installers found in artifacts"
+          # Ensure we have actual installers (recursive search, not just top-level).
+          # Platform-agnostic: Windows .exe plus macOS .dmg and Linux .deb/.rpm/.AppImage.
+          if ! find dist/nightly -type f \
+                \( -name '*.exe' -o -name '*.dmg' -o -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' \) \
+                -print -quit | grep -q .; then
+            echo "::error::No installers found in artifacts"
             find dist/nightly -type f | head -n 20 || true
             exit 1
           fi
@@ -218,13 +268,14 @@ jobs:
             echo "Release $TAG already exists - skipping"
             exit 0
           fi
-          # Use recursive glob to find installers in nested directories (artifacts retain structure)
-          mapfile -t EXES < <(find dist/nightly -name "*.exe" -type f)
-          if [ ${#EXES[@]} -eq 0 ]; then
-            echo "::error::No exe files found"
+          # Use recursive find to collect installers in nested directories (artifacts retain structure)
+          mapfile -t INSTALLERS < <(find dist/nightly -type f \
+                \( -name '*.exe' -o -name '*.dmg' -o -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' \))
+          if [ ${#INSTALLERS[@]} -eq 0 ]; then
+            echo "::error::No installer files found"
             exit 1
           fi
-          echo "Found ${#EXES[@]} exe files: ${EXES[*]}"
+          echo "Found ${#INSTALLERS[@]} installer files: ${INSTALLERS[*]}"
           gh release create "$TAG" \
             --target "${{ github.sha }}" \
             --repo "${{ github.repository }}" \
@@ -232,4 +283,4 @@ jobs:
             --notes "Manual nightly build from ${{ github.sha }}. Not for production use." \
             --prerelease \
             --draft \
-            "${EXES[@]}"
+            "${INSTALLERS[@]}"

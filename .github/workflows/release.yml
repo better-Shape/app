@@ -105,26 +105,60 @@ jobs:
           fi
 
   # ─────────────────────────────────────────────────────────
-  # Build Windows artifacts (x86_64 + aarch64)
+  # Build installers (Windows, macOS, Linux)
   # ─────────────────────────────────────────────────────────
   build:
-    name: Build (Windows ${{ matrix.arch }})
+    name: Build (${{ matrix.os }} ${{ matrix.arch }})
     needs: test
-    timeout-minutes: 60
+    timeout-minutes: 90
     permissions:
       contents: read
+    # macOS and Linux are new, unproven legs. `publish` needs this whole job, so
+    # without this a flaky first-time macOS build would block a Windows release.
+    # Best-effort until the new legs have shipped once, then drop the flag.
+    continue-on-error: ${{ matrix.experimental || false }}
     strategy:
       fail-fast: false
       matrix:
         include:
+          # Windows: unchanged behaviour, updater signature required (see assets.mjs).
           - runner: windows-latest
+            os: windows
             arch: x86_64
             target: ""
+            bundles: nsis
           - runner: windows-11-arm
+            os: windows
             arch: aarch64
             target: aarch64-pc-windows-msvc
+            bundles: nsis
+          # macOS: `macos-13` (the last Intel macOS label) is no longer published in
+          # actions/runner-images. Intel is cross-compiled from the arm64 runner: the
+          # macOS SDK ships x86_64 slices, so --target x86_64-apple-darwin links.
+          - runner: macos-latest
+            os: macos
+            arch: aarch64
+            experimental: true
+            target: aarch64-apple-darwin
+            bundles: dmg
+          - runner: macos-latest
+            os: macos
+            arch: x86_64
+            experimental: true
+            target: x86_64-apple-darwin
+            bundles: dmg
+          - runner: ubuntu-22.04
+            os: linux
+            arch: x86_64
+            experimental: true
+            target: x86_64-unknown-linux-gnu
+            bundles: deb,appimage,rpm
 
     runs-on: ${{ matrix.runner }}
+    env:
+      # AppImage bundling runs the downloaded linuxdeploy AppImages, which need FUSE2.
+      # Not every runner image has it; extracting instead is the documented fallback.
+      APPIMAGE_EXTRACT_AND_RUN: "1"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -135,7 +169,7 @@ jobs:
         with:
           install-rust: "true"
           rust-targets: ${{ matrix.target }}
-          install-system-deps: "false"
+          install-system-deps: ${{ runner.os == 'Linux' && 'true' || 'false' }}
           cache-key: ${{ matrix.arch }}
 
       - run: npm ci
@@ -147,6 +181,10 @@ jobs:
         run: npm run build:runtime
 
       - name: Verify secrets present
+        # Only Windows needs the updater signing key: assets.mjs below requires the
+        # .sig next to the NSIS setup.exe. macOS/Linux bundles are unsigned and
+        # updater artifacts are disabled in tauri.conf.json.
+        if: runner.os == 'Windows'
         shell: bash
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -158,7 +196,8 @@ jobs:
 
       # Password-protected key in secrets (upload via node/fs, not PowerShell pipe —
       # UTF-16 piping corrupts the key and surfaces as "Wrong password").
-      - name: Build Tauri (NSIS only)
+      - name: Build Tauri (NSIS)
+        if: runner.os == 'Windows'
         shell: bash
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -170,8 +209,42 @@ jobs:
             npm run tauri -- build --bundles nsis
           fi
 
+      - name: Build Tauri (macOS/Linux)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # No TAURI_SIGNING_PRIVATE_KEY needed here: bundle.createUpdaterArtifacts is
+          # false and there is no tauri-plugin-updater in the dependency tree.
+          npm run tauri -- build --bundles "${{ matrix.bundles }}" --target "${{ matrix.target }}"
+
       - name: Prepare release assets
+        # assets.mjs is Windows-only: it looks for bundle/nsis/*-setup.exe, requires
+        # the updater .sig next to it, looks for BetterShape.exe, and shells out to
+        # PowerShell's Compress-Archive. On macOS/Linux the bundles are copied as-is.
+        if: runner.os == 'Windows'
         run: node scripts/release/assets.mjs --arch ${{ matrix.arch }} --out-dir dist/release
+
+      - name: Collect bundles (macOS/Linux)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          BUNDLE_DIR="src-tauri/target/${{ matrix.target }}/release/bundle"
+          if [ ! -d "$BUNDLE_DIR" ]; then
+            echo "::error::No bundle directory at $BUNDLE_DIR"
+            exit 1
+          fi
+          mkdir -p dist/release
+          # Files only - a macOS .app is a directory and must not land in dist/release
+          # (upload.mjs and attest-build-provenance both expect a flat set of files).
+          find "$BUNDLE_DIR" -maxdepth 2 -type f \( -name '*.dmg' -o -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' -o -name '*.sig' \) \
+            -exec cp {} dist/release/ \;
+          if [ -z "$(find dist/release -mindepth 1 -print -quit)" ]; then
+            echo "::error::No installers collected from $BUNDLE_DIR"
+            find "$BUNDLE_DIR" -type f | head -n 20 || true
+            exit 1
+          fi
 
       - name: List assets
         shell: bash
@@ -180,7 +253,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: windows-${{ matrix.arch }}
+          name: ${{ matrix.os }}-${{ matrix.arch }}
           path: dist/release/*
           if-no-files-found: error
           retention-days: 14
@@ -199,7 +272,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: sbom-${{ matrix.arch }}
+          name: sbom-${{ matrix.os }}-${{ matrix.arch }}
           path: dist/release/sbom-${{ matrix.arch }}.cyclonedx.json
           if-no-files-found: warn
           retention-days: 14

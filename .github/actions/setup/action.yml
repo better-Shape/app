@@ -41,11 +41,28 @@ runs:
       if: ${{ inputs.install-system-deps == 'true' && runner.os == 'Linux' }}
       shell: bash
       run: |
-        sudo apt-get update
+        set -euo pipefail
+        # apt mirrors fail transiently often enough that a single update failing
+        # should not kill the job. Retry once, then let a second failure stand.
+        if ! sudo apt-get update -y; then
+          echo "::warning::apt-get update failed, retrying once in 15s"
+          sleep 15
+          sudo apt-get update -y
+        fi
+        # Tauri v2 Debian/Ubuntu prerequisites:
+        # https://v2.tauri.app/start/prerequisites/#linux
+        # libayatana-appindicator3-dev replaces libappindicator3-dev, which is the
+        # deprecated predecessor and the wrong package for Tauri v2.
         sudo apt-get install -y \
           libwebkit2gtk-4.1-dev \
-          libappindicator3-dev \
+          libayatana-appindicator3-dev \
           librsvg2-dev \
+          libssl-dev \
+          libxdo-dev \
+          build-essential \
+          curl \
+          wget \
+          file \
           patchelf
 
     - name: Install Rust toolchain

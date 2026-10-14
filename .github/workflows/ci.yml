@@ -105,6 +105,55 @@ jobs:
           retention-days: 7
 
   # ─────────────────────────────────────────────────────────
+  # Static (non-Rust) checks on macOS
+  # ─────────────────────────────────────────────────────────
+  # Typecheck / lint / vitest only. Rust and the full Tauri compile stay on Ubuntu
+  # and in build-installers.yml - a macOS Tauri compile is not cheap enough for a PR
+  # gate. NOT in ci-success `needs`, so this is additive and cannot block a merge.
+  static-macos:
+    name: Static Checks (macOS)
+    runs-on: macos-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup
+        uses: ./.github/actions/setup
+        with:
+          install-rust: "false"
+          install-system-deps: "false"
+
+      - run: npm ci
+
+      - name: Build preview runtime
+        run: npm run build:runtime
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: ESLint
+        # Same errors-only gate as the Ubuntu `lint` job: the react-hooks rules are
+        # deliberately downgraded to warnings in eslint.config.mjs. This is a mirror,
+        # not a relaxation.
+        run: |
+          set -o pipefail
+          npm run lint 2>&1 | tee eslint-report.txt
+          STATUS=${PIPESTATUS[0]}
+          ERRORS=$(grep -c " error " eslint-report.txt || echo 0)
+          WARNINGS=$(grep -c " warning " eslint-report.txt || echo 0)
+          echo "ESLint exit: $STATUS, errors: $ERRORS, warnings: $WARNINGS"
+          if [ "$STATUS" -ne 0 ]; then
+            echo "::error::ESLint found $ERRORS errors - must be fixed"
+            exit $STATUS
+          fi
+          echo "✓ ESLint passed with $WARNINGS warnings (allowed, but should be reduced)"
+
+      - name: Vitest run
+        run: npx vitest run
+
+  # ─────────────────────────────────────────────────────────
   # Rust tests
   # ─────────────────────────────────────────────────────────
   test-rust:

@@ -1,0 +1,141 @@
+name: Build Installers (Test)
+
+# Produces downloadable installers so a human can TEST-INSTALL them on macOS and
+# Linux. This workflow NEVER publishes anything: no release, no tag, no write scope.
+# It is deliberately NOT a required status check, so it can never block a merge.
+on:
+  pull_request:
+  push:
+    branches:
+      - mega/absorb-all
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-installers-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build Installer (${{ matrix.os }}-${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+            os: windows
+            arch: x86_64
+            target: ""
+            bundles: nsis
+          - runner: windows-11-arm
+            os: windows
+            arch: aarch64
+            target: aarch64-pc-windows-msvc
+            bundles: nsis
+          # `macos-13` is retired from actions/runner-images, so Intel is produced by
+          # cross-compiling on the arm64 runner: the macOS SDK ships x86_64 slices.
+          - runner: macos-latest
+            os: macos
+            arch: aarch64
+            target: aarch64-apple-darwin
+            bundles: dmg
+          - runner: macos-latest
+            os: macos
+            arch: x86_64
+            target: x86_64-apple-darwin
+            bundles: dmg
+          - runner: ubuntu-22.04
+            os: linux
+            arch: x86_64
+            target: x86_64-unknown-linux-gnu
+            bundles: deb,appimage,rpm
+    env:
+      # AppImage bundling runs the linuxdeploy AppImages tauri downloads, and those
+      # need FUSE2. Not every runner image ships it; extracting is the fallback.
+      APPIMAGE_EXTRACT_AND_RUN: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup
+        uses: ./.github/actions/setup
+        with:
+          install-rust: "true"
+          rust-targets: ${{ matrix.target }}
+          install-system-deps: ${{ runner.os == 'Linux' && 'true' || 'false' }}
+          cache-key: installers-${{ matrix.arch }}
+
+      - run: npm ci
+
+      - name: Build runtime
+        run: npm run build:runtime
+
+      # No TAURI_SIGNING_PRIVATE_KEY: bundle.createUpdaterArtifacts is false and there
+      # is no tauri-plugin-updater in the dependency tree, so no platform here needs an
+      # updater signature. That keeps this workflow usable on forks with no secrets.
+      - name: Build Tauri bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${{ matrix.target }}" ]; then
+            npm run tauri -- build --bundles "${{ matrix.bundles }}" --target "${{ matrix.target }}"
+          else
+            npm run tauri -- build --bundles "${{ matrix.bundles }}"
+          fi
+
+      - name: Collect installer
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${{ matrix.target }}" ]; then
+            BUNDLE_DIR="src-tauri/target/${{ matrix.target }}/release/bundle"
+          else
+            BUNDLE_DIR="src-tauri/target/release/bundle"
+          fi
+          if [ ! -d "$BUNDLE_DIR" ]; then
+            echo "::error::No bundle directory at $BUNDLE_DIR"
+            exit 1
+          fi
+          mkdir -p dist/test-install
+          # Files only - a macOS .app is a directory and is not an installer.
+          find "$BUNDLE_DIR" -maxdepth 2 -type f \
+            \( -name '*.exe' -o -name '*.dmg' -o -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' -o -name '*.sig' \) \
+            -exec cp {} dist/test-install/ \;
+          if [ -z "$(find dist/test-install -mindepth 1 -print -quit)" ]; then
+            echo "::error::No installer produced under $BUNDLE_DIR"
+            find "$BUNDLE_DIR" -type f | head -n 20 || true
+            exit 1
+          fi
+          ls -lh dist/test-install
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bettershape-${{ matrix.os }}-${{ matrix.arch }}
+          path: dist/test-install/*
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Step summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          ARTIFACT="bettershape-${{ matrix.os }}-${{ matrix.arch }}"
+          {
+            echo "## Installer: \`$ARTIFACT\`"
+            echo ""
+            echo "Platform: ${{ matrix.os }} / ${{ matrix.arch }}  |  Runner: \`${{ matrix.runner }}\`  |  Rust target: \`${{ matrix.target || 'host default' }}\`"
+            echo ""
+            echo "Download it from the **Artifacts** section at the bottom of this workflow run."
+            echo ""
+            echo "### Contents"
+            echo ""
+            find dist/test-install -type f -exec ls -lh {} \; | awk '{print "- `" $9 "` (" $5 ")"}'
+            echo ""
+            echo "_Unsigned test build. Not for production use._"
+          } >> "$GITHUB_STEP_SUMMARY"
