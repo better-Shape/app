@@ -168,13 +168,6 @@ describe("dispatchShortcutAction", () => {
         editor.off();
     });
 
-    it("dispatches go to definition", () => {
-        const editor = listenCustomEvent<{ action: string }>("bettershape-editor-action");
-        expect(dispatchShortcutAction("Go to Definition", "F12")).toBe(true);
-        expect(editor.events[0]?.detail).toEqual({ action: "definition" });
-        editor.off();
-    });
-
     it("calls close folder command", () => {
         expect(dispatchShortcutAction("Close Folder", "Ctrl+K F")).toBe(true);
         expect(commands.setProjectPath).toHaveBeenCalledWith(null);

@@ -1,6 +1,6 @@
 # BetterShape
 
-Tauri 2 + Next.js desktop agent. Dark-only. Windows.
+Tauri 2 + Next.js desktop agent. Dark-only. Windows, macOS, and Linux.
 
 Do not invent UI. Open the nearest existing component and copy it.
 

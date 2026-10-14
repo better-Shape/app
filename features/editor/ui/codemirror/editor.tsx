@@ -57,6 +57,7 @@ import { commands, getProjectPath } from "@/lib/backend";
 import { getEditorOptionsFromSettings } from "@/lib/settings";
 import { languageForPath, languageNameForPath } from "./lang";
 import { joinSelectedLines, sortSelectionLines, transformSelectionCase } from "@/features/editor/lib/line-actions";
+import { gotoBracket } from "@/features/editor/lib/bracket-actions";
 import { betterShapeSyntaxLinter } from "./syntax-lint";
 import { BETTERSHAPE_CLIP_CODE, rememberBetterShapeClip } from "@/features/chat/lib/bettershape-clip";
 import { betterShapeEditorChrome } from "./theme";
@@ -443,6 +444,13 @@ export function CodeMirrorEditor({
                 case "jumpToPosition":
                     jumpToPosition(v, detail.line ?? 1, detail.column ?? 1);
                     break;
+                case "goToBracket": {
+                    const target = gotoBracket(v.state, v.state.selection.main.head);
+                    if (target !== null) {
+                        v.dispatch({ selection: EditorSelection.cursor(target) });
+                    }
+                    break;
+                }
                 case "toggleWordWrap":
                     wrapEnabled = !wrapEnabled;
                     v.dispatch({

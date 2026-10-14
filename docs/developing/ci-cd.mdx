@@ -81,7 +81,7 @@ Jobs:
    - `npm ci`, `sync-version`, `build:runtime`
    - Verify required secrets (`TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`) present before build
    - `tauri build --bundles nsis [--target aarch64-pc-windows-msvc]`
-   - `node scripts/release/assets.mjs` to produce `BetterShape-<arch>-setup.exe` + `.sig` + `BetterShape-<arch>.zip`
+   - `node scripts/release/assets.mjs` to produce `BetterShape-<arch>-setup.exe` + `BetterShape-<arch>.zip`
    - SBOM generation via `anchore/sbom-action` (CycloneDX, best-effort)
    - Upload artifacts with 14-day retention, compression level 6
 3. **publish**: Downloads artifacts (merge-multiple), generates notes via `scripts/release/notes.mjs`, detects prerelease (`vX.Y.Z-*` → prerelease), attests build provenance via `actions/attest-build-provenance@v2` (SLSA, requires public repo), publishes via custom `scripts/release/upload.mjs` with retry logic for flaky `uploads.github.com`.
@@ -165,7 +165,7 @@ Run `npm run test:all` before pushing non-trivial changes (per CONTRIBUTING.md).
 5. Tag & push: `npm run release -- 1.0.3 --tag --push` or `git push origin v1.0.3`
 6. Watch Release workflow on GitHub Actions.
 7. Verify draft release artifacts, then publish (handled by `upload.mjs` if `--publish`).
-8. Updater: `.sig` files ship with the release, but no updater plugin or endpoint is configured. `Help → Check for Updates` contacts no server — point users at GitHub releases.
+8. Updater: releases carry no `.sig`. `bundle.createUpdaterArtifacts` is `false` and no updater plugin or endpoint is configured, so there is nothing to sign and nothing to verify against. `Help → Check for Updates` contacts no server — point users at GitHub releases.
 
 Nightly tags: `vX.Y.Z-nightly` or `vX.Y.Z-pre` → published as GitHub prerelease.
 

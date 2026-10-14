@@ -17,10 +17,6 @@
                 "AI Chat": "Ctrl+L",
                 "Toggle Word Wrap": "Alt+Z",
                 "Format Document": "Alt+Shift+F",
-                "Rename Symbol": "F2",
-                "Quick Fix": "Ctrl+.",
-                "Go to Definition": "F12",
-                "Go to References": "Shift+F12",
                 "Cycle Chat Mode": "Ctrl+Shift+."
             }
         },
@@ -32,7 +28,6 @@
                 "Find in Files": "Ctrl+Shift+F",
                 "Save All": "Ctrl+Alt+S",
                 "Close Tab": "Ctrl+W",
-                "New Untitled File": "Ctrl+N",
                 "Go to Line/Column...": "Ctrl+G",
                 "Select All": "Ctrl+A",
                 "AI Chat": "Ctrl+L"

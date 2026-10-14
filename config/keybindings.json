@@ -134,27 +134,6 @@
             "category": "Edit"
         },
         {
-            "id": "edit.renameSymbol",
-            "label": "Rename Symbol",
-            "key": "F2",
-            "when": "editorTextFocus && !editorReadonly",
-            "category": "Edit"
-        },
-        {
-            "id": "edit.quickFix",
-            "label": "Quick Fix",
-            "key": "Ctrl+.",
-            "when": "editorTextFocus",
-            "category": "Edit"
-        },
-        {
-            "id": "edit.organizeImports",
-            "label": "Organize Imports",
-            "key": "Shift+Alt+O",
-            "when": "editorTextFocus && !editorReadonly",
-            "category": "Edit"
-        },
-        {
             "id": "edit.formatSelection",
             "label": "Format Selection",
             "key": "Ctrl+K Ctrl+F",
@@ -204,31 +183,10 @@
             "category": "View"
         },
         {
-            "id": "view.goToSymbol",
-            "label": "Go to Symbol in Editor...",
-            "key": "Ctrl+Shift+O",
-            "when": "editorFocus",
-            "category": "View"
-        },
-        {
             "id": "view.goToLine",
             "label": "Go to Line/Column...",
             "key": "Ctrl+G",
             "when": "editorFocus",
-            "category": "View"
-        },
-        {
-            "id": "view.goToDefinition",
-            "label": "Go to Definition",
-            "key": "F12",
-            "when": "editorTextFocus",
-            "category": "View"
-        },
-        {
-            "id": "view.goToReferences",
-            "label": "Go to References",
-            "key": "Shift+F12",
-            "when": "editorTextFocus",
             "category": "View"
         },
         {
@@ -306,13 +264,6 @@
             "label": "Cycle Chat Mode",
             "key": "Ctrl+Shift+.",
             "when": "chatFocus || global",
-            "category": "Agent"
-        },
-        {
-            "id": "agent.inlineEdit",
-            "label": "Inline Edit",
-            "key": "Ctrl+K",
-            "when": "editorTextFocus",
             "category": "Agent"
         },
         {
