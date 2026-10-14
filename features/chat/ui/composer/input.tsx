@@ -56,6 +56,7 @@ import {
 } from "./activity";
 import { QueuedMessagesPanel, type QueuedMessage } from "./queue";
 import { ComposerAttachments, isImageFile, isAudioFile, type ComposerAttachment } from "./attachments";
+import { DictationButton } from "./dictation-button";
 import { MediaLightbox } from "../blocks/lightbox";
 import { formatMentionToken, mentionRanges, shortenMentionTokensInText } from "@/lib/chat/mentions";
 import {
@@ -949,6 +950,26 @@ export function ChatInput({
         };
     }, []);
 
+    React.useEffect(() => {
+        const onDictation = (e: Event) => {
+            const text = (e as CustomEvent<{ text?: string }>).detail?.text;
+            if (!text) return;
+            const textarea = textareaRef.current;
+            const val = inputValue;
+            const caret = textarea?.selectionStart ?? val.length;
+            const before = val.slice(0, caret);
+            const after = val.slice(caret);
+            const pad = before.length > 0 && !/\s$/.test(before) ? " " : "";
+            const next = `${before}${pad}${text}${after.replace(/^\s/, "")}`;
+            onInputChange({ target: { value: next } } as React.ChangeEvent<HTMLTextAreaElement>);
+            requestAnimationFrame(() => textarea?.focus());
+        };
+        window.addEventListener("bettershape-dictation-text", onDictation as EventListener);
+        return () => {
+            window.removeEventListener("bettershape-dictation-text", onDictation as EventListener);
+        };
+    }, [inputValue, onInputChange]);
+
     const hasContextStrip =
         (pendingEdits?.length ?? 0) > 0 ||
         queuedMessages.length > 0 ||
@@ -1063,6 +1084,7 @@ export function ChatInput({
                             {...{ webkitdirectory: "", directory: "" }}
                             onChange={handleFilteredFileUpload}
                         />
+                        <DictationButton />
                         <DropdownMenu
                             onOpenChange={(open) => {
                                 if (!open) return;
