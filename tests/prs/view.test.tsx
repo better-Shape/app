@@ -7,10 +7,10 @@ vi.mock("@/lib/backend", () => ({
     useProjectState: () => ({ project_path: mocks.project }),
 }));
 vi.mock("@/lib/github/store", () => ({ loginGitHub: vi.fn(), useGitHubAuth: () => ({ loggedIn: true }) }));
-vi.mock("@/features/chat/ui/prs/store", () => ({ selectPr: vi.fn(), usePrUi: () => ({ selectedId: mocks.selectedId }) }));
+vi.mock("@/features/chat/ui/prs/store", () => ({ selectPr: vi.fn(), updateSelectedPr: vi.fn(), usePrUi: () => ({ selectedId: mocks.selectedId }) }));
 vi.mock("@/features/chat/ui/prs/list", () => ({
-    PullRequestsList: ({ items, loading }: { items: { title: string }[]; loading: boolean }) => (
-        <div data-loading={loading}>{items.map((item) => item.title).join(", ")}</div>
+    PullRequestsList: ({ items, loading, hasMore, onLoadMore }: { items: { title: string }[]; loading: boolean; hasMore: boolean; onLoadMore: () => void }) => (
+        <div data-loading={loading} data-has-more={hasMore} onClick={onLoadMore}>{items.map((item) => item.title).join(", ")}</div>
     ),
 }));
 import { PullRequestsPanel } from "@/features/chat/ui/prs/view";
@@ -44,7 +44,7 @@ describe("PR panel request lifecycle", () => {
         await act(async () => { root.render(<PullRequestsPanel />); });
         await act(async () => { await Promise.resolve(); });
         expect(mocks.get.mock.calls.filter(([path]) => path.endsWith("/pulls/7"))).toHaveLength(1);
-        expect(mocks.get).toHaveBeenCalledTimes(4);
+        expect(mocks.get).toHaveBeenCalledTimes(3);
         expect(host.textContent).toContain("A PR");
     });
 
@@ -100,4 +100,33 @@ it("keeps the last loaded rows on a failed background refresh", async () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
     expect(host.textContent).toBe("Last known");
     expect(host.querySelector("[data-loading]")?.getAttribute("data-loading")).toBe("false");
+});
+
+
+it("loads and refreshes later list pages instead of silently truncating at 50 PRs", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(document, "hidden", "get").mockReturnValue(false);
+    const first = Array.from({ length: 100 }, (_, id) => ({ id: id + 1, number: id + 1, title: `PR ${id + 1}` }));
+    mocks.get.mockResolvedValueOnce(first).mockResolvedValueOnce([{ id: 101, number: 101, title: "Older PR" }]);
+    await act(async () => root.render(<PullRequestsPanel pane="list" />));
+    expect(host.querySelector("[data-has-more]")?.getAttribute("data-has-more")).toBe("true");
+    await act(async () => { host.firstElementChild!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    expect(host.textContent).toContain("Older PR");
+    expect(mocks.get.mock.calls[1][0]).toContain("page=2");
+    mocks.get.mockResolvedValueOnce(first).mockResolvedValueOnce([{ id: 101, number: 101, title: "Updated older PR" }]);
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    expect(mocks.get).toHaveBeenCalledTimes(4);
+    expect(host.textContent).toContain("Updated older PR");
+});
+
+it("stops obsolete pagination when switching projects", async () => {
+    const late = deferred<unknown>();
+    const first = Array.from({ length: 100 }, (_, id) => ({ id, number: id + 1, title: `Old ${id}` }));
+    mocks.get.mockResolvedValueOnce(first).mockReturnValueOnce(late.promise).mockResolvedValueOnce([{ id: 300, number: 3, title: "Current repo" }]);
+    await act(async () => root.render(<PullRequestsPanel pane="list" />));
+    act(() => { host.firstElementChild!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    mocks.project = "/second";
+    await act(async () => root.render(<PullRequestsPanel pane="list" />));
+    await act(async () => late.resolve([{ id: 200, number: 200, title: "Stale next page" }]));
+    expect(host.textContent).toBe("Current repo");
 });

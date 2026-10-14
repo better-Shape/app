@@ -74,3 +74,10 @@ it("does not report an unconfirmed REST state change as a success", async () => 
     expect(success).not.toHaveBeenCalled();
     expect(readPrOverride(item.id)).toBeNull();
 });
+
+it("rejects a stale drag snapshot after another surface confirms a merge", async () => {
+    applyPrOverride(item.id, { status: "merged" });
+    expect(await runPrAction(item, "close", item.repo)).toBe(false);
+    expect(request).not.toHaveBeenCalled();
+    expect(readPrOverride(item.id)?.status).toBe("merged");
+});

@@ -83,7 +83,8 @@ export async function runPrAction(
     const previous = readPrOverride(item.id);
     let applied = false;
     try {
-        if (item.repo !== repo || !prActionsFor(item).includes(action)) {
+        const effective = { ...item, status: previous?.status ?? item.status, draft: previous?.draft ?? item.draft };
+        if (item.repo !== repo || !prActionsFor(effective).includes(action)) {
             throw new Error("This action is no longer available. Refresh the pull request.");
         }
         const request = actionRequest(action, item, repo);
