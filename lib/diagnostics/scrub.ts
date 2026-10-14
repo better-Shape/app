@@ -4,6 +4,12 @@
  *
  * BetterShape ships no analytics and no error-reporting backend, so this runs on
  * content that stays on the machine.
+ *
+ * This is the only scrubber. A second one existed at lib/secret-scrub.ts with a
+ * narrower secret pattern -- it missed PEM private key blocks, Stripe (`whsec_`),
+ * and PingFederate/Okta (`pk_`/`rk_`) keys -- so anyone who reached for the
+ * wrong one would have shipped credentials into a copied log. The extra rule it
+ * had, shortening deep filesystem paths, is folded in below.
  */
 
 const EMAIL_RE = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
@@ -20,6 +26,10 @@ export function redactText(input: string, max = 2000): string {
     .replace(HOME_PATH_RE, "~")
     .replace(SECRET_RE, "[redacted]")
     .replace(SECRET_KV_RE, "$1$2[redacted]")
+    .replace(/\/[^\s'"]+\/[^\s'"]+\/[^\s'"]+/g, (m) => {
+      const parts = m.split("/");
+      return parts.length > 2 ? `…/${parts.slice(-2).join("/")}` : m;
+    })
     .slice(0, max);
 }
 
