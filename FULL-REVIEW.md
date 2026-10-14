@@ -708,7 +708,7 @@ Every change that touches product UI loads the design set before it is judged.
 - Check async work in components. A request that can resolve after a newer one needs a generation counter or an abort, so an older response cannot overwrite a newer one.
 - Editable rows own stable ids. Do not key an editable input by array index or by its own content.
 - A `<label>` can name a `<button>`, because a button is a labelable element (MDN, `<label>` reference). Use `aria-label` when a control has no visible label, and use `aria-pressed` on toggle buttons.
-- Check the React hook rules. Several `react-hooks` rules are downgraded to `warn` in `eslint.config.mjs` with a TODO, so a new warning in a changed file is a finding even though CI does not fail on it.
+- Check the React hook rules. Six `react-hooks` rules are downgraded to `warn` in `eslint.config.mjs` with a TODO: `set-state-in-effect`, `refs`, `exhaustive-deps`, `purity`, `preserve-manual-memoization`, and `immutability`. A new warning from one of these in a changed file is a finding even though CI does not fail on it. The other `react-hooks` rules stay at error, including `rules-of-hooks`, so a violation there fails CI.
 - Check bundle weight. A new large dependency on the renderer path needs its size recorded in the PR.
 
 ## 17. Persistence, keyring, and local data
@@ -725,7 +725,7 @@ Every change that touches product UI loads the design set before it is judged.
 - `security.yml` runs CodeQL for JavaScript and TypeScript and for Rust, dependency review, the audit, Zizmor, and the OpenSSF Scorecard.
 - `pr.yml` checks the PR title, large files, and secret patterns, and it reports labels.
 - `build-installers.yml` builds test installers and never publishes. `release.yml` publishes, so a change to it is critical.
-- `auto-merge.yml` auto-merges Dependabot patch and minor updates after `CI Success` passes. Check any change to its conditions as critical, since it can merge a dependency without a human.
+- `auto-merge.yml` runs on `pull_request` into `main`, only when the actor is `dependabot[bot]`. It parses the PR title for a single `from X.Y.Z to X.Y.Z` bump. It skips the merge, and so requires manual review, for a major bump, a breaking `0.x` minor bump, a grouped update, or a title it cannot parse. For an eligible bump it waits for `CI Success` on the test-merge SHA, aborts if the PR head changed during the wait, and then runs `gh pr merge --auto --squash`. Check any change to these conditions as critical, since it can merge a dependency without a human.
 - CodeRabbit auto-reviews only pull requests whose base is `main`. A PR against another base needs an explicit review request, and the PR says so.
 - Vendored skills are checked by `npm run skills:verify`. CI does not run that command today. A change that adds a skill without a lock entry, or edits a locked skill, must say why.
 

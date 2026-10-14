@@ -90,7 +90,7 @@ The comment at `--accent-text` reads "never use --accent (too deep) as body text
 ### Rules for color
 
 - Use tokens. Components should not contain hex literals.
-- Outside `app/globals.css`, the source files hold 129 hex literals in 18 files, counted with `grep -o`. The largest groups are `features/editor/ui/codemirror/theme.ts` (30), `features/chat/ui/composer/thinking-bar.module.css` (14), `features/terminal/ui/terminal.tsx` (10), and the preview design tool under `features/preview/design/` (9 in `panel/color.tsx`, 7 in `bridge.ts`, 5 in `css.ts`). `app/globals.css` holds 53 more, all in token definitions. A new hex literal in a component needs a reason in the PR.
+- Outside `app/globals.css`, the source files hold 131 hex literals in 19 files. Count them with `grep -rl` and `grep -o` over `*.ts`, `*.tsx` and `*.css`, excluding `tests/`, `out/`, `src-tauri/`, `.agents/` and `.claude/`, using the pattern `#[0-9a-fA-F]{3,8}\b`. The largest groups are `features/editor/ui/codemirror/theme.ts` (30), `features/chat/ui/composer/thinking-bar.module.css` (14), `features/terminal/ui/terminal.tsx` (10), and the preview design tool under `features/preview/design/` (9 in `panel/color.tsx`, 7 in `bridge.ts`, 5 in `css.ts`). `app/globals.css` holds 57 more, all in token definitions. A new hex literal in a component needs a reason in the PR.
 - There are 40 arbitrary `text-[...]`, `bg-[...]` or `border-[...]` classes. New ones need a reason.
 - Accent marks action, selection and focus. It is not decoration. Status colors carry state.
 - Disabled accent buttons use `accent/50` (50% opacity), per `components/ui/button.tsx`.
@@ -254,7 +254,7 @@ Statuses: `idle`, `loading`, `waiting`, `error`. `selected` uses `panel-active` 
 
 ## 8. Icons
 
-- The icon set is Fluent System Icons, through `@fluentui/react-icons` headless SVG imports such as `@fluentui/react-icons/headless/svg/search`. The app imports about 160 distinct glyphs.
+- The icon set is Fluent System Icons, through `@fluentui/react-icons` headless SVG imports such as `@fluentui/react-icons/headless/svg/search`. The app imports 174 distinct glyph names (141 Regular, 33 Filled), counted with `grep -ohE` over `*.ts` and `*.tsx` outside `tests/`.
 - Glyphs are chosen by name. Regular is the default: 132 files import Regular glyphs and 40 import Filled, counted by import name. Filled appears where a state needs weight, for example `CheckmarkCircle20Filled` and `DismissCircle20Filled` in `features/testing/ui/test-panel.tsx`, and `Delete20Filled` in `features/terminal/ui/terminal.tsx`.
 - `components/ui/icon.tsx` imports `headless/styles.css` and renders with `bettershape-icon`. That class applies `currentColor` fill and stroke, `--icon-stroke` 0.3px, round joins and caps, and `vector-effect: non-scaling-stroke`.
 - Do not add a second icon library. `@iconify-json/vscode-icons` and `@iconify/utils` are in `package.json` for file-type icons. They are not a general icon set.
