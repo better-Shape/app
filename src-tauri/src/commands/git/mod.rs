@@ -1859,13 +1859,10 @@ pub fn git_log_stream_start(
         color_index: 0,
     };
 
-    STREAMERS
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .insert(
-            caller_id,
-            std::sync::Arc::new(std::sync::Mutex::new(streamer)),
-        );
+    STREAMERS.lock().unwrap_or_else(|e| e.into_inner()).insert(
+        caller_id,
+        std::sync::Arc::new(std::sync::Mutex::new(streamer)),
+    );
     Ok(())
 }
 
