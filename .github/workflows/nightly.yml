@@ -145,26 +145,14 @@ jobs:
           else
             BUNDLE_DIR="src-tauri/target/release/bundle"
           fi
-          # Check for the expected installer for this platform
-          if ! find "$BUNDLE_DIR" -maxdepth 2 -type f \
-                \( -name '*.exe' -o -name '*.dmg' -o -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' \) \
-                -print -quit 2>/dev/null | grep -q .; then
-            echo "::error::No installer found after build under $BUNDLE_DIR"
-            find "$BUNDLE_DIR" -type f 2>/dev/null | head -n 20 || true
-            exit 1
-          fi
-          echo "✓ Installer found"
+          node scripts/build/collect-installers.mjs "$BUNDLE_DIR" dist/nightly-install "${{ matrix.bundles }}"
 
       - name: Upload nightly artifact
         uses: actions/upload-artifact@v4
         with:
           name: nightly-${{ matrix.os }}-${{ matrix.arch }}
           path: |
-            src-tauri/target/**/bundle/nsis/*.exe
-            src-tauri/target/**/bundle/dmg/*.dmg
-            src-tauri/target/**/bundle/deb/*.deb
-            src-tauri/target/**/bundle/rpm/*.rpm
-            src-tauri/target/**/bundle/appimage/*.AppImage
+            dist/nightly-install/*
             dist/nightly-placeholder/
             dist/version.txt
             dist/nightly-version.txt

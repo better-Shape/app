@@ -33,10 +33,15 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     const isPopout = pathMatches(pathname, "/popout");
 
     useEffect(() => {
+        let cancelled = false;
+        let stopAiSync: (() => void) | undefined;
         const bootstrap = async () => {
-            void initSettings();
+            await initSettings();
+            if (cancelled) return;
             initGitHubAuth();
-            void import("@/lib/ai/sync").then(({ initAiConfigSync }) => initAiConfigSync());
+            const { initAiConfigSync } = await import("@/lib/ai/sync");
+            if (cancelled) return;
+            stopAiSync = initAiConfigSync();
 
             // MCP: sync user mcp.json so the agent sees tools without visiting Settings.
             void (async () => {
@@ -53,6 +58,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
         };
 
         void bootstrap();
+        return () => { cancelled = true; stopAiSync?.(); };
     }, []);
 
     // Re-ensure benign error filters (idempotent; instrumentation-client runs earlier).

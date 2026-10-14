@@ -13,6 +13,7 @@ reviews:
     drafts: false
     base_branches:
       - main
+      - draft/mega-absorb-all
   path_filters:
     - "!**/Cargo.lock"
     - "!**/package-lock.json"

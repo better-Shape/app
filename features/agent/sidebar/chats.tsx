@@ -368,7 +368,8 @@ export function ChatList({
             pushChatUndo({
                 kind: "pin",
                 chatId: ids[0],
-                label: `${pinned ? "Pinned" : "Unpinned"} ${nameOf(ids)}`,
+                chatIds: ids,
+                label: `Unpinned ${nameOf(ids)}`,
                 revert: () => {
                     for (const [id, wasPinned] of previous) setChatPinned(id, wasPinned);
                 },

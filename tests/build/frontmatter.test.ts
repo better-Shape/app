@@ -17,6 +17,11 @@ describe("data-only documentation frontmatter", () => {
             expect(() => parseFrontmatter(source)).toThrow();
         }
     });
+    it("preserves indented delimiters inside YAML block scalars", () => {
+        expect(parseFrontmatter("---\ndescription: |\n  ---\n  ...\n  text\n--- \t\nBody")).toEqual({
+            data: { description: "---\n...\ntext\n" }, content: "Body",
+        });
+    });
     it("does not coerce dates into Date objects", () => {
         expect(parseFrontmatter("---\ndate: 2026-10-14\n---").data).toEqual({ date: "2026-10-14" });
     });

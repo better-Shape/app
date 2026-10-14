@@ -7,7 +7,7 @@ export function parseFrontmatter(source) {
     if (lines[0].trim() !== "---" && lines[0].trim() !== "---yaml") {
         throw new Error("Only YAML documentation frontmatter is supported.");
     }
-    const end = lines.findIndex((line, index) => index > 0 && (line.trim() === "---" || line.trim() === "..."));
+    const end = lines.findIndex((line, index) => index > 0 && /^(?:---|\.\.\.)[\t ]*$/.test(line));
     if (end === -1) throw new Error("Unterminated documentation frontmatter.");
     const data = load(lines.slice(1, end).join("\n"), { schema: JSON_SCHEMA }) ?? {};
     if (typeof data !== "object" || Array.isArray(data)) throw new Error("Documentation frontmatter must be a mapping.");

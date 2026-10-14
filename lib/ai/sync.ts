@@ -15,6 +15,7 @@
  */
 
 import { commands } from "@/lib/backend";
+import { notify } from "@/features/notifications";
 import {
     areSecretsVaulted,
     applyVaultSecrets,
@@ -31,7 +32,7 @@ import {
     toRustAiConfig,
     type RustAiConfig,
 } from "@/lib/ai/providers";
-import { readSecrets, vaultAvailable, writeSecret } from "@/lib/ai/vault";
+import { readSecrets, vaultAvailable, writeSecret, writtenSecretIds } from "@/lib/ai/vault";
 
 /**
  * Every id the keychain may hold a secret under: one per provider, one per
@@ -52,7 +53,7 @@ function secretIds(): string[] {
 }
 
 let lastSynced = "";
-let hydration: Promise<void> | null = null;
+let pendingSync: Promise<void> = Promise.resolve();
 
 export async function syncAiConfig(): Promise<void> {
     const payload: RustAiConfig = toRustAiConfig(getSettings().ai.providers);
@@ -72,16 +73,17 @@ export async function syncAiConfig(): Promise<void> {
  * Returns false when at least one key could not be stored, which keeps the
  * plaintext fallback in place rather than dropping the key on next launch.
  */
-async function pushSecretsToVault(): Promise<boolean> {
+async function pushSecretsToVault(prune = true): Promise<boolean> {
     const secrets = providerSecretsForVault();
     let stored = true;
-    for (const [id, value] of Object.entries(secrets)) {
-        if (!(await writeSecret(id, value))) stored = false;
+    const ids = new Set([...Object.keys(secrets), ...(prune ? writtenSecretIds() : [])]);
+    for (const id of ids) {
+        if (!(await writeSecret(id, secrets[id] ?? ""))) stored = false;
     }
     return stored;
 }
 
-async function hydrateSecrets(): Promise<void> {
+async function hydrateSecrets(touched: Set<string>): Promise<void> {
     const available = await vaultAvailable();
     if (!available) {
         // No keychain on this machine: keep keys in local settings as before.
@@ -89,10 +91,13 @@ async function hydrateSecrets(): Promise<void> {
         return;
     }
     // Keys a previous build wrote to disk move into the keychain now.
-    const migrated = await pushSecretsToVault();
+    const migrated = await pushSecretsToVault(false);
     setSecretsVaulted(migrated);
     if (!migrated) return;
-    applyVaultSecrets(await readSecrets(secretIds()));
+    const loaded = await readSecrets(secretIds());
+    // A clear/edit made while the keychain was opening must win over that read.
+    for (const id of touched) delete loaded[id];
+    applyVaultSecrets(loaded);
 }
 
 /**
@@ -102,21 +107,45 @@ async function hydrateSecrets(): Promise<void> {
  * interrupted session still reconnects on the next launch.
  */
 export function initAiConfigSync(): () => void {
-    const unsubscribe = subscribeSettings(() => {
-        void (async () => {
-            if (areSecretsVaulted()) await pushSecretsToVault();
-            await syncAiConfig();
-        })();
-    });
-    hydration = (async () => {
-        await hydrateSecrets();
-        if (areSecretsVaulted()) await pushSecretsToVault();
+    let booting = true;
+    let observed = providerSecretsForVault();
+    const touched = new Set<string>();
+    const sync = async () => {
+        if (areSecretsVaulted() && !(await pushSecretsToVault())) {
+            notify.error("Could not update saved credentials", "Unlock your system keychain and try the change again. Your saved key may not have changed.");
+        }
         await syncAiConfig();
-    })();
+    };
+    const enqueue = () => {
+        pendingSync = pendingSync.then(sync).catch(() => {
+            notify.error("Could not synchronize provider settings");
+        });
+    };
+    const unsubscribe = subscribeSettings(() => {
+        if (booting) {
+            const next = providerSecretsForVault();
+            for (const id of new Set([...Object.keys(observed), ...Object.keys(next)])) {
+                if (observed[id] !== next[id]) touched.add(id);
+            }
+            observed = next;
+            return; // The first reconciliation includes edits made during hydration.
+        }
+        enqueue();
+    });
+    // Hydration and subsequent edits share one queue: a slow write can never
+    // overtake a newer deletion and put the old credential back into the vault.
+    pendingSync = pendingSync.then(async () => {
+        try { await hydrateSecrets(touched); }
+        finally { booting = false; }
+        await sync();
+    }).catch(() => {
+        booting = false;
+        notify.error("Could not load provider credentials");
+    });
     return unsubscribe;
 }
 
-/** Resolves once the keychain probe and first sync have run (tests, dialogs). */
+/** Resolves once boot and all settings changes queued so far have synchronized. */
 export function aiConfigReady(): Promise<void> {
-    return hydration ?? Promise.resolve();
+    return pendingSync;
 }

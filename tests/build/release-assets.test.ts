@@ -26,7 +26,19 @@ it("collects every Linux format", () => {
 });
 it("names macOS application archives by architecture to prevent release upload collisions", () => {
     file("dmg", "app.dmg"); file("macos/BetterShape.app/Contents", "Info.plist");
+    file("macos/BetterShape.app/Contents/MacOS", "app");
     collectUnixBundles(release, output, "aarch64", "darwin");
     collectUnixBundles(release, output, "x86_64", "darwin");
     expect(readdirSync(output)).toEqual(expect.arrayContaining(["BetterShape-aarch64.app.tar.gz", "BetterShape-x86_64.app.tar.gz"]));
+});
+
+it("rejects empty or incomplete macOS application directories", () => {
+    file("dmg", "app.dmg");
+    mkdirSync(join(release, "bundle", "macos", "BetterShape.app"), { recursive: true });
+    expect(() => collectUnixBundles(release, output, "aarch64", "darwin")).toThrow("macos");
+    file("macos/BetterShape.app/Contents", "Info.plist");
+    expect(() => collectUnixBundles(release, output, "aarch64", "darwin")).toThrow("macos");
+    file("macos/BetterShape.app/Contents/MacOS", "app", "");
+    expect(() => collectUnixBundles(release, output, "aarch64", "darwin")).toThrow("macos");
+    expect(readdirSync(output)).toEqual([]);
 });

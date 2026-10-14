@@ -60,6 +60,7 @@ runs:
           libssl-dev \
           libdbus-1-dev \
           libxdo-dev \
+          xdg-utils \
           build-essential \
           curl \
           wget \

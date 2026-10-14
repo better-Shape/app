@@ -112,6 +112,17 @@ function zipWindows(paths, outZip) {
     execFileSync("powershell", ["-NoProfile", "-Command", ps], { stdio: "inherit" });
 }
 
+function validAppBundle(directory) {
+    const info = join(directory, "Contents", "Info.plist");
+    const binaries = join(directory, "Contents", "MacOS");
+    if (!existsSync(info) || !statSync(info).isFile() || statSync(info).size === 0) return false;
+    if (!existsSync(binaries) || !statSync(binaries).isDirectory()) return false;
+    return readdirSync(binaries).some((name) => {
+        const entry = statSync(join(binaries, name));
+        return entry.isFile() && entry.size > 0;
+    });
+}
+
 /**
  * macOS/Linux: the bundler already emits cleanly-named, single files
  * (`.dmg`, `.deb`, `.rpm`, `.AppImage`), so just copy them to --out-dir.
@@ -128,7 +139,7 @@ export function collectUnixBundles(releaseDir, outDir, arch, platform = process.
         const directory = join(bundleRoot, format);
         if (!existsSync(directory) || !readdirSync(directory).some((name) => {
             const entry = statSync(join(directory, name));
-            return name.endsWith(extensions[format]) && (format === "macos" ? entry.isDirectory() : entry.isFile() && entry.size > 0);
+            return name.endsWith(extensions[format]) && (format === "macos" ? entry.isDirectory() && validAppBundle(join(directory, name)) : entry.isFile() && entry.size > 0);
         })) throw new Error(`Missing or empty ${format} release asset under ${bundleRoot}`);
     }
     let copied = 0;
@@ -138,7 +149,10 @@ export function collectUnixBundles(releaseDir, outDir, arch, platform = process.
         for (const name of readdirSync(src)) {
             const full = join(src, name);
             if (statSync(full).isDirectory()) {
-                if (name.endsWith(".app")) { archiveDirectory(full, outDir, arch); copied += 1; }
+                if (name.endsWith(".app")) {
+                    if (!validAppBundle(full)) throw new Error(`Missing or empty macos release asset: ${full}`);
+                    archiveDirectory(full, outDir, arch); copied += 1;
+                }
                 continue;
             }
             const dest = join(outDir, name);

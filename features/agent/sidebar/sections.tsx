@@ -304,11 +304,10 @@ export function cardMeta(path: string, collectionName: string | null): string {
     return [folderName(path), collectionName].filter(Boolean).join(" · ");
 }
 
-function nestedDot(status: string, column?: string): string {
+function nestedDot(status: string): string {
     if (status === "error") return "bg-error";
     if (status === "cancelled") return "bg-text-muted";
-    if (status === "done" || column === "done") return "bg-success";
-    if (column === "review") return "bg-warning";
+    if (status === "done") return "bg-success";
     return "bg-accent";
 }
 
