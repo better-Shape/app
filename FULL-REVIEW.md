@@ -707,7 +707,7 @@ Every change that touches product UI loads the design set before it is judged.
 - The production build is a static export. `next.config.ts` sets `output: "export"` only when `isProd` is true, so a development build is not exported. A server-only API route in `app/` is a finding unless the static build still works without it.
 - Check async work in components. A request that can resolve after a newer one needs a generation counter or an abort, so an older response cannot overwrite a newer one.
 - Editable rows own stable ids. Do not key an editable input by array index or by its own content.
-- A `<label>` cannot point at a Radix checkbox. Name it with `aria-label`, and use `aria-pressed` on buttons.
+- A `<label>` can name a `<button>`, because a button is a labelable element (MDN, `<label>` reference). Use `aria-label` when a control has no visible label, and use `aria-pressed` on toggle buttons.
 - Check the React hook rules. Several `react-hooks` rules are downgraded to `warn` in `eslint.config.mjs` with a TODO, so a new warning in a changed file is a finding even though CI does not fail on it.
 - Check bundle weight. A new large dependency on the renderer path needs its size recorded in the PR.
 
