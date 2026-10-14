@@ -3,6 +3,12 @@
 @import "@fontsource/ibm-plex-mono/500.css";
 @import "./transitions.css";
 
+/* Vendored agent skill docs contain Tailwind example classes (e.g.
+   cursor-[url(hand.cur)]) that are not app UI. Keep them out of the
+   utility scan so they don't generate CSS with unresolvable asset URLs. */
+@source not "../.agents";
+@source not "../.claude";
+
 :root {
   color-scheme: dark;
 
