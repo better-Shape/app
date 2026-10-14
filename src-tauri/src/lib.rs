@@ -96,6 +96,10 @@ pub fn run() {
     dotenvy::dotenv().ok();
     let _ = dotenvy::from_filename("../.env");
 
+    // `mut` is only needed by the single-instance block below. On macOS that
+    // block is cfg'd out and `builder` is just moved into the chain, so the
+    // binding would trip `unused_mut` (CI runs clippy with `-D warnings`).
+    #[allow(unused_mut)]
     let mut builder = tauri::Builder::default();
 
     // Windows/Linux spawn a new process for bettershape:// URLs — single-instance

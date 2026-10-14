@@ -700,6 +700,11 @@ fn command_exists(command: &str) -> Option<String> {
 }
 
 /// Dynamically find Git Bash by locating the system git executable.
+///
+/// Windows-only: the search is built entirely from `ProgramFiles` and
+/// `bash.exe`. On POSIX there is no Git Bash to find, so the unix arm is a
+/// stub and callers fall back to the system `bash`.
+#[cfg(windows)]
 fn find_git_bash() -> Option<String> {
     // Try environment variables first
     let prog_files =
@@ -749,8 +754,60 @@ fn find_git_bash() -> Option<String> {
     None
 }
 
+#[cfg(not(windows))]
+fn find_git_bash() -> Option<String> {
+    None
+}
+
+/// Name of the interactive shell to run when the frontend does not pick one.
+///
+/// This used to be the literal `"powershell.exe"`, which made the terminal
+/// panel fail to spawn anywhere that is not Windows. Prefer the user's own
+/// login shell on POSIX, and only then fall back through the usual suspects.
+pub fn default_interactive_shell() -> String {
+    #[cfg(windows)]
+    {
+        "powershell.exe".to_string()
+    }
+    #[cfg(not(windows))]
+    {
+        if let Ok(shell) = std::env::var("SHELL") {
+            if !shell.trim().is_empty() {
+                return shell;
+            }
+        }
+        for candidate in ["/bin/zsh", "/bin/bash", "/usr/bin/fish", "/bin/sh"] {
+            if std::path::Path::new(candidate).exists() {
+                return candidate.to_string();
+            }
+        }
+        "/bin/sh".to_string()
+    }
+}
+
 pub fn pty_available_shells() -> Result<Vec<ShellProfile>, AppError> {
     let mut shells = Vec::new();
+
+    // POSIX shells. Without this the picker offered only powershell/cmd/Git
+    // Bash/WSL, so on macOS and Linux it came back empty.
+    #[cfg(not(windows))]
+    {
+        let candidates = [
+            ("zsh", "Zsh"),
+            ("bash", "Bash"),
+            ("fish", "Fish"),
+            ("sh", "sh"),
+        ];
+        for (id, label) in candidates {
+            if let Some(path) = command_exists(id) {
+                shells.push(ShellProfile {
+                    id: id.to_string(),
+                    label: label.to_string(),
+                    path,
+                });
+            }
+        }
+    }
 
     if let Some(path) = command_exists("pwsh.exe").or_else(|| command_exists("pwsh")) {
         shells.push(ShellProfile {
@@ -818,11 +875,17 @@ pub async fn spawn_session(
     cols: u16,
 ) -> Result<u32, AppError> {
     let shell_name = shell
-        .unwrap_or_else(|| "powershell.exe".to_string())
+        .unwrap_or_else(default_interactive_shell)
         .to_lowercase();
 
     let cmd = if shell_name.contains("bash") || shell_name.contains("git") {
-        let bash_path = find_git_bash().unwrap_or_else(|| "bash.exe".to_string());
+        let bash_path = find_git_bash().unwrap_or_else(|| {
+            if cfg!(windows) {
+                "bash.exe".to_string()
+            } else {
+                "bash".to_string()
+            }
+        });
         log::info!("Spawning Git Bash from: {}", bash_path);
         let mut builder = CommandBuilder::new(&bash_path);
         builder.arg("-l"); // --login
@@ -848,8 +911,15 @@ pub async fn spawn_session(
         let mut cmd_exe = CommandBuilder::new("cmd.exe");
         cmd_exe.arg("/Q"); // quiet
         cmd_exe
-    } else {
+    } else if cfg!(windows) {
         CommandBuilder::new(&shell_name)
+    } else {
+        // POSIX shells are run as login + interactive, matching the profiles
+        // `pty_available_shells` offers, so rc files load and jobs control works.
+        let mut posix = CommandBuilder::new(&shell_name);
+        posix.arg("-l");
+        posix.arg("-i");
+        posix
     };
 
     spawn_pty_with_command(
@@ -897,6 +967,12 @@ fn common_node_bin_dirs() -> Vec<PathBuf> {
     if let Ok(appdata) = std::env::var("APPDATA") {
         push_if_dir(PathBuf::from(appdata).join("npm"));
     }
+    // Homebrew (both Apple Silicon and Intel prefixes) and the usual
+    // system-wide locations. nvm/fnm/asdf are already covered by `PATH` via
+    // `join_path_dirs`, so they are deliberately not hardcoded here.
+    push_if_dir(PathBuf::from("/opt/homebrew/bin"));
+    push_if_dir(PathBuf::from("/usr/local/bin"));
+    push_if_dir(PathBuf::from("/usr/bin"));
     dirs
 }
 

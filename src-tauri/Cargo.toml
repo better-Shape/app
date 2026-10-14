@@ -79,9 +79,17 @@ webview2-com = "0.38"
 windows-core = "0.61"
 window-vibrancy = "0.5"
 
+# `notify` backs the editor's live file-change stream and is used ungated in
+# commands/fs/mod.rs, so every desktop needs it. Backend is picked per-OS:
+# ReadDirectoryChangesW / FSEvents / inotify.
+[target."cfg(any(target_os = \"windows\", target_os = \"macos\", target_os = \"linux\"))".dependencies]
+notify = "8.2.0"
+
+# single-instance stays off macOS on purpose: a bundled .app is already
+# single-instance via LaunchServices, and bettershape:// is handled by
+# tauri-plugin-deep-link, which is registered on all platforms.
 [target."cfg(any(target_os = \"windows\", target_os = \"linux\"))".dependencies]
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
-notify = "8.2.0"
 bincode = "1.3"
 
 [profile.release]
