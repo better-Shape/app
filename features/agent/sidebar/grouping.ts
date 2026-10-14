@@ -15,6 +15,15 @@ export interface ChatGroup {
     chats: Conversation[];
 }
 
+/** Linear-time trimming, retaining POSIX and drive roots as real projects. */
+function projectGroupId(path = ""): string {
+    const normalized = path.replaceAll("\\", "/");
+    const rootLength = normalized[1] === ":" && normalized[2] === "/" ? 3 : 1;
+    let end = normalized.length;
+    while (end > rootLength && normalized[end - 1] === "/") end -= 1;
+    return normalized.slice(0, end);
+}
+
 /** Keep the chosen sort inside each group. Missing metadata is a visible final group. */
 export function groupChats(
     chats: readonly Conversation[],
@@ -26,9 +35,9 @@ export function groupChats(
     const groups = new Map<string, ChatGroup>();
     for (const chat of chats) {
         const collection = collectionByChat.get(chat.id);
-        const project = chat.project_path?.replace(/\\/g, "/").replace(/\/+$/, "") ?? "";
+        const project = projectGroupId(chat.project_path ?? "");
         const id = mode === "collection" ? collection?.id ?? "" : project;
-        const label = mode === "collection" ? collection?.name ?? "No collection" : project.split("/").pop() || "No project";
+        const label = mode === "collection" ? collection?.name ?? "No collection" : project.split("/").pop() || project || "No project";
         const group = groups.get(id);
         if (group) group.chats.push(chat);
         else groups.set(id, { id, label, detail: mode === "project" ? project : undefined, chats: [chat] });

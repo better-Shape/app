@@ -75,7 +75,7 @@ it("ignores closed rows, touch scrolling, secondary pointers, and non-primary bu
     start(); move("3");
     expect([...sweep.selected]).toEqual(["1"]);
     await act(async () => { window.dispatchEvent(pointer("pointerup")); });
-    expect(run).not.toHaveBeenCalled();
+    expect(run.mock.calls.map(([item]) => item.id)).toEqual(["1"]);
 });
 
 it("bounds close mutations to one in flight, and stops remaining work on repo changes", async () => {
@@ -96,4 +96,12 @@ it("does not close anything after unmount during a drag", async () => {
     act(() => root.render(null));
     await act(async () => { window.dispatchEvent(pointer("pointerup")); });
     expect(run).not.toHaveBeenCalled();
+});
+
+it("commits staged rows when released in blank space inside the list", async () => {
+    start(); move("2");
+    hit = host.firstElementChild;
+    await act(async () => { window.dispatchEvent(pointer("pointerup", { clientY: 80 })); });
+    expect(run.mock.calls.map(([item]) => item.id)).toEqual(["1", "2"]);
+    expect(sweep.selected.size).toBe(0);
 });

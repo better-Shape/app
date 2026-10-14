@@ -7,7 +7,7 @@
  */
 
 /** Qualifiers this parser understands. Everything else becomes a namespaced label. */
-export type PrClauseField = "label" | "author" | "draft" | "review" | "status";
+export type PrClauseField = "label" | "author" | "repo" | "draft" | "review" | "status";
 
 export type PrClause = {
     field: PrClauseField;
@@ -130,6 +130,7 @@ function quoteIfNeeded(value: string): string {
 function normalizeField(key: string): PrClauseField | null {
     if (key === "label" || key === "labels") return "label";
     if (key === "author") return "author";
+    if (key === "repo") return "repo";
     if (key === "draft") return "draft";
     if (key === "review") return "review";
     if (key === "status" || key === "state") return "status";
@@ -243,6 +244,8 @@ function clauseToGitHub(clause: PrClause): string | null {
             return `${sign}label:${quoteIfNeeded(clause.value)}`;
         case "author":
             return `${sign}author:${quoteIfNeeded(clause.value)}`;
+        case "repo":
+            return `${sign}repo:${quoteIfNeeded(clause.value)}`;
         case "draft":
             // `draft:false` and `-draft:true` both mean "not a draft"; the sign
             // flips when the value already encodes the opposite sense.
@@ -305,6 +308,10 @@ function clauseMatches(item: PrSearchableItem, clause: PrClause): boolean | null
         case "author": {
             const wanted = clause.value.toLowerCase();
             const has = (item.author ?? "").toLowerCase() === wanted;
+            return clause.negated ? !has : has;
+        }
+        case "repo": {
+            const has = item.repo.toLowerCase() === clause.value.toLowerCase();
             return clause.negated ? !has : has;
         }
         case "draft": {

@@ -399,11 +399,11 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
             return null;
         };
 
-        const patchLive = (conversationId: string | null | undefined, update: (live: LiveTurn) => void) => {
+        const patchLive = (conversationId: string | null | undefined, update: (live: LiveTurn) => void, turnId?: string) => {
             const key = resolveLiveKey(conversationId);
             if (!key || ignoredIdsRef.current.has(key)) return;
             const live = liveTurnsRef.current.get(key);
-            if (!live) return;
+            if (!live || (turnId && live.turnId && turnId !== live.turnId)) return;
             update(live);
             setChatGenerating(live.conversationId, true);
             setChatActivity(live.conversationId, live.turnPhase);
@@ -507,21 +507,12 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
                     const meta = typeof raw === "string" ? undefined : raw;
                     if (isForeignConversation(meta?.conversationId)) return;
                     if (meta?.turnId && finishedTurns.has(meta.turnId)) return;
-                    const key = meta?.conversationId || resolveLiveKey();
+                    const key = resolveLiveKey(meta?.conversationId);
                     if (!key) return;
                     const convId = key === PENDING_KEY ? null : key;
                     if (convId && ignoredIdsRef.current.has(convId)) return;
                     const current = liveTurnsRef.current.get(key);
                     if (meta?.turnId && current?.turnId && meta.turnId !== current.turnId) return;
-                    if (!liveTurnsRef.current.has(key)) {
-                        liveTurnsRef.current.set(key, {
-                            conversationId: convId,
-                            turnId: meta?.turnId ?? null,
-                            messages: viewingIdRef.current === convId ? messagesRef.current : convId ? transcriptCacheRef.current.get(convId) ?? [] : [],
-                            activityLabel: "Thinking",
-                            turnPhase: "thinking",
-                        });
-                    }
                     patchLive(convId, (live) => {
                         if (meta?.turnId) live.turnId = meta.turnId;
                         live.messages = appendAssistantChunk(live.messages, chunk);
@@ -654,16 +645,18 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
         register(
             listen<{
                 id?: string;
+                conversationId?: string;
+                turnId?: string;
                 command?: string;
                 reason?: string;
                 safety?: string;
             }>("agent-command-pending", (event) => {
                 const cmd = event.payload?.command?.trim() || "Command";
                 const reason = event.payload?.reason?.trim();
-                patchLive(undefined, (live) => {
+                patchLive(event.payload?.conversationId, (live) => {
                     live.turnPhase = "awaiting_approval";
                     live.activityLabel = "Waiting for approval";
-                });
+                }, event.payload?.turnId);
                 notifyApprovalOsOnly(
                     event.payload?.id,
                     "Approval required",
@@ -675,15 +668,17 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
         register(
             listen<{
                 id?: string;
+                conversationId?: string;
+                turnId?: string;
                 file?: string;
                 reason?: string;
             }>("agent-edit-pending", (event) => {
                 const file = event.payload?.file?.trim() || "file";
                 const reason = event.payload?.reason?.trim();
-                patchLive(undefined, (live) => {
+                patchLive(event.payload?.conversationId, (live) => {
                     live.turnPhase = "awaiting_approval";
                     live.activityLabel = "Waiting for edit approval";
-                });
+                }, event.payload?.turnId);
                 notifyApprovalOsOnly(
                     event.payload?.id,
                     "Edit approval required",
@@ -693,35 +688,35 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
         );
 
         register(
-            listen<{ id?: string; conversationId?: string }>("agent-ask-pending", (event) => {
+            listen<{ id?: string; conversationId?: string; turnId?: string }>("agent-ask-pending", (event) => {
                 patchLive(event.payload?.conversationId, (live) => {
                     live.turnPhase = "awaiting_input";
                     live.activityLabel = "Waiting for your answers";
-                });
+                }, event.payload?.turnId);
             }),
         );
 
         // Clear sticky approval labels once the user resolves the gate.
         register(
-            listen<{ id?: string; approved?: boolean }>("agent-command-resolved", () => {
-                patchLive(undefined, (live) => {
-                    live.turnPhase = "running_command";
-                    live.activityLabel = "Running command";
-                });
+            listen<{ id?: string; approved?: boolean; conversationId?: string; turnId?: string }>("agent-command-resolved", (event) => {
+                patchLive(event.payload?.conversationId, (live) => {
+                    live.turnPhase = event.payload?.approved === false ? "thinking" : "running_command";
+                    live.activityLabel = event.payload?.approved === false ? "Thinking" : "Running command";
+                }, event.payload?.turnId);
             }),
         );
         register(
-            listen<{ id?: string; approved?: boolean }>("agent-edit-resolved", () => {
-                patchLive(undefined, (live) => {
-                    live.turnPhase = "editing";
-                    live.activityLabel = "Editing file";
-                });
+            listen<{ id?: string; approved?: boolean; conversationId?: string; turnId?: string }>("agent-edit-resolved", (event) => {
+                patchLive(event.payload?.conversationId, (live) => {
+                    live.turnPhase = event.payload?.approved === false ? "thinking" : "editing";
+                    live.activityLabel = event.payload?.approved === false ? "Thinking" : "Editing file";
+                }, event.payload?.turnId);
             }),
         );
 
         register(
-            listen<{ phase?: string; tool?: string; label?: string; conversationId?: string }>("chat_status", (event) => {
-                const { phase, tool, label, conversationId } = event.payload ?? {};
+            listen<{ phase?: string; tool?: string; label?: string; conversationId?: string; turnId?: string }>("chat_status", (event) => {
+                const { phase, tool, label, conversationId, turnId } = event.payload ?? {};
                 if (isForeignConversation(conversationId)) return;
                 let nextPhase: TurnPhase | null = null;
                 let nextLabel: string | null = null;
@@ -741,7 +736,7 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
                 patchLive(conversationId, (live) => {
                     if (nextPhase) live.turnPhase = nextPhase;
                     if (nextLabel) live.activityLabel = nextLabel;
-                });
+                }, turnId);
             }),
         );
 

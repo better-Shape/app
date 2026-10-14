@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { load } from "js-yaml";
 import { expect, it } from "vitest";
 
-type Step = { name?: string; run?: string; if?: string; uses?: string; with?: { path?: string } };
+type Step = { "timeout-minutes"?: number; name?: string; run?: string; if?: string; uses?: string; with?: { path?: string } };
 type Workflow = { jobs: Record<string, { steps?: Step[] }> };
 const workflow = (name: string) => load(readFileSync(`.github/workflows/${name}.yml`, "utf8")) as Workflow;
 const steps = (name: string) => Object.values(workflow(name).jobs).flatMap((job) => job.steps ?? []);
@@ -27,4 +27,15 @@ it("uploads only strictly collected nightly installers while retaining explicit 
     expect(upload.with?.path).toContain("dist/nightly-placeholder/");
     expect(upload.with?.path).not.toContain("/bundle/");
     expect(nightly.indexOf(upload)).toBeGreaterThan(nightly.indexOf(verify));
+});
+
+it("bounds dependency installation and reports failures including step timeouts", () => {
+    const installers = steps("build-installers");
+    const install = installers.find((step) => step.name === "Install locked dependencies")!;
+    expect(install["timeout-minutes"]).toBe(15);
+    expect(install.run).toContain("npm ci --ignore-scripts");
+    expect(install.run).toContain("set -euo pipefail");
+    const report = installers.find((step) => step.name === "Report native build failure")!;
+    expect(report.if).toBe("failure()");
+    expect(report.run).toContain('node scripts/build/report-failure.mjs < "$RUNNER_TEMP/tauri-build.log"');
 });

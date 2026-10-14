@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -10,6 +9,14 @@ export function failureAnnotation(log) {
     return `::error title=Native build failed::${escaped || "Build failed without diagnostic output."}`;
 }
 
+/** Read a bounded diagnostic tail from stdin, never an arbitrary caller-supplied path. */
+export async function failureAnnotationFromStream(input) {
+    let tail = "";
+    for await (const chunk of input) tail = (tail + chunk).slice(-64_000);
+    return failureAnnotation(tail);
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-    console.error(failureAnnotation(readFileSync(process.argv[2], "utf8")));
+    process.stdin.setEncoding("utf8");
+    console.error(await failureAnnotationFromStream(process.stdin));
 }

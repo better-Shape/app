@@ -78,17 +78,11 @@ jobs:
           cache-key: installers-${{ matrix.arch }}
 
       - name: Install locked dependencies
+        timeout-minutes: 15
         shell: bash
         run: |
-          set -uo pipefail
-          set +e
-          npm ci 2>&1 | tee "$RUNNER_TEMP/tauri-build.log"
-          STATUS=${PIPESTATUS[0]}
-          set -e
-          if [ "$STATUS" -ne 0 ]; then
-            node scripts/build/report-failure.mjs "$RUNNER_TEMP/tauri-build.log"
-            exit "$STATUS"
-          fi
+          set -euo pipefail
+          npm ci --ignore-scripts 2>&1 | tee "$RUNNER_TEMP/tauri-build.log"
 
       - name: Build runtime
         run: npm run build:runtime
@@ -102,13 +96,14 @@ jobs:
           set -euo pipefail
           ARGS=(build --bundles "${{ matrix.bundles }}")
           if [ -n "${{ matrix.target }}" ]; then ARGS+=(--target "${{ matrix.target }}"); fi
-          set +e
           npm run tauri -- "${ARGS[@]}" 2>&1 | tee "$RUNNER_TEMP/tauri-build.log"
-          STATUS=${PIPESTATUS[0]}
-          set -e
-          if [ "$STATUS" -ne 0 ]; then
-            node scripts/build/report-failure.mjs "$RUNNER_TEMP/tauri-build.log"
-            exit "$STATUS"
+
+      - name: Report native build failure
+        if: failure()
+        shell: bash
+        run: |
+          if [ -f "$RUNNER_TEMP/tauri-build.log" ]; then
+            node scripts/build/report-failure.mjs < "$RUNNER_TEMP/tauri-build.log"
           fi
 
       - name: Upload native build diagnostics

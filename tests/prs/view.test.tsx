@@ -130,3 +130,29 @@ it("stops obsolete pagination when switching projects", async () => {
     await act(async () => late.resolve([{ id: 200, number: 200, title: "Stale next page" }]));
     expect(host.textContent).toBe("Current repo");
 });
+
+it("retains loaded rows through a transient remote lookup failure and recovers next poll", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(document, "hidden", "get").mockReturnValue(false);
+    mocks.get.mockResolvedValueOnce([{ id: 1, number: 7, title: "Last known remote" }]);
+    await act(async () => root.render(<PullRequestsPanel pane="list" />));
+    mocks.remote.mockRejectedValueOnce(new Error("Git process unavailable"));
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    expect(host.textContent).toBe("Last known remote");
+    expect(mocks.get).toHaveBeenCalledTimes(1);
+    expect(host.querySelector("[data-loading]")?.getAttribute("data-loading")).toBe("false");
+    mocks.get.mockResolvedValueOnce([{ id: 1, number: 7, title: "Recovered" }]);
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    expect(host.textContent).toBe("Recovered");
+});
+
+it("clears rows when the remote is confirmed absent, rather than temporarily unavailable", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(document, "hidden", "get").mockReturnValue(false);
+    mocks.get.mockResolvedValueOnce([{ id: 1, number: 7, title: "Previous remote" }]);
+    await act(async () => root.render(<PullRequestsPanel pane="list" />));
+    mocks.remote.mockResolvedValueOnce("");
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    expect(host.textContent).toBe("");
+    expect(mocks.get).toHaveBeenCalledTimes(1);
+});

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 let stop: (() => void) | undefined;
 beforeEach(() => { vi.resetModules(); vi.useFakeTimers(); localStorage.clear(); });
-afterEach(() => { stop?.(); stop = undefined; vi.useRealTimers(); });
+afterEach(() => { stop?.(); stop = undefined; vi.useRealTimers(); vi.restoreAllMocks(); });
 
 describe("persistent session disposition", () => {
     it("wakes a snoozed chat at its deadline and stops timers on unsubscribe", async () => {
@@ -46,4 +46,26 @@ describe("persistent session disposition", () => {
         vi.advanceTimersByTime(1);
         expect(vi.getTimerCount()).toBe(0);
     });
+});
+
+it("refreshes after another window changes storage while no sidebar is subscribed", async () => {
+    const meta = await import("@/lib/sidebar/chat-disposition");
+    stop = meta.subscribeChatDispositions(vi.fn());
+    meta.setChatDisposition("a", { state: "settled" });
+    stop();
+    // No StorageEvent is delivered to this detached subscriber.
+    localStorage.setItem("bettershape-sidebar-dispositions", JSON.stringify({ a: { state: "snoozed", until: Date.now() - 1 }, b: { state: "settled" } }));
+    stop = meta.subscribeChatDispositions(vi.fn());
+    expect(meta.getChatDispositions()).toEqual({ a: { state: "active" }, b: { state: "settled" } });
+    expect(JSON.parse(localStorage.getItem("bettershape-sidebar-dispositions")!)).toEqual(meta.getChatDispositions());
+});
+
+it("preserves session-local intent on remount when persistence is unavailable", async () => {
+    const meta = await import("@/lib/sidebar/chat-disposition");
+    stop = meta.subscribeChatDispositions(vi.fn());
+    vi.spyOn(Object.getPrototypeOf(localStorage), "setItem").mockImplementation(() => { throw new Error("Storage unavailable"); });
+    meta.setChatDisposition("a", { state: "settled" });
+    stop();
+    stop = meta.subscribeChatDispositions(vi.fn());
+    expect(meta.getChatDispositions()["a"]).toEqual({ state: "settled" });
 });

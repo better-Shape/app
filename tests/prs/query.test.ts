@@ -45,3 +45,13 @@ describe("PR search", () => {
         ]);
     });
 });
+
+it("treats repository qualifiers as exact case-insensitive repository filters, not labels", () => {
+    const query = parsePrQuery("repo:OWNER/repo");
+    expect(query.clauses).toEqual([{ field: "repo", value: "OWNER/repo", negated: false }]);
+    expect(matchPrQuery(item, query).matched).toBe(true);
+    expect(matchPrQuery({ ...item, repo: "other/repo", labels: [{ name: "repo:OWNER/repo" }] }, query).matched).toBe(false);
+    expect(matchPrQuery(item, parsePrQuery("-repo:owner/repo")).matched).toBe(false);
+    expect(matchPrQuery(item, parsePrQuery("-repo:other/repo")).matched).toBe(true);
+    expect(toGitHubSearchQuery(query)).toBe('is:pr repo:"OWNER/repo"');
+});

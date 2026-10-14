@@ -180,19 +180,21 @@ impl ProxyContext {
 }
 
 pub(crate) fn emit_chat_status(app_handle: &tauri::AppHandle, payload: serde_json::Value) {
+    let conversation_id = payload.get("conversationId").and_then(Value::as_str);
+    let turn_id = payload.get("turnId").and_then(Value::as_str);
     if let Some(label) = payload
         .get("label")
         .and_then(|v| v.as_str())
         .filter(|s| !s.trim().is_empty())
     {
         if let Some(agent_state) = app_handle.try_state::<crate::agent::models::AgentState>() {
-            agent_state.set_in_flight_activity_label(Some(label));
+            agent_state.set_in_flight_activity_label(conversation_id, turn_id, Some(label));
         }
     } else if payload.get("phase").and_then(|v| v.as_str()) == Some("model")
         && payload.get("label").is_none()
     {
         if let Some(agent_state) = app_handle.try_state::<crate::agent::models::AgentState>() {
-            agent_state.set_in_flight_activity_label(None);
+            agent_state.set_in_flight_activity_label(conversation_id, turn_id, None);
         }
     }
     let _ = app_handle.emit("chat_status", payload);
@@ -450,7 +452,7 @@ pub async fn stream_chat(
         emit_chat_status(
             app_handle,
             serde_json::json!({
-                "phase": "retry",
+                "conversationId": proxy_ctx.conversation_id, "turnId": proxy_ctx.turn_id, "phase": "retry",
                 "label": format!("Provider busy — retrying in {wait}s"),
             }),
         );
@@ -496,7 +498,7 @@ pub async fn stream_chat(
     logging::debug("stream", "SSE stream connected");
     emit_chat_status(
         app_handle,
-        serde_json::json!({ "phase": "model", "label": "Generating" }),
+        serde_json::json!({ "conversationId": proxy_ctx.conversation_id, "turnId": proxy_ctx.turn_id, "phase": "model", "label": "Generating" }),
     );
 
     let mut stream = resp.bytes_stream();
@@ -780,7 +782,7 @@ pub async fn stream_chat(
                         emit_chat_status(
                             app_handle,
                             json!({
-                                "phase": "tool",
+                                "conversationId": proxy_ctx.conversation_id, "turnId": proxy_ctx.turn_id, "phase": "tool",
                                 "tool": name,
                                 "label": label,
                             }),
@@ -904,7 +906,7 @@ pub async fn stream_chat(
         emit_chat_status(
             app_handle,
             serde_json::json!({
-                "phase": "model",
+                "conversationId": proxy_ctx.conversation_id, "turnId": proxy_ctx.turn_id, "phase": "model",
                 "label": "Hit output limit — retrying",
             }),
         );

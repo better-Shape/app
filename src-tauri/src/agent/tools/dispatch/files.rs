@@ -3,7 +3,7 @@
 use serde_json::{json, Value};
 use tauri::{Emitter, Manager};
 
-use crate::agent::commands::{checkpoints, logging, streaming};
+use crate::agent::commands::{checkpoints, logging};
 use crate::agent::models::PendingEdit;
 use crate::agent::security;
 use crate::agent::tools::files;
@@ -516,11 +516,8 @@ pub(super) async fn gate_edit_approval(
         &resolved.original_content,
         &resolved.merged_content,
     ));
-    let _ = ctx.app_handle.emit("agent-edit-pending", &pending);
-    streaming::emit_chat_status(
-        ctx.app_handle,
-        json!({ "phase": "approval", "label": "Waiting for edit approval" }),
-    );
+    ctx.emit_scoped_event("agent-edit-pending", json!(pending));
+    ctx.emit_status(json!({ "phase": "approval", "label": "Waiting for edit approval" }));
 
     let decision = wait_for_edit_decision(&edit_id, ctx).await;
     cleanup_pending_edit(&edit_id, ctx);
@@ -530,14 +527,14 @@ pub(super) async fn gate_edit_approval(
     // through the live-only token channel above.
     match decision {
         ApprovalDecision::Approved => {
-            let _ = ctx.app_handle.emit(
+            ctx.emit_scoped_event(
                 "agent-edit-resolved",
                 json!({ "id": edit_id, "approved": true }),
             );
             Ok(edit_id)
         }
         ApprovalDecision::Rejected => {
-            let _ = ctx.app_handle.emit(
+            ctx.emit_scoped_event(
                 "agent-edit-resolved",
                 json!({ "id": edit_id, "approved": false }),
             );

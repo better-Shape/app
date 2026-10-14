@@ -300,3 +300,31 @@ describe("runtime event ownership", () => {
         expect(getChatActivities().has("A")).toBe(false);
     });
 });
+
+it("does not restart a viewed idle chat from an orphaned token", async () => {
+    await mount("A");
+    await answerMessages("A", [msg("user", "Saved transcript")]);
+    emit("chat_token", { conversationId: "A", chunk: "stale unowned text" });
+    emit("chat_token", { conversationId: "A", turnId: "unknown-turn", chunk: "also stale" });
+    expect(api.isLoading).toBe(false);
+    expect(api.messages.map((message) => message.content)).toEqual(["Saved transcript"]);
+    expect(isChatGenerating("A")).toBe(false);
+    expect(getChatActivities().has("A")).toBe(false);
+});
+
+it.each(["command", "edit"])("scopes %s approvals and resolutions to their emitting live turn", async (kind) => {
+    await mount(null);
+    emit("chat_started", { conversationId: "A", turnId: "t-a" });
+    emit("chat_started", { conversationId: "B", turnId: "t-b" });
+    act(() => { api.showConversation("A"); });
+    emit(`agent-${kind}-pending`, { id: "approval-b", conversationId: "B", turnId: "t-b" });
+    expect(api.turnPhase).toBe("thinking");
+    expect(getChatActivities().get("B")).toBe("approval");
+    act(() => { api.showConversation("B"); });
+    expect(api.turnPhase).toBe("awaiting_approval");
+    emit(`agent-${kind}-resolved`, { id: "approval-b", conversationId: "B", turnId: "old-b", approved: true });
+    emit("chat_status", { conversationId: "B", turnId: "old-b", phase: "model" });
+    expect(api.turnPhase).toBe("awaiting_approval");
+    emit(`agent-${kind}-resolved`, { id: "approval-b", conversationId: "B", turnId: "t-b", approved: false });
+    expect(api.turnPhase).toBe("thinking");
+});

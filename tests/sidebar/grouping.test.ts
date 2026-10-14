@@ -37,3 +37,10 @@ describe("session grouping", () => {
         expect(matchesChatSearch(chats[0], "  ")).toBe(true);
     });
 });
+
+it("retains filesystem roots and trims long separator suffixes without backtracking", () => {
+    const paths = ["/", "C:/", "", "/repo" + "/".repeat(20_000)];
+    const grouped = groupChats(paths.map((project_path, id) => ({ ...chats[0], id: String(id), project_path })), "project");
+    expect(grouped.map((group) => group.id).sort()).toEqual(["", "/", "/repo", "C:/"]);
+    expect(grouped.find((group) => group.id === "/")?.label).toBe("/");
+});

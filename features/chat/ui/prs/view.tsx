@@ -44,11 +44,9 @@ import { selectPr, updateSelectedPr, usePrUi } from "./store";
 
 async function resolveOwnerRepo(projectPath: string | null) {
     if (!projectPath) return null;
-    try {
-        return parseGitHubRemote(await commands.gitRemoteUrl(projectPath));
-    } catch {
-        return null;
-    }
+    // A failed lookup is not evidence that the remote disappeared. Let load()
+    // preserve the last successful snapshot on a transient background failure.
+    return parseGitHubRemote(await commands.gitRemoteUrl(projectPath));
 }
 
 export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" | "full" }) {

@@ -64,11 +64,12 @@ export function usePrCloseSweep(list: RefObject<HTMLDivElement | null>, repo: st
         const finish = (e: PointerEvent) => {
             if (e.pointerId !== event.pointerId) return;
             const releasedOnRow = rowAt(e);
+            const releasedInside = list.current?.contains(document.elementFromPoint(e.clientX, e.clientY));
             cleanup();
             if (!dragging) return; // The regular click and keyboard action are unchanged.
             suppressUntil.current = Date.now() + 500;
-            if (!releasedOnRow || !candidates.has(releasedOnRow)) return;
-            picked.add(releasedOnRow);
+            if (!releasedInside) return;
+            if (releasedOnRow && candidates.has(releasedOnRow)) picked.add(releasedOnRow);
             running.current = true;
             setClosing(true);
             void (async () => {

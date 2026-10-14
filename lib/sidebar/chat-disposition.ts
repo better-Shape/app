@@ -10,6 +10,7 @@ const KEY = "bettershape-sidebar-dispositions";
 const EMPTY: Readonly<Record<string, ChatDisposition>> = {};
 let snapshot: Readonly<Record<string, ChatDisposition>> | null = null;
 let timer: ReturnType<typeof setTimeout> | null = null;
+let lastStorageValue: string | null | undefined;
 const listeners = new Set<() => void>();
 
 export function getChatDispositionsServer() { return EMPTY; }
@@ -17,7 +18,8 @@ export function getChatDispositionsServer() { return EMPTY; }
 export function getChatDispositions(): Readonly<Record<string, ChatDisposition>> {
     if (snapshot) return snapshot;
     try {
-        const raw: unknown = JSON.parse(window.localStorage.getItem(KEY) ?? "{}");
+        lastStorageValue = window.localStorage.getItem(KEY);
+        const raw: unknown = JSON.parse(lastStorageValue ?? "{}");
         const next: Record<string, ChatDisposition> = Object.create(null);
         if (raw && typeof raw === "object" && !Array.isArray(raw)) {
             for (const [id, value] of Object.entries(raw)) {
@@ -48,7 +50,11 @@ function schedule() {
 
 function publish(next: Readonly<Record<string, ChatDisposition>>) {
     snapshot = next;
-    try { window.localStorage.setItem(KEY, JSON.stringify(next)); } catch { /* Keep session-local intent when storage is unavailable. */ }
+    try {
+        const serialized = JSON.stringify(next);
+        window.localStorage.setItem(KEY, serialized);
+        lastStorageValue = serialized;
+    } catch { /* Keep session-local intent when storage is unavailable. */ }
     schedule();
     for (const listener of listeners) listener();
 }
@@ -73,9 +79,19 @@ export function wakeSnoozedChats(now = Date.now()) {
     if (changed) publish(next);
 }
 
+function refreshFromStorage() {
+    try {
+        if (window.localStorage.getItem(KEY) !== lastStorageValue) {
+            snapshot = null;
+            getChatDispositions();
+        }
+    } catch { /* Preserve session-local intent when storage is unavailable. */ }
+}
+
 function onStorage(event: StorageEvent) {
     if (event.key !== KEY && event.key !== null) return;
-    snapshot = null;
+    if (event.storageArea && event.storageArea !== window.localStorage) return;
+    refreshFromStorage();
     wakeSnoozedChats();
     schedule();
     for (const listener of listeners) listener();
@@ -84,6 +100,9 @@ function onStorage(event: StorageEvent) {
 export function subscribeChatDispositions(listener: () => void) {
     listeners.add(listener);
     if (listeners.size === 1) {
+        // No storage listener exists between mounts. Reconcile before waking
+        // snoozes so stale cached state cannot overwrite another window's edits.
+        refreshFromStorage();
         window.addEventListener("focus", onWake);
         document.addEventListener("visibilitychange", onWake);
         window.addEventListener("storage", onStorage);

@@ -6,7 +6,6 @@ use tauri::{Emitter, Manager};
 
 use std::collections::HashMap;
 
-use crate::agent::commands::streaming;
 use crate::agent::models::{DesignPickConcept, PendingAsk, PendingDesignPick};
 use crate::agent::tools::page_shot;
 use crate::commands::preview_render;
@@ -259,14 +258,18 @@ async fn approve_stdio_server(cfg: &McpServerConfig, ctx: &ToolCtx<'_>) -> Resul
         "\n<terminal_command status=\"pending\" id=\"{}\" mcp=\">{}\nAwaiting approval: {}</terminal_command>\n",
         cmd_id, preview, pending.reason
     ));
-    let _ = ctx.app_handle.emit("agent-command-pending", pending);
-    streaming::emit_chat_status(
-        ctx.app_handle,
-        json!({ "phase": "approval", "label": "Waiting for approval" }),
-    );
+    ctx.emit_scoped_event("agent-command-pending", json!(pending));
+    ctx.emit_status(json!({ "phase": "approval", "label": "Waiting for approval" }));
 
     let decision = super::common::wait_for_command_decision(&cmd_id, ctx).await;
     super::common::cleanup_pending_command(&cmd_id, ctx);
+    if !matches!(decision, super::common::ApprovalDecision::Cancelled) {
+        super::common::emit_command_resolved(
+            ctx,
+            &cmd_id,
+            matches!(decision, super::common::ApprovalDecision::Approved),
+        );
+    }
     match decision {
         super::common::ApprovalDecision::Approved => Ok(()),
         super::common::ApprovalDecision::Rejected => Err(format!(
@@ -1230,14 +1233,11 @@ pub(super) async fn tool_render_design_previews(args: &Value, ctx: &ToolCtx<'_>)
 
     let pick_id = format!("dp-{}", uuid::Uuid::new_v4());
 
-    streaming::emit_chat_status(
-        ctx.app_handle,
-        json!({
-            "phase": "tool",
-            "tool": "render_design_previews",
-            "label": "Creating preview",
-        }),
-    );
+    ctx.emit_status(json!({
+        "phase": "tool",
+        "tool": "render_design_previews",
+        "label": "Creating preview",
+    }));
 
     let mut inner = String::new();
     let mut catalog: Vec<DesignPickConcept> = Vec::new();
@@ -1338,13 +1338,8 @@ pub(super) async fn tool_render_design_previews(args: &Value, ctx: &ToolCtx<'_>)
 
     let pending_ui = design_previews_ui(&pick_id, "pending", "", &inner);
     ctx.emit_ui_token(&pending_ui);
-    streaming::emit_chat_status(
-        ctx.app_handle,
-        json!({ "phase": "approval", "label": "Waiting for you to pick a design" }),
-    );
-    let _ = ctx
-        .app_handle
-        .emit("agent-design-pick-pending", json!({ "id": pick_id }));
+    ctx.emit_status(json!({ "phase": "approval", "label": "Waiting for you to pick a design" }));
+    ctx.emit_scoped_event("agent-design-pick-pending", json!({ "id": pick_id }));
 
     let answer = wait_for_design_pick(&pick_id, ctx).await;
     cleanup_pending_design_pick(&pick_id, ctx);
@@ -1621,13 +1616,8 @@ pub(super) async fn tool_ask_user(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutcom
 
     let pending_ui = questions_ui(&ask_id, "pending", &questions, None);
     ctx.emit_ui_token(&pending_ui);
-    streaming::emit_chat_status(
-        ctx.app_handle,
-        json!({ "phase": "approval", "label": "Waiting for your answers" }),
-    );
-    let _ = ctx
-        .app_handle
-        .emit("agent-ask-pending", json!({ "id": ask_id }));
+    ctx.emit_status(json!({ "phase": "approval", "label": "Waiting for your answers" }));
+    ctx.emit_scoped_event("agent-ask-pending", json!({ "id": ask_id }));
 
     let answer = wait_for_ask_answer(&ask_id, ctx).await;
     cleanup_pending_ask(&ask_id, ctx);

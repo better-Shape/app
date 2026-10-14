@@ -56,6 +56,7 @@ let stack: readonly ChatUndoEntry[] = [];
 let timer: number | null = null;
 let seq = 0;
 const committing = new Map<string, ChatUndoEntry>();
+let committingRevision = 0;
 
 function emit() {
     for (const listener of listeners) listener();
@@ -104,7 +105,7 @@ export function pendingChatUndoCount(): number {
 }
 
 const EMPTY_IDS: ReadonlySet<string> = new Set();
-let idsCache: { key: string; value: ReadonlySet<string> } | null = null;
+let idsCache: { stack: typeof stack; revision: number; value: ReadonlySet<string> } | null = null;
 
 /**
  * Chats a live undo entry has taken off screen but not yet destroyed.
@@ -115,13 +116,17 @@ let idsCache: { key: string; value: ReadonlySet<string> } | null = null;
  * does not remove it.
  */
 export function pendingRemovalChatIds(): ReadonlySet<string> {
-    const removals = [...stack, ...committing.values()].filter((entry) => entry.kind === "archive" || entry.kind === "delete");
-    const ids = removals.flatMap((entry) => entry.chatIds ?? [entry.chatId]);
-    const key = JSON.stringify(ids);
-    if (idsCache && idsCache.key === key) return idsCache.value;
-    const value = new Set(ids);
-    idsCache = { key, value };
-    return value;
+    if (idsCache?.stack === stack && idsCache.revision === committingRevision) return idsCache.value;
+    const value = new Set<string>();
+    for (const entry of [...stack, ...committing.values()]) {
+        if (entry.kind === "archive" || entry.kind === "delete") {
+            for (const id of entry.chatIds ?? [entry.chatId]) value.add(id);
+        }
+    }
+    const previous = idsCache?.value ?? EMPTY_IDS;
+    const snapshot = value.size === previous.size && [...value].every((id) => previous.has(id)) ? previous : value;
+    idsCache = { stack, revision: committingRevision, value: snapshot };
+    return snapshot;
 }
 
 export function pendingRemovalChatIdsServer(): ReadonlySet<string> {
@@ -151,8 +156,10 @@ export function pushChatUndo(input: PushChatUndoInput): ChatUndoEntry {
 function commitEntry(entry: ChatUndoEntry) {
     if (!entry.commit) return;
     committing.set(entry.id, entry);
+    committingRevision += 1;
     const finish = () => {
         committing.delete(entry.id);
+        committingRevision += 1;
         emit();
     };
     try {
@@ -225,6 +232,7 @@ export function resetChatUndoForTests() {
     seq = 0;
     idsCache = null;
     committing.clear();
+    committingRevision += 1;
     emit();
 }
 

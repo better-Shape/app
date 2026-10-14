@@ -493,24 +493,27 @@ impl AgentState {
         let _ = self.try_begin_in_flight(turn_id, conversation_id);
     }
 
-    pub fn set_in_flight_activity_label(&self, label: Option<&str>) {
-        let current = self
-            .current_conversation_id
-            .lock()
-            .ok()
-            .and_then(|g| g.clone());
+    pub fn set_in_flight_activity_label(
+        &self,
+        conversation_id: Option<&str>,
+        turn_id: Option<&str>,
+        label: Option<&str>,
+    ) {
         if let Ok(mut guard) = self.in_flight.lock() {
-            let target = current.or_else(|| {
+            // An unscoped legacy event is safe only with a single live turn.
+            // The currently viewed conversation does not identify its sender.
+            let target = conversation_id.map(str::to_owned).or_else(|| {
                 if guard.len() == 1 {
                     guard.keys().next().cloned()
                 } else {
                     None
                 }
             });
-            if let Some(key) = target {
-                if let Some(in_flight) = guard.get_mut(&key) {
-                    in_flight.activity_label = label.map(|s| s.to_string());
+            if let Some(in_flight) = target.and_then(|key| guard.get_mut(&key)) {
+                if turn_id.is_some_and(|id| id != in_flight.turn_id) {
+                    return;
                 }
+                in_flight.activity_label = label.map(str::to_owned);
             }
         }
     }
@@ -1072,6 +1075,28 @@ impl AgentState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn activity_labels_belong_to_the_emitting_turn_not_the_selected_chat() {
+        let state = AgentState::new();
+        state.begin_in_flight("turn-a".into(), Some("a".into()));
+        state.begin_in_flight("turn-b".into(), Some("b".into()));
+        state.set_in_flight_activity_label(Some("a"), Some("turn-a"), Some("Waiting for approval"));
+        state.set_in_flight_activity_label(Some("a"), Some("old-turn"), Some("Stale"));
+        state.set_in_flight_activity_label(None, None, Some("Ambiguous"));
+        assert_eq!(
+            state.in_flight_for("a").unwrap().activity_label.as_deref(),
+            Some("Waiting for approval")
+        );
+        assert_ne!(
+            state.in_flight_for("b").unwrap().activity_label.as_deref(),
+            Some("Waiting for approval")
+        );
+        assert_ne!(
+            state.in_flight_for("b").unwrap().activity_label.as_deref(),
+            Some("Ambiguous")
+        );
+    }
 
     #[test]
     fn auto_run_mode_from_setting_aliases() {
