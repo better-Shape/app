@@ -219,7 +219,6 @@ These preferences come from the user's standing instructions across many session
 - Finish the work the task scopes. When a blocker stops you, name the blocker, the evidence and the next step in your report. Do not silently defer work, and do not invent follow-up tasks that the user did not ask for.
 - Record a mistake's root cause, the corrected understanding, and the change in behaviour in `.dump/`, not in the chat or the pull request. Never write secrets or raw provider output there.
 - Keep paths in repository docs repository-relative. Never write a sandbox or home-directory path such as `/root/` or `/home/` into a committed file.
-- Do not add persona lines such as years of experience or a job title with seniority. A 2024 study of 162 personas on 2,410 factual questions found that personas do not improve accuracy. A role line that names the job and the standard is enough.
 
 ## Domain practices
 
