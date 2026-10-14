@@ -1,12 +1,18 @@
 #!/usr/bin/env node
 /**
- * After `tauri build`, produce clean Windows release asset names:
+ * After `tauri build`, collect the platform's bundle outputs into --out-dir.
+ *
+ * Windows (NSIS): renames to clean release names and builds a portable zip:
  *   BetterShape-<arch>-setup.exe  (NSIS installer)
  *   BetterShape-<arch>.zip        (portable: exe + sidecar files)
  *
- * Usage (from repo root, after a Windows build):
+ * macOS: copies bundle/dmg/*.dmg and tars bundle/macos/*.app
+ * Linux: copies bundle/deb/*.deb, bundle/rpm/*.rpm, bundle/appimage/*.AppImage
+ *
+ * Usage (from repo root, after a build):
  *   node scripts/release/assets.mjs --arch x86_64
  *   node scripts/release/assets.mjs --arch aarch64 --out-dir dist/release
+ *   node scripts/release/assets.mjs --target x86_64-apple-darwin --arch x86_64
  */
 import { execFileSync } from "node:child_process";
 import {
@@ -17,32 +23,46 @@ import {
     rmSync,
     statSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
+const IS_WINDOWS = process.platform === "win32";
+
+/** Windows-only cross-compile sub-target dir; native builds use target/release. */
 const ARCH_TARGETS = {
     x86_64: null,
     aarch64: "aarch64-pc-windows-msvc",
 };
 
+/** Bundle sub-directories tauri-bundler writes on macOS/Linux. */
+const UNIX_BUNDLE_DIRS = ["deb", "rpm", "appimage", "dmg", "macos"];
+
 function parseArgs(argv) {
-    const out = { outDir: join(root, "dist", "release"), arch: "x86_64" };
+    const out = { outDir: join(root, "dist", "release"), arch: "x86_64", target: null };
     for (let i = 0; i < argv.length; i++) {
         if (argv[i] === "--out-dir") out.outDir = argv[++i];
         else if (argv[i] === "--arch") out.arch = argv[++i];
+        else if (argv[i] === "--target") out.target = argv[++i];
     }
     return out;
 }
 
-function releaseDirForArch(arch) {
+function releaseDirForArch(arch, target) {
     const triple = ARCH_TARGETS[arch];
     if (triple === undefined) {
         console.error(`Unknown arch: ${arch} (expected x86_64 or aarch64)`);
         process.exit(1);
     }
-    if (triple) {
+    // An explicit --target always wins: `tauri build --target <triple>` writes to
+    // src-tauri/target/<triple>/release, which is how the CI matrices build.
+    if (target) {
+        return join(root, "src-tauri", "target", target, "release");
+    }
+    // Only Windows cross-builds into a per-target sub-directory; on macOS and
+    // Linux a native build of either arch lands in target/release.
+    if (triple && IS_WINDOWS) {
         return join(root, "src-tauri", "target", triple, "release");
     }
     return join(root, "src-tauri", "target", "release");
@@ -92,11 +112,68 @@ function zipWindows(paths, outZip) {
     execFileSync("powershell", ["-NoProfile", "-Command", ps], { stdio: "inherit" });
 }
 
+/**
+ * macOS/Linux: the bundler already emits cleanly-named, single files
+ * (`.dmg`, `.deb`, `.rpm`, `.AppImage`), so just copy them to --out-dir.
+ * `.app` is a directory and cannot be a release asset on its own — tar it.
+ */
+function collectUnixBundles(releaseDir, outDir) {
+    const bundleRoot = join(releaseDir, "bundle");
+    if (!existsSync(bundleRoot)) {
+        console.log(`No bundle directory at ${bundleRoot}; nothing to collect.`);
+        return;
+    }
+    let copied = 0;
+    for (const dir of UNIX_BUNDLE_DIRS) {
+        const src = join(bundleRoot, dir);
+        if (!existsSync(src)) continue;
+        for (const name of readdirSync(src)) {
+            const full = join(src, name);
+            if (statSync(full).isDirectory()) {
+                archiveDirectory(full, outDir);
+                continue;
+            }
+            const dest = join(outDir, name);
+            copyFileSync(full, dest);
+            console.log(`Wrote ${dest}`);
+            copied += 1;
+        }
+    }
+    if (copied === 0) {
+        console.log(
+            `No release assets under ${bundleRoot} ` +
+                `(looked in ${UNIX_BUNDLE_DIRS.join(", ")}); nothing to collect.`,
+        );
+    }
+}
+
+function archiveDirectory(dir, outDir) {
+    const dest = join(outDir, `${basename(dir)}.tar.gz`);
+    if (existsSync(dest)) rmSync(dest);
+    // -C so the archive holds `Foo.app/...`, and tar keeps the symlinks and
+    // permissions a .app bundle's code signature depends on.
+    try {
+        execFileSync("tar", ["-czf", dest, "-C", dirname(dir), basename(dir)], {
+            stdio: "inherit",
+        });
+    } catch (err) {
+        console.warn(`Could not archive ${dir} (is tar installed?): ${err.message}`);
+        return;
+    }
+    console.log(`Wrote ${dest}`);
+}
+
 function main() {
-    const { outDir, arch } = parseArgs(process.argv.slice(2));
-    const releaseDir = releaseDirForArch(arch);
+    const { outDir, arch, target } = parseArgs(process.argv.slice(2));
+    const releaseDir = releaseDirForArch(arch, target);
 
     mkdirSync(outDir, { recursive: true });
+
+    if (!IS_WINDOWS) {
+        console.log(`Collecting ${process.platform} assets from ${releaseDir}`);
+        collectUnixBundles(releaseDir, outDir);
+        return;
+    }
 
     const setupSrc = findNsisSetup(releaseDir);
     if (!setupSrc) {
@@ -114,8 +191,14 @@ function main() {
         copyFileSync(setupSig, sigDest);
         console.log(`Wrote ${sigDest}`);
     } else {
-        console.error(`No updater signature at ${setupSig}. Release builds must be signed.`);
-        process.exit(1);
+        // Not a failure: bundle.createUpdaterArtifacts is deliberately false in
+        // this fork (no updater plugin, no update server), so the bundler
+        // emits no .sig. The installer is still signed by `windows.signCommand`
+        // when one is configured.
+        console.warn(
+            `No updater signature at ${setupSig} — expected, ` +
+                "bundle.createUpdaterArtifacts is false.",
+        );
     }
 
     const exe = findReleaseExe(releaseDir);

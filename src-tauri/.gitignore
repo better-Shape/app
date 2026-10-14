@@ -3,5 +3,3 @@
 /target/
 /gen/schemas
 
-# Local ML model cache (embeddings are server-side via OpenRouter; never commit)
-.fastembed_cache/

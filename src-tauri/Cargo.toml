@@ -4,7 +4,7 @@ version = "1.0.3"
 description = "BetterShape — agentic IDE"
 authors = ["BetterShape"]
 license = "BUSL-1.1"
-repository = "https://github.com/Owie6789/Shape"
+repository = "https://github.com/Owie6789/BetterShape"
 edition = "2021"
 rust-version = "1.88.0"
 
