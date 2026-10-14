@@ -198,6 +198,8 @@ For every changed exported symbol, command, config key, schema, persisted shape,
 
 ### 4.2 Generated artifacts
 
+`public/preview/` and `src-tauri/runtime/` are tracked in git. `npm run build:runtime` regenerates them. A PR that changes either one must also change its source, or the review finds a stale artifact.
+
 1. Identify the source of truth.
 2. Identify the generation command, for example `npm run build:runtime`, `npm run icons:generate`, or the Tauri build that writes `src-tauri/gen/`.
 3. Verify the generated output matches the source.
@@ -348,7 +350,7 @@ A string prefix check does not prove containment. A path the user chose from a f
 
 - Validate each redirect target, cap hops, and enforce a byte limit while streaming rather than trusting `Content-Length`.
 - Verify artifact integrity for any downloaded binary, and delete partial downloads on failure or cancellation.
-- The updater configuration lives in `src-tauri/tauri.conf.json`. The `plugins.updater` block is currently empty, while `bundle.createUpdaterArtifacts` is set. A change that adds an endpoint, a public key, or a signer is a release-trust change and needs review at critical depth.
+- The updater configuration lives in `src-tauri/tauri.conf.json`. There is no `plugins.updater` key, and `bundle.createUpdaterArtifacts` is `false`. The updater plugin is not in the dependency tree, and `build-installers.yml` says so. A change that adds an updater plugin, an endpoint, a public key, or a signer is a release-trust change and needs review at critical depth.
 - A change that adds a default host to the app, or that makes the app contact a new service on startup, violates the local-first rule in `AGENTS.md` unless the user asked for it and the request is visible.
 
 ### 6.7 CI, release, and secrets
@@ -702,7 +704,7 @@ Every change that touches product UI loads the design set before it is judged.
 ## 16. Next.js renderer and state
 
 - Renderer code uses relative URLs and Tauri commands. It never names an origin.
-- The production build is a static export (`output: "export"` in `next.config.ts`). A server-only API route in `app/` is a finding unless the static build still works without it.
+- The production build is a static export. `next.config.ts` sets `output: "export"` only when `isProd` is true, so a development build is not exported. A server-only API route in `app/` is a finding unless the static build still works without it.
 - Check async work in components. A request that can resolve after a newer one needs a generation counter or an abort, so an older response cannot overwrite a newer one.
 - Editable rows own stable ids. Do not key an editable input by array index or by its own content.
 - A `<label>` cannot point at a Radix checkbox. Name it with `aria-label`, and use `aria-pressed` on buttons.
@@ -764,7 +766,7 @@ These items would make this protocol repeatable. They are not required for a rev
 1. Run `npm run skills:verify` in the `Lint & Typecheck` job, so a vendored tree that drifts fails CI.
 2. Add a PR template with the footer that `AGENTS.md` requires.
 3. Scope the capability file per window, so the settings, git and preview windows do not share the `main` window's permission set.
-4. Decide whether `plugins.updater` should carry an endpoint and a public key, or stay empty until the release process uses it.
+4. Decide whether an updater plugin, with an endpoint and a public key, should be added. Until then, the updater stays absent.
 5. Add a Rust or TypeScript contract test that decodes each Tauri command's argument shape.
 6. Add a CodeRabbit base branch entry for the branch that the team uses for integration, or document that PRs against it need a manual review request.
 

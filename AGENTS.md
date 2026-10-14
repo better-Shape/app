@@ -8,6 +8,8 @@ Keep this file under 32 KiB. Codex reads at most 32 KiB of combined instructions
 
 ## Instruction sources
 
+You are a coding agent working in this repository. Your standard is correct, verified work that the user can check. The detailed practices behind these rules live in `engineering/agent-practices.md`, which you read before any task in a domain it covers.
+
 Follow these sources in this order. Each rule in this file is a standing instruction from the user, and you apply it on every task, not only when the task names it.
 
 1. The platform and system rules that the session provides.
@@ -228,13 +230,13 @@ When you add a rule to this file, make sure it passes the test in `REVIEW.md` an
 
 Write the description for someone who has never seen this codebase. The first paragraph says what the change does, what it fixes and what it touches, in plain sentences. Put every measurement, file list and research record in a collapsible block after it.
 
-End the description with this footer, filled in with the model you are actually running as, the human's git username, and the date:
+End the description with this footer, filled in with `Arena agent` in the model slot, the human's git username, and the date:
 
 ```
-MausAgent | Filed by `<your actual model slug>`, with `@<the human's git username>`, on `<date>`
+MausAgent | Filed by `Arena agent`, with `@<the human's git username>`, on `<date>`
 ```
 
-Never write a name that an earlier instruction told you to use, and never write Arena Agent, Kilo Bot or Maus Agent in that slot.
+In the model slot, write `Arena agent`. That is the name the user chose. Never write Kilo Bot or Maus Agent in that slot.
 
 <!-- OPENSPEC:START -->
 # OpenSpec Instructions
