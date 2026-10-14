@@ -27,6 +27,14 @@ import {
     undo,
     redo,
     selectAll,
+    addCursorAbove,
+    addCursorBelow,
+    copyLineDown,
+    deleteTrailingWhitespace,
+    moveLineDown,
+    moveLineUp,
+    toggleComment,
+    toggleLineComment,
 } from "@codemirror/commands";
 import {
     foldGutter,
@@ -34,8 +42,10 @@ import {
     bracketMatching,
     indentOnInput,
     indentUnit,
+    foldAll,
+    unfoldAll,
 } from "@codemirror/language";
-import { highlightSelectionMatches, search, searchKeymap, SearchQuery, setSearchQuery, findNext, findPrevious } from "@codemirror/search";
+import { highlightSelectionMatches, search, searchKeymap, SearchQuery, setSearchQuery, findNext, findPrevious, selectMatches, getSearchQuery } from "@codemirror/search";
 import {
     autocompletion,
     closeBrackets,
@@ -44,11 +54,30 @@ import {
 } from "@codemirror/autocomplete";
 import { indentationMarkers } from "@replit/codemirror-indentation-markers";
 import { commands, getProjectPath } from "@/lib/backend";
+import { getEditorOptionsFromSettings } from "@/lib/settings";
 import { languageForPath, languageNameForPath } from "./lang";
+import { joinSelectedLines, sortSelectionLines, transformSelectionCase } from "@/features/editor/lib/line-actions";
 import { betterShapeSyntaxLinter } from "./syntax-lint";
 import { BETTERSHAPE_CLIP_CODE, rememberBetterShapeClip } from "@/features/chat/lib/bettershape-clip";
 import { betterShapeEditorChrome } from "./theme";
 import { lintGutter } from "@codemirror/lint";
+
+/**
+ * Three different surfaces dispatch `bettershape-editor-action`: the command
+ * palette and titlebar menu use VS Code-style ids (`editor.action.commentLine`),
+ * while the status bar and the editor's own pickers send bare ids
+ * (`commentLine`). The switch below was written against the bare form only, so
+ * every `editor.action.*` entry was a silent no-op. Normalise once here instead
+ * of duplicating every case under both spellings.
+ */
+const EDITOR_ACTION_PREFIX = "editor.action.";
+
+function normalizeEditorAction(action: string | undefined): string | undefined {
+    if (!action) return undefined;
+    return action.startsWith(EDITOR_ACTION_PREFIX)
+        ? action.slice(EDITOR_ACTION_PREFIX.length)
+        : action;
+}
 import {
     ContextMenu,
     ContextMenuContent,
@@ -93,7 +122,38 @@ export function CodeMirrorEditor({
         const lang = languageForPath(path);
         const langCompartment = new Compartment();
         const wrapCompartment = new Compartment();
+        // Indentation and line-separator are user-visible settings (Settings ->
+        // Editor) and are also driven by the status bar's Indentation / EOL
+        // pickers, so they live in compartments rather than being fixed at
+        // construction time.
+        const indentCompartment = new Compartment();
+        const eolCompartment = new Compartment();
         let wrapEnabled = false;
+        // Seed from Settings -> Editor. `getEditorOptionsFromSettings()` is the
+        // tested settings->editor mapper; before this it had no production caller
+        // and every editor setting except font family/size was inert.
+        const editorOptions = getEditorOptionsFromSettings();
+        let insertSpaces = editorOptions.insertSpaces !== false;
+        let tabSize =
+            typeof editorOptions.tabSize === "number" && editorOptions.tabSize > 0
+                ? editorOptions.tabSize
+                : 4;
+        let eol: "LF" | "CRLF" = "LF";
+        const applyIndent = (v: EditorView) => {
+            v.dispatch({
+                effects: indentCompartment.reconfigure([
+                    EditorState.tabSize.of(tabSize),
+                    indentUnit.of(insertSpaces ? " ".repeat(tabSize) : "\t"),
+                ]),
+            });
+        };
+        const applyEol = (v: EditorView) => {
+            v.dispatch({
+                effects: eolCompartment.reconfigure(
+                    EditorState.lineSeparator.of(eol === "CRLF" ? "\r\n" : "\n"),
+                ),
+            });
+        };
 
         /**
          * Cursor/indent/language report. The breadcrumb, the symbol chain and the
@@ -189,8 +249,11 @@ export function CodeMirrorEditor({
                 dropCursor(),
                 scrollPastEnd(),
                 EditorState.allowMultipleSelections.of(true),
-                EditorState.tabSize.of(4),
-                indentUnit.of("    "),
+                indentCompartment.of([
+                    EditorState.tabSize.of(tabSize),
+                    indentUnit.of(insertSpaces ? " ".repeat(tabSize) : "\t"),
+                ]),
+                eolCompartment.of(EditorState.lineSeparator.of("\n")),
                 indentOnInput(),
                 bracketMatching({ brackets: "()[]{}«»‹›" }),
                 closeBrackets(),
@@ -361,8 +424,13 @@ export function CodeMirrorEditor({
         const onEditorAction = (event: Event) => {
             const v = viewRef.current;
             if (!v || activeView !== v) return;
-            const detail = (event as CustomEvent<{ action?: string; line?: number; column?: number }>).detail;
-            switch (detail?.action) {
+            const detail = (event as CustomEvent<{
+                action?: string;
+                line?: number;
+                column?: number;
+                value?: unknown;
+            }>).detail;
+            switch (normalizeEditorAction(detail?.action)) {
                 case "undo":
                     undo(v);
                     break;
@@ -383,7 +451,130 @@ export function CodeMirrorEditor({
                         ),
                     });
                     break;
+                case "indentLines":
+                    indentMore(v);
+                    break;
+                case "outdentLines":
+                    indentLess(v);
+                    break;
+                case "commentLine":
+                    toggleLineComment(v);
+                    break;
+                case "blockComment":
+                    toggleComment(v);
+                    break;
+                case "moveLinesUpAction":
+                    moveLineUp(v);
+                    break;
+                case "moveLinesDownAction":
+                    moveLineDown(v);
+                    break;
+                case "copyLinesDownAction":
+                    copyLineDown(v);
+                    break;
+                case "insertCursorAbove":
+                    addCursorAbove(v);
+                    break;
+                case "insertCursorBelow":
+                    addCursorBelow(v);
+                    break;
+                case "trimTrailingWhitespace":
+                    deleteTrailingWhitespace(v);
+                    break;
+                case "transformToLowercase":
+                    transformSelectionCase("lower")(v);
+                    break;
+                case "transformToUppercase":
+                    transformSelectionCase("upper")(v);
+                    break;
+                case "transformToTitlecase":
+                    transformSelectionCase("title")(v);
+                    break;
+                case "sortLinesAscending":
+                    sortSelectionLines("asc")(v);
+                    break;
+                case "sortLinesDescending":
+                    sortSelectionLines("desc")(v);
+                    break;
+                case "joinLines":
+                    joinSelectedLines(v);
+                    break;
+                case "foldAll":
+                    foldAll(v);
+                    break;
+                case "unfoldAll":
+                    unfoldAll(v);
+                    break;
+                case "selectHighlights": {
+                    // `selectMatches` is a Command that acts on whatever the
+                    // search panel is currently matching, so guard on an empty
+                    // query first rather than selecting nothing silently.
+                    if (!getSearchQuery(v.state).search.trim()) break;
+                    selectMatches(v);
+                    break;
+                }
+                case "marker.next":
+                    findNext(v);
+                    break;
+                case "marker.prev":
+                    findPrevious(v);
+                    break;
+                case "setInsertSpaces":
+                    insertSpaces = detail.value !== false;
+                    applyIndent(v);
+                    break;
+                case "setTabSize": {
+                    const size = Number(detail.value);
+                    if (!Number.isInteger(size) || size < 1 || size > 8) break;
+                    tabSize = size;
+                    applyIndent(v);
+                    break;
+                }
+                case "setEol":
+                    eol = detail.value === "CRLF" ? "CRLF" : "LF";
+                    applyEol(v);
+                    break;
+                case "setLanguage": {
+                    const requested =
+                        typeof detail.value === "string" ? detail.value.toLowerCase() : "";
+                    const described = requested
+                        ? LanguageDescription.matchLanguageName(languages, requested)
+                        : null;
+                    if (!described) {
+                        // Unknown name, or the picker asked for auto-detect: fall
+                        // back to the language implied by the file extension.
+                        const detected = languageForPath(path);
+                        v.dispatch({
+                            effects: langCompartment.reconfigure(
+                                detected
+                                    ? [detected, betterShapeSyntaxLinter(path), lintGutter()]
+                                    : [],
+                            ),
+                        });
+                        publishStatus(v);
+                        break;
+                    }
+                    // `matchLanguageName` returns a LanguageDescription; the
+                    // compartment needs the loaded LanguageSupport, which is async.
+                    void described
+                        .load()
+                        .then((support) => {
+                            const live = viewRef.current;
+                            if (!live) return;
+                            live.dispatch({
+                                effects: langCompartment.reconfigure([
+                                    support,
+                                    betterShapeSyntaxLinter(path),
+                                    lintGutter(),
+                                ]),
+                            });
+                            publishStatus(live);
+                        })
+                        .catch(() => undefined);
+                    break;
+                }
                 case "format":
+                case "formatDocument":
                 case "formatSelection": {
                     // Prettier formats whole documents; selection formatting falls back to it.
                     const source = v.state.doc.toString();
