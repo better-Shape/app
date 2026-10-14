@@ -76,7 +76,6 @@ winreg = "0.52"
 tauri-winrt-notification = "0.8"
 webview2-com = "0.38"
 windows-core = "0.61"
-window-vibrancy = "0.5"
 # Windows Credential Manager. Without this feature keyring's `default` module is
 # `mock`, an in-process store with no persistence -- MCP tokens and BYOK keys
 # would be accepted and then silently lost on every restart.
@@ -103,7 +102,6 @@ notify = "8.2.0"
 # tauri-plugin-deep-link, which is registered on all platforms.
 [target."cfg(any(target_os = \"windows\", target_os = \"linux\"))".dependencies]
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
-bincode = "1.3"
 
 [profile.release]
 opt-level = 3
