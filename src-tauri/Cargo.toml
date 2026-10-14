@@ -66,7 +66,6 @@ uuid = { version = "1", features = ["v4"] }
 open = "5"
 base64 = "0.22"
 sha2 = "0.10"
-keyring = "3"
 bincode = "1.3"
 tauri-plugin-notification = "2"
 tauri-plugin-process = "2.3.1"
@@ -78,6 +77,20 @@ tauri-winrt-notification = "0.8"
 webview2-com = "0.38"
 windows-core = "0.61"
 window-vibrancy = "0.5"
+# Windows Credential Manager. Without this feature keyring's `default` module is
+# `mock`, an in-process store with no persistence -- MCP tokens and BYOK keys
+# would be accepted and then silently lost on every restart.
+keyring = { version = "3", features = ["windows-native"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# Keychain, via the same reasoning as windows-native above.
+keyring = { version = "3", features = ["apple-native"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# The freedesktop Secret Service API (GNOME Keyring, KWallet). `crypto-rust`
+# keeps OpenSSL out of the tree; `sync` because the callers are sync functions
+# on a blocking thread already.
+keyring = { version = "3", features = ["sync-secret-service", "crypto-rust"] }
 
 # `notify` backs the editor's live file-change stream and is used ungated in
 # commands/fs/mod.rs, so every desktop needs it. Backend is picked per-OS:
