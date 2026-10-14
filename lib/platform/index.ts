@@ -29,8 +29,9 @@ function platformSignals(): string[] {
 function classify(signals: string[]): Platform {
     for (const signal of signals) {
         const value = signal.toLowerCase();
-        if (value.includes("mac")) return "macos";
-        if (value.includes("win")) return "windows";
+        // `darwin` contains `win`, so Windows must match at a word start.
+        if (value.includes("mac") || value.includes("darwin")) return "macos";
+        if (/\bwin/.test(value)) return "windows";
         if (value.includes("linux") || value.includes("android")) return "linux";
     }
     return "unknown";
