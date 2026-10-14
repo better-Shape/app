@@ -29,9 +29,8 @@ const eslintConfig = defineConfig([
   },
   {
     // The codebase marks a deliberately-unused parameter with a leading `_`.
-    // `lib/telemetry/index.ts` is the clearest example: its no-op helpers keep
-    // their parameters so call sites keep their shape. That is a real, applied
-    // convention, so honour it instead of warning on it.
+    // That is a real, applied convention across the app, so honour it instead
+    // of warning on it.
     //
     // Deliberately NOT set: `varsIgnorePattern`. That option also matches dead
     // local `const`s, which would hide genuinely removable code. Unused locals

@@ -3,8 +3,6 @@
 import { useCallback, useState } from "react";
 import { commands } from "@/lib/backend/commands";
 import { notificationStore } from "@/features/notifications";
-import { captureTelemetry, captureTelemetryError } from "@/lib/telemetry";
-import { messageLengthBucket } from "@/lib/telemetry/sanitize";
 import { hasAnyUsableProvider } from "@/lib/ai/providers";
 import { getSettings } from "@/lib/settings";
 
@@ -49,17 +47,10 @@ export function useTextRewrite(model = "auto") {
         setLoading(true);
         try {
             const prompt = `${ACTION_PROMPTS[action]}\n\n${text}`;
-            void captureTelemetry("ai_rewrite_started", {
-                action,
-                model,
-                selection_length_bucket: messageLengthBucket(text.length),
-            });
             const response = await commands.rewriteText(prompt);
 
-            void captureTelemetry("ai_rewrite_complete", { action, model });
             return stripAssistantResponse(response);
         } catch (err) {
-            void captureTelemetryError(err, { feature: "ai_rewrite", action, model });
             const message = err instanceof Error ? err.message : String(err);
             notificationStore.add("AI rewrite failed", "error", message, { autoHide: true });
             return null;

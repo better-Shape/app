@@ -203,7 +203,6 @@ export interface BetterShapeSettings {
         enableDevTools: boolean;
     };
     privacy: {
-        telemetryEnabled: boolean;
         showLoginPromptOnLaunch: boolean;
         /** Show the welcome page when the main window opens with no editor. */
         showWelcomeOnStartup: boolean;
@@ -363,7 +362,6 @@ export const DEFAULT_SETTINGS: BetterShapeSettings = {
         enableDevTools: false,
     },
     privacy: {
-        telemetryEnabled: false,
         showLoginPromptOnLaunch: true,
         showWelcomeOnStartup: true,
         skipCheckpointRestoreConfirm: false,

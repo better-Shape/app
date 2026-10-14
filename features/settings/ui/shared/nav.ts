@@ -155,6 +155,6 @@ export const SETTINGS_CATEGORIES: SettingsCategory[] = [
         id: "application",
         label: "Application",
         icon: Settings20Regular,
-        keywords: ["updates", "notifications", "privacy", "telemetry", "developer", "reset", "keyboard", "shortcuts", "keybindings"],
+        keywords: ["updates", "notifications", "privacy", "developer", "reset", "keyboard", "shortcuts", "keybindings"],
     },
 ];

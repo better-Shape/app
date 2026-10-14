@@ -211,11 +211,6 @@ vi.mock("@/lib/ai/providers", () => ({
     hasAnyUsableProvider: () => true,
 }));
 vi.mock("@/features/notifications", () => ({ notify: { error: vi.fn(), info: vi.fn(), success: vi.fn() } }));
-vi.mock("@/lib/telemetry", () => ({
-    captureTelemetry: vi.fn(async () => {}),
-    captureTelemetryError: vi.fn(),
-}));
-vi.mock("@/lib/telemetry/sanitize", () => ({ messageLengthBucket: () => "short" }));
 vi.mock("@/lib/chat/incognito", () => ({
     isIncognitoChat: () => false,
     purgeIncognitoConversation: async () => {},

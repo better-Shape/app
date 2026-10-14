@@ -539,12 +539,6 @@ function PrivacySettings({ settings, part }: { settings: BetterShapeSettings; pa
                 </SettingRow>
             </SettingSection>
             <SettingSection id="settings-privacy" title="Data Control">
-                <SettingRow
-                    title="Usage telemetry"
-                    description="BetterShape sends nothing: this build has no telemetry endpoint and no device id."
-                >
-                    <SettingSwitch checked={false} disabled onChange={() => {}} />
-                </SettingRow>
                 <SettingRow title="Clear recent folders">
                     <Button
                         variant="outline"

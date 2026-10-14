@@ -34,14 +34,12 @@ import { getCatalogDefaultEnabledIds, getCatalogModels, useBetterShapeCatalog } 
 import { hasAnyUsableProvider as hasUsableProvider } from "@/lib/ai/providers";
 import { matchSlashCommand } from "@/lib/chat/workflows";
 import { notify } from "@/features/notifications";
-import { captureTelemetry, captureTelemetryError } from "@/lib/telemetry";
 import {
     isIncognitoChat,
     purgeIncognitoConversation,
     setIncognitoChat,
     syncIncognitoFromBackend,
 } from "@/lib/chat/incognito";
-import { messageLengthBucket } from "@/lib/telemetry/sanitize";
 import { buildMessageWithMentions, type SelectionSnapshot } from "@/lib/chat/mentions";
 import { buildPlanBuildMessage } from "@/lib/chat/continue-action";
 import { listProjectRuleFiles, loadProjectRules } from "@/lib/workspace/rules";
@@ -727,12 +725,6 @@ export function useChatSession(
         void refreshHistory();
     }, [tabsReady, refreshHistory]);
 
-    React.useEffect(() => {
-        if (project_path) {
-            void captureTelemetry("project_opened");
-        }
-    }, [project_path]);
-
     // Mirror the view into the backend-facing store and the tab strip.
     React.useEffect(() => {
         setCurrentConversationId(viewedConversationId);
@@ -1075,25 +1067,6 @@ export function useChatSession(
                 return false;
             }
 
-            const attachmentKinds = [
-                ...new Set(
-                    readyFiles.map((f) => {
-                        if (f.kind === "image") return "image";
-                        if (f.kind === "audio") return "audio";
-                        if (f.mimeType.startsWith("text/")) return "text";
-                        return "file";
-                    }),
-                ),
-            ];
-
-            if (!isIncognitoChat()) void captureTelemetry("chat_message_sent", {
-                mode: selectedMode,
-                model: selectedModel,
-                message_length_bucket: messageLengthBucket(userMsg.length),
-                attachment_count: readyFiles.length,
-                attachment_kinds: attachmentKinds,
-            });
-
             const settings = getSettings();
             const expandedMessage = await buildMessageWithMentions(
                 userMsg,
@@ -1159,11 +1132,6 @@ export function useChatSession(
             return true;
         } catch (err) {
             console.error("Failed to send message:", err);
-            if (!isIncognitoChat()) void captureTelemetryError(err, {
-                feature: "chat_send",
-                mode: selectedMode,
-                model: selectedModel,
-            });
             const errMsg = err instanceof Error ? err.message : String(err);
             setSendError(errMsg);
             // The send failed before any backend turn closed the optimistic one.
@@ -1702,7 +1670,6 @@ export function useChatSession(
             // Do not stop background generation; only the Stop button cancels.
             startDraftChat();
             await commands.newChat();
-            if (!isIncognitoChat()) void captureTelemetry("chat_new");
             clearAllDesignPreviewSessions();
             setSendError(null);
             setContextSummarized(false);
@@ -1866,10 +1833,6 @@ export function useChatSession(
                 const { setChatGenerating } = await import("@/features/chat/lib/generating-chats");
                 setChatGenerating(convId, false);
             }
-            if (!isIncognitoChat()) void captureTelemetry("chat_stopped", {
-                mode: selectedMode,
-                model: selectedModel,
-            });
         } catch (e) {
             console.error("Failed to stop:", e);
             stoppingRef.current = false;

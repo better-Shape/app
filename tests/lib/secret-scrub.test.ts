@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { redactText } from "@/lib/diagnostics/scrub";
-import { redactSecrets } from "@/lib/telemetry/sanitize";
+import { redactSecrets } from "@/lib/secret-scrub";
 const S = [["gh", "p_", "1234567890abcdefghij1234567890abcd"].join(""), ["github", "_pat_", "11ABCDEFG0abcdefghijklmnopqrstuvwxyz0123456789"].join(""), ["AKIA", "IOSFODNN7EXAMPLE"].join(""), ["eyJhbGciOiJIUzI1NiJ9", "eyJzdWIiOiIxMjM0NTY3ODkwIn0", "SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJVadQssw5c"].join(".")];
 describe("scrub", () => {
     it("scrubs", () => {
