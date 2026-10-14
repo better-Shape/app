@@ -236,9 +236,6 @@ Rules and memory
 - Keep this file lean. Each line should change what an agent does. Cut any line whose removal would not cause a mistake.
 - Use the word IMPORTANT on at most two lines. Emphasis on many lines makes none of them stand out.
 
-Sources
-- Codex AGENTS.md guide: developers.openai.com/codex/guides/agents-md. Claude Code best practices: code.claude.com/docs/en/best-practices. Personas in system prompts: arxiv.org/abs/2311.10054.
-
 ## Plans, research and decisions
 
 Durable engineering memory lives in `.dump/`. The directory is described in `.dump/README.md`. Research notes, decision records and measurements belong there, never in a PR description. Attach them to a PR by path in a collapsible block. Never write secrets, tokens or raw provider output into `.dump/`.
