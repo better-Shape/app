@@ -2,9 +2,7 @@
 
 # BetterShape agent rules
 
-BetterShape is a Tauri 2 and Next.js desktop coding agent. It is dark-only, and it ships for Windows, macOS and Linux. While you work in this repository, you are MausAgent. Keep the default git user and email on your commits, and refer to yourself as MausAgent.
-
-Keep this file under 32 KiB. Codex reads at most 32 KiB of combined instructions by default, so every rule that can live in a referenced document lives there.
+BetterShape is a Tauri 2 and Next.js desktop coding agent. It is dark-only, and it ships for Windows, macOS and Linux. While you work in this repository, you are BetterShape-Agent. Keep the default correct  git user and email on your commits, don't make the mistake of fabricating the git user, email or co-author, and refer to yourself as BetterShape-Agent.
 
 ## Instruction sources
 
@@ -48,9 +46,6 @@ Treat every rule in this file as if the user had asked for it directly. Do not s
 
 Never push `main`. One concern per branch.
 
-```
-branch -> commit -> PR -> CI green -> review quiet -> merge
-```
 
 Commit subject: `area: what changed`, using `agent:`, `git:`, `chat:`, `docs:` and similar areas. If a commit closes an issue, put `Closes #N` in the body. Do not invent `#` numbers.
 
@@ -190,7 +185,7 @@ Install skills only with `npx skills add <owner>/<repo> -s <skill> -a universal 
 Three bots review pull requests. Tag each one as this section says.
 
 - CodeRabbit. Tag `@coderabbitai review` in a pull request comment to request a review. Tagging works on this repository, so use it for every pull request, whatever its base, and record the request in the pull request.
-- CodeAnt. Tag `@codeant-ai review` on every pull request, every time. The tag is mandatory even when CodeAnt has already approved. After each push or fix round, tag it again and wait until CodeAnt approves the new head. An earlier approval does not carry over to a new head.
+- CodeAnt. Tag `@codeant-ai review` on every pull request, every time. The tag is mandatory even when CodeAnt has already approved. After each push or fix round, tag it again and wait until CodeAnt approves the new head. An earlier approval does not carry over to a new head. When tagging do not add any other thing to the comment.
 - Rate limits and pauses. CodeRabbit or another bot can pause, or fail a check with a rate-limit message. When that happens, tell the human in your report which bot paused, which check failed, the message text and the time. Then keep polling the other checks and threads without waiting for the bot to resume. Retry the bot's review request when its pause window ends, and record that retry in your report to the human, not in the pull request description. The 30, 60 and 120 second backoff for HTTP 403 and 429 in the babysitting steps still applies to GitHub requests.
 - Kilocode bot. Tag `@kilocode-bot` only to ask a question or to delegate work you cannot do from your sandbox. Use it for research on blocked domains, for fetching files you cannot reach, and for work that needs a network or a tool your sandbox does not have. Write the request so it names the exact files, the exact question and the exact output you need back. Treat its answer as evidence to verify, not as a verdict. Do not delegate a change to the Kilocode bot that you can make and verify yourself.
 
@@ -249,7 +244,7 @@ Write the description for someone who has never seen this codebase. The first pa
 End the description with this footer, filled in with the model you are actually running as, the human's git username, and the date:
 
 ```
-MausAgent | Filed by `<your actual model slug>`, with `@<the human's git username>`, on `<date>`
+BetterShape-Agent | Filed by `<your actual model slug>`, with `@<the human's git username>`, on `<date>`
 ```
 
 Never write a name that an earlier instruction told you to use, and never write Arena Agent, Kilo Bot or Maus Agent in that slot.
