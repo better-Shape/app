@@ -11,8 +11,9 @@
  */
 
 import { useSyncExternalStore } from "react";
+import { notify } from "@/features/notifications";
 
-export type ChatUndoKind = "pin" | "archive" | "delete";
+export type ChatUndoKind = "pin" | "archive" | "delete" | "settle" | "snooze" | "resume";
 
 export const CHAT_UNDO_WINDOW_MS = 5000;
 
@@ -20,29 +21,31 @@ export interface ChatUndoEntry {
     id: string;
     kind: ChatUndoKind;
     chatId: string;
+    chatIds?: readonly string[];
     /** What the bar reads out loud, e.g. "Pinned “Refactor auth”". */
     label: string;
     createdAt: number;
     expiresAt: number;
     /**
-     * Runs when the window closes without an undo. Only `delete` needs it — it is
+     * Runs when the window closes without an undo. Archive and delete need it — it is
      * the one action with no reverse, so it is held back until the user is out of
      * time to change their mind.
      */
-    commit?: () => void;
+    commit?: () => void | Promise<void>;
     /**
-     * Runs when the window is undone. `delete` has none, because it never reached
+     * Runs when the window is undone. Deferred removals have none, because they never reached
      * the backend.
      */
-    revert?: () => void;
+    revert?: () => void | Promise<void>;
 }
 
 export interface PushChatUndoInput {
     kind: ChatUndoKind;
     chatId: string;
+    chatIds?: readonly string[];
     label: string;
-    commit?: () => void;
-    revert?: () => void;
+    commit?: () => void | Promise<void>;
+    revert?: () => void | Promise<void>;
     /** Test seam. Defaults to `Date.now()`. */
     now?: number;
 }
@@ -52,6 +55,7 @@ const listeners = new Set<() => void>();
 let stack: readonly ChatUndoEntry[] = [];
 let timer: number | null = null;
 let seq = 0;
+const committing = new Map<string, ChatUndoEntry>();
 
 function emit() {
     for (const listener of listeners) listener();
@@ -111,10 +115,11 @@ let idsCache: { key: string; value: ReadonlySet<string> } | null = null;
  * does not remove it.
  */
 export function pendingRemovalChatIds(): ReadonlySet<string> {
-    const removals = stack.filter((entry) => entry.kind === "archive" || entry.kind === "delete");
-    const key = removals.map((entry) => entry.chatId).join("\u0000");
+    const removals = [...stack, ...committing.values()].filter((entry) => entry.kind === "archive" || entry.kind === "delete");
+    const ids = removals.flatMap((entry) => entry.chatIds ?? [entry.chatId]);
+    const key = JSON.stringify(ids);
     if (idsCache && idsCache.key === key) return idsCache.value;
-    const value = new Set(removals.map((entry) => entry.chatId));
+    const value = new Set(ids);
     idsCache = { key, value };
     return value;
 }
@@ -130,6 +135,7 @@ export function pushChatUndo(input: PushChatUndoInput): ChatUndoEntry {
         id: `chat-undo-${seq}`,
         kind: input.kind,
         chatId: input.chatId,
+        chatIds: [...(input.chatIds ?? [input.chatId])],
         label: input.label,
         createdAt: now,
         expiresAt: now + CHAT_UNDO_WINDOW_MS,
@@ -140,6 +146,26 @@ export function pushChatUndo(input: PushChatUndoInput): ChatUndoEntry {
     schedule();
     emit();
     return entry;
+}
+
+function commitEntry(entry: ChatUndoEntry) {
+    if (!entry.commit) return;
+    committing.set(entry.id, entry);
+    const finish = () => {
+        committing.delete(entry.id);
+        emit();
+    };
+    try {
+        const result = entry.commit();
+        if (result && typeof result.then === "function") {
+            void result.catch((error: unknown) => {
+                notify.error(error instanceof Error ? error.message : "Could not update session");
+            }).finally(finish);
+        } else finish();
+    } catch (error) {
+        finish();
+        notify.error(error instanceof Error ? error.message : "Could not update session");
+    }
 }
 
 /**
@@ -153,7 +179,7 @@ export function sweepChatUndo(now: number = Date.now()): ChatUndoEntry[] {
     const expired = stack.filter((entry) => entry.expiresAt <= now);
     if (expired.length === 0) return [];
     stack = stack.filter((entry) => entry.expiresAt > now);
-    for (const entry of expired) entry.commit?.();
+    for (const entry of expired) commitEntry(entry);
     schedule();
     emit();
     return expired;
@@ -169,7 +195,14 @@ export function undoChat(): ChatUndoEntry | null {
     if (!entry) return null;
     stack = stack.slice(1);
     schedule();
-    entry.revert?.();
+    try {
+        const result = entry.revert?.();
+        if (result && typeof result.then === "function") void result.catch((error: unknown) => {
+            notify.error(error instanceof Error ? error.message : "Could not undo session change");
+        });
+    } catch (error) {
+        notify.error(error instanceof Error ? error.message : "Could not undo session change");
+    }
     emit();
     return entry;
 }
@@ -181,7 +214,7 @@ export function dismissChatUndo(): ChatUndoEntry | null {
     if (!entry) return null;
     stack = stack.slice(1);
     schedule();
-    entry.commit?.();
+    commitEntry(entry);
     emit();
     return entry;
 }
@@ -191,6 +224,7 @@ export function resetChatUndoForTests() {
     stack = [];
     seq = 0;
     idsCache = null;
+    committing.clear();
     emit();
 }
 

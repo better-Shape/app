@@ -4,9 +4,11 @@ description: Run the desktop app on your machine.
 order: 2
 ---
 
-You need Node.js 18 or newer, and a current Rust toolchain for [Tauri 2](https://v2.tauri.app/start/prerequisites/).
+You need Node.js 22.13+ (or 24+), and a current Rust toolchain for [Tauri 2](https://v2.tauri.app/start/prerequisites/).
 
 This is how you run a local build. It is not how you use BetterShape day to day. For that, install the app from [GitHub releases](https://github.com/Owie6789/BetterShape/releases).
+
+See [Platform build status](./platform-support) for the configured installer targets and their verification requirements. A successful source build is not an install smoke test.
 
 ## Install dependencies
 
@@ -24,7 +26,7 @@ npm run tauri:dev
 
 That opens the desktop app against your local build. The first run compiles Rust and takes longer.
 
-Every build (including release) writes a memory sample every 10 seconds to `%LOCALAPPDATA%\bettershape\ram-debug.log`: this process, its WebView2 children, handle and GDI counts. It is capped at 8 MB. Set `BETTERSHAPE_RAM_DEBUG=0` to turn it off. If BetterShape eats RAM, that file is what to send.
+On Windows, every build (including release) writes a memory sample every 10 seconds to `%LOCALAPPDATA%\bettershape\ram-debug.log`: this process, its WebView2 children, handle and GDI counts. It is capped at 8 MB. Set `BETTERSHAPE_RAM_DEBUG=0` to turn it off. If BetterShape eats RAM, that file is what to send.
 
 ## Tests
 

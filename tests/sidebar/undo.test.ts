@@ -157,3 +157,34 @@ describe("undo stack", () => {
         expect(pendingRemovalChatIds().size).toBe(0);
     });
 });
+
+describe("batch removals", () => {
+    it("hides every selected chat as one undoable operation", () => {
+        pushChatUndo({ kind: "delete", chatId: "a", chatIds: ["a", "b", "c"], label: "Deleted 3 sessions" });
+        expect([...pendingRemovalChatIds()]).toEqual(["a", "b", "c"]);
+        undoChat();
+        expect(pendingRemovalChatIds().size).toBe(0);
+    });
+    it("keeps committing removals hidden until async persistence finishes", async () => {
+        let finish!: () => void;
+        const now = Date.now();
+        pushChatUndo({ kind: "archive", chatId: "a", chatIds: ["a", "b"], label: "Archive", now,
+            commit: () => new Promise<void>((resolve) => { finish = resolve; }) });
+        sweepChatUndo(now + CHAT_UNDO_WINDOW_MS);
+        expect(pendingChatUndoCount()).toBe(0);
+        expect([...pendingRemovalChatIds()]).toEqual(["a", "b"]);
+        finish();
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(pendingRemovalChatIds().size).toBe(0);
+    });
+    it("releases failed removals and does not strand other commits", async () => {
+        const now = Date.now();
+        const next = vi.fn();
+        pushChatUndo({ kind: "delete", chatId: "a", label: "a", now, commit: next });
+        pushChatUndo({ kind: "delete", chatId: "b", label: "b", now, commit: () => { throw new Error("disk failure"); } });
+        expect(() => sweepChatUndo(now + CHAT_UNDO_WINDOW_MS)).not.toThrow();
+        expect(next).toHaveBeenCalledTimes(1);
+        expect(pendingRemovalChatIds().size).toBe(0);
+    });
+});

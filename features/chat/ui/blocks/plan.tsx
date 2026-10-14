@@ -1,5 +1,7 @@
 "use client";
 
+import { modKeyGlyph as modKeyLabel } from "@/lib/platform";
+
 import { CheckmarkCircle20Filled } from "@fluentui/react-icons/headless/svg/checkmark-circle";
 import { ChevronDown20Regular } from "@fluentui/react-icons/headless/svg/chevron-down";
 import { Dismiss20Regular } from "@fluentui/react-icons/headless/svg/dismiss";
@@ -98,10 +100,7 @@ export function PlanningBlock({ steps, completedCount, totalCount, isGenerating 
     );
 }
 
-function modKeyLabel(): string {
-    if (typeof navigator === "undefined") return "Ctrl";
-    return /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl";
-}
+
 
 export function PlanSavedBlock({
     title,

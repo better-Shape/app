@@ -130,3 +130,16 @@ describe("shared chat lifecycle menu", () => {
         ]);
     });
 });
+
+it("shares snooze, settle and resume between row and batch menus", () => {
+    const spy = handlers({ setDisposition: vi.fn() });
+    const active = buildChatLifecycleActions([target({ disposition: "active" })], spy);
+    expect(active.map((action) => action.key)).not.toContain("resume");
+    active.find((action) => action.key === "settle")?.run();
+    expect(spy.setDisposition).toHaveBeenCalledWith(["chat-1"], "settled");
+    const snoozed = buildChatLifecycleActions([target({ id: "a", disposition: "snoozed" }), target({ id: "b", disposition: "settled" })], spy);
+    snoozed.find((action) => action.key === "resume")?.run();
+    expect(spy.setDisposition).toHaveBeenCalledWith(["a", "b"], "active");
+    snoozed.find((action) => action.key === "snooze")?.run();
+    expect(spy.setDisposition).toHaveBeenCalledWith(["a", "b"], "snoozed");
+});

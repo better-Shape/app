@@ -1,6 +1,6 @@
 # Contributing to BetterShape
 
-BetterShape is a desktop agent. You get chat, files, Git, and a terminal in one Windows app. Contributors keep the app in that shape.
+BetterShape is a desktop agent. You get chat, files, Git, and a terminal in one desktop app. Contributors keep the app in that shape.
 
 By taking part you agree to the [Code of Conduct](./CODE_OF_CONDUCT.md). See [BUSL-1.1](./LICENSE) for the project's license.
 
@@ -73,7 +73,7 @@ If you paste model output into a thread, quote it, say a model wrote it, and add
 
 ## Run the app
 
-Node.js 18+, Rust, and [Tauri 2 prerequisites](https://v2.tauri.app/start/prerequisites/):
+Node.js 22.13+ (or 24+), Rust, and [Tauri 2 prerequisites](https://v2.tauri.app/start/prerequisites/):
 
 ```bash
 npm install

@@ -4,6 +4,7 @@ import React from "react";
 import { listen } from "@tauri-apps/api/event";
 import { commands } from "@/lib/backend";
 import type { ChatMessage } from "@/lib/backend/types";
+import { setChatActivity } from "./chat-activity";
 import { setChatGenerating } from "./generating-chats";
 import { NEW_CHAT_TAB_ID } from "../ui/shell/tabs";
 import { upsertTaggedBlockInContent } from "./upsert-stream-blocks";
@@ -37,6 +38,8 @@ export type TurnPhase =
     | "thinking"
     | "tool"
     | "awaiting_approval"
+    | "awaiting_input"
+    | "waiting"
     | "running_command"
     | "editing"
     | "completed"
@@ -134,6 +137,8 @@ function appendAssistantChunk(prev: ChatMessage[], chunk: string): ChatMessage[]
 }
 
 function phaseFromTool(tool: string | undefined): TurnPhase {
+    if (tool === "ask_user") return "awaiting_input";
+    if (tool === "wait") return "waiting";
     if (tool === "run_terminal") return "running_command";
     if (tool === "edit_file" || tool === "create_file") return "editing";
     return "tool";
@@ -142,6 +147,10 @@ function phaseFromTool(tool: string | undefined): TurnPhase {
 function labelForPhase(phase: TurnPhase, tool?: string, label?: string): string | null {
     if (label?.trim()) return label.trim();
     switch (phase) {
+        case "awaiting_input":
+            return "Waiting for your answers";
+        case "waiting":
+            return "Waiting";
         case "thinking":
             return "Thinking";
         case "awaiting_approval":
@@ -202,6 +211,8 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
     }, []);
 
     const applyLive = React.useCallback((live: LiveTurn) => {
+        setChatGenerating(live.conversationId, true);
+        setChatActivity(live.conversationId, live.turnPhase);
         turnIdRef.current = live.turnId;
         setMessages(live.messages);
         setIsLoading(true);
@@ -305,6 +316,8 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
         if (id) {
             ignoredIdsRef.current.add(id);
             liveTurnsRef.current.delete(id);
+            setChatGenerating(id, false);
+            setChatActivity(id, "cancelled");
         } else {
             liveTurnsRef.current.delete(PENDING_KEY);
         }
@@ -379,14 +392,11 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
         };
 
         const resolveLiveKey = (conversationId?: string | null) => {
-            if (conversationId && liveTurnsRef.current.has(conversationId)) return conversationId;
-            const viewing = viewingIdRef.current;
-            if (viewing && liveTurnsRef.current.has(viewing)) return viewing;
-            if (liveTurnsRef.current.has(PENDING_KEY)) return PENDING_KEY;
-            if (liveTurnsRef.current.size === 1) {
-                return liveTurnsRef.current.keys().next().value ?? null;
-            }
-            return conversationId || null;
+            if (conversationId) return liveTurnsRef.current.has(conversationId) ? conversationId : null;
+            // Legacy unscoped events are only safe when exactly one turn exists.
+            // The selected tab does not identify which background agent emitted one.
+            if (liveTurnsRef.current.size === 1) return liveTurnsRef.current.keys().next().value ?? null;
+            return null;
         };
 
         const patchLive = (conversationId: string | null | undefined, update: (live: LiveTurn) => void) => {
@@ -395,6 +405,8 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
             const live = liveTurnsRef.current.get(key);
             if (!live) return;
             update(live);
+            setChatGenerating(live.conversationId, true);
+            setChatActivity(live.conversationId, live.turnPhase);
             const shown =
                 (viewingIdRef.current && viewingIdRef.current === live.conversationId) ||
                 (!viewingIdRef.current && key === PENDING_KEY);
@@ -417,7 +429,8 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
             }>("chat_started", (event) => {
                 const tid = event.payload?.turnId ?? null;
                 const convId = event.payload?.conversationId ?? null;
-                if (isForeignConversation(convId)) return;
+                if (isForeignConversation(convId) || (tid && finishedTurns.has(tid))) return;
+                setChatActivity(convId, "thinking");
                 const startedModel = event.payload?.model;
                 const usedAuto = event.payload?.usedAuto;
                 if (convId) {
@@ -494,29 +507,20 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
                     const meta = typeof raw === "string" ? undefined : raw;
                     if (isForeignConversation(meta?.conversationId)) return;
                     if (meta?.turnId && finishedTurns.has(meta.turnId)) return;
-                    const convId = meta?.conversationId ?? viewingIdRef.current;
+                    const key = meta?.conversationId || resolveLiveKey();
+                    if (!key) return;
+                    const convId = key === PENDING_KEY ? null : key;
                     if (convId && ignoredIdsRef.current.has(convId)) return;
-                    const key = convId || PENDING_KEY;
+                    const current = liveTurnsRef.current.get(key);
+                    if (meta?.turnId && current?.turnId && meta.turnId !== current.turnId) return;
                     if (!liveTurnsRef.current.has(key)) {
-                        const pending = liveTurnsRef.current.get(PENDING_KEY);
-                        if (pending && key !== PENDING_KEY) {
-                            liveTurnsRef.current.delete(PENDING_KEY);
-                            pending.conversationId = convId;
-                            pending.turnId = meta?.turnId ?? pending.turnId;
-                            liveTurnsRef.current.set(key, pending);
-                            bindDraft(key);
-                        } else {
-                            liveTurnsRef.current.set(key, {
-                                conversationId: convId,
-                                turnId: meta?.turnId ?? null,
-                                messages:
-                                    viewingIdRef.current === convId
-                                        ? messagesRef.current
-                                        : (convId && transcriptCacheRef.current.get(convId)) || [],
-                                activityLabel: "Thinking",
-                                turnPhase: "thinking",
-                            });
-                        }
+                        liveTurnsRef.current.set(key, {
+                            conversationId: convId,
+                            turnId: meta?.turnId ?? null,
+                            messages: viewingIdRef.current === convId ? messagesRef.current : convId ? transcriptCacheRef.current.get(convId) ?? [] : [],
+                            activityLabel: "Thinking",
+                            turnPhase: "thinking",
+                        });
                     }
                     patchLive(convId, (live) => {
                         if (meta?.turnId) live.turnId = meta.turnId;
@@ -551,6 +555,9 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
                     event.payload ?? {};
                 if (isForeignConversation(conversationId)) return;
                 if (turnId) finishedTurns.add(turnId);
+                const current = conversationId ? liveTurnsRef.current.get(conversationId) : undefined;
+                if (turnId && current?.turnId && turnId !== current.turnId) return;
+                setChatActivity(conversationId, error === "Cancelled" ? "cancelled" : error ? "failed" : "completed", error);
                 if (!error && stats) {
                     void import("@/lib/chat/last-turn-usage").then(({ setLastTurnUsage }) => {
                         setLastTurnUsage({
@@ -686,9 +693,9 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
         );
 
         register(
-            listen<{ id?: string }>("agent-ask-pending", () => {
-                patchLive(undefined, (live) => {
-                    live.turnPhase = "awaiting_approval";
+            listen<{ id?: string; conversationId?: string }>("agent-ask-pending", (event) => {
+                patchLive(event.payload?.conversationId, (live) => {
+                    live.turnPhase = "awaiting_input";
                     live.activityLabel = "Waiting for your answers";
                 });
             }),
@@ -713,12 +720,13 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
         );
 
         register(
-            listen<{ phase?: string; tool?: string; label?: string }>("chat_status", (event) => {
-                const { phase, tool, label } = event.payload ?? {};
+            listen<{ phase?: string; tool?: string; label?: string; conversationId?: string }>("chat_status", (event) => {
+                const { phase, tool, label, conversationId } = event.payload ?? {};
+                if (isForeignConversation(conversationId)) return;
                 let nextPhase: TurnPhase | null = null;
                 let nextLabel: string | null = null;
                 if (phase === "approval") {
-                    nextPhase = "awaiting_approval";
+                    nextPhase = label === "Waiting for your answers" ? "awaiting_input" : "awaiting_approval";
                     nextLabel = label?.trim() || "Waiting for approval";
                 } else if (phase === "model") {
                     nextPhase = "thinking";
@@ -730,7 +738,7 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
                     nextLabel = label.trim();
                 }
                 if (!nextPhase && !nextLabel) return;
-                patchLive(undefined, (live) => {
+                patchLive(conversationId, (live) => {
                     if (nextPhase) live.turnPhase = nextPhase;
                     if (nextLabel) live.activityLabel = nextLabel;
                 });

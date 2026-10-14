@@ -78,7 +78,7 @@ function readSet(key: string): ReadonlySet<string> {
         if (!raw) return EMPTY;
         const parsed = JSON.parse(raw) as string[];
         if (!Array.isArray(parsed) || parsed.length === 0) return EMPTY;
-        return new Set(parsed);
+        return new Set(parsed.filter((id): id is string => typeof id === "string" && id.length > 0));
     } catch {
         return EMPTY;
     }
@@ -262,7 +262,7 @@ export function createCollection(input: {
 }): ChatCollection {
     const chatIds = [...new Set(input.chatIds.filter(Boolean))];
     const collection: ChatCollection = {
-        id: `col-${Date.now().toString(36)}`,
+        id: `col-${crypto.randomUUID()}`,
         name: input.name.trim() || "Collection",
         icon: input.icon,
         color: input.color,
@@ -278,7 +278,13 @@ export function updateCollection(
 ) {
     const current = getCollections();
     const chatIds = patch.chatIds ? [...new Set(patch.chatIds.filter(Boolean))] : undefined;
-    const base = chatIds ? withoutChats(current, chatIds) : [...current];
+    if (!current.some((collection) => collection.id === id)) return;
+    const moved = new Set(chatIds);
+    // Strip moved chats from OTHER groups, never remove the target before updating it.
+    const base = chatIds ? current.map((collection) => collection.id === id ? collection : {
+        ...collection,
+        chatIds: collection.chatIds.filter((chatId) => !moved.has(chatId)),
+    }) : current;
     writeCollections(
         base
             .map((collection) => {

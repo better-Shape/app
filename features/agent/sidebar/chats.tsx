@@ -13,14 +13,23 @@ import {
     useCallback,
     useEffect,
     useMemo,
+    useRef,
     useState,
     useSyncExternalStore,
     type ReactNode,
 } from "react";
+import { primaryModifier } from "@/lib/platform";
+import {
+    CHAT_SNOOZE_MS, getChatDispositions, getChatDispositionsServer,
+    setChatDisposition, subscribeChatDispositions, type ChatDisposition,
+} from "@/lib/sidebar/chat-disposition";
+import { notify } from "@/features/notifications";
 import { commands, useProjectState } from "@/lib/backend";
 import type { Conversation } from "@/lib/backend/types";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
+import { SearchInput } from "@/components/ui/search";
+import { GROUP_OPTIONS, matchesChatSearch, type ChatGrouping } from "./grouping";
 import { Tooltip } from "@/components/ui/tooltip";
 import { NEW_CHAT_TAB_ID } from "@/features/chat/ui/shell/tabs";
 import {
@@ -57,8 +66,10 @@ import {
 } from "@/features/agent/subagents/store";
 import { listen } from "@tauri-apps/api/event";
 import { useChatStreamOptional } from "@/features/chat/lib/chat-stream-store";
+import { useChatActivities } from "@/features/chat/lib/chat-activity";
 import { useGeneratingChatIds } from "@/features/chat/lib/generating-chats";
 import { ScrollArea } from "@/components/ui/scroll";
+import { moveChatsToShelf, type DropShelf } from "./drag";
 import { CollectionDialog } from "./collection-dialog";
 import {
     buildChatLifecycleActions,
@@ -86,6 +97,7 @@ import {
 
 export type ChatFilter = "all" | "pinned" | "unread";
 
+const GROUP_KEY = "bettershape-sidebar-chat-grouping";
 const SORT_KEY = "bettershape-sidebar-chat-sort";
 const FILTER_OPTIONS: { value: ChatFilter; label: string }[] = [
     { value: "all", label: "All sessions" },
@@ -199,6 +211,12 @@ export function ChatList({
 }) {
     const { project_path } = useProjectState();
     const [chats, setChats] = useState<Conversation[]>([]);
+    const [searchOpen, setSearchOpen] = useState(false);
+    const [searchText, setSearchText] = useState("");
+    const [searchQuery, setSearchQuery] = useState("");
+    const composing = useRef(false);
+    const searchInput = useRef<HTMLInputElement>(null);
+    const [grouping, setGrouping] = useState<ChatGrouping>("none");
     const [sort, setSort] = useState<ChatSort>("recent");
     const [filter, setFilter] = useState<ChatFilter>("all");
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -206,11 +224,13 @@ export function ChatList({
     const [collapsed, setCollapsed] = useState<ReadonlySet<ChatShelfId>>(() => new Set());
     const [collectionDraft, setCollectionDraft] = useState<string[] | null>(null);
 
+    const dispositions = useSyncExternalStore(subscribeChatDispositions, getChatDispositions, getChatDispositionsServer);
     const pinnedIds = useSyncExternalStore(subscribePinnedChats, getPinnedChatIds, getPinnedChatIdsServer);
     const unreadIds = useSyncExternalStore(subscribeUnreadChats, getUnreadChatIds, getUnreadChatIdsServer);
     const colors = useSyncExternalStore(subscribeChatColors, getChatColors, getChatColorsServer);
     const collections = useSyncExternalStore(subscribeCollections, getCollections, getCollectionsServer);
     const generatingIds = useGeneratingChatIds();
+    const activities = useChatActivities();
     // Same store, different projection: a chat inside a live archive or delete
     // entry is off screen until the entry is undone or swept.
     const hiddenIds = useSyncExternalStore(
@@ -222,16 +242,30 @@ export function ChatList({
 
     useEffect(() => {
         setSort(loadSort());
+        try {
+            const stored = window.localStorage.getItem(GROUP_KEY);
+            if (stored === "collection" || stored === "project") setGrouping(stored);
+        } catch { /* Use the default when storage is unavailable. */ }
     }, []);
+
+    useEffect(() => { if (searchOpen) searchInput.current?.focus(); }, [searchOpen]);
+
+    const persistGrouping = (value: string) => {
+        if (value !== "none" && value !== "collection" && value !== "project") return;
+        setGrouping(value);
+        try { window.localStorage.setItem(GROUP_KEY, value); } catch { /* Session-local fallback. */ }
+    };
 
     useEffect(() => {
         let unlisten: (() => void) | undefined;
+        let cancelled = false;
         void listen("agent-subagent", (event) => {
             applySubagentEvent((event.payload ?? {}) as Parameters<typeof applySubagentEvent>[0]);
         }).then((fn) => {
-            unlisten = fn;
-        });
-        return () => unlisten?.();
+            if (cancelled) fn();
+            else unlisten = fn;
+        }).catch(() => {});
+        return () => { cancelled = true; unlisten?.(); };
     }, []);
 
     const persistSort = useCallback((next: ChatSort) => {
@@ -243,25 +277,31 @@ export function ChatList({
         }
     }, []);
 
+    const chatsVersion = useRef(0);
     const loadChats = useCallback(async () => {
+        const version = ++chatsVersion.current;
         if (!project_path) {
             setChats([]);
             return;
         }
         try {
-            setChats(await commands.getConversations(project_path));
+            const next = await commands.getConversations(project_path);
+            if (version === chatsVersion.current) setChats(next);
         } catch {
-            setChats([]);
+            if (version === chatsVersion.current) setChats([]);
         }
     }, [project_path]);
 
     useEffect(() => {
+        setChats([]);
+        setSelectedIds([]);
         void loadChats();
         const onRefresh = () => void loadChats();
         window.addEventListener("bettershape-chat-refresh", onRefresh);
         window.addEventListener("bettershape-chats-changed", onRefresh);
         window.addEventListener("bettershape-chat-active", onRefresh);
         return () => {
+            chatsVersion.current += 1;
             window.removeEventListener("bettershape-chat-refresh", onRefresh);
             window.removeEventListener("bettershape-chats-changed", onRefresh);
             window.removeEventListener("bettershape-chat-active", onRefresh);
@@ -299,6 +339,7 @@ export function ChatList({
 
     const openChat = useCallback((id: string) => {
         clearChatUnread(id);
+        if (getChatDispositions()[id]) setChatDisposition(id, { state: "active" });
         window.dispatchEvent(new CustomEvent("bettershape-chat-load", { detail: { id } }));
     }, []);
 
@@ -317,63 +358,73 @@ export function ChatList({
 
     const pinChats = useCallback(
         (ids: readonly string[], pinned: boolean) => {
+            if (ids.length === 0) return;
+            if (pinned) {
+                moveChatsToShelf(ids, "pinned", nameOf(ids));
+                return;
+            }
+            const previous = new Map(ids.map((id) => [id, getPinnedChatIds().has(id)]));
             for (const id of ids) setChatPinned(id, pinned);
             pushChatUndo({
                 kind: "pin",
                 chatId: ids[0],
                 label: `${pinned ? "Pinned" : "Unpinned"} ${nameOf(ids)}`,
                 revert: () => {
-                    for (const id of ids) setChatPinned(id, !pinned);
+                    for (const [id, wasPinned] of previous) setChatPinned(id, wasPinned);
                 },
             });
         },
         [nameOf],
     );
 
-    const archiveChats = useCallback(
-        (ids: readonly string[]) => {
-            for (const id of ids) void commands.setConversationArchived(id, true).catch(() => {});
-            for (const id of ids) {
-                window.dispatchEvent(new CustomEvent("bettershape-chat-close-tab", { detail: { id } }));
-            }
-            refresh();
+    const removeFromList = useCallback(
+        (ids: readonly string[], kind: "archive" | "delete") => {
+            const targets = [...new Set(ids)].filter((id) => !pendingRemovalChatIds().has(id));
+            if (targets.length === 0) return;
+            // Both operations wait for undo to expire. Keep every row hidden until
+            // persistence has finished; successful rows are removed before reloading.
             pushChatUndo({
-                kind: "archive",
-                chatId: ids[0],
-                label: `Archived ${nameOf(ids)}`,
-                revert: () => {
-                    for (const id of ids) void commands.setConversationArchived(id, false).catch(() => {});
+                kind,
+                chatId: targets[0],
+                chatIds: targets,
+                label: `${kind === "archive" ? "Archived" : "Deleted"} ${nameOf(targets)}`,
+                commit: async () => {
+                    await Promise.all(targets.map(async (id) => {
+                        try {
+                            if (kind === "archive") await commands.setConversationArchived(id, true);
+                            else await commands.deleteConversation(id);
+                            setChats((previous) => previous.filter((chat) => chat.id !== id));
+                            window.dispatchEvent(new CustomEvent("bettershape-chat-close-tab", { detail: { id } }));
+                        } catch (error) {
+                            notify.error(error instanceof Error ? error.message : `Could not ${kind} session`);
+                        }
+                    }));
                     refresh();
                 },
             });
         },
         [nameOf, refresh],
     );
+    const archiveChats = useCallback((ids: readonly string[]) => removeFromList(ids, "archive"), [removeFromList]);
+    const removeChats = useCallback((ids: readonly string[]) => removeFromList(ids, "delete"), [removeFromList]);
 
-    const removeChats = useCallback(
-        (ids: readonly string[]) => {
-            // Nothing can bring a conversation back once the backend has it, so the
-            // delete is only sent once the undo window has closed. The row leaves
-            // the list now and the conversation outlives it by five seconds.
-            pushChatUndo({
-                kind: "delete",
-                chatId: ids[0],
-                label: `Deleted ${nameOf(ids)}`,
-                commit: () => {
-                    for (const id of ids) void commands.deleteConversation(id).catch(() => {});
-                    for (const id of ids) {
-                        window.dispatchEvent(new CustomEvent("bettershape-chat-close-tab", { detail: { id } }));
-                    }
-                    refresh();
-                },
-            });
-        },
-        [nameOf, refresh],
-    );
+    const changeDisposition = useCallback((ids: readonly string[], state: ChatDisposition["state"]) => {
+        if (ids.length === 0) return;
+        const previous = new Map(ids.map((id) => [id, getChatDispositions()[id]]));
+        const value: ChatDisposition = state === "snoozed" ? { state, until: Date.now() + CHAT_SNOOZE_MS } : { state };
+        for (const id of ids) setChatDisposition(id, value);
+        pushChatUndo({
+            kind: state === "snoozed" ? "snooze" : state === "settled" ? "settle" : "resume",
+            chatId: ids[0], chatIds: ids,
+            label: `${state === "snoozed" ? "Snoozed" : state === "settled" ? "Settled" : "Resumed"} ${nameOf(ids)}`,
+            revert: () => { for (const [id, old] of previous) setChatDisposition(id, old); },
+        });
+    }, [nameOf]);
 
     const handlers = useMemo<ChatLifecycleHandlers>(
         () => ({
             open: openChat,
+            setDisposition: changeDisposition,
             setPinned: pinChats,
             markUnread: markChatUnread,
             copyTitle: (title) => void navigator.clipboard.writeText(title),
@@ -382,14 +433,14 @@ export function ChatList({
             remove: removeChats,
             addToCollection: (ids) => setCollectionDraft([...ids]),
         }),
-        [openChat, pinChats, archiveChats, removeChats],
+        [openChat, pinChats, archiveChats, removeChats, changeDisposition],
     );
 
     useEffect(() => {
         const onKey = (event: KeyboardEvent) => {
-            if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+            if (event.isComposing || event.defaultPrevented || !(primaryModifier() === "meta" ? event.metaKey : event.ctrlKey) || event.altKey) return;
             if (event.key.toLowerCase() !== "z" || event.shiftKey) return;
-            const target = event.target as HTMLElement | null;
+            const target = event.target instanceof HTMLElement ? event.target : null;
             if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
             // Capture phase, and only swallow the key once something came back:
             // with nothing pending, another surface's own mod+Z still fires.
@@ -405,10 +456,13 @@ export function ChatList({
     const live = useMemo(() => chats.filter((chat) => !chat.archived), [chats]);
 
     const filtered = useMemo(() => {
-        if (filter === "pinned") return live.filter((chat) => pinnedIds.has(chat.id));
-        if (filter === "unread") return live.filter((chat) => unreadIds.has(chat.id));
-        return live;
-    }, [live, filter, pinnedIds, unreadIds]);
+        return live.filter((chat) => {
+            if (filter === "pinned" && !pinnedIds.has(chat.id)) return false;
+            if (filter === "unread" && !unreadIds.has(chat.id)) return false;
+            const collection = collections.find((entry) => entry.chatIds.includes(chat.id));
+            return matchesChatSearch(chat, searchQuery, collection?.name);
+        });
+    }, [live, filter, pinnedIds, unreadIds, collections, searchQuery]);
 
     const sections = useMemo(
         () =>
@@ -419,9 +473,30 @@ export function ChatList({
                 generating: generatingIds,
                 activeId,
                 hidden: hiddenIds,
+                dispositions,
+                grouping,
+                collections,
             }),
-        [filtered, sort, pinnedIds, generatingIds, activeId, hiddenIds],
+        [filtered, sort, pinnedIds, generatingIds, activeId, hiddenIds, dispositions, grouping, collections],
     );
+
+    useEffect(() => {
+        const jump = (event: KeyboardEvent) => {
+            if (event.defaultPrevented || event.isComposing || event.altKey || event.shiftKey) return;
+            if (!(primaryModifier() === "meta" ? event.metaKey : event.ctrlKey)) return;
+            const target = event.target instanceof HTMLElement ? event.target : null;
+            if (target?.isContentEditable || target?.closest('input, textarea, select, [contenteditable="true"], [contenteditable="plaintext-only"], [role="textbox"]')) return;
+            if (!/^[1-9]$/.test(event.key)) return;
+            const chats = sections.filter((section) => !collapsed.has(section.id)).flatMap((section) => section.chats);
+            const chat = chats[Number(event.key) - 1];
+            if (!chat) return;
+            event.preventDefault();
+            event.stopPropagation();
+            openChat(chat.id);
+        };
+        window.addEventListener("keydown", jump);
+        return () => window.removeEventListener("keydown", jump);
+    }, [sections, collapsed, openChat]);
 
     const toggleSelect = useCallback((id: string) => {
         setSelectedIds((current) =>
@@ -447,8 +522,9 @@ export function ChatList({
                     title: chat.title?.trim() || "Untitled",
                     path: chat.project_path || project_path || "",
                     pinned: pinnedIds.has(chat.id),
+                    disposition: dispositions[chat.id]?.state ?? (chat.id === activeId ? "active" : "settled"),
                 })),
-        [filtered, selectedIds, pinnedIds, project_path],
+        [filtered, selectedIds, pinnedIds, project_path, dispositions, activeId],
     );
 
     const collectionOf = useCallback(
@@ -458,6 +534,8 @@ export function ChatList({
 
     const rowProps = useCallback(
         (chat: Conversation) => ({
+            activity: activities.get(chat.id) ?? (generatingIds.has(chat.id) ? "working" as const : "ready" as const),
+            disposition: dispositions[chat.id]?.state ?? (chat.id === activeId ? "active" as const : "settled" as const),
             title: chat.title?.trim() || "Untitled",
             path: chat.project_path || project_path || "",
             timestamp: chat.timestamp || 0,
@@ -476,6 +554,9 @@ export function ChatList({
         }),
         [
             activeId,
+            activities,
+            generatingIds,
+            dispositions,
             allSubagents,
             collectionOf,
             colors,
@@ -490,12 +571,18 @@ export function ChatList({
         ],
     );
 
-    const openCommandPalette = () => {
-        window.dispatchEvent(
-            new CustomEvent("bettershape-command-palette", {
-                detail: { placeholder: "Search…" },
-            }),
-        );
+    const moveChat = useCallback((id: string, shelf: DropShelf) => {
+        const ids = selectedIds.includes(id) ? selectedTargets.map((target) => target.id) : [id];
+        const visibleIds = new Set(filtered.map((chat) => chat.id));
+        const targets = ids.filter((id) => visibleIds.has(id));
+        if (targets.length) moveChatsToShelf(targets, shelf, nameOf(targets));
+    }, [filtered, nameOf, selectedIds, selectedTargets]);
+
+    const closeSearch = () => {
+        setSearchOpen(false);
+        setSearchText("");
+        setSearchQuery("");
+        composing.current = false;
     };
 
     const allCollapsed = sections.length > 1 && sections.every((section) => collapsed.has(section.id));
@@ -515,7 +602,7 @@ export function ChatList({
             <div className="flex items-center justify-between pl-3 pr-1 pb-1 pt-3">
                 <span className="text-sm font-medium text-text-muted">Sessions</span>
                 <div className="flex items-center">
-                    <HeaderIconBtn label="Search" onClick={openCommandPalette}>
+                    <HeaderIconBtn label="Search" active={searchOpen} onClick={() => { if (searchOpen) closeSearch(); else setSearchOpen(true); }}>
                         <Icon icon={Search20Regular} />
                     </HeaderIconBtn>
                     <DropdownMenu modal={false}>
@@ -540,6 +627,13 @@ export function ChatList({
                                     <DropdownMenuRadioItem key={opt.value} value={opt.value}>
                                         {opt.label}
                                     </DropdownMenuRadioItem>
+                                ))}
+                            </DropdownMenuRadioGroup>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuLabel>Group by</DropdownMenuLabel>
+                            <DropdownMenuRadioGroup value={grouping} onValueChange={persistGrouping}>
+                                {GROUP_OPTIONS.map((option) => (
+                                    <DropdownMenuRadioItem key={option.value} value={option.value}>{option.label}</DropdownMenuRadioItem>
                                 ))}
                             </DropdownMenuRadioGroup>
                             <DropdownMenuSeparator />
@@ -609,6 +703,35 @@ export function ChatList({
                 </div>
             </div>
 
+            {searchOpen ? (
+                <div className="px-3 pb-1">
+                    <SearchInput
+                        ref={searchInput}
+                        value={searchText}
+                        aria-label="Search sessions"
+                        placeholder="Search sessions"
+                        onChange={(event) => {
+                            setSearchText(event.target.value);
+                            if (!composing.current) setSearchQuery(event.target.value);
+                        }}
+                        onCompositionStart={() => { composing.current = true; }}
+                        onCompositionEnd={(event) => {
+                            composing.current = false;
+                            setSearchText(event.currentTarget.value);
+                            setSearchQuery(event.currentTarget.value);
+                        }}
+                        onKeyDown={(event) => {
+                            if (composing.current || event.nativeEvent.isComposing || event.keyCode === 229) return;
+                            if (event.key === "Escape") { event.preventDefault(); closeSearch(); }
+                            if (event.key === "Enter" && searchQuery.trim()) {
+                                const first = sections.find((section) => !collapsed.has(section.id))?.chats[0];
+                                if (first) { event.preventDefault(); openChat(first.id); }
+                            }
+                        }}
+                    />
+                </div>
+            ) : null}
+
             <ScrollArea fadeFrom="from-sidebar" className="min-h-0 flex-1 px-1.5 pb-2">
                 {!project_path ? (
                     <button
@@ -619,6 +742,8 @@ export function ChatList({
                         <Icon icon={FolderOpen20Regular} />
                         New project
                     </button>
+                ) : filtered.length === 0 && searchQuery.trim() ? (
+                    <p role="status" className="px-2.5 py-2 text-sm text-text-muted">No matching sessions</p>
                 ) : filtered.length === 0 ? (
                     <button
                         type="button"
@@ -634,6 +759,9 @@ export function ChatList({
                         rowProps={rowProps}
                         collapsed={collapsed}
                         onToggleShelf={toggleShelf}
+                        onMoveChat={moveChat}
+                        grouping={grouping}
+                        collections={collections}
                     />
                 )}
             </ScrollArea>

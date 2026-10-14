@@ -56,9 +56,8 @@ jobs:
       - name: Typecheck
         run: npx tsc --noEmit
 
-      - name: Check Next.js config & build preview script
+      - name: Build preview script (Next.js config is validated by build)
         run: |
-          node --check next.config.ts || true
           npm run build:runtime
 
       - name: Verify docs index can be generated
@@ -109,7 +108,7 @@ jobs:
   # ─────────────────────────────────────────────────────────
   # Typecheck / lint / vitest only. Rust and the full Tauri compile stay on Ubuntu
   # and in build-installers.yml - a macOS Tauri compile is not cheap enough for a PR
-  # gate. NOT in ci-success `needs`, so this is additive and cannot block a merge.
+  # gate. Included in ci-success so platform regressions cannot report a green gate.
   static-macos:
     name: Static Checks (macOS)
     runs-on: macos-latest
@@ -377,11 +376,12 @@ jobs:
     name: CI Success
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: [lint, test-js, test-rust, rust-lints, build, version-sync]
+    needs: [lint, test-js, test-rust, rust-lints, build, version-sync, static-macos]
     if: always()
     steps:
       - name: Check all jobs
         run: |
+          if [[ "${{ needs.static-macos.result }}" != "success" ]]; then echo "static-macos failed"; exit 1; fi
           if [[ "${{ needs.lint.result }}" != "success" ]]; then echo "lint failed"; exit 1; fi
           if [[ "${{ needs.test-js.result }}" != "success" ]]; then echo "test-js failed"; exit 1; fi
           if [[ "${{ needs.test-rust.result }}" != "success" ]]; then echo "test-rust failed"; exit 1; fi

@@ -8,6 +8,8 @@ on:
   push:
     branches:
       - mega/absorb-all
+      - "arena/**"
+      - "draft/**"
   workflow_dispatch:
 
 permissions:
@@ -55,6 +57,11 @@ jobs:
             arch: x86_64
             target: x86_64-unknown-linux-gnu
             bundles: deb,appimage,rpm
+          - runner: ubuntu-24.04-arm
+            os: linux
+            arch: aarch64
+            target: aarch64-unknown-linux-gnu
+            bundles: deb,appimage,rpm
     env:
       # AppImage bundling runs the linuxdeploy AppImages tauri downloads, and those
       # need FUSE2. Not every runner image ships it; extracting is the fallback.
@@ -97,20 +104,7 @@ jobs:
           else
             BUNDLE_DIR="src-tauri/target/release/bundle"
           fi
-          if [ ! -d "$BUNDLE_DIR" ]; then
-            echo "::error::No bundle directory at $BUNDLE_DIR"
-            exit 1
-          fi
-          mkdir -p dist/test-install
-          # Files only - a macOS .app is a directory and is not an installer.
-          find "$BUNDLE_DIR" -maxdepth 2 -type f \
-            \( -name '*.exe' -o -name '*.dmg' -o -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' -o -name '*.sig' \) \
-            -exec cp {} dist/test-install/ \;
-          if [ -z "$(find dist/test-install -mindepth 1 -print -quit)" ]; then
-            echo "::error::No installer produced under $BUNDLE_DIR"
-            find "$BUNDLE_DIR" -type f | head -n 20 || true
-            exit 1
-          fi
+          node scripts/build/collect-installers.mjs "$BUNDLE_DIR" dist/test-install "${{ matrix.bundles }}"
           ls -lh dist/test-install
 
       - name: Upload installer artifact
@@ -136,6 +130,8 @@ jobs:
             echo "### Contents"
             echo ""
             find dist/test-install -type f -exec ls -lh {} \; | awk '{print "- `" $9 "` (" $5 ")"}'
+            echo ""
+            echo "Verify downloads against \`SHA256SUMS.txt\` in this artifact."
             echo ""
             echo "_Unsigned test build. Not for production use._"
           } >> "$GITHUB_STEP_SUMMARY"

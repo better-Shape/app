@@ -1,0 +1,43 @@
+---
+title: Platform build status
+description: Installer targets, verification status, and test-install requirements.
+order: 3
+---
+
+BetterShape is being expanded from its Windows origins to Windows, macOS, and Linux. **A configured build target is not a shipped or tested platform.** No installer produced from this draft has been verified here. The table below describes the test-build workflow, not a production support promise.
+
+## Test-build matrix
+
+| Platform | Architecture | Runner / toolchain target | Requested installer |
+| --- | --- | --- | --- |
+| Windows | x86_64 | `windows-latest`, host MSVC | NSIS `.exe` |
+| Windows | ARM64 | `windows-11-arm`, `aarch64-pc-windows-msvc` | NSIS `.exe` |
+| macOS | Apple Silicon | `macos-latest`, `aarch64-apple-darwin` | `.dmg` containing the `.app` |
+| macOS | Intel | Cross-compiled on `macos-latest`, `x86_64-apple-darwin` | `.dmg` containing the `.app` |
+| Linux | x86_64 | Ubuntu 22.04, `x86_64-unknown-linux-gnu` | `.deb`, `.rpm`, `.AppImage` |
+| Linux | ARM64 | Ubuntu 24.04 ARM, `aarch64-unknown-linux-gnu` | `.deb`, `.rpm`, `.AppImage` |
+
+All targets above are **awaiting successful installer artifacts and install smoke tests for this draft**. A successful Linux build does not validate Windows/macOS `cfg`-gated Rust, and a cross-compiled Intel macOS package is not proof it runs on Intel hardware.
+
+## Downloading and verifying a test build
+
+Open **Actions → Build Installers (Test)** on the pull request or branch. If a job succeeds, download its `bettershape-<os>-<arch>` artifact. The workflow also supports manual dispatch and never publishes a release or merges a branch.
+
+Each artifact includes `SHA256SUMS.txt`. Compare the downloaded installer's SHA-256 with that file (`sha256sum` on Linux, `shasum -a 256` on macOS, or `Get-FileHash -Algorithm SHA256` in PowerShell). These checksums detect accidental corruption; they are not code signatures. The collector rejects missing requested formats and empty files.
+
+These are **unsigned test builds**. Windows SmartScreen or macOS Gatekeeper may warn. Verify provenance before opening; do not disable platform security globally.
+
+## Runtime requirements and limits
+
+- Windows requires WebView2. ARM64 must be tested with the ARM64 installer, not inferred from x86 emulation.
+- The macOS bundle configuration requests macOS 11 or later. The actual minimum must be checked against the produced artifact and its dependencies.
+- Debian/Ubuntu packages require GTK 3, WebKitGTK 4.1, libsoup 3, and Ayatana AppIndicator. The x86_64 build uses Ubuntu 22.04; the ARM64 build uses Ubuntu 24.04. Neither is a promise of compatibility with older glibc versions.
+- RPM output targets distributions with compatible GTK/WebKitGTK packages. Producing an RPM on Ubuntu does **not** establish support for every Fedora/RHEL release; test the actual target release and resolve package dependencies there.
+- AppImage does not make glibc or kernel requirements disappear. `APPIMAGE_EXTRACT_AND_RUN=1` permits extraction where FUSE is unavailable.
+- Linux credential storage needs a running Secret Service implementation such as GNOME Keyring or KWallet. GUI builds are not headless-server builds.
+
+Before promoting a target, record the workflow run/commit, installer checksum, OS version, and architecture. Smoke-test install, launch, native window controls, primary keyboard shortcuts, Git, terminal, credential persistence across restart, and uninstall. Keep unverified targets marked as such.
+
+## Development checks
+
+Use Node.js 22.13+ (or 24+), Rust, and the platform's Tauri 2 prerequisites. `npm run ci` propagates lint, typecheck, JavaScript-test, and Rust-test failures. CI additionally checks static export, Rust formatting/clippy, and macOS static checks. Installer jobs compile the native platform-specific code separately.

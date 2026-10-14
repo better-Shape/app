@@ -4,8 +4,8 @@
 
 import { commands } from "@/lib/backend";
 import { notify } from "@/features/notifications";
-import type { PrItem } from "./mapping";
-import { applyPrOverride, clearPrOverride } from "./overrides";
+import { parseJson, type PrItem } from "./mapping";
+import { applyPrOverride, clearPrOverride, readPrOverride } from "./overrides";
 
 export type PrAction = "close" | "merge" | "reopen" | "ready";
 
@@ -49,36 +49,74 @@ function actionRequest(action: PrAction, item: PrItem, repo: string): PrActionRe
                 optimistic: { status: "open" },
             };
         case "ready":
+            if (!item.nodeId) throw new Error("Refresh this pull request before marking it ready for review.");
             return {
-                method: "PATCH",
-                path: base,
-                body: JSON.stringify({ draft: false }),
+                method: "POST",
+                path: "/graphql",
+                body: JSON.stringify({
+                    query: "mutation($id: ID!) { markPullRequestReadyForReview(input: {pullRequestId: $id}) { pullRequest { isDraft } } }",
+                    variables: { id: item.nodeId },
+                }),
                 optimistic: { draft: false },
             };
         case "merge":
+            if (!item.headSha) throw new Error("Refresh this pull request before merging.");
             return {
                 method: "PUT",
                 path: `${base}/merge`,
-                body: JSON.stringify({ merge_method: "merge" }),
+                body: JSON.stringify({ merge_method: "merge", sha: item.headSha }),
                 optimistic: { status: "merged" },
             };
     }
 }
+
+const pending = new Set<string>();
 
 export async function runPrAction(
     item: PrItem,
     action: PrAction,
     repo: string,
 ): Promise<boolean> {
-    const request = actionRequest(action, item, repo);
-    applyPrOverride(item.id, request.optimistic);
+    const key = `${repo}#${item.number}`;
+    if (pending.has(key)) return false;
+    pending.add(key);
+    const previous = readPrOverride(item.id);
+    let applied = false;
     try {
-        await commands.githubApiRequest(request.method, request.path, request.body);
+        if (item.repo !== repo || !prActionsFor(item).includes(action)) {
+            throw new Error("This action is no longer available. Refresh the pull request.");
+        }
+        const request = actionRequest(action, item, repo);
+        applyPrOverride(item.id, request.optimistic);
+        applied = true;
+        const response = parseJson(await commands.githubApiRequest(request.method, request.path, request.body)) as {
+            state?: string;
+            merged?: boolean;
+            message?: string;
+            errors?: { message: string }[];
+            data?: { markPullRequestReadyForReview?: { pullRequest?: { isDraft?: boolean } } };
+        } | null;
+        if (action === "merge" && response?.merged !== true) {
+            throw new Error(response?.message || "GitHub did not merge this pull request.");
+        }
+        if (action === "ready" && (response?.errors?.length || response?.data?.markPullRequestReadyForReview?.pullRequest?.isDraft !== false)) {
+            throw new Error(response?.errors?.map((error) => error.message).join("; ") || "GitHub did not mark this pull request ready for review.");
+        }
+        if ((action === "close" || action === "reopen") && response?.state !== (action === "close" ? "closed" : "open")) {
+            throw new Error(response?.message || "GitHub did not confirm the pull request state change.");
+        }
+        // Start the trust window at confirmation, not at the beginning of a slow request.
+        applyPrOverride(item.id, request.optimistic);
         notify.success(`${PR_ACTION_LABEL[action]} ${item.title}`);
         return true;
     } catch (error) {
-        clearPrOverride(item.id);
+        if (applied) {
+            if (previous) applyPrOverride(item.id, previous);
+            else clearPrOverride(item.id);
+        }
         notify.error(error instanceof Error ? error.message : `${PR_ACTION_LABEL[action]} failed`);
         return false;
+    } finally {
+        pending.delete(key);
     }
 }

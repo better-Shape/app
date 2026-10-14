@@ -6,9 +6,8 @@
  * A flat list cannot say "which of these is running" and "which one am I looking
  * at" without the user reading every row. t3code solves that with labelled
  * sections; the concepts port over, its Effect/server architecture does not.
- * Every section here is derived from data BetterShape already tracks — the pinned
- * set, the generating set, and the chat on screen — so nothing new has to be
- * persisted to make one exist.
+ * Shelves combine live generation/selection with local pin and lifecycle intent.
+ * Snooze deadlines persist independently of the backend conversation.
  *
  * Rows are emitted as a FLAT child list with the headers interleaved, not wrapped
  * one section per element. That is load-bearing: a chat moving between shelves has
@@ -17,7 +16,12 @@
  * variant baked into the key.
  */
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+    DndContext, DragOverlay, KeyboardSensor, PointerSensor,
+    useDraggable, useDroppable, useSensor, useSensors,
+} from "@dnd-kit/core";
+import { DROP_VERBS, isDropShelf, shelfCollision, shelfKeyboardCoordinates, type DropShelf } from "./drag";
 import { Checkmark } from "@/components/ui/checkmark";
 import { ChevronDown20Regular } from "@fluentui/react-icons/headless/svg/chevron-down";
 import { ChevronRight20Regular } from "@fluentui/react-icons/headless/svg/chevron-right";
@@ -65,7 +69,11 @@ import {
     clearChatUnread,
     setChatColor,
     type ChatColor,
+    type ChatCollection,
 } from "@/lib/sidebar/chat-list-meta";
+import { CHAT_ACTIVITY_LABELS, type ChatActivity } from "@/features/chat/lib/chat-activity";
+import type { ChatDisposition } from "@/lib/sidebar/chat-disposition";
+import { groupChats, type ChatGrouping } from "./grouping";
 import { useFlipMotion } from "./motion";
 import { renderLifecycleActions, buildChatLifecycleActions, type ChatLifecycleHandlers } from "./lifecycle";
 
@@ -112,7 +120,7 @@ export function sortShelf(chats: readonly Conversation[], sort: ChatSort): Conve
 
 /* ------------------------------------------------------------------- shelves */
 
-export type ChatShelfId = "pinned" | "working" | "active" | "settled";
+export type ChatShelfId = "pinned" | "working" | "active" | "snoozed" | "settled";
 
 export type RowVariant = "card" | "slim";
 
@@ -122,32 +130,27 @@ export interface ChatShelfSpec {
     variant: RowVariant;
 }
 
-/**
- * Precedence, top to bottom.
- *
- * t3code orders snoozed → settled → pinned → active. There is no snooze here and
- * its "settled" is the far end of this list, so only its pinned-over-active
- * precedence survives. Pinned is an instruction the user gave by hand and wins;
- * working outranks active because a chat mid-generation is the one row on screen
- * that is still changing.
- */
+/** Explicit snooze/settle intent moves idle chats; a running chat remains visible. */
 export const CHAT_SHELVES: readonly ChatShelfSpec[] = [
     { id: "pinned", label: "Pinned", variant: "card" },
     { id: "working", label: "Working", variant: "slim" },
     { id: "active", label: "Active", variant: "slim" },
+    { id: "snoozed", label: "Snoozed", variant: "slim" },
     { id: "settled", label: "Settled", variant: "slim" },
 ];
 
 export interface ShelfFacts {
+    disposition?: ChatDisposition["state"];
     pinned: boolean;
     generating: boolean;
     active: boolean;
 }
 
 export function shelfOf(facts: ShelfFacts): ChatShelfId {
+    if (!facts.generating && (facts.disposition === "snoozed" || facts.disposition === "settled")) return facts.disposition;
     if (facts.pinned) return "pinned";
     if (facts.generating) return "working";
-    if (facts.active) return "active";
+    if (facts.active || facts.disposition === "active") return "active";
     return "settled";
 }
 
@@ -159,6 +162,9 @@ export interface ChatShelfSection {
 }
 
 export interface BuildShelvesInput {
+    grouping?: ChatGrouping;
+    collections?: readonly ChatCollection[];
+    dispositions?: Readonly<Record<string, ChatDisposition>>;
     chats: readonly Conversation[];
     sort: ChatSort;
     pinned: ReadonlySet<string>;
@@ -175,6 +181,7 @@ export function buildShelves(input: BuildShelvesInput): ChatShelfSection[] {
     for (const chat of input.chats) {
         if (input.hidden?.has(chat.id)) continue;
         const id = shelfOf({
+            disposition: input.dispositions?.[chat.id]?.state,
             pinned: input.pinned.has(chat.id),
             generating: input.generating.has(chat.id),
             active: chat.id === input.activeId,
@@ -187,7 +194,7 @@ export function buildShelves(input: BuildShelvesInput): ChatShelfSection[] {
         id: spec.id,
         label: spec.label,
         variant: spec.variant,
-        chats: sortShelf(buckets.get(spec.id) ?? [], input.sort),
+        chats: groupChats(sortShelf(buckets.get(spec.id) ?? [], input.sort), input.grouping ?? "none", input.collections).flatMap((group) => group.chats),
     }));
 }
 
@@ -201,13 +208,22 @@ export interface ChatShelfHeader {
 }
 
 export interface ChatShelfRow {
+    shelf: ChatShelfId;
     kind: "row";
     key: string;
     chat: Conversation;
     variant: RowVariant;
 }
 
-export type ChatShelfChild = ChatShelfHeader | ChatShelfRow;
+export interface ChatGroupHeader {
+    kind: "group";
+    key: string;
+    label: string;
+    detail?: string;
+    count: number;
+}
+
+export type ChatShelfChild = ChatShelfHeader | ChatShelfRow | ChatGroupHeader;
 
 /**
  * Headers and rows as one flat sequence.
@@ -226,6 +242,8 @@ export type ChatShelfChild = ChatShelfHeader | ChatShelfRow;
 export function buildShelfChildren(
     sections: readonly ChatShelfSection[],
     collapsed: ReadonlySet<ChatShelfId>,
+    grouping: ChatGrouping = "none",
+    collections: readonly ChatCollection[] = [],
 ): ChatShelfChild[] {
     const showHeaders = sections.length > 1;
     const children: ChatShelfChild[] = [];
@@ -242,13 +260,20 @@ export function buildShelfChildren(
             });
         }
         if (!open) continue;
-        for (const chat of section.chats) {
-            children.push({
-                kind: "row",
-                key: `${chat.id}:${section.variant}`,
-                chat,
-                variant: section.variant,
+        for (const group of groupChats(section.chats, grouping, collections)) {
+            if (grouping !== "none") children.push({
+                kind: "group", key: `group:${section.id}:${group.id}`, label: group.label,
+                detail: group.detail, count: group.chats.length,
             });
+            for (const chat of group.chats) {
+                children.push({
+                    kind: "row",
+                    shelf: section.id,
+                    key: `${chat.id}:${section.variant}`,
+                    chat,
+                    variant: section.variant,
+                });
+            }
         }
     }
     return children;
@@ -290,6 +315,10 @@ function nestedDot(status: string, column?: string): string {
 /* --------------------------------------------------------------------- rows */
 
 export interface ChatShelfRowProps {
+    activity?: ChatActivity;
+    shelf?: ChatShelfId;
+    draggable?: boolean;
+    disposition?: ChatDisposition["state"];
     title: string;
     path: string;
     timestamp: number;
@@ -311,6 +340,10 @@ export interface ChatShelfRowProps {
 }
 
 function ChatRow({
+    activity,
+    shelf,
+    draggable = false,
+    disposition,
     id,
     title,
     path,
@@ -342,6 +375,18 @@ function ChatRow({
     }
     const inputRef = useRef<HTMLInputElement>(null);
 
+    const { attributes, listeners, setNodeRef: setDragRef, setActivatorNodeRef, isDragging } = useDraggable({
+        id, disabled: !draggable || renaming,
+        data: { shelf, title }, attributes: { roleDescription: "draggable session" },
+    });
+    const { setNodeRef: setDropRef } = useDroppable({
+        id: `row:${id}`, disabled: !draggable || !isDropShelf(shelf), data: { shelf },
+    });
+    const rowRef = useCallback((node: HTMLDivElement | null) => {
+        setDragRef(node);
+        setDropRef(node);
+    }, [setDragRef, setDropRef]);
+
     useEffect(() => {
         if (!renaming) return;
         inputRef.current?.focus();
@@ -368,7 +413,7 @@ function ChatRow({
     // target a row that is on screen; everything else is shared with the
     // selection menu in the header.
     const actions = buildChatLifecycleActions(
-        [{ id, title, path, pinned }],
+        [{ id, title, path, pinned, disposition }],
         { ...handlers, startRename },
     );
     const addToCollection = () => handlers.addToCollection([id]);
@@ -395,14 +440,20 @@ function ChatRow({
 
     return (
         <div
+            ref={rowRef}
             data-motion-id={id}
             data-row-variant={variant}
             className={cn(
                 "flex flex-col overflow-hidden",
+                isDragging && "opacity-40",
                 color && "bg-[color-mix(in_oklch,var(--chat-tint)_22%,transparent)] text-text-primary",
                 color && active && "bg-[color-mix(in_oklch,var(--chat-tint)_30%,transparent)]",
             )}
-            style={color ? { ["--chat-tint" as string]: CHAT_COLOR_HEX[color] } : undefined}
+            style={{
+                ...(color ? { ["--chat-tint" as string]: CHAT_COLOR_HEX[color] } : {}),
+                contentVisibility: isDragging ? "visible" : "auto",
+                containIntrinsicSize: `auto ${(variant === "card" ? 78 : 40) + (expanded ? nestedCount * 32 : 0)}px`,
+            }}
         >
             <ContextMenu>
                 <ContextMenuTrigger asChild>
@@ -423,6 +474,7 @@ function ChatRow({
                                 onChange={(e) => setDraft(e.target.value)}
                                 onBlur={commitRename}
                                 onKeyDown={(e) => {
+                                    if (e.nativeEvent.isComposing) return;
                                     if (e.key === "Enter") {
                                         e.preventDefault();
                                         commitRename();
@@ -438,8 +490,32 @@ function ChatRow({
                             />
                         ) : (
                             <>
+                                    <span
+                                        className={cn(
+                                            "grid shrink-0 transition-[grid-template-columns,opacity,margin] duration-200 ease-[var(--ease-out)]",
+                                            selecting ? "mr-1 grid-cols-[14px] opacity-100" : "grid-cols-[0px] opacity-0",
+                                        )}
+                                    >
+                                        <span className="overflow-hidden">
+                                            {selecting ? <Checkmark
+                                                checked={selected}
+                                                onCheckedChange={() => onToggleSelect?.()}
+                                            /> : null}
+                                        </span>
+                                    </span>
                                 <button
                                     type="button"
+                                    ref={setActivatorNodeRef}
+                                    {...(draggable ? attributes : {})}
+                                    {...(draggable ? listeners : {})}
+                                    onPointerDown={(event) => {
+                                        if (!draggable || event.ctrlKey || event.metaKey) return;
+                                        listeners?.onPointerDown?.(event);
+                                    }}
+                                    onKeyDown={(event) => {
+                                        if (!draggable || event.nativeEvent.isComposing || event.ctrlKey || event.metaKey || event.altKey) return;
+                                        listeners?.onKeyDown?.(event);
+                                    }}
                                     onClick={(event) => {
                                         if (event.ctrlKey || event.metaKey) {
                                             onToggleSelect?.();
@@ -449,19 +525,6 @@ function ChatRow({
                                     }}
                                     className="flex min-w-0 flex-1 items-center gap-2 text-left"
                                 >
-                                    <span
-                                        className={cn(
-                                            "grid shrink-0 transition-[grid-template-columns,opacity,margin] duration-200 ease-[var(--ease-out)]",
-                                            selecting ? "mr-1 grid-cols-[14px] opacity-100" : "grid-cols-[0px] opacity-0",
-                                        )}
-                                    >
-                                        <span className="overflow-hidden">
-                                            <Checkmark
-                                                checked={selected}
-                                                onCheckedChange={() => onToggleSelect?.()}
-                                            />
-                                        </span>
-                                    </span>
                                     <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                                         <span
                                             className="block min-w-0 overflow-hidden whitespace-nowrap text-sm font-normal text-text-primary"
@@ -487,9 +550,15 @@ function ChatRow({
                                     </span>
                                 </button>
                                 <span className="flex shrink-0 items-center gap-1">
-                                    {generating ? (
-                                        <Eclipse size={12} className="text-text-muted" aria-hidden />
-                                    ) : null}
+                                    {activity && activity !== "ready" ? (
+                                        <span
+                                            title={CHAT_ACTIVITY_LABELS[activity]}
+                                            aria-label={CHAT_ACTIVITY_LABELS[activity]}
+                                            className={cn("flex items-center text-2xs", activity === "approval" || activity === "input" ? "text-warning" : activity === "failed" || activity === "limited" ? "text-error" : "text-text-muted")}
+                                        >
+                                            {activity === "working" ? <Eclipse size={12} aria-hidden /> : CHAT_ACTIVITY_LABELS[activity]}
+                                        </span>
+                                    ) : generating ? <Eclipse size={12} className="text-text-muted" aria-label="Working" /> : null}
                                     {unread ? (
                                         <span className="size-2 shrink-0 rounded-full bg-accent" aria-label="Unread" />
                                     ) : null}
@@ -645,20 +714,27 @@ function ShelfHeader({
     count,
     open,
     onToggle,
+    dragging,
 }: {
+    dragging: boolean;
     shelf: ChatShelfId;
     label: string;
     count: number;
     open: boolean;
     onToggle: (shelf: ChatShelfId) => void;
 }) {
+    const { setNodeRef, isOver } = useDroppable({
+        id: `shelf:${shelf}`, disabled: !dragging || !isDropShelf(shelf), data: { shelf },
+    });
     return (
         <button
             type="button"
+            ref={setNodeRef}
             data-shelf-header={shelf}
+            data-drop-shelf={dragging && isDropShelf(shelf) ? shelf : undefined}
             aria-expanded={open}
-            onClick={() => onToggle(shelf)}
-            className="flex h-6 w-full items-center gap-1 rounded-md pr-2 pl-1 text-xs font-medium text-text-muted transition-colors duration-[var(--transition-fast)] ease-[var(--ease-out)] hover:bg-panel-hover hover:text-text-secondary"
+            onClick={() => { if (!dragging) onToggle(shelf); }}
+            className={cn("flex h-6 w-full items-center gap-1 rounded-md pr-2 pl-1 text-xs font-medium text-text-muted transition-colors duration-[var(--transition-fast)] ease-[var(--ease-out)] hover:bg-panel-hover hover:text-text-secondary", isOver && "bg-panel-active text-text-primary")}
         >
             <Icon
                 icon={ChevronDown20Regular}
@@ -668,7 +744,9 @@ function ShelfHeader({
                 )}
             />
             <span className="min-w-0 flex-1 truncate text-left">{label}</span>
-            <span className="shrink-0 tabular-nums text-text-disabled">{count}</span>
+            {dragging && isDropShelf(shelf) ? (
+                <span className="rounded-full bg-panel-hover px-1.5 py-px text-2xs text-text-secondary">{DROP_VERBS[shelf]}</span>
+            ) : <span className="shrink-0 tabular-nums text-text-disabled">{count}</span>}
         </button>
     );
 }
@@ -678,21 +756,56 @@ export function ChatShelves({
     rowProps,
     collapsed,
     onToggleShelf,
+    onMoveChat,
+    grouping = "none",
+    collections = [],
 }: {
+    grouping?: ChatGrouping;
+    collections?: readonly ChatCollection[];
+    onMoveChat?: (id: string, shelf: DropShelf) => void;
     sections: readonly ChatShelfSection[];
     rowProps: (chat: Conversation) => Omit<ChatShelfRowProps, "variant">;
     collapsed: ReadonlySet<ChatShelfId>;
     onToggleShelf: (shelf: ChatShelfId) => void;
 }) {
-    const { containerRef, trackRender } = useFlipMotion<HTMLDivElement>();
+    const [dragged, setDragged] = useState<{ id: string; title: string } | null>(null);
+    const [overShelf, setOverShelf] = useState<DropShelf | null>(null);
+    const sensors = useSensors(
+        useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+        useSensor(KeyboardSensor, {
+            coordinateGetter: shelfKeyboardCoordinates,
+            keyboardCodes: { start: ["Space"], end: ["Space", "Enter"], cancel: ["Escape", "Tab"] },
+        }),
+    );
+    const { containerRef, trackRender } = useFlipMotion<HTMLDivElement>({ enabled: !dragged });
 
     useLayoutEffect(() => {
         trackRender();
     });
 
-    const children = useMemo(() => buildShelfChildren(sections, collapsed), [sections, collapsed]);
+    const children = useMemo(() => {
+        const shown = dragged ? CHAT_SHELVES.map((spec) => sections.find((section) => section.id === spec.id) ?? { ...spec, chats: [] }) : sections;
+        return buildShelfChildren(shown, collapsed, grouping, collections);
+    }, [sections, collapsed, dragged, grouping, collections]);
 
     return (
+        <DndContext
+            sensors={sensors}
+            collisionDetection={shelfCollision}
+            accessibility={{ screenReaderInstructions: { draggable: "Press Space to move this session. Use Up and Down to choose a shelf, Space or Enter to drop, and Escape to cancel." } }}
+            onDragStart={({ active }) => {
+                const chat = sections.flatMap((section) => section.chats).find((chat) => chat.id === active.id);
+                if (chat) setDragged({ id: chat.id, title: chat.title || "Untitled" });
+            }}
+            onDragOver={({ over }) => setOverShelf(isDropShelf(over?.data.current?.shelf) ? over.data.current.shelf : null)}
+            onDragCancel={() => { setDragged(null); setOverShelf(null); }}
+            onDragEnd={({ active, over }) => {
+                const shelf = over?.data.current?.shelf;
+                setDragged(null);
+                setOverShelf(null);
+                if (isDropShelf(shelf)) onMoveChat?.(String(active.id), shelf);
+            }}
+        >
         <div ref={containerRef} data-chat-shelves="" className="space-y-0.5">
             {children.map((child) =>
                 child.kind === "header" ? (
@@ -703,16 +816,33 @@ export function ChatShelves({
                         count={child.count}
                         open={child.open}
                         onToggle={onToggleShelf}
+                        dragging={dragged !== null}
                     />
+                ) : child.kind === "group" ? (
+                    <div key={child.key} data-chat-group={child.key} title={child.detail} className="flex h-6 items-center gap-1 px-2 text-xs text-text-muted">
+                        <span className="min-w-0 flex-1 truncate">{child.label}</span>
+                        <span className="tabular-nums text-text-disabled">{child.count}</span>
+                    </div>
                 ) : (
                     <ChatRow
                         key={child.key}
                         id={child.chat.id}
                         variant={child.variant}
                         {...rowProps(child.chat)}
+                        shelf={child.shelf}
+                        draggable={Boolean(onMoveChat)}
                     />
                 ),
             )}
         </div>
+        <DragOverlay dropAnimation={null}>
+            {dragged ? (
+                <div data-chat-drag-preview="" className="flex h-10 items-center gap-2 rounded-lg border border-border-subtle bg-panel px-2 text-sm text-text-primary shadow-lg">
+                    <span className="min-w-0 flex-1 truncate">{dragged.title}</span>
+                    {overShelf ? <span className="rounded-full bg-panel-hover px-1.5 py-px text-2xs text-text-secondary">{DROP_VERBS[overShelf]}</span> : null}
+                </div>
+            ) : null}
+        </DragOverlay>
+        </DndContext>
     );
 }

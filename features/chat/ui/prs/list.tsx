@@ -80,6 +80,8 @@ export function PullRequestsList({
         const shown: PrItem[] = [];
         const bodyMatched = new Set<string>();
         for (const item of applyPrOverrides(items)) {
+            if (state === "open" && item.status !== "open") continue;
+            if (state === "closed" && item.status !== "closed" && item.status !== "merged") continue;
             const match = matchPrQuery(item, parsed);
             if (!match.matched) continue;
             if (match.matchedInBody) bodyMatched.add(item.id);
@@ -87,7 +89,7 @@ export function PullRequestsList({
         }
         return { shown: sortPrItems(shown, sort), bodyMatched };
         // overrideVersion re-runs this when a pending override lands or expires.
-    }, [items, parsed, sort, overrideVersion]);
+    }, [items, parsed, sort, state, overrideVersion]);
 
     return (
         <div className="flex h-full min-h-0 flex-col bg-panel">
@@ -155,6 +157,9 @@ export function PullRequestsList({
                     <Icon icon={ArrowSync20Regular} />
                 </button>
             </div>
+            {error && items.length > 0 ? (
+                <p role="status" className="mx-3 mb-2 text-2xs text-text-muted">Refresh failed: {error}. Showing the last loaded data.</p>
+            ) : null}
             {ignored.length > 0 ? (
                 <p className="mx-3 mb-2 flex items-start gap-1.5 text-2xs leading-snug text-text-muted">
                     <Icon icon={Info20Regular} className="mt-px shrink-0" />

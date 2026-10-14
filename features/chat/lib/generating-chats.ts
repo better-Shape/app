@@ -2,7 +2,8 @@
 
 import { useEffect, useSyncExternalStore } from "react";
 
-const generatingIds = new Set<string>();
+const EMPTY_IDS: ReadonlySet<string> = new Set();
+let generatingIds: ReadonlySet<string> = EMPTY_IDS;
 const listeners = new Set<() => void>();
 
 function emit() {
@@ -13,9 +14,11 @@ function emit() {
 export function setChatGenerating(chatId: string | null | undefined, generating: boolean) {
     if (!chatId) return;
     const before = generatingIds.has(chatId);
-    if (generating) generatingIds.add(chatId);
-    else generatingIds.delete(chatId);
-    if (before !== generatingIds.has(chatId)) {
+    if (before !== generating) {
+        const next = new Set(generatingIds);
+        if (generating) next.add(chatId);
+        else next.delete(chatId);
+        generatingIds = next.size ? next : EMPTY_IDS;
         emit();
         window.dispatchEvent(
             new CustomEvent("bettershape-chat-generating", {
@@ -26,7 +29,7 @@ export function setChatGenerating(chatId: string | null | undefined, generating:
 }
 
 export function resetGeneratingChatsForTests() {
-    generatingIds.clear();
+    generatingIds = EMPTY_IDS;
     emit();
 }
 
@@ -46,7 +49,7 @@ export function useGeneratingChatIds(): ReadonlySet<string> {
     return useSyncExternalStore(
         subscribe,
         getSnapshot,
-        () => generatingIds,
+        () => EMPTY_IDS,
     );
 }
 

@@ -55,7 +55,8 @@ vi.mock("@/lib/backend", () => ({
 }));
 
 import { ChatStreamProvider, useChatStream } from "@/features/chat/lib/chat-stream-store";
-import { resetGeneratingChatsForTests } from "@/features/chat/lib/generating-chats";
+import { getChatActivities, resetChatActivitiesForTests } from "@/features/chat/lib/chat-activity";
+import { isChatGenerating, resetGeneratingChatsForTests } from "@/features/chat/lib/generating-chats";
 
 type Api = ReturnType<typeof useChatStream>;
 
@@ -120,6 +121,7 @@ beforeEach(() => {
     backend.messageRequests = [];
     events.handlers.clear();
     resetGeneratingChatsForTests();
+    resetChatActivitiesForTests();
     host = document.createElement("div");
     document.body.appendChild(host);
     root = createRoot(host);
@@ -242,5 +244,59 @@ describe("a chat that runs in the background stays in the background", () => {
         // The draft's own turn then binds to its new id.
         emit("chat_started", { conversationId: "N2", turnId: "t-2", requestId: "r-draft" });
         expect(api.getDraftConversationId()).toBe("N2");
+    });
+});
+
+
+describe("runtime event ownership", () => {
+    it("does not attribute unscoped or unknown status events to the viewed chat when two turns run", async () => {
+        await mount(null);
+        emit("chat_started", { conversationId: "A", turnId: "t-a" });
+        emit("chat_started", { conversationId: "B", turnId: "t-b" });
+        act(() => { api.showConversation("A"); });
+        emit("chat_status", { phase: "approval" });
+        emit("chat_status", { conversationId: "missing", phase: "approval" });
+        expect(api.turnPhase).toBe("thinking");
+        emit("chat_status", { conversationId: "B", phase: "approval" });
+        expect(api.turnPhase).toBe("thinking");
+        expect(getChatActivities().get("B")).toBe("approval");
+    });
+
+    it("keeps a newer turn alive when old tokens and completion arrive late", async () => {
+        await mount(null);
+        emit("chat_started", { conversationId: "A", turnId: "old" });
+        emit("chat_started", { conversationId: "A", turnId: "new" });
+        act(() => { api.showConversation("A"); });
+        emit("chat_token", { conversationId: "A", turnId: "old", chunk: "obsolete" });
+        emit("chat_complete", { conversationId: "A", turnId: "old", error: "Old failure" });
+        expect(api.isLoading).toBe(true);
+        expect(api.turnId).toBe("new");
+        expect(isChatGenerating("A")).toBe(true);
+        expect(api.messages.some((message) => message.content.includes("obsolete"))).toBe(false);
+        emit("chat_complete", { conversationId: "A", turnId: "new", error: "429 rate limit" });
+        expect(getChatActivities().get("A")).toBe("limited");
+        expect(api.isLoading).toBe(false);
+    });
+
+    it("does not let a background token steal a pending draft before chat_started", async () => {
+        await mount(null);
+        act(() => { api.appendUserOptimistic("draft", null, "draft-request"); });
+        emit("chat_token", { conversationId: "B", turnId: "background", chunk: "background words" });
+        expect(api.getDraftConversationId()).toBeNull();
+        expect(api.messages.map((message) => message.content)).toEqual(["draft", ""]);
+        emit("chat_started", { conversationId: "New", turnId: "draft-turn", requestId: "draft-request" });
+        expect(api.getDraftConversationId()).toBe("New");
+        expect(api.messages.map((message) => message.content)).toEqual(["draft", ""]);
+    });
+
+    it("distinguishes input and background waiting using actual runtime phases", async () => {
+        await mount(null);
+        emit("chat_started", { conversationId: "A", turnId: "t-a" });
+        emit("agent-ask-pending", { id: "question" });
+        expect(getChatActivities().get("A")).toBe("input");
+        emit("chat_status", { phase: "tool", tool: "wait" });
+        expect(getChatActivities().get("A")).toBe("waiting");
+        emit("chat_complete", { conversationId: "A", turnId: "t-a", error: "Cancelled" });
+        expect(getChatActivities().has("A")).toBe(false);
     });
 });

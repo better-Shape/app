@@ -13,14 +13,12 @@ type NavigatorWithUAData = Navigator & { userAgentData?: { platform?: string } |
 
 /**
  * Raw platform signals, most authoritative first: `userAgentData.platform`
- * (Chromium), the deprecated-but-universal `navigator.platform`, then the UA
- * string. Empty while prerendering, where `navigator` does not exist.
+ * (Chromium), then the UA string used by WebKit and Firefox. Empty while prerendering, where `navigator` does not exist.
  */
 function platformSignals(): string[] {
     if (typeof navigator === "undefined") return [];
     const signals = [
         (navigator as NavigatorWithUAData).userAgentData?.platform,
-        navigator.platform,
         navigator.userAgent,
     ];
     return signals.filter((value): value is string => typeof value === "string" && value !== "");

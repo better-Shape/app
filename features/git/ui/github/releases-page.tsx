@@ -1,5 +1,6 @@
 "use client";
 
+import { parseGitHubRemote } from "@/lib/github/remote";
 import { ArrowSync20Regular } from "@fluentui/react-icons/headless/svg/arrow-sync";
 import { Open20Regular } from "@fluentui/react-icons/headless/svg/open";
 import { Tag20Regular } from "@fluentui/react-icons/headless/svg/tag";
@@ -41,13 +42,7 @@ async function resolveOwnerRepo(
 ): Promise<{ owner: string; repo: string } | null> {
     if (!projectPath) return null;
     try {
-        const remote = await commands.gitRemoteUrl(projectPath);
-        if (!remote) return null;
-        const m =
-            remote.match(/github\.com[:/](.+?)\/(.+?)(?:\.git)?$/i) ||
-            remote.match(/[:/]([^/]+)\/([^/]+?)(?:\.git)?$/);
-        if (!m) return null;
-        return { owner: m[1], repo: m[2].replace(/\.git$/, "") };
+        return parseGitHubRemote(await commands.gitRemoteUrl(projectPath));
     } catch {
         return null;
     }

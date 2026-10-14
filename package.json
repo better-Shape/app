@@ -18,7 +18,7 @@
     "test:watch": "vitest",
     "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
     "test:all": "npm run test && npm run test:rust",
-    "ci": "(npm run lint || echo \"::warning:: lint has baseline errors (91) - tracking as tech debt\") && npm run typecheck && npm run test:all",
+    "ci": "npm run lint && npm run typecheck && npm run test:all",
     "ci:strict": "npm run lint:strict && npm run typecheck && npm run test:all",
     "docs:index": "node scripts/build/docs-index.mjs",
   "skills:verify": "node scripts/ci/verify-skills.mjs",
@@ -142,5 +142,8 @@
     "@babel/core": "7.29.7",
     "@humanfs/node": "0.16.8",
     "baseline-browser-mapping": "2.11.28"
+  },
+  "engines": {
+    "node": "^22.13.0 || >=24.0.0"
   }
 }

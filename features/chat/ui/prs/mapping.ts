@@ -8,6 +8,7 @@ export type PrMergeable = "mergeable" | "conflicting" | "unknown";
 
 export type PrItem = {
     id: string;
+    nodeId?: string;
     number: number;
     title: string;
     url?: string;
@@ -90,6 +91,9 @@ export function mapPullRow(raw: unknown, repo: string): PrItem {
 
     return {
         id: String(row.id ?? row.number),
+        nodeId: typeof row.node_id === "string" ? row.node_id : undefined,
+        additions: typeof row.additions === "number" ? row.additions : undefined,
+        deletions: typeof row.deletions === "number" ? row.deletions : undefined,
         number: Number.isFinite(number) ? number : 0,
         title: String(row.title ?? `#${row.number ?? ""}`),
         url: typeof row.html_url === "string" ? row.html_url : undefined,

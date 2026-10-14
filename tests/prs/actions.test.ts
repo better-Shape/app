@@ -1,0 +1,76 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { PrItem } from "@/features/chat/ui/prs/mapping";
+const { request, success, error } = vi.hoisted(() => ({ request: vi.fn(), success: vi.fn(), error: vi.fn() }));
+vi.mock("@/lib/backend", () => ({ commands: { githubApiRequest: request } }));
+vi.mock("@/features/notifications", () => ({ notify: { success, error } }));
+import { runPrAction } from "@/features/chat/ui/prs/actions";
+import { applyPrOverride, clearPrOverride, readPrOverride } from "@/features/chat/ui/prs/overrides";
+const item: PrItem = { id: "1", nodeId: "PR_node", number: 7, repo: "owner/repo", title: "Change", status: "open", headSha: "abc", updated: "", labels: [] };
+beforeEach(() => vi.clearAllMocks());
+afterEach(() => clearPrOverride(item.id));
+
+describe("PR actions", () => {
+    it("marks drafts ready using the GraphQL node ID", async () => {
+        request.mockResolvedValue(JSON.stringify({ data: { markPullRequestReadyForReview: { pullRequest: { isDraft: false } } } }));
+        expect(await runPrAction({ ...item, draft: true }, "ready", item.repo)).toBe(true);
+        const [method, path, body] = request.mock.calls[0];
+        expect([method, path]).toEqual(["POST", "/graphql"]);
+        expect(JSON.parse(body)).toMatchObject({ variables: { id: "PR_node" } });
+        expect(readPrOverride(item.id)?.draft).toBe(false);
+    });
+
+    it("rolls back GraphQL errors even with a successful transport", async () => {
+        request.mockResolvedValue({ errors: [{ message: "Insufficient permission" }] });
+        expect(await runPrAction({ ...item, draft: true }, "ready", item.repo)).toBe(false);
+        expect(readPrOverride(item.id)).toBeNull();
+        expect(error).toHaveBeenCalledWith("Insufficient permission");
+        expect(success).not.toHaveBeenCalled();
+    });
+
+    it("guards merges against a changed head and checks merged:false", async () => {
+        request.mockResolvedValue({ merged: false, message: "Head changed" });
+        expect(await runPrAction(item, "merge", item.repo)).toBe(false);
+        expect(JSON.parse(request.mock.calls[0][2])).toEqual({ merge_method: "merge", sha: "abc" });
+        expect(readPrOverride(item.id)).toBeNull();
+        expect(success).not.toHaveBeenCalled();
+    });
+
+    it("accepts a confirmed merge", async () => {
+        request.mockResolvedValue({ merged: true });
+        expect(await runPrAction(item, "merge", item.repo)).toBe(true);
+        expect(readPrOverride(item.id)?.status).toBe("merged");
+    });
+
+    it("does not send requests against the wrong repo or without required IDs", async () => {
+        expect(await runPrAction(item, "close", "other/repo")).toBe(false);
+        expect(await runPrAction({ ...item, headSha: undefined }, "merge", item.repo)).toBe(false);
+        expect(await runPrAction({ ...item, nodeId: undefined, draft: true }, "ready", item.repo)).toBe(false);
+        expect(request).not.toHaveBeenCalled();
+    });
+
+    it("locks a PR across separate action surfaces until completion", async () => {
+        let resolve!: (value: unknown) => void;
+        request.mockImplementationOnce(() => new Promise((r) => { resolve = r; }));
+        const first = runPrAction(item, "close", item.repo);
+        expect(await runPrAction(item, "merge", item.repo)).toBe(false);
+        expect(request).toHaveBeenCalledTimes(1);
+        resolve({ state: "closed" });
+        expect(await first).toBe(true);
+    });
+});
+
+
+it("preserves a confirmed earlier patch when a later action fails", async () => {
+    applyPrOverride(item.id, { draft: false });
+    request.mockRejectedValue(new Error("Offline"));
+    expect(await runPrAction(item, "close", item.repo)).toBe(false);
+    expect(readPrOverride(item.id)?.draft).toBe(false);
+    expect(readPrOverride(item.id)?.status).toBeUndefined();
+});
+
+it("does not report an unconfirmed REST state change as a success", async () => {
+    request.mockResolvedValue({ state: "open" });
+    expect(await runPrAction(item, "close", item.repo)).toBe(false);
+    expect(success).not.toHaveBeenCalled();
+    expect(readPrOverride(item.id)).toBeNull();
+});

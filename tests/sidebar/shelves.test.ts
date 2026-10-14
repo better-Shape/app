@@ -71,8 +71,16 @@ describe("shelf precedence", () => {
             "pinned",
             "working",
             "active",
+            "snoozed",
             "settled",
         ]);
+    });
+
+    it("honours snooze/settle intent without hiding a running session", () => {
+        expect(shelfOf({ pinned: true, generating: false, active: true, disposition: "snoozed" })).toBe("snoozed");
+        expect(shelfOf({ pinned: false, generating: true, active: false, disposition: "snoozed" })).toBe("working");
+        expect(shelfOf({ pinned: true, generating: false, active: true, disposition: "settled" })).toBe("settled");
+        expect(shelfOf({ pinned: false, generating: false, active: false, disposition: "active" })).toBe("active");
     });
 });
 

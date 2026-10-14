@@ -3,6 +3,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Conversation } from "@/lib/backend/types";
 import { getPinnedChatIds, setChatPinned } from "@/lib/sidebar/chat-list-meta";
+import { getChatDispositions, setChatDisposition } from "@/lib/sidebar/chat-disposition";
 import { resetChatUndoForTests } from "@/features/agent/sidebar/undo";
 import {
     installAnimationStub,
@@ -128,6 +129,7 @@ function pressUndoOn(target: EventTarget) {
 }
 
 function clearPins() {
+    for (const id of Object.keys(getChatDispositions())) setChatDisposition(id, undefined);
     for (const id of ["a", "b", "c", "d"]) setChatPinned(id, false);
     resetChatUndoForTests();
 }
@@ -347,4 +349,101 @@ describe("sectioned session list", () => {
         expect(getPinnedChatIds().has("c")).toBe(false);
         expect(rowOrder()).toEqual(["d", "a", "c", "b"]);
     });
+});
+
+it("moves snoozed rows through the existing animated shelf layout", () => {
+    const before = animation.calls.length;
+    act(() => setChatDisposition("c", { state: "snoozed", until: Date.now() + 60_000 }));
+    expect(shelfHeaders().map((header) => header.getAttribute("data-shelf-header"))).toEqual(["snoozed", "settled"]);
+    expect(rowOrder()).toEqual(["c", "d", "a", "b"]);
+    expect(animation.calls.slice(before).some((call) => call.element === row("c"))).toBe(true);
+});
+
+it("jumps in visible shelf order and ignores composition and editable fields", () => {
+    const opened = vi.fn();
+    window.addEventListener("bettershape-chat-load", opened);
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    try {
+        clickPin("c");
+        act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "1", ctrlKey: true, bubbles: true })));
+        expect(opened.mock.calls[0][0].detail.id).toBe("c");
+        act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "2", ctrlKey: true, isComposing: true, bubbles: true })));
+        act(() => input.dispatchEvent(new KeyboardEvent("keydown", { key: "2", ctrlKey: true, bubbles: true })));
+        expect(opened).toHaveBeenCalledTimes(1);
+        act(() => host.querySelector<HTMLElement>('[data-shelf-header="pinned"]')?.click());
+        act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "1", ctrlKey: true, bubbles: true })));
+        expect(opened.mock.calls[1][0].detail.id).toBe("d");
+    } finally { window.removeEventListener("bettershape-chat-load", opened); input.remove(); }
+});
+
+it("supports real keyboard dragging to an empty shelf with undo", async () => {
+    const original = Element.prototype.getBoundingClientRect;
+    const scrollBy = HTMLElement.prototype.scrollBy;
+    const scrollTo = HTMLElement.prototype.scrollTo;
+    // This finite test layout has no overflow; jsdom omits the browser scroll APIs.
+    HTMLElement.prototype.scrollBy = () => {};
+    HTMLElement.prototype.scrollTo = () => {};
+    Element.prototype.getBoundingClientRect = function () {
+        if (this.hasAttribute("data-chat-drag-preview")) {
+            return domRect(Number.parseFloat((this.parentElement as HTMLElement).style.top) || 0, 40);
+        }
+        const parent = this.closest("[data-chat-shelves]");
+        if (!parent) return original.call(this);
+        const children = [...parent.children] as HTMLElement[];
+        const index = children.indexOf(this as HTMLElement);
+        if (index < 0) return original.call(this);
+        const top = children.slice(0, index).reduce((sum, node) => sum + (node.hasAttribute("data-shelf-header") ? 24 : 40), 0);
+        return domRect(top, this.hasAttribute("data-shelf-header") ? 24 : 40);
+    };
+    try {
+        const button = row("a").querySelector<HTMLButtonElement>('[aria-roledescription="draggable session"]')!;
+        expect(button).not.toBeNull();
+        await act(async () => {
+            button.focus();
+            button.dispatchEvent(new KeyboardEvent("keydown", { key: " ", code: "Space", bubbles: true, cancelable: true }));
+            await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+        expect(host.querySelectorAll("[data-drop-shelf]")).toHaveLength(4);
+        expect(host.querySelector('[data-drop-shelf="snoozed"]')?.textContent).toContain("Snooze");
+        await act(async () => {
+            document.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", code: "ArrowUp", bubbles: true, cancelable: true }));
+        });
+        await act(async () => {
+            document.dispatchEvent(new KeyboardEvent("keydown", { key: " ", code: "Space", bubbles: true, cancelable: true }));
+        });
+        expect(getChatDispositions()["a"]?.state).toBe("snoozed");
+        expect(host.querySelector("[data-chat-undo]")?.textContent).toContain("Snoozed");
+        pressUndoOn(window);
+        expect(getChatDispositions()["a"]).toBeUndefined();
+    } finally {
+        Element.prototype.getBoundingClientRect = original;
+        HTMLElement.prototype.scrollBy = scrollBy;
+        HTMLElement.prototype.scrollTo = scrollTo;
+    }
+});
+
+it("filters sessions only after IME composition ends and does not open on composing Enter", async () => {
+    const opened = vi.fn();
+    window.addEventListener("bettershape-chat-load", opened);
+    try {
+        act(() => host.querySelector<HTMLButtonElement>('button[aria-label="Search"]')?.click());
+        const input = host.querySelector<HTMLInputElement>('input[aria-label="Search sessions"]')!;
+        expect(document.activeElement).toBe(input);
+        act(() => input.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true })));
+        act(() => {
+            Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "Alpha");
+            input.dispatchEvent(new Event("input", { bubbles: true }));
+        });
+        expect(rowOrder()).toEqual(["d", "a", "c", "b"]);
+        act(() => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", isComposing: true, bubbles: true })));
+        expect(opened).not.toHaveBeenCalled();
+        act(() => input.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true, data: "Alpha" })));
+        expect(rowOrder()).toEqual(["a"]);
+        act(() => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true })));
+        expect(opened.mock.calls[0][0].detail.id).toBe("a");
+        act(() => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true })));
+        expect(host.querySelector('input[aria-label="Search sessions"]')).toBeNull();
+        expect(rowOrder()).toEqual(["d", "a", "c", "b"]);
+    } finally { window.removeEventListener("bettershape-chat-load", opened); }
 });

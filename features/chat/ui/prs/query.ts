@@ -72,7 +72,18 @@ function tokenize(input: string): string[] {
     const tokens: string[] = [];
     let current = "";
     let inQuote = false;
+    let escaped = false;
     for (const char of input) {
+        if (escaped) {
+            current += char;
+            escaped = false;
+            continue;
+        }
+        if (char === "\\" && inQuote) {
+            current += char;
+            escaped = true;
+            continue;
+        }
         if (char === '"') {
             inQuote = !inQuote;
             current += char;
@@ -92,8 +103,14 @@ function tokenize(input: string): string[] {
 /** An unterminated quote means the token was never a qualifier. */
 function quotesBalanced(token: string): boolean {
     let open = false;
+    let escaped = false;
     for (const char of token) {
-        if (char === '"') open = !open;
+        if (escaped) {
+            escaped = false;
+            continue;
+        }
+        if (char === "\\" && open) escaped = true;
+        else if (char === '"') open = !open;
     }
     return !open;
 }
@@ -107,7 +124,7 @@ function unquote(raw: string): string {
 }
 
 function quoteIfNeeded(value: string): string {
-    return /^[\w.+-]+$/.test(value) ? value : `"${value.replace(/"/g, '\\"')}"`;
+    return /^(?!-)[\w.+-]+$/.test(value) ? value : JSON.stringify(value);
 }
 
 function normalizeField(key: string): PrClauseField | null {
@@ -181,7 +198,7 @@ export function parsePrQuery(input: string): PrQuery {
                 // Repos namespace labels with colons, so an unrecognised key is a
                 // label that happens to contain one, not a mistake. Quoting the
                 // whole token (`"size:XXL"`) is the way back to literal text.
-                if (normalizeField(key) === null && value) {
+                if (key !== "is" && normalizeField(key) === null && value) {
                     clauses.push({ field: "label", value: `${key}:${value}`, negated });
                     continue;
                 }
@@ -293,7 +310,8 @@ function clauseMatches(item: PrSearchableItem, clause: PrClause): boolean | null
         case "draft": {
             const wantsDraft = clause.value === "true";
             const has = Boolean(item.draft);
-            return clause.negated ? !has : has === wantsDraft;
+            const matches = has === wantsDraft;
+            return clause.negated ? !matches : matches;
         }
         case "status": {
             if (clause.value === "all") return true;

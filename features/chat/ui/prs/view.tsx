@@ -1,5 +1,6 @@
 "use client";
 
+import { parseGitHubRemote } from "@/lib/github/remote";
 import { ArrowLeft20Regular } from "@fluentui/react-icons/headless/svg/arrow-left";
 import { ArrowSync20Regular } from "@fluentui/react-icons/headless/svg/arrow-sync";
 import { Chat20Filled } from "@fluentui/react-icons/headless/svg/chat";
@@ -9,7 +10,7 @@ import { Open20Regular } from "@fluentui/react-icons/headless/svg/open";
 
 
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "@/components/ui/icon";
 
 
@@ -51,13 +52,7 @@ type PrReviewer = { login: string; avatar?: string };
 async function resolveOwnerRepo(projectPath: string | null) {
     if (!projectPath) return null;
     try {
-        const remote = await commands.gitRemoteUrl(projectPath);
-        if (!remote) return null;
-        const m =
-            remote.match(/github\.com[:/](.+?)\/(.+?)(?:\.git)?$/i) ||
-            remote.match(/[:/]([^/]+)\/([^/]+?)(?:\.git)?$/);
-        if (!m) return null;
-        return { owner: m[1]!, repo: m[2]!.replace(/\.git$/, "") };
+        return parseGitHubRemote(await commands.gitRemoteUrl(projectPath));
     } catch {
         return null;
     }
@@ -81,11 +76,22 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
     const [commentCount, setCommentCount] = useState(0);
     const [checkingOut, setCheckingOut] = useState(false);
 
-    const load = useCallback(async () => {
+    const loadVersion = useRef(0);
+    const loadBusy = useRef(false);
+    const [detailRevision, setDetailRevision] = useState(0);
+    const load = useCallback(async (background = false) => {
+        if (background && loadBusy.current) return;
+        const version = ++loadVersion.current;
+        loadBusy.current = true;
+        if (!background) {
+            setItems([]);
+            setRepo(null);
+        }
         setLoading(true);
         setError(null);
         try {
             const resolved = await resolveOwnerRepo(project_path);
+            if (version !== loadVersion.current) return;
             setRepo(resolved);
             if (!resolved) {
                 setItems([]);
@@ -100,19 +106,32 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
             const raw = await commands.githubApiGet(
                 `/repos/${resolved.owner}/${resolved.repo}/pulls?state=${state}&sort=${apiSortParam(sort)}&direction=desc&per_page=50`,
             );
+            if (version !== loadVersion.current) return;
             const mapped = mapPullRows(parseJson(raw), `${resolved.owner}/${resolved.repo}`);
             settlePrOverrides(mapped);
             setItems(mapped);
+            setDetailRevision((revision) => revision + 1);
         } catch (e) {
-            setItems([]);
+            if (version !== loadVersion.current) return;
+            if (!background) setItems([]);
             setError(e instanceof Error ? e.message : "Could not load pull requests.");
         } finally {
-            setLoading(false);
+            if (version === loadVersion.current) {
+                loadBusy.current = false;
+                setLoading(false);
+            }
         }
     }, [auth.loggedIn, project_path, sort, state]);
 
     useEffect(() => {
         void load();
+        const refreshVisible = () => { if (!document.hidden) void load(true); };
+        const timer = window.setInterval(refreshVisible, 30_000);
+        return () => {
+            loadVersion.current += 1;
+            loadBusy.current = false;
+            window.clearInterval(timer);
+        };
     }, [load]);
 
     const onCiResolved = useCallback((id: string, ci: PrCi) => {
@@ -124,19 +143,25 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
         [items, selectedId],
     );
 
+    // Detail enrichment must not depend on the object it updates in setItems.
+    const detailId = selected?.id;
+    const detailNumber = selected?.number;
+    const detailOwner = repo?.owner;
+    const detailRepo = repo?.repo;
     useEffect(() => {
-        if (!selected || !repo) {
-            setFiles([]);
-            setReviewers([]);
-            setCommentCount(0);
+        setFiles([]);
+        setReviewers([]);
+        setCommentCount(0);
+        if (!detailId || !detailNumber || !detailOwner || !detailRepo) {
+            setFilesLoading(false);
             return;
         }
         let cancelled = false;
         setFilesLoading(true);
         void Promise.all([
-            commands.githubApiGet(`/repos/${repo.owner}/${repo.repo}/pulls/${selected.number}`),
-            commands.githubApiGet(`/repos/${repo.owner}/${repo.repo}/pulls/${selected.number}/files?per_page=100`),
-            commands.githubApiGet(`/repos/${repo.owner}/${repo.repo}/pulls/${selected.number}/reviews?per_page=50`),
+            commands.githubApiGet(`/repos/${detailOwner}/${detailRepo}/pulls/${detailNumber}`),
+            commands.githubApiGet(`/repos/${detailOwner}/${detailRepo}/pulls/${detailNumber}/files?per_page=100`),
+            commands.githubApiGet(`/repos/${detailOwner}/${detailRepo}/pulls/${detailNumber}/reviews?per_page=50`),
         ])
             .then(([detailRaw, filesRaw, reviewsRaw]) => {
                 if (cancelled) return;
@@ -165,12 +190,12 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
                     .filter((p) => p.login)
                     .filter((p, i, all) => all.findIndex((x) => x.login === p.login) === i);
                 setReviewers(merged);
-                setCommentCount(Number(detail.comments ?? selected.comments ?? 0));
+                setCommentCount(Number(detail.comments ?? 0));
                 const head = detail.head as { ref?: string; sha?: string } | undefined;
                 const base = detail.base as { ref?: string } | undefined;
                 setItems((prev) =>
                     prev.map((item) =>
-                        item.id === selected.id
+                        item.id === detailId
                             ? {
                                   ...item,
                                   additions: Number(detail.additions ?? item.additions ?? 0),
@@ -198,7 +223,7 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
         return () => {
             cancelled = true;
         };
-    }, [selected, repo]);
+    }, [detailId, detailNumber, detailOwner, detailRepo, detailRevision]);
 
     const checkout = async () => {
         if (!project_path || !selected?.headRef) {

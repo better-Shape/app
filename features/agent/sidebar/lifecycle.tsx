@@ -10,6 +10,10 @@
  * menu.
  */
 
+import type { ChatDisposition } from "@/lib/sidebar/chat-disposition";
+import { Clock20Regular } from "@fluentui/react-icons/headless/svg/clock";
+import { Checkmark20Regular } from "@fluentui/react-icons/headless/svg/checkmark";
+import { ArrowUndo20Regular } from "@fluentui/react-icons/headless/svg/arrow-undo";
 import { Fragment, type ReactNode } from "react";
 import { Copy20Regular } from "@fluentui/react-icons/headless/svg/copy";
 import { Delete20Filled } from "@fluentui/react-icons/headless/svg/delete";
@@ -27,10 +31,12 @@ export interface ChatLifecycleTarget {
     /** Project folder, used by Reveal Folder. Empty when the chat has none. */
     path: string;
     pinned: boolean;
+    disposition?: ChatDisposition["state"];
 }
 
 export interface ChatLifecycleHandlers {
     open(id: string): void;
+    setDisposition?(ids: readonly string[], state: ChatDisposition["state"]): void;
     setPinned(ids: readonly string[], pinned: boolean): void;
     /**
      * Optional. A row supplies its own so the input is guaranteed to be on screen
@@ -131,6 +137,20 @@ export function buildChatLifecycleActions(
                 run: () => handlers.revealFolder(single.path),
             });
         }
+    }
+
+    if (handlers.setDisposition) {
+        const setDisposition = handlers.setDisposition;
+        if (targets.some((target) => target.disposition !== "active")) {
+            actions.push({ key: "resume", label: plural("Resume", ids.length), icon: ArrowUndo20Regular,
+                run: () => setDisposition(ids, "active"), sep: true });
+        }
+        if (targets.some((target) => target.disposition !== "settled")) {
+            actions.push({ key: "settle", label: plural("Settle", ids.length), icon: Checkmark20Regular,
+                run: () => setDisposition(ids, "settled") });
+        }
+        actions.push({ key: "snooze", label: ids.length > 1 ? `Snooze ${ids.length} sessions for 1 hour` : "Snooze for 1 hour",
+            icon: Clock20Regular, run: () => setDisposition(ids, "snoozed") });
     }
 
     actions.push({
