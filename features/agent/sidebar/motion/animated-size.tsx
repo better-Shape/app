@@ -105,7 +105,6 @@ function defaultScheduleTimer(callback: () => void, ms: number): () => void {
 }
 
 export function createAnimatedSize(options: AnimatedSizeOptions): AnimatedSizeController {
-    const duration = options.durationMs ?? SIZE_DURATION_MS;
     const fallbackMs = options.fallbackMs ?? SIZE_FALLBACK_MS;
     const settleFrames = options.settleFrames ?? SIZE_SETTLE_FRAMES;
     const scheduleFrame = options.scheduleFrame ?? defaultScheduleFrame;

@@ -16,7 +16,7 @@ function jump(marked: string): number | null {
     if (head < 0 || marked.indexOf("|", head + 1) >= 0) {
         throw new Error(`expected exactly one | in ${JSON.stringify(marked)}`);
     }
-    const doc = marked.replace("|", "");
+    const doc = marked.slice(0, head) + marked.slice(head + 1);
     return gotoBracket(EditorState.create({ doc, selection: { anchor: head } }), head);
 }
 

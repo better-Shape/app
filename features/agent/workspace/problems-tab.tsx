@@ -126,7 +126,7 @@ export function ProblemsTab() {
             cancelled = true;
             clearTimeout(timer);
         };
-    }, [project_path, selection, active_file]);
+    }, [project_path, selection, active_file, manualRun]);
 
     useEffect(() => {
         const onFilesChanged = () => setManualRun((token) => token + 1);

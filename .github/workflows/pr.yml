@@ -9,7 +9,7 @@ permissions:
   pull-requests: read
 
 concurrency:
-  group: pr-hygiene-${{ github.head_ref || github.ref_name }}
+  group: pr-hygiene-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:

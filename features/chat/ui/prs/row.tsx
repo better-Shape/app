@@ -40,11 +40,11 @@ type PrRowProps = {
     speedMode: boolean;
     sweeping: boolean;
     sweepBusy: boolean;
-    onCloseSweepStart: (event: PointerEvent) => void;
+    onCloseSweepStart: (item: PrItem, event: PointerEvent) => void;
     /** Merge readiness reads CI, so it cannot wait for the row to scroll into view. */
     eagerStatus: boolean;
     matchedInBody: boolean;
-    onSelect: (id: string) => void;
+    onSelect: (id: string, item: PrItem) => void;
     onCi: (id: string, ci: PrCi) => void;
 };
 
@@ -94,7 +94,7 @@ function PrRowImpl({
             <button
                 type="button"
                 aria-current={selected ? "true" : undefined}
-                onClick={() => onSelect(item.id)}
+                onClick={() => onSelect(item.id, item)}
                 className={cn(
                     "flex min-w-0 flex-1 gap-2.5 rounded-lg px-2.5 py-2 text-left",
                     selected ? "bg-panel-active" : "hover:bg-panel-hover",

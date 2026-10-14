@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { runPrAction } from "./actions";
 import type { PrItem } from "./mapping";
 
@@ -21,7 +21,7 @@ export function usePrCloseSweep(list: RefObject<HTMLDivElement | null>, repo: st
         return () => { generation.current += 1; cancel.current?.(); };
     }, [repo]);
 
-    const start = (item: PrItem, rows: PrItem[], event: PointerEvent) => {
+    const start = useCallback((item: PrItem, rows: PrItem[], event: PointerEvent) => {
         if (event.button !== 0 || !event.isPrimary || event.pointerType === "touch" || running.current || item.status !== "open") return;
         cancel.current?.();
         const currentGeneration = generation.current;
@@ -92,7 +92,12 @@ export function usePrCloseSweep(list: RefObject<HTMLDivElement | null>, repo: st
         window.addEventListener("keydown", keydown);
         window.addEventListener("blur", abort);
         document.addEventListener("visibilitychange", abort);
-    };
+    }, [list, repo]);
 
-    return { selected, closing, start, suppressClick: () => Date.now() < suppressUntil.current };
+    const suppressClick = useCallback(() => {
+        const suppress = Date.now() < suppressUntil.current;
+        suppressUntil.current = 0;
+        return suppress;
+    }, []);
+    return { selected, closing, start, suppressClick };
 }

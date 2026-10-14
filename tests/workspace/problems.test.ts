@@ -464,6 +464,22 @@ describe("problems tab", () => {
         projectState.current = { project_path: null, open_files: [], active_file: null };
     });
 
+    it("reruns for the toolbar and external file-change events without changing tabs", async () => {
+        const { host, root } = mount(createElement(ProblemsTab));
+        try {
+            await waitUntil(() => calls.lint.length === 2, "initial lint");
+            const rerun = host.querySelector<HTMLButtonElement>('[aria-label="Re-run ESLint"]');
+            expect(rerun).not.toBeNull();
+            act(() => rerun?.click());
+            await waitUntil(() => calls.lint.length === 4, "toolbar rerun");
+            act(() => window.dispatchEvent(new Event("bettershape-files-changed")));
+            await waitUntil(() => calls.lint.length === 6, "external-change rerun");
+            expect(calls.lint).toEqual([A, B, A, B, A, B]);
+        } finally {
+            unmount(root, host);
+        }
+    });
+
     it("waits for the editor to settle, then lints only the JS/TS files that are open", async () => {
         const { host, root } = mount(createElement(ProblemsTab));
         try {

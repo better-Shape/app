@@ -27,10 +27,10 @@ function platformSignals(): string[] {
 function classify(signals: string[]): Platform {
     for (const signal of signals) {
         const value = signal.toLowerCase();
-        // `darwin` contains `win`, so Windows must match at a word start.
-        if (value.includes("mac") || value.includes("darwin")) return "macos";
-        if (/\bwin/.test(value)) return "windows";
-        if (value.includes("linux") || value.includes("android")) return "linux";
+        // Darwin contains "win"; match complete platform tokens instead.
+        if (/\b(?:mac|macos|macintosh|macintel|darwin)\b/.test(value)) return "macos";
+        if (/\b(?:windows|win32|win64|winarm64)\b/.test(value)) return "windows";
+        if (/\b(?:linux|android)\b/.test(value)) return "linux";
     }
     return "unknown";
 }

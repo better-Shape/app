@@ -3,7 +3,7 @@ import { load } from "js-yaml";
 import { expect, it } from "vitest";
 
 type Step = { env?: Record<string, string>; "timeout-minutes"?: number; name?: string; run?: string; if?: string; uses?: string; with?: { path?: string } };
-type Workflow = { jobs: Record<string, { steps?: Step[] }> };
+type Workflow = { concurrency?: { group?: string }; jobs: Record<string, { steps?: Step[] }> };
 const workflow = (name: string) => load(readFileSync(`.github/workflows/${name}.yml`, "utf8")) as Workflow;
 const steps = (name: string) => Object.values(workflow(name).jobs).flatMap((job) => job.steps ?? []);
 
@@ -55,4 +55,11 @@ it("keeps dispatch tag input out of generated shell source, including comments",
     expect(validate.env?.INPUT_TAG).toBe("${{ inputs.tag }}");
     expect(validate.run).not.toContain("${{ inputs.tag }}");
     expect(validate.run).toContain('"${INPUT_TAG:-}"');
+});
+
+it("isolates workflow cancellation by PR identity, not fork branch name", () => {
+    for (const name of ["build-installers", "pr"]) {
+        expect(workflow(name).concurrency?.group).toContain("github.event.pull_request.number || github.ref");
+        expect(workflow(name).concurrency?.group).not.toContain("github.head_ref");
+    }
 });

@@ -41,6 +41,7 @@ it("stages unique open rows and only closes on release, suppressing the syntheti
     expect(run.mock.calls.map(([item]) => item.id)).toEqual(["1", "2"]);
     expect(run).toHaveBeenCalledWith(rows[1], "close", "owner/repo");
     expect(sweep.suppressClick()).toBe(true);
+    expect(sweep.suppressClick()).toBe(false);
     expect(sweep.selected.size).toBe(0);
     expect(sweep.closing).toBe(false);
 });
@@ -103,5 +104,16 @@ it("commits staged rows when released in blank space inside the list", async () 
     hit = host.firstElementChild;
     await act(async () => { window.dispatchEvent(pointer("pointerup", { clientY: 80 })); });
     expect(run.mock.calls.map(([item]) => item.id)).toEqual(["1", "2"]);
+    expect(sweep.selected.size).toBe(0);
+});
+
+it("keeps the start callback stable across gesture state and refreshes it for a new repo", async () => {
+    const initial = sweep.start;
+    start(); move("2");
+    expect(sweep.start).toBe(initial);
+    await act(async () => root.render(<Harness repo="owner/other" />));
+    expect(sweep.start).not.toBe(initial);
+    act(() => sweep.start(rows[0], rows, pointer("pointerdown")));
+    move("2");
     expect(sweep.selected.size).toBe(0);
 });

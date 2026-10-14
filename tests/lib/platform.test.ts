@@ -6,6 +6,9 @@ describe("central platform detection", () => {
         ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)", "macos", "meta"],
         ["Mozilla/5.0 (Windows NT 10.0; Win64; x64)", "windows", "ctrl"],
         ["Mozilla/5.0 (X11; Linux aarch64)", "linux", "ctrl"],
+        ["Mozilla/5.0 (darwin) AppleWebKit/537.36 jsdom/28.1.0", "macos", "meta"],
+        ["Darwin arm64", "macos", "meta"],
+        ["Twin browser", "unknown", "ctrl"],
         ["", "unknown", "ctrl"],
     ])("detects %s without deprecated platform reads", (userAgent, platform, modifier) => {
         vi.stubGlobal("navigator", { userAgent, get platform() { throw new Error("Deprecated API read"); } });

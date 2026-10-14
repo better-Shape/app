@@ -143,7 +143,7 @@ export function useFileContent(
                         mod = fallback;
                     }
 
-                    if (cancelled || seq !== loadSeq) return;
+                    if (seq !== loadSeq) return;
                     setOriginalContent(orig);
                     setContent(mod);
                     currentContent = mod;
@@ -164,6 +164,7 @@ export function useFileContent(
                         currentContent = data;
                         if (dirty) {
                             const { clearDirtyBuffer } = await import("@/lib/workspace/dirty-buffers");
+                            if (cancelled || seq !== loadSeq) return;
                             clearDirtyBuffer(path);
                         }
                     }

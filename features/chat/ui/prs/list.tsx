@@ -5,7 +5,7 @@ import { ArrowSync20Regular } from "@fluentui/react-icons/headless/svg/arrow-syn
 import { Checkmark20Regular } from "@fluentui/react-icons/headless/svg/checkmark";
 import { Filter20Regular } from "@fluentui/react-icons/headless/svg/filter";
 import { Info20Regular } from "@fluentui/react-icons/headless/svg/info";
-import { useMemo, useRef } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import {
     DropdownMenu,
@@ -97,6 +97,13 @@ export function PullRequestsList({
         return { shown: sortPrItems(shown, sort), bodyMatched };
         // overrideVersion re-runs this when a pending override lands or expires.
     }, [items, parsed, sort, state, overrideVersion]);
+
+    const shownRows = useRef(rows.shown);
+    useLayoutEffect(() => { shownRows.current = rows.shown; }, [rows.shown]);
+    const startSweep = sweep.start;
+    const onCloseSweepStart = useCallback((item: PrItem, event: PointerEvent) => {
+        startSweep(item, shownRows.current, event);
+    }, [startSweep]);
 
     return (
         <div className="relative flex h-full min-h-0 flex-col bg-panel">
@@ -208,10 +215,10 @@ export function PullRequestsList({
                                     speedMode={speedMode}
                                     sweeping={sweep.selected.has(item.id)}
                                     sweepBusy={sweep.closing || sweep.selected.size > 0}
-                                    onCloseSweepStart={(event) => sweep.start(item, rows.shown, event)}
+                                    onCloseSweepStart={onCloseSweepStart}
                                     eagerStatus={sort === "readiness" && index < EAGER_STATUS_LIMIT}
                                     matchedInBody={rows.bodyMatched.has(item.id)}
-                                    onSelect={(id) => selectPr(id, item)}
+                                    onSelect={selectPr}
                                     onCi={onCiResolved}
                                 />
                             ))}

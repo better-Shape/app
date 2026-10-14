@@ -87,7 +87,7 @@ export function PrRowActions({
     repo: { owner: string; repo: string };
     speedMode: boolean;
     sweepBusy: boolean;
-    onCloseSweepStart: (event: PointerEvent) => void;
+    onCloseSweepStart: (item: PrItem, event: PointerEvent) => void;
 }) {
     const [busy, setBusy] = useState<PrAction | null>(null);
     const actions = prActionsFor(item);
@@ -120,7 +120,7 @@ export function PrRowActions({
                     title={action === "close" ? "Close, or drag across rows to close several" : PR_ACTION_LABEL[action]}
                     disabled={busy !== null || sweepBusy}
                     onPointerDown={(event) => {
-                        if (action === "close") { event.stopPropagation(); onCloseSweepStart(event.nativeEvent); }
+                        if (action === "close") { event.stopPropagation(); onCloseSweepStart(item, event.nativeEvent); }
                     }}
                     onClick={() => void run(action)}
                     className="flex size-7 items-center justify-center rounded-md text-text-muted hover:bg-panel-hover hover:text-text-primary disabled:opacity-50"

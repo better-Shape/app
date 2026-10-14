@@ -142,6 +142,7 @@ beforeEach(async () => {
     restoreResize = () => {};
     if (typeof (globalThis as { ResizeObserver?: unknown }).ResizeObserver !== "function") {
         class ResizeObserverStub {
+            constructor(_onResize: ResizeObserverCallback) {}
             observe() {}
             unobserve() {}
             disconnect() {}

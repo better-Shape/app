@@ -78,3 +78,12 @@ it("the actual inspector rejects cross-port messages and revokes access on a pro
     selection("http://localhost:3000");
     expect(host.querySelector('[aria-label="Exit design mode"]')).not.toBeNull();
 });
+
+it.each(['http://localhost:3000"; record("escape"); //', '</script><script>record("escape")</script>', "line\nseparator\u2028"])("keeps an unusual origin as data in native JavaScript source: %s", (origin) => {
+    const execute = new Function("location", "record", scopeDesignBridge('record("bridge");', { projectPath: "/project-a", origin }));
+    const record = vi.fn();
+    execute({ origin: "http://localhost:3000" }, record);
+    expect(record).not.toHaveBeenCalled();
+    execute({ origin }, record);
+    expect(record.mock.calls).toEqual([["bridge"]]);
+});
