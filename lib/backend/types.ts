@@ -504,6 +504,12 @@ export interface EslintDiagnostic {
 export interface EslintLintResult {
     diagnostics: EslintDiagnostic[];
     content?: string | null;
+    /**
+     * Set when ESLint produced nothing parseable, or the folder is not trusted and linting
+     * was skipped. An empty `diagnostics` alongside a message means "we could not tell",
+     * NOT "this file is clean" -- the two must never be confused.
+     */
+    error?: string | null;
 }
 
 export interface TestDiscoveryResult {

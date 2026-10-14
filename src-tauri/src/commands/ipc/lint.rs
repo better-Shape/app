@@ -12,9 +12,12 @@ pub async fn eslint_lint_file(
     apply_fix: Option<bool>,
 ) -> Result<EslintLintResult, AppError> {
     if !trust_state.is_trusted(&project_path) {
+        // An empty `diagnostics` here reads as "this file is clean", which is a different
+        // claim from "we were not allowed to look". Say which one it is.
         return Ok(EslintLintResult {
             diagnostics: vec![],
             content: None,
+            error: Some("This folder is not trusted, so linting was skipped.".to_string()),
         });
     }
     let apply = apply_fix.unwrap_or(false);

@@ -506,6 +506,27 @@ describe("problems tab", () => {
         }
     });
 
+    it("treats a successful response carrying an error as a failure, not a clean file", async () => {
+        // The backend answers Ok(vec![]) both for "clean" and for "nothing ran". The
+        // `error` field is what separates them, so a response with an empty diagnostics
+        // list AND an error must never be counted as a linted, problem-free file.
+        lintResult = () => ({
+            diagnostics: [],
+            content: null,
+            error: "This folder is not trusted, so linting was skipped.",
+        });
+        const { host, root } = mount(createElement(ProblemsTab));
+        try {
+            await waitFor(host, "not trusted");
+            const text = host.textContent ?? "";
+            expect(text).toContain("This folder is not trusted");
+            expect(text).not.toContain("No problems");
+            expect(calls.lint).toEqual([A, B]);
+        } finally {
+            unmount(root, host);
+        }
+    });
+
     it("does not spawn ESLint when no JavaScript or TypeScript file is open", async () => {
         projectState.current = {
             project_path: "/repo",

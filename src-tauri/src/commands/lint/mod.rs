@@ -18,6 +18,9 @@ pub struct LintDiagnostic {
 pub struct EslintLintResult {
     pub diagnostics: Vec<LintDiagnostic>,
     pub content: Option<String>,
+    /// Set when ESLint produced nothing parseable, so the caller can say "we could not tell"
+    /// instead of "there are no problems".
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -85,22 +88,23 @@ fn uuid_like() -> u64 {
         .unwrap_or(0)
 }
 
-fn parse_eslint_json(stdout: &str) -> Vec<LintDiagnostic> {
+/// `None` means the output was not parseable ESLint JSON at all.
+///
+/// That is deliberately not the same as "no problems". ESLint writes nothing to stdout when
+/// it cannot run -- no local install, a broken flat config, an untrusted workspace -- and an
+/// empty list here would tell the user their code is clean when nothing was checked.
+fn parse_eslint_json(stdout: &str) -> Option<Vec<LintDiagnostic>> {
     let trimmed = stdout.trim();
     if trimmed.is_empty() {
-        return Vec::new();
+        return None;
     }
 
-    let parsed: Result<Vec<EslintFileResult>, _> = serde_json::from_str(trimmed);
-    let files = match parsed {
+    let files: Vec<EslintFileResult> = match serde_json::from_str(trimmed) {
         Ok(v) => v,
-        Err(_) => {
-            if let Ok(single) = serde_json::from_str::<EslintFileResult>(trimmed) {
-                vec![single]
-            } else {
-                return Vec::new();
-            }
-        }
+        Err(_) => match serde_json::from_str::<EslintFileResult>(trimmed) {
+            Ok(single) => vec![single],
+            Err(_) => return None,
+        },
     };
 
     let mut diagnostics = Vec::new();
@@ -130,7 +134,30 @@ fn parse_eslint_json(stdout: &str) -> Vec<LintDiagnostic> {
             });
         }
     }
-    diagnostics
+    Some(diagnostics)
+}
+
+/// Why a run produced no usable output, phrased for the person reading it.
+///
+/// ESLint exits 0 when it found nothing and 1 when it found problems -- the JSON is on stdout
+/// either way -- so a non-zero status is not on its own a failure. Only unparseable output is.
+fn eslint_failure_reason(output: &std::process::Output, stdout: &str) -> String {
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let first_line = stderr
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or("");
+    if !first_line.is_empty() {
+        return format!("ESLint could not run: {first_line}");
+    }
+    if !output.status.success() {
+        return format!("ESLint exited with {}", output.status);
+    }
+    if stdout.trim().is_empty() {
+        return "ESLint produced no output. It may not be installed for this project.".to_string();
+    }
+    "ESLint output could not be parsed.".to_string()
 }
 
 pub fn eslint_lint_file(
@@ -163,7 +190,9 @@ pub fn eslint_lint_file(
         format!("Failed to run eslint: {e}")
     })?;
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let diagnostics = parse_eslint_json(&stdout);
+    let parsed = parse_eslint_json(&stdout);
+    let diagnostics = parsed.clone().unwrap_or_default();
+    let error = parsed.is_none().then(|| eslint_failure_reason(&output, &stdout));
 
     let fixed_content = if apply_fix {
         std::fs::read_to_string(&temp_path).ok()
@@ -176,6 +205,7 @@ pub fn eslint_lint_file(
     Ok(EslintLintResult {
         diagnostics,
         content: fixed_content,
+        error,
     })
 }
 

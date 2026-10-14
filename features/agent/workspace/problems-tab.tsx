@@ -95,6 +95,16 @@ export function ProblemsTab() {
                 try {
                     const content = await commands.readFile(path);
                     const result = await commands.eslintLintFile(project_path, path, content, false);
+                    // A run that could not happen is not a clean file. Only count it as
+                    // linted once ESLint actually answered.
+                    if (result?.error) {
+                        partialErrors.push({
+                            path,
+                            label: relativeLabel(project_path, path),
+                            message: result.error,
+                        });
+                        continue;
+                    }
                     lintedCount += 1;
                     for (const diagnostic of Array.isArray(result?.diagnostics) ? result.diagnostics : []) {
                         problems.push(toProblem(diagnostic, path, project_path));
