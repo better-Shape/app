@@ -169,6 +169,19 @@ Install skills only with `npx skills add <owner>/<repo> -s <skill> -a universal 
 - Open an unattended agent PR. The human reviews every PR before it merges.
 - Edit a generated file by hand, or commit a file larger than 5 MB outside `.agents/` without a reason the PR states.
 
+### Filing workflow
+
+Use this workflow whenever a task ends in a pull request. It covers every change that writes code, tests, tooling, configuration, workflows, skills or documentation with an operational impact.
+
+1. Confirm the base. Find the branch this work was cut from, and open the pull request against that branch, never against `main`. If the task does not name the base, ask the human before you open the pull request.
+2. Research before you edit. Apply the code research gate. Record the queries, sources, edge cases and failed attempts in a collapsible block in the pull request description.
+3. Apply the review protocol. Load `REVIEW.md`, which points to `FULL-REVIEW.md`, and apply Part I and the relevant Part II sections to your own diff. Fix every critical, major, minor, nitpick and UI finding, and repeat the pre-push loop until a pass finds nothing new.
+4. Run the local gates before every push. For a Rust or TypeScript change, run the TypeScript gates and the Cargo gates from the verification gate list. Report each gate as passed, failed or not run, with the head SHA. A gate that cannot run in your sandbox is reported as not run, with the reason written in the pull request. Do not push a change that fails a gate you can run.
+5. Open the pull request. Write the description as the filing rules above require. When the base is not `main`, request the CodeRabbit review by comment, as the facts section describes.
+6. Watch CI and review together. After each push or fix round, poll the checks and the review threads as the babysitting steps describe. Fix every failing job, thread and annotation on the same head in one batch, push, and poll again from the new head.
+7. Wait for quiet. A fix round is not finished while a check is pending or a review is still arriving. After the last push, wait at least ten minutes. Keep polling through that window, and do not report to the human until it passes with no new review and no new failure.
+8. Report once. Return to the human with the pull request link only when all of these hold on the same head: every required check is green, no review thread is unresolved, and the ten minute quiet window passed with no new review. Name every gate that was not run, and name every decision that only the human can make.
+
 ## Plans, research and decisions
 
 Durable engineering memory lives in `.dump/`. The directory is described in `.dump/README.md`. Research notes, decision records and measurements belong there, never in a PR description. Attach them to a PR by path in a collapsible block. Never write secrets, tokens or raw provider output into `.dump/`.
