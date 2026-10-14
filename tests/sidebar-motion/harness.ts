@@ -92,7 +92,7 @@ export function installAnimationStub(): AnimationStub {
     const hadGetAnimations = "getAnimations" in prototype;
     const originalGetAnimations = prototype.getAnimations as GetAnimationsLike | undefined;
 
-    const animate: AnimateLike = function (keyframes, options) {
+    const animate: AnimateLike = function (this: Element, keyframes, options) {
         const record = makeRecord(this, keyframes, options);
         const list = animationsByElement.get(this) ?? [];
         list.push(record);
@@ -102,7 +102,7 @@ export function installAnimationStub(): AnimationStub {
     };
 
     prototype.animate = animate;
-    prototype.getAnimations = function getAnimations(): RecordedAnimation[] {
+    prototype.getAnimations = function getAnimations(this: Element): RecordedAnimation[] {
         return [...(animationsByElement.get(this) ?? [])];
     };
 
@@ -133,7 +133,7 @@ const ZERO_RECT: StubRect = { top: 0, left: 0, width: 0, height: 0 };
 export function stubRects(): RectStub {
     const prototype = Element.prototype as unknown as Record<string, unknown>;
     const original = prototype.getBoundingClientRect as (() => DOMRect) | undefined;
-    prototype.getBoundingClientRect = function getBoundingClientRect(): DOMRect {
+    prototype.getBoundingClientRect = function getBoundingClientRect(this: Element): DOMRect {
         const rect = rects.get(this) ?? ZERO_RECT;
         return {
             ...rect,

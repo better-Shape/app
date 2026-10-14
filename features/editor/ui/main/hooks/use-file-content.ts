@@ -145,7 +145,6 @@ export function useFileContent(
                         mod = fallback;
                     }
 
-                    if (seq !== loadSeq) return;
                     setOriginalContent(orig);
                     setContent(mod);
                     currentContent = mod;

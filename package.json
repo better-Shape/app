@@ -106,6 +106,7 @@
     "@tailwindcss/postcss": "^4",
     "@tauri-apps/cli": "^2.10.0",
     "@types/diff": "^7.0.2",
+    "@types/js-yaml": "4.0.9",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
@@ -113,10 +114,10 @@
     "esbuild": "^0.28.2",
     "eslint": "^9",
     "eslint-config-next": "^16.4.0",
+    "js-yaml": "4.3.2",
     "jsdom": "^29.1.1",
     "tailwindcss": "^4",
-    "vitest": "^4.1.11",
-    "js-yaml": "4.3.2"
+    "vitest": "^4.1.11"
   },
   "overrides": {
     "sharp": "0.35.5",

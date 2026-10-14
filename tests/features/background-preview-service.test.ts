@@ -56,3 +56,19 @@ it("does not conflate case-sensitive projects or relative and absolute drive roo
     expect(background.sameProjectPath("C:/", "C:")).toBe(false);
     expect(background.sameProjectPath("/", "")).toBe(false);
 });
+
+it("shares one start across concurrent callers and permits retry after failure", async () => {
+    let resolve!: (id: number) => void;
+    mocks.spawn.mockImplementationOnce(() => new Promise<number>((done) => { resolve = done; }));
+    const first = background.ensureBackgroundRun("npm run dev", "/project");
+    const second = background.ensureBackgroundRun("npm run dev", "/project");
+    await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledTimes(1));
+    resolve(7);
+    expect(await Promise.all([first, second])).toEqual([7, 7]);
+    expect(await background.ensureBackgroundRun("npm run dev", "/project")).toBe(7);
+    expect(mocks.spawn).toHaveBeenCalledTimes(1);
+    emit("pty-exit", { id: 7 });
+    mocks.spawn.mockRejectedValueOnce(new Error("failed start"));
+    await expect(background.ensureBackgroundRun("npm run dev", "/project")).rejects.toThrow("failed start");
+    expect(await background.ensureBackgroundRun("npm run dev", "/project")).toBe(7);
+});

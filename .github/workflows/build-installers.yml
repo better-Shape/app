@@ -8,7 +8,6 @@ on:
   push:
     branches:
       - mega/absorb-all
-      - "arena/**"
       - "draft/**"
   workflow_dispatch:
 
@@ -17,7 +16,9 @@ permissions:
 
 concurrency:
   group: build-installers-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  # Let cold native builds finish; newer pending runs coalesce instead of
+  # restarting Intel compilation on every review-fix push.
+  cancel-in-progress: false
 
 jobs:
   build:

@@ -44,6 +44,8 @@ production release.
 
 Open **Actions → Build Installers (Test)** on the pull request or branch. If a job succeeds, download its `bettershape-<os>-<arch>` artifact. The workflow also supports manual dispatch and never publishes a release or merges a branch.
 
+Feature branches build the full installer matrix through pull requests or manual dispatch, not duplicate push and PR runs. Draft-branch pushes also build it. An active installer run is allowed to finish while GitHub keeps the newest pending run; this prevents repeated review fixes from continually cancelling a cold native build. Always check the artifact's commit, because a completed run may precede the latest PR head.
+
 Each artifact includes `SHA256SUMS.txt`. Compare the downloaded installer's SHA-256 with that file (`sha256sum` on Linux, `shasum -a 256` on macOS, or `Get-FileHash -Algorithm SHA256` in PowerShell). These checksums detect accidental corruption; they are not code signatures. The collector rejects missing requested formats and empty files.
 
 These are **unsigned test builds**. Windows SmartScreen or macOS Gatekeeper may warn. Verify provenance before opening; do not disable platform security globally.

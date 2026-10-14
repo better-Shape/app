@@ -248,12 +248,13 @@ export async function ensureBackgroundRun(command: string, cwdOverride?: string)
             return ptyId;
         } finally { earlyReady(); }
     })();
-    starting = { command: trimmed, cwd, promise };
+    const request = { command: trimmed, cwd, promise };
+    starting = request;
 
     try {
         return await promise;
     } finally {
-        if (starting?.promise === promise) starting = null;
+        if (starting === request) starting = null;
     }
 }
 
