@@ -6,8 +6,9 @@ import { Folder20Filled } from "@fluentui/react-icons/headless/svg/folder";
 import { Globe20Regular } from "@fluentui/react-icons/headless/svg/globe";
 import { PersonAdd20Regular } from "@fluentui/react-icons/headless/svg/person-add";
 import { TaskListSquareLtr20Regular } from "@fluentui/react-icons/headless/svg/task-list-square-ltr";
+import { Warning20Regular } from "@fluentui/react-icons/headless/svg/warning";
 
-export type TabKind = "graph" | "agents" | "plan" | "file" | "diff" | "files" | "prs" | "browser";
+export type TabKind = "graph" | "agents" | "plan" | "file" | "diff" | "files" | "prs" | "browser" | "problems";
 
 export type WorkspaceTab = {
     id: string;
@@ -54,6 +55,8 @@ export function iconFor(kind: TabKind): IconGlyph {
             return BranchRequest20Regular;
         case "browser":
             return Globe20Regular;
+        case "problems":
+            return Warning20Regular;
         default:
             return DocumentText20Regular;
     }

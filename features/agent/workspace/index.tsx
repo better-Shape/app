@@ -9,6 +9,7 @@ import { FileTree } from "./tree";
 import { SingleFileDiffEditor, type FileDiffTabInfo } from "./file-diff";
 import Graph from "@/features/git/ui/graph/graph";
 import { PullRequestsPanel } from "@/features/chat/ui/prs/view";
+import { ProblemsTab } from "./problems-tab";
 import { subscribePrUi, getPrUi } from "@/features/chat/ui/prs/store";
 import { isBrowserTab } from "@/lib/window/browser-tab";
 import { WorkspaceTabs } from "./tabs";
@@ -70,7 +71,9 @@ export function AgentWorkspace({
                     ? "Pull requests"
                     : kind === "browser"
                       ? "New tab"
-                      : kind;
+                      : kind === "problems"
+                        ? "Problems"
+                        : kind;
         const prev = tabsRef.current;
         const existing = prev.find((t) => t.kind === kind);
         if (existing) commitTabs(prev, existing.id);
@@ -172,6 +175,9 @@ export function AgentWorkspace({
             if (tabId === "files" || tabId === "explorer") {
                 addTab("files", { expand: true });
             }
+            if (tabId === "problems" || tabId === "errors") {
+                addTab("problems", { expand: true });
+            }
         };
         const onOpenPlan = (e: Event) => {
             const detail = (e as CustomEvent<{ path?: string; title?: string; markdown?: string }>).detail;
@@ -197,6 +203,8 @@ export function AgentWorkspace({
             openDiff(tab);
         };
         window.addEventListener("bettershape-set-active-tab", onTab as EventListener);
+        // The Problems shortcut dispatches the panel channel, not the tab one.
+        window.addEventListener("bettershape-set-panel-tab", onTab as EventListener);
         window.addEventListener("bettershape-open-workspace-plan", onOpenPlan as EventListener);
         window.addEventListener("bettershape-open-workspace-file", onOpenFile as EventListener);
         window.addEventListener("bettershape-open-file-diff", onOpenDiff as EventListener);
@@ -211,6 +219,7 @@ export function AgentWorkspace({
         return () => {
             stopRustTab?.();
             window.removeEventListener("bettershape-set-active-tab", onTab as EventListener);
+            window.removeEventListener("bettershape-set-panel-tab", onTab as EventListener);
             window.removeEventListener("bettershape-open-workspace-plan", onOpenPlan as EventListener);
             window.removeEventListener("bettershape-open-workspace-file", onOpenFile as EventListener);
             window.removeEventListener("bettershape-open-file-diff", onOpenDiff as EventListener);
@@ -286,6 +295,8 @@ export function AgentWorkspace({
                         <div className="h-full min-h-0 bg-sidebar" style={SIDEBAR_SURFACE}>
                             <PullRequestsPanel pane="full" />
                         </div>
+                    ) : active?.kind === "problems" ? (
+                        <ProblemsTab />
                     ) : active?.kind === "plan" && (active.path || active.markdown) ? (
                         <div className="h-full min-h-0 bg-sidebar" style={SIDEBAR_SURFACE}>
                             <PlanTabView path={active.path || ""} markdown={active.markdown} />
