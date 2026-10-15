@@ -32,10 +32,12 @@ pub(crate) fn terminate<T>(
     timeout: Duration,
 ) -> io::Result<i32> {
     let started = Instant::now();
+    let mut acquired = false;
     let mut signalled = false;
     loop {
         match child.try_lock() {
             Ok(mut child) => {
+                acquired = true;
                 if let Some(code) = poll(&mut child)? {
                     return Ok(code);
                 }
@@ -60,10 +62,19 @@ pub(crate) fn terminate<T>(
         }
         let remaining = timeout.saturating_sub(started.elapsed());
         if remaining.is_zero() {
-            return Err(io::Error::new(
-                io::ErrorKind::TimedOut,
-                "Could not confirm terminal process exit; its handle is retained for retry",
-            ));
+            // Contention and a survived kill are fixed differently: a busy
+            // child needs another attempt, a surviving process needs Stop.
+            return Err(if acquired {
+                io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "Terminal process did not exit after termination; its handle is retained for retry",
+                )
+            } else {
+                io::Error::new(
+                    io::ErrorKind::WouldBlock,
+                    "Terminal child was busy in another operation; its handle is retained for retry",
+                )
+            });
         }
         thread::sleep(remaining.min(Duration::from_millis(25)));
     }
@@ -160,6 +171,10 @@ mod tests {
         let child = Mutex::new(42);
         let error = terminate(&child, |_| Ok(None), |_| Ok(()), Duration::ZERO).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+        assert!(
+            error.to_string().contains("did not exit"),
+            "a survived kill must be reported as such: {error}"
+        );
         assert_eq!(*child.lock().unwrap(), 42);
     }
 
@@ -174,7 +189,13 @@ mod tests {
             Duration::ZERO,
         )
         .unwrap_err();
-        assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+        // Contention is not a failed termination: callers retry the operation
+        // instead of telling the user the process refused to stop.
+        assert_eq!(error.kind(), io::ErrorKind::WouldBlock);
+        assert!(
+            error.to_string().contains("busy"),
+            "lock contention must be reported as such: {error}"
+        );
     }
 
     #[test]

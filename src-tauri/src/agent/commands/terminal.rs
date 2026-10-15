@@ -133,6 +133,10 @@ pub struct AgentCommandResult {
     pub exit_code: Option<i32>,
     /// Cleaned output (full on completion, tail when backgrounded).
     pub output: String,
+    /// True only when the command is confirmed stopped. A cancellation whose
+    /// kill could not be confirmed reports `false` and keeps the session
+    /// tracked, so the caller shows the command as still backgrounded with the
+    /// failure text instead of claiming a live process finished.
     pub cancelled: bool,
 }
 

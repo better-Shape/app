@@ -108,3 +108,52 @@ The backend changes retain the existing renderer layout and tokens. Design and
 baseline documents were read. The antislop code/copy rules and unslop constrain
 the comments, error text, and this record. No assets, dependencies, capabilities,
 or telemetry were added.
+
+## Stop diagnostics and cleanup completeness
+
+A follow-up review round on the published native batch raised eight points. Six
+were reproduced and fixed, and two are refuted with the reason recorded here.
+
+Fixed:
+
+- `PtyState::session_is_running` treated a poisoned session registry as "status
+  unavailable", which made `read_session_output` fail while the metadata still
+  reported the command running. The metadata is authoritative for the running
+  state, so an unreadable registry now falls back to it and leaves the handle
+  registered for a later Stop.
+- `kill_owned_session` returned one message for a replaced registration, an
+  already released record and an unknown id. `OwnershipLoss` now classifies those
+  cases (`core/session_ownership.rs`) and the message names the condition.
+- `exit_status::terminate` reported lock contention and a survived kill with the
+  same timeout error. Contention is now `WouldBlock` ("child was busy"); a
+  process that survived its kill stays `TimedOut` ("did not exit").
+- `kill_tracked_terminals` returned only the first failure, hiding terminals that
+  still needed a retry. Every failure is now reported, and a single failure keeps
+  its original message.
+- `restore_checkpoint` killed a lane's terminals twice around the turn-cleanup
+  wait. The sweep is now `kill_terminals_for_conversation_exhaustive`, which
+  documents why the second sweep is not redundant.
+- The retried-cleanup gate is now the pure `turn_order::lane_cleanup_pending`
+  helper and its lane scope is documented rather than incidental.
+
+Refuted:
+
+- Making `TerminalOwner::native_session` a required field would break the
+  fast-exit path: a command that exits immediately can be unregistered before the
+  window registers it, so registration must accept a missing handle. The actual
+  failure mode is fail-closed — `kill_registered_session` refuses to stop an
+  unidentified process, keeps the session tracked, and Stop can be retried. That
+  rationale is now in the function's documentation.
+- Reporting `cancelled: true` when a kill cannot be confirmed would claim a live
+  process had stopped. The result keeps `cancelled: false`, carries the failure
+  text, and the session stays tracked, so the caller shows a backgrounded command
+  with an explicit retry. The field's meaning is documented at its definition.
+
+Verification: `rustfmt --edition 2021 --check` is clean on all seven changed
+files, the dependency-free harness compiles the real `exit_status.rs`,
+`session_ownership.rs` and `turn_order.rs` sources and runs 29 tests, and
+`cargo clippy --offline --all-targets -- -D warnings` is clean for that crate.
+`agent/models/mod.rs`, `commands/pty/mod.rs`, `agent/commands/terminal.rs` and
+`agent/commands/conversation.rs` are Tauri-dependent and are **not** compiled by
+that harness; full Cargo compilation and Clippy of the application crate remain
+required and are still blocked by uncached dependencies in this environment.

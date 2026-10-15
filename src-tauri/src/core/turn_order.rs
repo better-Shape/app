@@ -81,6 +81,18 @@ pub fn admit<T>(
     Some(id)
 }
 
+/// Whether any of these terminals belongs to a lane whose Stop cleanup is
+/// still running. Retried cleanup must not overtake the guard that owns the
+/// lane's teardown, and it stays tracked until that guard drops.
+pub fn lane_cleanup_pending<'a>(
+    stopping: &HashSet<String>,
+    conversations: impl Iterator<Item = &'a str>,
+) -> bool {
+    conversations
+        .into_iter()
+        .any(|lane| stopping.contains(lane))
+}
+
 pub fn begin_stop<'a, T>(
     active: &Mutex<HashMap<String, T>>,
     stopping: &'a Mutex<HashSet<String>>,
@@ -119,6 +131,23 @@ pub fn begin_exclusive_cleanup<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn retried_cleanup_waits_only_for_a_lane_that_is_still_stopping() {
+        let mut stopping = HashSet::from(["busy".to_string()]);
+        assert!(lane_cleanup_pending(&stopping, ["busy"].into_iter()));
+        // An unrelated lane, a missing conversation id and an empty set all let
+        // the retry through.
+        assert!(!lane_cleanup_pending(&stopping, ["idle"].into_iter()));
+        assert!(!lane_cleanup_pending(&stopping, std::iter::empty()));
+        assert!(!lane_cleanup_pending(
+            &stopping,
+            ["idle", "other"].into_iter()
+        ));
+        // Once the Stop guard drops, the retry is allowed through.
+        stopping.remove("busy");
+        assert!(!lane_cleanup_pending(&stopping, ["busy"].into_iter()));
+    }
 
     #[test]
     fn exclusive_cleanup_blocks_idle_admission_until_its_owner_drops() {

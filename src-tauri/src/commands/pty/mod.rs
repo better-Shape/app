@@ -4,6 +4,7 @@ mod preview_readiness;
 use preview_readiness::PreviewReadiness;
 
 use crate::core::error::AppError;
+use crate::core::session_ownership::{ownership_loss, ownership_loss_note, OwnershipLoss};
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
 use serde::Serialize;
 use std::collections::HashMap;
@@ -334,6 +335,17 @@ impl PtyState {
         Ok(target.filter(|target| Arc::ptr_eq(target.meta(), owner)))
     }
 
+    /// Classify why an owned session no longer has a termination target, so a
+    /// failed Stop can name the actual condition instead of one blanket message.
+    fn termination_target_loss(&self, id: u32, owner: &Arc<SessionMeta>) -> OwnershipLoss {
+        let recorded_owner = self
+            .session_meta
+            .lock()
+            .ok()
+            .and_then(|metas| metas.get(&id).map(|current| Arc::ptr_eq(current, owner)));
+        ownership_loss(recorded_owner)
+    }
+
     fn termination_targets(&self) -> (Vec<(u32, TerminationTarget)>, Option<AppError>) {
         let mut targets = Vec::new();
         let mut failure = None;
@@ -467,7 +479,11 @@ impl PtyState {
         if !meta.is_running() {
             return Some(false);
         }
-        if let Some(target) = self.termination_target(id, &meta).ok()? {
+        // An unreadable registry cannot confirm an exit, but "status
+        // unavailable" blocks reading output. The metadata is authoritative for
+        // the running state, so fall back to it; a poisoned lock still leaves
+        // the handle registered for a later Stop retry.
+        if let Some(target) = self.termination_target(id, &meta).ok().flatten() {
             return match target.poll() {
                 Ok(Some(code)) => {
                     target.meta().mark_exited(Some(code));
@@ -1779,9 +1795,10 @@ pub async fn kill_owned_session(
 ) -> Result<(), AppError> {
     match state.termination_target(id, owner)? {
         Some(target) => terminate_and_release(state, id, target).await,
-        None if owner.is_running() => Err(AppError::Message(
-            "Terminal ownership changed before exit could be confirmed".to_string(),
-        )),
+        None if owner.is_running() => Err(AppError::Message(format!(
+            "Terminal ownership changed before exit could be confirmed: {}",
+            ownership_loss_note(state.termination_target_loss(id, owner))
+        ))),
         None => Ok(()),
     }
 }

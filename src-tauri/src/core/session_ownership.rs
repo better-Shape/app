@@ -17,6 +17,51 @@ pub(crate) fn remove_owned<T, O>(
     }
 }
 
+/// Why an owned terminal no longer has a live termination target. Ownership
+/// loss is not one condition: a replaced registration, an already released
+/// record and an unknown id need different diagnostics.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum OwnershipLoss {
+    /// The registry holds a different native session for this id.
+    Replaced,
+    /// The registry released this session; its metadata is still present.
+    Released,
+    /// Neither the registry nor the metadata still knows this session.
+    Unregistered,
+}
+
+/// `recorded_owner` is `Some(true)` when the metadata record for the id is the
+/// owner we hold, `Some(false)` when a different record claimed the id, and
+/// `None` when the id has no metadata at all.
+pub(crate) fn ownership_loss(recorded_owner: Option<bool>) -> OwnershipLoss {
+    match recorded_owner {
+        Some(false) => OwnershipLoss::Replaced,
+        Some(true) => OwnershipLoss::Released,
+        None => OwnershipLoss::Unregistered,
+    }
+}
+
+pub(crate) fn ownership_loss_note(loss: OwnershipLoss) -> &'static str {
+    match loss {
+        OwnershipLoss::Replaced => "a newer session owns this id",
+        OwnershipLoss::Released => "its record was already released",
+        OwnershipLoss::Unregistered => "it is no longer registered",
+    }
+}
+
+/// One message for every terminal that could not be confirmed stopped. A single
+/// failure keeps its original message so its specific guidance survives.
+pub(crate) fn aggregate_cleanup_failures(mut failures: Vec<String>) -> Option<String> {
+    match failures.len() {
+        0 => None,
+        1 => failures.pop(),
+        count => Some(format!(
+            "Could not confirm {count} terminals stopped: {}",
+            failures.join("; ")
+        )),
+    }
+}
+
 pub(crate) fn reserve_id(next: &mut u64, requested: Option<u32>) -> Option<u32> {
     let id = requested.or_else(|| u32::try_from(*next).ok())?;
     *next = (*next).max(u64::from(id) + 1);
@@ -26,6 +71,39 @@ pub(crate) fn reserve_id(next: &mut u64, requested: Option<u32>) -> Option<u32> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ownership_loss_notes_name_the_actual_condition() {
+        assert_eq!(ownership_loss(Some(false)), OwnershipLoss::Replaced);
+        assert_eq!(ownership_loss(Some(true)), OwnershipLoss::Released);
+        assert_eq!(ownership_loss(None), OwnershipLoss::Unregistered);
+        assert_eq!(
+            ownership_loss_note(OwnershipLoss::Replaced),
+            "a newer session owns this id"
+        );
+        assert_eq!(
+            ownership_loss_note(OwnershipLoss::Released),
+            "its record was already released"
+        );
+        assert_eq!(
+            ownership_loss_note(OwnershipLoss::Unregistered),
+            "it is no longer registered"
+        );
+    }
+
+    #[test]
+    fn cleanup_failures_keep_a_single_message_and_summarise_many() {
+        assert_eq!(aggregate_cleanup_failures(Vec::new()), None);
+        assert_eq!(
+            aggregate_cleanup_failures(vec!["Retry Stop.".to_string()]),
+            Some("Retry Stop.".to_string())
+        );
+        let many = aggregate_cleanup_failures(vec!["first".to_string(), "second".to_string()])
+            .expect("many failures still report");
+        assert!(many.starts_with("Could not confirm 2 terminals stopped"));
+        assert!(many.contains("first"));
+        assert!(many.contains("second"));
+    }
 
     #[test]
     fn automatic_ids_exhaust_instead_of_reusing_the_last_value() {

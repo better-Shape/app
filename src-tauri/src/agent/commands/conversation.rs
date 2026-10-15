@@ -164,13 +164,11 @@ pub async fn restore_checkpoint(
         token.cancel();
     }
     state
-        .kill_terminals_for_conversation(&pty_state, &owner)
-        .await?;
-    state
-        .wait_for_turn_cleanup(&owner, aborted_turn.as_ref().map(|(id, _)| id.as_str()))
-        .await?;
-    state
-        .kill_terminals_for_conversation(&pty_state, &owner)
+        .kill_terminals_for_conversation_exhaustive(
+            &pty_state,
+            &owner,
+            aborted_turn.as_ref().map(|(id, _)| id.as_str()),
+        )
         .await?;
     if state.current_conversation_id.lock()?.as_deref() != Some(owner.as_str())
         || app_state

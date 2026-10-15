@@ -992,6 +992,13 @@ impl AgentState {
             .collect())
     }
 
+    /// Stop one tracked terminal through the native handle it was registered
+    /// with. Registration stores the handle as an `Option`, because a command
+    /// that exits immediately can be unregistered before this window registers
+    /// it at all; lacking a handle then means "nothing to stop" rather than a
+    /// bug. When a handle is missing here the session is still tracked, so
+    /// stopping is refused instead of guessing at a process: the caller keeps
+    /// the session and can retry Stop once ownership is readable again.
     pub async fn kill_registered_session(
         &self,
         pty_state: &crate::commands::pty::PtyState,
@@ -1012,16 +1019,19 @@ impl AgentState {
         pty_state: &crate::commands::pty::PtyState,
         sessions: Vec<(u32, Arc<TerminalOwner>)>,
     ) -> Result<(), crate::core::error::AppError> {
-        let mut failure = None;
+        // Report every session that survived, not just the first: a partial
+        // cleanup that names one failure hides the others the user must retry.
+        let mut failures = Vec::new();
         for (id, owner) in sessions {
             match self.kill_registered_session(pty_state, id, &owner).await {
                 Ok(()) => self.unregister_session(id, &owner),
-                Err(error) => {
-                    failure.get_or_insert(error);
-                }
+                Err(error) => failures.push(format!("session {id}: {error}")),
             }
         }
-        failure.map_or(Ok(()), Err)
+        match crate::core::session_ownership::aggregate_cleanup_failures(failures) {
+            Some(message) => Err(crate::core::error::AppError::Message(message)),
+            None => Ok(()),
+        }
     }
 
     pub async fn kill_cancelled_terminals(
@@ -1044,16 +1054,24 @@ impl AgentState {
         request_id: Option<&str>,
     ) -> Result<(), crate::core::error::AppError> {
         let sessions = self.cancelled_terminals(conversation_id, request_id)?;
-        // An earlier Stop still owns capture teardown until its guard drops.
-        // Do not let a duplicate request overtake that cleanup.
+        // A Stop for the lane still owns capture teardown until its guard
+        // drops (`kill_terminals_for_conversation` walks the same registry), so
+        // a retry must not run concurrently with it. The check is deliberately
+        // lane-scoped rather than request-scoped: the guard only records the
+        // conversation, and lane admission already refuses a new turn while the
+        // guard is held, so the only traffic it can hold back is a retry for an
+        // older request. That retry stays tracked and succeeds once cleanup
+        // finishes, while killing during an unrelated teardown could race the
+        // same session registry. Blocking is the safe direction.
         {
             let stopping = self.stopping_conversations.lock()?;
-            if sessions.iter().any(|(_, owner)| {
-                owner
-                    .conversation_id
-                    .as_ref()
-                    .is_some_and(|id| stopping.contains(id))
-            }) {
+            let pending = crate::core::turn_order::lane_cleanup_pending(
+                &stopping,
+                sessions
+                    .iter()
+                    .filter_map(|(_, owner)| owner.conversation_id.as_deref()),
+            );
+            if pending {
                 return Err(crate::core::error::AppError::Message(
                     "Command cleanup is still running. Retry Stop when it finishes.".to_string(),
                 ));
@@ -1078,6 +1096,24 @@ impl AgentState {
             owner.cancel.cancel();
         }
         self.kill_tracked_terminals(pty_state, sessions).await
+    }
+
+    /// Stop a lane's terminals, wait for the aborted turn to unwind, then sweep
+    /// again. The second sweep is not redundant: a command can register a
+    /// terminal while the first sweep (or the turn's own teardown) is running,
+    /// and `wait_for_turn_cleanup` only observes the turn it was given.
+    pub async fn kill_terminals_for_conversation_exhaustive(
+        &self,
+        pty_state: &crate::commands::pty::PtyState,
+        conversation_id: &str,
+        aborted_turn_id: Option<&str>,
+    ) -> Result<(), crate::core::error::AppError> {
+        self.kill_terminals_for_conversation(pty_state, conversation_id)
+            .await?;
+        self.wait_for_turn_cleanup(conversation_id, aborted_turn_id)
+            .await?;
+        self.kill_terminals_for_conversation(pty_state, conversation_id)
+            .await
     }
 
     pub async fn wait_for_turn_cleanup(
