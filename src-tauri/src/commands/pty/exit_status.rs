@@ -4,12 +4,16 @@ use std::sync::{Mutex, TryLockError};
 use std::thread;
 use std::time::{Duration, Instant};
 
-/// Consecutive transient poll failures `wait_for_exit` tolerates before it gives up. A status
+/// Consecutive transient poll failures before `wait_for_exit` slows its polling down. A status
 /// poll can fail for a reason that says nothing about the process - a signal that interrupted the
-/// wait, a handle that is busy - and treating that as the end of the wait would leave a session
-/// that has already reached output EOF looking like it is still running. A handle that never
-/// becomes pollable again still has to end the wait, so the tolerance is bounded.
+/// wait, a handle that is busy - so a failure is not an exit and must not end the wait. Giving up
+/// after the tolerance instead would abandon a session whose process has already reached output
+/// EOF: nothing else publishes its exit, so the command would look like it is still running until
+/// the app restarts. Past the limit the wait keeps polling, just at `SLOW_POLL_INTERVAL`.
 const TRANSIENT_POLL_LIMIT: usize = 20;
+
+/// How often a wait that is still seeing transient failures polls.
+const SLOW_POLL_INTERVAL: Duration = Duration::from_secs(1);
 
 /// Whether a failed status poll says nothing about the process itself.
 fn transient(error: &io::Error) -> bool {
@@ -36,7 +40,18 @@ fn poll_exited<T>(
 // between attempts so a concurrent Stop can still acquire it and kill the child.
 pub(crate) fn wait_for_exit<T>(
     child: &Mutex<T>,
+    poll: impl FnMut(&mut T) -> io::Result<Option<i32>>,
+) -> io::Result<i32> {
+    wait_for_exit_with(child, poll, Duration::from_millis(100), SLOW_POLL_INTERVAL)
+}
+
+/// `wait_for_exit` with caller-chosen intervals, so the tolerance and the slow cadence can be
+/// exercised without a test that takes seconds.
+fn wait_for_exit_with<T>(
+    child: &Mutex<T>,
     mut poll: impl FnMut(&mut T) -> io::Result<Option<i32>>,
+    fast_interval: Duration,
+    slow_interval: Duration,
 ) -> io::Result<i32> {
     let mut failures = 0usize;
     loop {
@@ -49,11 +64,9 @@ pub(crate) fn wait_for_exit<T>(
                     failures = 0;
                     status
                 }
+                // A failure that says nothing about the process is not an exit: keep waiting.
                 Err(error) if transient(&error) => {
                     failures += 1;
-                    if failures >= TRANSIENT_POLL_LIMIT {
-                        return Err(error);
-                    }
                     None
                 }
                 Err(error) => return Err(error),
@@ -62,7 +75,13 @@ pub(crate) fn wait_for_exit<T>(
         if let Some(code) = status {
             return Ok(code);
         }
-        thread::sleep(Duration::from_millis(100));
+        // Past the tolerance the polling slows down: a handle that stays unpollable must not
+        // cost a wake-up every poll interval for the rest of the session.
+        thread::sleep(if failures < TRANSIENT_POLL_LIMIT {
+            fast_interval
+        } else {
+            slow_interval
+        });
     }
 }
 
@@ -222,15 +241,35 @@ mod tests {
     }
 
     #[test]
-    fn a_transient_failure_that_never_clears_still_ends_the_wait() {
-        let mut attempts = 0;
-        let error = wait_for_exit(&Mutex::new(()), |_| {
-            attempts += 1;
-            Err(io::Error::new(io::ErrorKind::Interrupted, "interrupted"))
-        })
-        .unwrap_err();
-        assert_eq!(error.kind(), io::ErrorKind::Interrupted);
-        assert_eq!(attempts, TRANSIENT_POLL_LIMIT);
+    fn a_transient_storm_slows_the_wait_instead_of_abandoning_the_session() {
+        let mut attempts = 0usize;
+        let mut at_limit = None;
+        let code = wait_for_exit_with(
+            &Mutex::new(()),
+            |_| {
+                attempts += 1;
+                if attempts == TRANSIENT_POLL_LIMIT {
+                    at_limit = Some(Instant::now());
+                }
+                if attempts <= TRANSIENT_POLL_LIMIT + 2 {
+                    return Err(io::Error::new(io::ErrorKind::Interrupted, "interrupted"));
+                }
+                Ok(Some(11))
+            },
+            Duration::from_millis(1),
+            Duration::from_millis(25),
+        )
+        .unwrap();
+        // The storm outlasted the tolerance and the exit was still collected, so the session
+        // is not abandoned with its output already at EOF.
+        assert_eq!(code, 11);
+        assert_eq!(attempts, TRANSIENT_POLL_LIMIT + 3);
+        // The two polls after the tolerance slept on the slow cadence: the fast interval would
+        // have reached the last poll in a couple of milliseconds.
+        assert!(
+            at_limit.expect("the tolerance must be reached").elapsed() >= Duration::from_millis(40),
+            "the wait must slow down, not give up, past the tolerance"
+        );
     }
 
     #[test]
