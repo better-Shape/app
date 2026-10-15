@@ -108,6 +108,18 @@ export function pendingChatUndoCount(): number {
 const EMPTY_IDS: ReadonlySet<string> = new Set();
 let idsCache: { stack: typeof stack; revision: number; value: ReadonlySet<string> } | null = null;
 
+/** Return a cached snapshot only while both staged and committing owners are unchanged. */
+function currentRemovalSnapshot(): ReadonlySet<string> | undefined {
+    const cache = idsCache;
+    return cache && cache.stack === stack && cache.revision === committingRevision ? cache.value : undefined;
+}
+
+/** Pin/disposition operations move rows; only archive/delete temporarily remove their targets. */
+function removalIds(entry: ChatUndoEntry): readonly string[] {
+    if (entry.kind !== "archive" && entry.kind !== "delete") return [];
+    return entry.chatIds ?? [entry.chatId];
+}
+
 /**
  * Chats a live undo entry has taken off screen but not yet destroyed.
  *
@@ -117,14 +129,10 @@ let idsCache: { stack: typeof stack; revision: number; value: ReadonlySet<string
  * does not remove it.
  */
 export function pendingRemovalChatIds(): ReadonlySet<string> {
-    if (idsCache?.stack === stack && idsCache.revision === committingRevision) return idsCache.value;
-    const value = new Set<string>();
-    for (const entry of [...stack, ...committing.values()]) {
-        if (entry.kind === "archive" || entry.kind === "delete") {
-            for (const id of entry.chatIds ?? [entry.chatId]) value.add(id);
-        }
-    }
-    const previous = idsCache?.value ?? EMPTY_IDS;
+    const cached = currentRemovalSnapshot();
+    if (cached) return cached;
+    const value = new Set([...stack, ...committing.values()].flatMap(removalIds));
+    const previous = idsCache ? idsCache.value : EMPTY_IDS;
     const snapshot = value.size === previous.size && [...value].every((id) => previous.has(id)) ? previous : value;
     idsCache = { stack, revision: committingRevision, value: snapshot };
     return snapshot;

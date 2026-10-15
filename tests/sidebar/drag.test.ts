@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { moveChatsToShelf, isDropShelf, shelfCollision, shelfKeyboardCoordinates, DROP_SHELVES } from "@/features/agent/sidebar/drag";
+import { moveChatsToShelf, isDropShelf, shelfCollision, createShelfKeyboardNavigation, DROP_SHELVES } from "@/features/agent/sidebar/drag";
 import { CHAT_SNOOZE_MS, getChatDispositions, setChatDisposition } from "@/lib/sidebar/chat-disposition";
 import { getPinnedChatIds, setChatPinned } from "@/lib/sidebar/chat-list-meta";
 import { getChatUndo, pendingChatUndoCount, pushChatUndo, resetChatUndoForTests, undoChat } from "@/features/agent/sidebar/undo";
@@ -59,7 +59,7 @@ describe("shelf drops", () => {
 });
 
 describe("shelf keyboard coordinates", () => {
-    type Context = Parameters<typeof shelfKeyboardCoordinates>[1]["context"];
+    type Context = Parameters<ReturnType<typeof createShelfKeyboardNavigation>["coordinates"]>[1]["context"];
     const box = { left: 10, top: 100, right: 310, bottom: 130, width: 300, height: 30 };
     function context(shelf: unknown): Context {
         return {
@@ -72,7 +72,9 @@ describe("shelf keyboard coordinates", () => {
     }
     function coordinates(code: string, value: Context) {
         const event = new KeyboardEvent("keydown", { code, cancelable: true });
-        const result = shelfKeyboardCoordinates(event, { context: value, active: "chat", currentCoordinates: { x: 0, y: 0 } });
+        const navigation = createShelfKeyboardNavigation();
+        navigation.start(value.active?.data.current?.shelf);
+        const result = navigation.coordinates(event, { context: value, active: "chat", currentCoordinates: { x: 0, y: 0 } });
         return { result, prevented: event.defaultPrevented };
     }
     it.each([
@@ -86,10 +88,30 @@ describe("shelf keyboard coordinates", () => {
             expect(coordinates(code, context(shelf))).toEqual({ result: undefined, prevented: false });
         },
     );
-    it("uses the current drop target ahead of the original active shelf", () => {
+    it.each([["ArrowDown", "active"], ["ArrowUp", "pinned"]])("moves %s from Working to the adjacent %s header", (code, destination) => {
+        const value = context("working");
+        value.droppableRects.set(`shelf:${destination}`, { ...box, left: 400, right: 700 });
+        expect(coordinates(code, value)).toEqual({ result: { x: 400, y: 100 }, prevented: true });
+    });
+    it("does not mistake an initial collision target for an arrow-selected shelf", () => {
         const value = context("pinned");
         value.over = { id: "shelf:settled", rect: box, disabled: false, data: { current: { shelf: "settled" } } };
-        expect(coordinates("ArrowDown", value).prevented).toBe(false);
+        expect(coordinates("ArrowDown", value).prevented).toBe(true);
+    });
+    it("tracks successive keyboard choices and resets at the next drag", () => {
+        const value = context("working");
+        DROP_SHELVES.forEach((shelf, index) => value.droppableRects.set(`shelf:${shelf}`, { ...box, left: index * 100, right: index * 100 + 300 }));
+        const navigation = createShelfKeyboardNavigation();
+        const move = (code: string) => navigation.coordinates(new KeyboardEvent("keydown", { code }), {
+            context: value, active: "chat", currentCoordinates: { x: 0, y: 0 },
+        });
+        navigation.start("working");
+        expect(move("ArrowDown")).toMatchObject({ x: 100 });
+        expect(move("ArrowLeft")).toBeUndefined();
+        expect(move("ArrowDown")).toMatchObject({ x: 200 });
+        expect(move("ArrowUp")).toMatchObject({ x: 100 });
+        navigation.start("working");
+        expect(move("ArrowUp")).toMatchObject({ x: 0 });
     });
     it("leaves an unmeasured target or missing collision rectangle alone", () => {
         const value = context("pinned");

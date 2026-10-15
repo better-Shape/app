@@ -3,11 +3,12 @@
 import { pointerWithin, closestCenter, type CollisionDetection, type KeyboardCoordinateGetter } from "@dnd-kit/core";
 import { getPinnedChatIds, setChatPinned } from "@/lib/sidebar/chat-list-meta";
 import { CHAT_SNOOZE_MS, getChatDispositions, setChatDisposition, type ChatDisposition } from "@/lib/sidebar/chat-disposition";
+import { CHAT_SHELVES, type ChatShelfId } from "./shelf-spec";
 import { pendingRemovalChatIds, pushChatUndo, type ChatUndoKind } from "./undo";
 
 // Working is derived from a live agent, never something dragging can start.
-export const DROP_SHELVES = ["pinned", "active", "snoozed", "settled"] as const;
-export type DropShelf = (typeof DROP_SHELVES)[number];
+export type DropShelf = Exclude<ChatShelfId, "working">;
+export const DROP_SHELVES: readonly DropShelf[] = CHAT_SHELVES.flatMap(shelf => shelf.id === "working" ? [] : [shelf.id]);
 export const DROP_VERBS: Record<DropShelf, string> = {
     pinned: "Pin", active: "Resume", snoozed: "Snooze", settled: "Settle",
 };
@@ -20,6 +21,7 @@ export const SHELF_ACTIONS = {
     settled: { kind: "settle", past: "Settled", state: "settled" },
 } as const satisfies Record<DropShelf, { kind: ChatUndoKind; past: string; state: ChatDisposition["state"] }>;
 
+/** Build one disposition value and snooze deadline for an entire menu/drop action. */
 export function dispositionForShelf(shelf: DropShelf, now = Date.now()): ChatDisposition {
     const { state } = SHELF_ACTIONS[shelf];
     return state === "snoozed" ? { state, until: now + CHAT_SNOOZE_MS } : { state };
@@ -34,34 +36,35 @@ export function isDropShelf(value: unknown): value is DropShelf {
 export const shelfCollision: CollisionDetection = (args) =>
     args.pointerCoordinates ? pointerWithin(args) : closestCenter(args);
 
-type KeyboardContext = Parameters<KeyboardCoordinateGetter>[1]["context"];
 const KEYBOARD_DIRECTIONS = new Map([["ArrowDown", 1], ["ArrowUp", -1]]);
 
-function shelfOf(target: KeyboardContext["over"] | KeyboardContext["active"]): unknown {
-    return target?.data.current?.shelf;
+/** Follow visible shelf order while skipping non-actionable Working without reversing direction. */
+function nextKeyboardShelf(current: unknown, direction: number): DropShelf | undefined {
+    const index = CHAT_SHELVES.findIndex(shelf => shelf.id === current);
+    if (index < 0) return direction > 0 ? DROP_SHELVES[0] : DROP_SHELVES[DROP_SHELVES.length - 1];
+    const candidates = direction > 0 ? CHAT_SHELVES.slice(index + 1) : CHAT_SHELVES.slice(0, index).reverse();
+    return candidates.map(shelf => shelf.id).find(isDropShelf);
 }
 
-function nextKeyboardShelf(context: KeyboardContext, direction: number): DropShelf | undefined {
-    const current = shelfOf(context.over) ?? shelfOf(context.active);
-    const index = DROP_SHELVES.findIndex(shelf => shelf === current);
-    if (index >= 0) return DROP_SHELVES[index + direction];
-    return direction > 0 ? DROP_SHELVES[0] : DROP_SHELVES[DROP_SHELVES.length - 1];
-}
-
-/** Arrow keys step between actionable shelf headers, including empty/collapsed ones. */
-export const shelfKeyboardCoordinates: KeyboardCoordinateGetter = (event, { context }) => {
-    const direction = KEYBOARD_DIRECTIONS.get(event.code);
-    if (!direction) return undefined;
-    const next = nextKeyboardShelf(context, direction);
-    if (!next || !context.collisionRect) return undefined;
-    const rect = context.droppableRects.get(`shelf:${next}`);
-    if (!rect) return undefined;
-    event.preventDefault();
-    return {
-        x: rect.left + rect.width / 2 - context.collisionRect.width / 2,
-        y: rect.top + rect.height / 2 - context.collisionRect.height / 2,
+/** Own keyboard position per drag, not the collision target that can exist before the first arrow. */
+export function createShelfKeyboardNavigation() {
+    let current: unknown;
+    const coordinates: KeyboardCoordinateGetter = (event, { context }) => {
+        const direction = KEYBOARD_DIRECTIONS.get(event.code);
+        if (!direction) return undefined;
+        const next = nextKeyboardShelf(current, direction);
+        if (!next || !context.collisionRect) return undefined;
+        const rect = context.droppableRects.get(`shelf:${next}`);
+        if (!rect) return undefined;
+        event.preventDefault();
+        current = next;
+        return {
+            x: rect.left + rect.width / 2 - context.collisionRect.width / 2,
+            y: rect.top + rect.height / 2 - context.collisionRect.height / 2,
+        };
     };
-};
+    return { start: (shelf: unknown) => { current = shelf; }, coordinates };
+}
 
 /** A shelf drop is ONE undo operation, including the pin/disposition combination. */
 export function moveChatsToShelf(ids: readonly string[], shelf: DropShelf, label: string): boolean {

@@ -18,7 +18,7 @@ import {
     useSyncExternalStore,
     type ReactNode,
 } from "react";
-import { primaryModifier } from "@/lib/platform";
+import { isComposingKey, isSidebarShortcut } from "./shortcuts";
 import {
     getChatDispositions, getChatDispositionsServer,
     setChatDisposition, subscribeChatDispositions, type ChatDisposition,
@@ -202,6 +202,12 @@ function UndoBar() {
     );
 }
 
+/** Keep menu and row labels consistent without coupling them to shelf state. */
+function chatLabels(chat: Conversation, projectPath: string | null | undefined) {
+    return { title: chat.title?.trim() || "Untitled", path: chat.project_path || projectPath || "" };
+}
+
+/** Render project sessions with shared lifecycle, keyboard and selection ownership. */
 export function ChatList({
     onNewChat,
 }: {
@@ -449,10 +455,7 @@ export function ChatList({
     useEffect(() => {
         /** Consume primary-modifier undo only when a sidebar action is pending and text editing does not own the key. */
         const onKey = (event: KeyboardEvent) => {
-            if (event.isComposing || event.defaultPrevented || !(primaryModifier() === "meta" ? event.metaKey : event.ctrlKey) || event.altKey) return;
-            if (event.key.toLowerCase() !== "z" || event.shiftKey) return;
-            const target = event.target instanceof HTMLElement ? event.target : null;
-            if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
+            if (!isSidebarShortcut(event) || event.key.toLowerCase() !== "z") return;
             // Capture phase, and only swallow the key once something came back:
             // with nothing pending, another surface's own mod+Z still fires.
             const entry = undoChat();
@@ -502,11 +505,7 @@ export function ChatList({
     useEffect(() => {
         /** Open a numbered visible chat without stealing IME input or shortcuts from text-editing surfaces. */
         const jump = (event: KeyboardEvent) => {
-            if (event.defaultPrevented || event.isComposing || event.altKey || event.shiftKey) return;
-            if (!(primaryModifier() === "meta" ? event.metaKey : event.ctrlKey)) return;
-            const target = event.target instanceof HTMLElement ? event.target : null;
-            if (target?.isContentEditable || target?.closest('input, textarea, select, [contenteditable="true"], [contenteditable="plaintext-only"], [role="textbox"]')) return;
-            if (!/^[1-9]$/.test(event.key)) return;
+            if (!isSidebarShortcut(event) || !/^[1-9]$/.test(event.key)) return;
             const chats = sections.filter((section) => !collapsed.has(section.id)).flatMap((section) => section.chats);
             const chat = chats[Number(event.key) - 1];
             if (!chat) return;
@@ -533,18 +532,21 @@ export function ChatList({
         });
     }, []);
 
+    /** Read stored disposition without interpreting ordinary viewing as an explicit Resume. */
+    const dispositionOf = useCallback((id: string) =>
+        dispositions[id]?.state ?? (id === activeId ? "active" : "settled"), [dispositions, activeId]);
+
     const selectedTargets = useMemo<ChatLifecycleTarget[]>(
         () =>
             filtered
                 .filter((chat) => selectedIds.includes(chat.id))
                 .map((chat) => ({
                     id: chat.id,
-                    title: chat.title?.trim() || "Untitled",
-                    path: chat.project_path || project_path || "",
+                    ...chatLabels(chat, project_path),
                     pinned: pinnedIds.has(chat.id),
-                    disposition: dispositions[chat.id]?.state ?? (chat.id === activeId ? "active" : "settled"),
+                    disposition: dispositionOf(chat.id),
                 })),
-        [filtered, selectedIds, pinnedIds, project_path, dispositions, activeId],
+        [filtered, selectedIds, pinnedIds, project_path, dispositionOf],
     );
 
     const collectionOf = useCallback(
@@ -555,9 +557,8 @@ export function ChatList({
     const rowProps = useCallback(
         (chat: Conversation) => ({
             activity: activities.get(chat.id) ?? (generatingIds.has(chat.id) ? "working" as const : "ready" as const),
-            disposition: dispositions[chat.id]?.state ?? (chat.id === activeId ? "active" as const : "settled" as const),
-            title: chat.title?.trim() || "Untitled",
-            path: chat.project_path || project_path || "",
+            disposition: dispositionOf(chat.id),
+            ...chatLabels(chat, project_path),
             timestamp: chat.timestamp || 0,
             collection: collectionOf(chat.id),
             active: chat.id === activeId,
@@ -576,7 +577,7 @@ export function ChatList({
             activeId,
             activities,
             generatingIds,
-            dispositions,
+            dispositionOf,
             allSubagents,
             collectionOf,
             colors,
@@ -616,6 +617,24 @@ export function ChatList({
             <DropdownMenuItem {...props} />
         ),
         Separator: () => <DropdownMenuSeparator />,
+    };
+
+    /** Open only the first visible matching result; empty queries and collapsed shelves are not commands. */
+    const openSearchResult = (event: React.KeyboardEvent<HTMLInputElement>) => {
+        if (!searchQuery.trim()) return;
+        const first = sections.find(section => !collapsed.has(section.id))?.chats[0];
+        if (!first) return;
+        event.preventDefault();
+        openChat(first.id);
+    };
+
+    /** Keep composition input separate from search navigation and dismissal. */
+    const onSearchKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+        if (composing.current || isComposingKey(event.nativeEvent)) return;
+        switch (event.key) {
+            case "Escape": event.preventDefault(); closeSearch(); break;
+            case "Enter": openSearchResult(event); break;
+        }
     };
 
     return (
@@ -741,14 +760,7 @@ export function ChatList({
                             setSearchText(event.currentTarget.value);
                             setSearchQuery(event.currentTarget.value);
                         }}
-                        onKeyDown={(event) => {
-                            if (composing.current || event.nativeEvent.isComposing || event.keyCode === 229) return;
-                            if (event.key === "Escape") { event.preventDefault(); closeSearch(); }
-                            if (event.key === "Enter" && searchQuery.trim()) {
-                                const first = sections.find((section) => !collapsed.has(section.id))?.chats[0];
-                                if (first) { event.preventDefault(); openChat(first.id); }
-                            }
-                        }}
+                        onKeyDown={onSearchKeyDown}
                     />
                 </div>
             ) : null}

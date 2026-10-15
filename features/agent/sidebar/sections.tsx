@@ -1,5 +1,7 @@
 "use client";
 
+import { CHAT_SHELVES, type ChatShelfId, type RowVariant } from "./shelf-spec";
+
 /**
  * The session list's shelves.
  *
@@ -21,7 +23,7 @@ import {
     DndContext, DragOverlay, KeyboardSensor, PointerSensor,
     useDraggable, useDroppable, useSensor, useSensors,
 } from "@dnd-kit/core";
-import { DROP_VERBS, isDropShelf, shelfCollision, shelfKeyboardCoordinates, type DropShelf } from "./drag";
+import { DROP_VERBS, isDropShelf, shelfCollision, createShelfKeyboardNavigation, type DropShelf } from "./drag";
 import { Checkmark } from "@/components/ui/checkmark";
 import { ChevronDown20Regular } from "@fluentui/react-icons/headless/svg/chevron-down";
 import { ChevronRight20Regular } from "@fluentui/react-icons/headless/svg/chevron-right";
@@ -120,24 +122,7 @@ export function sortShelf(chats: readonly Conversation[], sort: ChatSort): Conve
 
 /* ------------------------------------------------------------------- shelves */
 
-export type ChatShelfId = "pinned" | "working" | "active" | "snoozed" | "settled";
-
-export type RowVariant = "card" | "slim";
-
-export interface ChatShelfSpec {
-    id: ChatShelfId;
-    label: string;
-    variant: RowVariant;
-}
-
-/** Explicit snooze/settle intent moves idle chats; a running chat remains visible. */
-export const CHAT_SHELVES: readonly ChatShelfSpec[] = [
-    { id: "pinned", label: "Pinned", variant: "card" },
-    { id: "working", label: "Working", variant: "slim" },
-    { id: "active", label: "Active", variant: "slim" },
-    { id: "snoozed", label: "Snoozed", variant: "slim" },
-    { id: "settled", label: "Settled", variant: "slim" },
-];
+export { CHAT_SHELVES, type ChatShelfId, type RowVariant, type ChatShelfSpec } from "./shelf-spec";
 
 export interface ShelfFacts {
     disposition?: ChatDisposition["state"];
@@ -773,10 +758,11 @@ export function ChatShelves({
 }) {
     const [dragged, setDragged] = useState<{ id: string; title: string } | null>(null);
     const [overShelf, setOverShelf] = useState<DropShelf | null>(null);
+    const [keyboardNavigation] = useState(createShelfKeyboardNavigation);
     const sensors = useSensors(
         useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
         useSensor(KeyboardSensor, {
-            coordinateGetter: shelfKeyboardCoordinates,
+            coordinateGetter: keyboardNavigation.coordinates,
             keyboardCodes: { start: ["Space"], end: ["Space", "Enter"], cancel: ["Escape", "Tab"] },
         }),
     );
@@ -797,6 +783,7 @@ export function ChatShelves({
             collisionDetection={shelfCollision}
             accessibility={{ screenReaderInstructions: { draggable: "Press Space to move this session. Use Up and Down to choose a shelf, Space or Enter to drop, and Escape to cancel." } }}
             onDragStart={({ active }) => {
+                keyboardNavigation.start(active.data.current?.shelf);
                 const chat = sections.flatMap((section) => section.chats).find((chat) => chat.id === active.id);
                 if (chat) setDragged({ id: chat.id, title: chat.title || "Untitled" });
             }}

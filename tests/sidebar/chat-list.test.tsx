@@ -2,6 +2,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { listen } from "@tauri-apps/api/event";
+import { setChatGenerating } from "@/features/chat/lib/generating-chats";
 import { notificationStore } from "@/features/notifications";
 import type { Conversation } from "@/lib/backend/types";
 import { getPinnedChatIds, setChatPinned, getCollections, deleteCollection } from "@/lib/sidebar/chat-list-meta";
@@ -393,6 +394,19 @@ afterEach(() => {
         expect(host.querySelector("[data-chat-undo]")).toBeTruthy();
     });
 
+    it.each(["textbox", "plaintext-only"])("does not steal undo from a nested %s editor", kind => {
+        clickPin("c");
+        const editor = document.createElement("div");
+        if (kind === "textbox") editor.setAttribute("role", "textbox");
+        else editor.setAttribute("contenteditable", "plaintext-only");
+        const child = document.createElement("span");
+        editor.append(child); document.body.append(editor);
+        pressUndoOn(child);
+        expect(getPinnedChatIds().has("c")).toBe(true);
+        expect(host.querySelector("[data-chat-undo]")).toBeTruthy();
+        editor.remove();
+    });
+
     it("keeps a pending undo across a remount of the whole sidebar", async () => {
         clickPin("c");
         act(() => root.unmount());
@@ -437,7 +451,11 @@ it("jumps in visible shelf order and ignores composition and editable fields", (
     } finally { window.removeEventListener("bettershape-chat-load", opened); input.remove(); }
 });
 
-it("supports real keyboard dragging to an empty shelf with undo", async () => {
+it.each([
+    ["settled", "ArrowUp", "snoozed", "Snoozed"],
+    ["working", "ArrowDown", "active", "Resumed"],
+    ["working", "ArrowUp", "pinned", "Pinned"],
+] as const)("supports real keyboard dragging from %s with %s to %s and undo", async (source, key, destination, label) => {
     const original = Element.prototype.getBoundingClientRect;
     const scrollBy = HTMLElement.prototype.scrollBy;
     const scrollTo = HTMLElement.prototype.scrollTo;
@@ -457,6 +475,7 @@ it("supports real keyboard dragging to an empty shelf with undo", async () => {
         return domRect(top, this.hasAttribute("data-shelf-header") ? 24 : 40);
     };
     try {
+        if (source === "working") act(() => setChatGenerating("a", true));
         const button = row("a").querySelector<HTMLButtonElement>('[aria-roledescription="draggable session"]')!;
         expect(button).not.toBeNull();
         await act(async () => {
@@ -467,19 +486,21 @@ it("supports real keyboard dragging to an empty shelf with undo", async () => {
         expect(host.querySelectorAll("[data-drop-shelf]")).toHaveLength(4);
         expect(host.querySelector('[data-drop-shelf="snoozed"]')?.textContent).toContain("Snooze");
         await act(async () => {
-            document.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", code: "ArrowUp", bubbles: true, cancelable: true }));
+            document.dispatchEvent(new KeyboardEvent("keydown", { key, code: key, bubbles: true, cancelable: true }));
         });
         await act(async () => {
             document.dispatchEvent(new KeyboardEvent("keydown", { key: " ", code: "Space", bubbles: true, cancelable: true }));
         });
-        expect(getChatDispositions()["a"]?.state).toBe("snoozed");
-        expect(host.querySelector("[data-chat-undo]")?.textContent).toContain("Snoozed");
+        expect(getChatDispositions()["a"]?.state).toBe(destination === "pinned" ? "active" : destination);
+        expect(getPinnedChatIds().has("a")).toBe(destination === "pinned");
+        expect(host.querySelector("[data-chat-undo]")?.textContent).toContain(label);
         pressUndoOn(window);
         expect(getChatDispositions()["a"]).toBeUndefined();
     } finally {
         Element.prototype.getBoundingClientRect = original;
         HTMLElement.prototype.scrollBy = scrollBy;
         HTMLElement.prototype.scrollTo = scrollTo;
+        act(() => setChatGenerating("a", false));
     }
 });
 

@@ -85,20 +85,18 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
         let cancelled = false;
         /** Show the main native window after settings hydration, unless this layout has already unmounted. */
         const init = async () => {
-            try {
-                const { getCurrentWindow } = await import("@tauri-apps/api/window");
-                if (cancelled) return;
-                const currentWindow = getCurrentWindow();
-                if (currentWindow.label !== "main") return;
+            const { getCurrentWindow } = await import("@tauri-apps/api/window");
+            if (cancelled) return;
+            const currentWindow = getCurrentWindow();
+            if (currentWindow.label !== "main") return;
 
-                const { initSettings } = await import("@/lib/settings");
-                await initSettings();
-                if (!cancelled) await currentWindow.show();
-            } catch (e) {
-                console.error("Failed to manage window flow:", e);
-            }
+            const { initSettings } = await import("@/lib/settings");
+            await initSettings();
+            if (!cancelled) await currentWindow.show();
         };
-        init();
+        init().catch((error) => {
+            console.error("Failed to manage window flow:", error);
+        });
         return () => { cancelled = true; };
     }, []);
 
