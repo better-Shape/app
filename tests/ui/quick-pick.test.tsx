@@ -88,15 +88,20 @@ it("keeps explicit query submission separate from item clicks", async () => {
 });
 
 it("wraps keyboard selection and starts at the first result on reopen", async () => {
-    await act(async () => root.render(<Harness />));
+    const rows = [...items, { id: "three", label: "Three" }];
+    await act(async () => root.render(<Harness rows={rows} />));
+    act(() => { press("ArrowDown"); });
+    act(() => { press("Enter"); });
+    expect(select).toHaveBeenLastCalledWith(rows[1]);
+    act(() => { press("ArrowUp"); });
     act(() => { press("ArrowUp"); });
     act(() => { press("Enter"); });
-    expect(select).toHaveBeenLastCalledWith(items[1]);
-    await act(async () => root.render(<Harness open={false} />));
-    await act(async () => root.render(<Harness />));
+    expect(select).toHaveBeenLastCalledWith(rows[2]);
+    await act(async () => root.render(<Harness rows={rows} open={false} />));
+    await act(async () => root.render(<Harness rows={rows} />));
     act(() => { press("Enter"); });
-    expect(select).toHaveBeenLastCalledWith(items[0]);
-    expect(select).toHaveBeenCalledTimes(2);
+    expect(select).toHaveBeenLastCalledWith(rows[0]);
+    expect(select).toHaveBeenCalledTimes(3);
 });
 
 it.each(["  repository  ", "   "])("handles an empty result list with query %j", async query => {
@@ -115,4 +120,18 @@ it.each([{ isComposing: true }, { keyCode: 229 }])("does not dismiss the dialog 
     expect(changeOpen).not.toHaveBeenCalled();
     act(() => { press("Escape"); });
     expect(changeOpen).toHaveBeenCalledExactlyOnceWith(false);
+});
+
+it("schedules nothing while closed and cancels a valid zero-valued frame ID", async () => {
+    const schedule = vi.fn().mockReturnValue(0);
+    const cancel = vi.fn();
+    vi.stubGlobal("requestAnimationFrame", schedule);
+    vi.stubGlobal("cancelAnimationFrame", cancel);
+    await act(async () => root.render(<Harness open={false} />));
+    expect(schedule).not.toHaveBeenCalled();
+    await act(async () => root.render(<Harness />));
+    expect(cancel).not.toHaveBeenCalled();
+    expect(schedule).toHaveBeenCalledTimes(1);
+    await act(async () => root.render(<Harness open={false} />));
+    expect(cancel).toHaveBeenCalledExactlyOnceWith(0);
 });

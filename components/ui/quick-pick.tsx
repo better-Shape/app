@@ -41,6 +41,11 @@ type Props = {
 /**
  * Floating command-palette / quick-pick dialog (Cursor/VS Code style).
  */
+/** Include IME boundary keydowns that can arrive after composition has ended. */
+function isCompositionKey(event: KeyboardEvent): boolean {
+    return event.isComposing || event.keyCode === 229;
+}
+
 export function QuickPick({
     open,
     onOpenChange,
@@ -64,25 +69,29 @@ export function QuickPick({
     const showInput = query !== undefined && onQueryChange !== undefined;
 
     React.useEffect(() => {
-        if (!open) return;
-        const frame = requestAnimationFrame(() => inputRef.current?.focus());
-        return () => cancelAnimationFrame(frame);
+        const frame = open ? requestAnimationFrame(() => inputRef.current?.focus()) : undefined;
+        return () => {
+            if (frame !== undefined) cancelAnimationFrame(frame);
+        };
     }, [open, items.length]);
 
+    /** Wrap through results, keeping an empty list out of modulo-zero arithmetic. */
     const move = (delta: number) => {
         if (items.length === 0) return;
         setSelected((i) => (i + delta + items.length) % items.length);
     };
 
+    /** Select a result; clicking must not submit the query instead of that result. */
     const confirm = (index = selected) => {
         const item = items[index];
-        if (item) {
-            onSelect(item);
-            return;
-        }
-        if (onSubmitQuery && query?.trim()) {
-            onSubmitQuery(query.trim());
-        }
+        if (item) onSelect(item);
+    };
+
+    /** Enter prefers an explicit nonempty query; otherwise confirm the highlighted result. */
+    const submit = () => {
+        const value = query?.trim();
+        if (onSubmitQuery && value) onSubmitQuery(value);
+        else confirm();
     };
 
     return (
@@ -96,10 +105,10 @@ export function QuickPick({
                     )}
                     aria-describedby={undefined}
                     onEscapeKeyDown={(event) => {
-                        if (event.isComposing || event.keyCode === 229) event.preventDefault();
+                        if (isCompositionKey(event)) event.preventDefault();
                     }}
                     onKeyDown={(e) => {
-                        if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+                        if (isCompositionKey(e.nativeEvent)) return;
                         if (e.key === "ArrowDown") {
                             e.preventDefault();
                             move(1);
@@ -108,11 +117,7 @@ export function QuickPick({
                             move(-1);
                         } else if (e.key === "Enter") {
                             e.preventDefault();
-                            if (onSubmitQuery && query?.trim()) {
-                                onSubmitQuery(query.trim());
-                            } else {
-                                confirm();
-                            }
+                            submit();
                         }
                     }}
                 >

@@ -73,3 +73,19 @@ Escape must therefore be canceled at that callback as well. Two additional
 original-source failures cover both `isComposing` and boundary key code 229,
 while subsequent ordinary Escape still dismisses. All thirteen quick-pick tests
 pass with both guards. Physical input-method behavior still needs platform testing.
+
+## Scanner follow-up
+
+DeepSource identified mixed effect return paths, missing navigation-helper
+documentation and keyboard-routing complexity. The focus effect now always
+returns a cleanup function, but schedules nothing while closed. A control covers
+that path and frame ID zero so cleanup cannot accidentally use a truthiness test.
+The navigation helper documents why empty lists must avoid modulo arithmetic.
+
+Keyboard routing delegates composition detection and query submission to named
+helpers. Click confirmation only selects its indexed result. Query submission
+remains confined to Enter, including the empty-list case. Three-result navigation
+controls distinguish Up from Down, which a two-result wrap test cannot do.
+Installed ESLint measures the keyboard callback at complexity 5, composition at
+2, query submission at 4 and confirmation at 3. This is local evidence, not a
+claim that the hosted scanners or the full-project baseline are clean.
