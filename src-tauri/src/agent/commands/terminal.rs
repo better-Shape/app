@@ -19,7 +19,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::json;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 use crate::agent::models::AgentState;
 use crate::commands::pty::{self, AgentSessionCallbacks, PtyState};
@@ -168,10 +168,7 @@ fn make_callbacks(
             );
             if let Ok(mut buf) = output_buf.lock() {
                 buf.push_str(&data);
-                if buf.len() > 8_000 {
-                    let drain = buf.len() - 8_000;
-                    buf.drain(..drain);
-                }
+                crate::core::bounded_text::retain_tail(&mut buf, 8_000);
                 if !waiting_emitted.load(std::sync::atomic::Ordering::Relaxed)
                     && pty::looks_like_input_prompt(&strip_ansi(&buf))
                 {
@@ -195,6 +192,9 @@ fn make_callbacks(
             }
         }),
         on_exit: Arc::new(move |session_id, exit_code| {
+            if let Some(state) = app_exit.try_state::<AgentState>() {
+                state.unregister_session(session_id);
+            }
             emit_chat_stream(
                 &app_exit,
                 json!({
@@ -252,7 +252,7 @@ pub async fn run_agent_command(
         }
     };
 
-    agent_state.register_session(session_id);
+    agent_state.register_session(session_id, cancel.clone());
 
     emit_chat_stream(
         app,

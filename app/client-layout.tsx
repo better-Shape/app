@@ -8,7 +8,7 @@ import { LoadingProvider } from "@/features/loading/context";
 import { NotificationProvider } from "@/components/ui/notification";
 import { GlobalContextMenu } from "@/core/providers/menu";
 import { ChatStreamProvider } from "@/features/chat/lib/chat-stream-store";
-import { initSettings } from "@/lib/settings";
+import { acquireAiConfiguration } from "@/lib/ai/bootstrap";
 import { installWindowCloseGuard } from "@/lib/window/close-guard";
 import { notify } from "@/features/notifications";
 import { initGitHubAuth } from "@/lib/github/store";
@@ -36,14 +36,11 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
 
     useEffect(() => {
         let cancelled = false;
-        let stopAiSync: (() => void) | undefined;
+        const configuration = acquireAiConfiguration();
         const bootstrap = async () => {
-            await initSettings();
+            await configuration.ready;
             if (cancelled) return;
             initGitHubAuth();
-            const { initAiConfigSync } = await import("@/lib/ai/sync");
-            if (cancelled) return;
-            stopAiSync = initAiConfigSync();
 
             // MCP: sync user mcp.json so the agent sees tools without visiting Settings.
             void (async () => {
@@ -62,7 +59,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
         void bootstrap().catch(() => {
             if (!cancelled) notify.error("Could not initialize app settings", "Reload the app to try again.");
         });
-        return () => { cancelled = true; stopAiSync?.(); };
+        return () => { cancelled = true; configuration.release(); };
     }, []);
 
     // Re-ensure benign error filters (idempotent; instrumentation-client runs earlier).

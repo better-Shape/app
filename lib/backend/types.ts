@@ -355,6 +355,7 @@ export interface IndexStatus {
 
 export interface ChatGenerationState {
     isGenerating: boolean;
+    requestId?: string | null;
     turnId?: string | null;
     conversationId?: string | null;
     partialContent?: string | null;

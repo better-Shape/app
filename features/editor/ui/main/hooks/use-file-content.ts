@@ -140,7 +140,7 @@ export function useFileContent(
                             setLoading(false);
                             return;
                         }
-                        console.warn("Git content load failed:", e);
+                        console.warn("Git content could not be loaded; using the disk copy.");
                         const fallback = await commands.readFile(absPath).catch(() => "");
                         if (cancelled || seq !== loadSeq) return;
                         orig = fallback;
@@ -191,30 +191,19 @@ export function useFileContent(
                 }
             } catch (err: unknown) {
                 if (cancelled || seq !== loadSeq) return;
-                const errorStr = (err as string | Error)?.toString() || String(err);
-                const errorMsg = errorStr.startsWith("Message: ") ? errorStr.replace("Message: ", "") : errorStr;
+                const errorMsg = (err instanceof Error ? err.message : String(err)).toLowerCase();
 
-                const isGitIndexError = errorMsg.includes("File not in index") || errorMsg.includes("os error 2") || errorMsg.includes("os error 3") || errorMsg.includes("cannot find the file") || errorMsg.includes("cannot find the path");
-                if (isDiff && isGitIndexError) {
-                    setError(errorMsg);
-                    setLoading(false);
-                    return;
-                }
-
-                setError(errorMsg);
+                const isGitIndexError = /file not in index|os error [23]\b|cannot find the (?:file|path)|no such file/.test(errorMsg);
+                const isAccessDenied = /access is denied|permission denied|os error (?:5|13)\b/.test(errorMsg);
+                const isBinary = errorMsg.includes("binary") || errorMsg.includes("utf-8");
+                const safeMessage = isGitIndexError
+                    ? (isDiff ? "This file is not available at the selected revision." : "The file could not be found. It may have been moved or deleted.")
+                    : isAccessDenied ? "The file could not be opened. Check its permissions."
+                    : isBinary ? "This file cannot be displayed as UTF-8 text."
+                    : "Could not read this file. Retry after checking that it is available.";
+                setError(safeMessage);
                 setLoading(false);
-
-                const isAccessDenied =
-                    errorMsg.includes("Access is denied") || errorMsg.includes("os error 5");
-                const isCommonError =
-                    errorMsg.includes("binary") ||
-                    errorMsg.includes("UTF-8") ||
-                    isGitIndexError ||
-                    isAccessDenied;
-                if (!isCommonError) {
-                    console.error("Failed to read file:", err);
-                    notify.error("File Error", `Failed to read file: ${errorMsg}`, { code: 4000 });
-                }
+                if (!isGitIndexError && !isAccessDenied && !isBinary) reportLoadFailure();
             }
         };
 

@@ -66,6 +66,7 @@ export function PrTimelineTab({ item, revision }: { item: PrItem; revision: numb
 export function PrReviewers({ item, requested, revision }: { item: PrItem; requested: string[]; revision: number }) {
     const resource = usePagedPrResource(`/repos/${item.repo}/pulls/${item.number}/reviews`, `${revision}:${item.updatedAt ?? ""}:${item.headSha ?? ""}`);
     const completed = [...new Set(resource.rows.flatMap((row) => {
+        if (row.state === "PENDING") return [];
         const user = row.user as { login?: string } | null;
         return user?.login ? [user.login] : [];
     }))];

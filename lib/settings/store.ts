@@ -845,7 +845,7 @@ async function hydrateDesktopSettings(): Promise<void> {
             const storedScopes = credentialScopes(storedProviders);
             legacyCredentialsPresent ||= Object.keys(storedSecrets).length > 0;
             for (const [id, value] of Object.entries(localSecrets)) {
-                if ((storedSecrets[id] !== value || storedScopes[id] !== localScopesAtStart[id]) && !explicitlyEditedCredentials.has(id)) credentialRecoveryConflicts.add(id);
+                if (((storedSecrets[id] !== undefined && storedSecrets[id] !== value) || storedScopes[id] !== localScopesAtStart[id]) && !explicitlyEditedCredentials.has(id)) credentialRecoveryConflicts.add(id);
             }
             currentSettings = mergeSettingsHydration(settingsAtStart, currentSettings,
                 mergeSettings(DEFAULT_SETTINGS, stored, { preserveSecrets: true }));

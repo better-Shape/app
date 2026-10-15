@@ -11,10 +11,31 @@ use tauri::{Emitter, Manager};
 #[tauri::command]
 pub async fn stop_chat_message(
     conversation_id: Option<String>,
+    client_request_id: Option<String>,
     app: tauri::AppHandle,
     state: tauri::State<'_, AgentState>,
     pty_state: tauri::State<'_, crate::commands::pty::PtyState>,
 ) -> Result<(), AppError> {
+    // Reserve cancellation even when the send has not reached admission yet.
+    // A request-scoped stop never falls back to an unrelated current chat.
+    let conversation_id = if let Some(ref request_id) = client_request_id {
+        let recorded = state.request_cancellations.lock()?.cancel(request_id);
+        if !recorded {
+            return Err(AppError::Message("Invalid chat request id".to_string()));
+        }
+        let active = state
+            .in_flight
+            .lock()?
+            .values()
+            .find(|turn| turn.request_id.as_deref() == Some(request_id.as_str()))
+            .and_then(|turn| turn.conversation_id.clone());
+        let Some(active) = active else {
+            return Ok(());
+        };
+        Some(active)
+    } else {
+        conversation_id
+    };
     // Stop ends only the chat it was pressed in. Other chats that are still generating
     // keep running. With no id, it falls back to the live chat.
     let live_id = state
@@ -30,6 +51,11 @@ pub async fn stop_chat_message(
         return Ok(());
     };
 
+    // Keep replacement admission blocked until all asynchronous Stop cleanup
+    // finishes, even if the cancelled run releases its slot sooner.
+    let Some(_stop_guard) = state.begin_stop(&target, client_request_id.as_deref()) else {
+        return Ok(());
+    };
     let is_live = live_id.as_deref() == Some(target.as_str());
     let already_cancelled = state
         .conversation_cancel_token(&target)
@@ -45,21 +71,20 @@ pub async fn stop_chat_message(
         return Ok(());
     }
 
+    // Cancel first so waiters observe Stop instead of a fake Reject (which
+    // used to look like accepted edits were undone).
+    if let Some(token) = state.conversation_cancel_token(&target) {
+        token.cancel();
+    }
     logging::info("chat", "Stop requested by user");
     // The browser session, preview capture, and terminals belong to the chat on screen.
     // Tearing them down for a background chat would break whichever chat is live.
     if is_live {
-        let _ = crate::agent::tools::browse::finish_browse_markup(String::new()).await;
         crate::agent::tools::browse::stop_session();
         let _ = app.emit(
             "agent-browse",
             serde_json::json!({"id": "live", "status": "stopped"}),
         );
-    }
-    // Cancel first so waiters observe Stop instead of a fake Reject (which
-    // used to look like accepted edits were undone).
-    if let Some(token) = state.conversation_cancel_token(&target) {
-        token.cancel();
     }
     if is_live {
         // Approval prompts carry no chat id; only the chat on screen can own them.
@@ -135,9 +160,8 @@ pub async fn stop_chat_message(
         app.state::<PreviewCaptureState>()
             .abort_and_drain(&app, "Preview capture cancelled")
             .await;
-
-        state.kill_active_terminal(&pty_state).await;
     }
+    state.kill_cancelled_terminals(&pty_state).await;
     Ok(())
 }
 

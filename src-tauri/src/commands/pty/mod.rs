@@ -72,16 +72,7 @@ impl SessionMeta {
     fn append_output(&self, data: &str) {
         if let Ok(mut buf) = self.output.lock() {
             buf.push_str(data);
-            if buf.len() > SESSION_OUTPUT_CAP {
-                let keep_from = buf.len().saturating_sub(SESSION_OUTPUT_CAP);
-                // Avoid slicing mid-UTF-8-codepoint.
-                let mut start = keep_from;
-                while start < buf.len() && !buf.is_char_boundary(start) {
-                    start += 1;
-                }
-                let trimmed = buf[start..].to_string();
-                *buf = trimmed;
-            }
+            crate::core::bounded_text::retain_tail(&mut buf, SESSION_OUTPUT_CAP);
         }
     }
 

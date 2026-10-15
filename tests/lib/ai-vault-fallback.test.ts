@@ -462,3 +462,18 @@ it("keeps an orphaned scoped header without loading it or blocking unrelated con
     expect(bridge.remove).not.toHaveBeenCalled();
     expect(bridge.configure).toHaveBeenCalled();
 });
+
+it("migrates a local legacy key when the desktop copy is redacted at the same destination", async () => {
+    reset();
+    const { DEFAULT_SETTINGS } = await import("@/lib/settings");
+    bridge.disk = structuredClone(DEFAULT_SETTINGS);
+    const local = structuredClone(DEFAULT_SETTINGS);
+    local.ai.providers.connections.openai.apiKey = "example-legacy-local";
+    localStorage.setItem("bettershape-settings-v1", JSON.stringify(local));
+    const a = await openWindow(); stop = a.unsubscribe;
+    expect(a.settings.getCredentialRecoveryConflicts()).toEqual([]);
+    expect(a.settings.getSettings().ai.providers.connections.openai.apiKey).toBe("example-legacy-local");
+    expect(native.values.get("openai")).toBe("example-legacy-local");
+    expect(localStorage.getItem("bettershape-settings-v1")).not.toContain("example-legacy-local");
+    expect(JSON.stringify(bridge.disk)).not.toContain("example-legacy-local");
+});

@@ -69,6 +69,7 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
     const overrideVersion = usePrOverridesVersion();
     const [checkingOut, setCheckingOut] = useState(false);
 
+    const repoKey = useRef<string | null>(null);
     const loadVersion = useRef(0);
     const loadBusy = useRef(false);
     const [detailRevision, setDetailRevision] = useState(0);
@@ -78,6 +79,7 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
         const version = ++loadVersion.current;
         loadBusy.current = true;
         if (!background) {
+            repoKey.current = null;
             setItems([]);
             setRepo(null);
             setHasMore(false);
@@ -88,6 +90,15 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
         try {
             const resolved = await resolveOwnerRepo(project_path);
             if (version !== loadVersion.current) return;
+            const nextRepoKey = resolved ? `${resolved.owner}/${resolved.repo}` : null;
+            if (nextRepoKey !== repoKey.current) {
+                // A snapshot belongs to one remote. Transient errors may retain
+                // it only while that identity is unchanged.
+                setItems([]);
+                setHasMore(false);
+                loadedPages.current = 1;
+                repoKey.current = nextRepoKey;
+            }
             setRepo((previous) => previous?.owner === resolved?.owner && previous?.repo === resolved?.repo ? previous : resolved);
             if (!resolved) {
                 setItems([]);
@@ -174,7 +185,7 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
 
     const selected = useMemo(
         () => {
-            const item = items.find((item) => item.id === selectedId)
+            const item = items.find((item) => item.id === selectedId && item.repo === `${repo?.owner}/${repo?.repo}`)
                 ?? (prUi.selectedItem?.id === selectedId && prUi.selectedItem.repo === `${repo?.owner}/${repo?.repo}` ? prUi.selectedItem : undefined);
             return item ? applyPrOverrides([item])[0] : null;
         },

@@ -191,6 +191,8 @@ pub struct PendingCommand {
 pub struct InFlightTurn {
     pub turn_id: String,
     #[serde(default)]
+    pub request_id: Option<String>,
+    #[serde(default)]
     pub conversation_id: Option<String>,
     pub partial_content: String,
     pub started_at: f64,
@@ -201,6 +203,8 @@ pub struct InFlightTurn {
 #[serde(rename_all = "camelCase")]
 pub struct ChatGenerationState {
     pub is_generating: bool,
+    #[serde(default)]
+    pub request_id: Option<String>,
     pub turn_id: Option<String>,
     pub conversation_id: Option<String>,
     pub partial_content: Option<String>,
@@ -271,7 +275,7 @@ pub struct AgentState {
     /// Per-conversation cancel tokens so Stop only ends the chat you are looking at.
     pub cancel_tokens: Mutex<HashMap<String, CancellationToken>>,
     /// In-flight agent terminal session ids for stop/cancel (supports concurrent background jobs).
-    pub active_terminals: Mutex<std::collections::HashSet<u32>>,
+    pub active_terminals: Mutex<HashMap<u32, CancellationToken>>,
     /// Terminal commands awaiting user approval.
     pub pending_commands: Mutex<HashMap<String, PendingCommand>>,
     /// User decisions for pending commands: id -> approved. The waiting tool
@@ -303,6 +307,8 @@ pub struct AgentState {
     pub recent_files: Mutex<Vec<crate::agent::commands::compaction::RecentFile>>,
     /// Partial assistant turns keyed by conversation id. Several chats can run at once.
     pub in_flight: Mutex<HashMap<String, InFlightTurn>>,
+    pub request_cancellations: Mutex<crate::core::turn_order::RequestCancellations>,
+    stopping_conversations: Mutex<HashSet<String>>,
     /// Debounce timestamp for persisting in-flight partial content.
     pub in_flight_last_save: Mutex<f64>,
     /// Design-mode preview gate and temporary React sandbox session.
@@ -342,7 +348,7 @@ impl AgentState {
             conversation_kind: Mutex::new(None),
             cancellation_token: Mutex::new(CancellationToken::new()),
             cancel_tokens: Mutex::new(HashMap::new()),
-            active_terminals: Mutex::new(std::collections::HashSet::new()),
+            active_terminals: Mutex::new(HashMap::new()),
             pending_commands: Mutex::new(HashMap::new()),
             command_decisions: Mutex::new(HashMap::new()),
             pending_edits: Mutex::new(HashMap::new()),
@@ -358,6 +364,10 @@ impl AgentState {
             compaction: Mutex::new(crate::agent::commands::compaction::CompactionState::default()),
             recent_files: Mutex::new(Vec::new()),
             in_flight: Mutex::new(HashMap::new()),
+            stopping_conversations: Mutex::new(HashSet::new()),
+            request_cancellations: Mutex::new(
+                crate::core::turn_order::RequestCancellations::default(),
+            ),
             in_flight_last_save: Mutex::new(0.0),
             design_preview: Mutex::new(DesignPreviewState::default()),
             file_checkpoints: Mutex::new(Vec::new()),
@@ -430,29 +440,73 @@ impl AgentState {
 
     /// Claim this conversation's in-flight slot. Another chat may already be running.
     pub fn try_begin_in_flight(&self, turn_id: String, conversation_id: Option<String>) -> bool {
-        let Some(key) = conversation_id.clone().filter(|s| !s.is_empty()) else {
-            return false;
-        };
-        let Ok(mut guard) = self.in_flight.lock() else {
-            return false;
-        };
-        if guard.contains_key(&key) {
-            return false;
-        }
-        guard.insert(
+        self.claim_in_flight(conversation_id, None, || Some(turn_id))
+            .is_some()
+    }
+
+    pub fn try_begin_ordered_turn(
+        &self,
+        conversation_id: String,
+        request_id: Option<String>,
+    ) -> Option<String> {
+        self.claim_in_flight(Some(conversation_id), request_id, || {
+            Some(format!(
+                "{}:{}",
+                crate::core::turn_order::next_turn_sequence()?,
+                uuid::Uuid::new_v4()
+            ))
+        })
+    }
+
+    fn claim_in_flight(
+        &self,
+        conversation_id: Option<String>,
+        request_id: Option<String>,
+        make_id: impl FnOnce() -> Option<String>,
+    ) -> Option<String> {
+        let key = conversation_id.filter(|s| !s.is_empty())?;
+        crate::core::turn_order::admit(
+            &self.in_flight,
+            &self.stopping_conversations,
             key.clone(),
-            InFlightTurn {
-                turn_id,
-                conversation_id: Some(key),
-                partial_content: String::new(),
-                started_at: std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_secs_f64())
-                    .unwrap_or(0.0),
-                activity_label: None,
+            || {
+                let turn_id = make_id()?;
+                let turn = InFlightTurn {
+                    turn_id: turn_id.clone(),
+                    request_id,
+                    conversation_id: Some(key),
+                    partial_content: String::new(),
+                    started_at: std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs_f64())
+                        .unwrap_or(0.0),
+                    activity_label: None,
+                };
+                Some((turn_id, turn))
             },
-        );
-        true
+        )
+    }
+
+    pub fn begin_stop(
+        &self,
+        conversation_id: &str,
+        request_id: Option<&str>,
+    ) -> Option<crate::core::turn_order::StopGuard<'_>> {
+        crate::core::turn_order::begin_stop(
+            &self.in_flight,
+            &self.stopping_conversations,
+            conversation_id,
+            |turn| request_id.is_none() || request_id == turn.request_id.as_deref(),
+        )
+    }
+
+    pub fn request_is_cancelled(&self, request_id: Option<&str>) -> bool {
+        request_id.is_some_and(|id| {
+            self.request_cancellations
+                .lock()
+                .map(|state| state.is_cancelled(id))
+                .unwrap_or(true)
+        })
     }
 
     pub fn any_in_flight(&self) -> bool {
@@ -752,6 +806,7 @@ impl AgentState {
         match snapshot {
             Some(f) => ChatGenerationState {
                 is_generating: true,
+                request_id: f.request_id,
                 turn_id: Some(f.turn_id),
                 conversation_id: f.conversation_id,
                 partial_content: Some(f.partial_content),
@@ -759,6 +814,7 @@ impl AgentState {
             },
             None => ChatGenerationState {
                 is_generating: false,
+                request_id: None,
                 turn_id: None,
                 conversation_id: None,
                 partial_content: None,
@@ -885,9 +941,9 @@ impl AgentState {
         result
     }
 
-    pub fn register_session(&self, id: u32) {
+    pub fn register_session(&self, id: u32, cancel: CancellationToken) {
         if let Ok(mut set) = self.active_terminals.lock() {
-            set.insert(id);
+            set.insert(id, cancel);
         }
     }
 
@@ -914,12 +970,35 @@ impl AgentState {
         }
     }
 
+    fn take_cancelled_terminals(&self) -> Vec<u32> {
+        let mut ids = Vec::new();
+        if let Ok(mut sessions) = self.active_terminals.lock() {
+            sessions.retain(|id, cancel| {
+                if cancel.is_cancelled() {
+                    ids.push(*id);
+                    false
+                } else {
+                    true
+                }
+            });
+        }
+        ids
+    }
+
+    pub async fn kill_cancelled_terminals(&self, pty_state: &crate::commands::pty::PtyState) {
+        // Tokens retain their owner after a command becomes a background job.
+        // A late Stop must not drain a replacement or another chat's sessions.
+        for id in self.take_cancelled_terminals() {
+            let _ = crate::commands::pty::kill_session(pty_state, id).await;
+        }
+    }
+
     pub async fn kill_active_terminal(&self, pty_state: &crate::commands::pty::PtyState) {
         let ids: Vec<u32> = self
             .active_terminals
             .lock()
             .ok()
-            .map(|mut guard| guard.drain().collect())
+            .map(|mut guard| guard.drain().map(|(id, _)| id).collect())
             .unwrap_or_default();
         for id in ids {
             let _ = crate::commands::pty::kill_session(pty_state, id).await;
@@ -1126,5 +1205,53 @@ mod tests {
         assert_eq!(policy.auto_run_mode, AutoRunMode::Ask);
         assert!(policy.require_edit_approval);
         assert!(!policy.protect_destructive_git);
+    }
+}
+
+#[cfg(test)]
+mod admission_order_tests {
+    use super::*;
+
+    #[test]
+    fn stop_selects_cancelled_command_owners_and_their_children_only() {
+        let state = AgentState::new();
+        let cancelled = CancellationToken::new();
+        let other = CancellationToken::new();
+        state.register_session(1, cancelled.clone());
+        state.register_session(2, cancelled.child_token());
+        state.register_session(3, other.clone());
+        cancelled.cancel();
+        let mut stopped = state.take_cancelled_terminals();
+        stopped.sort_unstable();
+        assert_eq!(stopped, vec![1, 2]);
+        assert_eq!(state.active_terminals.lock().unwrap().len(), 1);
+        assert!(!other.is_cancelled());
+        assert!(state.take_cancelled_terminals().is_empty());
+    }
+
+    #[test]
+    fn stop_cleanup_blocks_replacement_admission_until_it_finishes() {
+        let state = AgentState::new();
+        let first = state
+            .try_begin_ordered_turn("a".into(), Some("owner:a:1".into()))
+            .unwrap();
+        assert_eq!(
+            state.generation_state_for(Some("a")).request_id.as_deref(),
+            Some("owner:a:1")
+        );
+        let stopping = state.begin_stop("a", Some("owner:a:1")).unwrap();
+        state.clear_in_flight_if(&first);
+        assert!(state
+            .try_begin_ordered_turn("a".into(), Some("owner:a:2".into()))
+            .is_none());
+        drop(stopping);
+        let second = state
+            .try_begin_ordered_turn("a".into(), Some("owner:a:2".into()))
+            .unwrap();
+        assert!(
+            second.split(':').next().unwrap().parse::<u64>().unwrap()
+                > first.split(':').next().unwrap().parse::<u64>().unwrap()
+        );
+        assert!(state.begin_stop("a", Some("owner:a:1")).is_none());
     }
 }

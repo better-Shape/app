@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
 const { get } = vi.hoisted(() => ({ get: vi.fn() }));
 vi.mock("@/lib/backend", () => ({ commands: { githubApiGet: get } }));
-import { PrFilesTab } from "@/features/chat/ui/prs/detail-tabs";
+import { PrFilesTab, PrReviewers } from "@/features/chat/ui/prs/detail-tabs";
 import { mapPullRow } from "@/features/chat/ui/prs/mapping";
 
 it("keeps loaded file pages on review-only changes and revalidates them on commits or explicit refresh", async () => {
@@ -26,5 +26,21 @@ it("keeps loaded file pages on review-only changes and revalidates them on commi
         await act(async () => root.render(<PrFilesTab item={item} revision={1} />));
         expect(get).toHaveBeenCalledTimes(6);
         expect(host.textContent).toContain("last-0.ts");
+    } finally { act(() => root.unmount()); host.remove(); }
+});
+
+it("lists only submitted reviewers, not authors of pending draft reviews", async () => {
+    get.mockReset().mockResolvedValue([
+        { user: { login: "draft-author" }, state: "PENDING" },
+        { user: { login: "reviewer" }, state: "COMMENTED" },
+        { user: { login: "reviewer" }, state: "APPROVED" },
+    ]);
+    const host = document.createElement("div"); document.body.append(host); const root = createRoot(host);
+    const item = mapPullRow({ id: 1, number: 7, title: "PR", state: "open" }, "owner/repo");
+    try {
+        await act(async () => root.render(<PrReviewers item={item} requested={[]} revision={0} />));
+        expect(host.textContent).toContain("Reviewed: reviewer");
+        expect(host.textContent).not.toContain("draft-author");
+        expect(host.textContent).not.toContain("reviewer, reviewer");
     } finally { act(() => root.unmount()); host.remove(); }
 });

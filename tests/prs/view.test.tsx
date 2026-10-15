@@ -178,3 +178,20 @@ it("polls lightweight metadata without refetching unchanged review pages", async
     await act(async () => mocks.refresh());
     expect(mocks.get.mock.calls.filter(([path]) => path.includes("/reviews?"))).toHaveLength(3);
 });
+
+it("never queries old PR details against a changed remote when the new list fails", async () => {
+    vi.useFakeTimers(); vi.spyOn(document, "hidden", "get").mockReturnValue(false);
+    mocks.get.mockImplementation(async (path: string) => {
+        if (path.includes("/second/")) throw new Error("Offline");
+        if (path.includes("/pulls?")) return [{ id: 1, number: 7, title: "Previous remote PR", state: "open" }];
+        return [];
+    });
+    await act(async () => root.render(<PullRequestsPanel />));
+    expect(host.textContent).toContain("Previous remote PR");
+    mocks.get.mockClear();
+    mocks.remote.mockResolvedValue("https://github.com/owner/second.git");
+    await act(async () => vi.advanceTimersByTimeAsync(30_000));
+    expect(host.textContent).not.toContain("Previous remote PR");
+    expect(mocks.get.mock.calls.some(([path]) => path.includes("/second/pulls/7"))).toBe(false);
+    expect(host.querySelector("[data-has-more]")?.getAttribute("data-has-more")).toBe("false");
+});

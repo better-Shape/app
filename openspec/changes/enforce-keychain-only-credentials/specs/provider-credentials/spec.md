@@ -13,7 +13,7 @@ The app SHALL redact provider API keys, service API keys and connection-header v
 The app SHALL retain each existing plaintext settings copy until migration succeeds or the user explicitly supersedes its credentials.
 
 #### Scenario: Conflicting copies
-- **WHEN** local and desktop copies disagree
+- **WHEN** local and desktop copies contain different nonempty credentials or disagree about a credential destination
 - **THEN** automatic migration is blocked
 - **AND** neither copy is silently erased
 - **AND** the user is asked to review destinations or re-enter the affected credentials
@@ -79,3 +79,21 @@ A window SHALL remain open when saving fails, never acknowledges, leaves dirty f
 - **WHEN** enumeration, listener registration or a close request fails to finish within the close deadline
 - **THEN** the main window remains open
 - **AND** late registrations are cleaned up without issuing a late close
+
+### Requirement: Completion preserves newer credential intent
+Credential completion receipts SHALL NOT overwrite a newer write or deletion intent. Retry enumeration SHALL include session-only deletions whose metadata could not be recorded.
+
+#### Scenario: Deletion races a save acknowledgement
+- **WHEN** another WebView records a deletion between checking save ownership and writing its receipt
+- **THEN** the deletion remains pending or confirmed deleted
+- **AND** restart does not hydrate the superseded saved key
+
+#### Scenario: Storage quota prevents recording a clear
+- **WHEN** a clear remains in memory because its metadata write failed
+- **THEN** explicit retry attempts that deletion after storage becomes available
+- **AND** failure continues to count as an unsaved draft
+
+#### Scenario: Only one legacy copy contains a key
+- **WHEN** local settings contain a legacy key and the desktop copy is redacted at the same destination
+- **THEN** missing plaintext alone does not block migration
+- **AND** the existing plaintext remains until vault persistence succeeds

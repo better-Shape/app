@@ -77,7 +77,7 @@ it("does not restart a file read from an expired file-change callback", async ()
     expect(state.commands.readFile).toHaveBeenCalledTimes(1);
 });
 
-it.each(["bettershape-file-edited", "bettershape-files-changed"])("reports a rejected %s reload without leaking backend details", async (event) => {
+it.each(["bettershape-file-edited", "bettershape-files-changed"])("reports a rejected %s recovery lookup without leaking backend details", async (event) => {
     await render("/repo/file.ts");
     state.loadDirtyBuffer.mockImplementationOnce(() => { throw new Error("private detail"); });
     await act(async () => state.events.get(event)?.({ payload: event === "bettershape-file-edited" ? "/repo/file.ts" : ["/repo/file.ts"] }));
@@ -106,4 +106,27 @@ it("preserves unsaved editor text when an agent updates its disk file", async ()
     expect(host.textContent).toBe("|user draft|");
     expect(state.clearDirtyBuffer).not.toHaveBeenCalled();
     expect(state.info).toHaveBeenCalledWith("File updated by agent", "Your unsaved edits remain open. Review the disk changes before saving.");
+});
+
+it.each(["bettershape-file-edited", "bettershape-files-changed"])("handles an actual backend read failure during %s without exposing details", async (event) => {
+    await render("/repo/file.ts");
+    state.commands.readFile.mockRejectedValueOnce(new Error("private backend detail"));
+    await act(async () => state.events.get(event)?.({ payload: event === "bettershape-file-edited" ? "/repo/file.ts" : ["/repo/file.ts"] }));
+    expect(state.commands.readFile).toHaveBeenCalledTimes(2);
+    expect(state.error).toHaveBeenCalledWith("File Error", "Could not refresh the editor. Save your changes before reopening the file.");
+    expect(host.textContent).not.toContain("private backend detail");
+    expect(state.clearDirtyBuffer).not.toHaveBeenCalled();
+});
+
+it.each([
+    ["Permission denied (os error 13): private detail", "Check its permissions."],
+    ["Access is denied (os error 5): private detail", "Check its permissions."],
+    ["No such file or directory (os error 2): private detail", "It may have been moved or deleted."],
+    ["stream did not contain valid UTF-8: private detail", "cannot be displayed as UTF-8 text."],
+])("keeps common read errors actionable without displaying raw backend text: %s", async (message, expected) => {
+    state.commands.readFile.mockRejectedValueOnce(new Error(message));
+    await render("/repo/file.ts");
+    expect(host.textContent).toContain(expected);
+    expect(host.textContent).not.toContain("private detail");
+    expect(state.error).not.toHaveBeenCalled();
 });

@@ -24,6 +24,7 @@ export function usePrCloseSweep(list: RefObject<HTMLDivElement | null>, repo: st
     const start = useCallback((item: PrItem, rows: PrItem[], event: PointerEvent) => {
         if (event.button !== 0 || !event.isPrimary || event.pointerType === "touch" || running.current || item.status !== "open") return;
         cancel.current?.();
+        suppressUntil.current = 0;
         const currentGeneration = generation.current;
         const candidates = new Map(rows.filter((row) => row.status === "open" && row.repo === repo).map((row) => [row.id, row]));
         if (!candidates.has(item.id)) return;
@@ -67,7 +68,7 @@ export function usePrCloseSweep(list: RefObject<HTMLDivElement | null>, repo: st
             const releasedInside = list.current?.contains(document.elementFromPoint(e.clientX, e.clientY));
             cleanup();
             if (!dragging) return; // The regular click and keyboard action are unchanged.
-            suppressUntil.current = Date.now() + 500;
+            suppressUntil.current = releasedInside ? Date.now() + 500 : 0;
             if (!releasedInside) return;
             if (releasedOnRow && candidates.has(releasedOnRow)) picked.add(releasedOnRow);
             running.current = true;
@@ -94,10 +95,11 @@ export function usePrCloseSweep(list: RefObject<HTMLDivElement | null>, repo: st
         document.addEventListener("visibilitychange", abort);
     }, [list, repo]);
 
+    const resetClickSuppression = useCallback(() => { suppressUntil.current = 0; }, []);
     const suppressClick = useCallback(() => {
         const suppress = Date.now() < suppressUntil.current;
         suppressUntil.current = 0;
         return suppress;
     }, []);
-    return { selected, closing, start, suppressClick };
+    return { selected, closing, start, suppressClick, resetClickSuppression };
 }

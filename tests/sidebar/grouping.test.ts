@@ -20,7 +20,7 @@ describe("session grouping", () => {
     it("normalizes project separators without mixing distinct projects with the same basename", () => {
         const grouped = groupChats([...chats, { ...chats[0], id: "d", project_path: "/other/one" }], "project");
         expect(grouped).toHaveLength(3);
-        expect(grouped.find((group) => group.id === "C:/repo/one")?.chats.map((chat) => chat.id)).toEqual(["a", "c"]);
+        expect(grouped.find((group) => group.id === "c:/repo/one")?.chats.map((chat) => chat.id)).toEqual(["a", "c"]);
     });
     it("shares row order between shelf data, grouped rendering and keyboard jumps", () => {
         const sections = buildShelves({ chats, sort: "recent", activeId: null, pinned: new Set(), generating: new Set(), grouping: "collection", collections });
@@ -41,6 +41,15 @@ describe("session grouping", () => {
 it("retains filesystem roots and trims long separator suffixes without backtracking", () => {
     const paths = ["/", "C:/", "", "/repo" + "/".repeat(20_000)];
     const grouped = groupChats(paths.map((project_path, id) => ({ ...chats[0], id: String(id), project_path })), "project");
-    expect(grouped.map((group) => group.id).sort()).toEqual(["", "/", "/repo", "C:/"]);
+    expect(grouped.map((group) => group.id).sort()).toEqual(["", "/", "/repo", "c:/"]);
     expect(grouped.find((group) => group.id === "/")?.label).toBe("/");
+});
+
+it("groups case variants of Windows drives and UNC shares but preserves POSIX case", () => {
+    const paths = ["C:/Repo/App", "c:/repo/app/", "//Server/Share/App", "//server/share/app/", "/Repo/App", "/repo/app"];
+    const groups = groupChats(paths.map((project_path, i) => ({ ...chats[0], id: String(i), project_path })), "project");
+    expect(groups).toHaveLength(4);
+    expect(groups.find(group => group.id === "c:/repo/app")?.chats).toHaveLength(2);
+    expect(groups.find(group => group.id === "//server/share/app")?.chats).toHaveLength(2);
+    expect(groups.find(group => group.id === "c:/repo/app")?.label).toBe("App");
 });

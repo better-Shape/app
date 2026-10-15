@@ -66,3 +66,14 @@ it("does not reconnect to a replacement belonging to a different project", async
     await replaceService(8);
     expect(backend.register).toHaveBeenCalledTimes(1);
 });
+
+it("shows a failed reconnect instead of leaving the canvas loading, and recovers on the next readiness event", async () => {
+    await render();
+    backend.probe.mockResolvedValueOnce(false);
+    await replaceService(8);
+    expect(host.textContent).toContain("Could not connect to the project preview.");
+    expect(host.querySelector('[role="progressbar"]')).toBeNull();
+    await replaceService(9);
+    expect(host.textContent).not.toContain("Could not connect to the project preview.");
+    expect(host.querySelector("iframe")).not.toBeNull();
+});

@@ -15,6 +15,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const backend = vi.hoisted(() => ({
+    initialization: vi.fn(),
     current: null as string | null,
     sent: [] as { message: string; conversationId: string | null }[],
     compacted: [] as Array<string | undefined>,
@@ -30,6 +31,7 @@ const stream = vi.hoisted(() => ({
     api: null as null | { setIsLoading: (v: boolean) => void },
 }));
 
+vi.mock("@/lib/ai/bootstrap", () => ({ waitForAiConfiguration: backend.initialization }));
 vi.mock("@/lib/backend", () => ({
     useProjectState: () => ({ project_path: "/proj" }),
     commands: {
@@ -123,8 +125,15 @@ vi.mock("@/features/chat/lib/chat-stream-store", async () => {
                       }
                     : null;
             }, []);
-            const appendUserOptimistic = ReactModule.useCallback(() => setIsLoading(true), []);
-            const stopLiveTurn = ReactModule.useCallback(() => setIsLoading(false), []);
+            const requests = ReactModule.useRef(new Map<string | null, string>());
+            const appendUserOptimistic = ReactModule.useCallback((_message: string, target: string | null, id: string) => {
+                requests.current.set(target, id); setIsLoading(true);
+            }, []);
+            const ownsRequest = ReactModule.useCallback((target: string | null, id: string) => requests.current.get(target) === id, []);
+            const stopLiveTurn = ReactModule.useCallback(() => {
+                const id = requests.current.get(viewRef.current) ?? null;
+                requests.current.delete(viewRef.current); setIsLoading(false); return id;
+            }, []);
             const startDraftChat = ReactModule.useCallback(() => {
                 showConversation(null);
                 setMessages([]);
@@ -136,6 +145,7 @@ vi.mock("@/features/chat/lib/chat-stream-store", async () => {
             );
             return {
                 hasLiveTurn,
+                ownsRequest,
                 isLoading,
                 messages,
                 activityLabel: null,
@@ -358,6 +368,7 @@ function sentMessages() {
 }
 
 beforeEach(async () => {
+    backend.initialization.mockReset().mockResolvedValue(undefined);
     backend.current = "X";
     backend.sent = [];
     backend.compacted = [];
@@ -586,4 +597,29 @@ describe("built-in slash commands run instead of being sent as text", () => {
         expect(sentMessages()).toEqual(["why is /compact not running?@X"]);
         expect(backend.compacted).toEqual([]);
     });
+});
+
+it("preserves the composer and does not send while provider initialization is pending", async () => {
+    let ready!: () => void;
+    backend.initialization.mockImplementation(() => new Promise<void>(resolve => { ready = resolve; }));
+    act(() => session.handleInputChange({ target: { value: "wait for keys" } } as React.ChangeEvent<HTMLTextAreaElement>));
+    act(() => { void session.handleSendMessage(); });
+    await settle();
+    expect(backend.sent).toEqual([]);
+    expect(session.inputValue).toBe("wait for keys");
+    await act(async () => ready()); await settle();
+    expect(sentMessages()).toEqual(["wait for keys@X"]);
+    await resolveOldestSend();
+});
+
+it("does not send after Stop while provider initialization was pending", async () => {
+    let ready!: () => void;
+    backend.initialization.mockImplementation(() => new Promise<void>(resolve => { ready = resolve; }));
+    act(() => session.handleInputChange({ target: { value: "keep this draft" } } as React.ChangeEvent<HTMLTextAreaElement>));
+    act(() => { void session.handleSendMessage(); });
+    await settle();
+    await act(async () => session.handleStopMessage());
+    await act(async () => ready()); await settle();
+    expect(backend.sent).toEqual([]);
+    expect(session.inputValue).toBe("keep this draft");
 });

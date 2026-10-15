@@ -1,3 +1,5 @@
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { isTauriRuntime } from "@/lib/window/tauri-window";
 import { closeOtherWindows, reportCancelledClose } from "@/lib/window/close-others";
 import { getCredentialDraftRevision } from "@/lib/ai/credential-drafts";
 import { dirtyOpenFiles, flushDirtyBuffers, preventUnpersistedEditorUnload } from "@/lib/workspace/dirty-buffers";
@@ -26,8 +28,6 @@ export function installWindowCloseGuard(): () => void {
 
     void (async () => {
         try {
-            const { getCurrentWindow } = await import("@tauri-apps/api/window");
-            const { confirm, message } = await import("@tauri-apps/plugin-dialog");
             const win = getCurrentWindow();
             if (cancelled) return;
             const stop = await win.onCloseRequested(async (event) => {
@@ -37,6 +37,7 @@ export function installWindowCloseGuard(): () => void {
                 const editorRevisionAtStart = editorRevision;
                 let destroyed = false;
                 try {
+                    const { confirm, message } = await import("@tauri-apps/plugin-dialog");
                     const { commands } = await import("@/lib/backend");
                     const restoredDirty = new Set(pendingDiscard);
                     for (const path of pendingDiscard) {
@@ -146,7 +147,7 @@ export function installWindowCloseGuard(): () => void {
             if (cancelled) stop();
             else unlisten = stop;
         } catch {
-            /* browser / non-tauri */
+            if (!cancelled && isTauriRuntime()) notify.error("Window close protection is unavailable", "Save your changes before restarting the app. Native close requests remain blocked.");
         }
     })();
 

@@ -266,3 +266,18 @@ it("does not repeatedly hydrate inaccessible keys on unrelated settings changes"
     await sync.retryCredentialPersistence();
     expect(state.load).toHaveBeenCalledTimes(2);
 });
+
+it("retries a cleared key after its deletion metadata could not be recorded", async () => {
+    state.vault.set("openai", "example-persisted");
+    stop = sync.initAiConfigSync(); await sync.aiConfigReady();
+    const write = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("Quota exceeded"); });
+    try {
+        change({}); await sync.aiConfigReady();
+        expect(state.vault.get("openai")).toBe("example-persisted");
+    } finally { write.mockRestore(); }
+    await sync.retryCredentialPersistence();
+    expect(state.vault.has("openai")).toBe(false);
+    expect(state.secrets).toEqual({});
+    const { getUnsavedCredentialCount } = await import("@/lib/ai/credential-drafts");
+    expect(getUnsavedCredentialCount()).toBe(0);
+});

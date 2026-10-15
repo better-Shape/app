@@ -124,3 +124,21 @@ it("revokes a drag before layout-phase input can release it in the previous repo
     await act(async () => root.render(<Harness repo="owner/other" releaseDuringCommit />));
     expect(run).not.toHaveBeenCalled();
 });
+
+it("does not swallow the next list click after releasing a drag outside", async () => {
+    start(); move("2"); hit = document.body;
+    await act(async () => window.dispatchEvent(pointer("pointerup")));
+    expect(sweep.suppressClick()).toBe(false);
+});
+
+it("does not suppress a new pointer gesture after a cancelled sweep", () => {
+    start(); move("2");
+    act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })));
+    expect(sweep.suppressClick()).toBe(true);
+    sweep.resetClickSuppression();
+    expect(sweep.suppressClick()).toBe(false);
+    start(); move("2");
+    act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })));
+    start();
+    expect(sweep.suppressClick()).toBe(false);
+});

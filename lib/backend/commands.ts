@@ -698,8 +698,8 @@ export const commands = {
             "redo_design_source_patch",
         ),
     /** Stops one conversation's turn. Without an id it stops the chat that is live. */
-    stopChatMessage: (conversationId?: string | null) =>
-        invokeCommand<void>("stop_chat_message", { conversationId: conversationId ?? null }),
+    stopChatMessage: (conversationId?: string | null, clientRequestId?: string | null) =>
+        invokeCommand<void>("stop_chat_message", { conversationId: conversationId ?? null, clientRequestId: clientRequestId ?? null }),
     getChatHistory: () => invokeCommand<ChatMessage[]>("get_chat_history"),
     getChatGenerationState: (conversationId?: string | null) =>
         invokeCommand<ChatGenerationState>("get_chat_generation_state", {

@@ -9,14 +9,15 @@ const revisions = new Map<string, string>();
 const scopes = new Map<string, string | undefined>();
 const localIntents = new Map<string, { token: string; value: string; recorded: boolean; previousToken: string | null }>();
 const INVENTORY_PREFIX = "bettershape-ai-vault-entry:";
+const RECEIPT_PREFIX = "bettershape-ai-vault-receipt:";
 type InventoryState = "stored" | "write" | "delete" | "deleted";
 type Intent = { state: InventoryState; token: string };
 let supported: boolean | null = null;
 
 function inventoryKey(id: string): string { return `${INVENTORY_PREFIX}${encodeURIComponent(id)}`; }
-function inventoryIntent(id: string): Intent | null {
+function readIntent(key: string): Intent | null {
     try {
-        const raw = window.localStorage.getItem(inventoryKey(id));
+        const raw = window.localStorage.getItem(key);
         if (raw === "stored" || raw === "delete") return { state: raw, token: raw };
         if (!raw) return null;
         const value: unknown = JSON.parse(raw);
@@ -24,6 +25,17 @@ function inventoryIntent(id: string): Intent | null {
         if (!["stored", "write", "delete", "deleted"].includes(String(value.state)) || typeof value.token !== "string") return null;
         return value as Intent;
     } catch { return null; }
+}
+function inventoryIntent(id: string): Intent | null {
+    const intent = readIntent(inventoryKey(id));
+    if (intent?.state !== "write" && intent?.state !== "delete") return intent;
+    const receipt = readIntent(`${RECEIPT_PREFIX}${encodeURIComponent(id)}`);
+    return receipt?.token === intent.token
+        && receipt.state === (intent.state === "write" ? "stored" : "deleted") ? receipt : intent;
+}
+function recordReceipt(id: string, receipt: Intent): boolean {
+    try { window.localStorage.setItem(`${RECEIPT_PREFIX}${encodeURIComponent(id)}`, JSON.stringify(receipt)); return true; }
+    catch { return false; }
 }
 function recordInventory(id: string, intent: Intent): boolean {
     try { window.localStorage.setItem(inventoryKey(id), JSON.stringify(intent)); return true; }
@@ -179,13 +191,13 @@ export async function writeSecretDetailed(id: string, value: string, scope?: str
         // callback may neither erase a deletion nor claim a newer draft saved.
         const latest = inventoryIntent(id);
         const stillOwnsIntent = latest?.token === intent?.token;
-        if (stillOwnsIntent && (ownsIntent || !secret)) {
-            const state = !result.applied ? (secret ? "write" : "delete")
-                : current.persisted ? (current.apiKey ? "stored" : "deleted") : (current.apiKey ? "write" : "delete");
-            if (!recordInventory(id, { state, token: intent.token })) return { kind: "failed" };
-            if (result.applied && current.persisted) localIntents.delete(id);
+        if (stillOwnsIntent && (ownsIntent || !secret) && result.applied && current.persisted) {
+            // Completion never rewrites the intent entry: another WebView
+            // can replace it between this check and the storage write.
+            if (!recordReceipt(id, { state: current.apiKey ? "stored" : "deleted", token: intent.token })) return { kind: "failed" };
+            if (localIntents.get(id)?.token === intent.token) localIntents.delete(id);
         }
-        if (!stillOwnsIntent && isDeleted(id)) return conflict("", inventoryIntent(id)?.state === "deleted");
+        if (inventoryIntent(id)?.token !== intent.token && isDeleted(id)) return conflict("", inventoryIntent(id)?.state === "deleted");
         if (!result.applied) return conflict(current.apiKey, current.persisted);
         return { kind: current.persisted ? "stored" : "failed" };
     } catch {
@@ -202,5 +214,6 @@ export async function forgetSecret(id: string): Promise<boolean> { return writeS
 export function writtenSecretIds(): string[] {
     return [...new Set([
         ...inventoryEntries().filter(([, intent]) => intent.state === "delete").map(([id]) => id),
+        ...[...localIntents].filter(([, intent]) => !intent.value).map(([id]) => id),
     ])];
 }

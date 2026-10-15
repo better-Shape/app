@@ -36,7 +36,8 @@ export function groupChats(
     for (const chat of chats) {
         const collection = collectionByChat.get(chat.id);
         const project = projectGroupId(chat.project_path ?? "");
-        const id = mode === "collection" ? collection?.id ?? "" : project;
+        const projectKey = /^(?:[a-z]:\/|\/\/)/i.test(project) ? project.toLowerCase() : project;
+        const id = mode === "collection" ? collection?.id ?? "" : projectKey;
         const label = mode === "collection" ? collection?.name ?? "No collection" : project.split("/").pop() || project || "No project";
         const group = groups.get(id);
         if (group) group.chats.push(chat);

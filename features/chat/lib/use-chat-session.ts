@@ -1,5 +1,7 @@
 "use client";
 
+import { waitForAiConfiguration } from "@/lib/ai/bootstrap";
+import { createChatRequestId } from "@/lib/chat/request-ownership";
 import React from "react";
 import { listen } from "@tauri-apps/api/event";
 import { commands, Conversation, useProjectState } from "@/lib/backend";
@@ -196,6 +198,7 @@ export function useChatSession(
         stopLiveTurn,
         startDraftChat,
         hasLiveTurn,
+        ownsRequest,
     } = useChatStream();
     const refreshMetadataRef = React.useRef<() => Promise<void>>(async () => {});
     const [recentConvs, setRecentConvs] = React.useState<Conversation[]>([]);
@@ -852,6 +855,11 @@ export function useChatSession(
     );
     /** Sends currently awaiting the backend. A counter, so overlapping sends cannot clear each other. */
     const sendsInFlightRef = React.useRef(0);
+    const preparingSendsRef = React.useRef(new Map<AbortController, string | null>());
+    React.useEffect(() => {
+        const preparing = preparingSendsRef.current;
+        return () => { for (const controller of preparing.keys()) controller.abort(); };
+    }, []);
     const skipQueueDrainRef = React.useRef(false);
     // Set when a send to a chat failed. The queue for that chat then waits for the next
     // successful send, so a failing message is not re-sent in a loop, while the view still
@@ -939,7 +947,7 @@ export function useChatSession(
      */
     const holdQueueAfterFailedSend = (conversationId: string | null) => {
         failedSendHoldRef.current = { conversationId };
-        stopLiveTurn();
+        stopLiveTurn(conversationId);
     };
 
     const sendMessageNow = async (
@@ -949,6 +957,17 @@ export function useChatSession(
     ): Promise<boolean> => {
         // The chat this message belongs to, fixed now: the user may switch chats mid-send.
         const target = targetId !== undefined ? targetId : getViewedConversationId();
+        const preparation = new AbortController();
+        preparingSendsRef.current.set(preparation, target);
+        try {
+            await waitForAiConfiguration(preparation.signal);
+        } catch {
+            if (!preparation.signal.aborted) setSendError("Could not load provider settings. Retry after checking Settings > Providers.");
+            return false;
+        } finally {
+            preparingSendsRef.current.delete(preparation);
+        }
+        if (preparation.signal.aborted) return false;
         if (!fromQueue) {
             setInputValue("");
             editingQueueIdRef.current = null;
@@ -1048,7 +1067,7 @@ export function useChatSession(
 
         setSendError(null);
         // Lets the backend's chat_started name this send, so a draft binds only to its own turn.
-        const clientRequestId = crypto.randomUUID();
+        const clientRequestId = createChatRequestId(target);
         appendUserOptimistic(userMsg, target, clientRequestId);
         if (!fromQueue) setUploadedFiles([]);
 
@@ -1100,6 +1119,7 @@ export function useChatSession(
                 defaultModel: settings.ai.subagentDefaultModel,
             });
 
+            if (!ownsRequest(target, clientRequestId)) return false;
             await commands.sendChatMessage(
                 messageWithWorkflows,
                 modelToSend,
@@ -1131,6 +1151,7 @@ export function useChatSession(
             failedSendHoldRef.current = null;
             return true;
         } catch (err) {
+            if (!ownsRequest(target, clientRequestId)) return false;
             console.error("Failed to send message:", err);
             const errMsg = err instanceof Error ? err.message : String(err);
             setSendError(errMsg);
@@ -1825,10 +1846,16 @@ export function useChatSession(
     const handleStopMessage = async () => {
         if (stoppingRef.current) return;
         stoppingRef.current = true;
-        stopLiveTurn();
+        const target = getViewedConversationId();
+        for (const [controller, owner] of preparingSendsRef.current) {
+            if (owner === target) controller.abort();
+        }
+        const hadLiveTurn = hasLiveTurn(target);
+        const requestId = stopLiveTurn();
+        if (!hadLiveTurn && !requestId) { stoppingRef.current = false; return; }
         try {
             const convId = getViewedConversationId() ?? getDraftConversationId();
-            await commands.stopChatMessage(convId);
+            await commands.stopChatMessage(convId, requestId);
             if (convId) {
                 const { setChatGenerating } = await import("@/features/chat/lib/generating-chats");
                 setChatGenerating(convId, false);

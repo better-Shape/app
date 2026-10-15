@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({ settings: vi.fn(), sync: vi.fn(), stop: vi.fn(
 vi.mock("next/navigation", () => ({ usePathname: () => "/settings" }));
 vi.mock("@/lib/settings", () => ({ initSettings: mocks.settings }));
 vi.mock("@/lib/github/store", () => ({ initGitHubAuth: vi.fn() }));
-vi.mock("@/lib/ai/sync", () => ({ initAiConfigSync: mocks.sync }));
+vi.mock("@/lib/ai/sync", () => ({ initAiConfigSync: mocks.sync, aiConfigReady: async () => undefined }));
 vi.mock("@/lib/mcp/registry", () => ({ syncActiveMcpServers: vi.fn() }));
 vi.mock("@/features/notifications", () => ({ notify: { error: mocks.error } }));
 vi.mock("@/lib/window/tauri-window", () => ({ isTauriRuntime: () => true, isMainTauriWindow: async () => false }));
@@ -325,4 +325,11 @@ it("restores the main draft if it changes while secondary windows are closing", 
     expect(nativeWindow.destroy).not.toHaveBeenCalled();
     expect(loadDirtyBuffer("/example.txt")?.content).toBe("edit while closing peers");
     expect(mocks.markFileDirty).toHaveBeenLastCalledWith("/example.txt", true);
+});
+
+it("reports failed native close registration without exposing backend details", async () => {
+    nativeWindow.onCloseRequested.mockRejectedValueOnce(new Error("private registration detail"));
+    await render();
+    expect(mocks.error).toHaveBeenCalledWith("Window close protection is unavailable", "Save your changes before restarting the app. Native close requests remain blocked.");
+    expect(nativeWindow.destroy).not.toHaveBeenCalled();
 });

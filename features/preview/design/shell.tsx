@@ -63,7 +63,7 @@ type SourceTarget = {
 };
 
 function CanvasLoadBar() {
-    return <div className="pointer-events-none absolute inset-x-0 top-0 z-20 h-0.5 bg-accent animate-pulse" />;
+    return <div role="progressbar" aria-label="Loading preview" className="pointer-events-none absolute inset-x-0 top-0 z-20 h-0.5 bg-accent animate-pulse" />;
 }
 
 function joinProjectPath(root: string, relative: string) {
@@ -519,6 +519,7 @@ export function DesignStudio({
         let cancelled = false;
         let unsubscribeReady = () => {};
         let opened = false;
+        let startupFinished = false;
         const ownerAtBoot = projectPathRef.current;
         let opening: { authorization: DesignAuthorization; promise: Promise<boolean> } | null = null;
         authorizationRef.current = null;
@@ -571,6 +572,7 @@ export function DesignStudio({
                     authorizationRef.current = null;
                     setReady(false);
                     setBooting(true);
+                    setBootError(null);
                     setSelected(null);
                     setTarget(null);
                     setLayers([]);
@@ -591,7 +593,14 @@ export function DesignStudio({
                         if (!cancelled) setBootError(cause instanceof Error ? cause.message : "Could not connect to the project preview.");
                         return false;
                     }).finally(() => {
-                        if (opening?.promise === promise) opening = null;
+                        if (opening?.promise === promise) {
+                            opening = null;
+                            if (!cancelled && startupFinished && !opened && projectPathRef.current === ownerAtBoot
+                                && isCurrentDesignAuthorization(authorization, info.projectRoot)) {
+                                setBooting(false);
+                                setBootError(previous => previous ?? "Could not connect to the project preview.");
+                            }
+                        }
                     });
                     opening = { authorization, promise };
                     return promise;
@@ -628,6 +637,8 @@ export function DesignStudio({
                     setBootError(cause instanceof Error ? cause.message : String(cause));
                     setBooting(false);
                 }
+            } finally {
+                startupFinished = true;
             }
         })();
         return () => {
@@ -1126,7 +1137,7 @@ export function DesignStudio({
     }, []);
 
     const selectedKey = selected?.key ?? null;
-    const canvasBusy = booting || !ready;
+    const canvasBusy = !bootError && (booting || !ready);
 
     const pickPackageJson = useCallback(async () => {
         const { open } = await import("@tauri-apps/plugin-dialog");

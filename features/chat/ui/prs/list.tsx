@@ -186,7 +186,7 @@ export function PullRequestsList({
             {hasMore ? <p role="status" className="mx-3 mb-2 text-2xs text-text-muted">Search and sorting apply to loaded pull requests. Load more to include older results.</p> : null}
             {sweep.selected.size > 0 ? <p role="status" className="pointer-events-none absolute inset-x-2 bottom-2 z-10 rounded-md border border-border-subtle bg-panel px-3 py-2 text-xs text-text-muted">Release to close {sweep.selected.size} pull requests · Esc to cancel</p> : null}
             {sweep.closing ? <p role="status" className="pointer-events-none absolute inset-x-2 bottom-2 z-10 rounded-md border border-border-subtle bg-panel px-3 py-2 text-xs text-text-muted">Closing pull requests…</p> : null}
-            <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto px-2 pb-4" onClickCapture={(event) => {
+            <div ref={listRef} onPointerDownCapture={sweep.resetClickSuppression} className="min-h-0 flex-1 overflow-y-auto px-2 pb-4" onClickCapture={(event) => {
                 if (event.detail > 0 && sweep.suppressClick()) { event.preventDefault(); event.stopPropagation(); }
             }}>
                 {loading && items.length === 0 ? (

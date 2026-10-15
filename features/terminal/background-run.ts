@@ -140,14 +140,14 @@ async function attachListeners() {
     let exited = false;
     let overflow = false;
     const earlyReady = new Map<number, PreviewReady>();
-    const earlyExit = new Map<number, number>();
+    const earlyExit = new Map<number, number | null>();
     const dispose = () => {
         active = false;
         for (const unlisten of cleanup.splice(0)) {
             try { void Promise.resolve(unlisten()).catch(() => undefined); } catch { /* Finish releasing the remaining listeners. */ }
         }
     };
-    const exit = (code: number) => {
+    const exit = (code: number | null) => {
         exited = true;
         lastReadyUrl = null;
         announcedReady = null;
@@ -164,9 +164,9 @@ async function attachListeners() {
         cleanup.push(await listen<{ id: number; exit_code?: number | null }>("pty-exit", ({ payload }) => {
             if (!active) return;
             if (ptyId === null) {
-                if (earlyExit.size < 128) earlyExit.set(payload.id, payload.exit_code ?? 0);
+                if (earlyExit.size < 128) earlyExit.set(payload.id, payload.exit_code ?? null);
                 else overflow = true; // Missing an early exit must never grant authority.
-            } else if (payload.id === ptyId) exit(payload.exit_code ?? 0);
+            } else if (payload.id === ptyId) exit(payload.exit_code ?? null);
         }));
         cleanup.push(await listen<PreviewReady>("preview-ready", ({ payload }) => {
             if (!active || exited) return;
@@ -180,7 +180,7 @@ async function attachListeners() {
         dispose,
         activate(id: number): boolean {
             ptyId = id;
-            if (overflow || earlyExit.has(id)) { exit(earlyExit.get(id) ?? 1); return false; }
+            if (overflow || earlyExit.has(id)) { exit(earlyExit.get(id) ?? null); return false; }
             const ready = earlyReady.get(id);
             earlyReady.clear(); earlyExit.clear();
             if (ready) rememberReady(ready);
@@ -225,8 +225,9 @@ export async function ensureBackgroundRun(command: string, cwdOverride?: string)
         announcedReady = null;
         let owner: Awaited<ReturnType<typeof attachListeners>> | undefined;
         let ptyId: number | undefined;
-        const { invoke } = await import("@tauri-apps/api/core");
+        let invoke: typeof import("@tauri-apps/api/core").invoke | undefined;
         try {
+            ({ invoke } = await import("@tauri-apps/api/core"));
             owner = await attachListeners();
             if (generation !== runGeneration) throw new Error("Preview start cancelled");
             ptyId = await invoke<number>("pty_spawn_run", { cwd, command: trimmed });
@@ -251,7 +252,7 @@ export async function ensureBackgroundRun(command: string, cwdOverride?: string)
                 announcedReady = null;
                 clearDevRun();
             }
-            if (ptyId !== undefined) await invoke("pty_kill", { id: ptyId }).catch(() => undefined);
+            if (ptyId !== undefined && invoke) await invoke("pty_kill", { id: ptyId }).catch(() => undefined);
             throw error;
         }
     })();

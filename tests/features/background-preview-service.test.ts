@@ -126,3 +126,28 @@ it("handles asynchronous native unlisten failures during shutdown", async () => 
     expect(background.getBackgroundPreviewService()).toBeNull();
     expect([...mocks.listeners.values()].every(listeners => listeners.size === 0)).toBe(true);
 });
+
+it.each([
+    [{ id: 7 }, "error"],
+    [{ id: 7, exit_code: 0 }, "idle"],
+    [{ id: 7, exit_code: 2 }, "error"],
+])("does not invent a successful exit code for %o", async (payload, expected) => {
+    await background.ensureBackgroundRun("npm run dev", "/project");
+    emit("pty-exit", payload);
+    const { getDevRunSnapshot } = await import("@/features/preview/run-status");
+    expect(getDevRunSnapshot().status).toBe(expected);
+    expect(background.getBackgroundPreviewService()).toBeNull();
+});
+
+it("clears startup status when loading the native bridge module fails", async () => {
+    vi.doMock("@tauri-apps/api/core", () => { throw new Error("Bridge import failed"); });
+    try {
+        await expect(background.ensureBackgroundRun("npm run dev", "/project")).rejects.toThrow();
+        const { getDevRunSnapshot } = await import("@/features/preview/run-status");
+        expect(getDevRunSnapshot().status).toBe("idle");
+        expect(mocks.spawn).not.toHaveBeenCalled();
+        expect([...mocks.listeners.values()].every(listeners => listeners.size === 0)).toBe(true);
+    } finally {
+        vi.doMock("@tauri-apps/api/core", () => ({ invoke: (command: string) => command === "pty_spawn_run" ? mocks.spawn() : mocks.kill() }));
+    }
+});

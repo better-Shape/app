@@ -102,3 +102,27 @@ it("does not let deletion lease recovery overtake a newer re-entry", async () =>
     expect(bridge.remove).not.toHaveBeenCalled();
     expect(native.values.get("openai")).toBe("example-reentered");
 });
+
+it("cannot overwrite a newer deletion between checking intent and recording a save receipt", async () => {
+    const { first, second } = await windows();
+    first.recordSecretChanges({ openai: "example-new" });
+    const setItem = Storage.prototype.setItem;
+    let interleaved = false;
+    const write = vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (this: Storage, key: string, value: string) {
+        const row: unknown = JSON.parse(value);
+        if (!interleaved && row && typeof row === "object" && "state" in row && row.state === "stored") {
+            interleaved = true;
+            second.recordSecretDeletions(["openai"]);
+        }
+        setItem.call(this, key, value);
+    });
+    try { await first.writeSecretDetailed("openai", "example-new", "test-scope"); }
+    finally { write.mockRestore(); }
+    expect(interleaved).toBe(true);
+    expect(second.deletedSecretIds()).toContain("openai");
+    vi.resetModules();
+    const restarted = await import("@/lib/ai/vault");
+    expect((await restarted.readSecrets(["openai"])).openai).toBeUndefined();
+    expect(await restarted.writeSecretDetailed("openai", "")).toEqual({ kind: "stored" });
+    expect(native.values.has("openai")).toBe(false);
+});

@@ -1,6 +1,8 @@
 "use client";
 
 import React from "react";
+import { TurnOrder } from "@/lib/chat/turn-order";
+import { isLocalChatRequest } from "@/lib/chat/request-ownership";
 import { listen } from "@tauri-apps/api/event";
 import { commands } from "@/lib/backend";
 import type { ChatMessage } from "@/lib/backend/types";
@@ -98,11 +100,12 @@ type ChatStreamContextValue = ChatStreamState & {
         requestId?: string | null,
     ) => void;
     /** Instantly drop the live-turn spinner so Stop does not wait on the stream. */
-    stopLiveTurn: () => void;
+    stopLiveTurn: (conversationId?: string | null) => string | null;
     /** Leave a running turn in the background and show an empty draft. */
     startDraftChat: () => void;
     /** True while chat `id` (`null` = the draft) has a turn the frontend is tracking. */
     hasLiveTurn: (id: string | null) => boolean;
+    ownsRequest: (id: string | null, requestId: string) => boolean;
 };
 
 const defaultState: ChatStreamState = {
@@ -197,7 +200,7 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
     const turnIdRef = React.useRef<string | null>(null);
     const ignoredIdsRef = React.useRef<Set<string>>(new Set());
     const stoppedTurnsRef = React.useRef(new Map<string, string>());
-    const finishedTurnsRef = React.useRef(new Set<string>());
+    const turnOrderRef = React.useRef(new TurnOrder());
 
     React.useEffect(() => {
         messagesRef.current = messages;
@@ -283,10 +286,13 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
                     && gen.conversationId === id
                     && !liveTurnsRef.current.has(id)
                     && !ignoredIdsRef.current.has(id)
+                    && gen.turnId !== null && gen.turnId !== undefined
+                    && turnOrderRef.current.start(id, gen.turnId)
                 ) {
                     liveTurnsRef.current.set(id, {
                         conversationId: id,
                         turnId: gen.turnId ?? null,
+                        requestId: gen.requestId ?? null,
                         messages: history,
                         activityLabel: gen.activityLabel ?? "Thinking",
                         turnPhase: "thinking",
@@ -313,14 +319,15 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
         await reloadViewedMessages(seq);
     }, [reloadViewedMessages, showViewInternal]);
 
-    const stopLiveTurn = React.useCallback(() => {
-        const id = viewingIdRef.current;
+    const stopLiveTurn = React.useCallback((conversationId?: string | null) => {
+        const id = conversationId === undefined ? viewingIdRef.current : conversationId;
+        const requestId = liveTurnsRef.current.get(id ?? PENDING_KEY)?.requestId ?? null;
         if (id) {
             ignoredIdsRef.current.add(id);
             const stoppedTurn = liveTurnsRef.current.get(id)?.turnId;
             if (stoppedTurn) {
                 stoppedTurnsRef.current.set(id, stoppedTurn);
-                finishedTurnsRef.current.add(stoppedTurn);
+                turnOrderRef.current.finish(id, stoppedTurn);
             }
             liveTurnsRef.current.delete(id);
             setChatGenerating(id, false);
@@ -328,11 +335,14 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
         } else {
             liveTurnsRef.current.delete(PENDING_KEY);
         }
-        turnIdRef.current = null;
-        setIsLoading(false);
-        setActivityLabel(null);
-        setTurnPhase("cancelled");
-        setTurnId(null);
+        if (viewingIdRef.current === id) {
+            turnIdRef.current = null;
+            setIsLoading(false);
+            setActivityLabel(null);
+            setTurnPhase("cancelled");
+            setTurnId(null);
+        }
+        return requestId;
     }, []);
 
     const appendUserOptimistic = React.useCallback(
@@ -393,7 +403,7 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
             });
         };
 
-        const finishedTurns = finishedTurnsRef.current;
+        const turnOrder = turnOrderRef.current;
 
         /** The draft's turn now has a real conversation id: bind it (and the draft queue). */
         const bindDraft = (conversationId: string) => {
@@ -439,7 +449,12 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
             }>("chat_started", (event) => {
                 const tid = event.payload?.turnId ?? null;
                 const convId = event.payload?.conversationId ?? null;
-                if (isForeignConversation(convId) || (tid && finishedTurns.has(tid))) return;
+                const eventRequestId = event.payload?.requestId ?? null;
+                const pending = liveTurnsRef.current.get(PENDING_KEY);
+                if (isLocalChatRequest(eventRequestId)
+                    && pending?.requestId !== eventRequestId
+                    && (!convId || liveTurnsRef.current.get(convId)?.requestId !== eventRequestId)) return;
+                if (isForeignConversation(convId) || !tid || !turnOrder.start(convId ?? PENDING_KEY, tid)) return;
                 if (convId && tid && stoppedTurnsRef.current.get(convId) === tid) return;
                 if (convId) stoppedTurnsRef.current.delete(convId);
                 setChatActivity(convId, "thinking");
@@ -450,11 +465,9 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
                     setChatGenerating(NEW_CHAT_TAB_ID, false);
                     ignoredIdsRef.current.delete(convId);
                 }
-                const pending = liveTurnsRef.current.get(PENDING_KEY);
                 // Only the send that opened the draft may bind it. The draft's turn has no chat
                 // id until this event, so the request id is the only link between the two. Any
                 // other chat that starts meanwhile keeps its own transcript and leaves the draft alone.
-                const eventRequestId = event.payload?.requestId ?? null;
                 const bindsDraft = Boolean(
                     pending && convId && pending.requestId && eventRequestId === pending.requestId,
                 );
@@ -489,6 +502,7 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
                 liveTurnsRef.current.set(key, {
                     conversationId: convId,
                     turnId: tid,
+                    requestId: eventRequestId,
                     messages: snapshot,
                     activityLabel: "Thinking",
                     turnPhase: "thinking",
@@ -518,7 +532,6 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
                     if (!chunk) return;
                     const meta = typeof raw === "string" ? undefined : raw;
                     if (isForeignConversation(meta?.conversationId)) return;
-                    if (meta?.turnId && finishedTurns.has(meta.turnId)) return;
                     const key = resolveLiveKey(meta?.conversationId);
                     if (!key) return;
                     const convId = key === PENDING_KEY ? null : key;
@@ -557,7 +570,7 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
                 const { stats, model, error, conversationId, content, turnId } =
                     event.payload ?? {};
                 if (isForeignConversation(conversationId)) return;
-                if (turnId) finishedTurns.add(turnId);
+                if (turnId) turnOrder.finish(conversationId ?? PENDING_KEY, turnId);
                 const current = conversationId ? liveTurnsRef.current.get(conversationId) : undefined;
                 if (conversationId && turnId && stoppedTurnsRef.current.get(conversationId) === turnId) {
                     stoppedTurnsRef.current.delete(conversationId);
@@ -784,6 +797,9 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
         [],
     );
 
+    const ownsRequest = React.useCallback((id: string | null, requestId: string) =>
+        liveTurnsRef.current.get(id ?? PENDING_KEY)?.requestId === requestId, []);
+
     const value: ChatStreamContextValue = {
         isLoading,
         messages,
@@ -807,6 +823,7 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
         stopLiveTurn,
         startDraftChat,
         hasLiveTurn,
+        ownsRequest,
     };
 
     return (

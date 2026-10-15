@@ -60,3 +60,10 @@ describe("ipc", () => {
                 expect(k).not.toMatch(/_/);
     });
 });
+
+it("scopes a pending Stop to its originating request instead of the native current chat", async () => {
+    await commands.stopChatMessage(null, "window:draft:4");
+    expect(invoke).toHaveBeenCalledWith("stop_chat_message", { conversationId: null, clientRequestId: "window:draft:4" });
+    await commands.stopChatMessage("chat-a");
+    expect(invoke).toHaveBeenCalledWith("stop_chat_message", { conversationId: "chat-a", clientRequestId: null });
+});
