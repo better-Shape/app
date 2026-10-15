@@ -205,7 +205,6 @@ export function useChatSession(
         prepareStop,
         startDraftChat,
         hasLiveTurn,
-        ownsRequest,
         getRequestOwner,
     } = useChatStream();
     const refreshMetadataRef = React.useRef<() => Promise<void>>(async () => {});
@@ -981,54 +980,51 @@ export function useChatSession(
 
             if (preparation.signal.aborted) return false;
             if (getViewedConversationId() === target) setSendError(null);
-            // Lets the backend's chat_started name this send, so a draft binds only to its own turn.
+            const settings = getSettings();
+            const expandedMessage = await buildMessageWithMentions(
+                userMsg,
+                project_path ?? null,
+                selectionContextRef.current,
+            );
+            try {
+                const { mentionRanges } = await import("@/lib/chat/mentions");
+                const { trySelectPendingDesignConcept } = await import("@/lib/agent-preview/store");
+                for (const range of mentionRanges(userMsg)) {
+                    if (range.mention.kind === "design") {
+                        const id = range.mention.id || range.mention.path || range.mention.label;
+                        if (id) await trySelectPendingDesignConcept(id);
+                    }
+                }
+            } catch {
+                /* pick already resolved or none pending */
+            }
+            const projectRules = isWorkspaceTrusted(project_path)
+                ? await loadProjectRules(project_path ?? null)
+                : "";
+            const mergedRules = [settings.ai.customRules, projectRules].filter(Boolean).join("\n\n") || undefined;
+            const { applyWorkflows, matchWorkflows, workflowAllowKeys } = await import("@/lib/chat/workflows");
+            const messageWithWorkflows = applyWorkflows(expandedMessage, settings.ai.workflows);
+            const pluginAutoAllow = matchWorkflows(userMsg, settings.ai.workflows).flatMap(workflowAllowKeys);
+
+            const modelToSend = selectedModelRef.current || "auto";
+            const modeToSend = selectedModeRef.current;
+            const catalogIds = getCatalogModels().map((m) => m.id);
+            const subagentSend = subagentModelsForSend(settings.ai.subagentModels, catalogIds, {
+                defaultModel: settings.ai.subagentDefaultModel,
+            });
+
+            if (preparation.signal.aborted) return false;
+            if (hasLiveTurn(target) || isChatGenerating(target)) {
+                throw new Error("This chat is already running. Your message has not been sent.");
+            }
+            // Attachment and mention preparation can outlive a provider change; check again at admission.
+            if (!hasUsableProvider(getSettings().ai.providers)) {
+                throw new Error("Add an API key in Settings → Providers to chat.");
+            }
+            // No optimistic transcript exists until all asynchronous preparation succeeds.
             const clientRequestId = createChatRequestId(target);
             appendUserOptimistic(userMsg, target, clientRequestId);
-
             try {
-                const settings = getSettings();
-                const expandedMessage = await buildMessageWithMentions(
-                    userMsg,
-                    project_path ?? null,
-                    selectionContextRef.current,
-                );
-                try {
-                    const { mentionRanges } = await import("@/lib/chat/mentions");
-                    const { trySelectPendingDesignConcept } = await import("@/lib/agent-preview/store");
-                    for (const range of mentionRanges(userMsg)) {
-                        if (range.mention.kind === "design") {
-                            const id = range.mention.id || range.mention.path || range.mention.label;
-                            if (id) await trySelectPendingDesignConcept(id);
-                        }
-                    }
-                } catch {
-                    /* pick already resolved or none pending */
-                }
-                const projectRules = isWorkspaceTrusted(project_path)
-                    ? await loadProjectRules(project_path ?? null)
-                    : "";
-                const mergedRules = [settings.ai.customRules, projectRules].filter(Boolean).join("\n\n") || undefined;
-                const { applyWorkflows, matchWorkflows, workflowAllowKeys } = await import("@/lib/chat/workflows");
-                const messageWithWorkflows = applyWorkflows(expandedMessage, settings.ai.workflows);
-                const pluginAutoAllow = matchWorkflows(userMsg, settings.ai.workflows).flatMap(workflowAllowKeys);
-
-                const modelToSend = selectedModelRef.current || "auto";
-                const modeToSend = selectedModeRef.current;
-                const catalogIds = getCatalogModels().map((m) => m.id);
-                const subagentSend = subagentModelsForSend(settings.ai.subagentModels, catalogIds, {
-                    defaultModel: settings.ai.subagentDefaultModel,
-                });
-
-                if (preparation.signal.aborted) {
-                    const owner = getRequestOwner(clientRequestId);
-                    if (owner) stopLiveTurn(owner.conversationId);
-                    return false;
-                }
-                if (!ownsRequest(target, clientRequestId)) return false;
-                // Attachment and mention preparation can outlive a provider change; check again at admission.
-                if (!hasUsableProvider(getSettings().ai.providers)) {
-                    throw new Error("Add an API key in Settings → Providers to chat.");
-                }
                 if (!fromQueue) {
                     // Only consume the submitted draft at admission. New edits/files belong to the next message.
                     const submitted = new Set(submittedIds);

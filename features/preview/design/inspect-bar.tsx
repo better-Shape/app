@@ -11,7 +11,7 @@ import { commands } from "@/lib/backend";
 import { useProjectState } from "@/lib/backend";
 import { cn } from "@/lib/utils";
 import { notify } from "@/features/notifications";
-import { acceptsDesignMessage, authorizeDesignPreview, isCurrentDesignAuthorization, designMessageOrigin, scopeDesignBridge, type DesignAuthorization } from "./authorization";
+import { acceptsDesignMessage, authorizeDesignPreview, isCurrentDesignAuthorization, scopeDesignBridge, type DesignAuthorization } from "./authorization";
 import {
     DESIGN_BRIDGE_SCRIPT,
     type DesignElementSnapshot,
@@ -60,9 +60,28 @@ export function DesignInspectOverlay({
 }) {
     const { project_path } = useProjectState();
     const authorizationRef = useRef<DesignAuthorization | null>(null);
+    const inspectionTarget = useRef<{ window: Window; origin: string } | null>(null);
+    const stopInspection = useCallback(() => {
+        const target = inspectionTarget.current;
+        inspectionTarget.current = null;
+        // Revocation blocks edits, but must still release the frame's click capture.
+        target?.window.postMessage({ type: "bettershape-design-set-mode", mode: "normal" }, target.origin);
+    }, []);
     const activated = useRef(false);
     const projectPathRef = useRef(project_path ?? "");
     useLayoutEffect(() => { projectPathRef.current = project_path ?? ""; }, [project_path]);
+    const selectAuthorizedFrame = useCallback((authorization: DesignAuthorization | null) => {
+        if (!isCurrentDesignAuthorization(authorization, projectPathRef.current)) return;
+        const target = iframeRef.current?.contentWindow;
+        if (!target) return;
+        const previous = inspectionTarget.current;
+        if (previous && (previous.window !== target || previous.origin !== authorization.origin)) stopInspection();
+        inspectionTarget.current = { window: target, origin: authorization.origin };
+        target.postMessage(
+            { type: "bettershape-design-set-mode", mode: "select", projectRoot: projectPathRef.current },
+            authorization.origin,
+        );
+    }, [iframeRef, stopInspection]);
     const [selection, setSelection] = useState<InspectionSelection | null>(null);
     const selected = selection?.element ?? null;
     const documentEpoch = useRef(0);
@@ -99,12 +118,9 @@ export function DesignInspectOverlay({
         documentEpoch.current += 1;
         if (persistTimer.current) clearTimeout(persistTimer.current);
         pendingStyles.current = null;
-        iframeRef.current?.contentWindow?.postMessage(
-            { type: "bettershape-design-set-mode", mode: "normal" },
-            designMessageOrigin(authorizationRef.current, project_path ?? ""),
-        );
+        stopInspection();
         authorizationRef.current = null;
-    }, [project_path, iframeRef]);
+    }, [project_path, iframeRef, stopInspection]);
 
     // Turning design mode off clears the selection (adjusting state during render, no effect).
     const [seenEnabled, setSeenEnabled] = useState(enabled);
@@ -116,10 +132,7 @@ export function DesignInspectOverlay({
     useEffect(() => {
         if (!enabled) {
             flushStyles();
-            iframeRef.current?.contentWindow?.postMessage(
-                { type: "bettershape-design-set-mode", mode: "normal" },
-                designMessageOrigin(authorizationRef.current, projectPathRef.current),
-            );
+            stopInspection();
             activated.current = false;
             authorizationRef.current = null;
             return;
@@ -132,6 +145,7 @@ export function DesignInspectOverlay({
         }
         const authorization = authorizationRef.current;
         if (!authorization || !isCurrentDesignAuthorization(authorization, projectPathRef.current)) {
+            stopInspection();
             authorizationRef.current = null;
             setSelection(null);
             return;
@@ -139,10 +153,7 @@ export function DesignInspectOverlay({
         let cancelled = false;
         void commands.registerDesignBridge(scopeDesignBridge(DESIGN_BRIDGE_SCRIPT, authorization)).then(() => {
             if (cancelled || authorizationRef.current !== authorization || !isCurrentDesignAuthorization(authorization, projectPathRef.current)) return;
-            iframeRef.current?.contentWindow?.postMessage(
-                { type: "bettershape-design-set-mode", mode: "select", projectRoot: project_path },
-                designMessageOrigin(authorizationRef.current, projectPathRef.current),
-            );
+            selectAuthorizedFrame(authorization);
         }).catch(() => {
             if (!cancelled && authorizationRef.current === authorization) {
                 authorizationRef.current = null;
@@ -151,7 +162,7 @@ export function DesignInspectOverlay({
             }
         });
         return () => { cancelled = true; };
-    }, [enabled, flushStyles, iframeRef, project_path]);
+    }, [enabled, flushStyles, iframeRef, project_path, selectAuthorizedFrame, stopInspection]);
 
     useEffect(() => {
         if (!enabled) return;
@@ -162,10 +173,7 @@ export function DesignInspectOverlay({
             const data = event.data;
             if (!data || typeof data !== "object") return;
             if (data.type === "bettershape-design-ready") {
-                iframeRef.current?.contentWindow?.postMessage(
-                    { type: "bettershape-design-set-mode", mode: "select", projectRoot: project_path },
-                    designMessageOrigin(authorizationRef.current, projectPathRef.current),
-                );
+                selectAuthorizedFrame(authorizationRef.current);
                 return;
             }
             if (data.type !== "bettershape-design-selection") return;
@@ -193,7 +201,7 @@ export function DesignInspectOverlay({
         };
         window.addEventListener("message", onMessage);
         return () => window.removeEventListener("message", onMessage);
-    }, [enabled, iframeRef, project_path]);
+    }, [enabled, iframeRef, project_path, selectAuthorizedFrame]);
 
     const apply = useCallback(
         (styles: Record<string, string>) => {

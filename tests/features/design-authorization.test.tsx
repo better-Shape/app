@@ -245,3 +245,34 @@ it.each(["../outside.tsx", "src/../../outside.tsx", "..\\outside.tsx", "src\\..\
     expect(backend.save).not.toHaveBeenCalled();
     expect(backend.error).toHaveBeenCalled();
 });
+
+it.each(["exit", "replace"].flatMap(service => ["disable", "unmount", "project"].map(action => ({ service, action }))))
+    ("releases the selected frame after service $service on $action without renewing authority", async ({ service, action }) => {
+        const post = vi.spyOn(frame.contentWindow!, "postMessage").mockImplementation(() => {});
+        await render();
+        expect(post).toHaveBeenCalledWith({ type: "bettershape-design-set-mode", mode: "select", projectRoot: "/project-a" }, "http://localhost:3000");
+        post.mockClear();
+        backend.service = service === "exit" ? null : { projectPath: "/project-a", url: "http://localhost:3000", ptyId: 8 };
+        selection("http://localhost:3000");
+        expect(host.querySelector('[aria-label="Exit design mode"]')).toBeNull();
+        if (action === "disable") await render(false);
+        else if (action === "unmount") await act(async () => root.render(null));
+        else { backend.project = "/project-b"; await render(); }
+        expect(post.mock.calls).toEqual([[{ type: "bettershape-design-set-mode", mode: "normal" }, "http://localhost:3000"]]);
+        expect(backend.read).not.toHaveBeenCalled();
+        expect(backend.save).not.toHaveBeenCalled();
+    });
+
+it("releases the original frame rather than sending teardown to a replacement iframe", async () => {
+    const original = vi.spyOn(frame.contentWindow!, "postMessage").mockImplementation(() => {});
+    await render(); original.mockClear();
+    const replacement = document.createElement("iframe");
+    replacement.src = "http://localhost:4000"; document.body.append(replacement);
+    const post = vi.spyOn(replacement.contentWindow!, "postMessage").mockImplementation(() => {});
+    try {
+        ref.current = replacement; backend.service = null;
+        await render(false);
+        expect(original.mock.calls).toEqual([[{ type: "bettershape-design-set-mode", mode: "normal" }, "http://localhost:3000"]]);
+        expect(post).not.toHaveBeenCalled();
+    } finally { ref.current = frame; replacement.remove(); }
+});
