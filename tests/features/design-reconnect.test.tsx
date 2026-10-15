@@ -1,16 +1,23 @@
-import { act } from "react";
+import { act, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+const SOURCE = 'export default function App() { return <main><div className="card">Hello</div><div>Other</div></main>; }';
+type PanelProps = ComponentProps<typeof import("@/features/preview/design/panel").DesignStylePanel>;
 const backend = vi.hoisted(() => ({
     service: { projectPath: "/project", url: "http://localhost:5173", ptyId: 7 },
     ready: new Set<(url: string) => void>(), register: vi.fn(), probe: vi.fn(),
     exportSelection: null as null | ((scale: number, format: string) => Promise<void>),
+    undo: vi.fn(), redo: vi.fn(),
+    panel: null as PanelProps | null, read: vi.fn(), patch: vi.fn(), save: vi.fn(), css: vi.fn(),
 }));
 vi.mock("@/lib/backend", () => ({ commands: {
     inspectDesignProject: async (projectRoot: string) => ({ projectRoot, framework: "vite", supported: true }),
     listDesignAssets: async () => [], rememberPreviewUrl: async () => {},
     registerDesignBridge: backend.register, probePreviewUrl: backend.probe,
+    readFileFromDisk: backend.read, applyDesignSourcePatch: backend.patch, saveFile: backend.save,
+    primeFileCache: vi.fn(), invalidateFileCache: vi.fn(), undoDesignSourcePatch: backend.undo, redoDesignSourcePatch: backend.redo,
 } }));
+vi.mock("@/lib/ui/css-variables-loader", () => ({ resolveGlobalsCss: backend.css, invalidateGlobalsCssCache: vi.fn() }));
 vi.mock("@/features/detection/lib/lib", () => ({ detectDevCommand: async () => ({ command: "npm run dev", urlHint: "http://localhost:5173" }) }));
 vi.mock("@/features/preview/lib/discover-routes", () => ({ discoverDesignPages: async () => [] }));
 vi.mock("@/features/terminal/background-run", () => ({
@@ -24,12 +31,18 @@ vi.mock("@/features/terminal/background-run", () => ({
 vi.mock("@/features/preview/design/toolbar", async (original) => ({
     ...await original<typeof import("@/features/preview/design/toolbar")>(), DesignToolbar: ({ onModeChange }: { onModeChange: (mode: "select") => void }) => <button onClick={() => onModeChange("select")}>Inspect</button>,
 }));
-vi.mock("@/features/preview/design/panel", () => ({ DesignStylePanel: ({ onExport }: { onExport: (scale: number, format: string) => Promise<void> }) => { backend.exportSelection = onExport; return null; } }));
+vi.mock("@/features/preview/design/panel", () => ({ DesignStylePanel: (props: PanelProps & { onExport: (scale: number, format: string) => Promise<void> }) => { backend.panel = props; backend.exportSelection = props.onExport; return null; } }));
 import { DesignStudio } from "@/features/preview/design/shell";
 let host: HTMLDivElement;
 let root: Root;
 beforeEach(() => {
     backend.service = { projectPath: "/project", url: "http://localhost:5173", ptyId: 7 };
+    backend.undo.mockReset().mockResolvedValue({ changed: false });
+    backend.redo.mockReset().mockResolvedValue({ changed: false });
+    backend.panel = null;
+    backend.read.mockReset().mockResolvedValue(SOURCE);
+    backend.patch.mockReset().mockResolvedValue({}); backend.save.mockReset().mockResolvedValue(undefined);
+    backend.css.mockReset().mockResolvedValue({ path: "/project/src/globals.css", content: ":root {}" });
     backend.exportSelection = null; backend.ready.clear(); backend.register.mockReset().mockResolvedValue(undefined); backend.probe.mockReset().mockResolvedValue(true);
     host = document.createElement("div"); document.body.append(host); root = createRoot(host);
 });
@@ -154,4 +167,187 @@ it("abandons export decoding when the service grant is revoked", async () => {
     backend.service = { ...backend.service, ptyId: 8 };
     await act(async () => { loaded(); await request; });
     expect(create.mock.calls.some(([tag]) => tag === "canvas")).toBe(false);
+});
+
+const mutationActions: Array<[string, (panel: PanelProps) => void | Promise<void>]> = [
+    ["styles", panel => panel.onCommit({ color: "red" })],
+    ["text", panel => panel.onCommitText?.("Changed")],
+    ["attribute", panel => panel.onCommitAttr?.("title", "Changed")],
+    ["delete", panel => panel.onDelete?.()],
+    ["duplicate", panel => panel.onDuplicate?.()],
+    ["component", panel => panel.onComponentPatch?.({ key: "selected", field: "text", value: "Changed" })],
+    ["token", panel => panel.onCreateToken?.("--brand", "red")],
+];
+
+async function selectForMutation() {
+    await render();
+    await act(async () => host.querySelector("button")?.click());
+    const frame = host.querySelector("iframe")!;
+    await act(async () => {
+        window.dispatchEvent(new MessageEvent("message", {
+            source: frame.contentWindow, origin: backend.service.url,
+            data: { type: "bettershape-design-selection", element: {
+                rect: { x: 0, y: 0, width: 100, height: 30 }, key: "selected", tag: "div", text: "Hello", classes: ["card"], styles: {}, attributes: {},
+                source: { fileName: "src/App.tsx", lineNumber: 1, columnNumber: 1 },
+                component: { tag: "Card", properties: [] },
+            } },
+        }));
+    });
+    return backend.panel!;
+}
+
+it.each(mutationActions)("allows an authorized %s mutation", async (_name, apply) => {
+    const panel = await selectForMutation();
+    await act(async () => apply(panel));
+    expect(backend.patch.mock.calls.length + backend.save.mock.calls.length).toBe(1);
+});
+
+it.each(mutationActions)("rejects a %s mutation after the selected service is replaced", async (_name, apply) => {
+    const panel = await selectForMutation();
+    backend.service = { ...backend.service, ptyId: 8 };
+    await act(async () => apply(panel));
+    expect(backend.patch).not.toHaveBeenCalled();
+    expect(backend.save).not.toHaveBeenCalled();
+});
+
+it("rejects a retained selection callback after a replacement receives a new grant", async () => {
+    const panel = await selectForMutation();
+    await replaceService(8);
+    await act(async () => panel.onCommit({ color: "red" }));
+    expect(backend.patch).not.toHaveBeenCalled();
+    const fresh = await selectForMutation();
+    await act(async () => fresh.onCommit({ color: "blue" }));
+    expect(backend.patch).toHaveBeenCalledTimes(1);
+});
+
+
+it.each(mutationActions.filter(([name]) => name !== "token"))("revalidates %s after its final disk read completes", async (name, apply) => {
+    const panel = await selectForMutation();
+    let finish!: (value: string) => void;
+    backend.read.mockClear();
+    if (name !== "delete" && name !== "duplicate") backend.read.mockResolvedValueOnce(SOURCE);
+    backend.read.mockImplementationOnce(() => new Promise<string>(resolve => { finish = resolve; }));
+    await act(async () => { apply(panel); });
+    expect(backend.read).toHaveBeenCalledTimes(name === "delete" || name === "duplicate" ? 1 : 2);
+    backend.service = { ...backend.service, ptyId: 8 };
+    await act(async () => finish(SOURCE));
+    expect(backend.patch).not.toHaveBeenCalled();
+});
+
+it("revalidates token creation after CSS discovery completes", async () => {
+    const panel = await selectForMutation();
+    let finish!: (value: { path: string; content: string }) => void;
+    backend.css.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    let pending: void | Promise<void>;
+    await act(async () => { pending = panel.onCreateToken?.("--brand", "red"); });
+    backend.service = { ...backend.service, ptyId: 8 };
+    await act(async () => { finish({ path: "/project/src/globals.css", content: ":root {}" }); await pending; });
+    expect(backend.save).not.toHaveBeenCalled();
+});
+
+it("does not upgrade a preview-cloned selection to a replacement grant", async () => {
+    const panel = await selectForMutation();
+    await act(async () => panel.onPreview({ color: "blue" }));
+    const cloned = backend.panel!;
+    expect(cloned.element?.styles.color).toBe("blue");
+    await replaceService(8);
+    await act(async () => cloned.onCommit({ color: "red" }));
+    expect(backend.patch).not.toHaveBeenCalled();
+});
+
+it("rejects the old selection after a project change", async () => {
+    const panel = await selectForMutation();
+    backend.service = { ...backend.service, projectPath: "/other" };
+    await act(async () => root.render(<DesignStudio projectPath="/other" onClose={() => {}} />));
+    await act(async () => panel.onCommit({ color: "red" }));
+    expect(backend.patch).not.toHaveBeenCalled();
+});
+
+it("invalidates a selection when the same iframe loads a new document", async () => {
+    const panel = await selectForMutation();
+    vi.useFakeTimers();
+    try {
+        await act(async () => host.querySelector("iframe")!.dispatchEvent(new Event("load")));
+        await act(async () => panel.onCommit({ color: "red" }));
+        expect(backend.patch).not.toHaveBeenCalled();
+    } finally { vi.clearAllTimers(); vi.useRealTimers(); }
+});
+
+const frameMutations = [
+    ["commit-styles", { styles: { color: "red" } }],
+    ["commit-text", { text: "Changed" }],
+    ["commit-attr", { attributes: { title: "Changed" } }],
+    ["reorder", { before: null }],
+    ["delete", {}], ["duplicate", {}],
+] as const;
+
+it.each(frameMutations)("revalidates incoming %s after source resolution", async (kind, payload) => {
+    const panel = await selectForMutation();
+    const frame = host.querySelector("iframe")!;
+    let finish!: (source: string) => void;
+    backend.read.mockImplementationOnce(() => new Promise<string>(resolve => { finish = resolve; }));
+    await act(async () => {
+        window.dispatchEvent(new MessageEvent("message", {
+            source: frame.contentWindow, origin: backend.service.url,
+            data: { type: `bettershape-design-${kind}`, element: panel.element, ...payload },
+        }));
+    });
+    expect(finish).toBeTypeOf("function");
+    backend.service = { ...backend.service, ptyId: 8 };
+    await act(async () => finish(SOURCE));
+    expect(backend.patch).not.toHaveBeenCalled();
+});
+
+it("rejects a queued edit even after the replacement grant becomes current", async () => {
+    const panel = await selectForMutation();
+    let finish!: (source: string) => void;
+    backend.read.mockImplementationOnce(() => new Promise<string>(resolve => { finish = resolve; }));
+    await act(async () => {
+        panel.onCommit({ color: "red" });
+        panel.onCommit({ color: "blue" });
+    });
+    await replaceService(8);
+    await act(async () => finish(SOURCE));
+    expect(backend.patch).not.toHaveBeenCalled();
+});
+
+it.each(["z", "y"])("allows authorized history shortcut %s", async key => {
+    await selectForMutation();
+    await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { key, ctrlKey: true })));
+    expect(key === "z" ? backend.undo : backend.redo).toHaveBeenCalledTimes(1);
+});
+
+it.each(["z", "y"])("revalidates queued history shortcut %s", async key => {
+    const panel = await selectForMutation();
+    let finish!: (source: string) => void;
+    backend.read.mockImplementationOnce(() => new Promise<string>(resolve => { finish = resolve; }));
+    await act(async () => {
+        panel.onCommit({ color: "red" });
+        window.dispatchEvent(new KeyboardEvent("keydown", { key, ctrlKey: true }));
+    });
+    await replaceService(8);
+    await act(async () => finish(SOURCE));
+    expect(backend.undo).not.toHaveBeenCalled(); expect(backend.redo).not.toHaveBeenCalled();
+});
+
+it.each(frameMutations)("persists an authorized incoming %s mutation", async (kind, payload) => {
+    const panel = await selectForMutation();
+    const frame = host.querySelector("iframe")!;
+    await act(async () => window.dispatchEvent(new MessageEvent("message", {
+        source: frame.contentWindow, origin: backend.service.url,
+        data: { type: `bettershape-design-${kind}`, element: panel.element, ...payload },
+    })));
+    expect(backend.patch).toHaveBeenCalledTimes(1);
+});
+
+it("does not transplant an old preview update onto a newer selection owner", async () => {
+    const old = await selectForMutation();
+    const frame = host.querySelector("iframe")!;
+    await act(async () => window.dispatchEvent(new MessageEvent("message", {
+        source: frame.contentWindow, origin: backend.service.url,
+        data: { type: "bettershape-design-selection", element: { ...old.element, key: "new-selection" } },
+    })));
+    await act(async () => old.onPreview({ color: "red" }));
+    expect(backend.panel!.element?.key).toBe("new-selection");
+    expect(backend.panel!.element?.styles.color).toBeUndefined();
 });
