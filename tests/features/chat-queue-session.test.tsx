@@ -16,6 +16,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const backend = vi.hoisted(() => ({
     initialization: vi.fn(),
+    usableProvider: vi.fn(),
     expand: vi.fn(),
     current: null as string | null,
     sent: [] as { message: string; conversationId: string | null }[],
@@ -243,7 +244,7 @@ vi.mock("@/lib/catalog/store", () => ({
     useBetterShapeCatalog: () => ({ catalog: null }),
 }));
 vi.mock("@/lib/ai/providers", () => ({
-    hasAnyUsableProvider: () => true,
+    hasAnyUsableProvider: backend.usableProvider,
 }));
 vi.mock("@/features/notifications", () => ({ notify: { error: vi.fn(), info: vi.fn(), success: vi.fn() } }));
 vi.mock("@/lib/chat/incognito", () => ({
@@ -397,6 +398,7 @@ function sentMessages() {
 beforeEach(async () => {
     vi.mocked(commands.stopChatMessage).mockReset().mockResolvedValue(undefined);
     backend.initialization.mockReset().mockResolvedValue(undefined);
+    backend.usableProvider.mockReset().mockReturnValue(true);
     backend.expand.mockReset().mockImplementation(async (message: string) => message);
     backend.current = "X";
     backend.sent = [];
@@ -419,6 +421,8 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
     await act(async () => root.unmount());
     host.remove();
 });
@@ -741,4 +745,132 @@ it("cancels late preparation even when native Stop fails before dispatch", async
     await act(async () => { await pending; });
     expect(backend.sent).toEqual([]);
     expect(session.isLoading).toBe(false);
+});
+
+function attachment(status: "ready" | "processing" | "error" = "ready") {
+    return {
+        id: "attachment-one", name: "image.png", file: new File(["image"], "image.png", { type: "image/png" }),
+        kind: "image" as const, mimeType: "image/png", size: 5, status, dataUrl: "data:image/png;base64,aW1hZ2U=",
+    };
+}
+async function stageAttachment(status: "ready" | "processing" | "error" = "ready") {
+    await act(async () => {
+        session.setInputValue("use this attachment");
+        session.setUploadedFiles([attachment(status)]);
+    });
+}
+it("keeps attachments and composer text when provider validation fails", async () => {
+    backend.usableProvider.mockReturnValue(false);
+    await stageAttachment();
+    let sent!: boolean;
+    await act(async () => { sent = await session.handleSendMessage(); });
+    expect(sent).toBe(false);
+    expect(backend.sent).toHaveLength(0);
+    expect(session.uploadedFiles).toHaveLength(1);
+    expect(session.inputValue).toBe("use this attachment");
+    expect(session.sendError).toMatch(/API key/);
+});
+it.each(["error", "processing"] as const)("does not silently omit an attachment left in %s state", async status => {
+    await stageAttachment(status);
+    vi.useFakeTimers();
+    let sending!: Promise<boolean>;
+    act(() => { sending = session.handleSendMessage(); });
+    await act(async () => vi.advanceTimersByTimeAsync(8100));
+    const dispatched = [...backend.sent];
+    if (backend.pendingSends.length) await resolveOldestSend();
+    let sent!: boolean;
+    await act(async () => { sent = await sending; });
+    expect(dispatched).toHaveLength(0);
+    expect(sent).toBe(false);
+    expect(session.uploadedFiles).toHaveLength(1);
+    expect(session.inputValue).toBe("use this attachment");
+    expect(session.sendError).toMatch(/attachment/i);
+});
+it("handles a FileReader failure as a retryable send error, not a rejected composer promise", async () => {
+    await stageAttachment();
+    await act(async () => session.setUploadedFiles([{ ...attachment(), kind: "file", name: "notes.txt", mimeType: "text/plain" }]));
+    vi.spyOn(FileReader.prototype, "readAsText").mockImplementation(function (this: FileReader) {
+        this.dispatchEvent(new ProgressEvent("error"));
+    });
+    let result: unknown;
+    await act(async () => {
+        result = await session.handleSendMessage().then(value => ({ value }), error => ({ error }));
+    });
+    expect(result).toEqual({ value: false });
+    expect(session.uploadedFiles).toHaveLength(1);
+    expect(session.inputValue).toBe("use this attachment");
+    expect(session.sendError).toMatch(/attachment/i);
+    expect(backend.sent).toHaveLength(0);
+});
+it("does not consume text or attachments added during preparation of an earlier message", async () => {
+    await stageAttachment();
+    let ready!: () => void;
+    backend.initialization.mockImplementationOnce(() => new Promise<void>(resolve => { ready = resolve; }));
+    act(() => { void session.handleSendMessage(); });
+    await settle();
+    await act(async () => {
+        session.setInputValue("next message");
+        session.setUploadedFiles(previous => [...previous, { ...attachment(), id: "attachment-two", name: "second.png" }]);
+    });
+    await act(async () => ready()); await settle();
+    expect(backend.sent).toHaveLength(1);
+    expect(backend.sent[0].message).toContain("image.png");
+    expect(backend.sent[0].message).not.toContain("second.png");
+    expect(session.inputValue).toBe("next message");
+    expect(session.uploadedFiles.map(file => file.id)).toEqual(["attachment-two"]);
+    await resolveOldestSend();
+});
+
+it("retries the retained attachment draft after the provider becomes available", async () => {
+    backend.usableProvider.mockReturnValue(false);
+    await stageAttachment();
+    await act(async () => { await session.handleSendMessage(); });
+    backend.usableProvider.mockReturnValue(true);
+    act(() => { void session.handleSendMessage(); });
+    await settle();
+    expect(backend.sent).toHaveLength(1);
+    expect(backend.sent[0].message).toContain('<attached_image name="image.png"');
+    expect(backend.sent[0].message).toContain("use this attachment");
+    expect(session.uploadedFiles).toHaveLength(0);
+    expect(session.inputValue).toBe("");
+    await resolveOldestSend();
+});
+it("retains attachments when provider availability changes during mention preparation", async () => {
+    await stageAttachment();
+    let finish!: (value: string) => void;
+    backend.expand.mockImplementationOnce(() => new Promise<string>(resolve => { finish = resolve; }));
+    let sending!: Promise<boolean>;
+    act(() => { sending = session.handleSendMessage(); });
+    await settle();
+    backend.usableProvider.mockReturnValue(false);
+    await act(async () => finish("expanded"));
+    await act(async () => { expect(await sending).toBe(false); });
+    expect(backend.sent).toHaveLength(0);
+    expect(session.uploadedFiles).toHaveLength(1);
+    expect(session.inputValue).toBe("use this attachment");
+    expect(session.isLoading).toBe(false);
+});
+it("Stop cancels pending attachment processing without dispatching or consuming the draft", async () => {
+    await stageAttachment("processing");
+    vi.useFakeTimers();
+    let sending!: Promise<boolean>;
+    act(() => { sending = session.handleSendMessage(); });
+    await act(async () => vi.advanceTimersByTimeAsync(40));
+    await act(async () => { await session.handleStopMessage(); });
+    await act(async () => { expect(await sending).toBe(false); });
+    expect(backend.sent).toHaveLength(0);
+    expect(session.uploadedFiles).toHaveLength(1);
+    expect(session.inputValue).toBe("use this attachment");
+});
+it("preserves a newly edited draft even when its final text matches the submitted message", async () => {
+    await stageAttachment();
+    let ready!: () => void;
+    backend.initialization.mockImplementationOnce(() => new Promise<void>(resolve => { ready = resolve; }));
+    act(() => { void session.handleSendMessage(); });
+    await settle();
+    await act(async () => session.setInputValue("next draft"));
+    await act(async () => session.setInputValue("use this attachment"));
+    await act(async () => ready()); await settle();
+    expect(session.inputValue).toBe("use this attachment");
+    await resolveOldestSend();
 });

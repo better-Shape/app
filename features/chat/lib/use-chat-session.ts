@@ -33,6 +33,7 @@ import {
 import { getSettings } from "@/lib/settings";
 import { getVisibleModels, resolveChatModels, sanitizeEnabledModels, subagentModelsForSend } from "@/lib/settings/models";
 import { getCatalogDefaultEnabledIds, getCatalogModels, useBetterShapeCatalog } from "@/lib/catalog/store";
+import { messageWithAttachments, waitForSendAttachments } from "./send-attachments";
 import { hasAnyUsableProvider as hasUsableProvider } from "@/lib/ai/providers";
 import { matchSlashCommand } from "@/lib/chat/workflows";
 import { notify } from "@/features/notifications";
@@ -163,13 +164,18 @@ export function useChatSession(
     }, []);
     const uploadedFilesRef = React.useRef(uploadedFiles);
     uploadedFilesRef.current = uploadedFiles;
-    const [inputValue, setInputValue] = React.useState(() => {
+    const composerRevisionRef = React.useRef(0);
+    const [inputValue, updateInputValue] = React.useState(() => {
         try {
             return localStorage.getItem("bettershape-chat-input") || "";
         } catch {
             return "";
         }
     });
+    const setInputValue = React.useCallback((value: React.SetStateAction<string>) => {
+        composerRevisionRef.current += 1;
+        updateInputValue(value);
+    }, []);
     /** Every queued follow-up, across chats. Each one is bound to its `conversationId`. */
     const [messageQueue, setMessageQueue] = React.useState<QueuedChatMessage[]>([]);
     const messageQueueRef = React.useRef(messageQueue);
@@ -958,135 +964,31 @@ export function useChatSession(
     ): Promise<boolean> => {
         // The chat this message belongs to, fixed now: the user may switch chats mid-send.
         const target = targetId !== undefined ? targetId : getViewedConversationId();
+        const submittedRevision = composerRevisionRef.current;
+        const submittedIds = fromQueue ? [] : uploadedFilesRef.current.map(file => file.id);
         const preparation = new AbortController();
         preparingSendsRef.current.set(preparation, target);
         try {
             try {
                 await waitForAiConfiguration(preparation.signal);
             } catch {
-                if (!preparation.signal.aborted) setSendError("Could not load provider settings. Retry after checking Settings > Providers.");
-                return false;
+                if (preparation.signal.aborted) return false;
+                throw new Error("Could not load provider settings. Retry after checking Settings > Providers.");
             }
             if (preparation.signal.aborted) return false;
-            if (!fromQueue) {
-                setInputValue("");
-                editingQueueIdRef.current = null;
-                try {
-                    localStorage.removeItem("bettershape-chat-input");
-                } catch {
-                    /* ignore */
-                }
+            if (!hasUsableProvider(getSettings().ai.providers)) {
+                throw new Error("Add an API key in Settings → Providers to chat.");
             }
-
-            const waitForAttachments = async () => {
-                const deadline = Date.now() + 8000;
-                while (Date.now() < deadline) {
-                    const files = uploadedFilesRef.current;
-                    if (!files.some((a) => a.status === "processing")) return files;
-                    await new Promise((r) => setTimeout(r, 40));
-                }
-                return uploadedFilesRef.current;
-            };
-            const readyFiles = fromQueue ? [] : await waitForAttachments();
-
-            let userMsg = messageContent;
-            const attachmentBlocks: string[] = [];
-            for (const att of readyFiles) {
-                if (att.status !== "ready") continue;
-                    const ext = att.name.split(".").pop()?.toLowerCase() || "";
-                    const CODE_LIKE_EXT = new Set([
-                        "ts", "tsx", "js", "jsx", "rs", "py", "go", "java", "c", "cpp", "h", "hpp",
-                        "css", "scss", "less", "html", "xml", "svg", "json", "toml", "yaml", "yml",
-                        "md", "mdx", "sh", "bat", "ps1", "rb", "php", "swift", "kt", "kts", "dart",
-                        "lua", "r", "sql", "graphql", "gql", "proto", "txt", "log", "csv", "lock",
-                        "env", "ini", "cfg", "conf",
-                    ]);
-                    const BINARY_ASSET_EXT = new Set([
-                        "ttf", "otf", "woff", "woff2", "eot", "ico", "icns", "pdf",
-                    ]);
-
-                    if (att.kind === "image" && att.dataUrl) {
-                        attachmentBlocks.push(
-                            `<attached_image name="${att.name}" type="${att.mimeType}" size="${att.size}">${att.dataUrl}</attached_image>`,
-                        );
-                    } else if (att.kind === "audio") {
-                        attachmentBlocks.push(
-                            `<attached_file name="${att.name}" type="${att.mimeType || "audio"}" size="${att.size}">\n[Audio file attached — playback in UI; transcription not available in this turn.]\n</attached_file>`,
-                        );
-                    } else {
-                        const isTextLike =
-                            att.mimeType.startsWith("text/") ||
-                            CODE_LIKE_EXT.has(ext) ||
-                            ["svg", "json", "xml", "md", "mdx"].includes(ext);
-
-                        if (isTextLike) {
-                            const text = await new Promise<string>((resolve, reject) => {
-                                const reader = new FileReader();
-                                reader.onload = () => resolve(reader.result as string);
-                                reader.onerror = reject;
-                                reader.readAsText(att.file);
-                            });
-
-                            const maxChars = 80000;
-                            const content =
-                                text.length > maxChars
-                                    ? text.slice(0, maxChars) + `\n... [truncated, ${text.length} chars total]`
-                                    : text;
-
-                            attachmentBlocks.push(
-                                `<attached_file name="${att.name}" type="${att.mimeType || "text/plain"}" size="${att.size}">\n${content}\n</attached_file>`,
-                            );
-                        } else if (BINARY_ASSET_EXT.has(ext) || att.mimeType.startsWith("font/")) {
-                            // Usable binary — instruct the agent to write/use the file, not just describe it.
-                            const dataUrl = await new Promise<string>((resolve, reject) => {
-                                const reader = new FileReader();
-                                reader.onload = () => resolve(reader.result as string);
-                                reader.onerror = reject;
-                                reader.readAsDataURL(att.file);
-                            });
-                            const maxBytes = 2_500_000;
-                            if (att.size <= maxBytes) {
-                                attachmentBlocks.push(
-                                    `<attached_asset name="${att.name}" type="${att.mimeType || "application/octet-stream"}" size="${att.size}" usable="true">\n` +
-                                        `When the user asks to use this file (e.g. apply a font, add an icon), write it into the project from this data URL and wire it up — do not only describe it.\n` +
-                                        `${dataUrl}\n` +
-                                        `</attached_asset>`,
-                                );
-                            } else {
-                                attachmentBlocks.push(
-                                    `<attached_file name="${att.name}" type="${att.mimeType || "application/octet-stream"}" size="${att.size}">\n[Binary asset too large to inline (${att.size} bytes). Ask the user for a path in the repo, or copy it locally.]\n</attached_file>`,
-                                );
-                            }
-                        }
-                    }
-                }
-
-                if (attachmentBlocks.length > 0) {
-                    userMsg = `${attachmentBlocks.join("\n\n")}\n\n${userMsg}`;
-                }
+            const readyFiles = await waitForSendAttachments(submittedIds, () => uploadedFilesRef.current, preparation.signal);
+            const userMsg = await messageWithAttachments(messageContent, readyFiles, preparation.signal);
 
             if (preparation.signal.aborted) return false;
-            setSendError(null);
+            if (getViewedConversationId() === target) setSendError(null);
             // Lets the backend's chat_started name this send, so a draft binds only to its own turn.
             const clientRequestId = createChatRequestId(target);
             appendUserOptimistic(userMsg, target, clientRequestId);
-            if (!fromQueue) setUploadedFiles([]);
 
             try {
-                if (!hasUsableProvider(getSettings().ai.providers)) {
-                    setSendError("Add an API key in Settings → Providers to chat.");
-                    // The optimistic turn was opened above; no backend turn will ever close it.
-                    holdQueueAfterFailedSend(target);
-                    setMessages((prev) => {
-                        const last = prev[prev.length - 1];
-                        if (last?.role === "assistant" && !last.content.trim()) {
-                            return prev.slice(0, -1);
-                        }
-                        return prev;
-                    });
-                    return false;
-                }
-
                 const settings = getSettings();
                 const expandedMessage = await buildMessageWithMentions(
                     userMsg,
@@ -1126,6 +1028,20 @@ export function useChatSession(
                     return false;
                 }
                 if (!ownsRequest(target, clientRequestId)) return false;
+                if (!hasUsableProvider(getSettings().ai.providers)) {
+                    throw new Error("Add an API key in Settings → Providers to chat.");
+                }
+                if (!fromQueue) {
+                    // Only consume the submitted draft at admission. New edits/files belong to the next message.
+                    const submitted = new Set(submittedIds);
+                    setUploadedFiles(files => files.filter(file => !submitted.has(file.id)));
+                    if (getViewedConversationId() === target && composerRevisionRef.current === submittedRevision && inputValueRef.current === messageContent) {
+                        inputValueRef.current = "";
+                        setInputValue("");
+                        editingQueueIdRef.current = null;
+                        try { localStorage.removeItem("bettershape-chat-input"); } catch { /* Session draft still clears. */ }
+                    }
+                }
                 // Preparation ends at native admission, not at provider readiness.
                 preparingSendsRef.current.delete(preparation);
                 await commands.sendChatMessage(
@@ -1179,6 +1095,15 @@ export function useChatSession(
                 });
                 return false;
             }
+        } catch (error) {
+            // Preparation failures happen before an optimistic/native turn exists.
+            if (!preparation.signal.aborted) {
+                failedSendHoldRef.current = { conversationId: target };
+                const message = error instanceof Error ? error.message : "Could not prepare attachments. Retry or remove them before sending.";
+                if (getViewedConversationId() === target) setSendError(message);
+                else notify.error("Could not prepare message", message);
+            }
+            return false;
         } finally {
             preparingSendsRef.current.delete(preparation);
         }
@@ -1343,7 +1268,7 @@ export function useChatSession(
             }
             return prev;
         });
-    }, []);
+    }, [setInputValue]);
 
     const handleRemoveQueuedMessage = React.useCallback((id: string) => {
         if (editingQueueIdRef.current === id) {
@@ -1356,7 +1281,7 @@ export function useChatSession(
             }
         }
         setMessageQueue((prev) => prev.filter((m) => m.id !== id));
-    }, []);
+    }, [setInputValue]);
 
     const handleUpdateQueuedMessage = React.useCallback((id: string, content: string) => {
         setMessageQueue((prev) =>
@@ -1408,7 +1333,7 @@ export function useChatSession(
         window.addEventListener("bettershape-chat-insert-prompt", handleInsertPrompt as EventListener);
         return () =>
             window.removeEventListener("bettershape-chat-insert-prompt", handleInsertPrompt as EventListener);
-    }, [enqueueChatMessage]);
+    }, [enqueueChatMessage, setInputValue]);
 
     const messagesRef = React.useRef(messages);
     React.useEffect(() => {
@@ -1491,7 +1416,7 @@ export function useChatSession(
                 console.error("Failed to restore checkpoint:", err);
             }
         },
-        [refreshHistory, activateViewedBackend, messagesEndRef],
+        [activateViewedBackend, setInputValue, refreshHistory, messagesEndRef],
     );
 
     const handleRedo = React.useCallback(
