@@ -6,6 +6,7 @@ const EMPTY_IDS: ReadonlySet<string> = new Set();
 let generatingIds: ReadonlySet<string> = EMPTY_IDS;
 const listeners = new Set<() => void>();
 
+/** Notify external-store subscribers after replacing the generating-ID snapshot. */
 function emit() {
     for (const l of listeners) l();
 }
@@ -28,6 +29,7 @@ export function setChatGenerating(chatId: string | null | undefined, generating:
     }
 }
 
+/** Reset generation state and notify mounted subscribers without emitting a runtime completion event. */
 export function resetGeneratingChatsForTests() {
     generatingIds = EMPTY_IDS;
     emit();

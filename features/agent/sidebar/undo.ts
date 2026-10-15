@@ -58,6 +58,7 @@ let seq = 0;
 const committing = new Map<string, ChatUndoEntry>();
 let committingRevision = 0;
 
+/** Notify undo-store subscribers after a stack or in-flight commit transition. */
 function emit() {
     for (const listener of listeners) listener();
 }
@@ -129,6 +130,7 @@ export function pendingRemovalChatIds(): ReadonlySet<string> {
     return snapshot;
 }
 
+/** Return the stable empty removal snapshot for server rendering. */
 export function pendingRemovalChatIdsServer(): ReadonlySet<string> {
     return EMPTY_IDS;
 }
@@ -153,10 +155,12 @@ export function pushChatUndo(input: PushChatUndoInput): ChatUndoEntry {
     return entry;
 }
 
+/** Track an expired entry through synchronous or asynchronous commit, reporting failures and releasing pending-removal ownership. */
 function commitEntry(entry: ChatUndoEntry) {
     if (!entry.commit) return;
     committing.set(entry.id, entry);
     committingRevision += 1;
+    /** Release this commit's ownership and invalidate the removal snapshot after either success or failure. */
     const finish = () => {
         committing.delete(entry.id);
         committingRevision += 1;

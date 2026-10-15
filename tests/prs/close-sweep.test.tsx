@@ -88,6 +88,9 @@ it("bounds close mutations to one in flight, and stops remaining work on repo ch
     expect(run).toHaveBeenCalledTimes(1);
     expect(sweep.closing).toBe(true);
     await act(async () => root.render(<Harness repo="owner/other" />));
+    expect(sweep.closing).toBe(false);
+    await act(async () => root.render(<Harness />));
+    expect(sweep.closing).toBe(false);
     await act(async () => resolve(true));
     expect(run).toHaveBeenCalledTimes(1);
     expect(sweep.closing).toBe(false);

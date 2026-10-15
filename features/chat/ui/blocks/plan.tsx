@@ -102,6 +102,7 @@ export function PlanningBlock({ steps, completedCount, totalCount, isGenerating 
 
 
 
+/** Display a saved plan, recover its supplied markdown when necessary, and keep Build tied to its originating chat. */
 export function PlanSavedBlock({
     title,
     path,

@@ -37,6 +37,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     useEffect(() => {
         let cancelled = false;
         const configuration = acquireAiConfiguration();
+        /** Wait for shared provider initialization before starting GitHub authentication and MCP synchronization. */
         const bootstrap = async () => {
             await configuration.ready;
             if (cancelled) return;
@@ -82,6 +83,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
 
     useEffect(() => {
         let cancelled = false;
+        /** Show the main native window after settings hydration, unless this layout has already unmounted. */
         const init = async () => {
             try {
                 const { getCurrentWindow } = await import("@tauri-apps/api/window");

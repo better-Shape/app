@@ -146,6 +146,7 @@ function appendAssistantChunk(prev: ChatMessage[], chunk: string): ChatMessage[]
     ];
 }
 
+/** Translate known tool names into runtime phases, retaining a generic tool phase for extensions. */
 function phaseFromTool(tool: string | undefined): TurnPhase {
     if (tool === "ask_user") return "awaiting_input";
     if (tool === "wait") return "waiting";
@@ -154,6 +155,7 @@ function phaseFromTool(tool: string | undefined): TurnPhase {
     return "tool";
 }
 
+/** Prefer an explicit runtime label, otherwise derive a user-facing label from the phase and tool. */
 function labelForPhase(phase: TurnPhase, tool?: string, label?: string): string | null {
     if (label?.trim()) return label.trim();
     switch (phase) {
@@ -437,6 +439,7 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
             draftAdopterRef.current?.(conversationId);
         };
 
+        /** Resolve a scoped turn owner; accept legacy unscoped events only when exactly one live turn exists. */
         const resolveLiveKey = (conversationId?: string | null) => {
             if (conversationId) return liveTurnsRef.current.has(conversationId) ? conversationId : null;
             // Legacy unscoped events are only safe when exactly one turn exists.
@@ -445,6 +448,7 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
             return null;
         };
 
+        /** Apply updates only to an admitted matching turn, updating its activity independently of which conversation is visible. */
         const patchLive = (conversationId: string | null | undefined, update: (live: LiveTurn) => void, turnId?: string) => {
             const key = resolveLiveKey(conversationId);
             if (!key || ignoredIdsRef.current.has(key)) return;

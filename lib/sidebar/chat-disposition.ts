@@ -24,20 +24,26 @@ function disposition(value: unknown): ChatDisposition | undefined {
     }
 }
 
+/** Read the immutable legacy seed; I/O failures must propagate so clears remain pending. */
+function readLegacyStored(): Record<string, ChatDisposition> {
+    const next: Record<string, ChatDisposition> = Object.create(null);
+    const legacyText = window.localStorage.getItem(KEY);
+    try {
+        const legacy: unknown = JSON.parse(legacyText ?? "{}");
+        if (legacy && typeof legacy === "object" && !Array.isArray(legacy)) {
+            for (const [id, raw] of Object.entries(legacy)) {
+                const value = disposition(raw);
+                if (id && value) next[id] = value;
+            }
+        }
+    } catch { /* Malformed legacy data must not hide valid per-chat entries. */ }
+    return next;
+}
+
 /** Legacy maps are read-only seeds. Per-chat records (including tombstones) win. */
 function readStored(): Record<string, ChatDisposition> | null {
     try {
-        const next: Record<string, ChatDisposition> = Object.create(null);
-        const legacyText = window.localStorage.getItem(KEY);
-        try {
-            const legacy: unknown = JSON.parse(legacyText ?? "{}");
-            if (legacy && typeof legacy === "object" && !Array.isArray(legacy)) {
-                for (const [id, raw] of Object.entries(legacy)) {
-                    const value = disposition(raw);
-                    if (id && value) next[id] = value;
-                }
-            }
-        } catch { /* Malformed legacy data must not hide valid per-chat entries. */ }
+        const next = readLegacyStored();
         for (let i = 0; i < window.localStorage.length; i += 1) {
             const key = window.localStorage.key(i);
             if (!key?.startsWith(ENTRY_PREFIX)) continue;
@@ -85,10 +91,14 @@ function publish(changes: ReadonlyMap<string, ChatDisposition | null>) {
     for (const [id, value] of changes) pending.set(id, value);
     snapshot = applyPending(Object.assign(Object.create(null), getChatDispositions()));
     // Independent chats never share a read-modify-write record. Same-chat
-    // updates are last-writer-wins; a clear is a tombstone over the legacy seed.
+    // updates are last-writer-wins; only legacy-seeded clears need a tombstone.
+    let legacy: Record<string, ChatDisposition> | undefined;
     for (const [id, value] of pending) {
         try {
-            window.localStorage.setItem(`${ENTRY_PREFIX}${encodeURIComponent(id)}`, JSON.stringify(value));
+            const key = `${ENTRY_PREFIX}${encodeURIComponent(id)}`;
+            if (value === null) legacy ??= readLegacyStored();
+            if (value === null && !legacy?.[id]) window.localStorage.removeItem(key);
+            else window.localStorage.setItem(key, JSON.stringify(value));
             pending.delete(id);
         } catch { /* Retain this window's unsaved intent, including clears. */ }
     }

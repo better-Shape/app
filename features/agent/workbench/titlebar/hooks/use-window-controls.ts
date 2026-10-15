@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { Window } from "@tauri-apps/api/window";
 
 
+/** Expose native titlebar actions and mirror maximized/fullscreen state into the window chrome. */
 export function useWindowControls() {
     const [isMaximized, setIsMaximized] = useState(false);
     const [appWindow, setAppWindow] = useState<Window | null>(null);

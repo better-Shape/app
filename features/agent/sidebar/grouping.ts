@@ -24,6 +24,7 @@ function projectGroupId(path = ""): string {
     return normalized.slice(0, end);
 }
 
+/** Produce collection identity and label, keeping unfiled chats in an explicit empty-ID group. */
 function collectionMetadata(collection?: ChatCollection): Omit<ChatGroup, "chats"> {
     if (!collection) return { id: "", label: "No collection" };
     return { id: collection.id, label: collection.name };
@@ -36,10 +37,12 @@ function projectMetadata(chat: Conversation): Omit<ChatGroup, "chats"> {
     return { id, label: project.split("/").pop() || project || "No project", detail: project };
 }
 
+/** Select collection or project metadata for a grouping mode already known to be enabled. */
 function groupMetadata(chat: Conversation, mode: ChatGrouping, collection?: ChatCollection): Omit<ChatGroup, "chats"> {
     return mode === "collection" ? collectionMetadata(collection) : projectMetadata(chat);
 }
 
+/** Sort named groups naturally with an ID tie-breaker and place missing-metadata groups last. */
 function compareGroups(a: ChatGroup, b: ChatGroup): number {
     if (!a.id) return b.id ? 1 : 0;
     if (!b.id) return -1;
@@ -64,6 +67,7 @@ export function groupChats(
     return [...groups.values()].sort(compareGroups);
 }
 
+/** Require every case-folded query term to occur in the chat title, project path, or collection name. */
 export function matchesChatSearch(chat: Conversation, query: string, collection?: string): boolean {
     const terms = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
     const text = [chat.title || "Untitled", chat.project_path, collection].filter(Boolean).join(" ").toLocaleLowerCase();

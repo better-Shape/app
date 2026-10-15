@@ -72,6 +72,7 @@ function actionRequest(action: PrAction, item: PrItem, repo: string): PrActionRe
 
 const pending = new Set<string>();
 
+/** Serialize mutations per repository/PR, verify the GitHub acknowledgement, and roll back optimistic state on failure. */
 export async function runPrAction(
     item: PrItem,
     action: PrAction,

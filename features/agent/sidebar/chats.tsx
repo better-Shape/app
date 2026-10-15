@@ -250,6 +250,7 @@ export function ChatList({
 
     useEffect(() => { if (searchOpen) searchInput.current?.focus(); }, [searchOpen]);
 
+    /** Accept known grouping modes and retain the in-session choice even when persistence is unavailable. */
     const persistGrouping = (value: string) => {
         if (value !== "none" && value !== "collection" && value !== "project") return;
         setGrouping(value);
@@ -296,6 +297,7 @@ export function ChatList({
         setChats([]);
         setSelectedIds([]);
         void loadChats();
+        /** Reload chats through the version-fenced loader when a conversation event invalidates the list. */
         const onRefresh = () => void loadChats();
         window.addEventListener("bettershape-chat-refresh", onRefresh);
         window.addEventListener("bettershape-chats-changed", onRefresh);
@@ -437,6 +439,7 @@ export function ChatList({
     );
 
     useEffect(() => {
+        /** Consume primary-modifier undo only when a sidebar action is pending and text editing does not own the key. */
         const onKey = (event: KeyboardEvent) => {
             if (event.isComposing || event.defaultPrevented || !(primaryModifier() === "meta" ? event.metaKey : event.ctrlKey) || event.altKey) return;
             if (event.key.toLowerCase() !== "z" || event.shiftKey) return;
@@ -481,6 +484,7 @@ export function ChatList({
     );
 
     useEffect(() => {
+        /** Open a numbered visible chat without stealing IME input or shortcuts from text-editing surfaces. */
         const jump = (event: KeyboardEvent) => {
             if (event.defaultPrevented || event.isComposing || event.altKey || event.shiftKey) return;
             if (!(primaryModifier() === "meta" ? event.metaKey : event.ctrlKey)) return;
@@ -578,6 +582,7 @@ export function ChatList({
         if (targets.length) moveChatsToShelf(targets, shelf, nameOf(targets));
     }, [filtered, nameOf, selectedIds, selectedTargets]);
 
+    /** Close search and clear both visible/composed text and the committed filter query. */
     const closeSearch = () => {
         setSearchOpen(false);
         setSearchText("");

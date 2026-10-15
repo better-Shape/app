@@ -82,7 +82,7 @@ export function flushDirtyBuffers(): boolean {
 }
 
 export function preventUnpersistedEditorUnload(event: BeforeUnloadEvent): void {
-    if (flushDirtyBuffers() || ![...pendingBuffers.values()].some(Boolean)) return;
+    if (flushDirtyBuffers()) return;
     event.preventDefault();
     event.returnValue = "";
 }

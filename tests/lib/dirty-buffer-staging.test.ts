@@ -73,3 +73,19 @@ it.each([false, true])("requests a reload warning only when editor recovery cann
         expect(event.defaultPrevented).toBe(blocked);
     } finally { window.removeEventListener("beforeunload", preventUnpersistedEditorUnload); }
 });
+
+it("blocks unload until a reverted draft's failed tombstone flush succeeds", () => {
+    saveDirtyBuffer("/a.txt", "discarded draft", "disk");
+    const write = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("storage unavailable"); });
+    stageDirtyBuffer("/a.txt", "disk", "disk");
+    expect(loadDirtyBuffer("/a.txt")).toBeNull();
+    const blocked = new Event("beforeunload", { cancelable: true });
+    preventUnpersistedEditorUnload(blocked as BeforeUnloadEvent);
+    expect(blocked.defaultPrevented).toBe(true);
+    expect(localStorage.getItem("bettershape-dirty-buffers-v1")).toContain("discarded draft");
+    write.mockRestore();
+    const retry = new Event("beforeunload", { cancelable: true });
+    preventUnpersistedEditorUnload(retry as BeforeUnloadEvent);
+    expect(retry.defaultPrevented).toBe(false);
+    expect(localStorage.getItem("bettershape-dirty-buffers-v1")).not.toContain("discarded draft");
+});

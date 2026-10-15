@@ -12,6 +12,7 @@ export const DROP_VERBS: Record<DropShelf, string> = {
     pinned: "Pin", active: "Resume", snoozed: "Snooze", settled: "Settle",
 };
 
+/** Narrow a drop target to an actionable shelf; runtime-derived Working is never a drop command. */
 export function isDropShelf(value: unknown): value is DropShelf {
     return typeof value === "string" && (DROP_SHELVES as readonly string[]).includes(value);
 }

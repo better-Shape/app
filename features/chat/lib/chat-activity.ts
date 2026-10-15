@@ -21,6 +21,7 @@ export function activityForPhase(phase: TurnPhase, error?: string | null): ChatA
     }
 }
 
+/** Publish a changed runtime activity; ready chats are omitted from the sparse snapshot. */
 export function setChatActivity(id: string | null | undefined, phase: TurnPhase, error?: string | null) {
     if (!id) return;
     const activity = activityForPhase(phase, error);
@@ -32,15 +33,19 @@ export function setChatActivity(id: string | null | undefined, phase: TurnPhase,
     for (const listener of listeners) listener();
 }
 
+/** Return the stable activity snapshot shared by external-store subscribers. */
 export function getChatActivities() { return snapshot; }
+/** Clear runtime activity and notify subscribers so test owners do not retain prior state. */
 export function resetChatActivitiesForTests() {
     snapshot = EMPTY;
     for (const listener of listeners) listener();
 }
+/** Register an activity observer and return its matching unsubscribe operation. */
 function subscribe(listener: () => void) {
     listeners.add(listener);
     return () => { listeners.delete(listener); };
 }
+/** Subscribe to runtime activity with a stable empty snapshot during server rendering. */
 export function useChatActivities() {
     return useSyncExternalStore(subscribe, getChatActivities, () => EMPTY);
 }

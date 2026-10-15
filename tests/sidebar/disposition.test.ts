@@ -128,3 +128,43 @@ it("does not erase a cached disposition when storage reads become unavailable", 
         expect(meta.getChatDispositions().a).toEqual({ state: "settled" });
     } finally { read.mockRestore(); }
 });
+
+it("does not accumulate tombstones when clearing chats absent from the legacy seed", async () => {
+    const meta = await import("@/lib/sidebar/chat-disposition");
+    for (let index = 0; index < 20; index += 1) meta.setChatDisposition(`unused-${index}`, undefined);
+    meta.setChatDisposition("active", { state: "active" });
+    meta.setChatDisposition("active", undefined);
+    localStorage.setItem("bettershape-sidebar-dispositions:v2:obsolete", "null");
+    meta.setChatDisposition("obsolete", undefined);
+    expect(localStorage.length).toBe(0);
+    expect(meta.getChatDispositions()).toEqual({});
+});
+
+it("retains a failed key removal in memory and retries without creating a tombstone", async () => {
+    const meta = await import("@/lib/sidebar/chat-disposition");
+    meta.setChatDisposition("a", { state: "settled" });
+    const remove = vi.spyOn(Storage.prototype, "removeItem").mockImplementation(() => { throw new Error("blocked"); });
+    meta.setChatDisposition("a", undefined);
+    expect(meta.getChatDispositions().a).toBeUndefined();
+    expect(localStorage.getItem("bettershape-sidebar-dispositions:v2:a")).toContain("settled");
+    remove.mockRestore();
+    meta.setChatDisposition("b", { state: "active" });
+    expect(localStorage.getItem("bettershape-sidebar-dispositions:v2:a")).toBeNull();
+    expect(meta.getChatDispositions()).toEqual({ b: { state: "active" } });
+});
+
+it("does not guess whether a clear needs a legacy tombstone when reads fail", async () => {
+    localStorage.setItem("bettershape-sidebar-dispositions", JSON.stringify({ a: { state: "settled" } }));
+    const meta = await import("@/lib/sidebar/chat-disposition");
+    meta.setChatDisposition("a", { state: "active" });
+    const read = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => { throw new Error("blocked"); });
+    meta.setChatDisposition("a", undefined);
+    expect(meta.getChatDispositions().a).toBeUndefined();
+    read.mockRestore();
+    expect(localStorage.getItem("bettershape-sidebar-dispositions:v2:a")).toContain("active");
+    meta.setChatDisposition("b", { state: "active" });
+    expect(localStorage.getItem("bettershape-sidebar-dispositions:v2:a")).toBe("null");
+    vi.resetModules();
+    const restarted = await import("@/lib/sidebar/chat-disposition");
+    expect(restarted.getChatDispositions()).toEqual({ b: { state: "active" } });
+});

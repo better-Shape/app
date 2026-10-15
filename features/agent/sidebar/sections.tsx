@@ -146,6 +146,7 @@ export interface ShelfFacts {
     active: boolean;
 }
 
+/** Resolve shelf intent against live generation: preserve inactive snooze/settle intent, then pin and working precedence. */
 export function shelfOf(facts: ShelfFacts): ChatShelfId {
     if (!facts.generating && (facts.disposition === "snoozed" || facts.disposition === "settled")) return facts.disposition;
     if (facts.pinned) return "pinned";
@@ -304,6 +305,7 @@ export function cardMeta(path: string, collectionName: string | null): string {
     return [folderName(path), collectionName].filter(Boolean).join(" · ");
 }
 
+/** Map nested-agent completion, cancellation, and error states to the existing semantic dot colors. */
 function nestedDot(status: string): string {
     if (status === "error") return "bg-error";
     if (status === "cancelled") return "bg-text-muted";
@@ -338,6 +340,7 @@ export interface ChatShelfRowProps {
     handlers: ChatLifecycleHandlers;
 }
 
+/** Render a session row with shared lifecycle actions, inline rename, selection, and optional shelf dragging. */
 function ChatRow({
     activity,
     shelf,
@@ -415,6 +418,7 @@ function ChatRow({
         [{ id, title, path, pinned, disposition }],
         { ...handlers, startRename },
     );
+    /** Open collection assignment for this row rather than the broader sidebar selection. */
     const addToCollection = () => handlers.addToCollection([id]);
 
     const chooseColor = (next: string) => {
