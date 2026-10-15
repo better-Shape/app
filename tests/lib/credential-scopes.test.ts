@@ -64,3 +64,18 @@ describe("credential destinations", () => {
         expect(merged.services).toEqual(live.services);
     });
 });
+
+it("retains a live credential bundle without dropping unrelated incoming model choices", () => {
+    const live = defaultProvidersSettings();
+    live.connections.openai.apiKey = "example-live";
+    live.connections.openai.headers = { tenant: "example-live-header" };
+    const incoming = defaultProvidersSettings();
+    incoming.connections.openai.baseUrl = "https://other.invalid/v1";
+    incoming.connections.openai.models = ["saved-model"];
+    incoming.connections.openai.enabled = false;
+    const merged = mergeProviderConnections(live, incoming);
+    expect(merged.connections.openai).toEqual({
+        ...live.connections.openai, models: ["saved-model"], enabled: false,
+    });
+    expect(credentialScopes(merged).openai).toBe(credentialScopes(live).openai);
+});

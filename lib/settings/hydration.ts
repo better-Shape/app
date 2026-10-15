@@ -13,11 +13,21 @@ function equal(left: unknown, right: unknown): boolean {
         && keys.every((key) => Object.prototype.hasOwnProperty.call(right, key) && equal(left[key], right[key]));
 }
 
+/** Credentials and routing stay together; model preferences may hydrate independently. */
+function preserveCredentialBundle(before: Record<string, unknown>, live: Record<string, unknown>, merged: Record<string, unknown>, path: string[]) {
+    if (path.length !== 4 || path[0] !== "ai" || path[1] !== "providers") return merged;
+    const fields = path[2] === "connections" ? ["apiKey", "baseUrl", "authStyle", "headers"]
+        : path[2] === "services" ? ["apiKey", "provider", "userId"] : [];
+    if (!fields.some(key => !equal(before[key], live[key]))) return merged;
+    for (const key of fields) {
+        if (Object.prototype.hasOwnProperty.call(live, key)) merged[key] = live[key];
+        else delete merged[key];
+    }
+    return merged;
+}
+
 function merge(before: unknown, live: unknown, incoming: unknown, path: string[]): unknown {
     if (equal(before, live)) return incoming;
-    // A credential and its destination must never come from different snapshots.
-    if (path.length === 4 && path[0] === "ai" && path[1] === "providers"
-        && (path[2] === "connections" || path[2] === "services")) return live;
     if (!record(before) || !record(live) || !record(incoming)) return live;
     const result = new Map(Object.entries(incoming));
     for (const key of new Set([...Object.keys(before), ...Object.keys(live)])) {
@@ -25,7 +35,7 @@ function merge(before: unknown, live: unknown, incoming: unknown, path: string[]
         else if (!Object.prototype.hasOwnProperty.call(before, key)) result.set(key, live[key]);
         else if (!equal(before[key], live[key])) result.set(key, merge(before[key], live[key], incoming[key], [...path, key]));
     }
-    return Object.fromEntries(result);
+    return preserveCredentialBundle(before, live, Object.fromEntries(result), path);
 }
 
 export function mergeSettingsHydration<T extends object>(before: T, live: T, incoming: T): T {

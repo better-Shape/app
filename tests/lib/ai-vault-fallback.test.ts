@@ -494,3 +494,82 @@ it("revalidates another window's completed credential change before syncing unre
     expect(native.values.get("openai")).toBe("example-after-rotation");
     expect(a.settings.getSettings().ai.providers.connections.openai.apiKey).toBe("example-before-rotation");
 });
+
+it("does not let a historical credential edit suppress a new recovery conflict", async () => {
+    reset();
+    const settings = await import("@/lib/settings");
+    const providers = settings.getSettings().ai.providers;
+    settings.updateSettingSection("ai", { providers: { ...providers, connections: { ...providers.connections,
+        openai: { ...providers.connections.openai, apiKey: "example-first-edit" },
+    } } });
+    settings.registerCredentialRecoveryConflicts(["openai"]);
+    expect(settings.getCredentialRecoveryConflicts()).toEqual(["openai"]);
+});
+
+it("blocks a saved key at a different endpoint after sync restarts in the same window", async () => {
+    reset();
+    const a = await openWindow(); stop = a.unsubscribe;
+    a.edit("example-original"); await a.sync.aiConfigReady();
+    const originalScope = native.read("openai").scope;
+    a.unsubscribe();
+    a.edit("");
+    const providers = a.settings.getSettings().ai.providers;
+    a.settings.updateSettingSection("ai", { providers: { ...providers, connections: { ...providers.connections,
+        openai: { ...providers.connections.openai, baseUrl: "https://different.invalid/v1" },
+    } } });
+    bridge.configure.mockClear(); bridge.store.mockClear();
+    stop = a.sync.initAiConfigSync();
+    await expect(a.sync.aiConfigReady()).rejects.toThrow("Provider settings are not applied");
+    expect(a.settings.getCredentialRecoveryConflicts()).toContain("openai");
+    expect(a.settings.getSettings().ai.providers.connections.openai.apiKey).toBe("");
+    expect(bridge.configure).not.toHaveBeenCalled();
+    expect(bridge.store).not.toHaveBeenCalled();
+    expect(native.read("openai").scope).toBe(originalScope);
+    a.edit("example-new-destination"); await a.sync.aiConfigReady();
+    expect(a.settings.getCredentialRecoveryConflicts()).toEqual([]);
+    expect(native.read("openai").scope).toContain("https://different.invalid/v1");
+    expect(native.values.get("openai")).toBe("example-new-destination");
+});
+
+it("does not hydrate a saved key into a new destination after a prior reconciled clear", async () => {
+    reset();
+    const a = await openWindow(); stop = a.unsubscribe;
+    a.edit("example-saved-for-original"); await a.sync.aiConfigReady();
+    a.unsubscribe();
+    a.settings.applyVaultSecrets({ openai: "" }, true);
+    const providers = a.settings.getSettings().ai.providers;
+    a.settings.updateSettingSection("ai", { providers: { ...providers, connections: { ...providers.connections,
+        openai: { ...providers.connections.openai, baseUrl: "https://unapproved.invalid/v1" },
+    } } });
+    bridge.configure.mockClear();
+    stop = a.sync.initAiConfigSync();
+    await expect(a.sync.aiConfigReady()).rejects.toThrow("Provider settings are not applied");
+    expect(a.settings.getSettings().ai.providers.connections.openai.apiKey).toBe("");
+    expect(a.settings.getCredentialRecoveryConflicts()).toContain("openai");
+    expect(bridge.configure).not.toHaveBeenCalled();
+    expect(native.values.get("openai")).toBe("example-saved-for-original");
+});
+
+it("keeps saved model pins while retaining a credential edited during desktop hydration", async () => {
+    reset();
+    const settings = await import("@/lib/settings");
+    const stored = structuredClone(settings.DEFAULT_SETTINGS);
+    stored.ai.providers.connections.openai.baseUrl = "https://saved.invalid/v1";
+    stored.ai.providers.connections.openai.models = ["saved-model"];
+    bridge.disk = stored;
+    let finish!: () => void;
+    bridge.readStore.mockImplementationOnce(() => new Promise(resolve => { finish = () => resolve(stored); }));
+    const loading = settings.initSettings();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    const providers = settings.getSettings().ai.providers;
+    const originalScope = credentialScopes(providers).openai;
+    settings.updateSettingSection("ai", { providers: { ...providers, connections: { ...providers.connections,
+        openai: { ...providers.connections.openai, apiKey: "example-local" },
+    } } });
+    finish(); await loading;
+    const final = settings.getSettings().ai.providers;
+    expect(final.connections.openai.apiKey).toBe("example-local");
+    expect(final.connections.openai.models).toEqual(["saved-model"]);
+    expect(credentialScopes(final).openai).toBe(originalScope);
+    expect(JSON.stringify(bridge.disk)).not.toContain("example-local");
+});

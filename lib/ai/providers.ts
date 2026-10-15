@@ -1311,7 +1311,13 @@ export function mergeProviderConnections(live: ProvidersSettings, loaded: Provid
     const incoming = loaded.connections[preset.id] ?? emptyConnection(preset);
     if (current && liveScopes[preset.id] !== loadedScopes[preset.id]
       && (current.apiKey.trim() || Object.values(current.headers).some((value) => value.trim()))) {
-      connections[preset.id] = current;
+      connections[preset.id] = {
+        ...incoming,
+        apiKey: current.apiKey,
+        baseUrl: current.baseUrl,
+        authStyle: current.authStyle,
+        headers: current.headers,
+      };
       continue;
     }
     connections[preset.id] = {

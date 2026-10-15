@@ -394,7 +394,8 @@ const STORAGE_KEY = "bettershape-settings-v1";
  */
 let secretsVaulted = false;
 let desktopInitialization: Promise<void> | undefined;
-const explicitlyEditedCredentials = new Set<string>();
+// Legacy-copy replacement consent is not authority to bypass a new vault conflict.
+const explicitLegacyReplacements = new Set<string>();
 const credentialRecoveryConflicts = new Set<string>();
 let legacyCredentialsPresent = false;
 
@@ -403,7 +404,7 @@ export function getCredentialRecoveryConflicts(): string[] { return [...credenti
 export function registerCredentialRecoveryConflicts(ids: string[]): void {
     const previousSize = credentialRecoveryConflicts.size;
     for (const id of ids) {
-        if (!explicitlyEditedCredentials.has(id)) credentialRecoveryConflicts.add(id);
+        credentialRecoveryConflicts.add(id);
     }
     if (credentialRecoveryConflicts.size !== previousSize) {
         currentSettings = { ...currentSettings };
@@ -415,13 +416,13 @@ export function registerLegacyVaultConflicts(values: Record<string, string>): vo
     if (!legacyCredentialsPresent) return;
     const live = providerSecretsForVault();
     const scopes = credentialScopes(currentSettings.ai.providers);
-    registerCredentialRecoveryConflicts(Object.entries(values).filter(([id, value]) => scopes[id] !== undefined && value !== live[id]).map(([id]) => id));
+    registerCredentialRecoveryConflicts(Object.entries(values).filter(([id, value]) => scopes[id] !== undefined && value !== live[id] && !explicitLegacyReplacements.has(id)).map(([id]) => id));
 }
 
 export function acceptCredentialRecovery(values: Record<string, string>): void {
     for (const id of Object.keys(values)) {
         credentialRecoveryConflicts.delete(id);
-        explicitlyEditedCredentials.add(id);
+        explicitLegacyReplacements.add(id);
     }
     stageCredentialDrafts(values, credentialScopes(currentSettings.ai.providers));
     const before = currentSettings;
@@ -802,7 +803,7 @@ function canReplaceStoredSettings(stored: Partial<BetterShapeSettings> | null | 
     const legacy = Object.entries(providerSecrets(normalizeProvidersSettings(stored?.ai?.providers)));
     if (legacy.length === 0) return true;
     const live = providerSecretsForVault();
-    return secretsVaulted && legacy.every(([id, value]) => live[id] === value || explicitlyEditedCredentials.has(id));
+    return secretsVaulted && legacy.every(([id, value]) => live[id] === value || explicitLegacyReplacements.has(id));
 }
 
 function persist() {
@@ -845,7 +846,7 @@ async function hydrateDesktopSettings(): Promise<void> {
             const storedScopes = credentialScopes(storedProviders);
             legacyCredentialsPresent ||= Object.keys(storedSecrets).length > 0;
             for (const [id, value] of Object.entries(localSecrets)) {
-                if (((storedSecrets[id] !== undefined && storedSecrets[id] !== value) || storedScopes[id] !== localScopesAtStart[id]) && !explicitlyEditedCredentials.has(id)) credentialRecoveryConflicts.add(id);
+                if (((storedSecrets[id] !== undefined && storedSecrets[id] !== value) || storedScopes[id] !== localScopesAtStart[id]) && !explicitLegacyReplacements.has(id)) credentialRecoveryConflicts.add(id);
             }
             currentSettings = mergeSettingsHydration(settingsAtStart, currentSettings,
                 mergeSettings(DEFAULT_SETTINGS, stored, { preserveSecrets: true }));
@@ -893,7 +894,7 @@ export function updateSettings(patch: Partial<BetterShapeSettings>): void {
     stageCredentialDrafts(changes, scopes);
     for (const id of Object.keys(changes)) {
         credentialRecoveryConflicts.delete(id);
-        explicitlyEditedCredentials.add(id);
+        explicitLegacyReplacements.add(id);
     }
     if (Object.keys(changes).length) secretsVaulted = false;
     persist();

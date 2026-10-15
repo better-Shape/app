@@ -59,3 +59,56 @@ describe("settings hydration", () => {
         expect(mergeSettingsHydration(before, live, incoming)).toEqual({ entries: { added: "live", diskOnly: "saved" } });
     });
 });
+
+it("hydrates saved destination and model pins when only enabled changes locally", () => {
+    const before = { ai: { providers: { connections: { openai: {
+        enabled: true, apiKey: "", baseUrl: "", authStyle: "", headers: {}, models: [] as string[],
+    } } } } };
+    const live = structuredClone(before); live.ai.providers.connections.openai.enabled = false;
+    const incoming = structuredClone(before);
+    Object.assign(incoming.ai.providers.connections.openai, { apiKey: "example-saved", baseUrl: "https://saved.invalid", models: ["saved-model"] });
+    expect(mergeSettingsHydration(before, live, incoming).ai.providers.connections.openai).toEqual({
+        ...incoming.ai.providers.connections.openai, enabled: false,
+    });
+});
+it("retains edited model pins without discarding an untouched saved endpoint", () => {
+    const before = settings(); const live = structuredClone(before); const incoming = settings();
+    live.ai.providers.connections.openai.models = ["local-model"];
+    incoming.ai.providers.connections.openai.baseUrl = "https://saved.invalid";
+    incoming.ai.providers.connections.openai.apiKey = "example-saved";
+    expect(mergeSettingsHydration(before, live, incoming).ai.providers.connections.openai).toEqual({
+        ...incoming.ai.providers.connections.openai, models: ["local-model"],
+    });
+});
+it("pins an edited credential bundle without discarding saved model pins", () => {
+    const before = settings(); const live = structuredClone(before); const incoming = settings();
+    live.ai.providers.connections.openai.apiKey = "example-local";
+    incoming.ai.providers.connections.openai.baseUrl = "https://saved.invalid";
+    incoming.ai.providers.connections.openai.headers = { tenant: "example-saved-header" };
+    incoming.ai.providers.connections.openai.models = ["saved-model"];
+    expect(mergeSettingsHydration(before, live, incoming).ai.providers.connections.openai).toEqual({
+        ...live.ai.providers.connections.openai, models: ["saved-model"],
+    });
+});
+it("does not inject a credential field absent from the locally edited bundle", () => {
+    const before = { ai: { providers: { connections: { custom: { baseUrl: "https://first.invalid" } } } } };
+    const live = structuredClone(before); live.ai.providers.connections.custom.baseUrl = "https://second.invalid";
+    const incoming = { ai: { providers: { connections: { custom: { baseUrl: "https://saved.invalid", apiKey: "example-saved" } } } } };
+    expect(mergeSettingsHydration(before, live, incoming).ai.providers.connections.custom).toEqual(live.ai.providers.connections.custom);
+});
+it.each([
+    { baseUrl: "https://local.invalid" },
+    { headers: { tenant: "example-local-header" } },
+    { authStyle: "api-key" },
+])("does not import saved credentials after a local routing edit: %j", patch => {
+    const before = settings(); const live = structuredClone(before); const incoming = settings();
+    Object.assign(live.ai.providers.connections.openai, patch);
+    incoming.ai.providers.connections.openai.apiKey = "example-saved";
+    incoming.ai.providers.connections.openai.models = ["saved-model"];
+    const result = mergeSettingsHydration(before, live, incoming);
+    expect(result.ai.providers.connections.openai).toEqual({
+        ...live.ai.providers.connections.openai, models: ["saved-model"],
+    });
+    expect(incoming.ai.providers.connections.openai.apiKey).toBe("example-saved");
+    expect(live.ai.providers.connections.openai.models).toEqual([]);
+});
