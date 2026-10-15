@@ -255,8 +255,32 @@ export function initAiConfigSync(): () => void {
             notify.error("Credential recovery needs review", "Reload after the other window finishes saving, or re-enter the affected credentials in Settings > Providers. Existing saved copies have not been removed.");
             throw new Error("Provider settings are not applied");
         }
+        // Another window records its intent in the shared inventory before it writes, and it may be
+        // saving an id this window has never held - a new provider connection, for instance - so the
+        // inventory is what reveals that write, not the local snapshot.
+        const foreignIds = knownSecretIds().filter(hasUnvalidatedSecretIntent);
+        if (foreignIds.length && (await vaultAvailable())) {
+            // Adopt a value another window saved for an id this window holds nothing for - no value,
+            // no draft, no deletion intent - so a credential this window has never seen is usable
+            // here without a restart. Ids this window already owns an edit or deletion for, or
+            // configures under a different destination, are left to the conflict machinery.
+            const live = providerSecretsForVault();
+            const known = new Set([...Object.keys(live), ...writtenSecretIds(), ...deletedSecretIds()]);
+            const candidates = foreignIds.filter((id) => !known.has(id) && !hasLocalSecretIntent(id));
+            const expectedScopes = credentialScopes(getSettings().ai.providers);
+            const { values, scopes: savedScopes, unavailable } = await readSecretsDetailed(candidates);
+            const adopted = Object.fromEntries(
+                candidates
+                    .filter((id) => !unavailable.has(id) && values[id] !== undefined
+                        && expectedScopes[id] !== undefined && savedScopes[id] === expectedScopes[id])
+                    .map((id) => [id, values[id]]),
+            );
+            // Only ids whose live value is still the one snapshotted here are written, so an edit
+            // made while the read was in flight keeps its newer value.
+            if (Object.keys(adopted).length) reconcile(adopted, live);
+        }
         const revision = credentialRevision;
-        const foreignIntent = Object.keys(providerSecretsForVault()).some(hasUnvalidatedSecretIntent);
+        const foreignIntent = knownSecretIds().some(hasUnvalidatedSecretIntent);
         if (retryHydration || foreignIntent || revision !== persistedCredentialRevision || getUnsavedCredentialCount() > 0 || writtenSecretIds().length > 0) {
             // Acknowledging this batch must not mark edits made during its awaits as persisted.
             if (await persistCredentials(reconcile)) persistedCredentialRevision = revision;

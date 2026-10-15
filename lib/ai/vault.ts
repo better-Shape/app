@@ -243,7 +243,9 @@ async function writeSecretAttempt(id: string, value: string, scope: string | und
         }
         if (inventoryIntent(id)?.token !== intent.token && isDeleted(id)) return conflict("", inventoryIntent(id)?.state === "deleted");
         if (!result.applied) return conflict(current.apiKey, current.persisted);
-        if (current.persisted) validatedIntents.set(id, intent.token);
+        // Only the window that owns the intent may record it as validated: this write rode an intent
+        // recorded elsewhere, and claiming it would stop this window from noticing that write.
+        if (current.persisted && ownsIntent) validatedIntents.set(id, intent.token);
         return { kind: current.persisted ? "stored" : "failed" };
     } catch {
         // Rejections leave the draft unsaved; only a successful retry persists it.

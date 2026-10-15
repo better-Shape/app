@@ -93,6 +93,22 @@ it("does not resurrect a key cleared while keychain hydration is in flight", asy
     expect(state.vault.has("openai")).toBe(false);
 });
 
+it("adopts a credential another window saved under an id this window never held", async () => {
+    stop = sync.initAiConfigSync();
+    await sync.aiConfigReady();
+    // The other window reserved its intent in the shared inventory and wrote the vault entry, under
+    // an id this window's snapshot has never contained: only the inventory can reveal that write.
+    localStorage.setItem(
+        `bettershape-ai-vault-entry:${encodeURIComponent("openai")}`,
+        JSON.stringify({ state: "write", token: "foreign-token" }),
+    );
+    native.mutate("openai", "example-from-other-window", "initial", true, "test-scope:openai");
+    state.configure.mockClear();
+    change({});
+    await sync.aiConfigReady();
+    expect(state.secrets.openai).toBe("example-from-other-window");
+});
+
 it("serializes a slow write followed by a delete", async () => {
     stop = sync.initAiConfigSync(); await sync.aiConfigReady();
     let finish!: () => void;
