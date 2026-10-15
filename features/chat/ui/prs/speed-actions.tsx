@@ -5,7 +5,13 @@ import { BranchRequestClosed20Regular } from "@fluentui/react-icons/headless/svg
 import { Merge20Regular } from "@fluentui/react-icons/headless/svg/merge";
 import { MoreHorizontal20Regular } from "@fluentui/react-icons/headless/svg/more-horizontal";
 import { Rocket20Regular } from "@fluentui/react-icons/headless/svg/rocket";
-import { useCallback, useEffect, useState } from "react";
+import {
+    useCallback,
+    useEffect,
+    useState,
+    type MouseEvent as ReactMouseEvent,
+    type PointerEvent as ReactPointerEvent,
+} from "react";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -102,6 +108,25 @@ export function PrRowActions({
         [busy, item, repo],
     );
 
+    // One handler per gesture for every row action: the action travels on the element's
+    // data attribute, so the menu and the quick buttons allocate no closure per render.
+    const runFromElement = useCallback(
+        (event: ReactMouseEvent<HTMLElement>) => {
+            const action = event.currentTarget.dataset.action as PrAction | undefined;
+            if (action) void run(action);
+        },
+        [run],
+    );
+
+    const sweepFromElement = useCallback(
+        (event: ReactPointerEvent<HTMLElement>) => {
+            if (event.currentTarget.dataset.action !== "close") return;
+            event.stopPropagation();
+            onCloseSweepStart(item, event.nativeEvent);
+        },
+        [item, onCloseSweepStart],
+    );
+
     if (actions.length === 0) return null;
 
     return (
@@ -119,11 +144,10 @@ export function PrRowActions({
                     type="button"
                     aria-label={`${PR_ACTION_LABEL[action]} #${item.number}`}
                     title={action === "close" ? "Close, or drag across rows to close several" : PR_ACTION_LABEL[action]}
+                    data-action={action}
                     disabled={busy !== null || sweepBusy}
-                    onPointerDown={(event) => {
-                        if (action === "close") { event.stopPropagation(); onCloseSweepStart(item, event.nativeEvent); }
-                    }}
-                    onClick={() => void run(action)}
+                    onPointerDown={sweepFromElement}
+                    onClick={runFromElement}
                     className="flex size-7 items-center justify-center rounded-md text-text-muted hover:bg-panel-hover hover:text-text-primary disabled:opacity-50"
                 >
                     <Icon icon={ACTION_ICON[action]} />
@@ -143,8 +167,9 @@ export function PrRowActions({
                     {actions.map((action) => (
                         <DropdownMenuItem
                             key={action}
+                            data-action={action}
                             disabled={busy !== null || sweepBusy}
-                            onClick={() => void run(action)}
+                            onClick={runFromElement}
                         >
                             <Icon icon={ACTION_ICON[action]} />
                             {PR_ACTION_LABEL[action]}

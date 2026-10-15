@@ -4,7 +4,7 @@ import { BranchRequest20Regular } from "@fluentui/react-icons/headless/svg/branc
 import { Checkmark20Regular } from "@fluentui/react-icons/headless/svg/checkmark";
 import { DocumentSearch20Regular } from "@fluentui/react-icons/headless/svg/document-search";
 import { ErrorCircle20Regular } from "@fluentui/react-icons/headless/svg/error-circle";
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 import type { PrCi, PrItem } from "./mapping";
@@ -69,6 +69,11 @@ function PrRowImpl({
     onCi,
 }: PrRowProps) {
     const { ref, near } = useNearViewport();
+    // Stable handler: DeepScan flags the inline callback, and a memoized handler also
+    // avoids allocating a closure on every row render.
+    const handleSelect = useCallback(() => {
+        onSelect(item.id, item);
+    }, [item, onSelect]);
 
     useEffect(() => {
         if (!eagerStatus && !near) return;
@@ -94,7 +99,7 @@ function PrRowImpl({
             <button
                 type="button"
                 aria-current={selected ? "true" : undefined}
-                onClick={() => onSelect(item.id, item)}
+                onClick={handleSelect}
                 className={cn(
                     "flex min-w-0 flex-1 gap-2.5 rounded-lg px-2.5 py-2 text-left",
                     selected ? "bg-panel-active" : "hover:bg-panel-hover",
