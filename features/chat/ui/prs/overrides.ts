@@ -23,15 +23,14 @@ export type PrOverridePatch = {
 };
 
 type PrOverrideEntry = PrOverridePatch & { expiresAt: number };
+export type PrOverrideSnapshot = ReadonlyMap<string, Readonly<PrOverrideEntry>>;
 
 let entries = new Map<string, PrOverrideEntry>();
-let version = 0;
 let timer: ReturnType<typeof setInterval> | null = null;
 
 const listeners = new Set<() => void>();
 
 function emit() {
-    version += 1;
     for (const listener of listeners) listener();
 }
 
@@ -151,8 +150,8 @@ export function sweepPrOverrides(now = Date.now()): void {
     if (next.size === 0) stopTimer();
 }
 
-function freshEntry(id: string, now: number): PrOverrideEntry | null {
-    const entry = entries.get(id);
+function freshEntry(id: string, now: number, snapshot: PrOverrideSnapshot = entries): PrOverrideEntry | null {
+    const entry = snapshot.get(id);
     return entry && isFresh(entry, now) ? entry : null;
 }
 
@@ -162,10 +161,10 @@ export function readPrOverride(id: string, now = Date.now()): PrOverridePatch | 
     return entry ? { status: entry.status, draft: entry.draft } : null;
 }
 
-export function applyPrOverrides(items: PrItem[], now = Date.now()): PrItem[] {
+export function applyPrOverrides(items: PrItem[], now = Date.now(), snapshot: PrOverrideSnapshot = entries): PrItem[] {
     let changed = false;
     const out = items.map((item) => {
-        const override = freshEntry(item.id, now);
+        const override = freshEntry(item.id, now, snapshot);
         if (!override) return item;
         const status = override.status ?? item.status;
         const draft = override.draft ?? item.draft;
@@ -180,11 +179,11 @@ export function pendingPrOverrideCount(): number {
     return entries.size;
 }
 
-/** Bumps when an override is written, cleared, settled or swept. */
-export function usePrOverridesVersion(): number {
+/** Immutable snapshots make optimistic changes explicit render dependencies. */
+export function usePrOverridesSnapshot(): PrOverrideSnapshot {
     return useSyncExternalStore(
         subscribe,
-        () => version,
-        () => version,
+        () => entries,
+        () => entries,
     );
 }

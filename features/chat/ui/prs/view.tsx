@@ -36,7 +36,7 @@ import {
     type PrCi,
     type PrItem,
 } from "./mapping";
-import { applyPrOverrides, settlePrOverrides, usePrOverridesVersion } from "./overrides";
+import { applyPrOverrides, settlePrOverrides, usePrOverridesSnapshot } from "./overrides";
 import { appendUnique, getGitHubPage, reconcilePageRows } from "./pagination";
 import { PrFilesTab, PrTimelineTab, PrReviewers, type RequestedReviewerSnapshot } from "./detail-tabs";
 import { apiSortParam, type PrSortMode } from "./ranking";
@@ -68,7 +68,7 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
     const loadedPages = useRef(1);
     const pageIds = useRef<string[][]>([]);
     const nextPollPage = useRef(2);
-    const overrideVersion = usePrOverridesVersion();
+    const overrides = usePrOverridesSnapshot();
     const [checkingOut, setCheckingOut] = useState(false);
 
     const repoKey = useRef<string | null>(null);
@@ -229,9 +229,9 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
         () => {
             const item = items.find((item) => item.id === selectedId && item.repo === `${repo?.owner}/${repo?.repo}`)
                 ?? (prUi.selectedItem?.id === selectedId && prUi.selectedItem.repo === `${repo?.owner}/${repo?.repo}` ? prUi.selectedItem : undefined);
-            return item ? applyPrOverrides([item])[0] : null;
+            return item ? applyPrOverrides([item], undefined, overrides)[0] : null;
         },
-        [items, selectedId, prUi.selectedItem, repo, overrideVersion],
+        [items, selectedId, prUi.selectedItem, repo, overrides],
     );
 
     // Detail enrichment must not depend on the object it updates in setItems.

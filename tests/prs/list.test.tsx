@@ -69,3 +69,30 @@ it("a stable sweep callback uses current row eligibility after polling", async (
     expect(mocks.close).toHaveBeenCalledTimes(1);
     expect(mocks.close).toHaveBeenCalledWith(items[0], "close", "owner/repo");
 });
+
+it("updates optimistic membership without a parent render and restores it on clear", async () => {
+    const { applyPrOverride, clearPrOverride } = await import("@/features/chat/ui/prs/overrides");
+    expect(host.querySelector('[data-pr-id="1"]')).not.toBeNull();
+    try {
+        await act(async () => applyPrOverride("1", { status: "closed" }));
+        expect(host.querySelector('[data-pr-id="1"]')).toBeNull();
+        expect(host.querySelector('[data-pr-id="2"]')).not.toBeNull();
+        await act(async () => clearPrOverride("1"));
+        expect(host.querySelector('[data-pr-id="1"]')).not.toBeNull();
+    } finally { await act(async () => clearPrOverride("1")); }
+});
+
+it("applies an explicit immutable override snapshot rather than a newer global write", async () => {
+    const { applyPrOverride, applyPrOverrides, clearPrOverride } = await import("@/features/chat/ui/prs/overrides");
+    const now = Date.now();
+    const before = new Map<string, { status: string; expiresAt: number }>();
+    try {
+        await act(async () => applyPrOverride("1", { status: "closed" }, now));
+        expect(applyPrOverrides(items, now, before)).toBe(items);
+        const snapshot = new Map([["1", { status: "merged", expiresAt: now + 1000 }]]);
+        expect(applyPrOverrides(items, now, snapshot)[0].status).toBe("merged");
+        expect(applyPrOverrides(items, now + 1000, snapshot)).toBe(items);
+        expect(before.size).toBe(0);
+        expect(snapshot.get("1")?.status).toBe("merged");
+    } finally { await act(async () => clearPrOverride("1")); }
+});

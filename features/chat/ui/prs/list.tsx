@@ -17,7 +17,7 @@ import { Icon } from "@/components/ui/icon";
 import { SearchInput } from "@/components/ui/search";
 import { selectPr, usePrUi } from "./store";
 import type { PrCi, PrItem } from "./mapping";
-import { applyPrOverrides, usePrOverridesVersion } from "./overrides";
+import { applyPrOverrides, usePrOverridesSnapshot } from "./overrides";
 import { matchPrQuery, parsePrQuery, unevaluableClauses } from "./query";
 import { PR_SORT_MODES, sortPrItems, type PrSortMode } from "./ranking";
 import { PrRow } from "./row";
@@ -72,7 +72,7 @@ export function PullRequestsList({
     const listRef = useRef<HTMLDivElement | null>(null);
     const sweep = usePrCloseSweep(listRef, `${repo?.owner}/${repo?.repo}`);
     const speedMode = useShiftHeld();
-    const overrideVersion = usePrOverridesVersion();
+    const overrides = usePrOverridesSnapshot();
 
     const parsed = useMemo(() => parsePrQuery(query), [query]);
 
@@ -86,7 +86,7 @@ export function PullRequestsList({
     const rows = useMemo(() => {
         const shown: PrItem[] = [];
         const bodyMatched = new Set<string>();
-        for (const item of applyPrOverrides(items)) {
+        for (const item of applyPrOverrides(items, undefined, overrides)) {
             if (state === "open" && item.status !== "open") continue;
             if (state === "closed" && item.status !== "closed" && item.status !== "merged") continue;
             const match = matchPrQuery(item, parsed);
@@ -95,8 +95,7 @@ export function PullRequestsList({
             shown.push(item);
         }
         return { shown: sortPrItems(shown, sort), bodyMatched };
-        // overrideVersion re-runs this when a pending override lands or expires.
-    }, [items, parsed, sort, state, overrideVersion]);
+    }, [items, parsed, sort, state, overrides]);
 
     const shownRows = useRef(rows.shown);
     useLayoutEffect(() => { shownRows.current = rows.shown; }, [rows.shown]);
