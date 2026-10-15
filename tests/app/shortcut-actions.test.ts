@@ -94,11 +94,25 @@ describe("dispatchShortcutAction", () => {
         tab.off();
     });
 
-    it("dispatches search via command palette", () => {
-        const palette = listenCustomEvent("bettershape-command-palette");
+    it("dispatches search, find in files and replace in files to the search tab", () => {
+        // These three used to open the generic file palette, which is why the project-wide
+        // search panel had no reachable entry point despite both keybindings existing.
+        const tab = listenCustomEvent("bettershape-set-panel-tab");
+        const layout = listenCustomEvent("bettershape-layout-toggle");
+        const focus = listenCustomEvent("bettershape-focus-search-field");
+
         expect(dispatchShortcutAction("Search", "Ctrl+Shift+F")).toBe(true);
-        expect(palette.events[0]?.detail).toMatchObject({ mode: "files" });
-        palette.off();
+        expect(dispatchShortcutAction("Find in Files", "Ctrl+Shift+F")).toBe(true);
+        expect(dispatchShortcutAction("Replace in Files", "Ctrl+H")).toBe(true);
+
+        expect(tab.events.map((e) => e.detail)).toEqual(["search", "search", "search"]);
+        expect(layout.events).toHaveLength(3);
+        expect(layout.events[0]?.detail).toMatchObject({ id: "panel", value: true });
+        expect(focus.events.map((e) => e.detail)).toEqual(["search", "search", "replace"]);
+
+        tab.off();
+        layout.off();
+        focus.off();
     });
 
     it("dispatches source control", () => {
@@ -125,20 +139,6 @@ describe("dispatchShortcutAction", () => {
         expect(dispatchShortcutAction("Close Split", "Ctrl+W Ctrl+W")).toBe(true);
         expect(split.events[1]?.detail).toMatchObject({ action: "close" });
         split.off();
-    });
-
-    it("dispatches find in files via command palette", () => {
-        const palette = listenCustomEvent("bettershape-command-palette");
-        expect(dispatchShortcutAction("Find in Files", "Ctrl+Shift+F")).toBe(true);
-        expect(palette.events[0]?.detail).toMatchObject({ mode: "files" });
-        palette.off();
-    });
-
-    it("dispatches replace in files via command palette", () => {
-        const palette = listenCustomEvent("bettershape-command-palette");
-        expect(dispatchShortcutAction("Replace in Files", "Ctrl+H")).toBe(true);
-        expect(palette.events[0]?.detail).toMatchObject({ mode: "files" });
-        palette.off();
     });
 
     it("dispatches command palette variants", () => {

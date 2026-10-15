@@ -10,6 +10,7 @@ import { SingleFileDiffEditor, type FileDiffTabInfo } from "./file-diff";
 import Graph from "@/features/git/ui/graph/graph";
 import { PullRequestsPanel } from "@/features/chat/ui/prs/view";
 import { ProblemsTab } from "./problems-tab";
+import { SearchTab } from "./search-tab";
 import { subscribePrUi, getPrUi } from "@/features/chat/ui/prs/store";
 import { isBrowserTab } from "@/lib/window/browser-tab";
 import { WorkspaceTabs } from "./tabs";
@@ -73,7 +74,9 @@ export function AgentWorkspace({
                       ? "New tab"
                       : kind === "problems"
                         ? "Problems"
-                        : kind;
+                        : kind === "search"
+                          ? "Search"
+                          : kind;
         const prev = tabsRef.current;
         const existing = prev.find((t) => t.kind === kind);
         if (existing) commitTabs(prev, existing.id);
@@ -177,6 +180,9 @@ export function AgentWorkspace({
             }
             if (tabId === "problems" || tabId === "errors") {
                 addTab("problems", { expand: true });
+            }
+            if (tabId === "search" || tabId === "find") {
+                addTab("search", { expand: true });
             }
         };
         const onOpenPlan = (e: Event) => {
@@ -295,6 +301,8 @@ export function AgentWorkspace({
                         <div className="h-full min-h-0 bg-sidebar" style={SIDEBAR_SURFACE}>
                             <PullRequestsPanel pane="full" />
                         </div>
+                    ) : active?.kind === "search" ? (
+                        <SearchTab />
                     ) : active?.kind === "problems" ? (
                         <ProblemsTab />
                     ) : active?.kind === "plan" && (active.path || active.markdown) ? (

@@ -2,13 +2,14 @@ import type { IconGlyph } from "@/components/ui/icon";
 import { Branch20Regular } from "@fluentui/react-icons/headless/svg/branch";
 import { BranchRequest20Regular } from "@fluentui/react-icons/headless/svg/branch-request";
 import { DocumentText20Regular } from "@fluentui/react-icons/headless/svg/document-text";
+import { DocumentSearch20Regular } from "@fluentui/react-icons/headless/svg/document-search";
 import { Folder20Filled } from "@fluentui/react-icons/headless/svg/folder";
 import { Globe20Regular } from "@fluentui/react-icons/headless/svg/globe";
 import { PersonAdd20Regular } from "@fluentui/react-icons/headless/svg/person-add";
 import { TaskListSquareLtr20Regular } from "@fluentui/react-icons/headless/svg/task-list-square-ltr";
 import { Warning20Regular } from "@fluentui/react-icons/headless/svg/warning";
 
-export type TabKind = "graph" | "agents" | "plan" | "file" | "diff" | "files" | "prs" | "browser" | "problems";
+export type TabKind = "graph" | "agents" | "plan" | "file" | "diff" | "files" | "prs" | "browser" | "problems" | "search";
 
 export type WorkspaceTab = {
     id: string;
@@ -57,6 +58,8 @@ export function iconFor(kind: TabKind): IconGlyph {
             return Globe20Regular;
         case "problems":
             return Warning20Regular;
+        case "search":
+            return DocumentSearch20Regular;
         default:
             return DocumentText20Regular;
     }

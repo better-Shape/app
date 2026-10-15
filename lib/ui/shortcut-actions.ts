@@ -1,8 +1,13 @@
 import { commands } from "@/lib/backend/commands";
 import { isPopoutPath } from "@/lib/window/tauri-window";
 
-function openSearchSidebar(_mode: "search" | "replace") {
-    window.dispatchEvent(new CustomEvent("bettershape-command-palette", { detail: { mode: "files", placeholder: "Search files…" } }));
+/** `mode` used to be ignored, so Find in Files and Replace in Files both opened the
+ *  generic file palette and the project-wide search panel was unreachable. Both now
+ *  open the search tab; replace additionally asks it to focus the replacement field. */
+function openSearchSidebar(mode: "search" | "replace") {
+    window.dispatchEvent(new CustomEvent("bettershape-layout-toggle", { detail: { id: "panel", value: true } }));
+    window.dispatchEvent(new CustomEvent("bettershape-set-panel-tab", { detail: "search" }));
+    window.dispatchEvent(new CustomEvent("bettershape-focus-search-field", { detail: mode }));
 }
 
 function dispatchEditorAction(action: string) {
