@@ -1,5 +1,6 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
+import { renderToString } from "react-dom/server";
 import { expect, it, vi } from "vitest";
 const { get } = vi.hoisted(() => ({ get: vi.fn() }));
 vi.mock("@/lib/backend", () => ({ commands: { githubApiGet: get } }));
@@ -43,4 +44,9 @@ it("lists only submitted reviewers, not authors of pending draft reviews", async
         expect(host.textContent).not.toContain("draft-author");
         expect(host.textContent).not.toContain("reviewer, reviewer");
     } finally { act(() => root.unmount()); host.remove(); }
+});
+
+it("does not render None before the reviews resource has loaded", () => {
+    const item = mapPullRow({ id: 1, number: 7, title: "PR", state: "open" }, "owner/repo");
+    expect(renderToString(<PrReviewers item={item} requested={[]} revision={0} />)).not.toContain("None");
 });

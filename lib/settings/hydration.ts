@@ -13,11 +13,16 @@ function equal(left: unknown, right: unknown): boolean {
         && keys.every((key) => Object.prototype.hasOwnProperty.call(right, key) && equal(left[key], right[key]));
 }
 
+const SERVICE_CREDENTIAL_FIELDS: ReadonlyMap<string, readonly string[]> = new Map([
+    ["search", ["apiKey", "provider"]],
+    ["composio", ["apiKey", "userId"]],
+]);
+
 /** Credentials and routing stay together; model preferences may hydrate independently. */
 function preserveCredentialBundle(before: Record<string, unknown>, live: Record<string, unknown>, merged: Record<string, unknown>, path: string[]) {
     if (path.length !== 4 || path[0] !== "ai" || path[1] !== "providers") return merged;
     const fields = path[2] === "connections" ? ["apiKey", "baseUrl", "authStyle", "headers"]
-        : path[2] === "services" ? ["apiKey", "provider", "userId"] : [];
+        : path[2] === "services" ? SERVICE_CREDENTIAL_FIELDS.get(path[3]) ?? ["apiKey", "provider", "userId"] : [];
     if (!fields.some(key => !equal(before[key], live[key]))) return merged;
     for (const key of fields) {
         if (Object.prototype.hasOwnProperty.call(live, key)) merged[key] = live[key];

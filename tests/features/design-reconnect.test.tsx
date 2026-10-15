@@ -7,6 +7,7 @@ type PanelProps = ComponentProps<typeof import("@/features/preview/design/panel"
 const backend = vi.hoisted(() => ({
     service: { projectPath: "/project", url: "http://localhost:5173", ptyId: 7 },
     ready: new Set<(url: string) => void>(), register: vi.fn(), probe: vi.fn(),
+    renderExport: false, writeBytes: vi.fn(), chooseExport: vi.fn(), grantExport: vi.fn(),
     exportSelection: null as null | ((scale: number, format: string) => Promise<void>),
     undo: vi.fn(), redo: vi.fn(), invalidate: vi.fn(),
     panel: null as PanelProps | null, read: vi.fn(), patch: vi.fn(), save: vi.fn(), css: vi.fn(), cssRead: vi.fn(),
@@ -15,6 +16,7 @@ vi.mock("@/lib/backend", () => ({ commands: {
     inspectDesignProject: async (projectRoot: string) => ({ projectRoot, framework: "vite", supported: true }),
     listDesignAssets: async () => [], rememberPreviewUrl: async () => {},
     registerDesignBridge: backend.register, probePreviewUrl: backend.probe,
+    saveFileBytes: backend.writeBytes, grantIpcPath: backend.grantExport,
     readFile: backend.cssRead, readFileFromDisk: backend.read, applyDesignSourcePatch: backend.patch, saveFile: backend.save,
     primeFileCache: vi.fn(), invalidateFileCache: backend.invalidate, undoDesignSourcePatch: backend.undo, redoDesignSourcePatch: backend.redo,
 } }));
@@ -32,13 +34,25 @@ vi.mock("@/features/terminal/background-run", () => ({
 vi.mock("@/features/preview/design/toolbar", async (original) => ({
     ...await original<typeof import("@/features/preview/design/toolbar")>(), DesignToolbar: ({ onModeChange }: { onModeChange: (mode: "select") => void }) => <button onClick={() => onModeChange("select")}>Inspect</button>,
 }));
-vi.mock("@/features/preview/design/panel", () => ({ DesignStylePanel: (props: PanelProps & { onExport: (scale: number, format: string) => Promise<void> }) => { backend.panel = props; backend.exportSelection = props.onExport; return null; } }));
+vi.mock("@/features/preview/design/panel", async () => {
+    const { ExportBlock } = await import("@/features/preview/design/panel/filters");
+    return { DesignStylePanel: (props: PanelProps) => {
+        backend.panel = props; backend.exportSelection = props.onExport;
+        return backend.renderExport ? <ExportBlock onExport={props.onExport} /> : null;
+    } };
+});
+vi.mock("@tauri-apps/plugin-dialog", () => ({ save: backend.chooseExport }));
+import { notificationStore } from "@/features/notifications";
 import { invalidateGlobalsCssCache } from "@/lib/ui/css-variables-loader";
 import { DesignStudio } from "@/features/preview/design/shell";
 let host: HTMLDivElement;
 let root: Root;
 beforeEach(() => {
     backend.service = { projectPath: "/project", url: "http://localhost:5173", ptyId: 7 };
+    backend.renderExport = false; notificationStore.clearAll();
+    backend.writeBytes.mockReset().mockResolvedValue(undefined);
+    backend.grantExport.mockReset().mockResolvedValue(undefined);
+    backend.chooseExport.mockReset().mockResolvedValue("/export.png");
     backend.undo.mockReset().mockResolvedValue({ changed: false });
     backend.redo.mockReset().mockResolvedValue({ changed: false });
     invalidateGlobalsCssCache();
@@ -610,4 +624,37 @@ it("revokes retained selection callbacks when a new path replaces the document",
     await act(async () => panel.onCommit({ color: "red" }));
     expect(backend.patch).not.toHaveBeenCalled();
     expect(backend.save).not.toHaveBeenCalled();
+});
+
+it("reports the actual destination-write failure through the mounted export control", async () => {
+    backend.renderExport = true;
+    backend.writeBytes.mockRejectedValueOnce(new Error("Destination is read-only"));
+    vi.stubGlobal("Image", class {
+        width = 1; height = 1; onload: (() => void) | null = null;
+        set src(_value: string) { queueMicrotask(() => this.onload?.()); }
+    });
+    // jsdom does not rasterize canvases; keep the real export and write ownership path.
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ drawImage: vi.fn() } as unknown as CanvasRenderingContext2D);
+    vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(callback => callback(Object.assign(new Blob([], { type: "image/png" }), {
+        arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+    })));
+    await render();
+    await act(async () => host.querySelector("button")!.click());
+    const frame = host.querySelector("iframe")!;
+    const post = vi.spyOn(frame.contentWindow!, "postMessage").mockImplementation(() => {});
+    const button = [...host.querySelectorAll("button")].filter(node => node.textContent === "Export").at(-1)!;
+    await act(async () => button.click());
+    const sent = post.mock.calls.find(([data]) => data.type === "bettershape-design-export")![0];
+    await act(async () => {
+        window.dispatchEvent(new MessageEvent("message", {
+            source: frame.contentWindow, origin: backend.service.url,
+            data: { type: "bettershape-design-export-result", requestId: sent.requestId, dataUrl: "data:image/png;base64,AQID" },
+        }));
+        await vi.waitFor(() => expect(notificationStore.getSnapshot().notifications).toHaveLength(1));
+    });
+    expect(backend.writeBytes).toHaveBeenCalledWith("/export.png", [1, 2, 3]);
+    expect(notificationStore.getSnapshot().notifications[0]).toMatchObject({
+        type: "error", message: "Could not export selection", description: "Destination is read-only",
+    });
+    expect(button.getAttribute("aria-busy")).not.toBe("true");
 });

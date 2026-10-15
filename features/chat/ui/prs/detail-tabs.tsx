@@ -63,7 +63,7 @@ export function PrTimelineTab({ item, revision }: { item: PrItem; revision: numb
     </>;
 }
 
-export function PrReviewers({ item, requested, revision }: { item: PrItem; requested: string[]; revision: number }) {
+export function PrReviewers({ item, requested, revision }: { item: PrItem; requested: string[] | null; revision: number }) {
     const resource = usePagedPrResource(`/repos/${item.repo}/pulls/${item.number}/reviews`, `${revision}:${item.updatedAt ?? ""}:${item.headSha ?? ""}`);
     const completed = [...new Set(resource.rows.flatMap((row) => {
         if (row.state === "PENDING") return [];
@@ -71,9 +71,10 @@ export function PrReviewers({ item, requested, revision }: { item: PrItem; reque
         return user?.login ? [user.login] : [];
     }))];
     return <>
-        {requested.length > 0 ? <p>Requested: {requested.join(", ")}</p> : null}
+        {requested && requested.length > 0 ? <p>Requested: {requested.join(", ")}</p> : null}
+        {requested === null ? <p className="text-text-muted">Requested reviewers not loaded</p> : null}
         {completed.length > 0 ? <p>Reviewed: {completed.join(", ")}</p> : null}
-        {!resource.loading && !resource.error && requested.length === 0 && completed.length === 0 ? "None" : null}
+        {resource.loaded && !resource.loading && !resource.error && requested?.length === 0 && completed.length === 0 ? "None" : null}
         <ResourceStatus resource={resource} noun="reviews" />
     </>;
 }

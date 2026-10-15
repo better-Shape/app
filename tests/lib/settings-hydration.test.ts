@@ -112,3 +112,20 @@ it.each([
     expect(incoming.ai.providers.connections.openai.apiKey).toBe("example-saved");
     expect(live.ai.providers.connections.openai.models).toEqual([]);
 });
+it.each([
+    ["search", "provider", "tavily"], ["search", "apiKey", "example-local"],
+    ["composio", "userId", "local-account"], ["composio", "apiKey", "example-local"],
+])("keeps the %s credential bundle paired after editing %s", (service, field, value) => {
+    const services: Record<string, Record<string, string>> = {
+        search: { provider: "brave", apiKey: "" }, composio: { userId: "first-account", apiKey: "" },
+    };
+    const before = { ai: { providers: { services } } };
+    const live = structuredClone(before); const incoming = structuredClone(before);
+    live.ai.providers.services[service][field] = value;
+    incoming.ai.providers.services.search = { provider: "tavily", apiKey: "example-saved-search" };
+    incoming.ai.providers.services.composio = { userId: "saved-account", apiKey: "example-saved-composio" };
+    const merged = mergeSettingsHydration(before, live, incoming);
+    expect(merged.ai.providers.services[service]).toEqual(live.ai.providers.services[service]);
+    const other = service === "search" ? "composio" : "search";
+    expect(merged.ai.providers.services[other]).toEqual(incoming.ai.providers.services[other]);
+});

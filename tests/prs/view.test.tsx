@@ -321,3 +321,38 @@ it.each(["project switch", "unmount"])("does not replay an obsolete queued Refre
     expect(mocks.get).toHaveBeenCalledTimes(count);
     expect(host.textContent).not.toContain("Obsolete");
 });
+
+it.each(["empty", "failure", "requested"] as const)("does not claim no reviewers before requested-reviewer details settle (%s)", async outcome => {
+    const detail = deferred<unknown>();
+    mocks.get.mockImplementation(async (path: string) => {
+        if (path.includes("/pulls?")) return [{ id: 1, number: 7, title: "Pending details", state: "open" }];
+        if (path.endsWith("/pulls/7")) return detail.promise;
+        return [];
+    });
+    await act(async () => root.render(<PullRequestsPanel />));
+    const reviewerText = () => [...host.querySelectorAll("span")].find(node => node.textContent === "Reviewers")?.parentElement?.textContent;
+    expect(reviewerText()).toBeDefined();
+    expect(reviewerText()).not.toContain("None");
+    await act(async () => {
+        if (outcome === "failure") detail.reject(new Error("Reviewer details unavailable"));
+        else detail.resolve({ requested_reviewers: outcome === "requested" ? [{ login: "alice" }] : [], requested_teams: [] });
+    });
+    if (outcome === "empty") expect(reviewerText()).toContain("None");
+    else {
+        expect(reviewerText()).not.toContain("None");
+        if (outcome === "requested") expect(reviewerText()).toContain("Requested: alice");
+        else expect(host.textContent).toContain("Details refresh failed: Reviewer details unavailable");
+    }
+});
+
+it("does not infer empty requested-reviewer lists from incomplete detail data", async () => {
+    mocks.get.mockImplementation(async (path: string) => {
+        if (path.includes("/pulls?")) return [{ id: 1, number: 7, title: "Incomplete details", state: "open" }];
+        if (path.endsWith("/pulls/7")) return { additions: 3 };
+        return [];
+    });
+    await act(async () => root.render(<PullRequestsPanel />));
+    const reviewers = [...host.querySelectorAll("span")].find(node => node.textContent === "Reviewers")?.parentElement;
+    expect(reviewers?.textContent).toContain("Requested reviewers not loaded");
+    expect(reviewers?.textContent).not.toContain("None");
+});

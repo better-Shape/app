@@ -63,7 +63,7 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
     const selectedId = pane === "list" ? null : prUi.selectedId;
     const [detailError, setDetailError] = useState<string | null>(null);
     const [detailLoading, setDetailLoading] = useState(false);
-    const [requestedReviewers, setRequestedReviewers] = useState<string[]>([]);
+    const [requestedReviewers, setRequestedReviewers] = useState<{ key: string; revision: number; names: string[] } | null>(null);
     const [hasMore, setHasMore] = useState(false);
     const loadedPages = useRef(1);
     const pageIds = useRef<string[][]>([]);
@@ -243,7 +243,7 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
     const detailRepo = repo?.repo;
     useEffect(() => {
         setDetailError(null);
-        setRequestedReviewers([]);
+        setRequestedReviewers(null);
         if (!detailId || !detailNumber || !detailOwner || !detailRepo) {
             setDetailLoading(false);
             return;
@@ -258,10 +258,16 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
                 const detail = payload as Record<string, unknown>;
                 const requested = Array.isArray(detail.requested_reviewers) ? detail.requested_reviewers as { login?: string }[] : [];
                 const teams = Array.isArray(detail.requested_teams) ? detail.requested_teams as { name?: string; slug?: string }[] : [];
-                setRequestedReviewers([
-                    ...requested.flatMap((user) => user?.login ? [user.login] : []),
-                    ...teams.flatMap((team) => team?.name || team?.slug ? [`Team: ${team.name || team.slug}`] : []),
-                ]);
+                if (Array.isArray(detail.requested_reviewers) && Array.isArray(detail.requested_teams)) {
+                    setRequestedReviewers({
+                        key: `${detailOwner}/${detailRepo}#${detailNumber}`,
+                        revision: detailRevision,
+                        names: [
+                            ...requested.flatMap((user) => user?.login ? [user.login] : []),
+                            ...teams.flatMap((team) => team?.name || team?.slug ? [`Team: ${team.name || team.slug}`] : []),
+                        ],
+                    });
+                }
                 const head = detail.head as { ref?: string; sha?: string } | undefined;
                 const base = detail.base as { ref?: string } | undefined;
                 const enrich = (item: PrItem): PrItem => ({
@@ -468,7 +474,10 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
                             <div className="flex gap-2">
                                 <span className="w-20 shrink-0 text-text-muted">Reviewers</span>
                                 <div className="min-w-0 text-text-secondary">
-                                    <PrReviewers item={selected} requested={requestedReviewers} revision={resourceRevision} />
+                                    <PrReviewers item={selected} requested={
+                                        requestedReviewers?.key === `${selected.repo}#${selected.number}` && requestedReviewers.revision === detailRevision
+                                            ? requestedReviewers.names : null
+                                    } revision={resourceRevision} />
                                 </div>
                             </div>
                             <div className="flex gap-2">

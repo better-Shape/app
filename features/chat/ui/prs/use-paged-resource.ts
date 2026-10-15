@@ -66,6 +66,7 @@ export function usePagedPrResource(path: string, revision: string | number, limi
 
     return {
         rows: snapshot?.path === path ? snapshot.rows : EMPTY_ROWS,
+        loaded: snapshot?.path === path,
         loading, error, hasMore, atLimit,
         loadMore: () => { if (hasMore) void load(true); },
         retry: () => void load(),

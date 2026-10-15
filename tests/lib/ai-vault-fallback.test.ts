@@ -573,3 +573,27 @@ it("keeps saved model pins while retaining a credential edited during desktop hy
     expect(credentialScopes(final).openai).toBe(originalScope);
     expect(JSON.stringify(bridge.disk)).not.toContain("example-local");
 });
+
+it("pins a locally edited header and its API key through same-endpoint desktop hydration", async () => {
+    reset();
+    const settings = await import("@/lib/settings");
+    const stored = structuredClone(settings.DEFAULT_SETTINGS);
+    Object.assign(stored.ai.providers.connections.openai, {
+        apiKey: "example-stored-key", headers: { Tenant: "example-stored-header" }, models: ["saved-model"],
+    });
+    bridge.disk = stored;
+    let finish!: () => void;
+    bridge.readStore.mockImplementationOnce(() => new Promise(resolve => { finish = () => resolve(stored); }));
+    const loading = settings.initSettings();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    const providers = settings.getSettings().ai.providers;
+    settings.updateSettingSection("ai", { providers: { ...providers, connections: { ...providers.connections,
+        openai: { ...providers.connections.openai, headers: { Tenant: "example-local-header" } },
+    } } });
+    finish(); await loading;
+    const final = settings.getSettings().ai.providers.connections.openai;
+    expect(final.headers).toEqual({ Tenant: "example-local-header" });
+    expect(final.apiKey).toBe("");
+    expect(final.models).toEqual(["saved-model"]);
+    expect(JSON.stringify(bridge.disk)).not.toContain("example-local-header");
+});
