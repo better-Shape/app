@@ -35,6 +35,7 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown";
 import { commands } from "@/lib/backend";
+import { notificationStore } from "@/features/notifications";
 import type { BrowserHistoryEntry, BrowserPickedElement, BrowserTab } from "@/lib/backend/types";
 import { isWindows } from "@/lib/platform";
 import { hostnameOf } from "@/lib/ui/favicon";
@@ -760,6 +761,14 @@ function blankTab(id: string): PageTab {
 const SCHEME_KEY = "bettershape-browser-scheme";
 type ColorScheme = "system" | "light" | "dark";
 
+/** The backend returns a bare string, an `Error`, or a rejected invoke payload.
+ *  A rejected capture must never surface as an empty failure message. */
+export function screenshotFailureMessage(err: unknown): string {
+    const message =
+        typeof err === "string" ? err : err instanceof Error ? err.message : "";
+    return message || "The page could not be captured.";
+}
+
 export function BrowserView({
     tabId = null,
     tabIds,
@@ -789,6 +798,7 @@ export function BrowserView({
     });
     const [toolsUrl, setToolsUrl] = useState<string | null>(null);
     const [toolsError, setToolsError] = useState<string | null>(null);
+    const [savingShot, setSavingShot] = useState(false);
     const [frameSrc, setFrameSrc] = useState("about:blank");
     const [reloadKey, setReloadKey] = useState(0);
     const [pageMenu, setPageMenu] = useState<{ x: number; y: number } | null>(null);
@@ -1087,6 +1097,28 @@ export function BrowserView({
         });
     };
 
+    const takeScreenshot = () => {
+        if (!active || savingShot) return;
+        setSavingShot(true);
+        void commands
+            .browserScreenshot(active.id)
+            .then((savedTo) => {
+                notificationStore.add(
+                    "Screenshot saved",
+                    "success",
+                    savedTo ? `Saved to ${savedTo}` : undefined,
+                );
+            })
+            .catch((err: unknown) => {
+                notificationStore.add(
+                    "Screenshot failed",
+                    "error",
+                    screenshotFailureMessage(err),
+                );
+            })
+            .finally(() => setSavingShot(false));
+    };
+
     const canBack = !showAgent && !!active && active.index > 0;
     const canForward = !showAgent && !!active && active.index < active.entries.length - 1;
 
@@ -1149,9 +1181,12 @@ export function BrowserView({
                             <Icon icon={Code20Regular} />
                             Developer tools
                         </DropdownMenuCheckboxItem>
-                        <DropdownMenuItem disabled>
+                        <DropdownMenuItem
+                            disabled={!active || active.pending || showAgent || savingShot}
+                            onClick={takeScreenshot}
+                        >
                             <Icon icon={Camera20Filled} />
-                            Take Screenshot
+                            {savingShot ? "Saving screenshot" : "Take screenshot"}
                         </DropdownMenuItem>
                         <DropdownMenuItem
                             disabled={!active || showAgent}
