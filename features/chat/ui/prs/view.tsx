@@ -74,11 +74,16 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
     const repoKey = useRef<string | null>(null);
     const loadVersion = useRef(0);
     const loadBusy = useRef(false);
+    const pendingRefresh = useRef(false);
     const [detailRevision, setDetailRevision] = useState(0);
     const [resourceRevision, setResourceRevision] = useState(0);
-    const load = useCallback(async (mode: "initial" | "poll" | "refresh" = "initial") => {
+    /** Coalesce explicit refresh intent behind current list work; automatic polls remain skippable. */
+    const load = useCallback(async function loadList(mode: "initial" | "poll" | "refresh" = "initial") {
         const background = mode !== "initial";
-        if (background && loadBusy.current) return;
+        if (background && loadBusy.current) {
+            if (mode === "refresh") pendingRefresh.current = true;
+            return;
+        }
         const version = ++loadVersion.current;
         loadBusy.current = true;
         if (!background) {
@@ -158,6 +163,10 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
             if (version === loadVersion.current) {
                 loadBusy.current = false;
                 setLoading(false);
+                if (pendingRefresh.current) {
+                    pendingRefresh.current = false;
+                    await loadList("refresh");
+                }
             }
         }
     }, [auth.loggedIn, project_path, sort, state]);
@@ -170,6 +179,7 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
         return () => {
             loadVersion.current += 1;
             loadBusy.current = false;
+            pendingRefresh.current = false;
             window.clearInterval(timer);
             document.removeEventListener("visibilitychange", refreshVisible);
         };
@@ -200,7 +210,14 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
         } catch (cause) {
             if (version === loadVersion.current) setError(cause instanceof Error ? cause.message : "Could not load more pull requests.");
         } finally {
-            if (version === loadVersion.current) { loadBusy.current = false; setLoading(false); }
+            if (version === loadVersion.current) {
+                loadBusy.current = false;
+                setLoading(false);
+                if (pendingRefresh.current) {
+                    pendingRefresh.current = false;
+                    await load("refresh");
+                }
+            }
         }
     };
 

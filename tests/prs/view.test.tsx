@@ -33,8 +33,9 @@ beforeEach(() => {
 afterEach(() => { act(() => root.unmount()); host.remove(); vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.useRealTimers(); });
 function deferred<T>() {
     let resolve!: (value: T) => void;
-    const promise = new Promise<T>((r) => { resolve = r; });
-    return { promise, resolve };
+    let reject!: (reason: unknown) => void;
+    const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail; });
+    return { promise, resolve, reject };
 }
 
 describe("PR panel request lifecycle", () => {
@@ -262,4 +263,61 @@ it("retries the same older page after a failed bounded poll without committing p
     await act(async () => vi.advanceTimersByTimeAsync(30_000));
     expect(mocks.get.mock.calls.map(([path]) => Number(new URL(path, "https://api.github.com").searchParams.get("page")))).toEqual([1, 3]);
     expect(host.textContent).toContain("refreshed page 3 row 0");
+});
+
+it("coalesces explicit Refresh clicks behind pagination and reconciles every newly loaded page", async () => {
+    const pending = deferred<unknown>();
+    const pageOne = Array.from({ length: 100 }, (_, index) => ({ id: index + 1, number: index + 1, title: `Original ${index}` }));
+    mocks.get.mockResolvedValueOnce(pageOne).mockReturnValueOnce(pending.promise)
+        .mockResolvedValueOnce(pageOne.map(row => ({ ...row, title: `Fresh ${row.number}` })))
+        .mockResolvedValueOnce([{ id: 101, number: 101, title: "Fresh older page" }]);
+    await act(async () => root.render(<PullRequestsPanel pane="list" />));
+    await act(async () => host.firstElementChild!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    await act(async () => { mocks.refresh(); mocks.refresh(); mocks.refresh(); });
+    expect(mocks.get).toHaveBeenCalledTimes(2);
+    await act(async () => pending.resolve([{ id: 101, number: 101, title: "Stale older page" }]));
+    expect(mocks.get).toHaveBeenCalledTimes(4);
+    expect(mocks.get.mock.calls.slice(2).map(([path]) => new URL(path, "https://api.github.com").searchParams.get("page"))).toEqual(["1", "2"]);
+    expect(host.textContent).toContain("Fresh older page");
+    expect(host.textContent).not.toContain("Stale older page");
+});
+it("retains explicit Refresh while an automatic poll is pending", async () => {
+    vi.useFakeTimers(); vi.spyOn(document, "hidden", "get").mockReturnValue(false);
+    const pending = deferred<unknown>();
+    mocks.get.mockResolvedValueOnce([{ id: 1, number: 1, title: "Initial" }]).mockReturnValueOnce(pending.promise)
+        .mockResolvedValueOnce([{ id: 1, number: 1, title: "Explicit refresh" }]);
+    await act(async () => root.render(<PullRequestsPanel pane="list" />));
+    await act(async () => vi.advanceTimersByTimeAsync(30_000));
+    await act(async () => mocks.refresh());
+    expect(mocks.get).toHaveBeenCalledTimes(2);
+    await act(async () => pending.resolve([{ id: 1, number: 1, title: "Old poll" }]));
+    expect(host.textContent).toBe("Explicit refresh");
+    expect(mocks.get).toHaveBeenCalledTimes(3);
+});
+
+it("runs the queued manual refresh after the active request fails", async () => {
+    vi.useFakeTimers(); vi.spyOn(document, "hidden", "get").mockReturnValue(false);
+    const pending = deferred<unknown>();
+    mocks.get.mockResolvedValueOnce([{ id: 1, number: 1, title: "Initial" }]).mockReturnValueOnce(pending.promise)
+        .mockResolvedValueOnce([{ id: 1, number: 1, title: "Recovered by Refresh" }]);
+    await act(async () => root.render(<PullRequestsPanel pane="list" />));
+    await act(async () => vi.advanceTimersByTimeAsync(30_000));
+    await act(async () => mocks.refresh());
+    await act(async () => pending.reject(new Error("transient failure")));
+    expect(host.textContent).toBe("Recovered by Refresh");
+    expect(mocks.get).toHaveBeenCalledTimes(3);
+});
+it.each(["project switch", "unmount"])("does not replay an obsolete queued Refresh after %s", async change => {
+    const pending = deferred<unknown>();
+    mocks.get.mockReturnValueOnce(pending.promise).mockResolvedValueOnce([{ id: 2, number: 2, title: "New project" }]);
+    await act(async () => root.render(<PullRequestsPanel pane="list" />));
+    await act(async () => mocks.refresh());
+    if (change === "project switch") {
+        mocks.project = "/second";
+        await act(async () => root.render(<PullRequestsPanel pane="list" />));
+    } else await act(async () => root.unmount());
+    const count = mocks.get.mock.calls.length;
+    await act(async () => pending.resolve([{ id: 1, number: 1, title: "Obsolete" }]));
+    expect(mocks.get).toHaveBeenCalledTimes(count);
+    expect(host.textContent).not.toContain("Obsolete");
 });
