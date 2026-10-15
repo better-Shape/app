@@ -21,3 +21,13 @@ export function appendUnique<T>(previous: T[], next: T[], key: (row: T) => strin
     for (const row of next) rows.set(key(row), row);
     return [...rows.values()];
 }
+
+/** Keep untouched rows enriched while replacing only the pages refreshed by this request. */
+export function reconcilePageRows<T>(previous: T[], fresh: T[], pageIds: string[][], key: (row: T) => string): T[] {
+    const rows = new Map(previous.map((row) => [key(row), row]));
+    for (const row of fresh) rows.set(key(row), row);
+    return [...new Set(pageIds.flat())].flatMap((id) => {
+        const row = rows.get(id);
+        return row === undefined ? [] : [row];
+    });
+}

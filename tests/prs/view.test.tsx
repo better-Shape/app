@@ -20,6 +20,8 @@ let host: HTMLDivElement;
 let root: Root;
 beforeEach(() => {
     vi.clearAllMocks();
+    mocks.get.mockReset();
+    mocks.remote.mockReset();
     vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} });
     mocks.project = "/first";
     mocks.selectedId = "1";
@@ -194,4 +196,70 @@ it("never queries old PR details against a changed remote when the new list fail
     expect(host.textContent).not.toContain("Previous remote PR");
     expect(mocks.get.mock.calls.some(([path]) => path.includes("/second/pulls/7"))).toBe(false);
     expect(host.querySelector("[data-has-more]")?.getAttribute("data-has-more")).toBe("false");
+});
+
+it("bounds automatic list polling to the first page and one rotating older page", async () => {
+    vi.useFakeTimers(); vi.spyOn(document, "hidden", "get").mockReturnValue(false);
+    let revision = "initial";
+    mocks.get.mockImplementation(async (path: string) => {
+        const page = Number(new URL(path, "https://api.github.com").searchParams.get("page"));
+        return Array.from({ length: page === 4 ? 1 : 100 }, (_, offset) => ({ id: (page - 1) * 100 + offset + 1, number: (page - 1) * 100 + offset + 1, title: `${revision} page ${page} row ${offset}` }));
+    });
+    await act(async () => root.render(<PullRequestsPanel pane="list" />));
+    for (let page = 2; page <= 4; page++) await act(async () => host.firstElementChild!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    expect(host.textContent).toContain("initial page 4 row 0");
+    mocks.get.mockClear(); revision = "polled";
+    for (const olderPage of [2, 3, 4, 2]) {
+        await act(async () => vi.advanceTimersByTimeAsync(30_000));
+        expect(mocks.get.mock.calls.map(([path]) => Number(new URL(path, "https://api.github.com").searchParams.get("page")))).toEqual([1, olderPage]);
+        expect(host.textContent).toContain(`polled page ${olderPage} row 0`);
+        expect(host.textContent).toContain("page 4 row 0");
+        mocks.get.mockClear();
+    }
+    revision = "manual";
+    await act(async () => mocks.refresh());
+    expect(mocks.get.mock.calls.map(([path]) => Number(new URL(path, "https://api.github.com").searchParams.get("page")))).toEqual([1, 2, 3, 4]);
+    expect(host.textContent).toContain("manual page 4 row 0");
+});
+
+it("drops obsolete later pages when a bounded poll reaches the end of the collection", async () => {
+    vi.useFakeTimers(); vi.spyOn(document, "hidden", "get").mockReturnValue(false);
+    const full = Array.from({ length: 100 }, (_, id) => ({ id, number: id + 1, title: `Old ${id}` }));
+    mocks.get.mockResolvedValueOnce(full).mockResolvedValueOnce([{ id: 200, number: 200, title: "Older page" }]);
+    await act(async () => root.render(<PullRequestsPanel pane="list" />));
+    await act(async () => host.firstElementChild!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    mocks.get.mockClear().mockResolvedValue([{ id: 300, number: 300, title: "Only row" }]);
+    await act(async () => vi.advanceTimersByTimeAsync(30_000));
+    expect(mocks.get).toHaveBeenCalledTimes(1);
+    expect(host.textContent).toBe("Only row");
+    expect(host.querySelector("[data-has-more]")?.getAttribute("data-has-more")).toBe("false");
+    mocks.get.mockClear();
+    await act(async () => vi.advanceTimersByTimeAsync(30_000));
+    expect(mocks.get).toHaveBeenCalledTimes(1);
+});
+
+it("retries the same older page after a failed bounded poll without committing partial data", async () => {
+    vi.useFakeTimers(); vi.spyOn(document, "hidden", "get").mockReturnValue(false);
+    let revision = "initial";
+    let fail = false;
+    mocks.get.mockImplementation(async (path: string) => {
+        const page = Number(new URL(path, "https://api.github.com").searchParams.get("page"));
+        if (fail && page === 2) throw new Error("Rate limited");
+        return Array.from({ length: page === 3 ? 1 : 100 }, (_, index) => ({ id: page * 100 + index, number: page * 100 + index, title: `${revision} page ${page} row ${index}` }));
+    });
+    await act(async () => root.render(<PullRequestsPanel pane="list" />));
+    for (let page = 2; page <= 3; page++) await act(async () => host.firstElementChild!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    mocks.get.mockClear(); fail = true; revision = "refreshed";
+    await act(async () => vi.advanceTimersByTimeAsync(30_000));
+    expect(host.textContent).toContain("initial page 1 row 0");
+    expect(host.textContent).not.toContain("refreshed");
+    mocks.get.mockClear(); fail = false;
+    await act(async () => vi.advanceTimersByTimeAsync(30_000));
+    expect(mocks.get.mock.calls.map(([path]) => Number(new URL(path, "https://api.github.com").searchParams.get("page")))).toEqual([1, 2]);
+    expect(host.textContent).toContain("refreshed page 2 row 0");
+    expect(host.textContent).toContain("initial page 3 row 0");
+    mocks.get.mockClear();
+    await act(async () => vi.advanceTimersByTimeAsync(30_000));
+    expect(mocks.get.mock.calls.map(([path]) => Number(new URL(path, "https://api.github.com").searchParams.get("page")))).toEqual([1, 3]);
+    expect(host.textContent).toContain("refreshed page 3 row 0");
 });

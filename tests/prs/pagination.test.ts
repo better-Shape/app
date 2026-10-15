@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 const { get } = vi.hoisted(() => ({ get: vi.fn() }));
 vi.mock("@/lib/backend", () => ({ commands: { githubApiGet: get } }));
-import { appendUnique, getGitHubPage } from "@/features/chat/ui/prs/pagination";
+import { appendUnique, getGitHubPage, reconcilePageRows } from "@/features/chat/ui/prs/pagination";
 
 beforeEach(() => get.mockReset());
 describe("GitHub pagination", () => {
@@ -21,4 +21,17 @@ describe("GitHub pagination", () => {
             { id: "1", title: "new" }, { id: "2", title: "second" }, { id: "3", title: "third" },
         ]);
     });
+});
+
+
+it("reconciles refreshed page membership without dropping enrichment on untouched pages", () => {
+    const previous = [{ id: "1", title: "stale" }, { id: "2", title: "removed" }, { id: "3", title: "detail enriched", ci: "success" }];
+    expect(reconcilePageRows(previous, [{ id: "1", title: "fresh" }, { id: "4", title: "new" }], [["4", "1"], ["3"]], row => row.id)).toEqual([
+        { id: "4", title: "new" }, { id: "1", title: "fresh" }, { id: "3", title: "detail enriched", ci: "success" },
+    ]);
+});
+it("deduplicates moving boundaries and removes truncated pages", () => {
+    const previous = [{ id: "1" }, { id: "2" }, { id: "3" }];
+    expect(reconcilePageRows(previous, [{ id: "2" }], [["2"], ["2", "1"]], row => row.id)).toEqual([{ id: "2" }, { id: "1" }]);
+    expect(reconcilePageRows(previous, [], [[]], row => row.id)).toEqual([]);
 });

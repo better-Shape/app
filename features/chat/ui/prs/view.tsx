@@ -37,7 +37,7 @@ import {
     type PrItem,
 } from "./mapping";
 import { applyPrOverrides, settlePrOverrides, usePrOverridesVersion } from "./overrides";
-import { appendUnique, getGitHubPage } from "./pagination";
+import { appendUnique, getGitHubPage, reconcilePageRows } from "./pagination";
 import { PrFilesTab, PrTimelineTab, PrReviewers } from "./detail-tabs";
 import { apiSortParam, type PrSortMode } from "./ranking";
 import { selectPr, updateSelectedPr, usePrUi } from "./store";
@@ -66,6 +66,8 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
     const [requestedReviewers, setRequestedReviewers] = useState<string[]>([]);
     const [hasMore, setHasMore] = useState(false);
     const loadedPages = useRef(1);
+    const pageIds = useRef<string[][]>([]);
+    const nextPollPage = useRef(2);
     const overrideVersion = usePrOverridesVersion();
     const [checkingOut, setCheckingOut] = useState(false);
 
@@ -74,7 +76,8 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
     const loadBusy = useRef(false);
     const [detailRevision, setDetailRevision] = useState(0);
     const [resourceRevision, setResourceRevision] = useState(0);
-    const load = useCallback(async (background = false) => {
+    const load = useCallback(async (mode: "initial" | "poll" | "refresh" = "initial") => {
+        const background = mode !== "initial";
         if (background && loadBusy.current) return;
         const version = ++loadVersion.current;
         loadBusy.current = true;
@@ -84,6 +87,8 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
             setRepo(null);
             setHasMore(false);
             loadedPages.current = 1;
+            pageIds.current = [];
+            nextPollPage.current = 2;
         }
         setLoading(true);
         setError(null);
@@ -97,6 +102,8 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
                 setItems([]);
                 setHasMore(false);
                 loadedPages.current = 1;
+                pageIds.current = [];
+                nextPollPage.current = 2;
                 repoKey.current = nextRepoKey;
             }
             setRepo((previous) => previous?.owner === resolved?.owner && previous?.repo === resolved?.repo ? previous : resolved);
@@ -110,21 +117,38 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
                 setError("Sign in with GitHub to load this data.");
                 return;
             }
+            // Automatic polling has a fixed request budget; explicit Refresh
+            // still reconciles the complete loaded window in one transaction.
+            const olderPage = Math.min(nextPollPage.current, loadedPages.current);
+            const pages = mode === "poll"
+                ? [1, ...(olderPage > 1 ? [olderPage] : [])]
+                : Array.from({ length: loadedPages.current }, (_, index) => index + 1);
+            const nextPageIds = pageIds.current.slice();
+            let pageCount = loadedPages.current;
+            let more: boolean | undefined;
             let mapped: PrItem[] = [];
-            for (let page = 1; page <= loadedPages.current; page += 1) {
+            for (const page of pages) {
                 const result = await getGitHubPage(
                     `/repos/${resolved.owner}/${resolved.repo}/pulls?state=${state}&sort=${apiSortParam(sort)}&direction=desc`, page,
                 );
                 if (version !== loadVersion.current) return;
-                mapped = appendUnique(mapped, mapPullRows(result.rows, `${resolved.owner}/${resolved.repo}`), (item) => item.id);
-                if (!result.hasMore || page === loadedPages.current) {
-                    loadedPages.current = page;
-                    setHasMore(result.hasMore);
+                const fresh = mapPullRows(result.rows, `${resolved.owner}/${resolved.repo}`);
+                mapped = appendUnique(mapped, fresh, (item) => item.id);
+                nextPageIds[page - 1] = fresh.map(item => item.id);
+                if (!result.hasMore) {
+                    pageCount = page;
+                    nextPageIds.length = page;
+                    more = false;
                     break;
                 }
+                if (page === pageCount) more = result.hasMore;
             }
+            loadedPages.current = pageCount;
+            pageIds.current = nextPageIds;
+            nextPollPage.current = mode === "poll" && olderPage < pageCount ? olderPage + 1 : 2;
+            if (more !== undefined) setHasMore(more);
             settlePrOverrides(mapped);
-            setItems(mapped);
+            setItems(previous => reconcilePageRows(previous, mapped, nextPageIds, item => item.id));
             setDetailRevision((revision) => revision + 1);
         } catch (e) {
             if (version !== loadVersion.current) return;
@@ -140,7 +164,7 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
 
     useEffect(() => {
         void load();
-        const refreshVisible = () => { if (!document.hidden) void load(true); };
+        const refreshVisible = () => { if (!document.hidden) void load("poll"); };
         const timer = window.setInterval(refreshVisible, 30_000);
         document.addEventListener("visibilitychange", refreshVisible);
         return () => {
@@ -153,7 +177,7 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
 
     const refresh = useCallback(() => {
         setResourceRevision((revision) => revision + 1);
-        void load(true);
+        void load("refresh");
     }, [load]);
 
     const loadMore = async () => {
@@ -170,6 +194,7 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
             const mapped = mapPullRows(result.rows, `${repo.owner}/${repo.repo}`);
             settlePrOverrides(mapped);
             setItems((previous) => appendUnique(previous, mapped, (item) => item.id));
+            pageIds.current = [...pageIds.current, mapped.map(item => item.id)];
             loadedPages.current += 1;
             setHasMore(result.hasMore);
         } catch (cause) {
