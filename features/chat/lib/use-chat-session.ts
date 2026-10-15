@@ -6,6 +6,7 @@ import React from "react";
 import { listen } from "@tauri-apps/api/event";
 import { commands, Conversation, useProjectState } from "@/lib/backend";
 import { useChatStream } from "./chat-stream-store";
+import { useSendPreparations } from "./use-send-preparations";
 import { isChatGenerating } from "./generating-chats";
 import { type ReasoningEffort } from "../ui/composer/reasoning-effort";
 import type { ChatMessage } from "@/lib/backend/types";
@@ -862,11 +863,7 @@ export function useChatSession(
     );
     /** Sends currently awaiting the backend. A counter, so overlapping sends cannot clear each other. */
     const sendsInFlightRef = React.useRef(0);
-    const preparingSendsRef = React.useRef(new Map<AbortController, string | null>());
-    React.useEffect(() => {
-        const preparing = preparingSendsRef.current;
-        return () => { for (const controller of preparing.keys()) controller.abort(); };
-    }, []);
+    const preparations = useSendPreparations(project_path ?? null, conversationId);
     const skipQueueDrainRef = React.useRef(false);
     // Set when a send to a chat failed. The queue for that chat then waits for the next
     // successful send, so a failing message is not re-sent in a loop, while the view still
@@ -966,8 +963,8 @@ export function useChatSession(
         const target = targetId !== undefined ? targetId : getViewedConversationId();
         const submittedRevision = composerRevisionRef.current;
         const submittedIds = fromQueue ? [] : uploadedFilesRef.current.map(file => file.id);
-        const preparation = new AbortController();
-        preparingSendsRef.current.set(preparation, target);
+        const preparation = preparations.begin(target);
+        if (preparation.signal.aborted) return false;
         try {
             try {
                 await waitForAiConfiguration(preparation.signal);
@@ -1044,7 +1041,7 @@ export function useChatSession(
                     }
                 }
                 // Preparation ends at native admission, not at provider readiness.
-                preparingSendsRef.current.delete(preparation);
+                preparations.finish(preparation);
                 await commands.sendChatMessage(
                     messageWithWorkflows,
                     modelToSend,
@@ -1106,7 +1103,7 @@ export function useChatSession(
             }
             return false;
         } finally {
-            preparingSendsRef.current.delete(preparation);
+            preparations.finish(preparation);
         }
     };
 
@@ -1780,9 +1777,7 @@ export function useChatSession(
 
     const handleStopMessage = (): Promise<boolean> => {
         const target = getViewedConversationId();
-        for (const [controller, owner] of preparingSendsRef.current) {
-            if (owner === target) controller.abort();
-        }
+        preparations.cancel(target);
         const stop = prepareStop(target);
         if (!stop) return Promise.resolve(true);
         const key = stop.requestId ?? JSON.stringify([stop.conversationId, stop.turnId]);
@@ -1836,6 +1831,7 @@ export function useChatSession(
     return {
         messages,
         isLoading,
+        isPreparing: preparations.isPreparing,
         activityLabel,
         sendError,
         setSendError,

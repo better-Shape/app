@@ -91,6 +91,7 @@ export type { ReasoningEffort };
 type ChatInputProps = {
     inputValue: string;
     isLoading: boolean;
+    isPreparing?: boolean;
     webSearch: string;
     uploadedFiles: ComposerAttachment[];
     onInputChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
@@ -513,6 +514,7 @@ function ModeMenu({
 export function ChatInput({
     inputValue,
     isLoading,
+    isPreparing = false,
     uploadedFiles,
     onInputChange,
     onKeyDown,
@@ -701,11 +703,11 @@ export function ChatInput({
     }, []);
 
     React.useEffect(() => {
-        if (!isLoading) return;
+        if (!isLoading && !isPreparing) return;
         const onKey = (e: KeyboardEvent) => {
-            if (e.key !== "Escape") return;
+            if (e.key !== "Escape" || e.defaultPrevented || e.isComposing || e.keyCode === 229) return;
             if (mentionOpen || slashOpen) return;
-            const t = e.target as HTMLElement | null;
+            const t = e.target instanceof HTMLElement ? e.target : null;
             if (t?.closest(".cm-editor, [role='dialog']")) return;
             if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA") && t !== textareaRef.current) {
                 return;
@@ -715,7 +717,7 @@ export function ChatInput({
         };
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);
-    }, [isLoading, mentionOpen, slashOpen, onStopMessage]);
+    }, [isLoading, isPreparing, mentionOpen, slashOpen, onStopMessage]);
 
     // Files stay files. Huge text, terminal copies, and editor selections become attachments.
     const handlePaste = React.useCallback((e: React.ClipboardEvent) => {
@@ -976,14 +978,15 @@ export function ChatInput({
         projectRuleFiles.length > 0 ||
         taskItems.length > 0;
 
-    const sendDisabled =
-        needsSignIn ||
-        uploadedFiles.some((a) => a.status === "processing") ||
-        (!isLoading && !inputValue.trim() && uploadedFiles.length === 0);
-
-    const sendActive =
-        (inputValue.trim() || isLoading || uploadedFiles.length > 0) &&
-        !uploadedFiles.some((a) => a.status === "processing");
+    const canStop = isPreparing || (isLoading && !inputValue.trim());
+    const attachmentsProcessing = uploadedFiles.some((a) => a.status === "processing");
+    const sendDisabled = !canStop && (
+        needsSignIn || attachmentsProcessing ||
+        (!inputValue.trim() && uploadedFiles.length === 0)
+    );
+    const sendActive = canStop || (
+        (inputValue.trim() || isLoading || uploadedFiles.length > 0) && !attachmentsProcessing
+    );
 
     return (
         <div
@@ -1350,30 +1353,16 @@ export function ChatInput({
                         </div>
                         <button
                             type="button"
-                            onClick={() => {
-                                if (isLoading && inputValue.trim()) {
-                                    onSendMessage();
-                                } else if (isLoading) {
-                                    onStopMessage();
-                                } else {
-                                    onSendMessage();
-                                }
-                            }}
+                            onClick={canStop ? onStopMessage : onSendMessage}
                             disabled={sendDisabled}
                             className={cn(
                                 "flex size-8 shrink-0 items-center justify-center rounded-full text-white transition-all disabled:opacity-40",
                                 sendActive ? "bg-accent hover:opacity-90" : "bg-panel-hover text-text-muted",
                             )}
-                            aria-label={
-                                isLoading && inputValue.trim()
-                                    ? "Queue message"
-                                    : isLoading
-                                      ? "Stop"
-                                      : "Send"
-                            }
+                            aria-label={canStop ? "Stop" : isLoading ? "Queue message" : "Send"}
                         >
-                            {isLoading && !inputValue.trim() ? (
-                                <span role="status" aria-label="Generating" className="text-white">
+                            {canStop ? (
+                                <span role="status" aria-label={isPreparing ? "Preparing message" : "Generating"} className="text-white">
                                     <Arc size={16} />
                                 </span>
                             ) : (

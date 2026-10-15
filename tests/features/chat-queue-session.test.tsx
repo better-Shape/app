@@ -15,6 +15,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const backend = vi.hoisted(() => ({
+    projectPath: "/proj" as string | null,
     initialization: vi.fn(),
     usableProvider: vi.fn(),
     expand: vi.fn(),
@@ -36,7 +37,7 @@ const stream = vi.hoisted(() => ({
 
 vi.mock("@/lib/ai/bootstrap", () => ({ waitForAiConfiguration: backend.initialization }));
 vi.mock("@/lib/backend", () => ({
-    useProjectState: () => ({ project_path: "/proj" }),
+    useProjectState: () => ({ project_path: backend.projectPath }),
     commands: {
         getCurrentConversationId: vi.fn(async () => backend.current),
         loadConversation: vi.fn(async (id: string) => {
@@ -396,6 +397,7 @@ function sentMessages() {
 }
 
 beforeEach(async () => {
+    backend.projectPath = "/proj";
     vi.mocked(commands.stopChatMessage).mockReset().mockResolvedValue(undefined);
     backend.initialization.mockReset().mockResolvedValue(undefined);
     backend.usableProvider.mockReset().mockReturnValue(true);
@@ -856,7 +858,10 @@ it("Stop cancels pending attachment processing without dispatching or consuming 
     let sending!: Promise<boolean>;
     act(() => { sending = session.handleSendMessage(); });
     await act(async () => vi.advanceTimersByTimeAsync(40));
+    expect(session.isPreparing).toBe(true);
+    expect(session.isLoading).toBe(false);
     await act(async () => { await session.handleStopMessage(); });
+    expect(session.isPreparing).toBe(false);
     await act(async () => { expect(await sending).toBe(false); });
     expect(backend.sent).toHaveLength(0);
     expect(session.uploadedFiles).toHaveLength(1);
@@ -873,4 +878,70 @@ it("preserves a newly edited draft even when its final text matches the submitte
     await act(async () => ready()); await settle();
     expect(session.inputValue).toBe("use this attachment");
     await resolveOldestSend();
+});
+
+it("clears preparation at native admission rather than waiting for the entire turn", async () => {
+    let ready!: () => void;
+    backend.initialization.mockImplementationOnce(() => new Promise<void>(resolve => { ready = resolve; }));
+    await act(async () => session.setInputValue("prepare then generate"));
+    act(() => { void session.handleSendMessage(); });
+    await settle();
+    expect(session.isPreparing).toBe(true);
+    expect(session.isLoading).toBe(false);
+    await act(async () => ready());
+    await settle();
+    expect(backend.pendingSends).toHaveLength(1);
+    expect(session.isPreparing).toBe(false);
+    expect(session.isLoading).toBe(true);
+    await resolveOldestSend();
+});
+it("clears Stop before an uncooperative provider initialization resolves", async () => {
+    let ready!: () => void;
+    backend.initialization.mockImplementationOnce(() => new Promise<void>(resolve => { ready = resolve; }));
+    await act(async () => session.setInputValue("keep this draft"));
+    let sending!: Promise<boolean>;
+    act(() => { sending = session.handleSendMessage(); });
+    await settle();
+    expect(session.isPreparing).toBe(true);
+    await act(async () => { await session.handleStopMessage(); });
+    expect(session.isPreparing).toBe(false);
+    expect(session.inputValue).toBe("keep this draft");
+    await act(async () => { ready(); expect(await sending).toBe(false); });
+    expect(backend.sent).toHaveLength(0);
+    expect(session.sendError).toBeNull();
+});
+
+it("does not expose or cancel another viewed chat's preparation", async () => {
+    await act(async () => session.handleLoadConversation("X"));
+    let ready!: () => void;
+    backend.initialization.mockImplementationOnce(() => new Promise<void>(resolve => { ready = resolve; }));
+    await act(async () => session.setInputValue("message for X"));
+    let sending!: Promise<boolean>;
+    act(() => { sending = session.handleSendMessage(); });
+    await settle();
+    expect(session.isPreparing).toBe(true);
+    await act(async () => session.handleLoadConversation("Y"));
+    expect(session.isPreparing).toBe(false);
+    await act(async () => { await session.handleStopMessage(); });
+    await act(async () => session.handleLoadConversation("X"));
+    expect(session.isPreparing).toBe(true);
+    await act(async () => { await session.handleStopMessage(); });
+    expect(session.isPreparing).toBe(false);
+    await act(async () => { ready(); expect(await sending).toBe(false); });
+    expect(backend.sent).toHaveLength(0);
+});
+it("cancels an unnamed draft's preparation when the project changes", async () => {
+    await act(async () => session.handleNewChat());
+    let ready!: () => void;
+    backend.initialization.mockImplementationOnce(() => new Promise<void>(resolve => { ready = resolve; }));
+    await act(async () => session.setInputValue("old project draft"));
+    let sending!: Promise<boolean>;
+    act(() => { sending = session.handleSendMessage(); });
+    await settle();
+    expect(session.isPreparing).toBe(true);
+    backend.projectPath = "/other-project";
+    await act(async () => root.render(<Harness onRender={s => { session = s; }} />));
+    expect(session.isPreparing).toBe(false);
+    await act(async () => { ready(); expect(await sending).toBe(false); });
+    expect(backend.sent).toHaveLength(0);
 });

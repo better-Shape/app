@@ -293,6 +293,7 @@ export default function Chat({
         <ChatInput
             inputValue={session.inputValue}
             isLoading={session.isLoading}
+            isPreparing={session.isPreparing}
             uploadedFiles={session.uploadedFiles}
             onInputChange={session.handleInputChange}
             onKeyDown={session.handleKeyDown}
