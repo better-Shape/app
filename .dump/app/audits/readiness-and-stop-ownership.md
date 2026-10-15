@@ -242,3 +242,9 @@ The extracted native value comparison failed its cleared-override control under 
 Requested-reviewer data now carries completeness separately from known names. A partial payload can display available users or teams without claiming that the missing list is empty. None requires both requested lists and the completed-review resource to be known empty. Four mounted regressions reproduced the loss of partial names or completeness before this correction.
 
 Unknown service hydration deliberately retains the conservative credential bundle. Narrowing the fallback to apiKey alone failed two tests by mixing an edited key/account with a saved destination/credential. Fields absent from the local object are deleted rather than invented, and unrelated preferences still hydrate. The precise search and Composio field lists remain unchanged.
+
+## Committed chat refs under concurrent rendering
+
+The session no longer publishes attachments, queue, model, mode or metadata callbacks through refs during render. Layout effects publish committed values before event handlers run. Two Suspense transition regressions reproduced a pending send using an uncommitted model or mode even though the visible session retained its prior selection. Both now preserve the committed selection through admission.
+
+The mount-only legacy-mode conversion was unreachable because the state always initializes to Code, so it was removed rather than hidden behind an asynchronous setter. The compact-command handler now precedes its first consumer. These corrections remove seven warnings from the session module without suppressions; its remaining effect-state warnings still need separate ownership refactors.

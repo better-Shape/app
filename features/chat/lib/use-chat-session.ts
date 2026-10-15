@@ -164,7 +164,7 @@ export function useChatSession(
         }
     }, []);
     const uploadedFilesRef = React.useRef(uploadedFiles);
-    uploadedFilesRef.current = uploadedFiles;
+    React.useLayoutEffect(() => { uploadedFilesRef.current = uploadedFiles; }, [uploadedFiles]);
     const composerRevisionRef = React.useRef(0);
     const [inputValue, updateInputValue] = React.useState(() => {
         try {
@@ -180,7 +180,7 @@ export function useChatSession(
     /** Every queued follow-up, across chats. Each one is bound to its `conversationId`. */
     const [messageQueue, setMessageQueue] = React.useState<QueuedChatMessage[]>([]);
     const messageQueueRef = React.useRef(messageQueue);
-    messageQueueRef.current = messageQueue;
+    React.useLayoutEffect(() => { messageQueueRef.current = messageQueue; }, [messageQueue]);
     /** Bumped when a send is delivered so the queue drains the next message for this chat. */
     const [queueDrainTick, setQueueDrainTick] = React.useState(0);
     const [projectRuleFiles, setProjectRuleFiles] = React.useState<string[]>([]);
@@ -219,26 +219,17 @@ export function useChatSession(
     );
     const [selectedWorkerModels, setSelectedWorkerModels] = React.useState<string[]>([]);
     const selectedModelRef = React.useRef(selectedModel);
-    selectedModelRef.current = selectedModel;
+    React.useLayoutEffect(() => { selectedModelRef.current = selectedModel; }, [selectedModel]);
     const appliedDefaultModelRef = React.useRef(Boolean(readComposerPrefs().model));
     const [selectedMode, setSelectedMode] = React.useState("Code");
     const selectedModeRef = React.useRef(selectedMode);
-    selectedModeRef.current = selectedMode;
+    React.useLayoutEffect(() => { selectedModeRef.current = selectedMode; }, [selectedMode]);
     const [reasoningEffort, setReasoningEffort] = React.useState<ReasoningEffort>(
         () => readComposerPrefs().effort || "low",
     );
     const [fastMode, setFastMode] = React.useState(() => readComposerPrefs().fast ?? true);
     const tabsHydratedForRef = React.useRef<string | null>(null);
 
-    React.useEffect(() => {
-        setSelectedMode((mode) =>
-            mode === "Debug" || mode === "Security"
-                ? "Review"
-                : mode === "Design"
-                  ? "Visual"
-                  : mode,
-        );
-    }, []);
     // The chat on screen. It follows the user's choice only, never the backend pointer.
     const conversationId = viewedConversationId;
 
@@ -701,7 +692,7 @@ export function useChatSession(
         }
     }, [project_path, syncOpenTabs, getViewedConversationId]);
 
-    refreshMetadataRef.current = refreshMetadata;
+    React.useLayoutEffect(() => { refreshMetadataRef.current = refreshMetadata; }, [refreshMetadata]);
 
     const conversationIdRef = React.useRef(conversationId);
     React.useEffect(() => {
@@ -1138,6 +1129,36 @@ export function useChatSession(
                     conversationId: target,
                 });
             }
+        }
+    };
+
+    /** `/compact [focus]` — summarize older turns without sending a chat turn. */
+    const runCompactCommand = async (focus: string): Promise<void> => {
+        if (isIncognitoChat()) {
+            notify.info("Incognito chats are not summarized.");
+            return;
+        }
+        try {
+            const result = await commands.compactChat({
+                focus: focus || undefined,
+                instructions: getSettings().ai.compactInstructions || undefined,
+                model: selectedModelRef.current || undefined,
+            });
+            if (result.error) {
+                notify.error("Could not compact this chat.", result.error);
+                return;
+            }
+            if (result.alreadySmall || !result.record) {
+                notify.info("Nothing to compact yet. This chat is still small.");
+                return;
+            }
+            setContextSummarized(true);
+            notify.success(
+                `Compacted ${result.record.messagesBefore - result.record.messagesAfter} older messages.`,
+                `Saved about ${result.record.tokensSaved.toLocaleString()} tokens. The full transcript stays in this chat.`,
+            );
+        } catch (err) {
+            notify.error("Could not compact this chat.", err instanceof Error ? err.message : String(err));
         }
     };
 
@@ -1589,36 +1610,6 @@ export function useChatSession(
             unlisteners.forEach((fn) => fn());
         };
     }, [syncOpenTabs, enqueueChatMessage, openConversation, getViewedConversationId]);
-
-    /** `/compact [focus]` — summarize older turns without sending a chat turn. */
-    const runCompactCommand = async (focus: string): Promise<void> => {
-        if (isIncognitoChat()) {
-            notify.info("Incognito chats are not summarized.");
-            return;
-        }
-        try {
-            const result = await commands.compactChat({
-                focus: focus || undefined,
-                instructions: getSettings().ai.compactInstructions || undefined,
-                model: selectedModelRef.current || undefined,
-            });
-            if (result.error) {
-                notify.error("Could not compact this chat.", result.error);
-                return;
-            }
-            if (result.alreadySmall || !result.record) {
-                notify.info("Nothing to compact yet. This chat is still small.");
-                return;
-            }
-            setContextSummarized(true);
-            notify.success(
-                `Compacted ${result.record.messagesBefore - result.record.messagesAfter} older messages.`,
-                `Saved about ${result.record.tokensSaved.toLocaleString()} tokens. The full transcript stays in this chat.`,
-            );
-        } catch (err) {
-            notify.error("Could not compact this chat.", err instanceof Error ? err.message : String(err));
-        }
-    };
 
     const handleNewChat = async () => {
         try {

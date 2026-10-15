@@ -1,4 +1,4 @@
-import { act, useEffect, useRef } from "react";
+import { act, startTransition, Suspense, useEffect, useRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
@@ -34,21 +34,23 @@ let session: Session;
 let stream: ReturnType<typeof useChatStream>;
 let host: HTMLDivElement;
 let root: Root;
+let suspended: Promise<void> | null = null;
 function Consumer() {
     const end = useRef<HTMLDivElement>(null);
     const scroll = useRef<HTMLDivElement>(null);
     const value = useChatSession(end, scroll);
     const currentStream = useChatStream();
     useEffect(() => { session = value; stream = currentStream; });
+    if (suspended) throw suspended;
     return <div>{value.messages.map((message, index) => <p key={index} data-role={message.role}>{message.content}</p>)}</div>;
 }
 beforeEach(async () => {
-    backend.usable = true;
+    backend.usable = true; suspended = null;
     backend.expand.mockReset().mockImplementation(async message => message);
     backend.send.mockReset().mockResolvedValue("ok"); backend.stop.mockReset().mockResolvedValue(undefined);
     resetGeneratingChatsForTests(); resetChatActivitiesForTests();
     host = document.createElement("div"); document.body.append(host); root = createRoot(host);
-    await act(async () => root.render(<ChatStreamProvider><Consumer /></ChatStreamProvider>));
+    await act(async () => root.render(<ChatStreamProvider><Suspense fallback={null}><Consumer /></Suspense></ChatStreamProvider>));
     await act(async () => session.setInputValue("keep this draft"));
 });
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.restoreAllMocks(); });
@@ -107,4 +109,26 @@ it("does not replace a newer live owner that starts while mentions are being pre
     expect(stream.isLoading).toBe(true);
     expect(session.inputValue).toBe("keep this draft");
     expect(backend.send).not.toHaveBeenCalled();
+});
+
+
+it.each(["model", "mode"])("does not send with a %s from an uncommitted suspended render", async field => {
+    let finish!: (message: string) => void;
+    backend.expand.mockImplementationOnce(() => new Promise<string>(resolve => { finish = resolve; }));
+    let sending!: Promise<boolean>;
+    await act(async () => { sending = session.handleSendMessage(); });
+    const committed = field === "model" ? session.selectedModel : session.selectedMode;
+    let release!: () => void;
+    suspended = new Promise<void>(resolve => { release = resolve; });
+    try {
+        await act(async () => startTransition(() => {
+            if (field === "model") session.setSelectedModel("uncommitted-model");
+            else session.setSelectedMode("Ask");
+        }));
+        expect(field === "model" ? session.selectedModel : session.selectedMode).toBe(committed);
+        await act(async () => { finish("expanded"); expect(await sending).toBe(true); });
+        expect(backend.send.mock.calls[0][field === "model" ? 1 : 2]).toBe(committed);
+    } finally {
+        await act(async () => { suspended = null; release(); });
+    }
 });
