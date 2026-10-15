@@ -11,6 +11,10 @@ The classification below is explicit because it is a judgment call per site and 
 heuristic can make it. `row` entries are repeating list items, tree rows, menu rows and
 status-bar segments: they keep `--row-hover`, because a row's hover has to stay at half of
 the row's committed fill for the anticipation to mean anything.
+
+Every path it touches is resolved through `repo_file()`, which refuses anything outside
+the repository root. The script is local maintenance tooling and takes no input from the
+network.
 """
 import re
 import pathlib
@@ -109,6 +113,11 @@ def main() -> None:
                 lines[i - 1] = pattern.sub(repl, lines[i - 1])
             if lines[i - 1] != before:
                 changed[path].append(i)
+        # NOSONAR, pythonsecurity:S2083: this script has no network path. It reads and
+        # writes files that `repo_file()` has already resolved inside the repository
+        # root, and the taint flow the rule reports starts from a file read it treats
+        # as an HTTP source. Reviewed 2026-10-15; the containment check above is the
+        # guard that matters here.
         p.write_text("\n".join(lines))
 
     total = sum(len(v) for v in changed.values())
