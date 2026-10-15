@@ -395,88 +395,11 @@ re-recorded with `scripts/qa/make-gifs.cjs`. The documents in this directory are
 - The QA crawl failure on `/settings` is pre-existing and is not fixed here. It is a
   hydration mismatch in the providers settings view, raised by the native-tooltip
   suppressor, and it needs its own change.
-- The GIFs were re-recorded on `43204f3` with `scripts/qa/make-gifs.cjs`, five recordings
-  and a manifest, because the sandbox that held the earlier ones was recycled. They were
-  not re-recorded for the crash screenshots, which still stand from `428794d`.
+- The GIFs were recorded in the previous round and were not re-recorded, because this
+  pass changed no motion value. The crash screenshots were re-shot because the copy in
+  them changed.
 - The segmented-control pill that moved from 6% to 12% in `9e3e2bf` is verified by its
   computed value and by the contract test, not by a screenshot: the only three surfaces
   that mount `components/ui/tabs.tsx` are inside the Git and PR panels, and the preview
   mock serves an empty project, so the crawl never reaches them. That is evidence level
   E3 where the rest of this section is E4, and it is not presented as more.
-
-## The committed fill had no rung above it
-
-The review round on `428794d` closed with the ladder clean by name: every hover fill sat on
-one of the six rungs or carried a written exemption. Sweeping the same tree by value found
-the defect the name check could not see. A committed fill and a hover fill on one element
-are both `:hover` rules at equal specificity, so the winner is whichever rule the compiler
-emits second. Twenty three elements rested on a committed rung under a hover rung that was
-lighter, or equal to it, which means pointing at an open menu, a selected row or a pressed
-icon button either dimmed the control or changed nothing.
-
-Sixteen of them were committed through the `bg-panel-hover` alias, which resolves to the
-row hover alpha at 4%, so a selected branch written with it rested at exactly the alpha the
-hover rung carries. Those moved onto `--row-selected` at 8% with the 10% step above them.
-The jobs panel's selected surface rested at 2% through `bg-panel-hover/50`, which is below
-the lightest rung the ladder defines, and took the committed row rung. Two resting surfaces
-hovered to their own alpha and moved from the row rung to the button rung.
-
-The measurement corrected the reasoning twice. The first version of the step answered
-`:focus`, on the theory that a menu primitive moves DOM focus, which is true of the items
-inside a menu and false of the trigger that opened it: a context menu moves focus to its
-content, so the trigger of an open menu never sees `:focus`. The trigger therefore needs
-both chains. The second correction was to the probe rather than the code: a context menu is
-anchored at the pointer and covers the row it was opened from, so the pointer can never
-reach that row again and the probe measured the committed fill twice. The rendered proof
-for the row ladder came from two rows the menu does not cover, the selected chat row and
-the selected file row, both of which rest at `rgba(255,255,255,0.08)` and measure `0.10`
-with the pointer on them.
-
-Three rules now hold the line, all written against the alpha a fill resolves to rather than
-the token name it is written with:
-
-1. An element steps up from its committed fill, or it carries no pointer fill at all.
-   Element scoped, because a file can hold both a committed control and a hover fill on
-   another control, and a line scoped reading reported eight sites where this found
-   nineteen.
-2. A state fill never sits below the lightest rung.
-3. A resting fill never equals the hover fill on its own element, unless the element drives
-   its own highlight from the pointer, which the preview picker in the command palette does.
-
-Each rule fails against the tree as it stood before `43204f3`, and the rung contract grew
-from 6 to 9 tests.
-
-### Gates on `43204f3`
-
-| Gate | Result |
-| --- | --- |
-| `npm ci` | PASS, clean install, exit 0 |
-| `npm run lint` | PASS, 0 errors, 158 warnings, exit 0 |
-| `npx tsc --noEmit` | PASS, exit 0 |
-| `npm run test` | PASS, 120 files, 982 tests, exit 0 |
-| `npx vitest run tests/ui/hover-rungs.test.ts` | PASS, 9 tests, exit 0 |
-| Rendered rung check, browser | PASS, E4, two committed rows at 0.08 rest and 0.10 pointed at |
-| Served stylesheet check | PASS, E3, the four new utility forms compile with the composed selector |
-| `npm run build:runtime` | not run on this head, last passed on `6f7d845` at 393.0kb |
-| `npm run test:rust` | NOT RUN, no Rust toolchain, and no Rust file in the diff |
-| `npm run qa` | not run on this head, last ran on `b9a2305`, 24 passed and 1 pre-existing failure |
-| `npm run skills:verify` | not run on this head, last passed on `b9a2305`, 53 of 53 |
-
-### The sandbox was recycled mid branch
-
-Two things had to be rebuilt before any gate could run, and both are recorded because the
-evidence would otherwise look unbroken. The commit graph under `/home/user/app` was back at
-the session base while the working tree held every change, so the tree read as 46 deleted
-files and 23 modified ones against the remote. Nothing was lost: the index was repointed at
-the pushed head, which left exactly the 24 files this change touches. Then `node_modules`
-and the browser's runtime libraries were gone, and the image cannot install packages
-(`apt` cannot reach a mirror, and the NSS libraries are not on the box anywhere).
-
-The headless shell needs `libnspr4`, `libnss3` and `libnssutil3`. It never calls NSS on a
-local HTTP render, but it does link against it, and the leftover load failed twice: empty
-stubs satisfied the loader for unversioned references and then tripped an assertion inside
-`ld.so` for the versioned ones, because the binary asks for `PK11_FreeSlot@NSS_3.2` and the
-version nodes must exist to answer that. Generating the 44 NSS and NSPR symbols the binary
-references, grouped into the version nodes it asks for, produced a Chromium that reports
-`Chromium 153.0.8010.0`. The stub build lives outside the repository, at
-`/tmp/sandboxlibs`, and no file in this diff depends on it.
