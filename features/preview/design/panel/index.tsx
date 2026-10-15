@@ -402,7 +402,7 @@ export function DesignStylePanel({
                                         aria-label={title}
                                         onClick={() => onAlign(alignment)}
                                         className={cn(
-                                            "flex h-full min-w-0 flex-1 items-center justify-center text-text-secondary hover:bg-panel-active/60 hover:text-text-primary",
+                                            "flex h-full min-w-0 flex-1 items-center justify-center text-text-secondary hover:bg-[var(--btn-hover)] hover:text-text-primary",
                                             index > 0 && "border-l border-border",
                                         )}
                                     >

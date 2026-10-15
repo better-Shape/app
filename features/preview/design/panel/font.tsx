@@ -128,7 +128,7 @@ export function FontField({
                         <DropdownMenuItem
                             key={font}
                             onClick={() => onChange(font)}
-                            className={cn("mt-1 h-10 text-2xl", font === value && "bg-panel-active")}
+                            className={cn("mt-1 h-10 text-2xl", font === value && "bg-[var(--row-selected)]")}
                             style={{
                                 fontFamily:
                                     font === "System Sans-Serif"
@@ -210,7 +210,7 @@ export function WeightField({
                         <DropdownMenuItem
                             key={weight}
                             onClick={() => onChange(weight)}
-                            className={cn("mt-1 h-10 text-2xl", weight === currentWeight && "bg-panel-active")}
+                            className={cn("mt-1 h-10 text-2xl", weight === currentWeight && "bg-[var(--row-selected)]")}
                             style={{ fontWeight: Number(weight) || 400 }}
                         >
                             {label}

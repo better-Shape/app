@@ -56,7 +56,7 @@ const sizeClasses: Record<ButtonSize, string> = {
 };
 
 const selectedClasses =
-    "bg-panel-active text-text-primary hover:bg-panel-active hover:text-text-primary";
+    "bg-[var(--btn-open)] text-text-primary hover:bg-[var(--btn-open-hover)] hover:text-text-primary";
 
 const spinnerClass: Record<ButtonSize, string> = {
     xs: "imsg-typing imsg-typing-sm",

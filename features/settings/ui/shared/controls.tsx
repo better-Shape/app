@@ -165,7 +165,7 @@ export function SettingActionRow({
         <button
             type="button"
             onClick={onClick}
-            className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-sm font-normal text-text-primary hover:bg-white/4"
+            className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-sm font-normal text-text-primary transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--row-hover)]"
         >
             <Icon icon={icon} className="shrink-0 text-text-muted" />
             <span>{title}</span>

@@ -486,10 +486,18 @@ inert.
 
 ### 12.3 Scope, and how it was kept honest
 
-84 button-rung sites and 78 row-rung sites, classified explicitly in
-`scripts/qa/classify-hover-rungs.py`, a judgment per site, because no heuristic can tell a
-toolbar button from a tree row. The script also **audits its own work**: it fails loudly if a
-row site moved or a button site was missed.
+84 button-rung sites and 78 row-rung sites, classified explicitly, a judgment per site,
+because no heuristic can tell a toolbar button from a tree row.
+
+**Correction, round 8.** That census counted token names, and it was wrong to sign the ladder
+off on it. Two classes of fill were invisible to it: nine rows still hovering through
+`bg-panel-hover/40`, which resolves to 1.6% white and is *fainter* than the lightest rung it
+was supposed to be on, and eleven controls committing through `--panel-active`, a sixth alpha
+that no research asked for. The classification now lives in the contract test
+`tests/ui/hover-rungs.test.ts`, which reads the alpha each class resolves to, follows alias
+chains, and fails on a fill that is neither a rung nor an entry with a written reason. The
+one-shot rewrite script is deleted: a script that edits source by line number is a hazard
+once its migration has landed, and its table had already drifted past the end of two files.
 
 Three findings the per-line sweep could not see, all of them the same class of bug:
 

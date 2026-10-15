@@ -184,7 +184,7 @@ function createComponents(ctx?: GitMarkdownCtx): Components {
             </details>
         ),
         summary: ({ children }) => (
-            <summary className="cursor-pointer list-none px-2 py-1.5 text-sm font-medium text-text-primary marker:content-none [&::-webkit-details-marker]:hidden hover:bg-panel-hover/50">
+            <summary className="cursor-pointer list-none px-2 py-1.5 text-sm font-medium text-text-primary transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] marker:content-none [&::-webkit-details-marker]:hidden hover:bg-[var(--row-hover)]">
                 <span className="inline-flex items-center gap-1.5">{children}</span>
             </summary>
         ),

@@ -153,7 +153,7 @@ function FolderSubMenu({ name, folderPath, isSelected, gitStatuses, gitModifiedD
         <MenubarNested open={open} onOpenChange={onOpenChange}>
             <MenubarNestedTrigger className={cn(
                 "flex items-center gap-2 px-2 py-1 text-xs cursor-default rounded-md outline-none",
-                isSelected ? "bg-panel-active text-text-primary font-medium" : "text-text-muted hover:text-text-primary focus:bg-panel-hover focus:text-text-primary"
+                isSelected ? "bg-[var(--btn-open)] text-text-primary font-medium" : "text-text-muted hover:text-text-primary focus:bg-panel-hover focus:text-text-primary"
             )}>
                 <FileIcon name={name} isDir={true} className="w-3.5 h-3.5 shrink-0 opacity-80" />
                 <span className="truncate flex-1">{name}</span>
@@ -226,7 +226,7 @@ function SymbolSubMenu({ symbol, filePath, isSelected }: { symbol: OutlineSymbol
         <MenubarNested open={open} onOpenChange={setOpen}>
             <MenubarNestedTrigger className={cn(
                 "flex items-center gap-2 px-2 py-1 text-xs cursor-default rounded-md outline-none",
-                isSelected ? "bg-panel-active text-text-primary font-medium" : "text-text-muted hover:text-text-primary focus:bg-panel-hover focus:text-text-primary"
+                isSelected ? "bg-[var(--btn-open)] text-text-primary font-medium" : "text-text-muted hover:text-text-primary focus:bg-panel-hover focus:text-text-primary"
             )}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={getSymbolIconPath(symbol.kind)} className="w-3.5 h-3.5 shrink-0 invert-0 dark:invert" alt="" />
@@ -307,7 +307,7 @@ function BreadcrumbFolderItem({ part, folderPath, nextPartName, gitStatuses, git
                                 key={child.name}
                                 className={cn(
                                     "flex items-center gap-2 px-2 py-1 text-xs cursor-default rounded-md outline-none",
-                                    isSelected ? "bg-panel-active text-text-primary font-medium" : "text-text-muted hover:text-text-primary focus:bg-panel-hover focus:text-text-primary"
+                                    isSelected ? "bg-[var(--row-selected)] text-text-primary font-medium" : "text-text-muted hover:text-text-primary focus:bg-panel-hover focus:text-text-primary"
                                 )}
                                 onClick={() => {
                                 commands.openFile(child.path, child.name);
@@ -365,7 +365,7 @@ function BreadcrumbOutlineItem({
                             key={sym.id}
                             className={cn(
                                 "flex items-center gap-2 px-2 py-1 text-xs cursor-default rounded-md outline-none",
-                                isSelected ? "bg-panel-active text-text-primary font-medium" : "text-text-muted hover:text-text-primary focus:bg-panel-hover focus:text-text-primary"
+                                isSelected ? "bg-[var(--row-selected)] text-text-primary font-medium" : "text-text-muted hover:text-text-primary focus:bg-panel-hover focus:text-text-primary"
                             )}
                             onClick={() => handleJump(filePath, sym)}
                         >

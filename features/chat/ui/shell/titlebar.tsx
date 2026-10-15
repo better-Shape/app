@@ -180,7 +180,7 @@ export function ChatTitlebar({
                         className={cn(
                             "-mx-1 flex min-w-0 max-w-[220px] items-center gap-0.5 rounded-md px-1 py-0.5 text-left text-sm whitespace-nowrap",
                             subagentTitle
-                                ? "text-text-tertiary hover:bg-background-primary-hover hover:text-text-secondary"
+                                ? "text-text-tertiary hover:bg-[var(--btn-hover)] hover:text-text-secondary"
                                 : "text-text-secondary",
                         )}
                     >

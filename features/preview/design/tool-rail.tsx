@@ -41,7 +41,7 @@ function RailBtn({
                 size="icon"
                 className={cn(
                     "size-10",
-                    active && "bg-panel-active text-text-primary",
+                    active && "bg-[var(--btn-open)] text-text-primary",
                 )}
                 aria-label={label}
                 aria-pressed={active}

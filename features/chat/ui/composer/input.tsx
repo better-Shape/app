@@ -1101,7 +1101,7 @@ export function ChatInput({
                                     className={cn(
                                         "size-9 shrink-0 p-0",
                                         "text-text-muted hover:text-text-primary",
-                                        "rounded-full bg-panel-hover hover:bg-panel-active",
+                                        "rounded-full bg-panel-hover transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)]",
                                     )}
                                     aria-label="Add"
                                     disabled={needsSignIn}

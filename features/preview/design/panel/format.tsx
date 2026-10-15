@@ -52,8 +52,8 @@ function OffOn({
                         "flex h-full min-w-0 flex-1 items-center justify-center text-xs font-medium",
                         index > 0 && "border-l border-border",
                         value === on
-                            ? "bg-panel-active text-text-primary"
-                            : "text-text-secondary hover:bg-panel-active/60 hover:text-text-primary",
+                            ? "bg-[var(--btn-open)] text-text-primary"
+                            : "text-text-secondary hover:bg-[var(--btn-hover)] hover:text-text-primary",
                     )}
                 >
                     {label}

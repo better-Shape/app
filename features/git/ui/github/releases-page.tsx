@@ -355,7 +355,7 @@ export function ReleasesPage() {
                                         {selected.assets.map((a) => (
                                             <li
                                                 key={a.id}
-                                                className="flex items-center justify-between gap-2 rounded-lg px-2 py-2 hover:bg-panel-hover/50"
+                                                className="flex items-center justify-between gap-2 rounded-lg px-2 py-2 transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--row-hover)]"
                                             >
                                                 <div className="min-w-0">
                                                     <div className="truncate text-sm">{a.name}</div>

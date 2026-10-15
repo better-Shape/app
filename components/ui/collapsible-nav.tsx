@@ -23,7 +23,7 @@ export function CollapsibleNavGroup({
                 type="button"
                 onClick={onToggle}
                 aria-expanded={open}
-                className="flex h-8 w-full items-center gap-3 rounded-md px-1.5 text-left text-xs font-semibold text-text-muted hover:bg-panel-hover/40 hover:text-text-primary"
+                className="flex h-8 w-full items-center gap-3 rounded-md px-1.5 text-left text-xs font-semibold text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--row-hover)] hover:text-text-primary"
             >
                 <span className="min-w-0 truncate">{label}</span>
             </button>

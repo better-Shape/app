@@ -285,8 +285,8 @@ export function Segment({
                             "flex h-full min-w-0 flex-1 items-center justify-center gap-1 px-1.5 text-xs font-medium text-text-secondary transition-colors",
                             index > 0 && "border-l border-border",
                             active
-                                ? "bg-panel-active text-text-primary"
-                                : "hover:bg-panel-active/60 hover:text-text-primary",
+                                ? "bg-[var(--btn-open)] text-text-primary"
+                                : "hover:bg-[var(--btn-hover)] hover:text-text-primary",
                             !item.label && "px-0",
                         )}
                     >

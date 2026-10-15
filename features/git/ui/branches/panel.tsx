@@ -192,7 +192,7 @@ function SectionHeader({
             type="button"
             onClick={onToggle}
             aria-expanded={open}
-            className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-xs font-medium text-text-muted hover:bg-panel-hover/40 hover:text-text-secondary"
+            className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-xs font-medium text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--row-hover)] hover:text-text-secondary"
         >
             <Icon
                 icon={ChevronRight20Regular}
@@ -699,7 +699,7 @@ export function BranchWindow({ active = true }: { active?: boolean }) {
                                                         return next;
                                                     });
                                                 }}
-                                                className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-sm text-text-muted hover:bg-panel-hover/40 hover:text-text-secondary"
+                                                className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-sm text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--row-hover)] hover:text-text-secondary"
                                             >
                                                 <Icon
                                                     icon={ChevronRight20Regular}

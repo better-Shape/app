@@ -57,7 +57,7 @@ export function PlanningBlock({ steps, completedCount, totalCount, isGenerating 
                 onClick={() => totalCount > 1 && setIsOpen((open) => !open)}
                 className={cn(
                     "flex w-full items-center gap-2 px-2 py-2 text-left",
-                    totalCount > 1 && "hover:bg-panel-hover/40 transition-colors cursor-pointer",
+                    totalCount > 1 && "hover:bg-[var(--row-hover)] transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] cursor-pointer",
                 )}
             >
                 <span className="flex size-4 shrink-0 items-center justify-center text-text-muted">

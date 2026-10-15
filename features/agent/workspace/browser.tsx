@@ -193,7 +193,7 @@ function TabChip({
                         onClose();
                     }}
                     className={cn(
-                        "flex size-5 shrink-0 items-center justify-center rounded text-text-muted hover:bg-panel-active hover:text-text-primary",
+                        "flex size-5 shrink-0 items-center justify-center rounded text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary",
                         active ? "opacity-100" : "opacity-0 group-hover/tab:opacity-100",
                     )}
                 >
@@ -1131,7 +1131,7 @@ export function BrowserView({
                         className={cn(
                             "flex size-7 shrink-0 items-center justify-center rounded text-text-muted",
                             "hover:bg-[var(--btn-hover)] hover:text-text-primary disabled:pointer-events-none disabled:opacity-30",
-                            picking && "bg-panel-active text-accent",
+                            picking && "bg-[var(--btn-open)] text-accent",
                         )}
                     >
                         <Icon icon={Target20Regular} />

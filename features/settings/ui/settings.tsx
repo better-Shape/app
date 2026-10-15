@@ -923,10 +923,10 @@ export function SettingsView({
                                                             type="button"
                                                             onClick={() => onLeafClick(leaf)}
                                                             className={cn(
-                                                                "flex h-9 w-full items-center gap-1.5 rounded-lg px-2 text-left text-sm",
+                                                                "flex h-9 w-full items-center gap-1.5 rounded-lg px-2 text-left text-sm transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
                                                                 active
-                                                                    ? "bg-panel-hover text-text-primary"
-                                                                    : "text-text-secondary hover:bg-panel-hover/50 hover:text-text-primary",
+                                                                    ? "bg-[var(--row-selected)] text-text-primary"
+                                                                    : "text-text-secondary hover:bg-[var(--row-hover)] hover:text-text-primary",
                                                             )}
                                                         >
                                                             <Icon icon={leaf.icon} className="icon-md settings-nav-icon"/>

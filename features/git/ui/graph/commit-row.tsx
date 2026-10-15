@@ -152,7 +152,7 @@ export const GraphCommitRow = React.memo(function GraphCommitRow({
             data-blend-top={muted && blendTop ? "1" : undefined}
             data-blend-bottom={muted && blendBottom ? "1" : undefined}
         >
-            <div className={cn(isExpanded && "overflow-hidden rounded-lg bg-panel-active")}>
+            <div className={cn(isExpanded && "overflow-hidden rounded-lg bg-[var(--row-selected)]")}>
             <ContextMenu>
                 <ContextMenuTrigger asChild>
                     <div
@@ -162,7 +162,7 @@ export const GraphCommitRow = React.memo(function GraphCommitRow({
                         className={cn(
                             "relative z-0 flex cursor-pointer items-center whitespace-nowrap outline-none group",
                             isExpanded ? "rounded-none bg-transparent" : "rounded-lg hover:bg-[var(--row-hover)]",
-                            !isExpanded && selected && "bg-panel-active",
+                            !isExpanded && selected && "bg-[var(--row-selected)]",
                         )}
                         style={{ height: ROW_HEIGHT, lineHeight: `${ROW_HEIGHT}px` }}
                         onClick={(e) => {

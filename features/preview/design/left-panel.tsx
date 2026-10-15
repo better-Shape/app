@@ -216,7 +216,7 @@ export function DesignLeftPanel({
                                     key={layer.key}
                                     className={cn(
                                         "flex h-8 w-full items-center gap-1.5 px-1.5 text-sm text-text-secondary hover:bg-[var(--row-hover)] hover:text-text-primary",
-                                        selected && "bg-panel-active text-text-primary",
+                                        selected && "bg-[var(--row-selected)] text-text-primary",
                                     )}
                                     style={{ paddingLeft: 9 + Math.min(layer.depth, 12) * 12 }}
                                 >
@@ -288,7 +288,7 @@ export function DesignLeftPanel({
                                 onClick={() => onPageChange(page.path)}
                                 className={cn(
                                     "flex min-h-8 w-full items-center gap-2 squircle-xl px-2 text-left text-sm text-text-secondary hover:bg-[var(--row-hover)] hover:text-text-primary",
-                                    activePage === page.path && "bg-panel-active text-text-primary",
+                                    activePage === page.path && "bg-[var(--row-selected)] text-text-primary",
                                 )}
                             >
                                 <Icon icon={Document20Regular} className="text-text-muted" />

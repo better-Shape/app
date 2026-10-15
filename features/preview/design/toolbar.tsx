@@ -145,7 +145,7 @@ export function DesignToolbar({
                                     <button
                                         type="button"
                                         aria-label="Close tab"
-                                        className="flex size-4 shrink-0 items-center justify-center rounded-sm text-text-muted opacity-0 hover:bg-panel-active hover:text-text-primary group-hover:opacity-100"
+                                        className="flex size-4 shrink-0 items-center justify-center rounded-sm text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] opacity-0 hover:bg-[var(--btn-hover)] hover:text-text-primary group-hover:opacity-100"
                                         onClick={(event) => {
                                             event.stopPropagation();
                                             onCloseTab(tab.id);
@@ -225,7 +225,7 @@ export function DesignToolbar({
                 <Button
                     variant={designOn ? "secondary" : "ghost"}
                     size="sm"
-                    className={cn("gap-1.5", designOn && "bg-panel-active")}
+                    className={cn("gap-1.5", designOn && "bg-[var(--btn-open)]")}
                     onClick={() => onModeChange(designOn ? "normal" : "select")}
                 >
                     <Icon icon={Edit20Regular} />

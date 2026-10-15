@@ -49,7 +49,7 @@ function TestRow({ test }: { test: TestCase }) {
         <div className="select-none">
             <button
                 type="button"
-                className="flex w-full items-start gap-2 px-6 py-1.5 text-left hover:bg-panel-hover/50"
+                className="flex w-full items-start gap-2 px-6 py-1.5 text-left transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--row-hover)]"
                 onClick={() => setExpanded((v) => !v)}
             >
                 <StatusIcon status={test.status} />
@@ -169,7 +169,7 @@ export default function TestPanel() {
                         <div key={suite.id} className="border-b border-border-subtle/50">
                             <button
                                 type="button"
-                                className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-panel-hover/50"
+                                className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--row-hover)]"
                                 onClick={() => toggleFile(suite.file)}
                             >
                                 <Icon

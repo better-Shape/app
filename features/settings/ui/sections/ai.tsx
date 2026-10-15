@@ -468,7 +468,7 @@ export function AiSettingsPanel({
                             ))}
                             <button
                                 type="button"
-                                className="px-3.5 py-2.5 text-left text-sm text-text-muted hover:bg-white/4 hover:text-text-primary"
+                                className="px-3.5 py-2.5 text-left text-sm text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--row-hover)] hover:text-text-primary"
                                 onClick={() => setShowAllSubagentModels((v) => !v)}
                             >
                                 {showAllSubagentModels ? "Show fewer models" : "View all models"}
@@ -508,7 +508,7 @@ export function AiSettingsPanel({
                 ))}
                 <button
                     type="button"
-                    className="px-3.5 py-2.5 text-left text-sm text-text-muted hover:bg-white/4 hover:text-text-primary"
+                    className="px-3.5 py-2.5 text-left text-sm text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--row-hover)] hover:text-text-primary"
                     onClick={() => setShowAllModels((v) => !v)}
                 >
                     {showAllModels ? "Show fewer models" : "View all models"}
