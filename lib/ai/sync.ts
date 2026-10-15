@@ -192,7 +192,8 @@ async function hydrateSecrets(touched: Set<string>, reconcile: Reconcile): Promi
     }
     if (!persisted) notify.error("Some credentials are not available in the keychain", "Unlock the system keychain and retry. Failed reads do not clear local drafts.");
     const authoritative: Record<string, string> = {};
-    for (const id of inventoried) {
+    // Native tombstones remain authoritative even if local inventory was lost.
+    for (const id of new Set([...inventoried, ...cleared])) {
         if (!pending.has(id) && !touched.has(id) && !unavailable.has(id) && (loaded[id] !== undefined || cleared.has(id))) authoritative[id] = loaded[id] ?? "";
     }
     for (const id of deletedSecretIds()) if (!touched.has(id)) authoritative[id] = "";

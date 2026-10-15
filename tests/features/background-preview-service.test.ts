@@ -222,6 +222,7 @@ it("keeps literal POSIX backslashes and whitespace in project identity", () => {
     expect(background.sameProjectPath(String.raw`/project/a\b`, "/project/a/b")).toBe(false);
     expect(background.sameProjectPath("/project/app ", "/project/app")).toBe(false);
     expect(background.spawnCwd("/project/app ")).toBe("/project/app ");
+    expect(background.sameProjectPath(String.raw`C:\Users\App`, "/mnt/c/Users/App")).toBe(false);
     expect(background.sameProjectPath(String.raw`\Project`, String.raw`\project`)).toBe(false);
 });
 it("starts a different PTY for distinct double-slash POSIX projects", async () => {

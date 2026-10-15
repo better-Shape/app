@@ -23,15 +23,42 @@ pub(crate) fn image_tag(name: &str, mime: &str, data_url: &str) -> String {
 /// Decode versioned names once, retaining legacy literal and partial-name lookup.
 pub(crate) fn image_name_matches(attrs: &str, name_lc: &str) -> bool {
     if attrs.contains(" name_encoding=\"xml\"") {
-        return attrs
-            .split_once(" name=\"")
-            .and_then(|(_, rest)| rest.split_once('"'))
-            .is_some_and(|(name, _)| decode_xml_attr(name).contains(name_lc));
+        return decoded_name(attrs).is_some_and(|name| name.contains(name_lc));
     }
     let name_ok = attrs.contains(&format!("name=\"{name_lc}\""))
         || attrs.contains(&format!("name='{name_lc}'"))
         || (name_lc.is_empty() && attrs.contains("name="));
     name_ok || (!name_lc.is_empty() && attrs.contains(name_lc))
+}
+
+/// Match asset filenames or media IDs without broad substring matching.
+pub(crate) fn asset_name_matches(attrs: &str, name_lc: &str) -> bool {
+    if name_lc.is_empty() || attrs.contains(&format!("media_id=\"{name_lc}\"")) {
+        return true;
+    }
+    if attrs.contains(" name_encoding=\"xml\"") {
+        return decoded_name(attrs).is_some_and(|name| name == name_lc);
+    }
+    attrs.contains(&format!("name=\"{name_lc}\""))
+}
+
+/// Locate an inline asset payload without consuming its surrounding instructions.
+pub(crate) fn asset_data_url(body: &str) -> Option<&str> {
+    let body = body.trim();
+    if body.starts_with("data:") {
+        return Some(body);
+    }
+    let (_, tail) = body.rsplit_once('\n')?;
+    let tail = tail.trim();
+    tail.starts_with("data:").then_some(tail)
+}
+
+/// Extract only the producer's name attribute, not type or encoding metadata.
+fn decoded_name(attrs: &str) -> Option<String> {
+    attrs
+        .split_once(" name=\"")
+        .and_then(|(_, rest)| rest.split_once('"'))
+        .map(|(name, _)| decode_xml_attr(name))
 }
 
 /// Decode the producer's four entities once, with ampersands last to avoid aliases.
@@ -112,5 +139,41 @@ mod tests {
             escape_xml_attr("a&gt;b&\"<.png"),
             "a&amp;gt;b&amp;&quot;&lt;.png"
         );
+    }
+    #[test]
+    fn assets_distinguish_encoded_and_literal_entity_names() {
+        let attrs = r#"<attached_asset name="a&gt;b.woff" name_encoding="xml" usable="true""#;
+        assert!(asset_name_matches(attrs, "a>b.woff"));
+        assert!(!asset_name_matches(attrs, "a&gt;b.woff"));
+        assert!(!asset_name_matches(attrs, "b.woff"));
+        assert!(!asset_name_matches(attrs, "xml"));
+        let literal = r#"<attached_asset name="a&amp;gt;b.woff" name_encoding="xml""#;
+        assert!(asset_name_matches(literal, "a&gt;b.woff"));
+        assert!(!asset_name_matches(literal, "a>b.woff"));
+    }
+
+    #[test]
+    fn assets_keep_legacy_name_and_media_id_matching() {
+        let attrs = r#"<generated_image name="a&gt;b.png" media_id="image-1""#;
+        assert!(asset_name_matches(attrs, "a&gt;b.png"));
+        assert!(!asset_name_matches(attrs, "a>b.png"));
+        assert!(asset_name_matches(attrs, "image-1"));
+        assert!(asset_name_matches(attrs, ""));
+        assert!(!asset_name_matches(attrs, "b.png"));
+    }
+
+    #[test]
+    fn reads_legacy_asset_instructions_and_bare_payloads() {
+        let data = "data:font/woff;base64,YQ==";
+        assert_eq!(asset_data_url(data), Some(data));
+        let legacy = format!("Use this asset in the project.\n{data}");
+        assert_eq!(asset_data_url(&legacy), Some(data));
+        assert_eq!(asset_data_url("Nothing inlined"), None);
+        // Leave trailing junk for the actual base64 decoder to reject.
+        assert_eq!(
+            asset_data_url("data:font/woff;base64,YQ==\nNot a payload"),
+            Some("data:font/woff;base64,YQ==\nNot a payload")
+        );
+        assert_eq!(asset_data_url("instructions\nnot-data"), None);
     }
 }

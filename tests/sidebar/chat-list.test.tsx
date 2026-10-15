@@ -482,6 +482,7 @@ it.each([
     ["settled", "ArrowUp", "snoozed", "Snoozed"],
     ["working", "ArrowDown", "active", "Resumed"],
     ["working", "ArrowUp", "pinned", "Pinned"],
+    ["working", "ArrowDown ArrowDown ArrowDown", "settled", "Settled"],
 ] as const)("supports real keyboard dragging from %s with %s to %s and undo", async (source, key, destination, label) => {
     const restore = installKeyboardDragLayout();
     try {
@@ -495,8 +496,8 @@ it.each([
         });
         expect(host.querySelectorAll("[data-drop-shelf]")).toHaveLength(4);
         expect(host.querySelector('[data-drop-shelf="snoozed"]')?.textContent).toContain("Snooze");
-        await act(async () => {
-            document.dispatchEvent(new KeyboardEvent("keydown", { key, code: key, bubbles: true, cancelable: true }));
+        for (const step of key.split(" ")) await act(async () => {
+            document.dispatchEvent(new KeyboardEvent("keydown", { key: step, code: step, bubbles: true, cancelable: true }));
         });
         await act(async () => {
             document.dispatchEvent(new KeyboardEvent("keydown", { key: " ", code: "Space", bubbles: true, cancelable: true }));

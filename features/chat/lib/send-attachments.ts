@@ -93,18 +93,22 @@ function readAttachment(file: ComposerAttachment, dataUrl: boolean, signal: Abor
     });
 }
 
+/** Mark escaped names so native lookup can distinguish them from legacy literals. */
+function attachmentNameAttributes(value: string): string {
+    const name = escapeXmlAttr(value);
+    const encoding = name === value ? "" : ' name_encoding="xml"';
+    return `name="${name}"${encoding}`;
+}
+
 /** Keep the existing text/audio/oversized-asset envelope and MIME fallback. */
 function attachedFile(file: ComposerAttachment, content: string, fallbackType = "application/octet-stream"): string {
-    return `<attached_file name="${file.name}" type="${file.mimeType || fallbackType}" size="${file.size}">\n${content}\n</attached_file>`;
+    return `<attached_file ${attachmentNameAttributes(file.name)} type="${escapeXmlAttr(file.mimeType || fallbackType)}" size="${file.size}">\n${content}\n</attached_file>`;
 }
 
 /** Require prepared image data instead of silently omitting a malformed attachment. */
 function imageBlock(file: ComposerAttachment): string {
     if (!file.dataUrl) throw new Error(`Attachment "${file.name}" has no prepared image data. Retry or remove it before sending.`);
-    const name = escapeXmlAttr(file.name);
-    // Distinguish new escaped names from legacy literal entity-looking filenames.
-    const encoding = name === file.name ? "" : ' name_encoding="xml"';
-    return `<attached_image name="${name}"${encoding} type="${escapeXmlAttr(file.mimeType)}" size="${file.size}">${file.dataUrl}</attached_image>`;
+    return `<attached_image ${attachmentNameAttributes(file.name)} type="${escapeXmlAttr(file.mimeType)}" size="${file.size}">${file.dataUrl}</attached_image>`;
 }
 
 /** Disclose bytes, not an invented character count, when only a prefix was decoded. */
@@ -124,7 +128,7 @@ async function binaryBlock(file: ComposerAttachment, signal: AbortSignal): Promi
         return attachedFile(file, `[Binary asset too large to inline (${file.size} bytes). Ask the user for a path in the repo, or copy it locally.]`);
     }
     const dataUrl = await readAttachment(file, true, signal);
-    return `<attached_asset name="${file.name}" type="${file.mimeType || "application/octet-stream"}" size="${file.size}" usable="true">\n` +
+    return `<attached_asset ${attachmentNameAttributes(file.name)} type="${escapeXmlAttr(file.mimeType || "application/octet-stream")}" size="${file.size}" usable="true">\n` +
         "When the user asks to use this file (e.g. apply a font, add an icon), write it into the project from this data URL and wire it up — do not only describe it.\n" +
         `${dataUrl}\n</attached_asset>`;
 }

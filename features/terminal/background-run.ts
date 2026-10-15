@@ -60,6 +60,7 @@ function preferIpv4DevCommand(command: string): string {
 
 /** Strip Windows `\\?\` prefixes so cmd.exe and path compares see a normal drive path. */
 export function spawnCwd(path: string): string {
+    // Resolved filesystem paths may contain significant surrounding whitespace.
     let value = path;
     if (value.startsWith("\\\\?\\UNC\\")) value = `\\\\${value.slice(8)}`;
     else if (value.startsWith("\\\\?\\")) value = value.slice(4);

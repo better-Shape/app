@@ -155,3 +155,21 @@ describe("image metadata framing", () => {
         expect(document.documentElement.getAttribute("type")).toBe(mimeType);
     });
 });
+
+it.each(["font", "text", "audio"].flatMap(kind => ["a>b", "a&b", "a&gt;b"].map(stem => ({ kind, stem }))))
+    ("frames $kind metadata without losing the literal filename $stem", async ({ kind, stem }) => {
+        const mimeType = kind === "font" ? "font/woff" : kind === "audio" ? "audio/ogg" : "text/plain";
+        const name = `${stem}.${kind === "font" ? "woff" : kind === "audio" ? "ogg" : "txt"}`;
+        const result = await serialize(attachment({
+            name, mimeType, kind: kind === "audio" ? "audio" : "file", file: new File(["hello"], name, { type: mimeType }),
+        }));
+        const tag = kind === "font" ? "attached_asset" : "attached_file";
+        const opening = result.slice(0, result.indexOf(">") + 1);
+        const document = new DOMParser().parseFromString(`${opening}</${tag}>`, "application/xml");
+        expect(document.querySelector("parsererror")).toBeNull();
+        expect(document.documentElement.getAttribute("name")).toBe(name);
+        expect(document.documentElement.getAttribute("name_encoding")).toBe("xml");
+        expect(document.documentElement.getAttribute("type")).toBe(mimeType);
+        if (kind === "font") expect(result).toContain("data:font/woff;base64,aGVsbG8=");
+        else if (kind === "text") expect(result).toContain("\nhello\n</attached_file>");
+    });

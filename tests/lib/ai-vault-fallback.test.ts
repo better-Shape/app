@@ -597,3 +597,59 @@ it("pins a locally edited header and its API key through same-endpoint desktop h
     expect(final.models).toEqual(["saved-model"]);
     expect(JSON.stringify(bridge.disk)).not.toContain("example-local-header");
 });
+
+/** Exercise the provider, custom-header and service credential namespaces. */
+function setLegacyTestCredential(providers: ReturnType<typeof defaultProvidersSettings>, id: string, value: string) {
+    if (id === "header:custom:Token") providers.connections.custom.headers = { Token: value };
+    else if (id === "service:search") providers.services.search.apiKey = value;
+    else if (id === "service:composio") providers.services.composio.apiKey = value;
+    else providers.connections.openai.apiKey = value;
+}
+it.each(["openai", "header:custom:Token", "service:search", "service:composio"].flatMap(id => [
+    { id, deleted: false }, { id, deleted: true },
+]))("honors native deletion without inventory for $id (deleted=$deleted)", async ({ id, deleted }) => {
+    reset();
+    const { DEFAULT_SETTINGS } = await import("@/lib/settings");
+    const legacy = structuredClone(DEFAULT_SETTINGS);
+    setLegacyTestCredential(legacy.ai.providers, id, "example-legacy-copy");
+    if (deleted) {
+        const saved = native.mutate(id, "example-legacy-copy", "initial", true, credentialScopes(legacy.ai.providers)[id]);
+        native.mutate(id, "", saved.current.revision);
+        native.restart();
+    }
+    bridge.disk = structuredClone(legacy);
+    localStorage.setItem("bettershape-settings-v1", JSON.stringify(legacy));
+    expect(localStorage.length).toBe(1);
+    const a = await openWindow(); stop = a.unsubscribe;
+    expect(a.settings.providerSecretsForVault()[id]).toBe(deleted ? undefined : "example-legacy-copy");
+    expect(native.values.get(id)).toBe(deleted ? undefined : "example-legacy-copy");
+    if (deleted) expect(bridge.store.mock.calls.some(([key]) => key === id)).toBe(false);
+    const providers = structuredClone(a.settings.getSettings().ai.providers);
+    setLegacyTestCredential(providers, id, "example-explicit-reentry");
+    a.settings.updateSettingSection("ai", { providers });
+    await a.sync.aiConfigReady();
+    expect(native.values.get(id)).toBe("example-explicit-reentry");
+});
+
+it("keeps explicit re-entry made while an uninventoried tombstone is loading", async () => {
+    reset();
+    const settings = await import("@/lib/settings");
+    const legacy = structuredClone(settings.DEFAULT_SETTINGS);
+    legacy.ai.providers.connections.openai.apiKey = "example-legacy-copy";
+    bridge.disk = legacy;
+    native.mutate("openai", "", "initial");
+    await settings.initSettings();
+    let finish!: () => void;
+    bridge.load.mockImplementationOnce((ids: string[]) => {
+        const rows = ids.map(native.read);
+        return new Promise(resolve => { finish = () => resolve(rows); });
+    });
+    const sync = await import("@/lib/ai/sync"); stop = sync.initAiConfigSync();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    const providers = structuredClone(settings.getSettings().ai.providers);
+    providers.connections.openai.apiKey = "example-explicit-reentry";
+    settings.updateSettingSection("ai", { providers });
+    finish(); await sync.aiConfigReady();
+    expect(settings.getSettings().ai.providers.connections.openai.apiKey).toBe("example-explicit-reentry");
+    expect(native.values.get("openai")).toBe("example-explicit-reentry");
+});

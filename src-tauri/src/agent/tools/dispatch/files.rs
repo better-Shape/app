@@ -380,9 +380,12 @@ fn decode_generated_media(content: &str, name_lc: &str) -> Option<Vec<u8>> {
             let close_angle = block.find('>')?;
             let attrs = &block[..close_angle].to_ascii_lowercase();
             let body = block[close_angle + 1..].trim();
-            let name_ok = name_lc.is_empty()
-                || attrs.contains(&format!("name=\"{name_lc}\""))
-                || attrs.contains(&format!("media_id=\"{name_lc}\""));
+            let body = if tag == "attached_asset" {
+                crate::agent::tools::attachment_tags::asset_data_url(body).unwrap_or("")
+            } else {
+                body
+            };
+            let name_ok = crate::agent::tools::attachment_tags::asset_name_matches(attrs, name_lc);
             if name_ok {
                 if body.starts_with("data:") {
                     if let Ok((_, bytes)) = crate::agent::media_stash::decode_data_url(body) {
@@ -1067,7 +1070,7 @@ pub(super) fn tool_rename_file(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutcome {
 
 #[cfg(test)]
 mod image_attachment_tests {
-    use super::decode_attached_image;
+    use super::{decode_attached_image, decode_generated_media};
     use crate::agent::tools::attachment_tags::image_tag;
 
     #[test]
@@ -1098,5 +1101,33 @@ mod image_attachment_tests {
             Some(b"a".to_vec())
         );
         assert_eq!(decode_attached_image(body, "a>b.png"), None);
+    }
+    #[test]
+    fn reads_legacy_asset_instructions_before_the_data_url() {
+        let body = "<attached_asset name=\"font.woff\" type=\"font/woff\" usable=\"true\">\nUse this asset in the project.\ndata:font/woff;base64,YQ==\n</attached_asset>";
+        assert_eq!(
+            decode_generated_media(body, "font.woff"),
+            Some(b"a".to_vec())
+        );
+    }
+
+    #[test]
+    fn keeps_encoded_asset_names_distinct_from_literal_entities() {
+        let body = "<attached_asset name=\"a&gt;b.woff\" name_encoding=\"xml\">\ndata:font/woff;base64,YQ==\n</attached_asset>\n<attached_asset name=\"a&amp;gt;b.woff\" name_encoding=\"xml\">\ndata:font/woff;base64,Yg==\n</attached_asset>";
+        assert_eq!(
+            decode_generated_media(body, "a>b.woff"),
+            Some(b"a".to_vec())
+        );
+        assert_eq!(
+            decode_generated_media(body, "a&gt;b.woff"),
+            Some(b"b".to_vec())
+        );
+        assert_eq!(decode_generated_media(body, "b.woff"), None);
+    }
+
+    #[test]
+    fn rejects_trailing_garbage_in_an_asset_payload() {
+        let body = "<attached_asset name=\"font.woff\">data:font/woff;base64,YQ==\nnot-base64</attached_asset>";
+        assert_eq!(decode_generated_media(body, "font.woff"), None);
     }
 }
