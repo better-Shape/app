@@ -41,3 +41,15 @@ The `AgentState` test for cancelled terminal owners and their child tokens has n
 ## Restored request identity
 
 An in-flight record alone does not preserve request-scoped Stop across a renderer reload. `ChatGenerationState` must expose the request id, and `reloadViewedMessages` must copy it into the restored live owner. Otherwise Stop falls back to conversation-only cancellation and can target a replacement after a delayed native dispatch. The mounted restoration regression failed with a null request id before that transfer was added. Native and TypeScript snapshot types now both carry the optional field. Legacy snapshots without the field remain readable.
+
+## Composer consumption and rejected admission
+
+The submitted composer text and attachments are still consumed when the message is
+handed to the backend, so the composer empties immediately and later edits belong
+to the next message. The submitted text and file ids are now retained for the
+failure path and put back when native admission rejects the send: files are
+re-added only when missing, and the text is restored only while the composer is
+still empty, so anything typed or attached after the rejection is never
+overwritten. `tests/features/chat-queue-session.test.tsx` covers this with
+`keeps the composer and its attachments when native admission rejects the send`,
+which fails against the previous source.

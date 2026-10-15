@@ -367,17 +367,31 @@ it("settles the captured initialization work without waiting for later settings 
     await sync.aiConfigReady();
 });
 
-it("fails readiness under continual configuration churn and permits a later retry", async () => {
+it("waits out a configuration burst that outlasts the fixed retry count", async () => {
     let edits = 0;
     state.configure.mockImplementation(async () => {
-        if (edits >= 32) return;
+        if (edits >= 20) return;
+        state.config.revision = String(++edits);
+        change({});
+    });
+    stop = sync.initAiConfigSync();
+    // Twenty rounds is more than the old eight-attempt cap, so this resolves only
+    // because readiness keeps retrying until the burst stops.
+    await expect(sync.aiConfigReady()).resolves.toBeUndefined();
+    expect(edits).toBeGreaterThanOrEqual(20);
+});
+
+it("fails readiness under sustained configuration churn and permits a later retry", async () => {
+    let edits = 0;
+    state.configure.mockImplementation(async () => {
         state.config.revision = String(++edits);
         change({});
     });
     stop = sync.initAiConfigSync();
     try {
         await expect(sync.aiConfigReady()).rejects.toThrow("Provider settings keep changing");
-        expect(edits).toBeLessThan(32);
+        // Endless churn is bounded by the settle budget, not by the attempt count.
+        expect(edits).toBeGreaterThanOrEqual(8);
     } finally {
         state.configure.mockResolvedValue(undefined);
     }

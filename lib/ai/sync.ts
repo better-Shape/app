@@ -316,12 +316,26 @@ export async function aiConfigSettled(): Promise<void> {
     await pendingSync;
 }
 
-/** Sends need a current configuration, but continual edits must produce a retryable failure rather than starvation. */
+/** Attempt floor and settle budget for one settings edit burst. */
+const CONFIG_SETTLE_ATTEMPTS = 8;
+const CONFIG_SETTLE_MS = 2_000;
+
+/**
+ * Sends need a current configuration, but continual edits must produce a
+ * retryable failure rather than starvation. A rapid burst can outlast a fixed
+ * attempt count even though it settles shortly after, so keep retrying until
+ * both the attempt floor and the settle budget are spent; the budget keeps the
+ * wait bounded under endless churn.
+ */
 export async function aiConfigReady(): Promise<void> {
-    for (let attempt = 0; attempt < 8; attempt += 1) {
+    const deadline = Date.now() + CONFIG_SETTLE_MS;
+    for (let attempt = 0; ; attempt += 1) {
         const observed = pendingSync;
         await observed;
-        if (observed !== pendingSync) continue;
+        if (observed !== pendingSync) {
+            if (attempt + 1 < CONFIG_SETTLE_ATTEMPTS || Date.now() < deadline) continue;
+            break;
+        }
         if (syncFailure) throw syncFailure;
         return;
     }

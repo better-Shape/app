@@ -177,3 +177,14 @@ The settings initializer now performs a three-way merge against its starting sna
 Versioned draft acknowledgements now include destination identity. An identical key saved for another endpoint is not success for the current draft. A reproduced failure also showed an earlier in-flight deletion erasing a newer window's unsaved input after a rejected write. The fix reconciles clears only while a deletion intent remains authoritative. The native clear can win its lease without discarding the newer input.
 
 These boundaries do not grant protection from a compromised renderer, external keychain modification by another process, provider-side disclosure or all network redirects. Platform keychain behaviour and native application compilation remain unverified.
+
+## Damaged managed records stay unreadable
+
+`ai_vault::decode` treats a password carrying the `bettershape-vault-v1\n` marker
+as a managed record and returns the parse error instead of falling back to the
+raw bytes. The marker ends in a newline, so a legacy raw secret cannot carry it;
+a prefixed value that does not parse is a damaged record. Importing its bytes as
+an API key would resurrect a truncated record and drop its lease identity, and the
+record is never deleted — saving a key writes a fresh one. The existing test that
+rejects `bettershape-vault-v1\n{broken` is the regression guard, and the reasoning
+is documented at `decode`.

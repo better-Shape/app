@@ -21,6 +21,11 @@ const RECORD_PREFIX: &str = "bettershape-vault-v1\n";
 /// Legacy raw passwords remain readable; new records retain non-secret
 /// generations even after a clear, so restarts cannot reuse an old lease.
 pub fn decode(id: &str, password: Option<&str>) -> Result<Snapshot, serde_json::Error> {
+    // The marker ends in a newline, so a raw legacy secret cannot carry it. A
+    // prefixed value that does not parse is therefore a damaged managed record,
+    // and the error is deliberate: falling back to the raw bytes would import a
+    // truncated record as an API key and silently drop its lease identity. The
+    // record stays until the user saves a new key, which writes a fresh one.
     if let Some(json) = password.and_then(|value| value.strip_prefix(RECORD_PREFIX)) {
         let mut snapshot: Snapshot = serde_json::from_str(json)?;
         snapshot.id = id.to_owned();

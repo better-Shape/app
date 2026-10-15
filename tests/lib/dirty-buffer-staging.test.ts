@@ -89,3 +89,36 @@ it("blocks unload until a reverted draft's failed tombstone flush succeeds", () 
     expect(retry.defaultPrevented).toBe(false);
     expect(localStorage.getItem("bettershape-dirty-buffers-v2:%2Fa.txt")).toBeNull();
 });
+
+it("prefers recovery another renderer persisted after this window loaded its copy", () => {
+    const key = "bettershape-dirty-buffers-v2:%2Fa.txt";
+    saveDirtyBuffer("/a.txt", "local draft", "disk");
+    expect(loadDirtyBuffer("/a.txt")?.content).toBe("local draft");
+    vi.setSystemTime(Date.now() + 1000);
+    localStorage.setItem(key, JSON.stringify({ path: "/a.txt", content: "newer draft", savedContent: "disk", updatedAt: Date.now() }));
+    expect(loadDirtyBuffer("/a.txt")?.content).toBe("newer draft");
+    // A later local edit is newer than the record it follows, so it still wins.
+    vi.setSystemTime(Date.now() + 1000);
+    stageDirtyBuffer("/a.txt", "my next edit", "disk");
+    expect(loadDirtyBuffer("/a.txt")?.content).toBe("my next edit");
+});
+
+it("does not overwrite recovery another renderer persisted before a delayed flush", () => {
+    const key = "bettershape-dirty-buffers-v2:%2Fa.txt";
+    stageDirtyBuffer("/a.txt", "late local draft", "disk");
+    vi.setSystemTime(Date.now() + 1000);
+    localStorage.setItem(key, JSON.stringify({ path: "/a.txt", content: "newer elsewhere", savedContent: "disk", updatedAt: Date.now() }));
+    expect(flushDirtyBuffers()).toBe(true);
+    expect(JSON.parse(localStorage.getItem(key)!).content).toBe("newer elsewhere");
+    expect(loadDirtyBuffer("/a.txt")?.content).toBe("newer elsewhere");
+});
+
+it("keeps recovery another renderer persisted after the draft this window discarded", () => {
+    const key = "bettershape-dirty-buffers-v2:%2Fa.txt";
+    saveDirtyBuffer("/a.txt", "discarded draft", "disk");
+    vi.setSystemTime(Date.now() + 1000);
+    localStorage.setItem(key, JSON.stringify({ path: "/a.txt", content: "re-drafted elsewhere", savedContent: "disk", updatedAt: Date.now() }));
+    expect(clearDirtyBuffer("/a.txt")).toBe(true);
+    expect(JSON.parse(localStorage.getItem(key)!).content).toBe("re-drafted elsewhere");
+    expect(loadDirtyBuffer("/a.txt")?.content).toBe("re-drafted elsewhere");
+});

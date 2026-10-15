@@ -326,3 +326,12 @@ A focus or visibility wake now publishes newly observed storage state and schedu
 Four original-source failures cover reordered equal records, focus and visibility reconciliation, and no-op storage notifications. A separate control preserves malformed percent-encoded records without guessing a chat ID or deleting the bytes. The malformed-key review suggestion does not justify a raw-key fallback. The current reader still loads neighboring valid records.
 
 Research checks [Storage.key enumeration](https://github.com/mdn/content/blob/main/files/en-us/web/api/storage/key/index.md), [React's cached snapshot contract](https://github.com/reactjs/react.dev/blob/main/src/content/reference/react/useSyncExternalStore.md), and installed jsdom storage implementation. Enumeration is user-agent-defined, React compares snapshots with Object.is, and local storage changes do not emit a storage event back to the writing window. The sidebar and drag consumers keep the same public store API. Tests model storage and focus events in jsdom; native multi-WebView scheduling remains unverified. No persistence format, layout or style changes.
+
+## Readiness waits out a settling burst
+
+A fixed attempt count failed readiness during an edit burst that settled shortly
+after. `aiConfigReady` now retries until both an attempt floor (8) and a settle
+budget (2 s) are spent: a burst that outlasts the old cap resolves when it stops,
+while endless churn still fails with the same retryable message and a bounded
+wait. `tests/lib/ai-sync.test.ts` covers both directions; the burst test fails
+against the previous source.

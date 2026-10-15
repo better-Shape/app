@@ -20,6 +20,10 @@ export type DirtyBuffer = {
 // Retain this window's unsaved work even if storage later becomes unavailable.
 const ownedBuffers = new Map<string, DirtyBuffer>();
 const pendingBuffers = new Map<string, DirtyBuffer | null>();
+// When this window staged a change for a path. Recovery records are per path
+// across renderers, so a record another window persisted afterwards outranks
+// this window's staged change instead of being overwritten by it.
+const pendingIntents = new Map<string, number>();
 let flushTimer: ReturnType<typeof setTimeout> | undefined;
 
 const UNSAFE_KEYS = new Set(["__proto__", "constructor", "prototype"]);
@@ -64,6 +68,15 @@ function applyStoredEntry(map: Map<string, DirtyBuffer>, key: string): void {
     } catch { /* One unavailable or malformed entry must not discard other drafts. */ }
 }
 
+/** Read one path's durable record without staging anything from it. */
+function storedBuffer(path: string): DirtyBuffer | undefined {
+    try {
+        const raw: unknown = JSON.parse(localStorage.getItem(`${ENTRY_PREFIX}${encodeURIComponent(path)}`) ?? "null");
+        return isUsableBuffer(raw) && raw.path === path ? raw : undefined;
+    } catch { /* An unreadable record supplies no ordering authority. */ }
+    return undefined;
+}
+
 /** Combine durable recovery with this window's unsaved work and pending removals. */
 function readAll(): Map<string, DirtyBuffer> {
     let map = new Map<string, DirtyBuffer>();
@@ -75,10 +88,20 @@ function readAll(): Map<string, DirtyBuffer> {
             if (key?.startsWith(ENTRY_PREFIX)) applyStoredEntry(map, key);
         }
     } catch { /* Preserve all entries already read and the session-owned drafts below. */ }
-    for (const [path, buffer] of ownedBuffers) map.set(path, { ...buffer });
+    for (const [path, buffer] of ownedBuffers) {
+        // This window's memory copy is authoritative only while it is the newest
+        // recovery state; a record persisted by another renderer afterwards wins.
+        const stored = map.get(path);
+        map.set(path, stored && stored.updatedAt > buffer.updatedAt ? stored : { ...buffer });
+    }
     for (const [path, buffer] of pendingBuffers) {
         if (buffer) map.set(path, { ...buffer });
-        else map.delete(path);
+        else {
+            // A newer record means the discarded content was re-drafted elsewhere.
+            const stored = map.get(path);
+            if (stored && stored.updatedAt > (pendingIntents.get(path) ?? 0)) map.set(path, stored);
+            else map.delete(path);
+        }
     }
     return map;
 }
@@ -88,12 +111,26 @@ function writePending(): boolean {
     if (typeof window === "undefined") return false;
     let legacy: Map<string, DirtyBuffer> | undefined;
     for (const [path, buffer] of pendingBuffers) {
+        const intentAt = pendingIntents.get(path) ?? buffer?.updatedAt ?? 0;
+        const stored = storedBuffer(path);
+        if (stored && stored.updatedAt > intentAt) {
+            // Another renderer persisted newer recovery for this path while this
+            // change was staged. Its record is the recovery state to keep.
+            if (pendingBuffers.get(path) === buffer) {
+                pendingBuffers.delete(path);
+                pendingIntents.delete(path);
+            }
+            continue;
+        }
         try {
             const key = `${ENTRY_PREFIX}${encodeURIComponent(path)}`;
             if (buffer === null) legacy ??= readLegacyBuffers();
             if (buffer === null && !legacy?.has(path)) localStorage.removeItem(key);
             else localStorage.setItem(key, JSON.stringify(buffer));
-            if (pendingBuffers.get(path) === buffer) pendingBuffers.delete(path);
+            if (pendingBuffers.get(path) === buffer) {
+                pendingBuffers.delete(path);
+                pendingIntents.delete(path);
+            }
         } catch { /* Failed writes and removals stay visible to the unload guard. */ }
     }
     return pendingBuffers.size === 0;
@@ -102,9 +139,13 @@ function writePending(): boolean {
 export function stageDirtyBuffer(path: string, content: string, savedContent: string): void {
     if (typeof window === "undefined" || !path || UNSAFE_KEYS.has(path)) return;
     const buffer = content === savedContent ? null : { path, content, savedContent, updatedAt: Date.now() };
+    // A removal speaks for the draft this window is discarding, not for whatever
+    // another renderer persisted afterwards, so it keeps that draft's timestamp.
+    const intentAt = buffer?.updatedAt ?? ownedBuffers.get(path)?.updatedAt ?? Date.now();
     if (buffer) ownedBuffers.set(path, buffer);
     else ownedBuffers.delete(path);
     pendingBuffers.set(path, buffer);
+    pendingIntents.set(path, intentAt);
     if (flushTimer !== undefined) clearTimeout(flushTimer);
     flushTimer = setTimeout(flushDirtyBuffers, 250);
 }
@@ -128,8 +169,10 @@ export function saveDirtyBuffer(path: string, content: string, savedContent: str
 
 export function clearDirtyBuffer(path: string): boolean {
     if (!path || UNSAFE_KEYS.has(path)) return false;
+    const previous = pendingBuffers.get(path) ?? ownedBuffers.get(path);
     ownedBuffers.delete(path);
     pendingBuffers.set(path, null);
+    pendingIntents.set(path, previous?.updatedAt ?? Date.now());
     return flushDirtyBuffers();
 }
 

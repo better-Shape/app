@@ -94,6 +94,14 @@ export function installWindowCloseGuard(): () => void {
                     }
                     if (!flushDirtyBuffers()) throw new Error("Could not persist editor recovery");
                     destroying = true;
+                    // A change event can still be queued behind this check. Give it
+                    // its synchronous flush, and refuse the destructive step when
+                    // recovery cannot be written: a destroyed window owns no retry.
+                    await new Promise((resolve) => setTimeout(resolve, 0));
+                    if (!flushDirtyBuffers()) {
+                        destroying = false;
+                        throw new Error("Could not persist editor recovery");
+                    }
                     await win.destroy();
                     destroyed = true;
                 } catch (error) {

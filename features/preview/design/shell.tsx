@@ -655,6 +655,10 @@ export function DesignStudio({
                     if (!authorization) return Promise.resolve(false);
                     const targetUrl = new URL(url).href;
                     if (opening) {
+                        // An in-flight open is about to replace what is on screen and has
+                        // already reset readiness, so an already-open URL is queued rather
+                        // than reported ready: the newest request must be the one that ends
+                        // up displayed. Queued work collapses to this single slot.
                         const sameRequest = openingRequest?.url === targetUrl
                             && openingRequest.authorization.serviceId === authorization.serviceId
                             && openingRequest.authorization.origin === authorization.origin;
@@ -756,6 +760,10 @@ export function DesignStudio({
         };
     }, [bootRoot, setSelection]);
 
+    // Bridge registration only covers documents created afterwards, so every
+    // registration in this shell happens before the preview document is loaded:
+    // the open path registers first and then commits the URL with `reload: true`,
+    // and a registration that replaces an earlier script reloads a live preview.
     useEffect(() => {
         if (!ready) return;
         const authorization = authorizationRef.current;
@@ -1056,6 +1064,10 @@ export function DesignStudio({
                     // The file is already saved. A replaced preview loses publication
                     // rights, not the successful write acknowledgement.
                     try { assertAuthorized(); } catch {
+                        // A replaced preview owns its own bootstrap: it clears the
+                        // token list when it opens and republishes what it reads, so
+                        // the saved value is left to that fetch rather than pushed
+                        // onto a token list that belongs to the old document.
                         invalidateGlobalsCssCache(designerRoot);
                         return;
                     }

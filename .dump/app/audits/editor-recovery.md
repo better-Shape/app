@@ -27,3 +27,29 @@ A browser reload attempts to flush pending file recovery. If it cannot persist a
 ## Limits
 
 These tests do not establish OS-dialog behavior or native event ordering. Native compilation and packaged scenarios remain required. Concurrent editors for the same path in separate windows do not have a versioned merge protocol for file recovery. A crash before a debounced write, a failed localStorage write followed by forced termination, or an external change to stored recovery can still lose session-only edits. These limits are separate from the keychain-only provider-credential policy.
+
+## Cross-renderer ordering and the destructive flush
+
+Recovery records are per path, and more than one renderer can hold the same path
+(a window can be reloaded while a popout keeps its own editors). Two ordering
+rules now apply, both keyed on the record's `updatedAt`:
+
+- `readAll` no longer overlays this window's remembered copy unconditionally. The
+  newer of the remembered copy and the durable record wins, so a draft another
+  renderer persisted later is what a load returns, while a local edit staged
+  afterwards still wins because it is stamped later.
+- The flush reads the path's durable record before writing and drops a staged
+  change whose intent is older than that record — for writes and for tombstones
+  alike. Removal intents carry the discarded draft's timestamp, so discarding a
+  draft never deletes recovery another renderer wrote afterwards.
+
+`destroyIfUnchanged` also yields once after flipping `destroying` and re-checks
+the flush before calling `win.destroy()`. An edit that lands in that window either
+persists or aborts the close, with the existing rollback restoring the discarded
+recovery copies; the alternative is destroying a window whose last edit exists
+only in memory, and a destroyed window owns no retry.
+
+Evidence: `tests/lib/dirty-buffer-staging.test.ts` (12 tests, three of which fail
+against the previous source) and `tests/features/client-bootstrap.test.tsx` (32
+tests; `keeps a popout open when a queued edit cannot be persisted during
+destruction` fails against the previous source).

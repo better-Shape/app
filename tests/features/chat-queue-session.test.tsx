@@ -772,6 +772,16 @@ it("keeps attachments and composer text when provider validation fails", async (
     expect(session.inputValue).toBe("use this attachment");
     expect(session.sendError).toMatch(/API key/);
 });
+it("keeps the composer and its attachments when native admission rejects the send", async () => {
+    await stageAttachment();
+    backend.failNextSend = true;
+    let sent!: boolean;
+    await act(async () => { sent = await session.handleSendMessage(); });
+    expect(sent).toBe(false);
+    expect(backend.sent).toHaveLength(0);
+    expect(session.uploadedFiles).toHaveLength(1);
+    expect(session.inputValue).toBe("use this attachment");
+});
 it.each(["error", "processing"] as const)("does not silently omit an attachment left in %s state", async status => {
     await stageAttachment(status);
     vi.useFakeTimers();

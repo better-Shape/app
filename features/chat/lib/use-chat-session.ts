@@ -1012,17 +1012,40 @@ export function useChatSession(
             // No optimistic transcript exists until all asynchronous preparation succeeds.
             const clientRequestId = createChatRequestId(target);
             appendUserOptimistic(userMsg, target, clientRequestId);
+            let restoreConsumedDraft: (() => void) | undefined;
             try {
                 if (!fromQueue) {
                     // Only consume the submitted draft at admission. New edits/files belong to the next message.
                     const submitted = new Set(submittedIds);
+                    const consumedFiles = uploadedFilesRef.current.filter(file => submitted.has(file.id));
                     setUploadedFiles(files => files.filter(file => !submitted.has(file.id)));
-                    if (getViewedConversationId() === target && composerRevisionRef.current === submittedRevision && inputValueRef.current === messageContent) {
+                    const consumedComposer = getViewedConversationId() === target && composerRevisionRef.current === submittedRevision && inputValueRef.current === messageContent;
+                    const previousEditingQueueId = editingQueueIdRef.current;
+                    if (consumedComposer) {
                         inputValueRef.current = "";
                         setInputValue("");
                         editingQueueIdRef.current = null;
                         try { localStorage.removeItem("bettershape-chat-input"); } catch { /* Session draft still clears. */ }
                     }
+                    restoreConsumedDraft = () => {
+                        // Native admission can still reject the send. Give the submitted
+                        // draft back instead of making the user retype it, without
+                        // clobbering text or files added after the rejection.
+                        if (consumedFiles.length > 0) {
+                            setUploadedFiles(files => {
+                                const present = new Set(files.map(file => file.id));
+                                const missing = consumedFiles.filter(file => !present.has(file.id));
+                                return missing.length > 0 ? [...missing, ...files] : files;
+                            });
+                        }
+                        // The composer was cleared at admission, which bumps the revision, so
+                        // an empty composer is the guard: text typed since the failure stays.
+                        if (consumedComposer && getViewedConversationId() === target && !inputValueRef.current) {
+                            inputValueRef.current = messageContent;
+                            setInputValue(messageContent);
+                            editingQueueIdRef.current = previousEditingQueueId;
+                        }
+                    };
                 }
                 // Preparation ends at native admission, not at provider readiness.
                 preparations.finish(preparation);
@@ -1053,10 +1076,14 @@ export function useChatSession(
                     target,
                     clientRequestId,
                 );
+                // The message is now native state; a later failure must not put the
+                // consumed draft back into the composer.
+                restoreConsumedDraft = undefined;
                 await refreshMetadata();
                 failedSendHoldRef.current = null;
                 return true;
             } catch (err) {
+                restoreConsumedDraft?.();
                 const owner = getRequestOwner(clientRequestId);
                 if (!owner) return false;
                 holdQueueAfterFailedSend(owner.conversationId);
@@ -1778,6 +1805,10 @@ export function useChatSession(
         forceSendRef.current = true;
         let delivered = false;
         try {
+            // Two rows clicked at once share this Stop: the lane admits one turn, so
+            // the loser's row goes back to the front of its queue (restoreQueuedMessage
+            // prepends) and the drain delivers it when the winner's turn ends, instead
+            // of both racing native admission.
             if (isLoadingRef.current && !(await handleStopMessage())) {
                 restoreQueuedMessage(item);
                 return;

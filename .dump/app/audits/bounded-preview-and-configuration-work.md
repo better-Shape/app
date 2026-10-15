@@ -33,3 +33,24 @@ Mounted tests also cover unmount while registration is pending, later retry afte
 The first component-edit test supplied an empty property list, then asserted a property had changed. The corrected fixture provides an actual editable text property; the assertion remains. A review of the CSS loader rejected an unconditional post-save cache update because it could publish stale project content. Scoped invalidation and independent cache-owner tests cover that correction.
 
 UI feedback reuses the existing notification and canvas-error components. No layout, focus behavior, tokens, motion or dependencies change. `DESIGN.md` and `engineering/design-system-baseline.md` remain the visual contract. Copy uses sentence case and states the failure and retry behavior directly. Browser unit tests are not packaged WebView or device verification.
+
+## Preview document lifecycle invariants
+
+Two review findings on this area were validated against the code and are
+contracts rather than defects:
+
+- Bridge registration only covers documents created afterwards, so the shell
+  registers before the preview document loads: the open path registers first and
+  then commits the URL with `reload: true`, and a registration that replaces an
+  earlier script reloads a live preview. WebView2 and WebKit expose no host API
+  for executing into a cross-origin iframe, so ordering is the only mechanism.
+- While an open is in flight, `opened`/`openedUrl` still describe the document on
+  screen, but that iteration has already reset readiness and is about to replace
+  it. Reporting an already-open URL as ready would therefore name a URL the
+  worker is switching away from; the request is queued instead, and the queue
+  collapses to the newest request.
+
+A token saved while the preview was replaced invalidates the CSS cache and leaves
+the token list to the replacement's own bootstrap, which clears and republishes
+it. Pushing the saved value onto the old document's list would attribute it to a
+preview that no longer exists.

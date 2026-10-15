@@ -285,6 +285,24 @@ it("keeps a popout open if its staged recovery cannot be persisted", async () =>
     } finally { write.mockRestore(); }
 });
 
+it("keeps a popout open when a queued edit cannot be persisted during destruction", async () => {
+    nativeWindow.label = "popout-editor";
+    await render();
+    await vi.waitFor(() => expect(nativeWindow.onCloseRequested).toHaveBeenCalled());
+    const write = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("storage unavailable"); });
+    try {
+        // The edit lands after the pre-destroy flush check, while the window waits
+        // to confirm nothing changed. Destroying then would keep it in memory only.
+        setTimeout(() => {
+            stageDirtyBuffer("/popout.txt", "late keystroke", "disk");
+            window.dispatchEvent(new CustomEvent("bettershape-editor-changed", { detail: { path: "/popout.txt" } }));
+        }, 0);
+        await nativeWindow.onCloseRequested.mock.calls[0][0]({ preventDefault: vi.fn() });
+        expect(nativeWindow.destroy).not.toHaveBeenCalled();
+        expect(loadDirtyBuffer("/popout.txt")?.content).toBe("late keystroke");
+    } finally { write.mockRestore(); }
+});
+
 it("rolls back a discard if deleting its recovery copy fails", async () => {
     let write: ReturnType<typeof vi.spyOn> | undefined;
     nativeWindow.message.mockImplementationOnce(async () => {
