@@ -7,7 +7,7 @@ const EMPTY_ROWS: Record<string, unknown>[] = [];
 const rowKey = (row: Record<string, unknown>) => `${String(row.event ?? "")}:${String(row.id ?? row.filename ?? row.sha ?? JSON.stringify(row))}`;
 
 /** Lazy tab data: failed refreshes retain the last snapshot, never masquerade as empty. */
-export function usePagedPrResource(path: string, revision: number, limit = Infinity) {
+export function usePagedPrResource(path: string, revision: string | number, limit = Infinity) {
     const [snapshot, setSnapshot] = useState<{ path: string; rows: Record<string, unknown>[] } | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);

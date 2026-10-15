@@ -345,3 +345,37 @@ it("keeps an optimistic replacement alive when old events arrive before its chat
     expect(api.isLoading).toBe(true);
     expect(api.messages.some((message) => message.content.includes("new response"))).toBe(true);
 });
+
+it("reloads the persisted transcript for the exact stopped turn", async () => {
+    await mount("A"); await answerMessages("A", [msg("user", "Question")]);
+    emit("chat_started", { conversationId: "A", turnId: "stopped" });
+    act(() => api.stopLiveTurn());
+    emit("chat_complete", { conversationId: "A", turnId: "stopped", error: "Cancelled" });
+    await answerMessages("A", [msg("user", "Question"), msg("assistant", "Persisted partial response")]);
+    expect(api.messages.at(-1)?.content).toBe("Persisted partial response");
+    expect(api.isLoading).toBe(false);
+});
+
+it("does not reload a stopped completion over a replacement send", async () => {
+    await mount("A"); await answerMessages("A", [msg("user", "Question")]);
+    emit("chat_started", { conversationId: "A", turnId: "stopped" });
+    act(() => api.stopLiveTurn());
+    act(() => api.appendUserOptimistic("Replacement", "A", "new-request"));
+    emit("chat_complete", { conversationId: "A", turnId: "stopped", error: "Cancelled" });
+    expect(backend.messageRequests).toHaveLength(0);
+    expect(api.isLoading).toBe(true);
+    expect(api.messages.some((message) => message.content === "Replacement")).toBe(true);
+});
+
+it("does not re-adopt a stopped turn from a delayed start after its replacement", async () => {
+    await mount("A"); await answerMessages("A", [msg("user", "Question")]);
+    emit("chat_started", { conversationId: "A", turnId: "stopped" });
+    act(() => api.stopLiveTurn());
+    act(() => api.appendUserOptimistic("Replacement", "A", "new-request"));
+    emit("chat_started", { conversationId: "A", turnId: "stopped" });
+    emit("chat_token", { conversationId: "A", turnId: "stopped", chunk: "obsolete" });
+    expect(api.turnId).toBe(null);
+    expect(api.messages.some((message) => message.content.includes("obsolete"))).toBe(false);
+    emit("chat_started", { conversationId: "A", turnId: "new", requestId: "new-request" });
+    expect(api.turnId).toBe("new");
+});

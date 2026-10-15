@@ -50,6 +50,15 @@ pub fn set_ai_config(config: AiProviderConfig) -> Result<(), AppError> {
             }
         }
     }
+    let vault = crate::core::ai_vault::VAULT
+        .lock()
+        .map_err(|_| AppError::Message("Credential coordinator unavailable.".into()))?;
+    if !vault.matches_config(&config) {
+        return Err(AppError::Message(
+            "Provider credentials changed in another window. Reload settings before retrying."
+                .into(),
+        ));
+    }
     let summary = ai_providers::describe(&config);
     ai_providers::set_config(config);
     crate::agent::commands::logging::info("ai", &format!("Providers configured: {summary}"));

@@ -15,8 +15,8 @@ describe("ipc", () => {
         await Promise.all([
             commands.aiTestProvider("openai", "openai", "sk-live", "https://api.openai.com/v1"),
             commands.aiVaultSupported(),
-            commands.aiStoreKey("openai", "sk-live"),
-            commands.aiDeleteKey("openai"),
+            commands.aiStoreKey("openai", "sk-live", "initial", "example-scope"),
+            commands.aiDeleteKey("openai", "revision-1"),
             commands.aiLoadKeys(["openai", "service:search"]),
             commands.aiCheckProvider("nvidia", {
                 kind: "openai",
@@ -37,8 +37,10 @@ describe("ipc", () => {
         expect(invoke).toHaveBeenCalledWith("ai_store_key", {
             providerId: "openai",
             apiKey: "sk-live",
+            expectedRevision: "initial",
+            scope: "example-scope",
         });
-        expect(invoke).toHaveBeenCalledWith("ai_delete_key", { providerId: "openai" });
+        expect(invoke).toHaveBeenCalledWith("ai_delete_key", { providerId: "openai", expectedRevision: "revision-1" });
         expect(invoke).toHaveBeenCalledWith("ai_load_keys", {
             providerIds: ["openai", "service:search"],
         });

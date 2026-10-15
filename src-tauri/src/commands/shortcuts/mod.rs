@@ -1,7 +1,7 @@
 use crate::core::error::AppError;
 use std::process::Command;
 use tauri::menu::{Menu, MenuItem, Submenu};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 pub fn setup_menu(app: &AppHandle) -> tauri::Result<()> {
     // Only keeping a minimal file menu for native integration
@@ -68,7 +68,13 @@ fn execute_shortcut_action(app: &AppHandle, action: &str) {
             let _ = app.emit("editor-shortcut", action);
         }
         "Alt+F4" | "close_window" | "exit" => {
-            app.exit(0);
+            if let Some(main) = app.get_webview_window("main") {
+                let _ = main.close();
+            } else {
+                for window in app.webview_windows().values() {
+                    let _ = window.close();
+                }
+            }
         }
         "Ctrl+K Z" => {
             let _ = app.emit("toggle-zen-mode", ());

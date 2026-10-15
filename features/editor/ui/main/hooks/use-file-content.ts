@@ -14,7 +14,8 @@ export function useFileContent(
     const [content, setContent] = useState<string>("");
     const [originalContent, setOriginalContent] = useState<string>("");
     const [error, setError] = useState<string | null>(null);
-    const [loading, setLoading] = useState(false);
+    const [loading, setLoading] = useState(!skipTextLoad);
+    const [loadedPath, setLoadedPath] = useState(path);
     
     useEffect(() => {
         let cancelled = false;
@@ -23,6 +24,7 @@ export function useFileContent(
             return;
         }
 
+        setLoadedPath(path);
         const cached = !isDiff ? commands.getCachedFileContent(path) : undefined;
         if (cached !== undefined) {
             setContent(cached);
@@ -224,15 +226,14 @@ export function useFileContent(
             const cleanPath = path.replace(/\\/g, '/').toLowerCase();
             if (cleanPayload === cleanPath) {
                 commands.invalidateFileCache(path);
-                void import("@/lib/workspace/dirty-buffers").then(({ clearDirtyBuffer, loadDirtyBuffer }) => {
+                void import("@/lib/workspace/dirty-buffers").then(({ loadDirtyBuffer }) => {
                     if (cancelled) return;
                     const dirty = loadDirtyBuffer(path);
-                    clearDirtyBuffer(path);
-                    void commands.markFileDirty(path, false).catch(reportLoadFailure);
+                    if (!dirty) void commands.markFileDirty(path, false).catch(reportLoadFailure);
                     if (dirty) {
                         notify.info(
                             "File updated by agent",
-                            "Unsaved editor changes were replaced by the agent's write.",
+                            "Your unsaved edits remain open. Review the disk changes before saving.",
                         );
                     }
                     return loadFile(false);
@@ -265,5 +266,6 @@ export function useFileContent(
         };
     }, [path, skipTextLoad, isDiff, project_path, savedContentRef, bufferVersionRef]);
 
-    return { content, setContent, originalContent, error, loading };
+    const current = loadedPath === path;
+    return { content: current ? content : "", setContent, originalContent: current ? originalContent : "", error: current ? error : null, loading: !current || loading };
 }

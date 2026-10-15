@@ -72,6 +72,7 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
     const loadVersion = useRef(0);
     const loadBusy = useRef(false);
     const [detailRevision, setDetailRevision] = useState(0);
+    const [resourceRevision, setResourceRevision] = useState(0);
     const load = useCallback(async (background = false) => {
         if (background && loadBusy.current) return;
         const version = ++loadVersion.current;
@@ -137,6 +138,11 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
             window.clearInterval(timer);
             document.removeEventListener("visibilitychange", refreshVisible);
         };
+    }, [load]);
+
+    const refresh = useCallback(() => {
+        setResourceRevision((revision) => revision + 1);
+        void load(true);
     }, [load]);
 
     const loadMore = async () => {
@@ -313,7 +319,7 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
                                 </button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end" className="min-w-52">
-                                <DropdownMenuItem onClick={() => void load(true)}>
+                                <DropdownMenuItem onClick={refresh}>
                                     <Icon icon={ArrowSync20Regular} />
                                     Refresh
                                 </DropdownMenuItem>
@@ -409,7 +415,7 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
                             <div className="flex gap-2">
                                 <span className="w-20 shrink-0 text-text-muted">Reviewers</span>
                                 <div className="min-w-0 text-text-secondary">
-                                    <PrReviewers item={selected} requested={requestedReviewers} revision={detailRevision} />
+                                    <PrReviewers item={selected} requested={requestedReviewers} revision={resourceRevision} />
                                 </div>
                             </div>
                             <div className="flex gap-2">
@@ -448,10 +454,10 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
                         )}
                     </TabsContent>
                     <TabsContent value="files" className="min-h-0 flex-1 overflow-y-auto px-3 pb-6 pt-3">
-                        <PrFilesTab item={selected} revision={detailRevision} />
+                        <PrFilesTab item={selected} revision={resourceRevision} />
                     </TabsContent>
                     <TabsContent value="timeline" className="min-h-0 flex-1 overflow-y-auto px-3 pb-6 pt-3">
-                        <PrTimelineTab item={selected} revision={detailRevision} />
+                        <PrTimelineTab item={selected} revision={resourceRevision} />
                     </TabsContent>
                 </Tabs>
             </div>
@@ -471,7 +477,7 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
             onSortChange={setSort}
             state={state}
             onStateChange={setState}
-            onRefresh={() => void load(true)}
+            onRefresh={refresh}
             onSignIn={() => void loginGitHub()}
             onCiResolved={onCiResolved}
             hasMore={hasMore}

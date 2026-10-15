@@ -42,7 +42,9 @@ import {
     type ProviderId,
     type ProvidersSettings,
 } from "@/lib/ai/providers";
-import { areSecretsVaulted, useSettings, updateSettingSection } from "@/lib/settings";
+import { getCredentialRecoveryConflicts, areSecretsVaulted, useSettings, updateSettingSection } from "@/lib/settings";
+import { getUnsavedCredentialCount, subscribeCredentialDrafts } from "@/lib/ai/credential-drafts";
+import { reviewSavedCredentials, retryCredentialPersistence } from "@/lib/ai/sync";
 import { vaultAvailable } from "@/lib/ai/vault";
 import {
     SettingCard,
@@ -97,12 +99,11 @@ function KeyInput({
 }
 
 /** Keychain availability, probed once per mounted settings view. */
-function useVaultStatus(): boolean | null {
+function useVaultStatus(unsaved: number, retrying: boolean): boolean | null {
     const [available, setAvailable] = React.useState<boolean | null>(
         typeof window === "undefined" ? null : areSecretsVaulted() ? true : null,
     );
     React.useEffect(() => {
-        if (available !== null) return;
         let cancelled = false;
         void vaultAvailable().then((supported) => {
             if (!cancelled) setAvailable(supported);
@@ -110,7 +111,7 @@ function useVaultStatus(): boolean | null {
         return () => {
             cancelled = true;
         };
-    }, [available]);
+    }, [unsaved, retrying]);
     return available;
 }
 
@@ -512,10 +513,28 @@ function ProviderCard({ id, providers }: { id: ProviderId; providers: ProvidersS
 export function ProvidersSettingsView() {
     const settings = useSettings();
     const providers = settings.ai.providers;
+    const recoveryConflicts = getCredentialRecoveryConflicts();
     const models = availableModels(providers);
     const embeddable = embeddingsAvailable(providers);
     const embeddingOptions = embeddingModelOptions(providers);
-    const vault = useVaultStatus();
+    const unsaved = React.useSyncExternalStore(subscribeCredentialDrafts, getUnsavedCredentialCount, () => 0);
+    const [retrying, setRetrying] = React.useState(false);
+    const vault = useVaultStatus(unsaved, retrying);
+    const retry = React.useCallback(async () => {
+        setRetrying(true);
+        try {
+            if (getCredentialRecoveryConflicts().length > 0) {
+                await reviewSavedCredentials(async (destinations) => {
+                    const { confirm } = await import("@tauri-apps/plugin-dialog");
+                    return confirm(`Use the OS keychain's saved keys for these destinations? This replaces the affected drafts in this window.\n\n${destinations.join("\n")}`,
+                        { title: "Review saved credentials", kind: "warning", okLabel: "Use saved keys", cancelLabel: "Cancel" });
+                });
+            } else await retryCredentialPersistence();
+        } catch {
+            const { notify } = await import("@/features/notifications");
+            notify.error("Could not recover credentials", "Your saved copies have not been removed. Retry or re-enter the affected keys.");
+        } finally { setRetrying(false); }
+    }, []);
     const [query, setQuery] = React.useState("");
     // A provider with no known embedding defaults (a local runtime) needs the
     // model id typed in, so the select becomes a text field.
@@ -556,11 +575,17 @@ export function ProvidersSettingsView() {
                 description="Bring your own keys. Requests go straight from your machine to the provider — BetterShape never proxies them."
                 card={false}
             >
-                {vault === false ? (
-                    <div className="mb-2.5 rounded-md border border-amber-500/40 px-3 py-2 text-xs text-amber-500">
-                        No OS keychain is available on this machine, so keys are kept in the app&apos;s
-                        local settings file. Install a Secret Service provider (gnome-keyring,
-                        KWallet) to store them encrypted.
+                {vault === false || unsaved > 0 || recoveryConflicts.length > 0 ? (
+                    <div role="status" className="mb-2.5 rounded-md border border-warning/40 px-3 py-2 text-xs text-warning">
+                        {recoveryConflicts.length > 0
+                            ? `Saved credential state needs review for ${recoveryConflicts.join(", ")}. Review the saved keys and their destinations, or re-enter these keys or header values. Existing saved copies have not been removed.`
+                            : unsaved > 0
+                            ? "Credential changes are unsaved and stay only in this window. Closing or restarting can lose them."
+                            : "The OS keychain is unavailable. New keys will stay only in memory until the keychain can save them."}
+                        {" "}Unlock or enable your OS keychain, then retry. Existing plaintext settings stay unchanged until migration succeeds.
+                        <Button size="sm" variant="ghost" className={SETTING_CONTROL_BTN} disabled={retrying} onClick={retry}>
+                            {retrying ? "Working..." : recoveryConflicts.length > 0 ? "Review saved keys" : "Retry saving"}
+                        </Button>
                     </div>
                 ) : null}
                 <div className="mb-2.5 flex flex-wrap items-center gap-2">

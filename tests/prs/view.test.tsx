@@ -1,7 +1,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-const mocks = vi.hoisted(() => ({ get: vi.fn(), remote: vi.fn(), project: "/first", selectedId: "1" as string | null }));
+const mocks = vi.hoisted(() => ({ get: vi.fn(), remote: vi.fn(), project: "/first", selectedId: "1" as string | null, refresh: () => {} }));
 vi.mock("@/lib/backend", () => ({
     commands: { githubApiGet: mocks.get, gitRemoteUrl: mocks.remote },
     useProjectState: () => ({ project_path: mocks.project }),
@@ -9,9 +9,10 @@ vi.mock("@/lib/backend", () => ({
 vi.mock("@/lib/github/store", () => ({ loginGitHub: vi.fn(), useGitHubAuth: () => ({ loggedIn: true }) }));
 vi.mock("@/features/chat/ui/prs/store", () => ({ selectPr: vi.fn(), updateSelectedPr: vi.fn(), usePrUi: () => ({ selectedId: mocks.selectedId }) }));
 vi.mock("@/features/chat/ui/prs/list", () => ({
-    PullRequestsList: ({ items, loading, hasMore, onLoadMore }: { items: { title: string }[]; loading: boolean; hasMore: boolean; onLoadMore: () => void }) => (
-        <div data-loading={loading} data-has-more={hasMore} onClick={onLoadMore}>{items.map((item) => item.title).join(", ")}</div>
-    ),
+    PullRequestsList: ({ items, loading, hasMore, onLoadMore, onRefresh }: { items: { title: string }[]; loading: boolean; hasMore: boolean; onLoadMore: () => void; onRefresh: () => void }) => {
+        mocks.refresh = onRefresh;
+        return <div data-loading={loading} data-has-more={hasMore} onClick={onLoadMore}>{items.map((item) => item.title).join(", ")}</div>;
+    },
 }));
 import { PullRequestsPanel } from "@/features/chat/ui/prs/view";
 
@@ -155,4 +156,25 @@ it("clears rows when the remote is confirmed absent, rather than temporarily una
     await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
     expect(host.textContent).toBe("");
     expect(mocks.get).toHaveBeenCalledTimes(1);
+});
+
+it("polls lightweight metadata without refetching unchanged review pages", async () => {
+    vi.useFakeTimers(); vi.spyOn(document, "hidden", "get").mockReturnValue(false);
+    let updated = "2026-10-14T00:00:00Z";
+    mocks.get.mockImplementation(async (path: string) => {
+        const row = { id: 1, number: 7, title: "A PR", state: "open", updated_at: updated, head: { sha: "same-head" } };
+        if (path.includes("/pulls?")) return [row];
+        if (path.endsWith("/pulls/7")) return row;
+        return [];
+    });
+    await act(async () => root.render(<PullRequestsPanel />));
+    expect(mocks.get.mock.calls.filter(([path]) => path.includes("/reviews?"))).toHaveLength(1);
+    for (let tick = 0; tick < 3; tick += 1) await act(async () => vi.advanceTimersByTimeAsync(30_000));
+    expect(mocks.get.mock.calls.filter(([path]) => path.endsWith("/pulls/7"))).toHaveLength(4);
+    expect(mocks.get.mock.calls.filter(([path]) => path.includes("/reviews?"))).toHaveLength(1);
+    updated = "2026-10-14T00:01:00Z";
+    await act(async () => vi.advanceTimersByTimeAsync(30_000));
+    expect(mocks.get.mock.calls.filter(([path]) => path.includes("/reviews?"))).toHaveLength(2);
+    await act(async () => mocks.refresh());
+    expect(mocks.get.mock.calls.filter(([path]) => path.includes("/reviews?"))).toHaveLength(3);
 });

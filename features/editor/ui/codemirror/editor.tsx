@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { EditorSelection, EditorState, Compartment } from "@codemirror/state";
+import { Annotation, EditorSelection, EditorState, Compartment } from "@codemirror/state";
 import { LanguageDescription } from "@codemirror/language";
 import { languages } from "@codemirror/language-data";
 import {
@@ -53,6 +53,7 @@ import {
     completionKeymap,
 } from "@codemirror/autocomplete";
 import { indentationMarkers } from "@replit/codemirror-indentation-markers";
+import { stageDirtyBuffer, saveDirtyBuffer, flushDirtyBuffers } from "@/lib/workspace/dirty-buffers";
 import { commands, getProjectPath } from "@/lib/backend";
 import { getEditorOptionsFromSettings } from "@/lib/settings";
 import { languageForPath, languageNameForPath } from "./lang";
@@ -92,6 +93,7 @@ import {
  * target this one, so a split view never edits the wrong buffer.
  */
 let activeView: EditorView | null = null;
+const externalContentUpdate = Annotation.define<boolean>();
 
 export function CodeMirrorEditor({
     path,
@@ -100,7 +102,6 @@ export function CodeMirrorEditor({
     savedContentRef,
     isDirtyRef,
     bufferVersionRef,
-    isFirstLoadRef,
 }: {
     path: string;
     content: string;
@@ -108,7 +109,6 @@ export function CodeMirrorEditor({
     savedContentRef: React.MutableRefObject<string>;
     isDirtyRef: React.MutableRefObject<boolean>;
     bufferVersionRef: React.MutableRefObject<number>;
-    isFirstLoadRef: React.MutableRefObject<boolean>;
 }) {
     const hostRef = useRef<HTMLDivElement>(null);
     const viewRef = useRef<EditorView | null>(null);
@@ -305,12 +305,18 @@ export function CodeMirrorEditor({
                         if (update.selectionSet) publishSelection(update.view);
                         return;
                     }
+                    if (update.transactions.some((transaction) => transaction.annotation(externalContentUpdate))) {
+                        publishBuffer(update.view);
+                        return;
+                    }
                     const next = update.state.doc.toString();
+                    stageDirtyBuffer(pathRef.current, next, savedContentRef.current);
                     setContentRef.current(next);
+                    window.dispatchEvent(new CustomEvent("bettershape-editor-changed", { detail: { path: pathRef.current } }));
                     const dirty = next !== savedContentRef.current;
                     isDirtyRef.current = dirty;
                     bufferVersionRef.current += 1;
-                    void commands.markFileDirty(pathRef.current, dirty);
+                    void commands.markFileDirty(pathRef.current, dirty).catch(() => undefined);
                     scheduleBuffer(update.view);
                     if (update.view.hasFocus) publishStatus(update.view);
                     if (update.selectionSet || update.docChanged) publishSelection(update.view);
@@ -339,9 +345,6 @@ export function CodeMirrorEditor({
                             void (async () => {
                                 try {
                                     await commands.saveFile(pathRef.current, text);
-                                    savedContentRef.current = text;
-                                    isDirtyRef.current = false;
-                                    void commands.markFileDirty(pathRef.current, false);
                                 } catch {
                                     /* ignore */
                                 }
@@ -603,6 +606,23 @@ export function CodeMirrorEditor({
             }
         };
 
+        const onFileSaved = (event: Event) => {
+            const detail = (event as CustomEvent<{ path: string; content: string }>).detail;
+            if (detail?.path !== pathRef.current || typeof detail.content !== "string") return;
+            savedContentRef.current = detail.content;
+            const current = view.state.doc.toString();
+            saveDirtyBuffer(pathRef.current, current, detail.content);
+            const dirty = current !== detail.content;
+            isDirtyRef.current = dirty;
+            if (dirty) void commands.markFileDirty(pathRef.current, true).catch(() => undefined);
+        };
+        window.addEventListener("bettershape-file-saved", onFileSaved);
+        const onFlushBuffer = (event: Event) => {
+            const requested = (event as CustomEvent<{ path: string }>).detail?.path;
+            if (requested === pathRef.current) publishBuffer(view);
+        };
+        window.addEventListener("bettershape-editor-flush-buffer", onFlushBuffer);
+
         const markActive = () => {
             activeView = view;
             publishStatus(view);
@@ -612,12 +632,12 @@ export function CodeMirrorEditor({
         view.dom.addEventListener("pointerdown", markActive);
         window.addEventListener("bettershape-editor-action", onEditorAction as EventListener);
         window.addEventListener("bettershape-editor-jump", onJump as EventListener);
-        if (isFirstLoadRef.current) {
-            isFirstLoadRef.current = false;
-            savedContentRef.current = content;
-        }
 
         return () => {
+            publishBuffer(view);
+            flushDirtyBuffers();
+            window.removeEventListener("bettershape-file-saved", onFileSaved);
+            window.removeEventListener("bettershape-editor-flush-buffer", onFlushBuffer);
             window.removeEventListener("bettershape-editor-search", onSearch as EventListener);
             window.removeEventListener("bettershape-editor-action", onEditorAction as EventListener);
             window.removeEventListener("bettershape-editor-jump", onJump as EventListener);
@@ -638,6 +658,7 @@ export function CodeMirrorEditor({
         if (current === content) return;
         view.dispatch({
             changes: { from: 0, to: current.length, insert: content },
+            annotations: externalContentUpdate.of(true),
         });
     }, [content]);
 

@@ -3,30 +3,6 @@
 import { useEffect, useState } from "react";
 import type { Window } from "@tauri-apps/api/window";
 
-/**
- * Close behavior:
- * - Main → close secondary windows, then quit the app.
- * - Other secondary windows → close that window only.
- */
-async function closeAppOrWindow(appWindow: Window) {
-    try {
-        if (appWindow.label === "main") {
-            const { getAllWindows } = await import("@tauri-apps/api/window");
-            const windows = await getAllWindows();
-            await Promise.all(
-                windows
-                    .filter((w) => w.label !== "main")
-                    .map((w) => w.close().catch(() => undefined)),
-            );
-            const { exit } = await import("@tauri-apps/plugin-process");
-            await exit(0);
-            return;
-        }
-    } catch {
-        // Fall through to close current window.
-    }
-    await appWindow.close();
-}
 
 export function useWindowControls() {
     const [isMaximized, setIsMaximized] = useState(false);
@@ -73,10 +49,10 @@ export function useWindowControls() {
             setIsMaximized(!maximized);
         },
         close: () => {
-            if (appWindow) void closeAppOrWindow(appWindow);
+            if (appWindow) void appWindow.close();
         },
         closeWindow: () => {
-            if (appWindow) void closeAppOrWindow(appWindow);
+            if (appWindow) void appWindow.close();
         },
     };
 }

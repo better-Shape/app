@@ -46,14 +46,6 @@ pub struct ProviderTestReport {
     pub latency_ms: u64,
 }
 
-/// One provider key read back out of the OS keychain.
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct StoredAiKey {
-    pub id: String,
-    pub api_key: String,
-}
-
 fn kind_from_str(raw: Option<&str>) -> ProviderKind {
     match raw.unwrap_or_default().trim().to_ascii_lowercase().as_str() {
         "anthropic" => ProviderKind::Anthropic,
@@ -479,70 +471,115 @@ pub async fn ai_check_provider(
 /// A missing entry is the healthy answer: it proves the backend was reachable.
 #[tauri::command]
 pub fn ai_vault_supported() -> bool {
+    // Other windows must keep using the shared authority if the keychain locks
+    // after an earlier window initialized it. Logical clears still take effect.
+    if crate::core::ai_vault::VAULT
+        .lock()
+        .map(|vault| vault.has_entries())
+        .unwrap_or(false)
+    {
+        return true;
+    }
     match keyring::Entry::new(VAULT_SERVICE, "__probe__") {
         Ok(entry) => matches!(entry.get_password(), Err(keyring::Error::NoEntry)),
         Err(_) => false,
     }
 }
 
-/// Store one provider key in the OS keychain (empty value clears it).
+/// Store or clear a credential using the WebView's last observed lease.
 #[tauri::command]
-pub fn ai_store_key(provider_id: String, api_key: String) -> Result<(), AppError> {
+pub fn ai_store_key(
+    provider_id: String,
+    api_key: String,
+    expected_revision: String,
+    scope: Option<String>,
+) -> Result<crate::core::ai_vault::Mutation, AppError> {
+    use crate::core::ai_vault::{self, VAULT};
     let id = provider_id.trim();
     if id.is_empty() {
-        return Err(AppError::Message("Provider id is required.".to_string()));
+        return Err(AppError::Message("Provider id is required.".into()));
     }
-    if api_key.trim().is_empty() {
-        return ai_delete_key(id.to_string());
+    if !api_key.trim().is_empty()
+        && scope
+            .as_ref()
+            .is_none_or(|value| value.is_empty() || value.len() > 16_384)
+    {
+        return Err(AppError::Message(
+            "A credential destination is required.".into(),
+        ));
     }
-    let entry = keyring_entry(id)?;
-    entry.set_password(api_key.trim()).map_err(|error| {
-        AppError::Message(format!(
-            "Could not store the key in the OS keychain: {error}"
-        ))
+    let mut vault = VAULT
+        .lock()
+        .map_err(|_| AppError::Message("Credential coordinator unavailable.".into()))?;
+    // Initialize the native lease from durable keychain state, never from the
+    // submitting WebView's cached value.
+    vault.read(id, || load_vault_snapshot(id))?;
+    let result = vault.write_scoped(
+        id,
+        api_key.trim(),
+        &expected_revision,
+        scope.as_deref(),
+        |snapshot| {
+            keyring_entry(id)
+                .and_then(|entry| {
+                    let encoded = ai_vault::encode(snapshot)
+                        .map_err(|error| AppError::Message(error.to_string()))?;
+                    entry
+                        .set_password(&encoded)
+                        .map_err(|error| AppError::Message(error.to_string()))
+                })
+                .is_ok()
+        },
+    );
+    if result.applied && result.current.api_key.is_empty() {
+        if let Some(mut config) = ai_providers::get_config() {
+            ai_vault::clear_config_credential(id, &mut config);
+            ai_providers::set_config(config);
+        }
+    }
+    Ok(result)
+}
+
+/// Clear the secret, retaining its non-secret generation to fence old writers.
+#[tauri::command]
+pub fn ai_delete_key(
+    provider_id: String,
+    expected_revision: String,
+) -> Result<crate::core::ai_vault::Mutation, AppError> {
+    ai_store_key(provider_id, String::new(), expected_revision, None)
+}
+
+fn load_vault_snapshot(id: &str) -> Result<crate::core::ai_vault::Snapshot, AppError> {
+    let password = match keyring_entry(id)?.get_password() {
+        Ok(value) => Some(value),
+        Err(keyring::Error::NoEntry) => None,
+        Err(error) => {
+            return Err(AppError::Message(format!(
+                "Could not read the OS keychain: {error}"
+            )))
+        }
+    };
+    crate::core::ai_vault::decode(id, password.as_deref()).map_err(|_| {
+        AppError::Message("Stored credential record is invalid; refusing to overwrite it.".into())
     })
 }
 
-/// Forget one provider key.
+/// Include empty entries: every caller needs the lease for a missing/cleared key.
 #[tauri::command]
-pub fn ai_delete_key(provider_id: String) -> Result<(), AppError> {
-    let id = provider_id.trim();
-    if id.is_empty() {
-        return Ok(());
-    }
-    let entry = keyring_entry(id)?;
-    match entry.delete_credential() {
-        Ok(()) => Ok(()),
-        // Already gone is the desired end state.
-        Err(keyring::Error::NoEntry) => Ok(()),
-        Err(error) => Err(AppError::Message(format!(
-            "Could not remove the stored key: {error}"
-        ))),
-    }
-}
-
-/// Read back the requested keys (missing entries are simply omitted).
-#[tauri::command]
-pub fn ai_load_keys(provider_ids: Vec<String>) -> Vec<StoredAiKey> {
-    let mut out: Vec<StoredAiKey> = Vec::new();
-    for id in provider_ids {
-        let id = id.trim();
-        if id.is_empty() {
-            continue;
-        }
-        let Ok(entry) = keyring::Entry::new(VAULT_SERVICE, id) else {
-            continue;
-        };
-        if let Ok(secret) = entry.get_password() {
-            if !secret.trim().is_empty() {
-                out.push(StoredAiKey {
-                    id: id.to_string(),
-                    api_key: secret,
-                });
-            }
-        }
-    }
-    out
+pub fn ai_load_keys(
+    provider_ids: Vec<String>,
+) -> Result<Vec<crate::core::ai_vault::ReadResult>, AppError> {
+    let mut vault = crate::core::ai_vault::VAULT
+        .lock()
+        .map_err(|_| AppError::Message("Credential coordinator unavailable.".into()))?;
+    Ok(provider_ids
+        .into_iter()
+        .filter(|id| !id.trim().is_empty())
+        .map(|id| {
+            let id = id.trim();
+            vault.read_result(id, || load_vault_snapshot(id))
+        })
+        .collect())
 }
 
 fn keyring_entry(provider_id: &str) -> Result<keyring::Entry, AppError> {

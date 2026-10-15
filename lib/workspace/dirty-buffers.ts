@@ -16,6 +16,9 @@ export type DirtyBuffer = {
     updatedAt: number;
 };
 
+const pendingBuffers = new Map<string, DirtyBuffer | null>();
+let flushTimer: ReturnType<typeof setTimeout> | undefined;
+
 const UNSAFE_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
 function isUsableBuffer(value: unknown): value is DirtyBuffer {
@@ -37,8 +40,7 @@ function readAll(): Map<string, DirtyBuffer> {
     if (typeof window === "undefined") return map;
     try {
         const raw = localStorage.getItem(STORAGE_KEY);
-        if (!raw) return map;
-        const parsed = JSON.parse(raw) as unknown;
+        const parsed: unknown = raw ? JSON.parse(raw) : [];
         const entries = Array.isArray(parsed)
             ? parsed
             : Object.values((parsed ?? {}) as Record<string, unknown>);
@@ -46,36 +48,54 @@ function readAll(): Map<string, DirtyBuffer> {
             if (isUsableBuffer(entry)) map.set(entry.path, entry);
         }
     } catch {
-        /* unreadable / private mode — start clean */
+        /* Persisted recovery is unavailable; retain session drafts below. */
+    }
+    for (const [path, buffer] of pendingBuffers) {
+        if (buffer) map.set(path, { ...buffer });
+        else map.delete(path);
     }
     return map;
 }
 
-function writeAll(map: Map<string, DirtyBuffer>) {
-    if (typeof window === "undefined") return;
+function writeAll(map: Map<string, DirtyBuffer>): boolean {
+    if (typeof window === "undefined") return false;
     try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify([...map.values()]));
+        pendingBuffers.clear();
+        return true;
     } catch {
-        /* quota / private mode */
+        return false;
     }
+}
+
+export function stageDirtyBuffer(path: string, content: string, savedContent: string): void {
+    if (typeof window === "undefined" || !path || UNSAFE_KEYS.has(path)) return;
+    pendingBuffers.set(path, content === savedContent ? null : { path, content, savedContent, updatedAt: Date.now() });
+    if (flushTimer !== undefined) clearTimeout(flushTimer);
+    flushTimer = setTimeout(flushDirtyBuffers, 250);
+}
+
+export function flushDirtyBuffers(): boolean {
+    if (flushTimer !== undefined) clearTimeout(flushTimer);
+    flushTimer = undefined;
+    return pendingBuffers.size === 0 || writeAll(readAll());
+}
+
+export function preventUnpersistedEditorUnload(event: BeforeUnloadEvent): void {
+    if (flushDirtyBuffers() || ![...pendingBuffers.values()].some(Boolean)) return;
+    event.preventDefault();
+    event.returnValue = "";
 }
 
 export function saveDirtyBuffer(path: string, content: string, savedContent: string) {
-    if (!path || UNSAFE_KEYS.has(path)) return;
-    const map = readAll();
-    if (content === savedContent) {
-        map.delete(path);
-    } else {
-        map.set(path, { path, content, savedContent, updatedAt: Date.now() });
-    }
-    writeAll(map);
+    stageDirtyBuffer(path, content, savedContent);
+    flushDirtyBuffers();
 }
 
-export function clearDirtyBuffer(path: string) {
-    if (!path || UNSAFE_KEYS.has(path)) return;
-    const map = readAll();
-    if (!map.delete(path)) return;
-    writeAll(map);
+export function clearDirtyBuffer(path: string): boolean {
+    if (!path || UNSAFE_KEYS.has(path)) return false;
+    pendingBuffers.set(path, null);
+    return flushDirtyBuffers();
 }
 
 export function loadDirtyBuffer(path: string): DirtyBuffer | null {
@@ -84,4 +104,16 @@ export function loadDirtyBuffer(path: string): DirtyBuffer | null {
 
 export function listDirtyBuffers(): DirtyBuffer[] {
     return [...readAll().values()].sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+export function acknowledgeDirtyBuffer(path: string, savedContent: string): void {
+    const buffers = readAll();
+    const current = buffers.get(path);
+    if (!current) return;
+    saveDirtyBuffer(path, current.content, savedContent);
+}
+
+export function dirtyOpenFiles<T extends { path: string; is_dirty: boolean }>(files: readonly T[], pending: ReadonlySet<string> = new Set()): T[] {
+    const recovery = readAll();
+    return files.filter((file) => file.is_dirty || recovery.has(file.path) || pending.has(file.path));
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
+import { useCallback, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { runPrAction } from "./actions";
 import type { PrItem } from "./mapping";
 
@@ -15,7 +15,7 @@ export function usePrCloseSweep(list: RefObject<HTMLDivElement | null>, repo: st
     const running = useRef(false);
     const generation = useRef(0);
 
-    useEffect(() => {
+    useLayoutEffect(() => {
         generation.current += 1;
         setClosing(false);
         return () => { generation.current += 1; cancel.current?.(); };

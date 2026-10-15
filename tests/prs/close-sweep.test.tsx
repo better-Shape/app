@@ -10,10 +10,11 @@ let sweep: ReturnType<typeof usePrCloseSweep>;
 let root: Root;
 let host: HTMLDivElement;
 let hit: Element | null;
-function Harness({ repo = "owner/repo" }) {
+function Harness({ repo = "owner/repo", releaseDuringCommit = false }) {
     const ref = useRef<HTMLDivElement>(null);
     const result = usePrCloseSweep(ref, repo);
     useLayoutEffect(() => { sweep = result; });
+    useLayoutEffect(() => { if (releaseDuringCommit) window.dispatchEvent(pointer("pointerup")); }, [releaseDuringCommit]);
     return <div ref={ref}>{rows.map((row) => <div key={row.id} data-pr-id={row.id}>{row.title}</div>)}</div>;
 }
 function pointer(type: string, props = {}): PointerEvent {
@@ -116,4 +117,10 @@ it("keeps the start callback stable across gesture state and refreshes it for a 
     act(() => sweep.start(rows[0], rows, pointer("pointerdown")));
     move("2");
     expect(sweep.selected.size).toBe(0);
+});
+
+it("revokes a drag before layout-phase input can release it in the previous repo", async () => {
+    start(); move("2");
+    await act(async () => root.render(<Harness repo="owner/other" releaseDuringCommit />));
+    expect(run).not.toHaveBeenCalled();
 });

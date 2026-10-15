@@ -1,11 +1,14 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
+import { mergeSettingsHydration } from "./hydration";
+import { getUnsavedCredentialCount, stageCredentialDrafts } from "@/lib/ai/credential-drafts";
 import { isWindows } from "@/lib/platform";
 import { normalizeColorTheme, type ColorThemeId } from "./themes";
 import type { AgentWorkflow } from "@/lib/chat/workflows";
 import {
     defaultProvidersSettings,
+    credentialScopes,
     mergeProviderConnections,
     normalizeProvidersSettings,
     parseHeaderSecretId,
@@ -386,24 +389,65 @@ export const DEFAULT_SETTINGS: BetterShapeSettings = {
 const STORAGE_KEY = "bettershape-settings-v1";
 
 /**
- * True once the OS keychain has been confirmed usable. Keys are then stripped
- * from every copy of the settings that leaves this process (localStorage, the
- * Tauri store, cross-window events) and read back from the keychain at launch.
+ * Tracks migration success. New persistence and event payloads always redact
+ * provider credentials, independent of this flag.
  */
 let secretsVaulted = false;
+let desktopInitialization: Promise<void> | undefined;
+const explicitlyEditedCredentials = new Set<string>();
+const credentialRecoveryConflicts = new Set<string>();
+let legacyCredentialsPresent = false;
 
-/** Called by the BYOK bootstrap after probing the keychain. */
+export function getCredentialRecoveryConflicts(): string[] { return [...credentialRecoveryConflicts]; }
+
+export function registerCredentialRecoveryConflicts(ids: string[]): void {
+    const previousSize = credentialRecoveryConflicts.size;
+    for (const id of ids) {
+        if (!explicitlyEditedCredentials.has(id)) credentialRecoveryConflicts.add(id);
+    }
+    if (credentialRecoveryConflicts.size !== previousSize) {
+        currentSettings = { ...currentSettings };
+        emitLocal();
+    }
+}
+
+export function registerLegacyVaultConflicts(values: Record<string, string>): void {
+    if (!legacyCredentialsPresent) return;
+    const live = providerSecretsForVault();
+    const scopes = credentialScopes(currentSettings.ai.providers);
+    registerCredentialRecoveryConflicts(Object.entries(values).filter(([id, value]) => scopes[id] !== undefined && value !== live[id]).map(([id]) => id));
+}
+
+export function acceptCredentialRecovery(values: Record<string, string>): void {
+    for (const id of Object.keys(values)) {
+        credentialRecoveryConflicts.delete(id);
+        explicitlyEditedCredentials.add(id);
+    }
+    stageCredentialDrafts(values, credentialScopes(currentSettings.ai.providers));
+    const before = currentSettings;
+    applyVaultSecrets(values, true);
+    if (currentSettings === before) {
+        currentSettings = { ...currentSettings };
+        emit();
+    }
+}
+
+/** Marks whether the current credential writes completed. */
 export function setSecretsVaulted(vaulted: boolean): void {
-    secretsVaulted = vaulted;
+    const saved = vaulted && getUnsavedCredentialCount() === 0;
+    if (secretsVaulted === saved) return;
+    secretsVaulted = saved;
+    persist();
+    void persistToTauriStore();
 }
 
 export function areSecretsVaulted(): boolean {
     return secretsVaulted;
 }
 
-/** A copy that is safe to persist: no API keys when the keychain is in use. */
+/** New persistence and event payloads never contain provider secrets. */
 function forStorage<T extends { ai: { providers: ProvidersSettings } }>(settings: T): T {
-    return secretsVaulted ? redactProviderSecrets(settings) : settings;
+    return redactProviderSecrets(settings);
 }
 
 /** Secrets currently in memory, keyed by their keychain id. */
@@ -417,18 +461,18 @@ export function providerSecretsForVault(): Record<string, string> {
  * Values already in memory win, so a migration from plaintext settings keeps
  * whatever the user had before the keychain was in use.
  */
-export function applyVaultSecrets(secrets: Record<string, string>): void {
+export function applyVaultSecrets(secrets: Record<string, string>, overwrite = false): void {
     let changed = false;
     const connections = { ...currentSettings.ai.providers.connections };
     for (const [id, value] of Object.entries(secrets)) {
         const secret = value.trim();
-        if (!secret) continue;
+        if (!secret && !overwrite) continue;
         const header = parseHeaderSecretId(id);
         if (header) {
             const connection = connections[header.id];
             // The name has to be in settings already: a stale keychain entry for
             // a header the user removed must not resurrect itself.
-            if (connection && Object.prototype.hasOwnProperty.call(connection.headers, header.name) && !connection.headers[header.name]?.trim()) {
+            if (connection && Object.prototype.hasOwnProperty.call(connection.headers, header.name) && (overwrite ? connection.headers[header.name] !== secret : !connection.headers[header.name]?.trim())) {
                 connections[header.id] = {
                     ...connection,
                     headers: { ...connection.headers, [header.name]: secret },
@@ -438,7 +482,7 @@ export function applyVaultSecrets(secrets: Record<string, string>): void {
             continue;
         }
         const connection = connections[id as keyof typeof connections];
-        if (connection && !connection.apiKey.trim()) {
+        if (connection && (overwrite ? connection.apiKey !== secret : !connection.apiKey.trim())) {
             connections[id as keyof typeof connections] = { ...connection, apiKey: secret };
             changed = true;
         }
@@ -448,11 +492,11 @@ export function applyVaultSecrets(secrets: Record<string, string>): void {
     const searchKey = secrets["service:search"]?.trim();
     const composioKey = secrets["service:composio"]?.trim();
     let services = currentSettings.ai.providers.services;
-    if (searchKey && !search.apiKey.trim()) {
+    if (searchKey !== undefined && (overwrite ? search.apiKey !== searchKey : Boolean(searchKey) && !search.apiKey.trim())) {
         services = { ...services, search: { ...search, apiKey: searchKey } };
         changed = true;
     }
-    if (composioKey && !composio.apiKey.trim()) {
+    if (composioKey !== undefined && (overwrite ? composio.apiKey !== composioKey : Boolean(composioKey) && !composio.apiKey.trim())) {
         services = { ...services, composio: { ...composio, apiKey: composioKey } };
         changed = true;
     }
@@ -729,9 +773,7 @@ export function initSettingsBridge(): void {
         void import("@tauri-apps/api/event").then(({ listen }) => {
             void listen<BetterShapeSettings>("bettershape-settings-changed", (event) => {
                 applySettingsFromPayload(event.payload);
-                try {
-                    localStorage.setItem(STORAGE_KEY, JSON.stringify(forStorage(currentSettings)));
-                } catch { /* ignore */ }
+                persist();
                 emitLocal();
             });
         }).catch(() => { /* ignore */ });
@@ -746,6 +788,7 @@ function loadFromLocalStorage() {
             const parsed = JSON.parse(raw) as Partial<BetterShapeSettings>;
             const rawChannel = parsed.updates?.channel;
             currentSettings = mergeSettings(DEFAULT_SETTINGS, parsed);
+            legacyCredentialsPresent ||= Object.keys(providerSecretsForVault()).length > 0;
             if (rawChannel && rawChannel !== currentSettings.updates.channel) persist();
         }
     } catch {
@@ -753,39 +796,62 @@ function loadFromLocalStorage() {
     }
 }
 
+// Keep a legacy copy until migration succeeds, without copying it elsewhere.
+function canReplaceStoredSettings(stored: Partial<BetterShapeSettings> | null | undefined): boolean {
+    if (credentialRecoveryConflicts.size > 0) return false;
+    const legacy = Object.entries(providerSecrets(normalizeProvidersSettings(stored?.ai?.providers)));
+    if (legacy.length === 0) return true;
+    const live = providerSecretsForVault();
+    return secretsVaulted && legacy.every(([id, value]) => live[id] === value || explicitlyEditedCredentials.has(id));
+}
+
 function persist() {
     if (typeof window === "undefined") return;
     try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw && !canReplaceStoredSettings(JSON.parse(raw))) return;
         localStorage.setItem(STORAGE_KEY, JSON.stringify(forStorage(currentSettings)));
     } catch { /* ignore */ }
 }
 
-/** Mirror the settings into the Tauri store file (redacted when vaulted). */
+/** Mirror redacted settings without replacing an unmigrated legacy copy. */
 async function persistToTauriStore(): Promise<void> {
     try {
         const { load } = await import("@tauri-apps/plugin-store");
         const store = await load("settings.json", { autoSave: true, defaults: {} });
+        if (!canReplaceStoredSettings(await store.get<Partial<BetterShapeSettings>>("settings"))) return;
         await store.set("settings", forStorage(currentSettings));
         await store.save();
     } catch { /* ignore */ }
 }
 
-export async function initSettings(): Promise<void> {
+export function initSettings(): Promise<void> {
+    return desktopInitialization ??= hydrateDesktopSettings();
+}
+
+async function hydrateDesktopSettings(): Promise<void> {
     initSettingsBridge();
-    if (hydrated) return;
-    loadFromLocalStorage();
+    const settingsAtStart = getSettings();
+    const localSecretsAtStart = providerSecretsForVault();
+    const localScopesAtStart = credentialScopes(settingsAtStart.ai.providers);
     try {
         const { load } = await import("@tauri-apps/plugin-store");
         const store = await load("settings.json", { autoSave: true, defaults: {} });
         const stored = await store.get<Partial<BetterShapeSettings>>("settings");
         if (stored) {
-            currentSettings = mergeSettings(DEFAULT_SETTINGS, stored, { preserveSecrets: true });
+            const localSecrets = localSecretsAtStart;
+            const storedProviders = normalizeProvidersSettings(stored.ai?.providers);
+            const storedSecrets = providerSecrets(storedProviders);
+            const storedScopes = credentialScopes(storedProviders);
+            legacyCredentialsPresent ||= Object.keys(storedSecrets).length > 0;
+            for (const [id, value] of Object.entries(localSecrets)) {
+                if ((storedSecrets[id] !== value || storedScopes[id] !== localScopesAtStart[id]) && !explicitlyEditedCredentials.has(id)) credentialRecoveryConflicts.add(id);
+            }
+            currentSettings = mergeSettingsHydration(settingsAtStart, currentSettings,
+                mergeSettings(DEFAULT_SETTINGS, stored, { preserveSecrets: true }));
             persist();
-            // Rewrite through the redaction path so a pre-keychain build's keys
-            // do not survive in the store file.
-            await store.set("settings", forStorage(currentSettings));
-            await store.save();
-        } else {
+        }
+        if (canReplaceStoredSettings(stored)) {
             await store.set("settings", forStorage(currentSettings));
             await store.save();
         }
@@ -816,7 +882,20 @@ export function getSettings(): BetterShapeSettings {
 }
 
 export function updateSettings(patch: Partial<BetterShapeSettings>): void {
+    getSettings();
+    const previous = providerSecretsForVault();
+    const previousScopes = credentialScopes(currentSettings.ai.providers);
     currentSettings = mergeSettings(currentSettings, patch);
+    const next = providerSecretsForVault();
+    const scopes = credentialScopes(currentSettings.ai.providers);
+    const changes = Object.fromEntries([...new Set([...Object.keys(previous), ...Object.keys(next)])]
+        .filter((id) => previous[id] !== next[id] || Boolean(next[id]) && previousScopes[id] !== scopes[id]).map((id) => [id, next[id] ?? ""]));
+    stageCredentialDrafts(changes, scopes);
+    for (const id of Object.keys(changes)) {
+        credentialRecoveryConflicts.delete(id);
+        explicitlyEditedCredentials.add(id);
+    }
+    if (Object.keys(changes).length) secretsVaulted = false;
     persist();
     applyAppearanceSettings(currentSettings);
     void persistToTauriStore();

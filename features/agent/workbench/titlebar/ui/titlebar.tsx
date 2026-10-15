@@ -13,6 +13,8 @@ const getWindowWidth = () => window.innerWidth;
 import { Icon } from "@/components/ui/icon";
 import { BetterShapeLogo } from "@/components/ui/bettershape-logo";
 
+import type { SaveAllRequestDetail } from "@/lib/workspace/save-all";
+import { notify } from "@/features/notifications";
 import { useProjectState } from "@/lib/backend";
 import { useKeyboardShortcuts } from "@/lib/ui/shortcuts";
 import type { TitlebarProps } from "../types";
@@ -50,7 +52,12 @@ export default function Titlebar({ onboarding, settings, focus, title, onBack }:
     );
 
     useEffect(() => {
-        const onSaveAll = () => void handleMenuClick("Save All");
+        const onSaveAll = (event: Event) => {
+            const save = handleMenuClick("Save All");
+            const detail = (event as CustomEvent<SaveAllRequestDetail>).detail;
+            if (typeof detail?.waitUntil === "function") detail.waitUntil(save);
+            else void save.catch(() => notify.error("Could not save all files", "Your changes remain open. Retry saving before closing."));
+        };
         window.addEventListener("save-all-request", onSaveAll);
         return () => window.removeEventListener("save-all-request", onSaveAll);
     }, [handleMenuClick]);

@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { createNativeVault, type VaultSnapshot, type VaultMutation } from "../helpers/native-vault";
+const native = createNativeVault();
 
 const state = vi.hoisted(() => ({
     secrets: {} as Record<string, string>, headers: { Authorization: "" } as Record<string, string>, vaulted: false,
@@ -12,17 +14,24 @@ vi.mock("@/lib/backend", () => ({ commands: {
 vi.mock("@/features/notifications", () => ({ notify: { error: state.error } }));
 vi.mock("@/lib/settings", () => ({
     areSecretsVaulted: () => state.vaulted,
+    acceptCredentialRecovery: () => undefined,
+    getCredentialRecoveryConflicts: () => [],
+    registerLegacyVaultConflicts: () => undefined,
+    registerCredentialRecoveryConflicts: () => undefined,
     setSecretsVaulted: (value: boolean) => { state.vaulted = value; },
     providerSecretsForVault: () => ({ ...state.secrets }),
     getSettings: () => ({ ai: { providers: { connections: { custom: { headers: state.headers } } } } }),
-    applyVaultSecrets: (secrets: Record<string, string>) => {
+    applyVaultSecrets: (secrets: Record<string, string>, overwrite = false) => {
         const allowed = new Set(["openai", "custom", "service:search", "service:composio", ...Object.keys(state.headers).map((name) => `header:custom:${name}`)]);
-        state.secrets = { ...Object.fromEntries(Object.entries(secrets).filter(([id]) => allowed.has(id))), ...state.secrets };
+        const applicable = Object.fromEntries(Object.entries(secrets).filter(([id]) => allowed.has(id)));
+        const merged = overwrite ? { ...state.secrets, ...applicable } : { ...applicable, ...state.secrets };
+        state.secrets = Object.fromEntries(Object.entries(merged).filter(([, value]) => value));
         for (const listener of state.listeners) listener();
     },
     subscribeSettings: (listener: () => void) => { state.listeners.add(listener); return () => { state.listeners.delete(listener); }; },
 }));
 vi.mock("@/lib/ai/providers", () => ({
+    credentialScopes: () => Object.fromEntries(["openai", "custom", "service:search", "service:composio", ...Object.keys(state.headers).map((name) => `header:custom:${name}`)].map((id) => [id, `test-scope:${id}`])),
     PROVIDER_PRESETS: [{ id: "openai" }, { id: "custom" }],
     SEARCH_SECRET_ID: "service:search", COMPOSIO_SECRET_ID: "service:composio",
     headerSecretId: (id: string, name: string) => `header:${id}:${name}`,
@@ -38,10 +47,10 @@ beforeEach(async () => {
     vi.resetModules();
     localStorage.clear();
     state.headers = { Authorization: "" };
-    state.secrets = {}; state.vaulted = false; state.vault.clear(); state.listeners.clear();
-    state.load.mockReset().mockImplementation(async (ids: string[]) => ids.flatMap((id) => state.vault.has(id) ? [{ id, apiKey: state.vault.get(id)! }] : []));
-    state.store.mockReset().mockImplementation(async (id: string, secret: string) => { state.vault.set(id, secret); });
-    state.remove.mockReset().mockImplementation(async (id: string) => { state.vault.delete(id); });
+    state.secrets = {}; state.vaulted = false; native.reset(); state.vault = native.values; state.listeners.clear();
+    state.load.mockReset().mockImplementation(async (ids: string[]) => ids.map(native.read));
+    state.store.mockReset().mockImplementation(async (id: string, secret: string, expected: string, scope?: string) => native.mutate(id, secret, expected, true, scope));
+    state.remove.mockReset().mockImplementation(async (id: string, expected: string) => native.mutate(id, "", expected));
     state.configure.mockReset().mockResolvedValue(undefined); state.error.mockReset();
     sync = await import("@/lib/ai/sync");
 });
@@ -71,12 +80,12 @@ it("removes cleared provider, service, and removed header keys from the actual v
 
 it("does not resurrect a key cleared while keychain hydration is in flight", async () => {
     state.secrets = { openai: "example-before-clear" };
-    let finish!: (rows: { id: string; apiKey: string }[]) => void;
+    let finish!: (rows: VaultSnapshot[]) => void;
     state.load.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
     stop = sync.initAiConfigSync();
     await vi.waitFor(() => expect(state.load).toHaveBeenCalled());
     change({});
-    finish([{ id: "openai", apiKey: "example-before-clear" }]);
+    finish([{ status: "available", id: "openai", apiKey: "example-before-clear", revision: "initial", persisted: true }]);
     await sync.aiConfigReady();
     expect(state.secrets).toEqual({});
     expect(state.vault.has("openai")).toBe(false);
@@ -85,8 +94,8 @@ it("does not resurrect a key cleared while keychain hydration is in flight", asy
 it("serializes a slow write followed by a delete", async () => {
     stop = sync.initAiConfigSync(); await sync.aiConfigReady();
     let finish!: () => void;
-    state.store.mockImplementationOnce((id: string, secret: string) => new Promise<void>((resolve) => {
-        finish = () => { state.vault.set(id, secret); resolve(); };
+    state.store.mockImplementationOnce((id: string, secret: string, expected: string, scope?: string) => new Promise<VaultMutation>((resolve) => {
+        finish = () => resolve(native.mutate(id, secret, expected, true, scope));
     }));
     change({ openai: "example-transient" });
     await vi.waitFor(() => expect(state.store).toHaveBeenCalled());
@@ -148,22 +157,22 @@ it("does not hydrate a credential whose write-ahead deletion survived an interru
     expect(state.vault.has("openai")).toBe(false);
 });
 
-it("prunes an inventoried header absent from settings even if it could not be read", async () => {
+it("does not treat a header absent from this window as permission to delete another window’s key", async () => {
     const vault = await import("@/lib/ai/vault");
     const id = "header:custom:Removed";
-    await vault.writeSecret(id, "example-orphan");
+    await vault.writeSecret(id, "example-orphan", `test-scope:${id}`);
     vault.__resetVaultCacheForTesting();
     state.load.mockResolvedValue([]);
     stop = sync.initAiConfigSync(); await sync.aiConfigReady();
-    expect(state.remove).toHaveBeenCalledWith(id);
-    expect(state.vault.has(id)).toBe(false);
+    expect(state.remove).not.toHaveBeenCalled();
+    expect(state.vault.get(id)).toBe("example-orphan");
 });
 
 it("keeps a deliberate re-entry when a clear overtook a pending first write", async () => {
     stop = sync.initAiConfigSync(); await sync.aiConfigReady();
     let finish!: () => void;
-    state.store.mockImplementationOnce((id: string, secret: string) => new Promise<void>((resolve) => {
-        finish = () => { state.vault.set(id, secret); resolve(); };
+    state.store.mockImplementationOnce((id: string, secret: string, expected: string, scope?: string) => new Promise<VaultMutation>((resolve) => {
+        finish = () => resolve(native.mutate(id, secret, expected, true, scope));
     }));
     change({ openai: "example-reentered" });
     await vi.waitFor(() => expect(state.store).toHaveBeenCalled());
@@ -187,4 +196,27 @@ it("refuses a keychain mutation without durable metadata, and can retry in this 
     } finally { write.mockRestore(); }
     change({ openai: "example-unsaved" }); await sync.aiConfigReady();
     expect(state.vault.get("openai")).toBe("example-unsaved");
+});
+
+
+it("preserves a local recovery draft when an inventoried account cannot be read", async () => {
+    state.secrets = { openai: "example-local-recovery" };
+    localStorage.setItem("bettershape-ai-vault-entry:openai", JSON.stringify({ state: "stored", token: "previous-session" }));
+    state.load.mockImplementation(async (ids: string[]) => ids.map((id) => id === "openai"
+        ? { status: "unavailable", id } : native.read(id)));
+    state.store.mockRejectedValue(new Error("Keychain locked"));
+    stop = sync.initAiConfigSync();
+    await sync.aiConfigReady();
+    expect(state.secrets.openai).toBe("example-local-recovery");
+    expect(state.configure).toHaveBeenLastCalledWith({ secrets: { openai: "example-local-recovery" } });
+    expect(state.remove).not.toHaveBeenCalled();
+    expect(state.error).toHaveBeenCalledWith("Some credentials are not available in the keychain", expect.any(String));
+});
+
+it("migrates a legacy draft when an inventoried account is missing rather than explicitly cleared", async () => {
+    state.secrets = { openai: "example-legacy-copy" };
+    localStorage.setItem("bettershape-ai-vault-entry:openai", JSON.stringify({ state: "stored", token: "previous-session" }));
+    stop = sync.initAiConfigSync(); await sync.aiConfigReady();
+    expect(state.secrets.openai).toBe("example-legacy-copy");
+    expect(state.vault.get("openai")).toBe("example-legacy-copy");
 });

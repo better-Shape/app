@@ -24,6 +24,7 @@ import { cn } from "@/lib/utils";
 import { discoverDesignPages, type DesignPage } from "../lib/discover-routes";
 import {
     getPreviewCurrentUrl,
+    showPreviewUrl,
     inferPreviewUrlFromPerformance,
     isLocalPreviewUrl,
     navigatePreview,
@@ -568,10 +569,11 @@ export function DesignStudio({
                         if (cancelled || projectPathRef.current !== ownerAtBoot || !reachable || !isCurrentDesignAuthorization(authorization, info.projectRoot)) return false;
                         authorizationRef.current = authorization;
                         setBootError(null);
-                        opened = true;
-                        // Load the scraped URL directly — WebView2 injects the bridge into iframes.
-                        await navigatePreview(url, { replace: true });
-                        return true;
+                        // The owned probe just succeeded; do not introduce a second probe
+                        // that can fail after this boot has been marked open.
+                        opened = showPreviewUrl(url);
+                        if (!opened) authorizationRef.current = null;
+                        return opened;
                     })().catch((cause: unknown) => {
                         if (!cancelled) setBootError(cause instanceof Error ? cause.message : "Could not connect to the project preview.");
                         return false;

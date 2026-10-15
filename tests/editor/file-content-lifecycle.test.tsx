@@ -1,4 +1,4 @@
-import { act, useRef } from "react";
+import { act, useLayoutEffect, useRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({
@@ -13,16 +13,18 @@ vi.mock("@tauri-apps/api/event", () => ({ listen: async (name: string, cb: (even
 vi.mock("@/lib/workspace/dirty-buffers", () => ({ clearDirtyBuffer: state.clearDirtyBuffer, loadDirtyBuffer: state.loadDirtyBuffer }));
 vi.mock("@/features/notifications", () => ({ notify: { info: state.info, error: state.error } }));
 import { useFileContent } from "@/features/editor/ui/main/hooks/use-file-content";
+const commits: Array<{ path: string; content: string; loading: boolean }> = [];
 function Editor({ path }: { path: string }) {
     const saved = useRef(""); const version = useRef(0);
     const file = useFileContent(path, false, path.startsWith("diff:"), saved, version);
+    useLayoutEffect(() => { commits.push({ path, content: file.content, loading: file.loading }); }, [path, file.content, file.loading]);
     return <div>{file.originalContent}|{file.content}|{file.error}</div>;
 }
 let host: HTMLDivElement;
 let root: Root | undefined;
 function deferred<T>() { let resolve!: (value: T) => void; let reject!: (reason: Error) => void; const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; }
 beforeEach(() => {
-    vi.resetAllMocks(); state.events.clear();
+    vi.resetAllMocks(); state.events.clear(); commits.length = 0;
     state.commands.readFile.mockResolvedValue("new disk");
     state.commands.markFileDirty.mockResolvedValue(undefined);
     state.commands.gitGetItemContent.mockResolvedValue("new git");
@@ -81,4 +83,27 @@ it.each(["bettershape-file-edited", "bettershape-files-changed"])("reports a rej
     await act(async () => state.events.get(event)?.({ payload: event === "bettershape-file-edited" ? "/repo/file.ts" : ["/repo/file.ts"] }));
     expect(state.error).toHaveBeenCalledWith("File Error", "Could not refresh the editor. Save your changes before reopening the file.");
     expect(state.clearDirtyBuffer).not.toHaveBeenCalled();
+});
+
+it("never exposes the previous file's text under a newly selected path", async () => {
+    await render("/repo/first.txt");
+    const next = deferred<string>();
+    state.commands.readFile.mockReturnValueOnce(next.promise);
+    await render("/repo/second.txt");
+    const second = commits.filter((commit) => commit.path === "/repo/second.txt");
+    expect(second.length).toBeGreaterThan(0);
+    expect(second.every((commit) => commit.content === "" && commit.loading)).toBe(true);
+    await act(async () => next.resolve("second disk"));
+    expect(host.textContent).toBe("|second disk|");
+});
+
+it("preserves unsaved editor text when an agent updates its disk file", async () => {
+    await render("/repo/file.txt");
+    state.loadDirtyBuffer.mockReturnValue({ content: "user draft" });
+    state.clearDirtyBuffer.mockImplementation(() => state.loadDirtyBuffer.mockReturnValue(null));
+    state.commands.readFile.mockResolvedValueOnce("agent's disk version");
+    await act(async () => state.events.get("bettershape-file-edited")?.({ payload: "/repo/file.txt" }));
+    expect(host.textContent).toBe("|user draft|");
+    expect(state.clearDirtyBuffer).not.toHaveBeenCalled();
+    expect(state.info).toHaveBeenCalledWith("File updated by agent", "Your unsaved edits remain open. Review the disk changes before saving.");
 });

@@ -1,3 +1,20 @@
+export interface AiVaultSnapshot {
+    scope?: string;
+    id: string;
+    apiKey: string;
+    revision: string;
+    persisted: boolean;
+}
+
+export type AiVaultReadResult =
+    | ({ status: "available" } & AiVaultSnapshot)
+    | { status: "unavailable"; id: string };
+
+export interface AiVaultMutation {
+    applied: boolean;
+    current: AiVaultSnapshot;
+}
+
 ﻿export interface GitHubAuthStatus {
     loggedIn: boolean;
     username: string | null;

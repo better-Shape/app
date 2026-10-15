@@ -24,7 +24,7 @@ function ResourceStatus({ resource, noun }: { resource: ReturnType<typeof usePag
 
 export function PrFilesTab({ item, revision }: { item: PrItem; revision: number }) {
     // GitHub's files API exposes at most 3,000 files, even when the PR is larger.
-    const resource = usePagedPrResource(`/repos/${item.repo}/pulls/${item.number}/files`, revision, 3000);
+    const resource = usePagedPrResource(`/repos/${item.repo}/pulls/${item.number}/files`, `${revision}:${item.headSha ?? ""}`, 3000);
     return <>
         <ResourceStatus resource={resource} noun="files" />
         {!resource.loading && !resource.error && resource.rows.length === 0 ? <p className="text-sm text-text-muted">No files listed</p> : null}
@@ -45,7 +45,7 @@ export function PrFilesTab({ item, revision }: { item: PrItem; revision: number 
 }
 
 export function PrTimelineTab({ item, revision }: { item: PrItem; revision: number }) {
-    const resource = usePagedPrResource(`/repos/${item.repo}/issues/${item.number}/timeline`, revision);
+    const resource = usePagedPrResource(`/repos/${item.repo}/issues/${item.number}/timeline`, `${revision}:${item.updatedAt ?? ""}:${item.headSha ?? ""}`);
     const entries = mapPrTimeline(resource.rows);
     return <>
         <p className="mb-3 text-xs text-text-muted">Comments, reviews, commits, and pull request events. Inline review conversations are available on GitHub.</p>
@@ -64,7 +64,7 @@ export function PrTimelineTab({ item, revision }: { item: PrItem; revision: numb
 }
 
 export function PrReviewers({ item, requested, revision }: { item: PrItem; requested: string[]; revision: number }) {
-    const resource = usePagedPrResource(`/repos/${item.repo}/pulls/${item.number}/reviews`, revision);
+    const resource = usePagedPrResource(`/repos/${item.repo}/pulls/${item.number}/reviews`, `${revision}:${item.updatedAt ?? ""}:${item.headSha ?? ""}`);
     const completed = [...new Set(resource.rows.flatMap((row) => {
         const user = row.user as { login?: string } | null;
         return user?.login ? [user.login] : [];

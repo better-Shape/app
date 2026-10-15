@@ -1,4 +1,5 @@
 pub mod ai_providers;
+pub mod ai_vault;
 pub mod error;
 pub mod git_bin;
 pub mod mic;

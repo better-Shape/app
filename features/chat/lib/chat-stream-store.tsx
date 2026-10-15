@@ -196,6 +196,8 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
     const messagesRef = React.useRef<ChatMessage[]>(messages);
     const turnIdRef = React.useRef<string | null>(null);
     const ignoredIdsRef = React.useRef<Set<string>>(new Set());
+    const stoppedTurnsRef = React.useRef(new Map<string, string>());
+    const finishedTurnsRef = React.useRef(new Set<string>());
 
     React.useEffect(() => {
         messagesRef.current = messages;
@@ -315,6 +317,11 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
         const id = viewingIdRef.current;
         if (id) {
             ignoredIdsRef.current.add(id);
+            const stoppedTurn = liveTurnsRef.current.get(id)?.turnId;
+            if (stoppedTurn) {
+                stoppedTurnsRef.current.set(id, stoppedTurn);
+                finishedTurnsRef.current.add(stoppedTurn);
+            }
             liveTurnsRef.current.delete(id);
             setChatGenerating(id, false);
             setChatActivity(id, "cancelled");
@@ -346,7 +353,10 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
                 { role: "user" as const, content: userMsg, timestamp: optimisticTs },
                 { role: "assistant" as const, content: "", timestamp: optimisticTs + 0.001 },
             ];
-            if (conversationId) ignoredIdsRef.current.delete(conversationId);
+            if (conversationId) {
+                ignoredIdsRef.current.delete(conversationId);
+                stoppedTurnsRef.current.delete(conversationId);
+            }
             liveTurnsRef.current.set(key, {
                 conversationId,
                 turnId: null,
@@ -383,7 +393,7 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
             });
         };
 
-        const finishedTurns = new Set<string>();
+        const finishedTurns = finishedTurnsRef.current;
 
         /** The draft's turn now has a real conversation id: bind it (and the draft queue). */
         const bindDraft = (conversationId: string) => {
@@ -430,6 +440,8 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
                 const tid = event.payload?.turnId ?? null;
                 const convId = event.payload?.conversationId ?? null;
                 if (isForeignConversation(convId) || (tid && finishedTurns.has(tid))) return;
+                if (convId && tid && stoppedTurnsRef.current.get(convId) === tid) return;
+                if (convId) stoppedTurnsRef.current.delete(convId);
                 setChatActivity(convId, "thinking");
                 const startedModel = event.payload?.model;
                 const usedAuto = event.payload?.usedAuto;
@@ -547,6 +559,13 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
                 if (isForeignConversation(conversationId)) return;
                 if (turnId) finishedTurns.add(turnId);
                 const current = conversationId ? liveTurnsRef.current.get(conversationId) : undefined;
+                if (conversationId && turnId && stoppedTurnsRef.current.get(conversationId) === turnId) {
+                    stoppedTurnsRef.current.delete(conversationId);
+                    // Stop removed the live owner, but its saved transcript still belongs to
+                    // this exact turn. Never refresh over a replacement optimistic send.
+                    if (!current && viewingIdRef.current === conversationId) void reloadViewedMessages();
+                    return;
+                }
                 if (turnId && turnId !== current?.turnId) return;
                 setChatActivity(conversationId, error === "Cancelled" ? "cancelled" : error ? "failed" : "completed", error);
                 if (!error && stats) {
