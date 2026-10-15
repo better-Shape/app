@@ -21,6 +21,7 @@ import { WindowControls } from "@/features/agent/workbench/titlebar/ui/window-co
 import { usePlatform } from "@/lib/platform";
 import { normalizePath } from "@/lib/path/utils";
 import { NewFilePromptHost } from "./workspace/new-file-prompt";
+import { InterruptedTurns } from "./recovery/interrupted-turns";
 
 const MIN_WORKSPACE = 360;
 const MIN_WORKSPACE_SOFT = 280;
@@ -598,6 +599,7 @@ src="/logos/logo.png"
                         onClose: close,
                     }}
                 />
+                <InterruptedTurns />
                 <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
                 <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
                     <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">

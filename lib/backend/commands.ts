@@ -1,5 +1,5 @@
 import { acknowledgeDirtyBuffer } from "@/lib/workspace/dirty-buffers";
-import type { AiVaultMutation, AiVaultReadResult } from "@/lib/backend/types";
+import type { AiVaultMutation, AiVaultReadResult, TurnJournal } from "@/lib/backend/types";
 ﻿import { invoke } from "@tauri-apps/api/core";
 import { ActivityTotals, BrowserHistoryEntry, BrowserInputEvent, BrowserPickedElement, BrowserTab, BrowserTabsPayload, ChatGenerationState, ChatMessage, CodebaseSearchHit, CompactResult, CompactionStateView, ContentSearchResult, Conversation, EslintLintResult, FileEntry, FileInfo, FileSearchResult, GitActivityPoint, GitFileParams, GitRepoInfo, GitHubAuthLoginResult, GitHubAuthStatus, GitLogEntry, GitSyncStatus, GitStashEntry, BlameLine, HistoryEntry, IndexStatus, McpRegistryEntry, McpServerConfig, McpStatusEntry, McpToolInfo, PackageInfo, OutlineResponse, ProjectState, ProjectStatsSnapshot, ReplaceResult, SearchOptions, TestDiscoveryResult, TestRunSummaryResult, ContentMatch } from "@/lib/backend/types";
 
@@ -719,6 +719,10 @@ export const commands = {
     loadConversation: (id: string, projectPath?: string | null) =>
         invokeCommand<void>("load_conversation", { id, projectPath: projectPath ?? null }),
     deleteConversation: (id: string) => invokeCommand<void>("delete_conversation", { id }),
+    /** Every journal still on disk. The backend clears one when the turn completes, so a
+     *  surviving entry means the app died mid-turn. Takes no arguments (Rust: `fn
+     *  get_open_turn_journals() -> Vec<TurnJournal>`). */
+    getOpenTurnJournals: () => invokeCommand<TurnJournal[]>("get_open_turn_journals"),
     setConversationArchived: (id: string, archived: boolean) =>
         invokeCommand<void>("set_conversation_archived", { id, archived }),
     renameConversation: (id: string, title: string) =>

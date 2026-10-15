@@ -283,6 +283,21 @@ export interface ChatMessage {
     hidden?: boolean;
 }
 
+/** One durable record of a turn that did not finish. Mirrors the Rust struct at
+ *  src-tauri/src/agent/commands/journals.rs, which serialises camelCase. */
+export interface TurnJournal {
+    conversationId: string;
+    turnId: string;
+    projectPath: string | null;
+    /** "running" means the process died mid-turn. "interrupted" means the user pressed Stop. */
+    status: string;
+    /** Unix epoch seconds, from `now_f64()` in agent/commands/history.rs. */
+    updatedAt: number;
+    subagentIds: string[];
+    /** Set only on the user-initiated stop path. */
+    note: string | null;
+}
+
 export interface Conversation {
     id: string;
     title: string;
