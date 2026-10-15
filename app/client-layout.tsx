@@ -57,7 +57,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
             if (!isMain) return;
         };
 
-        void bootstrap().catch(() => {
+        bootstrap().catch(() => {
             if (!cancelled) notify.error("Could not initialize app settings", "Reload the app to try again.");
         });
         return () => { cancelled = true; configuration.release(); };
@@ -98,7 +98,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
                 console.error("Failed to manage window flow:", e);
             }
         };
-        void init();
+        init();
         return () => { cancelled = true; };
     }, []);
 

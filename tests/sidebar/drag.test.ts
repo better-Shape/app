@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { moveChatsToShelf, isDropShelf, shelfCollision, DROP_SHELVES } from "@/features/agent/sidebar/drag";
-import { getChatDispositions, setChatDisposition } from "@/lib/sidebar/chat-disposition";
+import { moveChatsToShelf, isDropShelf, shelfCollision, shelfKeyboardCoordinates, DROP_SHELVES } from "@/features/agent/sidebar/drag";
+import { CHAT_SNOOZE_MS, getChatDispositions, setChatDisposition } from "@/lib/sidebar/chat-disposition";
 import { getPinnedChatIds, setChatPinned } from "@/lib/sidebar/chat-list-meta";
 import { getChatUndo, pendingChatUndoCount, pushChatUndo, resetChatUndoForTests, undoChat } from "@/features/agent/sidebar/undo";
 function reset() {
@@ -56,4 +56,82 @@ describe("shelf drops", () => {
             droppableContainers: [droppable], pointerCoordinates: { x: 300, y: 300 },
         })).toEqual([]);
     });
+});
+
+describe("shelf keyboard coordinates", () => {
+    type Context = Parameters<typeof shelfKeyboardCoordinates>[1]["context"];
+    const box = { left: 10, top: 100, right: 310, bottom: 130, width: 300, height: 30 };
+    function context(shelf: unknown): Context {
+        return {
+            activatorEvent: null, activeNode: null, collisions: null, draggingNode: null,
+            draggingNodeRect: null, draggableNodes: new Map(), scrollableAncestors: [], scrollAdjustedTranslate: null,
+            droppableContainers: Object.assign(new Map(), { toArray: () => [], getEnabled: () => [], getNodeFor: () => undefined }),
+            active: { id: "chat", data: { current: { shelf } }, rect: { current: { initial: box, translated: box } } },
+            over: null, collisionRect: box, droppableRects: new Map(DROP_SHELVES.map(key => [`shelf:${key}`, box])),
+        };
+    }
+    function coordinates(code: string, value: Context) {
+        const event = new KeyboardEvent("keydown", { code, cancelable: true });
+        const result = shelfKeyboardCoordinates(event, { context: value, active: "chat", currentCoordinates: { x: 0, y: 0 } });
+        return { result, prevented: event.defaultPrevented };
+    }
+    it.each([
+        ["ArrowDown", "pinned"], ["ArrowUp", "settled"],
+        ["ArrowDown", "working"], ["ArrowUp", undefined],
+    ])("moves %s from %s", (code, shelf) => {
+        expect(coordinates(code as string, context(shelf))).toEqual({ result: { x: 10, y: 100 }, prevented: true });
+    });
+    it.each([["ArrowUp", "pinned"], ["ArrowDown", "settled"], ["ArrowLeft", "active"], ["toString", "active"]])(
+        "does not consume %s from %s", (code, shelf) => {
+            expect(coordinates(code, context(shelf))).toEqual({ result: undefined, prevented: false });
+        },
+    );
+    it("uses the current drop target ahead of the original active shelf", () => {
+        const value = context("pinned");
+        value.over = { id: "shelf:settled", rect: box, disabled: false, data: { current: { shelf: "settled" } } };
+        expect(coordinates("ArrowDown", value).prevented).toBe(false);
+    });
+    it("leaves an unmeasured target or missing collision rectangle alone", () => {
+        const value = context("pinned");
+        value.droppableRects.clear();
+        expect(coordinates("ArrowDown", value).prevented).toBe(false);
+        value.collisionRect = null;
+        expect(coordinates("ArrowDown", value).prevented).toBe(false);
+    });
+});
+
+it.each([
+    ["pinned", "pin", "Pinned", "active"], ["active", "resume", "Resumed", "active"],
+    ["snoozed", "snooze", "Snoozed", "snoozed"], ["settled", "settle", "Settled", "settled"],
+] as const)("keeps the %s shelf's disposition, undo kind and label aligned", (shelf, kind, past, state) => {
+    const before = Date.now();
+    expect(moveChatsToShelf(["a", "b"], shelf, "2 sessions")).toBe(true);
+    expect(getChatUndo()).toMatchObject({ kind, label: `${past} 2 sessions`, chatIds: ["a", "b"] });
+    expect(getChatDispositions().a.state).toBe(state);
+    expect(getChatDispositions().a).toEqual(getChatDispositions().b);
+    expect(getPinnedChatIds().has("a")).toBe(shelf === "pinned");
+    const actual = getChatDispositions().a;
+    if (actual.state === "snoozed") expect(actual.until).toBeGreaterThanOrEqual(before + CHAT_SNOOZE_MS);
+    undoChat();
+    expect(getChatDispositions().a).toBeUndefined();
+    expect(getPinnedChatIds().size).toBe(0);
+});
+
+it("chooses the arrow-selected header when a tall dragged row overlaps multiple shelves equally", () => {
+    const rect = (top: number, height: number) => ({ top, bottom: top + height, left: 0, right: 300, width: 300, height });
+    const headers = ["pinned", "active", "snoozed"].map((shelf, index) => {
+        const box = rect(index * 40, 20);
+        return {
+            id: `shelf:${shelf}`, key: shelf, disabled: false, data: { current: { shelf } },
+            node: { current: null }, rect: { current: box },
+        };
+    });
+    // Keyboard coordinates center the 200px expanded row on the Active header.
+    const collisionRect = rect(-50, 200);
+    const hits = shelfCollision({
+        active: { id: "chat", data: { current: { shelf: "pinned" } }, rect: { current: { initial: collisionRect, translated: collisionRect } } },
+        collisionRect, droppableRects: new Map(headers.map(header => [header.id, header.rect.current])),
+        droppableContainers: headers, pointerCoordinates: null,
+    });
+    expect(hits[0]?.id).toBe("shelf:active");
 });

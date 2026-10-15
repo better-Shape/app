@@ -1,6 +1,8 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { listen } from "@tauri-apps/api/event";
+import { notificationStore } from "@/features/notifications";
 import type { Conversation } from "@/lib/backend/types";
 import { getPinnedChatIds, setChatPinned, getCollections, deleteCollection } from "@/lib/sidebar/chat-list-meta";
 import { getChatDispositions, setChatDisposition } from "@/lib/sidebar/chat-disposition";
@@ -137,6 +139,7 @@ function clearPins() {
 
 describe.each([["Windows", "ctrlKey"], ["Darwin", "metaKey"]] as const)("sectioned session list on %s", (userAgent, modifier) => {
 beforeEach(async () => {
+    notificationStore.clearAll();
     shortcutModifier = modifier;
     vi.stubGlobal("navigator", { userAgent });
     clearPins();
@@ -176,6 +179,42 @@ afterEach(() => {
     vi.unstubAllGlobals();
 });
 
+
+    it.each(["Copy Title", "Reveal Folder"])("reports a rejected %s action", async label => {
+        const failure = new Error("permission denied");
+        if (label === "Copy Title") Object.assign(navigator, { clipboard: { writeText: vi.fn().mockRejectedValue(failure) } });
+        else commands.revealPath.mockRejectedValueOnce(failure);
+        await act(async () => {
+            row("a").querySelector<HTMLButtonElement>('button[aria-label="Chat actions"]')!
+                .dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
+        });
+        const action = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(item => item.textContent === label);
+        expect(action).toBeDefined();
+        await act(async () => action!.click());
+        const expected = label === "Copy Title" ? "Could not copy session title" : "Could not reveal project folder";
+        expect(notificationStore.getSnapshot().notifications.some(item => item.message === expected)).toBe(true);
+    });
+
+    it("reports a rejected subagent subscription", async () => {
+        await act(async () => root.unmount());
+        vi.mocked(listen).mockRejectedValueOnce(new Error("listener unavailable"));
+        root = createRoot(host);
+        await act(async () => root.render(<ChatList onNewChat={() => {}} />));
+        expect(notificationStore.getSnapshot().notifications.some(item => item.message === "Could not receive subagent updates")).toBe(true);
+    });
+
+    it("disposes a subagent subscription that finishes after unmount", async () => {
+        await act(async () => root.unmount());
+        let finish!: (stop: () => void) => void;
+        vi.mocked(listen).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+        root = createRoot(host);
+        await act(async () => root.render(<ChatList onNewChat={() => {}} />));
+        await act(async () => root.unmount());
+        const stop = vi.fn();
+        await act(async () => finish(stop));
+        expect(stop).toHaveBeenCalledTimes(1);
+        expect(notificationStore.getSnapshot().notifications).toHaveLength(0);
+    });
 
     it.each(["settled", "snoozed"] as const)("viewing a %s history row preserves its disposition", (state) => {
         const value = state === "snoozed" ? { state, until: Date.now() + 60_000 } as const : { state };

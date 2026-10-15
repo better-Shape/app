@@ -20,7 +20,7 @@ import {
 } from "react";
 import { primaryModifier } from "@/lib/platform";
 import {
-    CHAT_SNOOZE_MS, getChatDispositions, getChatDispositionsServer,
+    getChatDispositions, getChatDispositionsServer,
     setChatDisposition, subscribeChatDispositions, type ChatDisposition,
 } from "@/lib/sidebar/chat-disposition";
 import { notify } from "@/features/notifications";
@@ -69,7 +69,7 @@ import { useChatStreamOptional } from "@/features/chat/lib/chat-stream-store";
 import { useChatActivities } from "@/features/chat/lib/chat-activity";
 import { useGeneratingChatIds } from "@/features/chat/lib/generating-chats";
 import { ScrollArea } from "@/components/ui/scroll";
-import { moveChatsToShelf, type DropShelf } from "./drag";
+import { dispositionForShelf, moveChatsToShelf, SHELF_ACTIONS, type DropShelf } from "./drag";
 import { CollectionDialog } from "./collection-dialog";
 import {
     buildChatLifecycleActions,
@@ -260,12 +260,14 @@ export function ChatList({
     useEffect(() => {
         let unlisten: (() => void) | undefined;
         let cancelled = false;
-        void listen("agent-subagent", (event) => {
+        listen("agent-subagent", (event) => {
             applySubagentEvent((event.payload ?? {}) as Parameters<typeof applySubagentEvent>[0]);
         }).then((fn) => {
             if (cancelled) fn();
             else unlisten = fn;
-        }).catch(() => {});
+        }).catch(() => {
+            if (!cancelled) notify.error("Could not receive subagent updates", "Reload the app to retry.");
+        });
         return () => { cancelled = true; unlisten?.(); };
     }, []);
 
@@ -296,9 +298,9 @@ export function ChatList({
     useEffect(() => {
         setChats([]);
         setSelectedIds([]);
-        void loadChats();
+        loadChats();
         /** Reload chats through the version-fenced loader when a conversation event invalidates the list. */
-        const onRefresh = () => void loadChats();
+        const onRefresh = () => { loadChats(); };
         window.addEventListener("bettershape-chat-refresh", onRefresh);
         window.addEventListener("bettershape-chats-changed", onRefresh);
         window.addEventListener("bettershape-chat-active", onRefresh);
@@ -412,13 +414,15 @@ export function ChatList({
 
     const changeDisposition = useCallback((ids: readonly string[], state: ChatDisposition["state"]) => {
         if (ids.length === 0) return;
-        const previous = new Map(ids.map((id) => [id, getChatDispositions()[id]]));
-        const value: ChatDisposition = state === "snoozed" ? { state, until: Date.now() + CHAT_SNOOZE_MS } : { state };
+        const dispositions = getChatDispositions();
+        const previous = new Map(ids.map((id) => [id, dispositions[id]]));
+        const value = dispositionForShelf(state);
+        const action = SHELF_ACTIONS[state];
         for (const id of ids) setChatDisposition(id, value);
         pushChatUndo({
-            kind: state === "snoozed" ? "snooze" : state === "settled" ? "settle" : "resume",
+            kind: action.kind,
             chatId: ids[0], chatIds: ids,
-            label: `${state === "snoozed" ? "Snoozed" : state === "settled" ? "Settled" : "Resumed"} ${nameOf(ids)}`,
+            label: `${action.past} ${nameOf(ids)}`,
             revert: () => { for (const [id, old] of previous) setChatDisposition(id, old); },
         });
     }, [nameOf]);
@@ -429,8 +433,12 @@ export function ChatList({
             setDisposition: changeDisposition,
             setPinned: pinChats,
             markUnread: markChatUnread,
-            copyTitle: (title) => void navigator.clipboard.writeText(title),
-            revealFolder: (path) => void commands.revealPath(path).catch(() => {}),
+            copyTitle: (title) => {
+                navigator.clipboard.writeText(title).catch(() => notify.error("Could not copy session title"));
+            },
+            revealFolder: (path) => {
+                commands.revealPath(path).catch(() => notify.error("Could not reveal project folder"));
+            },
             archive: archiveChats,
             remove: removeChats,
             addToCollection: (ids) => setCollectionDraft([...ids]),
