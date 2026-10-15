@@ -46,6 +46,16 @@ Concurrency: `release-${ref}` cancel-in-progress false (never cancel release).
 - Secret heuristic
 - Size warning (>2000 lines)
 
+## PR policy check: `pr-policy.yml`
+
+- Triggers on `pull_request_target` when a PR opens, is edited, receives a new head, or reopens. GitHub runs the trusted workflow definition from the repository's default branch; this workflow must be present there before the check can run. A PR that introduces the workflow does not activate its own check.
+- Checks the required PR sections and completed Verification Gate and Code Research Gate fields, the CodeAnt body tag, a Yes or No criticality classification, and that the recorded 40-character head SHA matches the current PR head.
+- Fails closed when GitHub's pull-request files API returns its 3,000-file maximum, because additional changed paths may be omitted and cannot be classified reliably.
+- Marks workflow and policy changes, shared GitHub Actions, release scripts, `lefthook.yml`, and documented policy files as critical. Critical PRs must include the CodeRabbit body tag; other PRs must omit it. Automatic CodeRabbit reviews for non-draft PRs targeting `main` remain separate; drafts are excluded by `.coderabbit.yaml`.
+- Uses only `pull-requests: read`; it does not check out or execute PR code.
+- The check validates PR body content, not standalone bot comments. Contributors still post the required comments and record their links and head SHA.
+- `PR Policy Check` is a separate status, not part of `CI Success`. Branch protection must require it directly for failures to block merging.
+
 ## Composite Setup (`.github/actions/setup`)
 
 DRY setup for Node, Rust, system deps, caches.
@@ -76,7 +86,7 @@ cargo fmt --check     → rust-lints
 cargo clippy -D warnings → rust-lints
 npm run build         → build
 npm run sync-version  → version-sync
-npm run test:all      → release test
+npm run test:all      → local aggregate (CI runs Vitest and Cargo separately)
 ```
 
 ## Adding a new workflow

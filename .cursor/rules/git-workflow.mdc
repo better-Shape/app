@@ -1,13 +1,18 @@
 ---
-description: PRs, commits, CodeRabbit, tests — always on
+description: Always apply PR, commit, CodeAnt, conditional CodeRabbit, and test rules
 alwaysApply: true
 ---
 
 # Git and reviews
 
-- Never `git push` to `main`. Create a focused branch, open a PR, merge after CI and CodeRabbit.
+- Never push to `main`. Create a focused branch and open a PR against its inherited base.
+- Do not merge until required checks and reviews pass and the user confirms with `Yes Merge Branch X into Branch Y`.
 - One concern per PR. Do not stack a second change on the same branch.
-- Commit as `area: concrete change`. `Closes #N` in the body only when the user named a real issue.
-- After opening a PR: wait for CI (`Test`) and CodeRabbit. Fix what they flag. Repeat until CI is green and CodeRabbit has no new blocking comments.
+- Commit as `area: concrete change`. Add `Closes #N` only when the user named a real issue.
+- Request `@codeant-ai review` on every PR.
+- Request `@coderabbitai review` only for a substantially critical change. That includes a breaking change, security fix, major architecture or protocol change, new platform support claim, or repository policy or workflow change that materially affects future work.
+- CodeRabbit automatically reviews non-draft PRs whose base is `main`; draft PRs are excluded by `.coderabbit.yaml`. For other bases, keep routine reviews on CodeAnt.
+- `PR Policy Check` runs from the trusted default-branch workflow definition and is separate from `CI Success`. Require it directly in branch protection; it does not run until the workflow is present on the default branch.
+- After each push, request CodeAnt again on the new head. Request CodeRabbit manually for substantially critical PRs, and wait for automatic CodeRabbit review on every non-draft PR targeting `main`. Fix findings and repeat until required CI checks are green, CodeAnt approves the head, all applicable CodeRabbit reviews are complete, and no review thread remains unresolved.
 - Run `npm run test:all` before you say the work is done.
-- Read `AGENTS.md` (short). If `COMMIT.md` exists locally, follow it for commit wording.
+- Read `AGENTS.md`. If `COMMIT.md` exists locally, follow it for commit wording.

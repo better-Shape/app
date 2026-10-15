@@ -39,7 +39,13 @@ A CI or release pull request must say which failure it fixes, how you checked it
 
 `main` is protected. Open a PR. Direct pushes are rejected.
 
-CodeRabbit reviews every PR. CI runs `npm run test:all`. Address both before merge.
+Request CodeAnt review on every PR. Request CodeRabbit only for substantially critical changes. This includes breaking changes, security fixes, major architecture or protocol changes, new platform support claims, and repository policy or workflow changes that materially affect future work.
+
+CodeRabbit automatically reviews non-draft PRs targeting `main`; wait for that review to finish even if no manual tag is posted. Draft PRs are excluded. For other bases, request it only when the change meets one of the critical criteria.
+
+Run `npm run test:all` locally before pushing. CI runs Vitest and Cargo in separate jobs. Before merge, confirm CodeAnt approved the current head and all applicable CodeRabbit reviews finished (manual for substantially critical PRs, automatic for non-draft PRs targeting `main`); address their feedback and required CI failures.
+
+The `PR Policy Check` is a separate `pull_request_target` status, not part of `CI Success`. Maintainers must require `PR Policy Check` directly in branch protection once the workflow is present on the default branch.
 
 - One concern per PR
 - Say what you changed and how you checked it

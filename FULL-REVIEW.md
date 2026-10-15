@@ -723,10 +723,10 @@ Every change that touches product UI loads the design set before it is judged.
 
 - `ci.yml` runs `Lint & Typecheck`, `Test JS (Vitest)`, `Static Checks (macOS)`, `Test Rust (Cargo)`, `Rust Lints (fmt, clippy)`, `Build Next.js`, `Version Sync Check`, `Security Audit`, and the `CI Success` aggregate job. Read the job that a changed file affects.
 - `security.yml` runs CodeQL for JavaScript and TypeScript and for Rust, dependency review, the audit, Zizmor, and the OpenSSF Scorecard.
-- `pr.yml` checks the PR title, large files, and secret patterns, and it reports labels.
+- `pr.yml` checks the PR title, large files, secret patterns, and PR size. `pr-policy.yml` validates PR body evidence and conditional review tags from the default-branch definition using `pull_request_target`; it does not check out or run PR code. It is a separate status, so branch protection must require `PR Policy Check` directly. The workflow is active only after it reaches the default branch.
 - `build-installers.yml` builds test installers and never publishes. `release.yml` publishes, so a change to it is critical.
 - `auto-merge.yml` runs on `pull_request` into `main`, only when the actor is `dependabot[bot]`. It parses the PR title for a single `from X.Y.Z to X.Y.Z` bump. It skips the merge, and so requires manual review, for a major bump, a breaking `0.x` minor bump, a grouped update, or a title it cannot parse. For an eligible bump it waits for `CI Success` on the test-merge SHA, aborts if the PR head changed during the wait, and then runs `gh pr merge --auto --squash`. Check any change to these conditions as critical, since it can merge a dependency without a human.
-- CodeRabbit auto-reviews only pull requests whose base is `main`. A PR against another base needs an explicit review request, and the PR says so.
+- CodeRabbit auto-reviews non-draft pull requests whose base is `main`; wait for that review to complete regardless of criticality. Draft PRs are excluded by `.coderabbit.yaml`. For other bases, request a manual CodeRabbit review only for substantially critical PRs, as `AGENTS.md` defines.
 - Vendored skills are checked by `npm run skills:verify`. CI does not run that command today. A change that adds a skill without a lock entry, or edits a locked skill, must say why.
 
 ## 19. Suggestions, nitpicks, and what the tooling checks
@@ -768,7 +768,7 @@ These items would make this protocol repeatable. They are not required for a rev
 3. Scope the capability file per window, so the settings, git and preview windows do not share the `main` window's permission set.
 4. Decide whether an updater plugin, with an endpoint and a public key, should be added. Until then, the updater stays absent.
 5. Add a Rust or TypeScript contract test that decodes each Tauri command's argument shape.
-6. Add a CodeRabbit base branch entry for the branch that the team uses for integration, or document that PRs against it need a manual review request.
+6. Keep automatic CodeRabbit reviews for `main` unchanged. Decide separately whether the integration branch should receive automatic reviews; until a maintainer decides, keep CodeAnt as the default there and request CodeRabbit only for substantially critical PRs.
 
 ---
 

@@ -92,12 +92,23 @@ Release notes grouping: area-only (Editor, Agent, Git, Terminal, Workbench, Upda
 
 ### PR Hygiene (`pr.yml`)
 
-Triggers: PR opened/edited/sync.
+Triggers: PR opened, edited, synchronized, or reopened.
 
 - **title-lint**: Warns if title doesn't match `area: description` or conventional type. Non-blocking but nudges contributors.
 - **check-large-files**: Fails if file >5MB (excluding `.git`, `node_modules`, `target`, `.next`, `out`, `dist`).
 - **secrets heuristic**: Greps diff for private key / API key patterns.
 - **label-check**: Warns if PR >2000 lines.
+
+### PR policy check: `pr-policy.yml`
+
+Triggers on `pull_request_target` when a PR opens, is edited, synchronized, or reopened. GitHub uses the workflow definition from the repository's default branch; this check becomes available only after the workflow is present there.
+
+- Requires the PR body to include the required sections, completed Verification Gate and Code Research Gate fields, `npm run test:all`, the CodeAnt tag, a Yes or No criticality classification, and the current 40-character head SHA.
+- Fails closed when GitHub's pull-request files API returns its 3,000-file maximum, because additional changed paths may be omitted and cannot be classified reliably.
+- Treats repository policy, workflow, shared action, release-script, and `lefthook.yml` changes as substantially critical. Critical PRs must include the CodeRabbit body tag. Other PRs must omit it. Automatic CodeRabbit reviews for non-draft PRs targeting `main` remain separate; drafts are excluded by `.coderabbit.yaml`.
+- Requests only `pull-requests: read`. It reads changed file names and does not check out or run PR code.
+- The workflow checks body text, not whether review comments were posted. Contributors still post the required standalone bot comments and record their links and head SHA.
+- `PR Policy Check` is separate from `CI Success`; repository branch protection must require this status directly for policy failures to block merging.
 
 ## Composite Action (`setup`)
 
@@ -123,8 +134,8 @@ Labels: `dependencies` + ecosystem. Commit prefix `chore` or `ci`.
 Implemented checklist (from OpenSSF, SLSA, GitHub security docs):
 
 1. **Least privilege permissions**: Top-level `contents: read`, per-job elevation only.
-2. **Pinned actions**: All `uses:` pinned to major version (`@v4`, `@v3`, etc.). Consider pinning to full SHA for high-security (tradeoff with Dependabot noise).
-3. **No `pull_request_target`**: Avoids privileged context on fork PRs.
+2. **Pinned actions**: Most `uses:` references are pinned to major versions (`@v4`, `@v3`, etc.). The high-trust PR policy workflow pins its third-party action to a full SHA.
+3. **`pull_request_target`**: Avoid by default. The PR policy workflow is a metadata-only exception: it uses the default-branch definition, requests only `pull-requests: read`, references no secrets, and does not check out or execute PR code. See [GitHub's secure-use guidance](https://docs.github.com/en/actions/reference/security/securely-using-pull_request_target).
 4. **No untrusted input in scripts**: PR titles, branch names treated as data, not code (no interpolation into `run:`).
 5. **Concurrency controls**: PRs cancel stale runs (cost saving), releases queue (safety).
 6. **Timeouts**: All jobs have `timeout-minutes` to cap runaway jobs (prevents 6h billing).

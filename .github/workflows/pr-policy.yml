@@ -1,0 +1,160 @@
+name: PR Policy Check
+
+# This trusted metadata-only check uses the default-branch workflow definition.
+# Require the PR Policy Check status directly in repository branch protection.
+on:
+  pull_request_target:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  pull-requests: read
+
+concurrency:
+  group: pr-policy-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  pr-policy:
+    name: PR Policy Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Validate PR body and review policy
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const pullRequest = context.payload.pull_request;
+            const body = pullRequest?.body ?? '';
+            const errors = [];
+
+            const required = [
+              ['## Summary section', /^##\s+Summary\s*$/im.test(body)],
+              ['## Changes section', /^##\s+Changes\s*$/im.test(body)],
+              ['## Verification Gate section', /^##\s+Verification Gate\s*$/im.test(body)],
+              ['## Code Research Gate section', /^##\s+Code Research Gate\s*$/im.test(body)],
+              ['## Design confirmations section', /^##\s+Design confirmations\s*$/im.test(body)],
+              ['## Review classification section', /^##\s+Review classification\s*$/im.test(body)],
+              ['## Review requests section', /^##\s+Review requests\s*$/im.test(body)],
+              ['## Footer section', /^##\s+Footer\s*$/im.test(body)],
+              ['npm run test:all', body.includes('npm run test:all')],
+              ['@codeant-ai review', body.includes('@codeant-ai review')],
+            ];
+            const missing = required.filter(([, present]) => !present).map(([label]) => label);
+            if (missing.length) {
+              errors.push(`PR body is missing required content: ${missing.join(', ')}`);
+            }
+
+            const verificationFields = [
+              ['npm ci', /^-\s*`npm ci`:\s*(.*)$/gim],
+              ['npm run lint', /^-\s*`npm run lint`:\s*(.*)$/gim],
+              ['npx tsc --noEmit', /^-\s*`npx tsc --noEmit`:\s*(.*)$/gim],
+              ['npm run build:runtime', /^-\s*`npm run build:runtime`:\s*(.*)$/gim],
+              ['npm run test:all', /^-\s*`npm run test:all`:\s*(.*)$/gim],
+              ['npm run test:rust', /^-\s*`npm run test:rust`:\s*(.*)$/gim],
+              ['npm run skills:verify', /^-\s*`npm run skills:verify`:\s*(.*)$/gim],
+              ['Rust formatting and clippy', /^-\s*Rust formatting and clippy, when Rust changed:\s*(.*)$/gim],
+            ];
+            const resultPattern = /^(passed|pass|failed|fail|not run|not complete|not applicable)\b\s*[:.,;—-]?\s*(.*)$/i;
+            const hasResult = (status, details) => {
+              const normalizedStatus = status.toLowerCase();
+              return !['not run', 'not complete'].includes(normalizedStatus) || details.trim().length > 0;
+            };
+            for (const [label, pattern] of verificationFields) {
+              const matches = [...body.matchAll(pattern)];
+              const value = matches[0]?.[1]?.trim() ?? '';
+              const result = value.match(resultPattern);
+              let validResult = result && hasResult(result[1], result[2] ?? '');
+
+              if (label === 'Rust formatting and clippy' && !validResult) {
+                const fmt = value.match(/(?:^|[;,]\s*)(?:fmt|formatting):\s*(passed|pass|failed|fail|not run|not complete|not applicable)\b([^;,]*)/i);
+                const clippy = value.match(/(?:^|[;,]\s*)clippy:\s*(passed|pass|failed|fail|not run|not complete|not applicable)\b([^;,]*)/i);
+                validResult = fmt && clippy && hasResult(fmt[1], fmt[2] ?? '') && hasResult(clippy[1], clippy[2] ?? '');
+              }
+
+              if (matches.length !== 1 || !validResult) {
+                errors.push(`Record exactly one completed ${label} result; include a reason when it was not run or is incomplete.`);
+              }
+            }
+
+            const researchFields = [
+              ['Queries searched', /^-\s*Queries searched:\s*(.*)$/gim],
+              ['Sources', /^-\s*Sources:\s*(.*)$/gim],
+              ['Edge cases considered', /^-\s*Edge cases considered:\s*(.*)$/gim],
+              ['Failed attempts', /^-\s*Failed attempts:\s*(.*)$/gim],
+            ];
+            // Queries, sources, and edge cases must document actual work; only Failed attempts may be None.
+            const isUnfilledResearchValue = (label, value) => {
+              const trimmed = value.trim();
+              if (!trimmed) return true;
+              if (/^<(?:queries?(?: searched)?|sources|edge cases?(?: considered)?|failed attempts)>$/i.test(trimmed)) return true;
+              if (/^(?:todo|tbd|n\/?a|not applicable|placeholder|fill(?: this)? in|replace me)(?:\b|[.!])$/i.test(trimmed)) return true;
+              return label !== 'Failed attempts' && /^none\b/i.test(trimmed);
+            };
+            for (const [label, pattern] of researchFields) {
+              const matches = [...body.matchAll(pattern)];
+              const value = matches[0]?.[1] ?? '';
+              if (matches.length !== 1 || isUnfilledResearchValue(label, value)) {
+                errors.push(`Complete the ${label} field in the Code Research Gate instead of leaving its template placeholder.`);
+              }
+            }
+
+            const headShaMatches = [...body.matchAll(/^Head SHA:\s*`?([0-9a-f]{40})`?\s*$/gim)];
+            const declaredHeadSha = headShaMatches[0]?.[1]?.toLowerCase();
+            if (headShaMatches.length !== 1 || declaredHeadSha !== pullRequest.head.sha.toLowerCase()) {
+              errors.push('Set one Head SHA field to the current 40-character PR head SHA.');
+            }
+
+            const classifications = [...body.matchAll(/^Substantially critical:\s*(yes|no)\s*$/gim)];
+            const classification = classifications[0]?.[1]?.toLowerCase();
+            if (classifications.length !== 1) {
+              errors.push('Set "Substantially critical" to Yes or No exactly once in the PR body.');
+            }
+
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              ...context.repo,
+              pull_number: pullRequest.number,
+              per_page: 100,
+            });
+            const maxListableFiles = 3000;
+            if (files.length >= maxListableFiles) {
+              errors.push(`GitHub's pull-request files API returns at most ${maxListableFiles} files; split this PR so policy-file classification is complete.`);
+            }
+
+            const policyPaths = [
+              /^\.github\/workflows\//,
+              /^\.github\/actions\//,
+              /^\.cursor\/rules\//,
+              /^(?:AGENTS\.md|CONTRIBUTING\.md|REVIEW\.md|FULL-REVIEW\.md|lefthook\.yml)$/,
+              /^\.agents\/PREFLIGHT\.md$/,
+              /^\.github\/(?:PULL_REQUEST_TEMPLATE\.md|WORKFLOWS_README\.md|CODEOWNERS)$/,
+              /^\.coderabbit\.yaml$/,
+              /^scripts\/release\//,
+              /^docs\/developing\/ci-cd\.mdx$/,
+            ];
+            const criticalFiles = new Set(
+              files
+                .flatMap(({ filename, previous_filename }) => [filename, previous_filename].filter(Boolean))
+                .filter((filename) => policyPaths.some((pattern) => pattern.test(filename))),
+            );
+
+            if (criticalFiles.size > 0 && classification !== 'yes') {
+              errors.push(`Mark this PR as substantially critical because it changes ${criticalFiles.size} repository policy or workflow file(s).`);
+            }
+
+            const critical = classification === 'yes' || criticalFiles.size > 0;
+            const hasCodeRabbitTag = body.includes('@coderabbitai review');
+            if (critical && !hasCodeRabbitTag) {
+              errors.push('Substantially critical PRs must include @coderabbitai review in the PR body.');
+            }
+            if (!critical && hasCodeRabbitTag) {
+              errors.push('Remove @coderabbitai review from the body of a non-critical PR.');
+            }
+
+            if (errors.length > 0) {
+              core.setFailed(errors.join('\n'));
+              return;
+            }
+
+            core.info(critical
+              ? `PR body is valid. ${criticalFiles.size} policy or workflow path(s) require critical review. CodeAnt and CodeRabbit tags are present.`
+              : 'PR body is valid. CodeAnt tag is present. CodeRabbit was not requested.');
