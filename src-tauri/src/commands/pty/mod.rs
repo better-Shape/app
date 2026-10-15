@@ -1,4 +1,7 @@
 mod exit_status;
+mod preview_readiness;
+
+use preview_readiness::PreviewReadiness;
 
 use crate::core::error::AppError;
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
@@ -42,6 +45,10 @@ pub struct TerminalSessionSnapshot {
     /// Heuristic: the last output line looks like an interactive prompt while
     /// the process is still alive. Advisory only.
     pub waiting_for_input: bool,
+    /// Readiness scraped from this live session's output, never a port probe.
+    pub preview_url: Option<String>,
+    /// Orders this snapshot against output events delivered by another IPC path.
+    pub preview_revision: u64,
 }
 
 pub struct SessionMeta {
@@ -54,6 +61,7 @@ pub struct SessionMeta {
     pub kind: SessionKind,
     /// Only `pty_spawn_run` sessions scrape preview URLs from output.
     pub scrape_preview: AtomicBool,
+    preview_ready: Mutex<PreviewReadiness>,
     pub cwd: Mutex<Option<String>>,
 }
 
@@ -67,6 +75,7 @@ impl SessionMeta {
             exit_notify: tokio::sync::Notify::new(),
             kind,
             scrape_preview: AtomicBool::new(false),
+            preview_ready: Mutex::new(PreviewReadiness::default()),
             cwd: Mutex::new(None),
         }
     }
@@ -223,6 +232,17 @@ impl PtyState {
         if let Ok(meta_map) = self.session_meta.lock() {
             if let Some(meta) = meta_map.get(&id) {
                 meta.scrape_preview.store(true, Ordering::SeqCst);
+                // A fast server can print its URL before spawn returns. Retain
+                // that output-owned evidence for late or reattached renderers.
+                if let Ok(output) = meta.output.lock() {
+                    if let Some(url) = scrape_preview_url(&output) {
+                        if let Ok(mut ready) = meta.preview_ready.lock() {
+                            if ready.revision == 0 {
+                                let _ = ready.record(url);
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -287,21 +307,20 @@ impl PtyState {
             return Some(false);
         }
         // PTY sessions: confirm against the child process (reader EOF can lag).
-        if let Ok(mut sessions) = self.sessions.lock() {
-            if let Some(session) = sessions.get_mut(&id) {
-                let status = session.child.lock().ok()?.try_wait();
-                return match status {
-                    Ok(Some(status)) => {
-                        session.meta.mark_exited(Some(status.exit_code() as i32));
-                        Some(false)
-                    }
-                    Ok(None) => Some(true),
-                    Err(_) => {
-                        session.meta.mark_exited(None);
-                        Some(false)
-                    }
-                };
-            }
+        let mut sessions = self.sessions.lock().ok()?;
+        if let Some(session) = sessions.get_mut(&id) {
+            let status = session.child.lock().ok()?.try_wait();
+            return match status {
+                Ok(Some(status)) => {
+                    session.meta.mark_exited(Some(status.exit_code() as i32));
+                    Some(false)
+                }
+                Ok(None) => Some(true),
+                Err(_) => {
+                    session.meta.mark_exited(None);
+                    Some(false)
+                }
+            };
         }
         // Piped sessions: the monitor thread owns exit detection.
         Some(meta.is_running())
@@ -327,9 +346,10 @@ impl PtyState {
 
         let running = self
             .session_is_running(id)
-            .unwrap_or_else(|| meta.is_running());
+            .ok_or_else(|| AppError::Message("Terminal process status is unavailable".into()))?;
         let command = meta.command.lock().ok().and_then(|c| c.clone());
         let waiting_for_input = running && looks_like_input_prompt(&full_output);
+        let preview_ready = meta.preview_ready.lock()?.clone();
 
         Ok(TerminalSessionSnapshot {
             session_id: id,
@@ -340,6 +360,8 @@ impl PtyState {
             exit_code: meta.exit_code(),
             kind: meta.kind,
             waiting_for_input,
+            preview_url: if running { preview_ready.url } else { None },
+            preview_revision: preview_ready.revision,
         })
     }
 
@@ -474,6 +496,7 @@ struct PtyExit {
 #[serde(rename_all = "camelCase")]
 pub struct PreviewReadyEvent {
     source: &'static str,
+    revision: Option<u64>,
     pub id: u32,
     pub url: String,
 }
@@ -639,6 +662,7 @@ async fn probe_preview_until_ready(app: AppHandle, id: u32, command: String) {
                     "preview-ready",
                     PreviewReadyEvent {
                         source: "probe",
+                        revision: None,
                         id,
                         url: url.clone(),
                     },
@@ -1324,16 +1348,24 @@ async fn spawn_pty_with_command(
                             preview.replace('\n', "\\n").replace('\r', "\\r")
                         );
                         if let Some(url) = scrape_preview_url(&data) {
+                            let revision = meta
+                                .preview_ready
+                                .lock()
+                                .ok()
+                                .and_then(|mut ready| ready.record(url.clone()));
                             log::info!("[preview] pty {} scraped url {}", session_id, url);
                             crate::agent::tools::page_shot::remember_preview_url(&url);
-                            let _ = app_for_thread.emit(
-                                "preview-ready",
-                                PreviewReadyEvent {
-                                    source: "output",
-                                    id: session_id,
-                                    url,
-                                },
-                            );
+                            if let Some(revision) = revision {
+                                let _ = app_for_thread.emit(
+                                    "preview-ready",
+                                    PreviewReadyEvent {
+                                        source: "output",
+                                        revision: Some(revision),
+                                        id: session_id,
+                                        url,
+                                    },
+                                );
+                            }
                         }
                     }
                     if let Some(cb) = &callbacks {
@@ -1648,6 +1680,63 @@ mod scrape_tests {
     fn scrape_ignores_casual_localhost_mentions() {
         assert!(scrape_preview_url("GET http://localhost:3000/api\n").is_none());
         assert!(scrape_preview_url("open http://127.0.0.1:3000 for the website\n").is_none());
+    }
+
+    #[test]
+    fn reattached_preview_snapshot_retains_output_readiness_and_revokes_it_on_exit() {
+        let state = PtyState::new();
+        let meta = Arc::new(SessionMeta::new(SessionKind::AgentPty));
+        meta.append_output("Local: http://localhost:5173\n");
+        state
+            .session_meta
+            .lock()
+            .unwrap()
+            .insert(7, Arc::clone(&meta));
+        state.mark_preview_scrape(7);
+        let snapshot = state.read_session_output(7, 500).unwrap();
+        assert_eq!(
+            snapshot.preview_url.as_deref(),
+            Some("http://localhost:5173")
+        );
+        assert!(snapshot.running);
+        let serialized = serde_json::to_value(snapshot).unwrap();
+        assert_eq!(serialized["previewUrl"], "http://localhost:5173");
+        meta.mark_exited(Some(0));
+        assert!(state
+            .read_session_output(7, 500)
+            .unwrap()
+            .preview_url
+            .is_none());
+    }
+
+    #[test]
+    fn preview_snapshot_never_promotes_an_unrelated_url_mention() {
+        let state = PtyState::new();
+        let meta = Arc::new(SessionMeta::new(SessionKind::AgentPty));
+        meta.append_output("GET http://localhost:5173/api\n");
+        state.session_meta.lock().unwrap().insert(7, meta);
+        state.mark_preview_scrape(7);
+        assert!(state
+            .read_session_output(7, 500)
+            .unwrap()
+            .preview_url
+            .is_none());
+    }
+
+    #[test]
+    fn a_snapshot_cannot_grant_running_status_when_child_state_is_unavailable() {
+        let state = PtyState::new();
+        state
+            .session_meta
+            .lock()
+            .unwrap()
+            .insert(7, Arc::new(SessionMeta::new(SessionKind::AgentPty)));
+        let poisoned = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = state.sessions.lock().unwrap();
+            panic!("test poisoned child-session lock");
+        }));
+        assert!(poisoned.is_err());
+        assert!(state.read_session_output(7, 500).is_err());
     }
 
     #[test]

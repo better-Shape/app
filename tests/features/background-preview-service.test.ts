@@ -17,7 +17,7 @@ let background: typeof import("@/features/terminal/background-run");
 function emit(name: string, payload: unknown) { for (const listener of mocks.listeners.get(name) ?? []) listener({ payload }); }
 beforeEach(async () => {
     vi.resetModules(); mocks.listeners.clear(); mocks.spawn.mockReset().mockResolvedValue(7);
-    mocks.read.mockReset().mockResolvedValue({ sessionId: 7, running: true, exitCode: null });
+    mocks.read.mockReset().mockImplementation(async ({ id }: { id: number }) => ({ sessionId: id, running: true, exitCode: null, previewUrl: null }));
     mocks.release.mockReset().mockResolvedValue(undefined); mocks.kill.mockReset().mockResolvedValue(undefined); mocks.registration.mockReset().mockResolvedValue(undefined);
     background = await import("@/features/terminal/background-run");
 });
@@ -326,4 +326,59 @@ it("cannot publish a run stopped while overflow reconciliation was pending", asy
     expect(mocks.kill).toHaveBeenCalledOnce();
     expect(await background.ensureBackgroundRun("npm run dev")).toBe(7);
     expect(mocks.spawn).toHaveBeenCalledTimes(2);
+});
+
+
+it("recovers the selected PTY's readiness after more than 32 early announcements", async () => {
+    mocks.spawn.mockImplementationOnce(async () => {
+        for (let id = 100; id < 164; id += 1) emit("preview-ready", { id, url: `http://localhost:${3000 + id}`, source: "output" });
+        emit("preview-ready", { id: 7, url: "http://localhost:5173", source: "output" });
+        return 7;
+    });
+    mocks.read.mockResolvedValueOnce({ sessionId: 7, running: true, previewUrl: "http://localhost:5173" });
+    await background.ensureBackgroundRun("npm run dev", "/project");
+    expect(background.getBackgroundPreviewService()).toEqual({ ptyId: 7, projectPath: "/project", url: "http://localhost:5173" });
+});
+
+it("reattaches an existing native PTY using retained output readiness without an event replay", async () => {
+    mocks.read.mockResolvedValueOnce({ sessionId: 7, running: true, previewUrl: "http://localhost:5173" });
+    await background.ensureBackgroundRun("npm run dev", "/project");
+    expect(background.getBackgroundPreviewService()?.url).toBe("http://localhost:5173");
+});
+
+it("prefers a newer output event received while a readiness snapshot is pending", async () => {
+    mocks.read.mockImplementationOnce(async () => {
+        emit("preview-ready", { id: 7, url: "http://localhost:5174", source: "output" });
+        return { sessionId: 7, running: true, previewUrl: "http://localhost:5173" };
+    });
+    await background.ensureBackgroundRun("npm run dev", "/project");
+    expect(background.getBackgroundPreviewService()?.url).toBe("http://localhost:5174");
+});
+
+it("does not authorize retained readiness from an exited reattached process", async () => {
+    mocks.read.mockResolvedValueOnce({ sessionId: 7, running: false, exitCode: 2, previewUrl: "http://localhost:5173" });
+    await expect(background.ensureBackgroundRun("npm run dev", "/project")).rejects.toThrow("exited during startup");
+    expect(background.getBackgroundPreviewService()).toBeNull();
+});
+
+
+it("does not let a later probe hide the native output-owned readiness snapshot", async () => {
+    mocks.read.mockImplementationOnce(async () => {
+        emit("preview-ready", { id: 7, url: "http://localhost:3000", source: "probe" });
+        return { sessionId: 7, running: true, previewUrl: "http://localhost:5173", previewRevision: 2 };
+    });
+    await background.ensureBackgroundRun("npm run dev", "/project");
+    expect(background.getBackgroundPreviewService()?.url).toBe("http://localhost:5173");
+});
+
+it.each([1, 3])("orders output events and native snapshots by revision, not delivery order (%i)", async revision => {
+    mocks.read.mockImplementationOnce(async () => {
+        emit("preview-ready", { id: 7, url: "http://localhost:5174", source: "output", revision });
+        return { sessionId: 7, running: true, previewUrl: "http://localhost:5173", previewRevision: 2 };
+    });
+    await background.ensureBackgroundRun("npm run dev", "/project");
+    const expected = revision > 2 ? "http://localhost:5174" : "http://localhost:5173";
+    expect(background.getBackgroundPreviewService()?.url).toBe(expected);
+    emit("preview-ready", { id: 7, url: "http://localhost:3000", source: "output", revision: 1 });
+    expect(background.getBackgroundPreviewService()?.url).toBe(expected);
 });

@@ -35,8 +35,14 @@ let runGeneration = 0;
 let starting: { command: string; cwd: string; generation: number; promise: Promise<number> } | null = null;
 const readyListeners = new Set<ReadyListener>();
 let lastReadyUrl: string | null = null;
-let announcedReady: { id: number; url: string } | null = null;
-type PreviewReady = { id: number; url: string; source?: "output" | "probe" };
+type PreviewReady = { id: number; url: string; source?: "output" | "probe"; revision?: number | null };
+let announcedReady: PreviewReady | null = null;
+
+/** Delayed native events must not replace a newer retained snapshot or output event. */
+const isOlderReadiness = (incoming: PreviewReady, current: PreviewReady | undefined | null): boolean =>
+    current?.source === "output" && incoming.source === "output"
+    && typeof current.revision === "number" && typeof incoming.revision === "number"
+    && incoming.revision <= current.revision;
 
 /** Only a live run's own output can grant design editing; a port probe cannot. */
 export function getBackgroundPreviewService(): { ptyId: number; projectPath: string; url: string } | null {
@@ -46,7 +52,8 @@ export function getBackgroundPreviewService(): { ptyId: number; projectPath: str
 
 function rememberReady(event: PreviewReady) {
     if (event.source !== "output" && announcedReady?.id === event.id) return;
-    if (event.source === "output") announcedReady = { id: event.id, url: event.url };
+    if (isOlderReadiness(event, announcedReady)) return;
+    if (event.source === "output") announcedReady = event;
     emitReady(event.url);
 }
 
@@ -145,7 +152,6 @@ async function attachListeners() {
     let ptyId: number | null = null;
     let selectedId: number | null = null;
     let exited = false;
-    let overflow = false;
     const earlyReady = new Map<number, PreviewReady>();
     const earlyExit = new Map<number, number | null>();
     const earlyOutput = new EarlyPtyOutput();
@@ -177,13 +183,13 @@ async function attachListeners() {
             if (!active || unrelated(payload.id)) return;
             if (ptyId === null) {
                 if (earlyExit.size < 128 || earlyExit.has(payload.id)) earlyExit.set(payload.id, payload.exit_code ?? null);
-                else overflow = true; // Missing an early exit must never grant authority.
             } else if (payload.id === ptyId) exit(payload.exit_code ?? null);
         }));
         cleanup.push(await listen<PreviewReady>("preview-ready", ({ payload }) => {
             if (!active || exited || unrelated(payload.id)) return;
             if (ptyId === null) {
                 if (earlyReady.get(payload.id)?.source === "output" && payload.source !== "output") return;
+                if (isOlderReadiness(payload, earlyReady.get(payload.id))) return;
                 if (earlyReady.size < 32 || earlyReady.has(payload.id)) earlyReady.set(payload.id, payload);
             } else if (payload.id === ptyId) rememberReady(payload);
         }));
@@ -198,17 +204,26 @@ async function attachListeners() {
             earlyExit.clear(); earlyReady.clear();
             if (hadExit) earlyExit.set(id, code);
             if (ready) earlyReady.set(id, ready);
-            if (!overflow || hadExit) return;
-            // A full event buffer proves only that events were dropped, not that this child exited.
+            if (hadExit) return;
+            // Events are bounded hints. Native state restores a dropped readiness
+            // event and reattaches an existing PTY that will not announce again.
             const { invoke } = await import("@tauri-apps/api/core");
-            const snapshot = await invoke<{ sessionId: number; running: boolean; exitCode?: number | null } | null>(
+            const readyBeforeRead = earlyReady.get(id);
+            const snapshot = await invoke<{ sessionId: number; running: boolean; exitCode?: number | null; previewUrl?: string | null; previewRevision?: number } | null>(
                 "pty_read_output", { id, tailChars: 500 },
             );
             if (!snapshot || snapshot.sessionId !== id || typeof snapshot.running !== "boolean") {
                 throw new Error("Preview process status is unavailable");
             }
             if (!snapshot.running && !earlyExit.has(id)) earlyExit.set(id, snapshot.exitCode ?? null);
-            overflow = false;
+            if (snapshot.running && typeof snapshot.previewUrl === "string" && snapshot.previewUrl) {
+                const retained: PreviewReady = { id, url: snapshot.previewUrl, source: "output", revision: snapshot.previewRevision };
+                const received = earlyReady.get(id);
+                const ordered = typeof retained.revision === "number" && typeof received?.revision === "number";
+                if (!isOlderReadiness(retained, received) && (ordered || received?.source !== "output" || received === readyBeforeRead)) {
+                    earlyReady.set(id, retained);
+                }
+            }
         },
         activate(id: number): boolean {
             if (!active || exited) return false;
@@ -217,7 +232,7 @@ async function attachListeners() {
                 terminalSessionStore.appendPtyOutput(id, chunk);
                 noteDevRunOutput(chunk);
             }
-            if (overflow || earlyExit.has(id)) { exit(earlyExit.get(id) ?? null); return false; }
+            if (earlyExit.has(id)) { exit(earlyExit.get(id) ?? null); return false; }
             const ready = earlyReady.get(id);
             earlyReady.clear(); earlyExit.clear();
             if (ready) rememberReady(ready);
