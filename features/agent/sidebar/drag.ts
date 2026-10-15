@@ -49,6 +49,7 @@ function nextKeyboardShelf(current: unknown, direction: number): DropShelf | und
 /** Own keyboard position per drag, not the collision target that can exist before the first arrow. */
 export function createShelfKeyboardNavigation() {
     let current: unknown;
+    /** Advance the logical target only when its measured rectangle yields usable coordinates. */
     const coordinates: KeyboardCoordinateGetter = (event, { context }) => {
         const direction = KEYBOARD_DIRECTIONS.get(event.code);
         if (!direction) return undefined;

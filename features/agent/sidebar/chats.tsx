@@ -634,6 +634,7 @@ export function ChatList({
         switch (event.key) {
             case "Escape": event.preventDefault(); closeSearch(); break;
             case "Enter": openSearchResult(event); break;
+            default: break; // Ordinary text keys remain owned by the input.
         }
     };
 

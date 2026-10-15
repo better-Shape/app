@@ -154,3 +154,24 @@ function Header({ cartCount }: { cartCount: number }) {
         expect(locateJsx(source, { tag: "Header", line: 6 })).toMatchObject({ tag: "Header" });
     });
 });
+
+// Native source patches slice Rust strings by UTF-8 bytes, not JavaScript code units.
+describe("native JSX source ranges", () => {
+    it.each([
+        ["", '<div className="card">Hello</div>'],
+        ['const label = "é😀";\n', '<div className="card">Héllo 🌍</div>'],
+        ['// 日本語\r\n', '<img alt="日本語 😀" />'],
+        ['\t', '<div className="card">Hello</div>'],
+    ])("locates complete opening and element ranges after %j", (prefix, element) => {
+        const source = `${prefix}export default () => <main>${element}</main>;`;
+        const tag = element.startsWith("<img") ? "img" : "div";
+        const hit = locateJsx(source, { tag, classes: ["card"] });
+        const start = Buffer.byteLength(source.slice(0, source.indexOf(element)));
+        expect(hit).toMatchObject({
+            openingStart: start,
+            openingEnd: start + Buffer.byteLength(element.slice(0, element.indexOf(">") + 1)),
+            nodeStart: start,
+            nodeEnd: start + Buffer.byteLength(element),
+        });
+    });
+});

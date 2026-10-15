@@ -119,3 +119,20 @@ An explicit PR Refresh is retained while list polling, initialization or paginat
 Project/collection labels use numeric, case-insensitive locale comparison before the existing ID tie-breaker, so Project 2 precedes Project 10 while missing metadata stays last.
 
 A provisional preview listener buffers output until spawn identifies its PTY. Activation replays only that PTY's ordered chunks into terminal scrollback and run-status parsing; unrelated records are discarded. Disposal clears all provisional output. Retention is deliberately bounded to 32 PTYs, 128 chunks and 32,768 UTF-16 characters per PTY, retaining recent chunks rather than claiming unlimited startup history. Buffer overflow does not grant preview authority; the existing native readiness owner remains separate. A selected process that exits unsuccessfully during startup retains its error state rather than being reset to idle by generic startup cleanup.
+
+## Structural design writes and native source ranges
+
+Host and iframe delete/duplicate requests share the same persistence queue as style, text, reorder, token and history writes. Target lookup happens inside the queue, after the preceding native acknowledgement. The admitting grant is checked before lookup, after lookup and after the structural native call. A failed native request does not poison later queue entries. A successful structural request reloads the preview, so later entries admitted by that old document must fail authorization rather than edit a replacement document.
+
+A local JSX match must contain real opening and full-element ranges. Placeholder ranges can suffice for a whole-file replacement but cannot address a native delete or duplicate. Native `apply_design_source_patch` uses UTF-8 byte offsets; Babel reports JavaScript string positions. Location lookup parses the original source with the existing Babel TypeScript parser and converts positions to UTF-8 bytes. Recast still owns transformations and printing. Its parse wrapper expands tabs and normalizes line endings before calling Babel, so its numeric offsets cannot address the original disk content.
+
+The rejected first range implementation converted Recast offsets directly. A CRLF regression exposed the one-byte shift. Tests now cover CRLF, tabs, multi-byte prefixes, supplementary characters, paired elements and self-closing elements. Mounted queue tests check that structural target ranges include an earlier acknowledged style change, rather than only counting native calls. An initial reverse-order test incorrectly expected a queued style write to survive a successful structural reload. The corrected contract rejects that old grant; a separate native-rejection test verifies queue continuation when no reload occurred.
+
+Primary references checked against the installed implementation:
+
+- [Recast parser](https://github.com/benjamn/recast/blob/master/lib/parser.ts) passes `lines.toString` output with whitespace reuse disabled to its parser.
+- [Babel source positions](https://github.com/babel/babel/blob/main/packages/babel-parser/src/util/location.ts) track string indices; the installed `recast/parsers/babel-ts` implementation exposes direct parsing of original source.
+- [TextEncoder encoding contract](https://github.com/mdn/content/blob/main/files/en-us/web/api/textencoder/encode/index.md) specifies UTF-8 bytes. Tests use Node Buffer as an independent byte-range oracle.
+- [JavaScript module scope](https://github.com/mdn/content/blob/main/files/en-us/web/javascript/guide/modules/index.md) keeps module declarations out of the browser global object. Scanner global-function warnings on imported/exported sidebar modules do not justify adding IIFEs or suppressing analysis.
+
+These checks exercise frontend sequencing and payloads with a mocked native command boundary. They do not prove packaged native execution, cancel an already admitted IPC write, or protect against another process editing the file between lookup and mutation.

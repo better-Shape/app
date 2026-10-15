@@ -356,10 +356,10 @@ export function DesignStudio({
                     const next = {
                         file,
                         tag: hit.tag,
-                        openingStart: 0,
-                        openingEnd: 1,
-                        nodeStart: 0,
-                        nodeEnd: 1,
+                        openingStart: hit.openingStart,
+                        openingEnd: hit.openingEnd,
+                        nodeStart: hit.nodeStart,
+                        nodeEnd: hit.nodeEnd,
                         line: hit.line,
                         confidence: 80,
                     };
@@ -433,10 +433,10 @@ export function DesignStudio({
                     return {
                         file,
                         tag: hit.tag,
-                        openingStart: 0,
-                        openingEnd: 1,
-                        nodeStart: 0,
-                        nodeEnd: 1,
+                        openingStart: hit.openingStart,
+                        openingEnd: hit.openingEnd,
+                        nodeStart: hit.nodeStart,
+                        nodeEnd: hit.nodeEnd,
                         line: hit.line,
                         confidence: 90,
                     };
@@ -537,6 +537,20 @@ export function DesignStudio({
         },
         [designerRoot, resolveElement, resolveInstance],
     );
+
+    /** Serialize structure mutations with every other whole-file edit, retaining the admitting grant. */
+    const persistStructure = useCallback((
+        element: DesignElementSnapshot,
+        operation: "delete" | "duplicate",
+        assertAuthorized: () => void,
+    ) => enqueuePersist(async () => {
+        assertAuthorized();
+        const resolved = await resolveElement(element);
+        if (!resolved) throw new Error("Could not map this element to a source file. Select it again, then retry.");
+        assertAuthorized();
+        await commands.applyDesignSourcePatch({ projectPath: designerRoot, target: resolved, operation });
+        assertAuthorized();
+    }), [designerRoot, resolveElement]);
 
     const persistReorder = useCallback(
         async (element: DesignElementSnapshot, before: DesignElementSnapshot | null, assertAuthorized: () => void) => {
@@ -838,15 +852,7 @@ export function DesignStudio({
                 void (async () => {
                     setSaved(false);
                     try {
-                        const resolved = await resolveElement(data.element!);
-                        if (!resolved) throw new Error("Could not map this element to a source file. Select it again, then retry.");
-                        assertAuthorized();
-                        await commands.applyDesignSourcePatch({
-                            projectPath: designerRoot,
-                            target: resolved,
-                            operation: data.type === "bettershape-design-delete" ? "delete" : "duplicate",
-                        });
-                        assertAuthorized();
+                        await persistStructure(data.element!, data.type === "bettershape-design-delete" ? "delete" : "duplicate", assertAuthorized);
                         setSelection(null);
                         setTarget(null);
                         setReady(false);
@@ -861,7 +867,7 @@ export function DesignStudio({
         };
         window.addEventListener("message", onMessage);
         return () => window.removeEventListener("message", onMessage);
-    }, [captureWriteAuthorization, designerRoot, persistJsx, persistReorder, reportMappingError, resolveElement, selectElement, setSelection]);
+    }, [captureWriteAuthorization, designerRoot, persistJsx, persistReorder, persistStructure, reportMappingError, selectElement, setSelection]);
 
     const previewStyles = useCallback((styles: Record<string, string>) => {
         const assertAuthorized = admitSelectionWrite();
@@ -1129,11 +1135,7 @@ export function DesignStudio({
             if (!current || !assertAuthorized) return;
             setSaved(false);
             try {
-                const resolved = await resolveElement(current);
-                if (!resolved) throw new Error("Could not map this element to a source file. Select it again, then retry.");
-                assertAuthorized();
-                await commands.applyDesignSourcePatch({ projectPath: designerRoot, target: resolved, operation });
-                assertAuthorized();
+                await persistStructure(current, operation, assertAuthorized);
                 setSelection(null);
                 setTarget(null);
                 setReady(false);
@@ -1144,7 +1146,7 @@ export function DesignStudio({
                 setSaved(true);
             }
         },
-        [admitSelectionWrite, designerRoot, reportMappingError, resolveElement, selected, setSelection],
+        [admitSelectionWrite, persistStructure, reportMappingError, selected, setSelection],
     );
 
     const exportSelection = useCallback(async (scale: number, format: string) => {

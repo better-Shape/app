@@ -435,3 +435,81 @@ it("serializes concurrent token writes through disk acknowledgement", async () =
     expect(backend.save).toHaveBeenCalledTimes(2);
     expect(disk).toContain("--first: blue"); expect(disk).toContain("--second: green");
 });
+
+it.each([
+    ["host", "delete"], ["host", "duplicate"], ["frame", "delete"], ["frame", "duplicate"],
+] as const)("serializes %s %s behind an already admitted native edit", async (source, operation) => {
+    let disk = SOURCE;
+    backend.read.mockImplementation(async () => disk);
+    const panel = await selectForMutation();
+    let finish!: () => void;
+    backend.patch.mockImplementationOnce((patch: { content: string }) => new Promise<void>(resolve => {
+        finish = () => { disk = patch.content; resolve(); };
+    }));
+    await act(async () => panel.onCommit({ color: "red" }));
+    expect(backend.patch).toHaveBeenCalledTimes(1);
+    const reads = backend.read.mock.calls.length;
+    await act(async () => {
+        if (source === "host") {
+            if (operation === "delete") panel.onDelete?.(); else panel.onDuplicate?.();
+        } else {
+            const frame = host.querySelector("iframe")!;
+            window.dispatchEvent(new MessageEvent("message", {
+                source: frame.contentWindow, origin: backend.service.url,
+                data: { type: `bettershape-design-${operation}`, element: panel.element },
+            }));
+        }
+    });
+    const concurrentCalls = backend.patch.mock.calls.length;
+    const concurrentReads = backend.read.mock.calls.length;
+    await act(async () => finish());
+    expect(concurrentCalls).toBe(1);
+    expect(concurrentReads).toBe(reads);
+    expect(backend.patch).toHaveBeenCalledTimes(2);
+    const structuralPatch = backend.patch.mock.calls[1][0];
+    expect(structuralPatch.operation).toBe(operation);
+    const { openingStart, openingEnd, nodeStart, nodeEnd } = structuralPatch.target;
+    const bytes = Buffer.from(disk);
+    expect(bytes.subarray(openingStart, openingEnd).toString()).toBe('<div className="card text-red">');
+    expect(bytes.subarray(nodeStart, nodeEnd).toString()).toBe('<div className="card text-red">Hello</div>');
+});
+
+it.each(["delete", "duplicate"] as const)("waits behind pending %s before rejecting a style edit on its reloaded preview", async operation => {
+    const panel = await selectForMutation();
+    let finish!: () => void;
+    backend.patch.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; }));
+    await act(async () => { if (operation === "delete") panel.onDelete?.(); else panel.onDuplicate?.(); });
+    await act(async () => panel.onCommit({ color: "red" }));
+    const concurrentCalls = backend.patch.mock.calls.length;
+    await act(async () => finish());
+    expect(concurrentCalls).toBe(1);
+    // A successful structure change reloads the preview, revoking the queued style edit's grant.
+    expect(backend.patch).toHaveBeenCalledTimes(1);
+    expect(backend.patch.mock.calls[0][0].operation).toBe(operation);
+});
+
+it.each(["delete", "duplicate"] as const)("discards queued %s when its preview grant is replaced", async operation => {
+    const panel = await selectForMutation();
+    let finish!: () => void;
+    backend.patch.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; }));
+    await act(async () => panel.onCommit({ color: "red" }));
+    await act(async () => { if (operation === "delete") panel.onDelete?.(); else panel.onDuplicate?.(); });
+    await replaceService(8);
+    const reads = backend.read.mock.calls.length;
+    await act(async () => finish());
+    expect(backend.patch).toHaveBeenCalledTimes(1);
+    expect(backend.read).toHaveBeenCalledTimes(reads);
+});
+
+it.each(["delete", "duplicate"] as const)("continues queued edits after native %s rejection without reloading", async operation => {
+    const panel = await selectForMutation();
+    let reject!: (cause: Error) => void;
+    backend.patch.mockImplementationOnce(() => new Promise<void>((_resolve, fail) => { reject = fail; }));
+    await act(async () => { if (operation === "delete") panel.onDelete?.(); else panel.onDuplicate?.(); });
+    await act(async () => panel.onCommit({ color: "red" }));
+    const concurrentCalls = backend.patch.mock.calls.length;
+    await act(async () => reject(new Error("Disk write rejected")));
+    expect(concurrentCalls).toBe(1);
+    expect(backend.patch).toHaveBeenCalledTimes(2);
+    expect(backend.patch.mock.calls[1][0].content).toContain("text-red");
+});
