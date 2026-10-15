@@ -255,6 +255,23 @@ it("reconciles an overflowing early-exit buffer against the selected live native
     expect(background.getBackgroundPreviewService()?.ptyId).toBe(7);
 });
 
+it("adopts a dev URL the run printed when native kept no readiness record", async () => {
+    mocks.read.mockImplementation(async ({ id, tailChars }: { id: number; tailChars: number }) => tailChars === 500
+        ? { sessionId: id, running: true, exitCode: null, previewUrl: null }
+        : { sessionId: id, running: true, exitCode: null, previewUrl: null, output: "  ➜  Local:   http://localhost:4321/\n" });
+    expect(await background.ensureBackgroundRun("npm run dev", "/project")).toBe(7);
+    expect(mocks.read).toHaveBeenCalledWith({ id: 7, tailChars: 500 });
+    expect(background.getBackgroundPreviewService()).toEqual({ ptyId: 7, projectPath: "/project", url: "http://localhost:4321" });
+});
+
+it("does not adopt a URL from a session that is no longer running", async () => {
+    mocks.read.mockImplementation(async ({ id, tailChars }: { id: number; tailChars: number }) => tailChars === 500
+        ? { sessionId: id, running: true, exitCode: null, previewUrl: null }
+        : { sessionId: id, running: false, exitCode: 0, previewUrl: null, output: "Local: http://localhost:4321/\n" });
+    await background.ensureBackgroundRun("npm run dev", "/project");
+    expect(background.getBackgroundPreviewService()).toBeNull();
+});
+
 it("does not revive an exited selected PTY when its early exit was dropped", async () => {
     mocks.spawn.mockImplementationOnce(async () => { floodEarlyExits(); emit("pty-exit", { id: 7, exit_code: 7 }); return 7; });
     mocks.read.mockResolvedValue({ sessionId: 7, running: false, exitCode: 7 });

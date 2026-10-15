@@ -48,6 +48,11 @@ export function setDevRunPtyId(ptyId: number | null) {
     emit();
 }
 
+/** First local dev URL printed by a run — the same shape Rust scrapes into readiness. */
+export function matchDevUrl(text: string): string | null {
+    return URL_RE.exec(text)?.[0] ?? null;
+}
+
 export function noteDevRunOutput(chunk: string) {
     if (state.status === "idle") return;
     if (ERR_RE.test(chunk) && !READY_RE.test(chunk) && !URL_RE.test(chunk)) {
