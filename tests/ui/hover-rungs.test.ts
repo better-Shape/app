@@ -47,9 +47,15 @@ type Fill = { red: string; green: string; blue: string; alpha: number };
 
 function fillOf(token: string, share = 1): Fill | null {
     const literal = resolve(token);
-    const m = literal?.match(/rgba\(\s*([\d.]+),\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)\)/);
-    if (!m) return null;
-    return { red: m[1], green: m[2], blue: m[3], alpha: Number(m[4]) * share };
+    if (!literal) return null;
+    const rgba = literal.match(/rgba\(\s*([\d.]+),\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)\)/);
+    if (rgba) return { red: rgba[1], green: rgba[2], blue: rgba[3], alpha: Number(rgba[4]) * share };
+    // An opaque token still produces a state layer once a share is applied to it, which is
+    // how `open:bg-panel/50` leaves the ladder without ever naming an alpha.
+    const hex = literal.match(/^#([0-9a-f]{6})$/i);
+    if (!hex) return null;
+    const [red, green, blue] = [0, 2, 4].map((at) => Number.parseInt(hex[1].slice(at, at + 2), 16));
+    return { red: String(red), green: String(green), blue: String(blue), alpha: share };
 }
 
 const ladderAlphas = Object.values(RUNGS);
@@ -249,13 +255,34 @@ describe("the hover rung contract", () => {
         expect(offenders, `committed fills with no rung above them:\n  ${offenders.join("\n  ")}`).toEqual([]);
     });
 
-    it("keeps a state fill at or above the lightest rung", () => {
-        // `bg-panel-hover/50` is 2% white, so a selected surface inside a state expression
-        // reads lighter than a hovered one at 4%. A committed layer that is fainter than
-        // hover is the same defect as one that is equal to it.
-        const offenders: string[] = [];
+    it("keeps a state fill on the ladder", () => {
+        // Two shapes of the same defect. A fill written behind a variant prefix is
+        // unambiguously a state layer, and `open:bg-panel/50` on a disclosure resolves to
+        // half of an opaque panel colour: the surface rests on a rung and leaves the
+        // ladder when it opens. A bare fill inside a state expression has the other
+        // failure, where `bg-panel-hover/50` at 2% reads fainter than the 4% hover rung it
+        // competes with. Opaque surfaces are left alone, because an elevation step is a
+        // decision the ladder does not govern and disabled chrome never takes a pointer.
+        const STATE_FILL = /(?:^|[\s"'`])((?:[a-z-]+:|data-\[[^\]]*\]:)+)bg-(?!\[)([a-z][\w-]*)(?:\/(\d+))?/g;
         const FADED = /(?<!:)bg-(?:panel-hover|\[var\(--[\w-]+\)\])(?:\/(\d+))?/g;
+        const offenders: string[] = [];
+
         for (const { rel, text } of files) {
+            for (const m of text.matchAll(STATE_FILL)) {
+                const [, chain, token, share] = m;
+                if (/^(?:hover|focus|focus-visible|active):$/.test(chain)) continue;
+                const name = declared.has(`--color-${token}`) ? `--color-${token}` : `--${token}`;
+                if (SEMANTIC.test(name.replace(/^--color-|^--/, ""))) continue;
+                const literal = resolve(name);
+                if (!literal) continue;
+                const fill = fillOf(name, share ? Number(share) / 100 : 1);
+                if (!fill) continue;
+                if (fill.alpha >= 1) continue;
+                if (isRung(fill)) continue;
+                const key = `${rel} :: ${name}${share ? `/${share}` : ""}`;
+                if (EXEMPT[key]) continue;
+                offenders.push(`${rel}: ${chain}bg-${token}${share ? `/${share}` : ""} is a state fill at ${fill.alpha} alpha, and not a rung`);
+            }
             for (const m of text.matchAll(FADED)) {
                 if (m[1] === undefined || Number(m[1]) >= 100) continue;
                 const element = elementAt(text, m.index!);
@@ -265,11 +292,15 @@ describe("the hover rung contract", () => {
                 const name = m[0].match(/var\((--[\w-]+)\)/)?.[1] ?? "--panel-hover";
                 const fill = fillOf(name, share);
                 if (fill && fill.alpha >= RUNGS["--row-hover"]) continue;
-                offenders.push(`${rel}: ${m[0]} is a state fill at ${fill?.alpha ?? "?"} alpha`);
+                offenders.push(`${rel}: ${m[0]} is a committed fill at ${fill?.alpha ?? "?"} alpha, under the lightest rung`);
             }
         }
-        expect(offenders, offenders.join("\n")).toEqual([]);
+        expect(offenders, `state fills off the ladder:\n  ${offenders.join("\n  ")}`).toEqual([]);
     });
+
+
+
+
 
     it("never fills a committed branch at the alpha the same element hovers at", () => {
         // The same defect by value rather than by name: `bg-panel-hover` resolves to the

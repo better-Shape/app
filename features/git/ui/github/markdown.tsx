@@ -179,7 +179,7 @@ function createComponents(ctx?: GitMarkdownCtx): Components {
         },
 
         details: ({ children }) => (
-            <details className="my-2 overflow-hidden rounded-lg border border-border-subtle bg-panel-hover open:bg-panel/50">
+            <details className="my-2 overflow-hidden rounded-lg border border-border-subtle bg-panel-hover open:bg-[var(--row-selected)]">
                 {children}
             </details>
         ),

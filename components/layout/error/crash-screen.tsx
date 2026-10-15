@@ -156,7 +156,13 @@ export function CrashScreen({
                         label="Attach technical details to the report"
                         motion="compact"
                     />
-                    Attach technical details
+                    {/*
+                      * The checkbox carries the name and takes the keyboard, and this
+                      * span exists so the pointer can hit the words as well. The words
+                      * repeat the checkbox label, so they are hidden from assistive
+                      * technology rather than announced twice.
+                      */}
+                    <span aria-hidden="true">Attach technical details</span>
                 </span>
 
                 <p className="mt-1 max-w-[19rem] text-2xs leading-relaxed text-text-disabled">
