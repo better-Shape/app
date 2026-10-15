@@ -467,6 +467,14 @@ export function ChatList({
         });
     }, [live, filter, pinnedIds, unreadIds, collections, searchQuery]);
 
+    const visibleSelection = useMemo(() => {
+        const visible = new Set(filtered.filter(chat => !hiddenIds.has(chat.id)).map(chat => chat.id));
+        return selectedIds.filter(id => visible.has(id));
+    }, [filtered, hiddenIds, selectedIds]);
+    // Counts, lifecycle actions and collection assignment share one selection.
+    // Prune during render so no committed menu can target a filtered-out chat.
+    if (visibleSelection.length !== selectedIds.length) setSelectedIds(visibleSelection);
+
     const sections = useMemo(
         () =>
             buildShelves({

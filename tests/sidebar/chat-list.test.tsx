@@ -2,7 +2,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Conversation } from "@/lib/backend/types";
-import { getPinnedChatIds, setChatPinned } from "@/lib/sidebar/chat-list-meta";
+import { getPinnedChatIds, setChatPinned, getCollections, deleteCollection } from "@/lib/sidebar/chat-list-meta";
 import { getChatDispositions, setChatDisposition } from "@/lib/sidebar/chat-disposition";
 import { resetChatUndoForTests } from "@/features/agent/sidebar/undo";
 import {
@@ -467,6 +467,43 @@ it("filters sessions only after IME composition ends and does not open on compos
         expect(host.querySelector('input[aria-label="Search sessions"]')).toBeNull();
         expect(rowOrder()).toEqual(["d", "a", "c", "b"]);
     } finally { window.removeEventListener("bettershape-chat-load", opened); }
+});
+
+it("uses the same visible selection for lifecycle counts and collection assignment", async () => {
+    const existingCollections = new Set(getCollections().map(collection => collection.id));
+    try {
+        for (const id of ["a", "b"]) {
+            const open = row(id).querySelector<HTMLButtonElement>('[aria-roledescription="draggable session"]')!;
+            act(() => open.dispatchEvent(new MouseEvent("click", { bubbles: true, [shortcutModifier]: true })));
+        }
+        expect(host.querySelectorAll('[role="checkbox"][aria-checked="true"]')).toHaveLength(2);
+        act(() => host.querySelector<HTMLButtonElement>('button[aria-label="Search"]')!.click());
+        const input = host.querySelector<HTMLInputElement>('input[aria-label="Search sessions"]')!;
+        act(() => {
+            Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "Alpha");
+            input.dispatchEvent(new Event("input", { bubbles: true }));
+        });
+        expect(rowOrder()).toEqual(["a"]);
+        await act(async () => {
+            host.querySelector<HTMLButtonElement>('button[aria-label="Sessions actions"]')!
+                .dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
+        });
+        const menu = document.querySelector('[role="menu"]')!;
+        expect(menu.textContent).toContain("1 selected");
+        const add = [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(item => item.textContent?.includes("Add to collection"))!;
+        await act(async () => add.click());
+        for (const label of ["Next", "Next", "Create"]) {
+            const dialog = document.querySelector('[role="alertdialog"]')!;
+            const button = [...dialog.querySelectorAll<HTMLButtonElement>("button")].find(item => item.textContent === label)!;
+            await act(async () => button.click());
+        }
+        const created = getCollections().find(collection => !existingCollections.has(collection.id));
+        expect(created?.chatIds).toEqual(["a"]);
+        act(() => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+        expect(row("b").querySelector('[role="checkbox"]')?.getAttribute("aria-checked")).toBe("false");
+    } finally {
+        act(() => { for (const collection of getCollections()) if (!existingCollections.has(collection.id)) deleteCollection(collection.id); });
+    }
 });
 
 });

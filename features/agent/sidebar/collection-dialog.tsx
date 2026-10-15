@@ -38,6 +38,7 @@ import {
     AlertDialogBody,
     AlertDialogCancel,
     AlertDialogContent,
+    AlertDialogDescription,
     AlertDialogFooter,
     AlertDialogHeader,
     AlertDialogTitle,
@@ -87,6 +88,7 @@ export const COLLECTION_GLYPH: Record<CollectionIcon, IconGlyph> = {
     airplane: Airplane20Regular,
 };
 
+/** Create or edit a collection in three steps, using the supplied session IDs for new collections. */
 export function CollectionDialog({
     chatIds,
     existing,
@@ -122,6 +124,7 @@ export function CollectionDialog({
                     <AlertDialogTitle>
                         {step === 0 ? "Name the collection" : step === 1 ? "Choose an icon" : "Choose a color"}
                     </AlertDialogTitle>
+                    <AlertDialogDescription>Set the name, icon and color for this collection.</AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogBody>
                 {step === 0 ? (
