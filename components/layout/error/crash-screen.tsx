@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { submitProblemReport } from "@/lib/feedback/report";
 import { redactText } from "@/lib/diagnostics/scrub";
+import { Checkmark } from "@/components/ui/checkmark";
 
 export interface CrashScreenProps {
     /** What failed, in the user's terms: "Something went wrong", "IDE crashed". */
@@ -143,15 +144,20 @@ export function CrashScreen({
                     {reported ? null : <Icon icon={ChevronRight20Regular} />}
                 </Button>
 
-                <label className="mt-2 flex cursor-pointer items-center gap-2 text-2xs text-text-muted">
-                    <input
-                        type="checkbox"
+                {/* The row toggles from either the box or the words, and the box stops
+                    the click it handles so the two cannot cancel out. */}
+                <span
+                    onClick={() => setAttachDetails((on) => !on)}
+                    className="mt-2 flex cursor-pointer items-center gap-2 text-2xs text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:text-text-primary"
+                >
+                    <Checkmark
                         checked={attachDetails}
-                        onChange={(event) => setAttachDetails(event.target.checked)}
-                        className="size-3.5 shrink-0 accent-accent"
+                        onCheckedChange={(next) => setAttachDetails(next === true)}
+                        label="Attach technical details to the report"
+                        motion="compact"
                     />
                     Attach technical details
-                </label>
+                </span>
 
                 <p className="mt-1 max-w-[19rem] text-2xs leading-relaxed text-text-disabled">
                     Copies a redacted report and opens a prefilled issue. Nothing is sent until you submit it.

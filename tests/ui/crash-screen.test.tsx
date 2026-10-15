@@ -181,7 +181,8 @@ describe("CrashScreen", () => {
 
     it("sends a scrubbed stack when the user attaches it", async () => {
         await render({ message: "boom", stack: STACK });
-        const box = container.querySelector('input[type="checkbox"]') as HTMLInputElement;
+        const box = container.querySelector('[role="checkbox"]') as HTMLElement;
+        expect(box, "the attach toggle is missing").not.toBeNull();
         act(() => box.click());
         await report();
         const body = lastReport();
