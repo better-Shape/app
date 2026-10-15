@@ -1,11 +1,15 @@
 # Round 8, the AGENTS.md compliance pass, 2026-10-15
 
 Base: `289b1344838fb5eea700505483125774ce6649be`. Code commit under review:
-`6f7d845a7a2b0fb658bd34839b66cc237cde7dee`, branch `arena/0b5607bf-app`. The four
-rounds of work before this one were on the same working tree, and the repository was
-re-cloned underneath them, so their commits are absent from history and the tree is the
-only copy. This pass treats every rule in `AGENTS.md` as a standing instruction and
-fixes the work already on disk against it.
+`9e3e2bfd85379e256119c0928f3b1b62cbf77653`, branch `arena/0b5607bf-app`. The pull request
+is https://github.com/better-Shape/app/pull/7 against `draft/mega-absorb-all`.
+
+The four rounds of work before this one were on the same working tree, and the repository
+was re-cloned underneath them, so their commits are absent from history and the tree is
+the only copy. Five commits carry the pass: `6f7d845` and `f695e3b` are the repair itself,
+`0bbed49` and `b7a57d1` and `748e168` answer the first review round, and `9e3e2bf` answers
+the SonarCloud gate and the round 7 census. This pass treats every rule in `AGENTS.md` as
+a standing instruction and fixes the work already on disk against it.
 
 ## What was wrong, and what changed
 
@@ -127,9 +131,67 @@ verified with `git log -1 --format=%B | grep -i co-authored` returning nothing. 
 committing here needs to know the hook exists, or the next commit will carry a
 fabricated co-author again.
 
+## What the first review round found
+
+### The SonarCloud gate, and the three attempts it took to clear it
+
+The gate failed on one issue: `pythonsecurity:S2083`, Path Traversal, BLOCKER, against
+`scripts/qa/classify-hover-rungs.py`. The flow SonarCloud printed starts at a file read and
+calls it an HTTP source, so the rule is a false positive on this script. Two attempts to
+say so in the file failed. A prose comment above the write left the issue open on a later
+line, and a `# NOSONAR` marker on the sink line itself left it open again at line 118,
+which is the behaviour the documentation implies is not supposed to happen.
+
+The honest fix was to delete the hazard instead of describing it. That script rewrote
+source by line number, a move that reads as a vulnerability to a taint analyser and is a
+hazard to the repository for a plain reason: its tables had already drifted past the end
+of two files, so it was reporting six sites as wrong that were correct. The migration it
+drove has landed, so what was left of it was an audit nobody ran, in a second language,
+with a table that rots.
+
+### The round 7 census could not see the fills it was signing off
+
+The census that closed round 7 counted token names. It found 84 button-rung sites and 78
+row-rung sites, and it could not see a hover fill written as `bg-panel-hover/40`, because
+that is not a rung token and not a rung value either. Nine rows hovered that way, at 1.6%
+white, which is fainter than the lightest rung the ladder defines, so the defect round 7
+existed to fix was still live in nine places. Eleven controls committed through
+`--panel-active`, a sixth alpha no research asked for, which left six controls in a shared
+primitive on the 12% committed rung and twenty one on the 6% one.
+
+Two more findings came out of walking the same ground again:
+
+- `hover:bg-background-primary-hover`, used by the breadcrumb and the titlebar row, has no
+  definition in any stylesheet. Tailwind emits no rule for it, which the compiled CSS
+  confirms: the file contains 12 mentions of `panel-active` and 40 of `panel-hover`, and
+  zero of this one. Both sites hovered with no fill at all.
+- `selectedClasses` in `components/ui/button.tsx` gave a committed button the same fill on
+  hover as at rest, which is the defect Microsoft filed as `microsoft/fluentui#4992`.
+
+The replacement is a contract test rather than a script, because the invariant is about
+values and not about files: `tests/ui/hover-rungs.test.ts` reads the alpha every hover fill
+resolves to, follows `var()` alias chains, and fails on a fill that is neither one of the
+six rungs nor an entry with a written reason. Eleven sites are written exemptions, each
+with its reason in the test: media scrims, indicator dots, two elevation steps, the light
+palette half of the select trigger, and the Windows close control. The test was checked
+against three mutations before it was kept: a hover fill equal to the rest fill, a new fill
+at 6% white, and a one point move in `--row-selected`. It failed all three.
+
+Rendered evidence, measured in Chromium against the running app:
+
+| Surface | Rest | Hover | Delta |
+| --- | --- | --- | --- |
+| Settings nav row | transparent | `rgba(255,255,255,0.04)` | 10 channel units |
+| Settings committed row | `rgba(255,255,255,0.08)` | not hovered | the ROW ladder's committed rung |
+| Sidebar nav row | transparent | `rgba(255,255,255,0.04)` | 10 channel units |
+| Sidebar icon button | transparent | `rgba(255,255,255,0.08)` | 20 channel units |
+
+The settings nav row hovered at 2% before this commit and its committed row sat at 4%, so a
+hovered row and the current row were two points apart. They are now 4% and 8%.
+
 ## Gate results
 
-Head SHA `6f7d845a7a2b0fb658bd34839b66cc237cde7dee`. Every result below is a command that
+Head SHA `9e3e2bfd85379e256119c0928f3b1b62cbf77653`. Every result below is a command that
 ran in this sandbox against this tree, after the last edit to a source file.
 
 | Gate | Command | Result |
@@ -138,11 +200,11 @@ ran in this sandbox against this tree, after the last edit to a source file.
 | Lint | `npm run lint` | PASS, 0 errors and 158 warnings, exit 0, with the Playwright report on disk |
 | Types | `npx tsc --noEmit` | PASS, exit 0 |
 | Runtime build | `npm run build:runtime` | PASS, `src-tauri/runtime/bundle.js` 393.0kb |
-| Unit and component tests | `npm run test` | PASS, 119 files, 970 tests, exit 0 |
+| Unit and component tests | `npm run test` | PASS, 120 files, 976 tests, exit 0, including the 6 new rung tests |
 | All local tests | `npm run test:all` | PARTIAL, Vitest half passed, Cargo half NOT RUN |
 | Rust tests | `npm run test:rust` | NOT RUN, `cargo: not found`, exit 127 |
 | Skill integrity | `npm run skills:verify` | PASS, 53 of 53 locked skills verified, 2 project-owned skills unrecorded, exit 0 |
-| Browser QA | `npm run qa` | 24 passed, 1 failed. The failure is pre-existing, evidence below |
+| Browser QA | `npm run qa` | 24 passed, 1 failed, the same pre-existing `/settings` failure, reproduced on a clean tree below |
 | Prettier or format gate | not run | this repository has no format script in `package.json` |
 
 `npm run test:all` and `npm run test:rust` cannot complete in this sandbox because the
@@ -300,6 +362,11 @@ Loaded from `.agents/skills/`, in the order `engineering/design-skills.md` sets:
   skill that asks for an install or an API key. Recorded in
   `engineering/design-skills.md`.
 
+For the rung fix in `9e3e2bf`, `unslop` governed the comment and report wording, and
+`antislop`'s Delivery Gate governed the measurement report below. No visual decision was
+taken from `impeccable` or `design-taste-frontend`, because the fix restores values those
+rounds had already decided.
+
 What the skills changed: `unslop` produced every dash and sentence repair above.
 `antislop-code` produced the comment cuts, and the measurement that the ratio moved from
 1:1.08 to 1:0.34. `antislop-copywriting` produced the two crash strings.
@@ -314,7 +381,8 @@ npm run build:runtime
 npm run test
 npm run skills:verify
 PLAYWRIGHT_SANDBOX_LIBS=/tmp/sandboxlibs/lib npm run qa
-node scripts/qa/shot-errors.cjs      # the two crash screenshots
+npx vitest run tests/ui/hover-rungs.test.ts   # the rung contract on its own
+node scripts/qa/shot-errors.cjs               # the two crash screenshots
 ```
 
 The GIF evidence under `.dump/app/qa/gifs/` is generated, so it stays out of git and is
@@ -330,3 +398,8 @@ re-recorded with `scripts/qa/make-gifs.cjs`. The documents in this directory are
 - The GIFs were recorded in the previous round and were not re-recorded, because this
   pass changed no motion value. The crash screenshots were re-shot because the copy in
   them changed.
+- The segmented-control pill that moved from 6% to 12% in `9e3e2bf` is verified by its
+  computed value and by the contract test, not by a screenshot: the only three surfaces
+  that mount `components/ui/tabs.tsx` are inside the Git and PR panels, and the preview
+  mock serves an empty project, so the crawl never reaches them. That is evidence level
+  E3 where the rest of this section is E4, and it is not presented as more.
