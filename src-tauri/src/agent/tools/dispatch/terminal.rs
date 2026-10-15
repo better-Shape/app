@@ -122,7 +122,11 @@ pub(super) async fn execute_terminal_session(
         ctx.app_handle,
         pty_state,
         ctx.agent_state,
-        ctx.cancel.clone(),
+        ctx.agent_state.terminal_owner(
+            ctx.cancel.clone(),
+            ctx.conversation_id.as_deref(),
+            ctx.turn_id.as_deref(),
+        ),
         cmd_id,
     )
     .await;

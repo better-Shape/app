@@ -102,9 +102,47 @@ pub fn begin_stop<'a, T>(
     })
 }
 
+pub fn begin_exclusive_cleanup<'a>(
+    stopping: &'a Mutex<HashSet<String>>,
+    conversation_id: &str,
+) -> Option<StopGuard<'a>> {
+    let mut stopped = stopping.lock().ok()?;
+    if !stopped.insert(conversation_id.to_string()) {
+        return None;
+    }
+    Some(StopGuard {
+        stopping,
+        conversation_id: conversation_id.to_string(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn exclusive_cleanup_blocks_idle_admission_until_its_owner_drops() {
+        let active = Mutex::new(HashMap::<String, ()>::new());
+        let stopping = Mutex::new(HashSet::new());
+        let owner = begin_exclusive_cleanup(&stopping, "a").unwrap();
+        assert!(begin_exclusive_cleanup(&stopping, "a").is_none());
+        assert!(admit(&active, &stopping, "a".into(), || Some((
+            "blocked".into(),
+            ()
+        )))
+        .is_none());
+        assert!(admit(&active, &stopping, "b".into(), || Some((
+            "other".into(),
+            ()
+        )))
+        .is_some());
+        drop(owner);
+        assert!(admit(&active, &stopping, "a".into(), || Some((
+            "ready".into(),
+            ()
+        )))
+        .is_some());
+    }
 
     #[test]
     fn cancellation_precedes_admission_without_cancelling_other_lanes_or_newer_sends() {

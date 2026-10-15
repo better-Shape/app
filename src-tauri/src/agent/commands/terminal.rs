@@ -21,7 +21,7 @@ use std::time::Duration;
 use serde_json::json;
 use tauri::{AppHandle, Emitter, Manager};
 
-use crate::agent::models::AgentState;
+use crate::agent::models::{AgentState, TerminalOwner};
 use crate::commands::pty::{self, AgentSessionCallbacks, PtyState};
 
 use super::logging;
@@ -148,6 +148,7 @@ fn make_callbacks(
     app: &AppHandle,
     command_id: &str,
     forward_panel_data: bool,
+    owner: Arc<TerminalOwner>,
 ) -> AgentSessionCallbacks {
     let app_out = app.clone();
     let app_exit = app.clone();
@@ -193,7 +194,7 @@ fn make_callbacks(
         }),
         on_exit: Arc::new(move |session_id, exit_code| {
             if let Some(state) = app_exit.try_state::<AgentState>() {
-                state.unregister_session(session_id);
+                state.unregister_session(session_id, &owner);
             }
             emit_chat_stream(
                 &app_exit,
@@ -225,9 +226,10 @@ pub async fn run_agent_command(
     app: &AppHandle,
     pty_state: &PtyState,
     agent_state: &AgentState,
-    cancel: tokio_util::sync::CancellationToken,
+    owner: Arc<TerminalOwner>,
     command_id: &str,
 ) -> AgentCommandResult {
+    let cancel = &owner.cancel;
     let mode = classify_command(command);
     logging::info(
         "terminal",
@@ -236,7 +238,7 @@ pub async fn run_agent_command(
 
     let (session_id, is_pty) = match mode {
         CommandExecutionMode::DevServer => {
-            let callbacks = make_callbacks(app, command_id, false);
+            let callbacks = make_callbacks(app, command_id, false, owner.clone());
             match pty::spawn_agent_pty_command(app, pty_state, command, cwd, Some(callbacks)).await
             {
                 Ok(id) => (id, true),
@@ -244,7 +246,7 @@ pub async fn run_agent_command(
             }
         }
         CommandExecutionMode::OneShot => {
-            let callbacks = make_callbacks(app, command_id, true);
+            let callbacks = make_callbacks(app, command_id, true, owner.clone());
             match pty::spawn_piped_session(pty_state, command, cwd, Some(callbacks)) {
                 Ok(id) => (id, false),
                 Err(e) => return spawn_failure(app, command_id, command, e.to_string()),
@@ -252,7 +254,11 @@ pub async fn run_agent_command(
         }
     };
 
-    agent_state.register_session(session_id, cancel.clone());
+    agent_state.register_session(
+        session_id,
+        owner.clone(),
+        pty_state.session_meta(session_id),
+    );
 
     emit_chat_stream(
         app,
@@ -270,12 +276,34 @@ pub async fn run_agent_command(
     };
 
     let finished = pty_state
-        .wait_for_session_exit(session_id, window, &cancel)
+        .wait_for_session_exit(session_id, window, cancel)
         .await;
 
     if cancel.is_cancelled() {
-        let _ = pty::kill_session(pty_state, session_id).await;
-        agent_state.unregister_session(session_id);
+        if let Err(error) = agent_state
+            .kill_registered_session(pty_state, session_id, &owner)
+            .await
+        {
+            let output =
+                format!("Could not confirm that the command stopped. {error}. Retry Stop.");
+            emit_chat_stream(
+                app,
+                json!({
+                    "commandId": command_id,
+                    "sessionId": session_id,
+                    "kind": "data",
+                    "data": output,
+                }),
+            );
+            return AgentCommandResult {
+                session_id,
+                completed: false,
+                exit_code: None,
+                output,
+                cancelled: false,
+            };
+        }
+        agent_state.unregister_session(session_id, &owner);
         emit_panel_event(
             app,
             json!({ "type": "finish", "exitCode": -1, "cancelled": true }),
@@ -314,7 +342,7 @@ pub async fn run_agent_command(
     let exit_code = snapshot.as_ref().and_then(|s| s.exit_code);
 
     if finished {
-        agent_state.unregister_session(session_id);
+        agent_state.unregister_session(session_id, &owner);
         logging::info(
             "terminal",
             &format!(

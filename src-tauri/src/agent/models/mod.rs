@@ -1,10 +1,17 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex, OnceLock};
 use tokio_util::sync::CancellationToken;
 
 use crate::commands::preview_render::DesignAgentOptions;
+
+pub struct TerminalOwner {
+    pub cancel: CancellationToken,
+    conversation_id: Option<String>,
+    request_id: Option<String>,
+    native_session: OnceLock<Arc<crate::commands::pty::SessionMeta>>,
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct DesignPreviewState {
@@ -275,7 +282,7 @@ pub struct AgentState {
     /// Per-conversation cancel tokens so Stop only ends the chat you are looking at.
     pub cancel_tokens: Mutex<HashMap<String, CancellationToken>>,
     /// In-flight agent terminal session ids for stop/cancel (supports concurrent background jobs).
-    pub active_terminals: Mutex<HashMap<u32, CancellationToken>>,
+    active_terminals: Mutex<HashMap<u32, Arc<TerminalOwner>>>,
     /// Terminal commands awaiting user approval.
     pub pending_commands: Mutex<HashMap<String, PendingCommand>>,
     /// User decisions for pending commands: id -> approved. The waiting tool
@@ -500,6 +507,16 @@ impl AgentState {
         )
     }
 
+    pub fn begin_exclusive_cleanup(
+        &self,
+        conversation_id: &str,
+    ) -> Option<crate::core::turn_order::StopGuard<'_>> {
+        crate::core::turn_order::begin_exclusive_cleanup(
+            &self.stopping_conversations,
+            conversation_id,
+        )
+    }
+
     pub fn request_is_cancelled(&self, request_id: Option<&str>) -> bool {
         request_id.is_some_and(|id| {
             self.request_cancellations
@@ -675,30 +692,10 @@ impl AgentState {
         }
     }
 
-    #[allow(dead_code)]
-    pub fn clear_in_flight(&self) {
-        let current = self
-            .current_conversation_id
-            .lock()
-            .ok()
-            .and_then(|g| g.clone());
-        if let (Some(id), Ok(mut guard)) = (current, self.in_flight.lock()) {
-            guard.remove(&id);
-        }
-    }
-
     pub fn clear_in_flight_if(&self, turn_id: &str) {
         if let Ok(mut guard) = self.in_flight.lock() {
             guard.retain(|_, flight| flight.turn_id != turn_id);
         }
-    }
-
-    pub fn in_flight_turn_id(&self) -> Option<String> {
-        self.in_flight_snapshot().map(|f| f.turn_id)
-    }
-
-    pub fn in_flight_conversation_id(&self) -> Option<String> {
-        self.in_flight_snapshot().and_then(|f| f.conversation_id)
     }
 
     pub fn in_flight_snapshot(&self) -> Option<InFlightTurn> {
@@ -790,11 +787,6 @@ impl AgentState {
             .lock()
             .ok()
             .and_then(|g| g.get(conversation_id).cloned())
-    }
-
-    /// True while `conversation_id` has a turn running, regardless of what is on screen.
-    pub fn is_generating_conversation(&self, conversation_id: &str) -> bool {
-        self.in_flight_for(conversation_id).is_some()
     }
 
     /// Generation state for `conversation_id`, or for the live chat when `None`.
@@ -941,67 +933,177 @@ impl AgentState {
         result
     }
 
-    pub fn register_session(&self, id: u32, cancel: CancellationToken) {
-        if let Ok(mut set) = self.active_terminals.lock() {
-            set.insert(id, cancel);
+    pub fn terminal_owner(
+        &self,
+        cancel: CancellationToken,
+        conversation_id: Option<&str>,
+        turn_id: Option<&str>,
+    ) -> Arc<TerminalOwner> {
+        let request_id = conversation_id
+            .and_then(|id| self.in_flight_for(id))
+            .filter(|turn| turn_id == Some(turn.turn_id.as_str()))
+            .and_then(|turn| turn.request_id);
+        Arc::new(TerminalOwner {
+            cancel,
+            conversation_id: conversation_id.map(str::to_owned),
+            request_id,
+            native_session: OnceLock::new(),
+        })
+    }
+
+    pub fn register_session(
+        &self,
+        id: u32,
+        owner: Arc<TerminalOwner>,
+        native_session: Option<Arc<crate::commands::pty::SessionMeta>>,
+    ) {
+        if let Some(native_session) = native_session {
+            let _ = owner.native_session.set(native_session);
         }
-    }
-
-    #[allow(dead_code)]
-    pub fn clear_active_terminal(&self) {
-        // Prefer unregister_session(id). Kept for Stop/cancel fallbacks that
-        // need to drop every tracked agent session at once.
-        if let Ok(mut set) = self.active_terminals.lock() {
-            set.clear();
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn has_active_terminals(&self) -> bool {
-        self.active_terminals
-            .lock()
-            .map(|s| !s.is_empty())
-            .unwrap_or(false)
-    }
-
-    pub fn unregister_session(&self, id: u32) {
-        if let Ok(mut set) = self.active_terminals.lock() {
-            set.remove(&id);
-        }
-    }
-
-    fn take_cancelled_terminals(&self) -> Vec<u32> {
-        let mut ids = Vec::new();
         if let Ok(mut sessions) = self.active_terminals.lock() {
-            sessions.retain(|id, cancel| {
-                if cancel.is_cancelled() {
-                    ids.push(*id);
-                    false
-                } else {
-                    true
-                }
-            });
-        }
-        ids
-    }
-
-    pub async fn kill_cancelled_terminals(&self, pty_state: &crate::commands::pty::PtyState) {
-        // Tokens retain their owner after a command becomes a background job.
-        // A late Stop must not drain a replacement or another chat's sessions.
-        for id in self.take_cancelled_terminals() {
-            let _ = crate::commands::pty::kill_session(pty_state, id).await;
+            sessions.insert(id, owner);
         }
     }
 
-    pub async fn kill_active_terminal(&self, pty_state: &crate::commands::pty::PtyState) {
-        let ids: Vec<u32> = self
+    pub fn unregister_session(&self, id: u32, owner: &Arc<TerminalOwner>) {
+        let removed = self.active_terminals.lock().ok().and_then(|mut sessions| {
+            crate::core::session_ownership::remove_owned(&mut sessions, id, owner, |current| {
+                current
+            })
+        });
+        drop(removed);
+    }
+
+    fn cancelled_terminals(
+        &self,
+        conversation_id: Option<&str>,
+        request_id: Option<&str>,
+    ) -> Result<Vec<(u32, Arc<TerminalOwner>)>, crate::core::error::AppError> {
+        Ok(self
             .active_terminals
-            .lock()
-            .ok()
-            .map(|mut guard| guard.drain().map(|(id, _)| id).collect())
-            .unwrap_or_default();
-        for id in ids {
-            let _ = crate::commands::pty::kill_session(pty_state, id).await;
+            .lock()?
+            .iter()
+            .filter(|(_, owner)| {
+                owner.cancel.is_cancelled()
+                    && conversation_id.is_none_or(|id| owner.conversation_id.as_deref() == Some(id))
+                    && request_id.is_none_or(|id| owner.request_id.as_deref() == Some(id))
+            })
+            .map(|(id, owner)| (*id, owner.clone()))
+            .collect())
+    }
+
+    pub async fn kill_registered_session(
+        &self,
+        pty_state: &crate::commands::pty::PtyState,
+        id: u32,
+        owner: &Arc<TerminalOwner>,
+    ) -> Result<(), crate::core::error::AppError> {
+        let native = owner.native_session.get().ok_or_else(|| {
+            crate::core::error::AppError::Message(
+                "Terminal ownership is unavailable; refusing to stop an unidentified process"
+                    .to_string(),
+            )
+        })?;
+        crate::commands::pty::kill_owned_session(pty_state, id, native).await
+    }
+
+    async fn kill_tracked_terminals(
+        &self,
+        pty_state: &crate::commands::pty::PtyState,
+        sessions: Vec<(u32, Arc<TerminalOwner>)>,
+    ) -> Result<(), crate::core::error::AppError> {
+        let mut failure = None;
+        for (id, owner) in sessions {
+            match self.kill_registered_session(pty_state, id, &owner).await {
+                Ok(()) => self.unregister_session(id, &owner),
+                Err(error) => {
+                    failure.get_or_insert(error);
+                }
+            }
+        }
+        failure.map_or(Ok(()), Err)
+    }
+
+    pub async fn kill_cancelled_terminals(
+        &self,
+        pty_state: &crate::commands::pty::PtyState,
+        conversation_id: Option<&str>,
+        request_id: Option<&str>,
+    ) -> Result<(), crate::core::error::AppError> {
+        self.kill_tracked_terminals(
+            pty_state,
+            self.cancelled_terminals(conversation_id, request_id)?,
+        )
+        .await
+    }
+
+    pub async fn retry_cancelled_terminals(
+        &self,
+        pty_state: &crate::commands::pty::PtyState,
+        conversation_id: Option<&str>,
+        request_id: Option<&str>,
+    ) -> Result<(), crate::core::error::AppError> {
+        let sessions = self.cancelled_terminals(conversation_id, request_id)?;
+        // An earlier Stop still owns capture teardown until its guard drops.
+        // Do not let a duplicate request overtake that cleanup.
+        {
+            let stopping = self.stopping_conversations.lock()?;
+            if sessions.iter().any(|(_, owner)| {
+                owner
+                    .conversation_id
+                    .as_ref()
+                    .is_some_and(|id| stopping.contains(id))
+            }) {
+                return Err(crate::core::error::AppError::Message(
+                    "Command cleanup is still running. Retry Stop when it finishes.".to_string(),
+                ));
+            }
+        }
+        self.kill_tracked_terminals(pty_state, sessions).await
+    }
+
+    pub async fn kill_terminals_for_conversation(
+        &self,
+        pty_state: &crate::commands::pty::PtyState,
+        conversation_id: &str,
+    ) -> Result<(), crate::core::error::AppError> {
+        let sessions: Vec<_> = self
+            .active_terminals
+            .lock()?
+            .iter()
+            .filter(|(_, owner)| owner.conversation_id.as_deref() == Some(conversation_id))
+            .map(|(id, owner)| (*id, owner.clone()))
+            .collect();
+        for (_, owner) in &sessions {
+            owner.cancel.cancel();
+        }
+        self.kill_tracked_terminals(pty_state, sessions).await
+    }
+
+    pub async fn wait_for_turn_cleanup(
+        &self,
+        conversation_id: &str,
+        turn_id: Option<&str>,
+    ) -> Result<(), crate::core::error::AppError> {
+        let Some(turn_id) = turn_id else {
+            return Ok(());
+        };
+        let started = std::time::Instant::now();
+        loop {
+            let still_running = self
+                .in_flight
+                .lock()?
+                .get(conversation_id)
+                .is_some_and(|turn| turn.turn_id == turn_id);
+            if !still_running {
+                return Ok(());
+            }
+            if started.elapsed() >= std::time::Duration::from_secs(5) {
+                return Err(crate::core::error::AppError::Message(
+                    "The previous turn is still stopping. Retry when it finishes.".to_string(),
+                ));
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
         }
     }
 
@@ -1217,16 +1319,72 @@ mod admission_order_tests {
         let state = AgentState::new();
         let cancelled = CancellationToken::new();
         let other = CancellationToken::new();
-        state.register_session(1, cancelled.clone());
-        state.register_session(2, cancelled.child_token());
-        state.register_session(3, other.clone());
+        let first = state.terminal_owner(cancelled.clone(), Some("a"), None);
+        let second = state.terminal_owner(cancelled.child_token(), Some("a"), None);
+        let third = state.terminal_owner(other.clone(), Some("b"), None);
+        state.register_session(1, first.clone(), None);
+        state.register_session(2, second.clone(), None);
+        state.register_session(3, third, None);
         cancelled.cancel();
-        let mut stopped = state.take_cancelled_terminals();
+        let mut stopped: Vec<_> = state
+            .cancelled_terminals(Some("a"), None)
+            .unwrap()
+            .into_iter()
+            .map(|(id, _)| id)
+            .collect();
         stopped.sort_unstable();
         assert_eq!(stopped, vec![1, 2]);
-        assert_eq!(state.active_terminals.lock().unwrap().len(), 1);
+        assert_eq!(state.active_terminals.lock().unwrap().len(), 3);
         assert!(!other.is_cancelled());
-        assert!(state.take_cancelled_terminals().is_empty());
+        assert_eq!(state.cancelled_terminals(Some("a"), None).unwrap().len(), 2);
+        state.unregister_session(1, &first);
+        state.unregister_session(2, &second);
+        assert!(state
+            .cancelled_terminals(Some("a"), None)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn a_late_terminal_exit_cannot_unregister_a_replacement() {
+        let state = AgentState::new();
+        let first = state.terminal_owner(CancellationToken::new(), Some("a"), None);
+        let replacement = state.terminal_owner(CancellationToken::new(), Some("a"), None);
+        state.register_session(1, first.clone(), None);
+        state.register_session(1, replacement.clone(), None);
+        state.unregister_session(1, &first);
+        assert!(Arc::ptr_eq(
+            state.active_terminals.lock().unwrap().get(&1).unwrap(),
+            &replacement
+        ));
+    }
+
+    #[test]
+    fn terminal_cleanup_is_scoped_to_the_original_request_after_the_turn_exits() {
+        let state = AgentState::new();
+        let first = state
+            .try_begin_ordered_turn("a".into(), Some("window:a:1".into()))
+            .unwrap();
+        let cancelled = CancellationToken::new();
+        let owner = state.terminal_owner(cancelled.clone(), Some("a"), Some(&first));
+        state.register_session(1, owner, None);
+        cancelled.cancel();
+        state.clear_in_flight_if(&first);
+        assert_eq!(
+            state
+                .cancelled_terminals(Some("a"), Some("window:a:1"))
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(state
+            .cancelled_terminals(Some("b"), Some("window:a:1"))
+            .unwrap()
+            .is_empty());
+        assert!(state
+            .cancelled_terminals(Some("a"), Some("window:a:2"))
+            .unwrap()
+            .is_empty());
     }
 
     #[test]

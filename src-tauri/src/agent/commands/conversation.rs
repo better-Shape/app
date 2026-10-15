@@ -148,29 +148,43 @@ pub async fn restore_checkpoint(
     pty_state: tauri::State<'_, crate::commands::pty::PtyState>,
     app_handle: tauri::AppHandle,
 ) -> Result<(), AppError> {
-    let aborted_turn = {
-        let turn_id = state.in_flight_turn_id();
-        let conv_id = state.in_flight_conversation_id().or_else(|| {
-            state
-                .current_conversation_id
-                .lock()
-                .ok()
-                .and_then(|g| g.clone())
-        });
-        if turn_id.is_some() {
-            logging::info("chat", "Restore/redo cancelling in-flight generation");
-            if let Some(id) = conv_id.as_deref() {
-                if let Some(token) = state.conversation_cancel_token(id) {
-                    token.cancel();
-                }
-            }
-            state.clear_in_flight();
-            turn_id.zip(conv_id)
-        } else {
-            None
-        }
-    };
-    state.kill_active_terminal(&pty_state).await;
+    let owner = state
+        .current_conversation_id
+        .lock()?
+        .clone()
+        .ok_or_else(|| AppError::Message("No conversation to restore".to_string()))?;
+    let project_path = app_state.0.lock()?.project_path.clone().unwrap_or_default();
+    let _cleanup = state
+        .begin_exclusive_cleanup(&owner)
+        .ok_or_else(|| AppError::Message("Conversation cleanup is already running".to_string()))?;
+    let aborted_turn = state
+        .in_flight_for(&owner)
+        .map(|turn| (turn.turn_id, owner.clone()));
+    if let Some(token) = state.conversation_cancel_token(&owner) {
+        token.cancel();
+    }
+    state
+        .kill_terminals_for_conversation(&pty_state, &owner)
+        .await?;
+    state
+        .wait_for_turn_cleanup(&owner, aborted_turn.as_ref().map(|(id, _)| id.as_str()))
+        .await?;
+    state
+        .kill_terminals_for_conversation(&pty_state, &owner)
+        .await?;
+    if state.current_conversation_id.lock()?.as_deref() != Some(owner.as_str())
+        || app_state
+            .0
+            .lock()?
+            .project_path
+            .as_deref()
+            .unwrap_or_default()
+            != project_path
+    {
+        return Err(AppError::Message(
+            "The active conversation changed. Reopen it before restoring.".to_string(),
+        ));
+    }
     if let Some((turn_id, conv_id)) = aborted_turn {
         let _ = app_handle.emit(
             "chat_complete",
@@ -194,7 +208,6 @@ pub async fn restore_checkpoint(
     // Drop design gate / sandbox so restore past Continue does not leave writes blocked.
     state.clear_design_preview_state();
 
-    let project_path = app_state.0.lock()?.project_path.clone().unwrap_or_default();
     let snapshots = state.take_checkpoints_from(index);
     for snap in snapshots {
         let abs_path = if std::path::Path::new(&snap.path).is_absolute() {

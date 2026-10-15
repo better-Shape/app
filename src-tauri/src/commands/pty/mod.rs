@@ -175,6 +175,101 @@ pub struct PipedSession {
     meta: Arc<SessionMeta>,
 }
 
+enum TerminationTarget {
+    Pty {
+        child: Arc<Mutex<Box<dyn portable_pty::Child + Send + Sync>>>,
+        cancellation_token: CancellationToken,
+        meta: Arc<SessionMeta>,
+    },
+    Piped {
+        child: Arc<Mutex<Option<std::process::Child>>>,
+        meta: Arc<SessionMeta>,
+    },
+}
+
+impl TerminationTarget {
+    fn from_pty(session: &PtySession) -> Self {
+        Self::Pty {
+            child: session.child.clone(),
+            cancellation_token: session.cancellation_token.clone(),
+            meta: session.meta.clone(),
+        }
+    }
+
+    fn from_piped(session: &PipedSession) -> Self {
+        Self::Piped {
+            child: session.child.clone(),
+            meta: session.meta.clone(),
+        }
+    }
+
+    fn meta(&self) -> &Arc<SessionMeta> {
+        match self {
+            Self::Pty { meta, .. } | Self::Piped { meta, .. } => meta,
+        }
+    }
+
+    fn poll(&self) -> std::io::Result<Option<i32>> {
+        match self {
+            Self::Pty { child, .. } => child
+                .try_lock()
+                .map_err(|_| std::io::Error::other("Terminal child is unavailable"))?
+                .try_wait()
+                .map(|status| status.map(|s| s.exit_code() as i32)),
+            Self::Piped { child, .. } => child
+                .try_lock()
+                .map_err(|_| std::io::Error::other("Terminal child is unavailable"))?
+                .as_mut()
+                .ok_or_else(|| std::io::Error::other("Terminal child handle missing"))?
+                .try_wait()
+                .map(|status| status.map(|s| s.code().unwrap_or(-1))),
+        }
+    }
+
+    fn terminate(&self) -> std::io::Result<()> {
+        let timeout = std::time::Duration::from_secs(2);
+        match self {
+            Self::Pty {
+                child,
+                cancellation_token,
+                meta,
+            } => {
+                exit_status::terminate(
+                    child,
+                    |child| {
+                        child
+                            .try_wait()
+                            .map(|status| status.map(|s| s.exit_code() as i32))
+                    },
+                    |child| child.kill(),
+                    timeout,
+                )?;
+                meta.mark_exited(Some(-1));
+                cancellation_token.cancel();
+            }
+            Self::Piped { child, meta } => {
+                exit_status::terminate(
+                    child,
+                    |slot| {
+                        slot.as_mut()
+                            .ok_or_else(|| std::io::Error::other("Terminal child handle missing"))?
+                            .try_wait()
+                            .map(|status| status.map(|s| s.code().unwrap_or(-1)))
+                    },
+                    |slot| {
+                        slot.as_mut()
+                            .ok_or_else(|| std::io::Error::other("Terminal child handle missing"))?
+                            .kill()
+                    },
+                    timeout,
+                )?;
+                meta.mark_exited(Some(-1));
+            }
+        }
+        Ok(())
+    }
+}
+
 /// Callbacks fired from session reader/monitor threads so the agent layer can
 /// forward output to its own (command-correlated) events.
 #[derive(Clone)]
@@ -183,11 +278,12 @@ pub struct AgentSessionCallbacks {
     pub on_exit: Arc<dyn Fn(u32, i32) + Send + Sync>,
 }
 
+#[derive(Clone)]
 pub struct PtyState {
-    sessions: Mutex<HashMap<u32, PtySession>>,
-    piped_sessions: Mutex<HashMap<u32, PipedSession>>,
-    session_meta: Mutex<HashMap<u32, Arc<SessionMeta>>>,
-    next_id: Mutex<u32>,
+    sessions: Arc<Mutex<HashMap<u32, PtySession>>>,
+    piped_sessions: Arc<Mutex<HashMap<u32, PipedSession>>>,
+    session_meta: Arc<Mutex<HashMap<u32, Arc<SessionMeta>>>>,
+    next_id: Arc<Mutex<u64>>,
 }
 
 static SPAWN_LOCK: std::sync::LazyLock<Mutex<()>> = std::sync::LazyLock::new(|| Mutex::new(()));
@@ -195,37 +291,103 @@ static SPAWN_LOCK: std::sync::LazyLock<Mutex<()>> = std::sync::LazyLock::new(|| 
 impl PtyState {
     pub fn new() -> Self {
         Self {
-            sessions: Mutex::new(HashMap::new()),
-            piped_sessions: Mutex::new(HashMap::new()),
-            session_meta: Mutex::new(HashMap::new()),
-            next_id: Mutex::new(1),
+            sessions: Arc::new(Mutex::new(HashMap::new())),
+            piped_sessions: Arc::new(Mutex::new(HashMap::new())),
+            session_meta: Arc::new(Mutex::new(HashMap::new())),
+            next_id: Arc::new(Mutex::new(1)),
         }
     }
 
     pub fn kill_all_sync(&self) {
-        if let Ok(mut sessions) = self.sessions.lock() {
-            for (_, session) in sessions.drain() {
-                session.cancellation_token.cancel();
-                if let Ok(mut child) = session.child.lock() {
-                    let _ = child.kill();
-                }
-                session.meta.mark_exited(Some(-1));
+        let (targets, failure) = self.termination_targets();
+        if let Some(error) = failure {
+            log::warn!("Could not enumerate every terminal session: {error}");
+        }
+        for (id, target) in targets {
+            let result = target
+                .terminate()
+                .map_err(AppError::from)
+                .and_then(|()| self.release_terminated(id, target.meta()));
+            if let Err(error) = result {
+                log::warn!("Could not terminate terminal session {id}: {error}");
             }
         }
-        if let Ok(mut piped) = self.piped_sessions.lock() {
-            for (_, session) in piped.drain() {
-                if let Ok(mut guard) = session.child.lock() {
-                    if let Some(mut child) = guard.take() {
-                        let _ = child.kill();
-                        let _ = child.wait();
-                    }
-                }
-                session.meta.mark_exited(Some(-1));
+    }
+
+    fn termination_target(
+        &self,
+        id: u32,
+        owner: &Arc<SessionMeta>,
+    ) -> Result<Option<TerminationTarget>, AppError> {
+        let target = match owner.kind {
+            SessionKind::AgentPiped => self
+                .piped_sessions
+                .lock()?
+                .get(&id)
+                .map(TerminationTarget::from_piped),
+            SessionKind::AgentPty | SessionKind::UserShell => self
+                .sessions
+                .lock()?
+                .get(&id)
+                .map(TerminationTarget::from_pty),
+        };
+        Ok(target.filter(|target| Arc::ptr_eq(target.meta(), owner)))
+    }
+
+    fn termination_targets(&self) -> (Vec<(u32, TerminationTarget)>, Option<AppError>) {
+        let mut targets = Vec::new();
+        let mut failure = None;
+        match self.sessions.lock() {
+            Ok(sessions) => targets.extend(
+                sessions
+                    .iter()
+                    .map(|(id, session)| (*id, TerminationTarget::from_pty(session))),
+            ),
+            Err(error) => {
+                failure = Some(AppError::from(error));
             }
         }
-        if let Ok(mut meta) = self.session_meta.lock() {
-            meta.clear();
+        match self.piped_sessions.lock() {
+            Ok(sessions) => targets.extend(
+                sessions
+                    .iter()
+                    .map(|(id, session)| (*id, TerminationTarget::from_piped(session))),
+            ),
+            Err(error) => {
+                failure.get_or_insert(AppError::from(error));
+            }
         }
+        (targets, failure)
+    }
+
+    fn release_terminated(&self, id: u32, owner: &Arc<SessionMeta>) -> Result<(), AppError> {
+        match owner.kind {
+            SessionKind::AgentPiped => {
+                let removed = {
+                    let mut sessions = self.piped_sessions.lock()?;
+                    crate::core::session_ownership::remove_owned(
+                        &mut sessions,
+                        id,
+                        owner,
+                        |session| &session.meta,
+                    )
+                };
+                drop(removed);
+            }
+            SessionKind::AgentPty | SessionKind::UserShell => {
+                let removed = {
+                    let mut sessions = self.sessions.lock()?;
+                    crate::core::session_ownership::remove_owned(
+                        &mut sessions,
+                        id,
+                        owner,
+                        |session| &session.meta,
+                    )
+                };
+                drop(removed);
+            }
+        }
+        Ok(())
     }
 
     pub fn mark_preview_scrape(&self, id: u32) {
@@ -301,28 +463,20 @@ impl PtyState {
     }
 
     pub fn session_is_running(&self, id: u32) -> Option<bool> {
-        // Fast path: a recorded exit is authoritative for every session kind.
         let meta = self.session_meta(id)?;
         if !meta.is_running() {
             return Some(false);
         }
-        // PTY sessions: confirm against the child process (reader EOF can lag).
-        let mut sessions = self.sessions.lock().ok()?;
-        if let Some(session) = sessions.get_mut(&id) {
-            let status = session.child.lock().ok()?.try_wait();
-            return match status {
-                Ok(Some(status)) => {
-                    session.meta.mark_exited(Some(status.exit_code() as i32));
+        if let Some(target) = self.termination_target(id, &meta).ok()? {
+            return match target.poll() {
+                Ok(Some(code)) => {
+                    target.meta().mark_exited(Some(code));
                     Some(false)
                 }
                 Ok(None) => Some(true),
-                Err(_) => {
-                    session.meta.mark_exited(None);
-                    Some(false)
-                }
+                Err(_) => None,
             };
         }
-        // Piped sessions: the monitor thread owns exit detection.
         Some(meta.is_running())
     }
 
@@ -414,14 +568,14 @@ impl PtyState {
         cancel: &CancellationToken,
     ) -> bool {
         let Some(meta) = self.session_meta(id) else {
-            return true;
+            return false;
         };
         let deadline = tokio::time::Instant::now() + max_wait;
         loop {
             // Subscribe before re-checking state so an exit between the check
             // and the await cannot be missed.
             let notified = meta.exit_notify.notified();
-            if self.session_is_running(id) != Some(true) {
+            if !meta.is_running() || self.session_is_running(id) == Some(false) {
                 return true;
             }
             let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
@@ -433,16 +587,15 @@ impl PtyState {
             tokio::select! {
                 _ = notified => {}
                 _ = tokio::time::sleep(slice) => {}
-                _ = cancel.cancelled() => { return self.session_is_running(id) != Some(true); }
+                _ = cancel.cancelled() => { return !meta.is_running() || self.session_is_running(id) == Some(false); }
             }
         }
     }
 
     fn allocate_id(&self, client_id: Option<u32>) -> Result<u32, AppError> {
         let mut next = self.next_id.lock()?;
-        let current = client_id.unwrap_or(*next);
-        *next = (*next).max(current.saturating_add(1));
-        Ok(current)
+        crate::core::session_ownership::reserve_id(&mut next, client_id)
+            .ok_or_else(|| AppError::Message("Terminal session ids exhausted".to_string()))
     }
 
     /// Drop metadata of old finished agent sessions so the maps do not grow
@@ -451,29 +604,24 @@ impl PtyState {
         let Ok(mut meta_map) = self.session_meta.lock() else {
             return;
         };
-        let mut finished: Vec<u32> = meta_map
+        let mut finished: Vec<(u32, Arc<SessionMeta>)> = meta_map
             .iter()
             .filter(|(_, m)| !m.is_running() && m.kind != SessionKind::UserShell)
-            .map(|(id, _)| *id)
+            .map(|(id, meta)| (*id, meta.clone()))
             .collect();
         if finished.len() <= MAX_FINISHED_SESSIONS {
             return;
         }
-        finished.sort_unstable();
+        finished.sort_unstable_by_key(|(id, _)| *id);
         let remove_count = finished.len() - MAX_FINISHED_SESSIONS;
-        let to_remove: Vec<u32> = finished.into_iter().take(remove_count).collect();
-        for id in &to_remove {
+        let to_remove: Vec<_> = finished.into_iter().take(remove_count).collect();
+        for (id, _) in &to_remove {
             meta_map.remove(id);
         }
         drop(meta_map);
-        if let Ok(mut sessions) = self.sessions.lock() {
-            for id in &to_remove {
-                sessions.remove(id);
-            }
-        }
-        if let Ok(mut piped) = self.piped_sessions.lock() {
-            for id in &to_remove {
-                piped.remove(id);
+        for (id, owner) in to_remove {
+            if let Err(error) = self.release_terminated(id, &owner) {
+                log::warn!("Could not prune terminal session {id}: {error}");
             }
         }
     }
@@ -1222,6 +1370,7 @@ async fn spawn_pty_with_command(
     callbacks: Option<AgentSessionCallbacks>,
 ) -> Result<u32, AppError> {
     let _spawn_guard = SPAWN_LOCK.lock()?;
+    let id = state.allocate_id(client_id)?;
     let pty_system = native_pty_system();
 
     let pair = pty_system
@@ -1250,10 +1399,6 @@ async fn spawn_pty_with_command(
     cmd.env("TERM", "xterm-256color");
     cmd.env("CLAW_TERMINAL", "1");
 
-    let child = Arc::new(Mutex::new(
-        pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?,
-    ));
-
     let mut reader = pair
         .master
         .try_clone_reader()
@@ -1263,6 +1408,41 @@ async fn spawn_pty_with_command(
             .take_writer()
             .map_err(|e| AppError::Message(e.to_string()))?,
     ));
+
+    let cancellation_token = CancellationToken::new();
+    let meta = Arc::new(SessionMeta::new(kind));
+    if let Some(ref dir) = cwd {
+        if !dir.is_empty() {
+            if let Ok(mut slot) = meta.cwd.lock() {
+                *slot = Some(crate::core::paths::spawn_cwd(dir));
+            }
+        }
+    }
+
+    let child;
+    {
+        let mut sessions = state.sessions.lock()?;
+        let mut meta_map = state.session_meta.lock()?;
+        if sessions.contains_key(&id) || meta_map.contains_key(&id) {
+            return Err(AppError::Message(
+                "Terminal session id is already in use".to_string(),
+            ));
+        }
+        child = Arc::new(Mutex::new(
+            pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?,
+        ));
+        meta_map.insert(id, meta.clone());
+        sessions.insert(
+            id,
+            PtySession {
+                master: pair.master,
+                writer: writer.clone(),
+                child: child.clone(),
+                cancellation_token: cancellation_token.clone(),
+                meta: meta.clone(),
+            },
+        );
+    }
 
     // portable-pty 0.9 ConPTY uses PSEUDOCONSOLE_INHERIT_CURSOR: it emits
     // ESC[6n (DSR) on startup and blocks the child until the host replies
@@ -1279,34 +1459,6 @@ async fn spawn_pty_with_command(
                 Err(e) => log::warn!("[pty] ConPTY DSR reply failed: {e}"),
             }
         }
-    }
-
-    let id = state.allocate_id(client_id)?;
-
-    let cancellation_token = CancellationToken::new();
-    let meta = Arc::new(SessionMeta::new(kind));
-    if let Some(ref dir) = cwd {
-        if !dir.is_empty() {
-            if let Ok(mut slot) = meta.cwd.lock() {
-                *slot = Some(crate::core::paths::spawn_cwd(dir));
-            }
-        }
-    }
-
-    {
-        let mut sessions = state.sessions.lock()?;
-        let mut meta_map = state.session_meta.lock()?;
-        meta_map.insert(id, meta.clone());
-        sessions.insert(
-            id,
-            PtySession {
-                master: pair.master,
-                writer: writer.clone(),
-                child: child.clone(),
-                cancellation_token: cancellation_token.clone(),
-                meta: meta.clone(),
-            },
-        );
     }
 
     // Reader thread: stream PTY output to the terminal panel (and agent callbacks).
@@ -1388,13 +1540,12 @@ async fn spawn_pty_with_command(
                 .try_wait()
                 .map(|status| status.map(|status| status.exit_code() as i32))
         });
-        if let Err(error) = &observed {
-            log::warn!("Could not collect PTY exit status for session {session_id}: {error}");
-        }
-        let observed = if token.is_cancelled() {
-            -1
-        } else {
-            observed.unwrap_or(-1)
+        let observed = match observed {
+            Ok(code) => code,
+            Err(error) => {
+                log::warn!("Could not collect PTY exit status for session {session_id}: {error}");
+                return;
+            }
         };
         meta.mark_exited(Some(observed));
         // A concurrent explicit Stop may already have recorded cancellation.
@@ -1440,6 +1591,15 @@ pub fn spawn_piped_session(
     crate::core::process::hide_console(&mut cmd);
     crate::core::process::apply_trusted_binary_env(&mut cmd);
 
+    let id = state.allocate_id(None)?;
+    let mut piped = state.piped_sessions.lock()?;
+    let mut meta_map = state.session_meta.lock()?;
+    if piped.contains_key(&id) || meta_map.contains_key(&id) {
+        return Err(AppError::Message(
+            "Terminal session id is already in use".to_string(),
+        ));
+    }
+
     let mut child = cmd
         .current_dir(cwd)
         .stdin(Stdio::piped())
@@ -1452,26 +1612,23 @@ pub fn spawn_piped_session(
     let stderr = child.stderr.take();
     let stdin = child.stdin.take();
 
-    let id = state.allocate_id(None)?;
     let meta = Arc::new(SessionMeta::new(SessionKind::AgentPiped));
     if let Ok(mut cmd_slot) = meta.command.lock() {
         *cmd_slot = Some(command.to_string());
     }
     let child_slot = Arc::new(Mutex::new(Some(child)));
 
-    {
-        let mut piped = state.piped_sessions.lock()?;
-        let mut meta_map = state.session_meta.lock()?;
-        meta_map.insert(id, meta.clone());
-        piped.insert(
-            id,
-            PipedSession {
-                child: child_slot.clone(),
-                stdin: Mutex::new(stdin),
-                meta: meta.clone(),
-            },
-        );
-    }
+    meta_map.insert(id, meta.clone());
+    piped.insert(
+        id,
+        PipedSession {
+            child: child_slot.clone(),
+            stdin: Mutex::new(stdin),
+            meta: meta.clone(),
+        },
+    );
+    drop(meta_map);
+    drop(piped);
 
     // Reader threads: drain pipes into the session buffer + callbacks.
     for pipe in [stdout.map(PipeSource::Out), stderr.map(PipeSource::Err)]
@@ -1505,31 +1662,34 @@ pub fn spawn_piped_session(
     // so kill_session can always take the lock and terminate the process.
     let meta_m = meta;
     let cb_exit = callbacks;
-    thread::spawn(move || {
-        loop {
-            let status = {
-                let Ok(mut guard) = child_slot.lock() else {
-                    break;
-                };
-                match guard.as_mut() {
-                    Some(child) => match child.try_wait() {
-                        Ok(Some(status)) => Some(status.code().unwrap_or(-1)),
-                        Ok(None) => None,
-                        Err(_) => Some(-1),
-                    },
-                    // Killed and reaped elsewhere.
-                    None => Some(meta_m.exit_code().unwrap_or(-1)),
-                }
-            };
-            if let Some(code) = status {
-                meta_m.mark_exited(Some(code));
-                if let Some(cb) = &cb_exit {
-                    (cb.on_exit)(id, code);
-                }
+    thread::spawn(move || loop {
+        let status = {
+            let Ok(mut guard) = child_slot.lock() else {
                 break;
+            };
+            match guard.as_mut() {
+                Some(child) => match child.try_wait() {
+                    Ok(Some(status)) => Some(status.code().unwrap_or(-1)),
+                    Ok(None) => None,
+                    Err(error) => {
+                        log::warn!("Could not collect piped exit status for session {id}: {error}");
+                        break;
+                    }
+                },
+                None => {
+                    log::warn!("Terminal child handle missing for session {id}");
+                    break;
+                }
             }
-            thread::sleep(std::time::Duration::from_millis(100));
+        };
+        if let Some(code) = status {
+            meta_m.mark_exited(Some(code));
+            if let Some(cb) = &cb_exit {
+                (cb.on_exit)(id, code);
+            }
+            break;
         }
+        thread::sleep(std::time::Duration::from_millis(100));
     });
 
     state.prune_finished_sessions();
@@ -1605,61 +1765,126 @@ pub async fn pty_kill(state: tauri::State<'_, PtyState>, id: u32) -> Result<(), 
 }
 
 pub async fn kill_session(state: &PtyState, id: u32) -> Result<(), AppError> {
-    {
-        let mut sessions = state.sessions.lock()?;
-        if let Some(session) = sessions.remove(&id) {
-            session.cancellation_token.cancel();
-            if let Ok(mut child) = session.child.lock() {
-                let _ = child.kill();
-            }
-            // Killed sessions report exit code -1 and wake any waiters.
-            session.meta.mark_exited(Some(-1));
-            return Ok(());
-        }
-    }
-    let piped = {
-        let mut piped_map = state.piped_sessions.lock()?;
-        piped_map.remove(&id)
-    };
-    if let Some(session) = piped {
-        if let Ok(mut guard) = session.child.lock() {
-            if let Some(mut child) = guard.take() {
-                let _ = child.kill();
-                let _ = child.wait();
-            }
-        }
-        session.meta.mark_exited(Some(-1));
+    let owner = state.session_meta.lock()?.get(&id).cloned();
+    if let Some(owner) = owner {
+        kill_owned_session(state, id, &owner).await?;
     }
     Ok(())
 }
 
+pub async fn kill_owned_session(
+    state: &PtyState,
+    id: u32,
+    owner: &Arc<SessionMeta>,
+) -> Result<(), AppError> {
+    match state.termination_target(id, owner)? {
+        Some(target) => terminate_and_release(state, id, target).await,
+        None if owner.is_running() => Err(AppError::Message(
+            "Terminal ownership changed before exit could be confirmed".to_string(),
+        )),
+        None => Ok(()),
+    }
+}
+
+async fn terminate_and_release(
+    state: &PtyState,
+    id: u32,
+    target: TerminationTarget,
+) -> Result<(), AppError> {
+    let state = state.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        target.terminate()?;
+        state.release_terminated(id, target.meta())
+    })
+    .await
+    .map_err(|_| AppError::Message("Terminal cleanup could not be confirmed".to_string()))?
+}
+
 pub async fn pty_kill_all(state: tauri::State<'_, PtyState>) -> Result<(), AppError> {
-    {
-        let mut sessions = state.sessions.lock()?;
-        for (_, session) in sessions.drain() {
-            session.cancellation_token.cancel();
-            if let Ok(mut child) = session.child.lock() {
-                let _ = child.kill();
-            }
-            session.meta.mark_exited(Some(-1));
+    let (targets, mut failure) = state.termination_targets();
+    for (id, target) in targets {
+        if let Err(error) = terminate_and_release(&state, id, target).await {
+            failure.get_or_insert(error);
         }
     }
-    let mut piped = state.piped_sessions.lock()?;
-    for (_, session) in piped.drain() {
-        if let Ok(mut guard) = session.child.lock() {
-            if let Some(mut child) = guard.take() {
-                let _ = child.kill();
-                let _ = child.wait();
-            }
-        }
-        session.meta.mark_exited(Some(-1));
-    }
-    Ok(())
+    failure.map_or(Ok(()), Err)
 }
 
 #[cfg(test)]
 mod scrape_tests {
     use super::*;
+
+    #[test]
+    fn uncertain_piped_termination_keeps_both_registries_for_retry() {
+        let state = PtyState::new();
+        let meta = Arc::new(SessionMeta::new(SessionKind::AgentPiped));
+        state.session_meta.lock().unwrap().insert(7, meta.clone());
+        state.piped_sessions.lock().unwrap().insert(
+            7,
+            PipedSession {
+                child: Arc::new(Mutex::new(None)),
+                stdin: Mutex::new(None),
+                meta: meta.clone(),
+            },
+        );
+        state.kill_all_sync();
+        assert!(state.piped_sessions.lock().unwrap().contains_key(&7));
+        assert!(state.session_meta.lock().unwrap().contains_key(&7));
+        assert!(meta.is_running());
+        assert_eq!(meta.exit_code(), None);
+        assert_eq!(state.session_is_running(7), None);
+    }
+
+    #[test]
+    fn completed_cleanup_does_not_remove_a_replacement_native_session() {
+        let state = PtyState::new();
+        let old = Arc::new(SessionMeta::new(SessionKind::AgentPiped));
+        old.mark_exited(Some(-1));
+        let replacement = Arc::new(SessionMeta::new(SessionKind::AgentPiped));
+        state.piped_sessions.lock().unwrap().insert(
+            7,
+            PipedSession {
+                child: Arc::new(Mutex::new(None)),
+                stdin: Mutex::new(None),
+                meta: replacement.clone(),
+            },
+        );
+        state.release_terminated(7, &old).unwrap();
+        assert!(Arc::ptr_eq(
+            &state.piped_sessions.lock().unwrap().get(&7).unwrap().meta,
+            &replacement
+        ));
+        assert!(state.termination_target(7, &old).unwrap().is_none());
+        assert!(state.termination_target(7, &replacement).unwrap().is_some());
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn kill_all_can_release_piped_handles_even_if_the_pty_registry_is_poisoned() {
+        let state = PtyState::new();
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = state.sessions.lock().unwrap();
+            panic!("poison fixture");
+        }));
+        let mut child = std::process::Command::new("sh")
+            .args(["-c", "exit 7"])
+            .spawn()
+            .unwrap();
+        assert_eq!(child.wait().unwrap().code(), Some(7));
+        let meta = Arc::new(SessionMeta::new(SessionKind::AgentPiped));
+        state.session_meta.lock().unwrap().insert(7, meta.clone());
+        state.piped_sessions.lock().unwrap().insert(
+            7,
+            PipedSession {
+                child: Arc::new(Mutex::new(Some(child))),
+                stdin: Mutex::new(None),
+                meta: meta.clone(),
+            },
+        );
+        state.kill_all_sync();
+        assert!(!state.piped_sessions.lock().unwrap().contains_key(&7));
+        assert!(!meta.is_running());
+    }
 
     #[test]
     fn scrape_next_js_banner() {

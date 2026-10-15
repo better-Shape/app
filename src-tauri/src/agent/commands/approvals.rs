@@ -30,7 +30,9 @@ pub async fn stop_chat_message(
             .find(|turn| turn.request_id.as_deref() == Some(request_id.as_str()))
             .and_then(|turn| turn.conversation_id.clone());
         let Some(active) = active else {
-            return Ok(());
+            return state
+                .retry_cancelled_terminals(&pty_state, None, Some(request_id))
+                .await;
         };
         Some(active)
     } else {
@@ -54,23 +56,12 @@ pub async fn stop_chat_message(
     // Keep replacement admission blocked until all asynchronous Stop cleanup
     // finishes, even if the cancelled run releases its slot sooner.
     let Some(_stop_guard) = state.begin_stop(&target, client_request_id.as_deref()) else {
-        return Ok(());
+        return state
+            .retry_cancelled_terminals(&pty_state, Some(&target), client_request_id.as_deref())
+            .await;
     };
+    let stopping_turn = state.in_flight_for(&target).map(|turn| turn.turn_id);
     let is_live = live_id.as_deref() == Some(target.as_str());
-    let already_cancelled = state
-        .conversation_cancel_token(&target)
-        .map(|token| token.is_cancelled())
-        .unwrap_or(false);
-    if !state.is_generating_conversation(&target) {
-        // Idle / launch remounts used to call stop and still abort captures +
-        // kill PTYs below, which tore down WebView2 frames and reloaded the UI.
-        return Ok(());
-    }
-    if already_cancelled {
-        logging::debug("chat", "Stop ignored — generation already stopping");
-        return Ok(());
-    }
-
     // Cancel first so waiters observe Stop instead of a fake Reject (which
     // used to look like accepted edits were undone).
     if let Some(token) = state.conversation_cancel_token(&target) {
@@ -161,8 +152,16 @@ pub async fn stop_chat_message(
             .abort_and_drain(&app, "Preview capture cancelled")
             .await;
     }
-    state.kill_cancelled_terminals(&pty_state).await;
-    Ok(())
+    state
+        .kill_cancelled_terminals(&pty_state, Some(&target), client_request_id.as_deref())
+        .await?;
+    state
+        .wait_for_turn_cleanup(&target, stopping_turn.as_deref())
+        .await?;
+    // A tool already spawning when Stop arrived can register after the first snapshot.
+    state
+        .kill_cancelled_terminals(&pty_state, Some(&target), client_request_id.as_deref())
+        .await
 }
 
 #[tauri::command]
