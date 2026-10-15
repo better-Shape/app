@@ -99,6 +99,13 @@ export function GraphDetailPanel({
         setFilesLoading(Boolean(log && repoPath && !file));
     }
 
+    const [filesInputs, setFilesInputs] = useState<readonly unknown[] | null>(null);
+    if (filesInputs === null || !Object.is(filesInputs[0], log) || !Object.is(filesInputs[1], repoPath) || !Object.is(filesInputs[2], file)) {
+        setFilesInputs([log, repoPath, file]);
+        if (!log) setCommitFiles([]);
+        setFilesLoading(Boolean(log && repoPath && !file));
+    }
+
     useEffect(() => {
         if (!log || !repoPath || file) {
             return;

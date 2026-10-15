@@ -33,25 +33,8 @@ jobs:
 
       - run: npm ci --ignore-scripts
 
-      - name: ESLint
-        # Now 0 errors, 148 warnings. The remaining 148 are react-hooks/*
-        # (set-state-in-effect, refs, preserve-manual-memoization, purity,
-        # immutability), which this config deliberately downgrades to warnings
-        # with a TODO to re-enable as errors after cleanup. Fixing them is a
-        # cross-app refactor, not a lint change.
-        # This step gates merges on errors only.
-        run: |
-          set -o pipefail
-          npm run lint 2>&1 | tee eslint-report.txt
-          STATUS=${PIPESTATUS[0]}
-          ERRORS=$(grep -c " error " eslint-report.txt || echo 0)
-          WARNINGS=$(grep -c " warning " eslint-report.txt || echo 0)
-          echo "ESLint exit: $STATUS, errors: $ERRORS, warnings: $WARNINGS"
-          if [ "$STATUS" -ne 0 ]; then
-            echo "::error::ESLint found $ERRORS errors - must be fixed"
-            exit $STATUS
-          fi
-          echo "✓ ESLint passed with $WARNINGS warnings (allowed, but should be reduced)"
+      - name: ESLint (zero warnings)
+        run: npm run lint:strict
 
       - name: Typecheck
         run: npx tsc --noEmit
@@ -178,22 +161,8 @@ jobs:
       - name: Typecheck
         run: npx tsc --noEmit
 
-      - name: ESLint
-        # Same errors-only gate as the Ubuntu `lint` job: the react-hooks rules are
-        # deliberately downgraded to warnings in eslint.config.cjs. This is a mirror,
-        # not a relaxation.
-        run: |
-          set -o pipefail
-          npm run lint 2>&1 | tee eslint-report.txt
-          STATUS=${PIPESTATUS[0]}
-          ERRORS=$(grep -c " error " eslint-report.txt || echo 0)
-          WARNINGS=$(grep -c " warning " eslint-report.txt || echo 0)
-          echo "ESLint exit: $STATUS, errors: $ERRORS, warnings: $WARNINGS"
-          if [ "$STATUS" -ne 0 ]; then
-            echo "::error::ESLint found $ERRORS errors - must be fixed"
-            exit $STATUS
-          fi
-          echo "✓ ESLint passed with $WARNINGS warnings (allowed, but should be reduced)"
+      - name: ESLint (zero warnings)
+        run: npm run lint:strict
 
       - name: Vitest run
         run: npx vitest run
