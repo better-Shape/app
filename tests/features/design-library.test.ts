@@ -60,6 +60,13 @@ describe("source mapping from Next chunks", () => {
         ).toEqual({ fileName: "app/page.tsx", lineNumber: 1, columnNumber: 1 });
     });
 
+    it.each(["../outside.tsx", "src/../../outside.tsx", "..\\outside.tsx", "src\\..\\..\\outside.tsx"])("rejects parent traversal in a source path: %s", file => {
+        expect(isUserSourcePath(file)).toBe(false);
+        expect(guessSourceFromChunkUrl(file)).toBeNull();
+    });
+    it("does not reject a literal double dot within a source filename", () => {
+        expect(isUserSourcePath("src/Card..test.tsx")).toBe(true);
+    });
     it("refuses runtime bundles that are not project files", () => {
         expect(guessSourceFromChunkUrl("http://127.0.0.1:3000/_next/static/chunks/main-app.js")).toBeNull();
         expect(guessSourceFromChunkUrl("http://127.0.0.1:3000/_next/static/chunks/webpack.js")).toBeNull();

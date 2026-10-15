@@ -3,6 +3,9 @@ import type { ComposerAttachment } from "@/features/chat/ui/composer/attachments
 const ATTACHMENT_PROCESSING_TIMEOUT_MS = 8_000;
 const ATTACHMENT_PROCESSING_POLL_MS = 40;
 const MAX_TEXT_ATTACHMENT_CHARACTERS = 80_000;
+// Four bytes per character leaves enough decoded text for the UTF-16 output budget,
+// including multibyte UTF-8 input, without reading the rest of a large file.
+const MAX_TEXT_ATTACHMENT_READ_BYTES = MAX_TEXT_ATTACHMENT_CHARACTERS * 4;
 const MAX_INLINE_BINARY_BYTES = 2_500_000;
 
 const CODE_EXTENSIONS = new Set([
@@ -84,7 +87,7 @@ function readAttachment(file: ComposerAttachment, dataUrl: boolean, signal: Abor
         signal.addEventListener("abort", cancel, { once: true });
         try {
             if (dataUrl) reader.readAsDataURL(file.file);
-            else reader.readAsText(file.file);
+            else reader.readAsText(file.file.slice(0, MAX_TEXT_ATTACHMENT_READ_BYTES, file.file.type));
         } catch { fail(); }
     });
 }
@@ -100,10 +103,14 @@ function imageBlock(file: ComposerAttachment): string {
     return `<attached_image name="${file.name}" type="${file.mimeType}" size="${file.size}">${file.dataUrl}</attached_image>`;
 }
 
-/** Preserve text content up to the documented limit, disclosing the original size. */
+/** Disclose bytes, not an invented character count, when only a prefix was decoded. */
 async function textBlock(file: ComposerAttachment, signal: AbortSignal): Promise<string> {
     const text = await readAttachment(file, false, signal);
-    const content = text.length > MAX_TEXT_ATTACHMENT_CHARACTERS ? `${text.slice(0, MAX_TEXT_ATTACHMENT_CHARACTERS)}\n... [truncated, ${text.length} chars total]` : text;
+    const partialRead = file.file.size > MAX_TEXT_ATTACHMENT_READ_BYTES;
+    const total = partialRead ? `${file.file.size} bytes` : `${text.length} chars`;
+    const content = partialRead || text.length > MAX_TEXT_ATTACHMENT_CHARACTERS
+        ? `${text.slice(0, MAX_TEXT_ATTACHMENT_CHARACTERS)}\n... [truncated, ${total} total]`
+        : text;
     return attachedFile(file, content, "text/plain");
 }
 

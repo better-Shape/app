@@ -31,6 +31,40 @@ describe("attachment serialization", () => {
         expect(result).toContain("a".repeat(80000) + "\n... [truncated, 80001 chars total]");
         expect(result).not.toContain(text);
     });
+    it.each([1_000_000, 2_000_000])("bounds reads of a %i-byte text file before decoding", async size => {
+        const read = vi.spyOn(FileReader.prototype, "readAsText");
+        const file = new File(["a".repeat(size)], "large.txt", { type: "text/plain" });
+        const result = await serialize(attachment({ file, size, name: file.name }));
+        expect(read).toHaveBeenCalledOnce();
+        expect(read.mock.calls[0][0].size).toBe(320_000);
+        expect(result).toContain("a".repeat(80_000) + `\n... [truncated, ${size} bytes total]`);
+        expect(result).not.toContain("chars total");
+        expect(result.length).toBeLessThan(81_000);
+    });
+    it.each(["漢".repeat(80_000), "😀".repeat(40_000)])("preserves the whole character budget for multibyte text %#", async prefix => {
+        const file = new File([prefix, "z".repeat(400_000)], "unicode.txt", { type: "text/plain" });
+        const result = await serialize(attachment({ file, size: file.size, name: file.name }));
+        expect(result).toContain(prefix + `\n... [truncated, ${file.size} bytes total]`);
+        expect(result).not.toContain("�");
+    });
+    it("retains exact character counts when the entire bounded file was decoded", async () => {
+        const file = new File(["漢".repeat(90_000)], "unicode.txt", { type: "text/plain" });
+        const result = await serialize(attachment({ file, size: file.size }));
+        expect(result).toContain("漢".repeat(80_000) + "\n... [truncated, 90000 chars total]");
+        expect(result).not.toContain("bytes total");
+    });
+    it("does not mislabel a complete file exactly at the read budget as a byte-truncated file", async () => {
+        const file = new File(["a".repeat(320_000)], "limit.txt");
+        const result = await serialize(attachment({ file, size: file.size }));
+        expect(result).toContain("[truncated, 320000 chars total]");
+    });
+    it("preserves MIME metadata on the blob passed to the decoder", async () => {
+        const read = vi.spyOn(FileReader.prototype, "readAsText");
+        const file = new File(["é"], "accent.txt", { type: "text/plain;charset=utf-8" });
+        const result = await serialize(attachment({ file, size: file.size, mimeType: file.type }));
+        expect(read.mock.calls[0][0].type).toBe(file.type);
+        expect(result).toContain("\né\n</attached_file>");
+    });
     it("explicitly describes audio without pretending transcription is supported", async () => {
         const result = await serialize(attachment({ kind: "audio", mimeType: "" }));
         expect(result).toContain('type="audio"');

@@ -67,10 +67,10 @@ it("guards the injected script itself against unrelated local origins", () => {
     expect(record).toHaveBeenCalledTimes(1);
 });
 
-function selection(origin: string, key = "element") {
+function selection(origin: string, key = "element", fileName = "src/Card.tsx") {
     act(() => window.dispatchEvent(new MessageEvent("message", {
         source: frame.contentWindow, origin,
-        data: { type: "bettershape-design-selection", element: { key, tag: "div", classes: ["card"], text: "Hello", source: { fileName: "src/Card.tsx", lineNumber: 1, columnNumber: 1 }, rect: { x: 0, y: 0, width: 100, height: 30 }, styles: {} } },
+        data: { type: "bettershape-design-selection", element: { key, tag: "div", classes: ["card"], text: "Hello", source: { fileName, lineNumber: 1, columnNumber: 1 }, rect: { x: 0, y: 0, width: 100, height: 30 }, styles: {} } },
     })));
 }
 async function render(enabled = true) {
@@ -233,4 +233,15 @@ it("the real preview parent preserves an admitted slider edit when Exit design m
     expect(host.querySelector("input[type=range]")).toBeNull();
     await act(async () => { await vi.advanceTimersByTimeAsync(500); });
     expect(backend.save).toHaveBeenCalledTimes(1);
+});
+
+it.each(["../outside.tsx", "src/../../outside.tsx", "..\\outside.tsx", "src\\..\\..\\outside.tsx"])("rejects same-origin inspector traversal before reading or writing: %s", async fileName => {
+    vi.useFakeTimers();
+    await render();
+    selection("http://localhost:3000", "forged", fileName);
+    await changeRange("20");
+    await act(async () => { await vi.advanceTimersByTimeAsync(500); });
+    expect(backend.read).not.toHaveBeenCalled();
+    expect(backend.save).not.toHaveBeenCalled();
+    expect(backend.error).toHaveBeenCalled();
 });
