@@ -256,7 +256,8 @@ export function initAiConfigSync(): () => void {
         }
         observed = next;
         if (booting) return; // The first reconciliation includes edits made during hydration.
-        enqueue();
+        // The queue owns rejection handling; settings notifications are synchronous.
+        void enqueue();
     });
     // Hydration and subsequent edits share one queue: a slow write can never
     // overtake a newer deletion and put the old credential back into the vault.

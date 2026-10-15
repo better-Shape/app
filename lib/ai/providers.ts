@@ -1213,7 +1213,10 @@ export function credentialScopes(settings: ProvidersSettings): Record<string, st
   for (const preset of PROVIDER_PRESETS) {
     const connection = settings.connections[preset.id];
     if (!connection) continue;
-    const baseUrl = (connection.baseUrl.trim() || preset.baseUrl).replace(/\/+$/, "");
+    const url = connection.baseUrl.trim() || preset.baseUrl;
+    let end = url.length;
+    while (end > 0 && url[end - 1] === "/") end -= 1;
+    const baseUrl = url.slice(0, end);
     const scope = JSON.stringify(["provider-v1", preset.kind, baseUrl, providerAuthStyle(preset.id, connection)]);
     scopes[preset.id] = scope;
     for (const name of Object.keys(connection.headers)) scopes[headerSecretId(preset.id, name)] = scope;

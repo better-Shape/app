@@ -11,6 +11,17 @@ describe("credential destinations", () => {
         expect(credentialScopes(settings)[provider.id]).toBe(scope);
     });
 
+    it.each([
+        [" https://example.com/v1/// ", "https://example.com/v1"],
+        ["https://example.com/" + "/".repeat(8192) + "tenant///", "https://example.com/" + "/".repeat(8192) + "tenant"],
+        ["https://example.com/v1" + "/".repeat(8192), "https://example.com/v1"],
+        ["////", ""],
+    ])("normalizes only terminal URL slashes (case %#)", (url, expected) => {
+        const settings = defaultProvidersSettings();
+        settings.connections.openai.baseUrl = url;
+        expect(JSON.parse(credentialScopes(settings).openai)[2]).toBe(expected);
+    });
+
     it("includes path, query, authentication style, search provider and Composio account", () => {
         const settings = defaultProvidersSettings();
         const first = credentialScopes(settings);
