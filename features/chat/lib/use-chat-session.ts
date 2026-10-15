@@ -115,6 +115,27 @@ function writePersistedChatTabs(
     }
 }
 
+/**
+ * Wait until native reports no turn for `conversationId`, up to ~2s (the budget Redo uses
+ * before resending into a cancelled turn). Stop only *asks* the backend to cancel: the
+ * stopped turn keeps the chat's lane until it unwinds, and a send into that lane is
+ * rejected as "already generating". A probe that cannot be read resolves immediately —
+ * never delay a send on native state we could not observe.
+ */
+async function waitForChatLaneFree(conversationId: string | null) {
+    if (!conversationId) return;
+    for (let attempt = 0; attempt < 40; attempt++) {
+        let generating: boolean;
+        try {
+            generating = Boolean((await commands.getChatGenerationState(conversationId))?.isGenerating);
+        } catch {
+            return;
+        }
+        if (!generating) return;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+}
+
 const COMPOSER_PREFS_KEY = "bettershape-composer";
 
 type ComposerPrefs = { model?: string; effort?: ReasoningEffort; fast?: boolean };
@@ -1805,6 +1826,9 @@ export function useChatSession(
         forceSendRef.current = true;
         let delivered = false;
         try {
+            // The chat whose lane this row has to cross: Stop below cancels that chat's
+            // turn, and the wait after it belongs to the same chat.
+            const stoppedTarget = getViewedConversationId();
             // Two rows clicked at once share this Stop: the lane admits one turn, so
             // the loser's row goes back to the front of its queue (restoreQueuedMessage
             // prepends) and the drain delivers it when the winner's turn ends, instead
@@ -1813,6 +1837,11 @@ export function useChatSession(
                 restoreQueuedMessage(item);
                 return;
             }
+            // Stop is only a cancellation *request*. Sending straight away can land while
+            // the cancelled turn still holds the lane, and native admission then rejects
+            // the send: the row goes back to a queue that drains only on some later state
+            // change, so a successful Stop looks like a lost message. Wait for the lane.
+            await waitForChatLaneFree(stoppedTarget);
             delivered = await handleSendMessageRef.current(item.content);
             if (!delivered) restoreQueuedMessage(item);
         } catch (err) {

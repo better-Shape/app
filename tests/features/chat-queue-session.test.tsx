@@ -155,10 +155,11 @@ vi.mock("@/features/chat/lib/chat-stream-store", async () => {
                 if (!requestId && stream.liveConvId !== target) return null;
                 return { conversationId: target, requestId, commit: () => {
                     if (requests.current.get(target) !== requestId) return;
-                    requests.current.delete(target);
-                    if (viewRef.current === target) setIsLoading(false);
+                    // As in the store: committing the Stop retires the turn it captured, so
+                    // the chat is no longer "live" for the admission checks that follow.
+                    stopLiveTurn(target);
                 } };
-            }, []);
+            }, [stopLiveTurn]);
             const startDraftChat = ReactModule.useCallback(() => {
                 showConversation(null);
                 setMessages([]);
@@ -681,6 +682,35 @@ it("restores send-now queue entries when Stop fails instead of dispatching a rep
     expect(session.isLoading).toBe(true);
     await typeAndSend("still queued");
     expect(session.messageQueue.map(item => item.content)).toEqual(["queued", "still queued"]);
+    await resolveOldestSend();
+});
+
+it("sends a queued message only after the stopped turn releases the chat's lane", async () => {
+    await startTurn("running");
+    await typeAndSend("queued");
+    const queued = session.messageQueue[0];
+    // Stop only asks native to cancel. A send that lands before the cancelled turn unwinds
+    // is rejected by admission, and the row then sits in a queue nothing re-drains until an
+    // unrelated state change. Native keeps the lane across the first probe, then reports free.
+    backend.failNextSend = true;
+    let probes = 0;
+    vi.mocked(commands.getChatGenerationState).mockImplementation(async () => {
+        probes += 1;
+        if (probes === 1) return { isGenerating: true };
+        backend.failNextSend = false;
+        return { isGenerating: false };
+    });
+    act(() => {
+        void session.handleSendQueuedNow(queued.id);
+    });
+    await settle();
+    await act(async () => {
+        await new Promise((r) => setTimeout(r, 80));
+    });
+    await settle();
+    expect(sentMessages()).toEqual(["running@X", "queued@X"]);
+    expect(session.messageQueue).toEqual([]);
+    await resolveOldestSend();
     await resolveOldestSend();
 });
 
