@@ -683,3 +683,17 @@ it.each(["local", "desktop"])("retains the %s legacy copy while recovery is an u
     expect(localStorage.getItem("bettershape-settings-v1")).not.toContain("example-");
     await vi.waitFor(() => expect(JSON.stringify(bridge.disk)).not.toContain("example-"));
 });
+
+it("hydrates previous-session receipts without rewriting keys on unrelated settings changes", async () => {
+    reset();
+    const a = await openWindow();
+    a.edit("example-persisted"); await a.sync.aiConfigReady();
+    a.unsubscribe(); native.restart();
+    bridge.store.mockClear(); bridge.remove.mockClear();
+    const reopened = await openWindow(); stop = reopened.unsubscribe;
+    expect(reopened.settings.getSettings().ai.providers.connections.openai.apiKey).toBe("example-persisted");
+    reopened.settings.updateSettingSection("editor", { fontSize: 19 });
+    await reopened.sync.aiConfigReady();
+    expect(bridge.store).not.toHaveBeenCalled();
+    expect(bridge.remove).not.toHaveBeenCalled();
+});

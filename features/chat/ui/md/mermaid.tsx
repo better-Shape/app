@@ -1,15 +1,15 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import { useScopedState } from "@/lib/ui/use-scoped-state";
+
+import React, { useEffect } from "react";
 
 export function ChatMermaid({ source }: { source: string }) {
-    const [svg, setSvg] = useState<string | null>(null);
-    const [failed, setFailed] = useState(false);
+    const [svg, setSvg] = useScopedState<string | null>([source], () => null);
+    const [failed, setFailed] = useScopedState([source], () => false);
 
     useEffect(() => {
         let cancelled = false;
-        setFailed(false);
-        setSvg(null);
         void (async () => {
             try {
                 const mermaid = (await import("mermaid")).default;
@@ -28,7 +28,7 @@ export function ChatMermaid({ source }: { source: string }) {
         return () => {
             cancelled = true;
         };
-    }, [source]);
+    }, [source, setSvg, setFailed]);
 
     if (failed) {
         return (

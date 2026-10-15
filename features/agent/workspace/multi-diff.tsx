@@ -1,5 +1,7 @@
 "use client";
 
+import { useScopedState } from "@/lib/ui/use-scoped-state";
+
 import { ArrowUndo20Regular } from "@fluentui/react-icons/headless/svg/arrow-undo";
 import { LayoutColumnTwo20Regular } from "@fluentui/react-icons/headless/svg/layout-column-two";
 
@@ -69,16 +71,14 @@ function LazyFileDiff({
 }) {
     const hostRef = useRef<HTMLDivElement>(null);
     const [visible, setVisible] = useState(focused);
-    const [diff, setDiff] = useState<FileDiff | null>(null);
     const [hover, setHover] = useState(false);
     const key = `${file.staged ? "s" : "u"}:${file.path}`;
+    const [diff, setDiff] = useScopedState<FileDiff | null>([visible, repo, key], () => visible && repo ? { file, original: "", current: "", loading: true } : null);
     const dir = fileDir(file.path);
     const name = fileName(file.path);
     const domId = `md-file-${file.path.replace(/[\\/]/g, "-")}`;
 
-    useEffect(() => {
-        if (focused) setVisible(true);
-    }, [focused]);
+    if (focused && !visible) setVisible(true);
 
     useEffect(() => {
         const el = hostRef.current;
@@ -99,7 +99,6 @@ function LazyFileDiff({
     useEffect(() => {
         if (!visible || !repo) return;
         let cancelled = false;
-        setDiff({ file, original: "", current: "", loading: true });
         void loadSides(repo, file).then((sides) => {
             if (cancelled) return;
             setDiff({ file, ...sides, loading: false });
@@ -108,7 +107,7 @@ function LazyFileDiff({
             cancelled = true;
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps -- reload when path/stage flips
-    }, [visible, repo, key]);
+    }, [visible, repo, key, setDiff]);
 
     const toggleStage = async () => {
         try {
@@ -239,17 +238,14 @@ export function MultiDiffEditor({
     const [busy, setBusy] = useState(false);
     const [split, setSplit] = useState(true);
 
-    const refresh = useCallback(async () => {
-        try {
-            const repos = await discoverGitRepos(projectPath);
+    const refresh = useCallback(() => discoverGitRepos(projectPath).then(async repos => {
             const path = pickDefaultRepo(projectPath, repos) ?? projectPath;
             setRepo(path);
             const list = await commands.gitStatus(path);
             setFiles(list);
-        } catch {
+    }).catch(() => {
             setFiles([]);
-        }
-    }, [projectPath]);
+    }), [projectPath]);
 
     useEffect(() => {
         void refresh();

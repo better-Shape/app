@@ -88,13 +88,18 @@ export function GraphDetailPanel({
     const [commitFiles, setCommitFiles] = useState<GitFileParams[]>([]);
     const [filesLoading, setFilesLoading] = useState(false);
 
+    const [filesInputs, setFilesInputs] = useState<readonly unknown[] | null>(null);
+    if (filesInputs === null || !Object.is(filesInputs[0], log) || !Object.is(filesInputs[1], repoPath) || !Object.is(filesInputs[2], file)) {
+        setFilesInputs([log, repoPath, file]);
+        if (!log) setCommitFiles([]);
+        setFilesLoading(Boolean(log && repoPath && !file));
+    }
+
     useEffect(() => {
         if (!log || !repoPath || file) {
-            if (!log) setCommitFiles([]);
             return;
         }
         let cancelled = false;
-        setFilesLoading(true);
         void commands
             .gitCommitFiles(repoPath, log.hash)
             .then((files) => {
@@ -111,14 +116,19 @@ export function GraphDetailPanel({
         };
     }, [log, repoPath, file]);
 
+    const [diffInputs, setDiffInputs] = useState<readonly unknown[] | null>(null);
+    if (diffInputs === null || !Object.is(diffInputs[0], file) || !Object.is(diffInputs[1], log) || !Object.is(diffInputs[2], repoPath)) {
+        setDiffInputs([file, log, repoPath]);
+        setOriginal("");
+        setModified("");
+        setLoadingDiff(Boolean(file && log && repoPath));
+    }
+
     useEffect(() => {
         if (!file || !log || !repoPath) {
-            setOriginal("");
-            setModified("");
             return;
         }
         let cancelled = false;
-        setLoadingDiff(true);
         void commands
             .gitGetCommitFileContent(repoPath, file.path, log.hash)
             .then(([orig, mod]) => {

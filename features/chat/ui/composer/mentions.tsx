@@ -102,17 +102,17 @@ export function MentionPicker({
     const [menuEl, setMenuEl] = useState<HTMLDivElement | null>(null);
     const [filter, setFilter] = useState("");
 
-    useEffect(() => {
+    const [queryInputs, setQueryInputs] = useState<readonly unknown[] | null>(null);
+    if (queryInputs === null || !Object.is(queryInputs[0], open) || !Object.is(queryInputs[1], query)) {
+        setQueryInputs([open, query]);
         if (open) setFilter(query);
-    }, [open, query]);
+    }
 
+    if (!open && pos !== null) setPos(null);
     const q = filter.trim().toLowerCase();
 
     useLayoutEffect(() => {
-        if (!open) {
-            setPos(null);
-            return;
-        }
+        if (!open) return;
         const box = boxRef?.current ?? anchorRef?.current;
         const update = () => {
             if (!box) return;
@@ -133,12 +133,15 @@ export function MentionPicker({
         };
     }, [open, anchorRef, boxRef, filter, activeCategory, menuEl, files.length, chats.length, mode, workflows.length]);
 
-    useEffect(() => {
+    const [openScope, setOpenScope] = useState<readonly [typeof open] | null>(null);
+    if (openScope === null || !Object.is(openScope[0], open)) {
+        setOpenScope([open]);
         if (!open) {
             setActiveCategory(null);
             setHighlight(0);
         }
-    }, [open]);
+
+    }
 
     useEffect(() => {
         if (!open || !project_path) return;
@@ -209,7 +212,6 @@ export function MentionPicker({
         if (!open) return;
         let cancelled = false;
         const cached = peekPluginsCache()?.plugins;
-        if (cached) setPlugins(cached);
         void fetchPlugins()
             .then((data) => {
                 if (!cancelled) setPlugins(data.plugins);
@@ -417,9 +419,17 @@ export function MentionPicker({
     const showCategories = mode === "mention" && !activeCategory;
     const listLen = mode === "slash" ? slashItems.length : rootItems.length;
 
-    useEffect(() => {
+    const [highlightScope, setHighlightScope] = useState<readonly [typeof activeCategory, typeof filter, unknown, unknown, typeof mode] | null>(null);
+    if (highlightScope === null
+        || !Object.is(highlightScope[0], activeCategory)
+        || !Object.is(highlightScope[1], filter)
+        || !Object.is(highlightScope[2], rootItems.length)
+        || !Object.is(highlightScope[3], slashItems.length)
+        || !Object.is(highlightScope[4], mode)) {
+        setHighlightScope([activeCategory, filter, rootItems.length, slashItems.length, mode]);
         setHighlight(0);
-    }, [activeCategory, filter, rootItems.length, slashItems.length, mode]);
+
+    }
 
     const pickItem = useCallback(
         (item: ChatMention) => {

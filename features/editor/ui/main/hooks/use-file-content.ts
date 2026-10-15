@@ -1,12 +1,12 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useLayoutEffect } from "react";
 import { commands, useProjectState } from "@/lib/backend";
 import { listen } from "@tauri-apps/api/event";
 import { notify } from "@/features/notifications";
 
 export function useFileContent(
-    path: string, 
-    skipTextLoad: boolean, 
-    isDiff: boolean, 
+    path: string,
+    skipTextLoad: boolean,
+    isDiff: boolean,
     savedContentRef: React.MutableRefObject<string>,
     bufferVersionRef: React.MutableRefObject<number>
 ) {
@@ -16,40 +16,32 @@ export function useFileContent(
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(!skipTextLoad);
     const [loadedPath, setLoadedPath] = useState(path);
-    
+
+    const [owner, setOwner] = useState<{ path: string; skip: boolean; diff: boolean; project: typeof project_path; cached?: string } | null>(null);
+    if (owner === null || owner.path !== path || owner.skip !== skipTextLoad || owner.diff !== isDiff || owner.project !== project_path) {
+        const cached = !skipTextLoad && !isDiff ? commands.getCachedFileContent(path) : undefined;
+        setOwner({ path, skip: skipTextLoad, diff: isDiff, project: project_path, cached });
+        setLoadedPath(path);
+        setContent(cached ?? "");
+        setOriginalContent("");
+        setError(null);
+        setLoading(!skipTextLoad && cached === undefined && (!isDiff || Boolean(project_path)));
+    }
+    useLayoutEffect(() => {
+        if (owner?.cached !== undefined) savedContentRef.current = owner.cached;
+    }, [owner, savedContentRef]);
+
     useEffect(() => {
         let cancelled = false;
-
-        if (skipTextLoad) {
-            setLoadedPath(path);
-            setContent("");
-            setOriginalContent("");
-            setError(null);
-            setLoading(false);
-            return;
-        }
-
-        setLoadedPath(path);
-        const cached = !isDiff ? commands.getCachedFileContent(path) : undefined;
-        if (cached !== undefined) {
-            setContent(cached);
-            savedContentRef.current = cached;
-            setError(null);
-            setLoading(false);
-        } else {
-            setContent("");
-            setLoading(true);
-        }
+        if (skipTextLoad || (isDiff && !project_path)) return;
 
         const reportLoadFailure = () => {
             if (!cancelled) notify.error("File Error", "Could not refresh the editor. Save your changes before reopening the file.");
         };
         let loadSeq = 0;
-        const loadFile = async (showLoading = true) => {
+        const loadFile = async () => {
             if (cancelled) return;
             const seq = ++loadSeq;
-            if (showLoading) setLoading(true);
-            setError(null);
             try {
                 let currentContent = "";
                 if (isDiff) {
@@ -75,12 +67,7 @@ export function useFileContent(
 
                     // Stale commit/diff tabs from a previous project — don't look
                     // up their SHAs in the newly opened repo.
-                    if (!project_path) {
-                        setOriginalContent("");
-                        setContent("");
-                        setLoading(false);
-                        return;
-                    }
+                    if (!project_path) return;
 
                     let gitRelativePath = realPath;
                     if (realPath.startsWith(project_path)) {
@@ -212,7 +199,11 @@ export function useFileContent(
             }
         };
 
-        void loadFile(cached === undefined).catch(reportLoadFailure);
+        void loadFile().catch(reportLoadFailure);
+        const refreshFile = () => {
+            setError(null);
+            return loadFile();
+        };
 
         const unlistenPromise = listen<string>("bettershape-file-edited", (event) => {
             if (cancelled) return;
@@ -230,7 +221,7 @@ export function useFileContent(
                             "Your unsaved edits remain open. Review the disk changes before saving.",
                         );
                     }
-                    return loadFile(false);
+                    return refreshFile();
                 }).catch(reportLoadFailure);
             }
         });
@@ -242,13 +233,13 @@ export function useFileContent(
             if (!(Array.isArray(event.payload) ? event.payload : []).some((p) => typeof p === "string" && norm(p) === norm(path))) return;
             commands.invalidateFileCache(path);
             void import("@/lib/workspace/dirty-buffers").then(({ loadDirtyBuffer }) => {
-                if (!cancelled && !loadDirtyBuffer(path)) return loadFile(false);
+                if (!cancelled && !loadDirtyBuffer(path)) return refreshFile();
             }).catch(reportLoadFailure);
         });
 
         const onGitRefresh = () => {
             if (!isDiff) return;
-            void loadFile(false).catch(reportLoadFailure);
+            void refreshFile().catch(reportLoadFailure);
         };
         window.addEventListener("bettershape-git-refresh", onGitRefresh);
 

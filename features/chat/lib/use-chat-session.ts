@@ -3,6 +3,8 @@
 import { waitForAiConfiguration } from "@/lib/ai/bootstrap";
 import { createChatRequestId } from "@/lib/chat/request-ownership";
 import React from "react";
+import { useIsMounted } from "@/lib/ui/use-mounted";
+import { useScopedState } from "@/lib/ui/use-scoped-state";
 import { listen } from "@tauri-apps/api/event";
 import { commands, Conversation, useProjectState } from "@/lib/backend";
 import { useChatStream } from "./chat-stream-store";
@@ -220,7 +222,6 @@ export function useChatSession(
     const [selectedWorkerModels, setSelectedWorkerModels] = React.useState<string[]>([]);
     const selectedModelRef = React.useRef(selectedModel);
     React.useLayoutEffect(() => { selectedModelRef.current = selectedModel; }, [selectedModel]);
-    const appliedDefaultModelRef = React.useRef(Boolean(readComposerPrefs().model));
     const [selectedMode, setSelectedMode] = React.useState("Code");
     const selectedModeRef = React.useRef(selectedMode);
     React.useLayoutEffect(() => { selectedModeRef.current = selectedMode; }, [selectedMode]);
@@ -276,87 +277,76 @@ export function useChatSession(
 
     const { project_path } = useProjectState();
     const { catalog } = useBetterShapeCatalog();
-    const [tabsReady, setTabsReady] = React.useState(false);
-    // The project the tabs were last hydrated for. `undefined` only before the first run.
-    const hydratedProjectRef = React.useRef<string | null | undefined>(undefined);
-
-    // Restore open chat tabs per repo so switching projects keeps your session strip.
-    React.useEffect(() => {
-        let cancelled = false;
-        setTabsReady(false);
-        const key = chatTabsStorageKey(project_path);
-        tabsHydratedForRef.current = key;
-        const switchedProject =
-            hydratedProjectRef.current !== undefined && hydratedProjectRef.current !== project_path;
-        hydratedProjectRef.current = project_path;
-
-        void (async () => {
-            const persisted = readPersistedChatTabs(project_path);
-            if (persisted) {
-                const tabs = persisted.tabs.filter((t) => t.id !== "__demo_chat__");
-                if (!tabs.some((t) => t.id === NEW_CHAT_TAB_ID)) {
-                    tabs.unshift({ id: NEW_CHAT_TAB_ID, title: "New Chat" });
-                }
-                const activeId = persisted.activeId === "__demo_chat__" ? NEW_CHAT_TAB_ID : persisted.activeId;
-                setOpenChatTabs(tabs);
-                setActiveChatTabId(activeId);
-                if (activeId === NEW_CHAT_TAB_ID) {
-                    showConversation(null);
-                } else if (!isEphemeralChatTabId(activeId)) {
-                    const seq = showConversation(activeId);
-                    try {
-                        await commands.loadConversation(activeId, project_path ?? undefined);
-                        if (!cancelled) {
-                            clearAllDesignPreviewSessions();
-                            setContextSummarized(false);
-                            const msgs = await reloadViewedMessages(seq);
-                            hydrateViewedExtras(activeId, msgs);
-                        }
-                    } catch (err) {
-                        if (cancelled || !isCurrentView(seq)) return;
-                        // A tab whose conversation is gone is expected: it was ephemeral,
-                        // or deleted from another window. Drop the strip back to a draft.
-                        //
-                        // Anything else is a backend failure, and the saved tabs are still
-                        // good. Keep them and move the active tab to a draft, rather than
-                        // throwing the whole session strip away over one unreadable chat.
-                        if (!String(err).includes("Conversation not found")) {
-                            console.error("Could not restore conversation", activeId, err);
-                        } else {
-                            setOpenChatTabs([{ id: NEW_CHAT_TAB_ID, title: "New Chat" }]);
-                        }
-                        setActiveChatTabId(NEW_CHAT_TAB_ID);
-                        showConversation(null);
-                    }
-                }
-            } else {
-                setOpenChatTabs([{ id: NEW_CHAT_TAB_ID, title: "New Chat" }]);
-                setActiveChatTabId(NEW_CHAT_TAB_ID);
-                // On a real project switch, drop the previous project's chat from the view.
-                // Skipped on first mount so the chat the backend already has open is kept.
-                if (switchedProject) showConversation(null);
-            }
-            if (!cancelled) setTabsReady(true);
-        })();
-
-        return () => {
-            cancelled = true;
-        };
-    }, [
-        project_path,
-        setContextSummarized,
-        showConversation,
-        reloadViewedMessages,
-        hydrateViewedExtras,
-        isCurrentView,
-    ]);
+    const hydrated = useIsMounted();
+    const [restoration, setRestoration] = React.useState<{
+        project: typeof project_path;
+        persisted: boolean;
+        activeId: string;
+        switchedProject: boolean;
+    } | null>(null);
+    if (hydrated && (restoration === null || restoration.project !== project_path)) {
+        const persisted = readPersistedChatTabs(project_path);
+        const tabs = persisted?.tabs.filter(tab => tab.id !== "__demo_chat__") ?? [];
+        if (!tabs.some(tab => tab.id === NEW_CHAT_TAB_ID)) tabs.unshift({ id: NEW_CHAT_TAB_ID, title: "New Chat" });
+        const activeId = persisted && persisted.activeId !== "__demo_chat__" ? persisted.activeId : NEW_CHAT_TAB_ID;
+        setRestoration({ project: project_path, persisted: persisted !== null, activeId, switchedProject: restoration !== null });
+        setOpenChatTabs(tabs);
+        setActiveChatTabId(activeId);
+    }
+    const [tabsLoaded, setTabsLoaded] = useScopedState([restoration], () => false);
+    const needsConversation = restoration?.persisted && restoration.activeId !== NEW_CHAT_TAB_ID
+        && !isEphemeralChatTabId(restoration.activeId);
+    const needsDraftView = restoration?.persisted
+        ? restoration.activeId === NEW_CHAT_TAB_ID
+        : restoration?.switchedProject;
+    const tabsReady = restoration !== null && (needsConversation ? tabsLoaded : !needsDraftView || viewedConversationId === null);
 
     React.useEffect(() => {
-        let cancelled = false;
-        if (!project_path || !isWorkspaceTrusted(project_path)) {
-            setProjectRuleFiles([]);
+        if (!restoration) return;
+        tabsHydratedForRef.current = chatTabsStorageKey(restoration.project);
+        if (!restoration.persisted) {
+            // Preserve the backend's existing view on first mount, but not across projects.
+            if (restoration.switchedProject) showConversation(null);
             return;
         }
+        const activeId = restoration.activeId;
+        if (activeId === NEW_CHAT_TAB_ID) { showConversation(null); return; }
+        if (isEphemeralChatTabId(activeId)) return;
+        let cancelled = false;
+        const seq = showConversation(activeId);
+        void commands.loadConversation(activeId, restoration.project ?? undefined).then(async () => {
+            if (cancelled || !isCurrentView(seq)) return false;
+            clearAllDesignPreviewSessions();
+            setContextSummarized(false);
+            const messages = await reloadViewedMessages(seq);
+            if (cancelled || !isCurrentView(seq)) return false;
+            hydrateViewedExtras(activeId, messages);
+            return true;
+        }).catch(err => {
+            if (cancelled || !isCurrentView(seq)) return false;
+            if (String(err).includes("Conversation not found")) {
+                setOpenChatTabs([{ id: NEW_CHAT_TAB_ID, title: "New Chat" }]);
+            } else {
+                console.error("Could not restore conversation", activeId, err);
+            }
+            setActiveChatTabId(NEW_CHAT_TAB_ID);
+            showConversation(null);
+            return true;
+        }).then(complete => {
+            if (complete && !cancelled) setTabsLoaded(true);
+        });
+        return () => { cancelled = true; };
+    }, [restoration, setTabsLoaded, setContextSummarized, showConversation, reloadViewedMessages, hydrateViewedExtras, isCurrentView]);
+
+    const [rulesInputs, setRulesInputs] = React.useState<readonly unknown[] | null>(null);
+    if (rulesInputs === null || !Object.is(rulesInputs[0], project_path)) {
+        setRulesInputs([project_path]);
+        setProjectRuleFiles([]);
+    }
+
+    React.useEffect(() => {
+        let cancelled = false;
+        if (!project_path || !isWorkspaceTrusted(project_path)) return;
         void listProjectRuleFiles(project_path).then((names) => {
             if (!cancelled) setProjectRuleFiles(names);
         });
@@ -376,7 +366,9 @@ export function useChatSession(
         );
     }, [activeChatTabId]);
 
-    React.useEffect(() => {
+    const [modelInputs, setModelInputs] = React.useState<readonly unknown[] | null>(null);
+    if (modelInputs === null || !Object.is(modelInputs[0], messages) || !Object.is(modelInputs[1], activeChatTabId)) {
+        setModelInputs([messages, activeChatTabId]);
         const models = [
             ...new Set(
                 messages
@@ -394,7 +386,7 @@ export function useChatSession(
                 return same ? tab : { ...tab, models };
             }),
         );
-    }, [messages, activeChatTabId]);
+    }
 
     // Latest editor selection, kept live by editor-view.tsx so an `@selection`
     // mention in the message always resolves against what's selected right now.
@@ -700,18 +692,15 @@ export function useChatSession(
     }, [conversationId]);
 
     const refreshHistory = React.useCallback(
-        async () => {
-            try {
-                const convs = await commands.getConversations(project_path ?? undefined);
-                setRecentConvs(convs);
-                await refreshMetadata();
-                const viewed = getViewedConversationId();
-                const msgs = await reloadViewedMessages();
-                hydrateViewedExtras(viewed, msgs);
-            } catch (err) {
-                console.error("Failed to load chat history:", err);
-            }
-        },
+        () => commands.getConversations(project_path ?? undefined).then(async convs => {
+            setRecentConvs(convs);
+            await refreshMetadata();
+            const viewed = getViewedConversationId();
+            const msgs = await reloadViewedMessages();
+            hydrateViewedExtras(viewed, msgs);
+        }).catch(err => {
+            console.error("Failed to load chat history:", err);
+        }),
         [
             project_path,
             refreshMetadata,
@@ -731,14 +720,21 @@ export function useChatSession(
         setCurrentConversationId(viewedConversationId);
     }, [viewedConversationId]);
 
-    React.useEffect(() => {
-        if (!tabsReady) return;
+    const [viewInputs, setViewInputs] = React.useState<readonly unknown[] | null>(null);
+    if (viewInputs === null
+        || !Object.is(viewInputs[0], viewedConversationId)
+        || !Object.is(viewInputs[1], tabsReady)
+        || !Object.is(viewInputs[2], recentConvs)
+        || !Object.is(viewInputs[3], syncOpenTabs)) {
+        setViewInputs([viewedConversationId, tabsReady, recentConvs, syncOpenTabs]);
+        if (tabsReady) {
         setActiveChatTabId(viewedConversationId ?? NEW_CHAT_TAB_ID);
         const conv = viewedConversationId
             ? recentConvs.find((c) => c.id === viewedConversationId)
             : undefined;
         syncOpenTabs(viewedConversationId, conv?.title);
-    }, [viewedConversationId, tabsReady, recentConvs, syncOpenTabs]);
+        }
+    }
 
     // A draft's turn just got its real id: its queued follow-ups now belong to that chat.
     React.useEffect(() => {
@@ -1521,30 +1517,16 @@ export function useChatSession(
         });
     }, [selectedModel, reasoningEffort, fastMode]);
 
-    React.useEffect(() => {
-        if (!catalog) return;
+    if (catalog) {
         const ai = getSettings().ai;
         const keyed = resolveChatModels(getCatalogModels());
-        const enabled = sanitizeEnabledModels(
-            ai.enabledModels,
-            keyed.map((m) => m.id),
-            getCatalogDefaultEnabledIds(),
-        );
-        const visible = getVisibleModels(keyed, enabled);
-        const current = selectedModelRef.current;
-        if (keyed.some((m) => m.id === current)) return;
-        if (!appliedDefaultModelRef.current && visible.some((m) => m.id === ai.defaultModel)) {
-            appliedDefaultModelRef.current = true;
-            setSelectedModel(ai.defaultModel);
-            return;
+        if (!keyed.some(model => model.id === selectedModel)) {
+            const enabled = sanitizeEnabledModels(ai.enabledModels, keyed.map(model => model.id), getCatalogDefaultEnabledIds());
+            const visible = getVisibleModels(keyed, enabled);
+            const replacement = visible.some(model => model.id === ai.defaultModel) ? ai.defaultModel : visible[0]?.id;
+            if (replacement && replacement !== selectedModel) setSelectedModel(replacement);
         }
-        appliedDefaultModelRef.current = true;
-        if (visible.some((m) => m.id === ai.defaultModel)) {
-            setSelectedModel(ai.defaultModel);
-        } else if (visible.length > 0) {
-            setSelectedModel(visible[0]!.id);
-        }
-    }, [catalog]);
+    }
 
     React.useEffect(() => {
         let disposed = false;

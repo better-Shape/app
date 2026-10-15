@@ -111,13 +111,16 @@ function AddMcpDialog({
     const parsed = useMemo(() => (paste.trim() ? parseMcpPaste(paste) : { servers: [] as McpServerConfig[] }), [paste]);
     const preview = parsed.servers[0];
 
-    useEffect(() => {
+    const [dialogScope, setDialogScope] = useState<readonly [typeof open] | null>(null);
+    if (dialogScope === null || !Object.is(dialogScope[0], open)) {
+        setDialogScope([open]);
         if (!open) {
             setPaste("");
             setBusy(false);
             setMode("registry");
         }
-    }, [open]);
+
+    }
 
     async function connect() {
         if (!preview || parsed.error) {
@@ -245,14 +248,9 @@ function ServerDetail({
     const [guidance, setGuidance] = useState("");
     const [working, setWorking] = useState(false);
 
-    const loadTools = useCallback(async () => {
-        try {
-            const all = await commands.getMcpTools();
-            setTools(all.filter((tool) => tool.serverId === server.id));
-        } catch {
-            setTools([]);
-        }
-    }, [server.id]);
+    const loadTools = useCallback(() => commands.getMcpTools().then(all => {
+        setTools(all.filter(tool => tool.serverId === server.id));
+    }).catch(() => setTools([])), [server.id]);
 
     useEffect(() => {
         void loadTools();
@@ -398,16 +396,12 @@ export function McpSettingsView() {
     const [adding, setAdding] = useState(false);
     const [busy, setBusy] = useState(false);
 
-    const refresh = useCallback(async () => {
-        try {
-            const listed = await listMcpServers();
-            setServers(listed);
-            const next = await syncActiveMcpServers();
-            setStatuses(next);
-        } catch (err) {
-            notify.error(err instanceof Error ? err.message : "Could not load MCP servers.");
-        }
-    }, []);
+    const refresh = useCallback(() => listMcpServers().then(async listed => {
+        setServers(listed);
+        setStatuses(await syncActiveMcpServers());
+    }).catch(err => {
+        notify.error(err instanceof Error ? err.message : "Could not load MCP servers.");
+    }), []);
 
     // The agent changed one server. `refresh` would reconnect every configured
     // server and drop unrelated sessions, so read the list and the status the

@@ -139,7 +139,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
                 <NotificationProvider>
                     <SuppressNativeTooltips />
                     <GlobalContextMenu>
-                        {isBranch ? <FilterProvider>{body}</FilterProvider> : body}
+                        {isBranch ? <FilterProvider initialSection="branches">{body}</FilterProvider> : body}
                     </GlobalContextMenu>
                 </NotificationProvider>
             </LoadingProvider>

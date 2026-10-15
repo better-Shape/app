@@ -1,5 +1,7 @@
 "use client";
 
+import { useIsMounted } from "@/lib/ui/use-mounted";
+
 import { Dismiss20Regular } from "@fluentui/react-icons/headless/svg/dismiss";
 
 
@@ -127,10 +129,9 @@ function ToastCard({
 
 export function NotificationToasts() {
     const { notifications, toastIds } = useNotifications();
-    const [mounted, setMounted] = React.useState(false);
+    const mounted = useIsMounted();
     const [leavingId, setLeavingId] = React.useState<string | null>(null);
 
-    React.useEffect(() => setMounted(true), []);
 
     const toasts = toastIds
         .map((id) => notifications.find((n) => n.id === id))

@@ -346,11 +346,9 @@ export const ChatMarkdown = React.memo(({
 }) => {
     // Keep revealing briefly after generation ends so a late dump still types in.
     const [hold, setHold] = useState(false);
+    if (isGenerating && isLast && !hold) setHold(true);
     useEffect(() => {
-        if (isGenerating && isLast) {
-            setHold(true);
-            return;
-        }
+        if (isGenerating && isLast) return;
         if (!hold) return;
         const t = window.setTimeout(() => setHold(false), 700);
         return () => window.clearTimeout(t);

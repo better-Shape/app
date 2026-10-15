@@ -188,11 +188,7 @@ export function GitHubSection({ section }: { section: GitHubListSection }) {
     const [selectedId, setSelectedId] = useState<string | number | null>(null);
     const [createPrOpen, setCreatePrOpen] = useState(false);
 
-    const load = useCallback(async () => {
-        setLoading(true);
-        setError(null);
-        try {
-            const resolved = await resolveOwnerRepo(project_path);
+    const fetchList = useCallback(() => resolveOwnerRepo(project_path).then(async resolved => {
             setRepo(resolved);
             if (!resolved) {
                 setItems([]);
@@ -212,27 +208,42 @@ export function GitHubSection({ section }: { section: GitHubListSection }) {
                     await parseApi(meta.endpoint(resolved.owner, resolved.repo, state)),
                 ),
             );
-        } catch (e) {
+    }).catch(e => {
             setItems([]);
             const formatted = formatCommandError(e, "GitHub");
             const text = formatted.hint
                 ? `${formatted.message}\n${formatted.hint}`
                 : formatted.message || formatted.title;
             notify.error(formatted.title, text);
-        } finally {
+    }).finally(() => {
             setLoading(false);
-        }
-    }, [auth.loggedIn, issueState, meta, project_path, section]);
+    }), [auth.loggedIn, issueState, meta, project_path, section]);
+
+    const load = useCallback(() => {
+        setLoading(true);
+        setError(null);
+        return fetchList();
+    }, [fetchList]);
+
+    const [requestInputs, setRequestInputs] = useState<readonly unknown[] | null>(null);
+    if (requestInputs === null || !Object.is(requestInputs[0], fetchList)) {
+        setRequestInputs([fetchList]);
+        setLoading(true);
+        setError(null);
+    }
 
     useEffect(() => {
-        void load();
-    }, [load]);
+        void fetchList();
+    }, [fetchList]);
 
-    useEffect(() => {
+    const [listScope, setListScope] = useState<readonly [typeof section, typeof issueState] | null>(null);
+    if (listScope === null || !Object.is(listScope[0], section) || !Object.is(listScope[1], issueState)) {
+        setListScope([section, issueState]);
         setSelectedId(null);
         setItems([]);
         setError(null);
-    }, [section, issueState]);
+
+    }
 
     const filtered = useMemo(() => {
         const q = query.trim().toLowerCase();

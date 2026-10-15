@@ -821,9 +821,11 @@ export function SettingsView({
         [resolveTargetFromDeepLink],
     );
 
-    useEffect(() => {
+    const [navigationInputs, setNavigationInputs] = useState<readonly unknown[] | null>(null);
+    if (navigationInputs === null || !Object.is(navigationInputs[0], searchParams) || !Object.is(navigationInputs[1], applyNavigation)) {
+        setNavigationInputs([searchParams, applyNavigation]);
         applyNavigation(searchParams.get("category"), searchParams.get("section"));
-    }, [searchParams, applyNavigation]);
+    }
 
     useEffect(() => {
         const handler = (event: Event) => {

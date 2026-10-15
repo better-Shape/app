@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type { RefObject } from "react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll";
@@ -35,14 +35,6 @@ export function LogsPanel({
 }) {
     const [aiText, setAiText] = useState<string | null>(null);
     const [aiLoading, setAiLoading] = useState(false);
-    const autoKey = useRef<string | null>(null);
-
-    useEffect(() => {
-        setAiText(null);
-        setAiLoading(false);
-        autoKey.current = null;
-    }, [selectedRunId, selectedJob?.id, highlight, stepFilterActive]);
-
     const jobIncomplete =
         selectedJob != null &&
         selectedJob.status !== "completed" &&
@@ -66,46 +58,38 @@ export function LogsPanel({
 
     const jobFailed = selectedJob?.conclusion === "failure";
 
-    useEffect(() => {
-        if (!jobFailed || !canExplain) return;
-        const key = `${selectedRunId}:${selectedJob?.id}:${highlight ?? ""}:${stepFilterActive ? 1 : 0}`;
-        if (autoKey.current === key) return;
-        autoKey.current = key;
-        let cancelled = false;
+    const scope = `${selectedRunId}:${selectedJob?.id}:${highlight ?? ""}:${stepFilterActive ? 1 : 0}`;
+    const [request, setRequest] = useState<{ scope: string; logs: string; context: string } | null>(null);
+    const [owner, setOwner] = useState(scope);
+    if (owner !== scope) {
+        setOwner(scope);
+        setRequest(null);
+        setAiText(null);
+        setAiLoading(false);
+    } else if (jobFailed && canExplain && request === null) {
+        const context = [
+            explainContext?.trim(),
+            selectedJob ? `Job: ${selectedJob.name}` : null,
+            selectedJob?.conclusion ? `Conclusion: ${selectedJob.conclusion}` : null,
+            highlight ? `Step focus: ${highlight}` : null,
+            selectedRunId != null ? `Run id: ${selectedRunId}` : null,
+        ].filter(Boolean).join("\n");
+        setRequest({ scope, logs, context });
         setAiLoading(true);
-        void (async () => {
-            try {
-                const parts = [
-                    explainContext?.trim(),
-                    selectedJob ? `Job: ${selectedJob.name}` : null,
-                    selectedJob?.conclusion ? `Conclusion: ${selectedJob.conclusion}` : null,
-                    highlight ? `Step focus: ${highlight}` : null,
-                    selectedRunId != null ? `Run id: ${selectedRunId}` : null,
-                ].filter(Boolean);
-                const text = await commands.explainCiLog(logs, parts.join("\n") || null);
-                if (!cancelled) setAiText(text.trim());
-            } catch (err) {
-                if (!cancelled) {
-                    const msg = err instanceof Error ? err.message : String(err);
-                    notify.error("AI Error", msg);
-                }
-            } finally {
-                if (!cancelled) setAiLoading(false);
-            }
-        })();
-        return () => {
-            cancelled = true;
-        };
-    }, [
-        jobFailed,
-        canExplain,
-        logs,
-        selectedJob,
-        selectedRunId,
-        highlight,
-        stepFilterActive,
-        explainContext,
-    ]);
+    }
+
+    useEffect(() => {
+        if (!request) return;
+        let cancelled = false;
+        void commands.explainCiLog(request.logs, request.context || null).then(text => {
+            if (!cancelled) setAiText(text.trim());
+        }).catch(err => {
+            if (!cancelled) notify.error("AI Error", err instanceof Error ? err.message : String(err));
+        }).finally(() => {
+            if (!cancelled) setAiLoading(false);
+        });
+        return () => { cancelled = true; };
+    }, [request]);
 
     return (
         <div className="workbench-panel flex h-full min-h-0 flex-col overflow-hidden">

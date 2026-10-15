@@ -1,5 +1,7 @@
 "use client";
 
+import { useIsMounted } from "@/lib/ui/use-mounted";
+
 import { ArrowUndo20Regular } from "@fluentui/react-icons/headless/svg/arrow-undo";
 import { Collections20Regular } from "@fluentui/react-icons/headless/svg/collections";
 import { Compose20Regular } from "@fluentui/react-icons/headless/svg/compose";
@@ -215,6 +217,7 @@ export function ChatList({
     /** @deprecated unified Sessions list — ignored */
     listKind?: "chat";
 }) {
+    const viewedChatId = useChatStreamOptional().viewedConversationId;
     const { project_path } = useProjectState();
     const [chats, setChats] = useState<Conversation[]>([]);
     const [searchOpen, setSearchOpen] = useState(false);
@@ -226,7 +229,7 @@ export function ChatList({
     const [sort, setSort] = useState<ChatSort>("recent");
     const [filter, setFilter] = useState<ChatFilter>("all");
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
-    const [activeId, setActiveId] = useState<string | null>(null);
+    const [activeId, setActiveId] = useState<string | null>(viewedChatId);
     const [collapsed, setCollapsed] = useState<ReadonlySet<ChatShelfId>>(() => new Set());
     const [collectionDraft, setCollectionDraft] = useState<string[] | null>(null);
 
@@ -246,13 +249,17 @@ export function ChatList({
     );
     const allSubagents = useSyncExternalStore(subscribeSubagents, getSubagents, getSubagents);
 
-    useEffect(() => {
+    const hydrated = useIsMounted();
+    const [restoredPreferences, setRestoredPreferences] = useState(false);
+    if (hydrated && !restoredPreferences) {
+        setRestoredPreferences(true);
         setSort(loadSort());
         try {
             const stored = window.localStorage.getItem(GROUP_KEY);
             if (stored === "collection" || stored === "project") setGrouping(stored);
         } catch { /* Use the default when storage is unavailable. */ }
-    }, []);
+
+    }
 
     useEffect(() => { if (searchOpen) searchInput.current?.focus(); }, [searchOpen]);
 
@@ -287,24 +294,24 @@ export function ChatList({
     }, []);
 
     const chatsVersion = useRef(0);
-    const loadChats = useCallback(async () => {
+    const [listOwner, setListOwner] = useState(project_path);
+    if (listOwner !== project_path) {
+        setListOwner(project_path);
+        setChats([]);
+        setSelectedIds([]);
+    }
+    const loadChats = useCallback(() => {
         const version = ++chatsVersion.current;
-        if (!project_path) {
-            setChats([]);
-            return;
-        }
-        try {
-            const next = await commands.getConversations(project_path);
+        if (!project_path) return Promise.resolve();
+        return commands.getConversations(project_path).then(next => {
             if (version === chatsVersion.current) setChats(next);
-        } catch {
+        }).catch(() => {
             if (version === chatsVersion.current) notify.error("Could not refresh chats", "Showing the last loaded chats. Try again.");
-        }
+        });
     }, [project_path]);
 
     useEffect(() => {
-        setChats([]);
-        setSelectedIds([]);
-        loadChats();
+        void loadChats();
         /** Reload chats through the version-fenced loader when a conversation event invalidates the list. */
         const onRefresh = () => { loadChats(); };
         window.addEventListener("bettershape-chat-refresh", onRefresh);
@@ -342,10 +349,12 @@ export function ChatList({
 
     // Highlight the chat on screen. The backend's current chat can be another one while a
     // background chat runs, so it is not used here.
-    const viewedChatId = useChatStreamOptional().viewedConversationId;
-    useEffect(() => {
+
+    const [viewScope, setViewScope] = useState(viewedChatId);
+    if (viewScope !== viewedChatId) {
+        setViewScope(viewedChatId);
         setActiveId(viewedChatId);
-    }, [viewedChatId]);
+    }
 
     const openChat = useCallback((id: string) => {
         clearChatUnread(id);

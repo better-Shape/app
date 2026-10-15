@@ -286,35 +286,37 @@ function useAnimatedAxis(
         latest.current = { open, durationMs, fallbackMs };
     }, [open, durationMs, fallbackMs]);
 
-    const [controller] = useState(() =>
-        createAnimatedSize({
+    const controllerRef = useRef<AnimatedSizeController | null>(null);
+    useEffect(() => {
+        const element = innerRef.current;
+        if (!element) return;
+        const controller = createAnimatedSize({
             open: () => latest.current.open,
             root: () => innerRef.current,
             durationMs,
             fallbackMs,
             read: () => {
-                const element = innerRef.current;
-                if (!element) return RELEASED;
-                const rect = element.getBoundingClientRect();
+                const node = innerRef.current;
+                if (!node) return RELEASED;
+                const rect = node.getBoundingClientRect();
                 return { width: rect.width, height: rect.height };
             },
             write: setHeld,
-        }),
-    );
-
-    useEffect(() => {
-        const element = innerRef.current;
-        if (!element) return;
+        });
+        controllerRef.current = controller;
         controller.attach(element);
-        return () => controller.detach();
-    }, [controller]);
+        return () => {
+            controller.dispose();
+            controllerRef.current = null;
+        };
+    }, [durationMs, fallbackMs]);
 
     // `children` is a dependency on purpose: any re-render of new content is a
     // chance for the content's natural size to have changed, and ResizeObserver
     // will not tell us about content that changed without changing its box.
     useEffect(() => {
-        controller.sync();
-    }, [controller, open, children]);
+        controllerRef.current?.sync();
+    }, [open, children]);
 
     const value = held === null ? undefined : held[axis];
     const style: CSSProperties =

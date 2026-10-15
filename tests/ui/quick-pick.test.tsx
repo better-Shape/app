@@ -135,3 +135,24 @@ it("schedules nothing while closed and cancels a valid zero-valued frame ID", as
     await act(async () => root.render(<Harness open={false} />));
     expect(cancel).toHaveBeenCalledExactlyOnceWith(0);
 });
+
+it("does not steal result focus when an asynchronous result count changes", async () => {
+    let id = 0;
+    const frames = new Map<number, FrameRequestCallback>();
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { frames.set(++id, callback); return id; });
+    vi.stubGlobal("cancelAnimationFrame", (key: number) => { frames.delete(key); });
+    const flushFrames = () => {
+        const pending = [...frames.values()];
+        frames.clear();
+        pending.forEach(callback => callback(0));
+    };
+    await act(async () => root.render(<Harness />));
+    act(flushFrames);
+    const result = document.querySelector<HTMLButtonElement>("[role=dialog] button");
+    expect(result).not.toBeNull();
+    act(() => result?.focus());
+    expect(document.activeElement).toBe(result);
+    await act(async () => root.render(<Harness rows={[...items, { id: "three", label: "Three" }]} />));
+    act(flushFrames);
+    expect(document.activeElement).toBe(result);
+});

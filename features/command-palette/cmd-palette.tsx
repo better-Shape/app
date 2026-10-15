@@ -372,13 +372,14 @@ export function CommandPalette() {
         });
     }, [open, browse]);
 
+    if (open && browse && filterTab !== "all" && filterTab !== "files" && fileActions.length) {
+        setFileActions([]);
+    }
+
     // Load files when browsing files / all
     useEffect(() => {
         if (!open || !browse) return;
-        if (filterTab !== "all" && filterTab !== "files") {
-            setFileActions([]);
-            return;
-        }
+        if (filterTab !== "all" && filterTab !== "files") return;
         const handle = window.setTimeout(() => {
             if (query.length > 0 && query.length < 2 && filterTab === "files") {
                 setFileActions([]);
@@ -551,9 +552,14 @@ export function CommandPalette() {
         [filtered],
     );
 
-    useEffect(() => {
+    const [selectionInputs, setSelectionInputs] = useState<readonly unknown[] | null>(null);
+    if (selectionInputs === null
+        || !Object.is(selectionInputs[0], filterTab)
+        || !Object.is(selectionInputs[1], query)
+        || !Object.is(selectionInputs[2], open)) {
+        setSelectionInputs([filterTab, query, open]);
         setSelectedIndex(0);
-    }, [filterTab, query, open]);
+    }
 
     useEffect(() => {
         if (!listRef.current) return;
@@ -601,7 +607,6 @@ export function CommandPalette() {
 
     // Group for section headers when query empty in browse
     const showSections = browse && !query.trim();
-    let lastSection = "";
 
     return (
         <Dialog.Root open={open} onOpenChange={handleOpenChange}>
@@ -644,10 +649,9 @@ export function CommandPalette() {
                                       : "No matching results"}
                             </div>
                         )}
-                        {filtered.map((action) => {
+                        {filtered.map((action, index) => {
                             const section = showSections ? action.section : undefined;
-                            const showHeader = Boolean(section && section !== lastSection);
-                            if (section) lastSection = section;
+                            const showHeader = Boolean(section && section !== filtered[index - 1]?.section);
                             if (!("run" in action)) {
                                 return (
                                     <React.Fragment key={action.id}>

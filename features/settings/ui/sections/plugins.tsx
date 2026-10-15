@@ -551,14 +551,12 @@ export function PluginsSettingsView() {
     const [category, setCategory] = useState("all");
     const [openToolkit, setOpenToolkit] = useState<string | null>(null);
 
+    if (!pluginsAvailable && loading) setLoading(false);
+
     const load = useCallback(
-        async (force = false, quiet = false) => {
-            if (!pluginsAvailable) {
-                setLoading(false);
-                return;
-            }
-            try {
-                const data = await fetchPlugins({ force });
+        (force = false, quiet = false) => {
+            if (!pluginsAvailable) return Promise.resolve();
+            return fetchPlugins({ force }).then(data => {
                 const latest = peekPluginsCache() ?? data;
                 setPlugins(mergeCatalog(latest.plugins));
                 setConfigured(latest.configured);
@@ -567,13 +565,13 @@ export function PluginsSettingsView() {
                     if (latest.plugins.some((p) => p.toolkit === current && p.connected)) return null;
                     return current;
                 });
-            } catch (err) {
+            }).catch(err => {
                 if (quiet) return;
                 const message = err instanceof ComposioError ? err.message : "Could not load plugins.";
                 notify.error(message);
-            } finally {
+            }).finally(() => {
                 setLoading(false);
-            }
+            });
         },
         [pluginsAvailable],
     );

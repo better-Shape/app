@@ -419,7 +419,14 @@ const loadDiffContent = async (
     return { original, modified };
 };
 
-/** Load the original/modified pair for the embedded diff view; clears when no diff is selected. */
+/**
+ * Load the original/modified pair for the embedded diff view.
+ *
+ * The content is reset while rendering, when the inputs change, rather than in
+ * the effect body. An effect runs after the paint, so switching files showed the
+ * previous file's diff for a frame, and clearing inside the effect also raced the
+ * load that the same effect had just started.
+ */
 const useEmbeddedDiffContent = (
     embedded: boolean,
     gitRepo: string | null,
@@ -428,14 +435,22 @@ const useEmbeddedDiffContent = (
     setDiffModified: (value: string) => void,
     setDiffLoading: (value: boolean) => void,
 ) => {
+    const [inputs, setInputs] = useState<readonly unknown[] | null>(null);
+    if (
+        inputs === null ||
+        !Object.is(inputs[0], embedded) ||
+        !Object.is(inputs[1], gitRepo) ||
+        !Object.is(inputs[2], diffFile)
+    ) {
+        setInputs([embedded, gitRepo, diffFile]);
+        setDiffOriginal("");
+        setDiffModified("");
+        setDiffLoading(embedded && gitRepo !== null && diffFile !== null);
+    }
+
     useEffect(() => {
-        if (!embedded || !gitRepo || !diffFile) {
-            setDiffOriginal("");
-            setDiffModified("");
-            return undefined;
-        }
+        if (!embedded || !gitRepo || !diffFile) return undefined;
         let cancelled = false;
-        setDiffLoading(true);
         (async () => {
             try {
                 const { original, modified } = await loadDiffContent(gitRepo, diffFile);
@@ -465,10 +480,18 @@ const hasRepoTarget = (
 ): repoPath is string => Boolean(projectPath && repoPath);
 
 /** Whether refresh should clear status: project open, discovery done, no repo. */
+/**
+ * Whether the panel still shows git state for a project that has no repository.
+ *
+ * `hasStaleStatus` keeps the clear from running when there is nothing to clear.
+ * Writing `setIsGitRepo(false)` over an already-false value still schedules a
+ * render, so the predicate carries the current state instead of assuming it.
+ */
 const shouldClearWithoutRepo = (
     projectPath: string | null | undefined,
     reposLoading: boolean,
-): boolean => Boolean(projectPath && !reposLoading);
+    hasStaleStatus: boolean,
+): boolean => Boolean(projectPath && !reposLoading && hasStaleStatus);
 
 /** Status refresh for one project+repo, dropping results written after a repo switch. */
 const useGitStatusRefresh = (args: {
@@ -486,11 +509,16 @@ const useGitStatusRefresh = (args: {
     setNeedsSync: (value: boolean) => void;
     setIsGitRepo: (value: boolean) => void;
     latestRepoKeyRef: React.RefObject<string>;
+    /** Whether the panel currently shows git state worth clearing. */
+    isGitRepo: boolean;
+    changeCount: number;
+    hasLastCommit: boolean;
 }) => {
     const {
         projectPath, scmRepoPath, repoKey, reposCount, reposLoading,
         startLoading, stopLoading, setChanges, setCurrentBranch, setHasRemote,
         setLastCommit, setNeedsSync, setIsGitRepo, latestRepoKeyRef,
+        isGitRepo, changeCount, hasLastCommit,
     } = args;
 
     return useCallback(async (opts?: { track?: boolean }) => {
@@ -540,7 +568,7 @@ const useGitStatusRefresh = (args: {
                 if (track) stopLoading();
                 statusProgress.remove("git-refresh");
             }
-        } else if (shouldClearWithoutRepo(projectPath, reposLoading)) {
+        } else if (shouldClearWithoutRepo(projectPath, reposLoading, isGitRepo || changeCount > 0 || hasLastCommit)) {
             // Only clear after discovery finished with no repo — never during the async gap.
             setIsGitRepo(false);
             setChanges([]);
@@ -550,6 +578,7 @@ const useGitStatusRefresh = (args: {
         projectPath, scmRepoPath, repoKey, reposCount, reposLoading,
         startLoading, stopLoading, setChanges, setCurrentBranch, setHasRemote,
         setLastCommit, setNeedsSync, setIsGitRepo, latestRepoKeyRef,
+        isGitRepo, changeCount, hasLastCommit,
     ]);
 };
 
@@ -2705,7 +2734,7 @@ const Source = ({
     const { startLoading, stopLoading } = useLoading();
     const settings = useSettings();
 
-const refresh = useGitStatusRefresh({
+    const refresh = useGitStatusRefresh({
         projectPath: project_path,
         scmRepoPath,
         repoKey,
@@ -2720,6 +2749,9 @@ const refresh = useGitStatusRefresh({
         setNeedsSync,
         setIsGitRepo,
         latestRepoKeyRef,
+        isGitRepo,
+        changeCount: changes.length,
+        hasLastCommit: lastCommit !== null,
     });
 
     useEffect(() => {

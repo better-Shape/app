@@ -51,14 +51,11 @@ export function ImageView({
     const [isDragging, setIsDragging] = useState(false);
     const dragRef = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
     const [adjustments, setAdjustments] = useState<ImageAdjustments>(() => ({ ...DEFAULT_ADJUSTMENTS }));
-    const [historyVersion, setHistoryVersion] = useState(0);
+    const [baseline, setBaseline] = useState<ImageAdjustments>(() => ({ ...DEFAULT_ADJUSTMENTS }));
     const [imgMeta, setImgMeta] = useState({ w: 0, h: 0, status: "idle" });
     const [stageSize, setStageSize] = useState({ w: 0, h: 0 });
     const savingRef = useRef(false);
 
-    const historyRef = useRef<ImageAdjustments[]>([{ ...DEFAULT_ADJUSTMENTS }]);
-    const historyIndexRef = useRef(0);
-    const baselineRef = useRef<ImageAdjustments>({ ...DEFAULT_ADJUSTMENTS });
     const sessionPathRef = useRef(path);
 
     const actualPath = stripDiffPrefix(path);
@@ -84,22 +81,16 @@ export function ImageView({
         });
     }, [path, actualPath, rasterSrc, inlineSvg, loadError, zoom]);
 
-    const bumpHistory = useCallback(() => {
-        setHistoryVersion((v) => v + 1);
-    }, []);
 
     useEffect(() => {
         if (sessionPathRef.current === path) return;
         sessionPathRef.current = path;
         onZoomChange(1);
         const initial = { ...DEFAULT_ADJUSTMENTS };
-        baselineRef.current = cloneAdjustments(initial);
+        setBaseline(cloneAdjustments(initial));
         setAdjustments(initial);
         setPan({ x: 0, y: 0 });
         setImgMeta({ w: 0, h: 0, status: "idle" });
-        historyRef.current = [initial];
-        historyIndexRef.current = 0;
-        setHistoryVersion((v) => v + 1);
         // eslint-disable-next-line react-hooks/exhaustive-deps -- path-only reset
     }, [path]);
 
@@ -126,24 +117,16 @@ export function ImageView({
             });
             const bytes = dataUrlToBytes(dataUrl);
             await commands.saveFileBytes(actualPath, Array.from(bytes));
-            baselineRef.current = cloneAdjustments(adjustments);
-            historyRef.current = [cloneAdjustments(adjustments)];
-            historyIndexRef.current = 0;
+            setBaseline(cloneAdjustments(adjustments));
             notify.success("Image", "Saved changes.");
-            bumpHistory();
         } catch (err) {
             notify.error("Image", err instanceof Error ? err.message : String(err));
         } finally {
             savingRef.current = false;
         }
-    }, [actualPath, adjustments, bumpHistory, isSvg, rasterSrc]);
+    }, [actualPath, adjustments, isSvg, rasterSrc]);
 
-    const isDirty = useMemo(() => {
-        return historyIndexRef.current > 0
-            || JSON.stringify(adjustments) !== JSON.stringify(baselineRef.current);
-    // historyVersion is not read here, but it must re-run this memo: history lives in refs.
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- historyVersion invalidates the ref-backed history
-    }, [adjustments, historyVersion]);
+    const isDirty = JSON.stringify(adjustments) !== JSON.stringify(baseline);
 
     useEffect(() => {
         const onSaveRequest = () => {

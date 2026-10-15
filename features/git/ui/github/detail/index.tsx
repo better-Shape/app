@@ -176,17 +176,32 @@ export function GitHubDetailPane({
     const isIssue = section === "issues";
     const isRelease = section === "releases";
 
-    useEffect(() => {
+    const [detailScope, setDetailScope] = useState<readonly [unknown, typeof section, typeof isPr, typeof isRelease] | null>(null);
+    if (detailScope === null
+        || !Object.is(detailScope[0], item?.id)
+        || !Object.is(detailScope[1], section)
+        || !Object.is(detailScope[2], isPr)
+        || !Object.is(detailScope[3], isRelease)) {
+        setDetailScope([item?.id, section, isPr, isRelease]);
         setTab(isPr ? "overview" : isRelease ? "notes" : "conversation");
         setWalkthrough(null);
         setWalkthroughLoading(false);
         setFindingsMd(null);
         setFindingsLoading(false);
         setFocusedFindingPath(null);
-    }, [item?.id, section, isPr, isRelease]);
 
-    useEffect(() => {
-        if (!item) return;
+    }
+
+    const [requestInputs, setRequestInputs] = useState<readonly unknown[] | null>(null);
+    if (requestInputs === null
+        || !Object.is(requestInputs[0], item)
+        || !Object.is(requestInputs[1], owner)
+        || !Object.is(requestInputs[2], repo)
+        || !Object.is(requestInputs[3], isPr)
+        || !Object.is(requestInputs[4], isIssue)
+        || !Object.is(requestInputs[5], isRelease)) {
+        setRequestInputs([item, owner, repo, isPr, isIssue, isRelease]);
+        if (item) {
         setTitle(item.title);
         setStatus(item.status);
         setBody(item.body ?? "");
@@ -211,8 +226,14 @@ export function GitHubDetailPane({
         setCreatedAt(undefined);
         setUpdatedAt(undefined);
 
-        let cancelled = false;
         setLoading(true);
+
+        }
+    }
+
+    useEffect(() => {
+        if (!item) return;
+        let cancelled = false;
 
         void (async () => {
             try {

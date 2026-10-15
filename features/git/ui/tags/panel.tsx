@@ -37,19 +37,13 @@ export function LocalTags() {
     const [newTagName, setNewTagName] = useState("");
     const [creating, setCreating] = useState(false);
 
-    const refresh = useCallback(async () => {
-        if (!gitRepo) {
-            setTags([]);
-            return;
-        }
-        try {
-            const list = await commands.gitListTags(gitRepo);
-            setTags(list);
-        } catch (err) {
+    if (!gitRepo && tags.length) setTags([]);
+    const refresh = useCallback(() => {
+        if (!gitRepo) return Promise.resolve();
+        return commands.gitListTags(gitRepo).then(setTags).catch(err => {
             setTags([]);
             notify.gitError(err, "Failed to load tags");
-        } finally {
-        }
+        });
     }, [gitRepo]);
 
     useEffect(() => {

@@ -58,6 +58,47 @@ export function formatCompactAgo(timestamp: number): string {
     return full.replace(" ago", "");
 }
 
+function parseHistory(raw: string | null): RepoHistoryEntry[] {
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((entry): entry is RepoHistoryEntry =>
+        typeof entry?.path === "string" && entry.path.length > 0
+        && typeof entry?.lastOpenedAt === "number" && Number.isFinite(entry.lastOpenedAt));
+}
+
+const EMPTY_HISTORY: RepoHistoryEntry[] = [];
+let snapshotRaw: string | null | undefined;
+let snapshot: RepoHistoryEntry[] = EMPTY_HISTORY;
+export const getServerRepoHistorySnapshot = () => EMPTY_HISTORY;
+
+/** Reading a render snapshot never migrates or writes storage. */
+export function getRepoHistorySnapshot(): RepoHistoryEntry[] {
+    if (typeof window === "undefined") return EMPTY_HISTORY;
+    try {
+        const raw = localStorage.getItem(REPO_HISTORY_KEY) || localStorage.getItem(LEGACY_REPO_HISTORY_KEY);
+        if (raw !== snapshotRaw) {
+            try { snapshot = parseHistory(raw); } catch { snapshot = EMPTY_HISTORY; }
+            snapshotRaw = raw;
+        }
+        return snapshot;
+    } catch { return EMPTY_HISTORY; }
+}
+
+export function subscribeRepoHistory(onChange: () => void): () => void {
+    // Migration is a committed subscription side effect, not a snapshot side effect.
+    loadRepoHistory();
+    const onFocus = () => { loadRepoHistory(); onChange(); };
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("storage", onChange);
+    window.addEventListener("bettershape-repo-history-changed", onChange);
+    return () => {
+        window.removeEventListener("focus", onFocus);
+        window.removeEventListener("storage", onChange);
+        window.removeEventListener("bettershape-repo-history-changed", onChange);
+    };
+}
+
 export function loadRepoHistory(): RepoHistoryEntry[] {
     if (typeof window === "undefined") return [];
     try {
@@ -70,15 +111,7 @@ export function loadRepoHistory(): RepoHistoryEntry[] {
                 raw = legacy;
             }
         }
-        if (!raw) return [];
-        const parsed = JSON.parse(raw) as RepoHistoryEntry[];
-        if (!Array.isArray(parsed)) return [];
-        return parsed.filter(
-            (entry) =>
-                typeof entry?.path === "string" &&
-                entry.path.length > 0 &&
-                typeof entry?.lastOpenedAt === "number"
-        );
+        return parseHistory(raw);
     } catch {
         return [];
     }
@@ -87,6 +120,7 @@ export function loadRepoHistory(): RepoHistoryEntry[] {
 export function saveRepoHistory(entries: RepoHistoryEntry[]) {
     if (typeof window === "undefined") return;
     window.localStorage.setItem(REPO_HISTORY_KEY, JSON.stringify(entries));
+    window.dispatchEvent(new Event("bettershape-repo-history-changed"));
 }
 
 export function upsertRepoHistory(path: string) {
@@ -103,15 +137,13 @@ export function upsertRepoHistory(path: string) {
         next = [{ path, lastOpenedAt: now }, ...current].slice(0, MAX_REPO_HISTORY_ITEMS);
     }
     saveRepoHistory(next);
-    if (typeof window !== "undefined") {
-        window.dispatchEvent(new Event("bettershape-repo-history-changed"));
-    }
     return next;
 }
 
 export function clearRepoHistory() {
     if (typeof window === "undefined") return;
     window.localStorage.removeItem(REPO_HISTORY_KEY);
+    window.dispatchEvent(new Event("bettershape-repo-history-changed"));
 }
 
 export function removeFromRepoHistory(path: string) {
@@ -121,5 +153,4 @@ export function removeFromRepoHistory(path: string) {
         (e) => e.path.replace(/\\/g, "/").toLowerCase() !== norm,
     );
     saveRepoHistory(next);
-    window.dispatchEvent(new Event("bettershape-repo-history-changed"));
 }

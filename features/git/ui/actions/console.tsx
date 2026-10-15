@@ -3,7 +3,7 @@
 import { ArrowDownload20Regular } from "@fluentui/react-icons/headless/svg/arrow-download";
 
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "@/components/ui/icon";
 
 import { Button } from "@/components/ui/button";
@@ -98,20 +98,26 @@ export function ActionsConsole({ focus }: { focus: ActionsFocus }) {
     const logRef = useRef<HTMLPreElement | null>(null);
     const allowedTabs = useMemo(() => tabsForFocus(focus), [focus]);
 
-    useEffect(() => {
+    const [focusScope, setFocusScope] = useState<readonly [typeof focus] | null>(null);
+    if (focusScope === null || !Object.is(focusScope[0], focus)) {
+        setFocusScope([focus]);
         setDetailTab(defaultTabForFocus(focus));
         setLive(false);
         setStatusFilter("all");
         setLogs("");
         setLogHighlight(null);
         setStepFilterActive(true);
-    }, [focus]);
 
-    useEffect(() => {
+    }
+
+    const [tabScope, setTabScope] = useState<readonly [typeof allowedTabs, typeof detailTab] | null>(null);
+    if (tabScope === null || !Object.is(tabScope[0], allowedTabs) || !Object.is(tabScope[1], detailTab)) {
+        setTabScope([allowedTabs, detailTab]);
         if (!allowedTabs.includes(detailTab)) {
             setDetailTab(allowedTabs[0] ?? "jobs");
         }
-    }, [allowedTabs, detailTab]);
+
+    }
 
     const repoSlug = repo ? `${repo.owner}/${repo.repo}` : null;
     const selectedRun = useMemo(
@@ -169,14 +175,12 @@ export function ActionsConsole({ focus }: { focus: ActionsFocus }) {
     }, [query, runs, selectedWorkflowId, statusFilter, workflows]);
 
     const runsRequestRef = useRef(0);
-    const loadRuns = useCallback(async () => {
+    const fetchRuns = useCallback(() => {
         // Each call gets a sequence number. A slower, older call must not overwrite the
         // runs of a newer project or filter after it has finished.
         const seq = ++runsRequestRef.current;
         const isStale = () => seq !== runsRequestRef.current;
-        setLoadingRuns(true);
-        try {
-            const resolved = await resolveOwnerRepo(project_path);
+        return resolveOwnerRepo(project_path).then(async resolved => {
             if (isStale()) return;
             setRepo(resolved);
             if (!resolved) {
@@ -248,28 +252,34 @@ export function ActionsConsole({ focus }: { focus: ActionsFocus }) {
                 if (prev && nextRuns.some((r) => r.id === prev)) return prev;
                 return nextRuns[0]?.id ?? null;
             });
-        } catch (e) {
+        }).catch(e => {
             if (isStale()) return;
             reportActionsError(e);
             setRuns([]);
-        } finally {
+        }).finally(() => {
             if (!isStale()) setLoadingRuns(false);
-        }
+        });
     }, [auth.loggedIn, project_path, statusFilter]);
 
-    const loadRunDetail = useCallback(
-        async (runId: number) => {
-            if (!repo) return;
-            setLoadingDetail(true);
-            try {
-                const [jobsRaw, artsRaw] = await Promise.all([
+    const loadRuns = useCallback(() => {
+        setLoadingRuns(true);
+        return fetchRuns();
+    }, [fetchRuns]);
+
+    const detailRequest = useRef(0);
+    const fetchRunDetail = useCallback(
+        (runId: number) => {
+            if (!repo) return Promise.resolve();
+            const version = ++detailRequest.current;
+            return Promise.all([
                     parseApi(
                         `/repos/${repo.owner}/${repo.repo}/actions/runs/${runId}/jobs?per_page=100`,
                     ),
                     parseApi(
                         `/repos/${repo.owner}/${repo.repo}/actions/runs/${runId}/artifacts?per_page=50`,
                     ),
-                ]);
+            ]).then(([jobsRaw, artsRaw]) => {
+                if (version !== detailRequest.current) return;
                 const nextJobs = ((jobsRaw as { jobs?: WorkflowJob[] }).jobs ?? []).map((j) => ({
                     ...j,
                     id: Number(j.id),
@@ -294,91 +304,117 @@ export function ActionsConsole({ focus }: { focus: ActionsFocus }) {
                 } else {
                     setExpandedJobs(new Set());
                 }
-            } catch (e) {
+            }).catch(e => {
+                if (version !== detailRequest.current) return;
                 setJobs([]);
                 setArtifacts([]);
                 reportActionsError(e);
-            } finally {
-                setLoadingDetail(false);
-            }
+            }).finally(() => {
+                if (version === detailRequest.current) setLoadingDetail(false);
+            });
         },
         [focus, repo],
     );
 
-    const loadLogs = useCallback(
-        async (runId: number, jobId: number | null, failedOnly: boolean) => {
-            if (!repoSlug) return;
-            const job = jobId != null ? jobs.find((j) => j.id === jobId) ?? null : null;
-            if (job && !jobLogsReady(job)) {
-                setLogs(
-                    `Logs will be available when “${job.name}” finishes (status: ${job.status}).`,
-                );
-                return;
-            }
-            setLoadingLogs(true);
-            try {
-                const text = await commands.githubActionsLogs(
+    const loadRunDetail = useCallback((runId: number) => {
+        if (repo) setLoadingDetail(true);
+        return fetchRunDetail(runId);
+    }, [repo, fetchRunDetail]);
+
+    const logsRequest = useRef(0);
+    const fetchLogs = useCallback(
+        (runId: number, jobId: number | null, failedOnly: boolean) => {
+            if (!repoSlug) return Promise.resolve();
+            const version = ++logsRequest.current;
+            return commands.githubActionsLogs(
                     repoSlug,
                     runId,
                     jobId,
                     failedOnly,
-                );
-                setLogs(text || "(empty log)");
-                requestAnimationFrame(() => {
-                    const el = logRef.current;
-                    if (!el) return;
-                    const parent = el.parentElement;
-                    if (parent) parent.scrollTop = 0;
-                    if (logHighlight) {
-                        const idx = el.textContent?.indexOf(logHighlight) ?? -1;
-                        if (idx >= 0) {
-                            // Approximate scroll by line
-                            const before = (el.textContent ?? "").slice(0, idx);
-                            const line = before.split("\n").length;
-                            if (parent) parent.scrollTop = Math.max(0, (line - 3) * 14);
-                        }
-                    }
-                });
-            } catch (e) {
+            ).then(text => {
+                if (version === logsRequest.current) setLogs(text || "(empty log)");
+
+            }).catch(e => {
+                if (version !== logsRequest.current) return;
                 const msg = reportActionsError(e);
                 setLogs(
                     `Failed to load logs.\n\n${msg}\n\nTip: finished jobs only — in-progress runs cannot stream via gh run view --log.`,
                 );
-            } finally {
-                setLoadingLogs(false);
-            }
+            }).finally(() => {
+                if (version === logsRequest.current) setLoadingLogs(false);
+            });
         },
-        [jobs, logHighlight, repoSlug],
+        [repoSlug],
     );
 
-    useEffect(() => {
-        void loadRuns();
-    }, [loadRuns]);
+    const loadLogs = useCallback((runId: number, jobId: number | null, failedOnly: boolean) => {
+        if (!repoSlug) return Promise.resolve();
+        const job = jobId != null ? jobs.find(entry => entry.id === jobId) : null;
+        if (job && !jobLogsReady(job)) {
+            setLogs(`Logs will be available when “${job.name}” finishes (status: ${job.status}).`);
+            return Promise.resolve();
+        }
+        setLoadingLogs(true);
+        return fetchLogs(runId, jobId, failedOnly);
+    }, [repoSlug, jobs, fetchLogs]);
+
+    useLayoutEffect(() => {
+        const element = logRef.current;
+        const parent = element?.parentElement;
+        if (!element || !parent) return;
+        const index = logHighlight ? element.textContent?.indexOf(logHighlight) ?? -1 : -1;
+        const line = index >= 0 ? (element.textContent ?? "").slice(0, index).split("\n").length : 0;
+        parent.scrollTop = Math.max(0, (line - 3) * 14);
+    }, [logs, logHighlight]);
+
+    const [runsInputs, setRunsInputs] = useState<readonly unknown[] | null>(null);
+    if (runsInputs === null || !Object.is(runsInputs[0], auth.loggedIn) || !Object.is(runsInputs[1], project_path) || !Object.is(runsInputs[2], statusFilter)) {
+        setRunsInputs([auth.loggedIn, project_path, statusFilter]);
+        setLoadingRuns(true);
+    }
 
     useEffect(() => {
-        if (!selectedRunId || !repo) {
-            setJobs([]);
-            setArtifacts([]);
-            return;
-        }
-        void loadRunDetail(selectedRunId);
-    }, [loadRunDetail, repo, selectedRunId]);
+        void fetchRuns();
+        return () => { runsRequestRef.current += 1; };
+    }, [fetchRuns]);
+
+    const [detailInputs, setDetailInputs] = useState<readonly unknown[] | null>(null);
+    if (detailInputs === null || !Object.is(detailInputs[0], focus) || !Object.is(detailInputs[1], repo) || !Object.is(detailInputs[2], selectedRunId)) {
+        setDetailInputs([focus, repo, selectedRunId]);
+        setLoadingDetail(Boolean(selectedRunId && repo));
+        if (!selectedRunId || !repo) { setJobs([]); setArtifacts([]); }
+    }
 
     useEffect(() => {
-        if (!selectedRunId || detailTab !== "jobs") return;
-        if (selectedJobId != null) {
-            const job = jobs.find((j) => j.id === selectedJobId);
-            if (job && !jobLogsReady(job)) {
-                setLogs(
-                    `Logs will be available when “${job.name}” finishes (status: ${job.status}).`,
-                );
-                return;
-            }
-            void loadLogs(selectedRunId, selectedJobId, false);
-        }
-        // Intentionally omit loadLogs from deps to avoid refetch loops when highlight changes.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [detailTab, focus, selectedJobId, selectedRunId, jobs]);
+        if (!selectedRunId || !repo) return;
+        void fetchRunDetail(selectedRunId);
+        return () => { detailRequest.current += 1; };
+    }, [fetchRunDetail, repo, selectedRunId]);
+
+    const [logsInputs, setLogsInputs] = useState<readonly unknown[] | null>(null);
+    if (logsInputs === null
+        || !Object.is(logsInputs[0], detailTab)
+        || !Object.is(logsInputs[1], focus)
+        || !Object.is(logsInputs[2], selectedJobId)
+        || !Object.is(logsInputs[3], selectedRunId)
+        || !Object.is(logsInputs[4], jobs)
+        || !Object.is(logsInputs[5], repoSlug)) {
+        setLogsInputs([detailTab, focus, selectedJobId, selectedRunId, jobs, repoSlug]);
+        if (selectedRunId && detailTab === "jobs" && selectedJobId != null) {
+            const job = jobs.find(entry => entry.id === selectedJobId);
+            const unavailable = job && !jobLogsReady(job);
+            setLoadingLogs(Boolean(repoSlug && !unavailable));
+            if (unavailable) setLogs(`Logs will be available when “${job.name}” finishes (status: ${job.status}).`);
+        } else setLoadingLogs(false);
+    }
+
+    useEffect(() => {
+        if (!selectedRunId || detailTab !== "jobs" || selectedJobId == null) return;
+        const job = jobs.find(entry => entry.id === selectedJobId);
+        if (job && !jobLogsReady(job)) return;
+        void fetchLogs(selectedRunId, selectedJobId, false);
+        return () => { logsRequest.current += 1; };
+    }, [detailTab, focus, selectedJobId, selectedRunId, jobs, fetchLogs]);
 
     useEffect(() => {
         if (!live) return;

@@ -63,22 +63,20 @@ export function ChatHistoryMenu({
     const [conversations, setConversations] = useState<Conversation[]>([]);
     const [loading, setLoading] = useState(false);
 
-    const loadConversations = useCallback(async () => {
-        setLoading(true);
-        try {
-            const convs = await commands.getConversations(projectPath ?? undefined);
-            setConversations(convs);
-        } catch {
-            setConversations([]);
-        } finally {
-            setLoading(false);
-        }
-    }, [projectPath]);
+    const loadConversations = useCallback(() => commands.getConversations(projectPath ?? undefined)
+        .then(setConversations)
+        .catch(() => setConversations([]))
+        .finally(() => setLoading(false)), [projectPath]);
+
+    const [historyInputs, setHistoryInputs] = useState<readonly unknown[] | null>(null);
+    if (historyInputs === null || !Object.is(historyInputs[0], open) || !Object.is(historyInputs[1], loadConversations)) {
+        setHistoryInputs([open, loadConversations]);
+        if (open) { setQuery(""); setLoading(true); }
+    }
 
     useEffect(() => {
         if (!open) return;
         void loadConversations();
-        setQuery("");
     }, [open, loadConversations]);
 
     useEffect(() => {

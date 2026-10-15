@@ -266,9 +266,7 @@ export function CommitMenu({ projectPath }: { projectPath: string }) {
     const [setupOpen, setSetupOpen] = useState(false);
     const github = useGitHubAuth();
 
-    const refresh = useCallback(async () => {
-        try {
-            const repos = await discoverGitRepos(projectPath);
+    const refresh = useCallback(() => discoverGitRepos(projectPath).then(async repos => {
             const path = pickDefaultRepo(projectPath, repos);
             setRepo(path);
             if (!path) {
@@ -300,7 +298,7 @@ export function CommitMenu({ projectPath }: { projectPath: string }) {
             setAhead(sync?.ahead ?? 0);
             setBehind(sync?.behind ?? 0);
             setBranch(current || "");
-        } catch {
+    }).catch(() => {
             setRepo(null);
             setFiles([]);
             setStats({});
@@ -309,8 +307,7 @@ export function CommitMenu({ projectPath }: { projectPath: string }) {
             setAhead(0);
             setBehind(0);
             setBranch("");
-        }
-    }, [projectPath]);
+    }), [projectPath]);
 
     useEffect(() => {
         void refresh();
@@ -736,12 +733,15 @@ function PublishRepoDialog({
         ? `https://github.com/${githubUser}/${name.trim()}.git`
         : name.trim();
 
-    useEffect(() => {
+    const [dialogScope, setDialogScope] = useState<readonly [typeof open] | null>(null);
+    if (dialogScope === null || !Object.is(dialogScope[0], open)) {
+        setDialogScope([open]);
         if (!open) {
             setStep("provider");
             setName("");
         }
-    }, [open]);
+
+    }
 
     const publish = async () => {
         if (!repo || !remoteUrl.startsWith("http")) return;

@@ -1,5 +1,7 @@
 "use client";
 
+import { useScopedState } from "@/lib/ui/use-scoped-state";
+
 import { Add20Regular } from "@fluentui/react-icons/headless/svg/add";
 import { ChevronDown20Regular } from "@fluentui/react-icons/headless/svg/chevron-down";
 import { Delete20Regular } from "@fluentui/react-icons/headless/svg/delete";
@@ -151,12 +153,15 @@ function WorkflowDialog({
 }) {
     const [draft, setDraft] = React.useState<AgentWorkflow | null>(workflow);
     const [plugins, setPlugins] = React.useState<PluginRow[]>(() => peekPluginsCache()?.plugins ?? []);
-    const [tools, setTools] = React.useState<PluginToolHint[]>([]);
+    const [tools, setTools] = useScopedState<PluginToolHint[]>([draft?.pluginToolkit], () => []);
     const [pluginsReady, setPluginsReady] = React.useState(() => Boolean(peekPluginsCache()));
 
-    React.useEffect(() => {
+    const [workflowScope, setWorkflowScope] = React.useState<readonly [typeof workflow] | null>(null);
+    if (workflowScope === null || !Object.is(workflowScope[0], workflow)) {
+        setWorkflowScope([workflow]);
         setDraft(workflow);
-    }, [workflow]);
+
+    }
 
     React.useEffect(() => {
         if (!open) return;
@@ -173,22 +178,15 @@ function WorkflowDialog({
         [plugins],
     );
 
-    React.useEffect(() => {
-        if (!pluginsReady || !draft?.pluginToolkit) return;
-        if (connected.some((p) => p.toolkit === draft.pluginToolkit)) return;
-        setDraft((prev) =>
-            prev ? { ...prev, pluginToolkit: undefined, pluginTool: undefined, pluginTools: undefined } : prev,
-        );
-    }, [pluginsReady, connected, draft?.pluginToolkit]);
+    if (pluginsReady && draft?.pluginToolkit && !connected.some((plugin) => plugin.toolkit === draft.pluginToolkit)) {
+        setDraft({ ...draft, pluginToolkit: undefined, pluginTool: undefined, pluginTools: undefined });
+    }
 
     React.useEffect(() => {
         const toolkit = draft?.pluginToolkit;
-        if (!toolkit) {
-            setTools([]);
-            return;
-        }
+        if (!toolkit) return;
         void fetchPluginTools(toolkit).then(setTools).catch(() => setTools([]));
-    }, [draft?.pluginToolkit]);
+    }, [draft?.pluginToolkit, setTools]);
 
     const uniqueTools = React.useMemo(() => {
         const seen = new Set<string>();

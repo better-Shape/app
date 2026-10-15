@@ -387,6 +387,18 @@ export const DEFAULT_SETTINGS: BetterShapeSettings = {
 };
 
 const STORAGE_KEY = "bettershape-settings-v1";
+// Only redacted settings go here. Keep malformed legacy bytes in their original
+// slot: they may contain the sole recoverable copy of an unmigrated credential.
+const REDACTED_STORAGE_KEY = "bettershape-settings-redacted-v1";
+
+function localSettingsKey(): string {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+        try { JSON.parse(raw); }
+        catch { return REDACTED_STORAGE_KEY; }
+    }
+    return STORAGE_KEY;
+}
 
 /**
  * Tracks migration success. New persistence and event payloads always redact
@@ -763,8 +775,9 @@ export function initSettingsBridge(): void {
     settingsBridgeInitialized = true;
 
     window.addEventListener("storage", (event) => {
-        if (event.key !== STORAGE_KEY || !event.newValue) return;
+        if (!event.newValue) return;
         try {
+            if (event.key !== localSettingsKey()) return;
             applySettingsFromPayload(JSON.parse(event.newValue) as Partial<BetterShapeSettings>);
             emitLocal();
         } catch {
@@ -773,20 +786,20 @@ export function initSettingsBridge(): void {
     });
 
     if ("__TAURI_INTERNALS__" in window) {
-        void import("@tauri-apps/api/event").then(({ listen }) => {
-            void listen<BetterShapeSettings>("bettershape-settings-changed", (event) => {
+        void import("@tauri-apps/api/event").then(({ listen }) =>
+            listen<BetterShapeSettings>("bettershape-settings-changed", (event) => {
                 applySettingsFromPayload(event.payload);
                 persist();
                 emitLocal();
-            });
-        }).catch(() => { /* ignore */ });
+            }),
+        ).catch(() => { /* The same-origin storage bridge remains available. */ });
     }
 }
 
 function loadFromLocalStorage() {
     if (typeof window === "undefined") return;
     try {
-        const raw = localStorage.getItem(STORAGE_KEY);
+        const raw = localStorage.getItem(localSettingsKey());
         if (raw) {
             const parsed = JSON.parse(raw) as Partial<BetterShapeSettings>;
             const rawChannel = parsed.updates?.channel;
@@ -811,9 +824,11 @@ function canReplaceStoredSettings(stored: Partial<BetterShapeSettings> | null | 
 function persist() {
     if (typeof window === "undefined") return;
     try {
-        const raw = localStorage.getItem(STORAGE_KEY);
-        if (raw && !canReplaceStoredSettings(JSON.parse(raw))) return;
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(forStorage(currentSettings)));
+        const key = localSettingsKey();
+        const raw = localStorage.getItem(key);
+        if (key === STORAGE_KEY && raw && !canReplaceStoredSettings(JSON.parse(raw))) return;
+        localStorage.setItem(key, JSON.stringify(forStorage(currentSettings)));
+        if (key === STORAGE_KEY) localStorage.removeItem(REDACTED_STORAGE_KEY);
     } catch { /* ignore */ }
 }
 

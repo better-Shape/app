@@ -30,7 +30,7 @@ function stripAssistantResponse(raw: string): string {
     return trimmed.replace(/^["']|["']$/g, "");
 }
 
-export function useTextRewrite(model = "auto") {
+export function useTextRewrite(_model = "auto") {
     const [loading, setLoading] = useState(false);
 
     const rewrite = useCallback(async (text: string, action: TextRewriteAction): Promise<string | null> => {
@@ -57,7 +57,7 @@ export function useTextRewrite(model = "auto") {
         } finally {
             setLoading(false);
         }
-    }, [model]);
+    }, []);
 
     // Everything runs on the user's own keys, so the feature is always "signed in".
     return { rewrite, loading, loggedIn: true };

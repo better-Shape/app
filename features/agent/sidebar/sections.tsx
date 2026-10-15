@@ -1,5 +1,7 @@
 "use client";
 
+import { useClock } from "@/lib/ui/use-clock";
+
 import { CHAT_SHELVES, type ChatShelfId, type RowVariant } from "./shelf-spec";
 
 /**
@@ -349,6 +351,7 @@ function ChatRow({
     onTogglePin,
     handlers,
 }: ChatShelfRowProps & { id: string }) {
+    const now = useClock();
     const generating = useIsChatGenerating(id);
     const [renaming, setRenaming] = useState(false);
     const [draft, setDraft] = useState(title);
@@ -525,7 +528,7 @@ function ChatRow({
                                         {variant === "card" ? (
                                             <span className="flex min-w-0 items-center gap-1.5 text-xs text-text-muted">
                                                 <span className="shrink-0 tabular-nums">
-                                                    {chatRelativeTime(timestamp, Date.now())}
+                                                    {chatRelativeTime(timestamp, now)}
                                                 </span>
                                                 {meta ? (
                                                     <>

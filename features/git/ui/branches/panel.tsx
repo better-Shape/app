@@ -258,16 +258,13 @@ export function BranchWindow({ active = true }: { active?: boolean }) {
         };
     }, []);
 
-    const refresh = useCallback(async () => {
-        if (!project_path) return;
-        setLoading(true);
-        try {
-            // Parallel cheap git2 lists + one for-each-ref (was 5 calls with duplicate details).
-            const [locals, remotes, current] = await Promise.all([
+    const fetchBranches = useCallback(() => {
+        if (!project_path) return Promise.resolve();
+        return Promise.all([
                 commands.gitBranches(project_path),
                 commands.gitRemoteBranches(project_path),
                 commands.gitCurrentBranch(project_path),
-            ]);
+        ]).then(async ([locals, remotes, current]) => {
             const details = await commands.gitBranchDetails(project_path, current, true);
             setLocalBranches(locals);
             setRemoteBranches(remotes);
@@ -278,16 +275,27 @@ export function BranchWindow({ active = true }: { active?: boolean }) {
                 if (locals.includes(prev) || remotes.includes(prev)) return prev;
                 return null;
             });
-        } catch (e) {
+        }).catch(e => {
             notify.gitError(e);
-        } finally {
+        }).finally(() => {
             setLoading(false);
-        }
+        });
     }, [project_path]);
 
+    const refresh = useCallback(() => {
+        if (project_path) setLoading(true);
+        return fetchBranches();
+    }, [project_path, fetchBranches]);
+
+    const [requestInputs, setRequestInputs] = useState<readonly unknown[] | null>(null);
+    if (requestInputs === null || !Object.is(requestInputs[0], project_path) || !Object.is(requestInputs[1], fetchBranches)) {
+        setRequestInputs([project_path, fetchBranches]);
+        setLoading(Boolean(project_path));
+    }
+
     useEffect(() => {
-        void refresh();
-    }, [refresh]);
+        void fetchBranches();
+    }, [fetchBranches]);
 
     const detailByName = useMemo(() => {
         const map = new Map<string, GitBranchDetail>();

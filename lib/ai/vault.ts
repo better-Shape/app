@@ -125,12 +125,24 @@ interface SecretReadResult {
     persisted: boolean;
 }
 
+/** A durable read validates only the completed intent it actually observed. */
+function validateReadIntent(id: string, before: Intent | null | undefined, key: string, persisted: boolean): void {
+    if (!persisted || !before) return;
+    const matchesValue = key ? before.state === "stored" : before.state === "deleted";
+    if (!matchesValue) return;
+    const current = inventoryIntent(id);
+    if (current?.token === before.token && current.state === before.state) {
+        validatedIntents.set(id, before.token);
+    }
+}
+
 /** Reads acquire leases for empty entries, but never for inaccessible entries. */
 export async function readSecretsDetailed(ids: string[]): Promise<SecretReadResult> {
     const result: SecretReadResult = { values: {}, scopes: {}, unavailable: new Set(ids), cleared: new Set(), persisted: true };
     if (ids.length === 0) return result;
     if (!(await vaultAvailable())) return { ...result, persisted: false };
     const before = new Map(revisions);
+    const intents = new Map(ids.map((id) => [id, inventoryIntent(id)]));
     const rows = await commands.aiLoadKeys(ids);
     for (const row of rows) {
         if (row.status === "unavailable") continue;
@@ -142,6 +154,7 @@ export async function readSecretsDetailed(ids: string[]): Promise<SecretReadResu
         scopes.set(row.id, row.scope);
         result.scopes[row.id] = row.scope;
         const key = row.apiKey.trim();
+        validateReadIntent(row.id, intents.get(row.id), key, row.persisted);
         if (!key && row.revision !== "initial") result.cleared.add(row.id);
         written.set(row.id, key);
         if (key && !isDeleted(row.id)) result.values[row.id] = key;

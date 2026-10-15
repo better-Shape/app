@@ -20,11 +20,10 @@ export function Collapse({
 }) {
     const [mounted, setMounted] = React.useState(open);
 
+    if (open && !mounted) setMounted(true);
+
     React.useEffect(() => {
-        if (open) {
-            setMounted(true);
-            return;
-        }
+        if (open) return;
         const t = window.setTimeout(() => setMounted(false), EXIT_MS);
         return () => window.clearTimeout(t);
     }, [open]);

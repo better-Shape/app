@@ -14,6 +14,10 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+env:
+  NEXT_TELEMETRY_DISABLED: "1"
+  OPENSPEC_TELEMETRY: "0"
+
 jobs:
   # ─────────────────────────────────────────────────────────
   # Fast feedback: lint, typecheck, formatting
@@ -33,25 +37,8 @@ jobs:
 
       - run: npm ci
 
-      - name: ESLint
-        # Now 0 errors, 148 warnings. The remaining 148 are react-hooks/*
-        # (set-state-in-effect, refs, preserve-manual-memoization, purity,
-        # immutability), which this config deliberately downgrades to warnings
-        # with a TODO to re-enable as errors after cleanup. Fixing them is a
-        # cross-app refactor, not a lint change.
-        # This step gates merges on errors only.
-        run: |
-          set -o pipefail
-          npm run lint 2>&1 | tee eslint-report.txt
-          STATUS=${PIPESTATUS[0]}
-          ERRORS=$(grep -c " error " eslint-report.txt || echo 0)
-          WARNINGS=$(grep -c " warning " eslint-report.txt || echo 0)
-          echo "ESLint exit: $STATUS, errors: $ERRORS, warnings: $WARNINGS"
-          if [ "$STATUS" -ne 0 ]; then
-            echo "::error::ESLint found $ERRORS errors - must be fixed"
-            exit $STATUS
-          fi
-          echo "✓ ESLint passed with $WARNINGS warnings (allowed, but should be reduced)"
+      - name: ESLint (zero warnings)
+        run: npm run lint:strict
 
       - name: Typecheck
         run: npm run typecheck
@@ -151,9 +138,8 @@ jobs:
   # ─────────────────────────────────────────────────────────
   # Static (non-Rust) checks on macOS
   # ─────────────────────────────────────────────────────────
-  # Typecheck / lint / vitest only. Rust and the full Tauri compile stay on Ubuntu
-  # and in build-installers.yml - a macOS Tauri compile is not cheap enough for a PR
-  # gate. Included in ci-success so platform regressions cannot report a green gate.
+  # JavaScript checks complement the native OS matrix below. Installer production
+  # remains a separate release gate; a successful cargo check is not an installer.
   static-macos:
     name: Static Checks (macOS)
     runs-on: macos-latest
@@ -177,22 +163,8 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
-      - name: ESLint
-        # Same errors-only gate as the Ubuntu `lint` job: the react-hooks rules are
-        # deliberately downgraded to warnings in eslint.config.mjs. This is a mirror,
-        # not a relaxation.
-        run: |
-          set -o pipefail
-          npm run lint 2>&1 | tee eslint-report.txt
-          STATUS=${PIPESTATUS[0]}
-          ERRORS=$(grep -c " error " eslint-report.txt || echo 0)
-          WARNINGS=$(grep -c " warning " eslint-report.txt || echo 0)
-          echo "ESLint exit: $STATUS, errors: $ERRORS, warnings: $WARNINGS"
-          if [ "$STATUS" -ne 0 ]; then
-            echo "::error::ESLint found $ERRORS errors - must be fixed"
-            exit $STATUS
-          fi
-          echo "✓ ESLint passed with $WARNINGS warnings (allowed, but should be reduced)"
+      - name: ESLint (zero warnings)
+        run: npm run lint:strict
 
       - name: Vitest run
         run: npx vitest run
@@ -201,9 +173,15 @@ jobs:
   # Rust tests
   # ─────────────────────────────────────────────────────────
   test-rust:
-    name: Test Rust (Cargo)
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    name: Test Rust (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, macos-15-intel, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      CARGO_BUILD_JOBS: "2"
     steps:
       - uses: actions/checkout@v4
 
@@ -217,6 +195,9 @@ jobs:
 
       - name: Build preview runtime
         run: npm run build:runtime
+
+      - name: Cargo check (native platform code)
+        run: cargo check --manifest-path src-tauri/Cargo.toml --all-targets --all-features
 
       - name: Cargo test
         run: cargo test --manifest-path src-tauri/Cargo.toml --all-features -- --nocapture

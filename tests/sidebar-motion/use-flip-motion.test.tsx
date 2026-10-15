@@ -67,7 +67,7 @@ function usePublishedRects(
             const box: StubRect = { top: index * ROW_HEIGHT, left: 0, width: 300, height: ROW_HEIGHT };
             rects.set(row, box);
         });
-    }, [ids.join(",")]);
+    }, [ids]);
     // Stable identity, or React detaches and reattaches the ref on every commit,
     // and `useFlipMotion` drops its baseline each time it sees a container change.
     return useCallback(
@@ -123,7 +123,7 @@ function renderTwice(
     first: string[],
     next: string[],
     durationMs?: number,
-): { swap: RecordedAnimation[]; created: RecordedAnimation[] } {
+): RecordedAnimation[] {
     const root: Root = createRoot(container);
     act(() => root.render(<Sidebar ids={first} durationMs={durationMs} />));
     const before = animation.calls.length;

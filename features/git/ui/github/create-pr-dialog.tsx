@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -53,32 +53,33 @@ export function CreatePullRequestDialog({
     const [drafting, setDrafting] = useState(false);
     const [publishing, setPublishing] = useState(false);
 
-    const loadRefs = useCallback(async () => {
-        if (!project_path) return;
-        try {
-            const current = await commands.gitCurrentBranch(project_path);
-            setHead(current);
-        } catch {
-            /* ignore */
-        }
-        if (owner && repo && auth.loggedIn) {
-            try {
-                const raw = await commands.githubApiGet(`/repos/${owner}/${repo}`);
-                const data = typeof raw === "string" ? JSON.parse(raw) : raw;
-                const def = (data as { default_branch?: string }).default_branch;
-                if (def) setBase(def);
-            } catch {
-                /* keep main */
-            }
-        }
-    }, [auth.loggedIn, owner, project_path, repo]);
+    const [dialogInputs, setDialogInputs] = useState<readonly unknown[] | null>(null);
+    if (dialogInputs === null
+        || !Object.is(dialogInputs[0], open)
+        || !Object.is(dialogInputs[1], project_path)
+        || !Object.is(dialogInputs[2], owner)
+        || !Object.is(dialogInputs[3], repo)
+        || !Object.is(dialogInputs[4], auth.loggedIn)) {
+        setDialogInputs([open, project_path, owner, repo, auth.loggedIn]);
+        if (open) { setTitle(""); setBody(""); }
+    }
 
     useEffect(() => {
-        if (!open) return;
-        setTitle("");
-        setBody("");
-        void loadRefs();
-    }, [loadRefs, open]);
+        if (!open || !project_path) return;
+        let cancelled = false;
+        void commands.gitCurrentBranch(project_path).then(current => {
+            if (!cancelled) setHead(current);
+        }).catch(() => { /* keep the current branch draft */ });
+        if (owner && repo && auth.loggedIn) {
+            void commands.githubApiGet(`/repos/${owner}/${repo}`).then(raw => {
+                if (cancelled) return;
+                const data = typeof raw === "string" ? JSON.parse(raw) : raw;
+                const defaultBranch = (data as { default_branch?: string }).default_branch;
+                if (defaultBranch) setBase(defaultBranch);
+            }).catch(() => { /* keep main */ });
+        }
+        return () => { cancelled = true; };
+    }, [open, project_path, owner, repo, auth.loggedIn]);
 
     const draft = async () => {
         if (!project_path || !head || !base) return;

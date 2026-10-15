@@ -307,10 +307,13 @@ function ChatMessageItemInner({
     const shownStats = menuStats ?? stats;
     const shownModel = menuModel ?? model;
 
-    React.useEffect(() => {
+    const [messageScope, setMessageScope] = React.useState<readonly [typeof stats, typeof model] | null>(null);
+    if (messageScope === null || !Object.is(messageScope[0], stats) || !Object.is(messageScope[1], model)) {
+        setMessageScope([stats, model]);
         setMenuStats(stats);
         setMenuModel(model);
-    }, [stats, model]);
+
+    }
 
     const getCopyText = () => {
         if (role === "user") {

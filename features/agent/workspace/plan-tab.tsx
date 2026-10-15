@@ -37,13 +37,18 @@ export function PlanTabView({ path, markdown }: { path: string; markdown?: strin
         setTodos(split.todos);
     };
 
-    useEffect(() => {
-        let cancelled = false;
+    const [inlineSource, setInlineSource] = useState<{ path: string; markdown: string | undefined } | null>(null);
+    if (inlineSource === null || inlineSource.path !== path || inlineSource.markdown !== markdown) {
+        setInlineSource({ path, markdown });
         if (markdown?.trim() && !path) {
             applySource(markdown);
             setError(null);
-            return;
         }
+    }
+
+    useEffect(() => {
+        let cancelled = false;
+        if (markdown?.trim() && !path) return;
         void commands
             .readFile(absPath)
             .then((text) => {

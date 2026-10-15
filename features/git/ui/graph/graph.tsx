@@ -8,7 +8,7 @@ import { Filter20Regular } from "@fluentui/react-icons/headless/svg/filter";
 import { Target20Regular } from "@fluentui/react-icons/headless/svg/target";
 
 
-import React, { useState, useCallback, useEffect, useRef, useMemo, useDeferredValue } from "react";
+import React, { useState, useCallback, useEffect, useRef, useMemo, useDeferredValue, useLayoutEffect } from "react";
 import { Icon } from "@/components/ui/icon";
 
 import { cn } from "@/lib/utils";
@@ -125,12 +125,7 @@ export default function Graph({
         }
     }, [cacheKey, gitLogs, expandedCommits, commitFilesCache]);
 
-    useEffect(() => {
-        if (scrollContainerRef.current && cached?.scrollTop && gitLogs.length > 0 && !hasRestoredScroll.current) {
-            scrollContainerRef.current.scrollTop = cached.scrollTop;
-            hasRestoredScroll.current = true;
-        }
-    }, [cached, gitLogs.length]);
+
 
     const toggleCommitExpansion = useCallback((hash: string) => {
         setExpandedCommits(prev => {
@@ -170,14 +165,13 @@ export default function Graph({
         });
     }, []);
 
-    const refresh = useCallback(async (opts?: { track?: boolean }) => {
+    const refresh = useCallback((opts?: { track?: boolean }) => {
         if (!gitRepo) return;
         const track = opts?.track !== false;
         const gen = ++streamGenRef.current;
         streamActiveRef.current = false;
         if (track) startLoading();
-        try {
-            await commands.gitLogStreamStart(gitRepo, "graph", showAllBranches);
+        return commands.gitLogStreamStart(gitRepo, "graph", showAllBranches).then(async () => {
             if (gen !== streamGenRef.current) return;
             streamActiveRef.current = true;
             const initialLogs = await commands.gitLogStreamNext("graph", 100);
@@ -188,49 +182,50 @@ export default function Graph({
                 if (gen !== streamGenRef.current || !streamActiveRef.current) return;
                 appendLogs(more);
             });
-        } catch {
+        }).catch(() => {
             if (gen === streamGenRef.current) setGitLogs([]);
-        } finally {
+        }).finally(() => {
             // Always pair start/stop — skipping on gen mismatch left the bar stuck forever.
             if (track) stopLoading();
-        }
+        });
     }, [gitRepo, showAllBranches, startLoading, stopLoading, appendLogs]);
 
-    const hasInitialized = useRef(false);
+    const [cacheRestore, setCacheRestore] = useState<{ key: string | null; scrollTop: number } | null>(null);
+    if (cacheRestore === null || cacheRestore.key !== cacheKey) {
+        const entry = cacheKey ? graphCache[cacheKey] : undefined;
+        setCacheRestore({ key: cacheKey, scrollTop: entry?.scrollTop ?? 0 });
+        setGitLogs(entry?.logs.slice(0, GRAPH_LOG_SOFT_CAP) ?? []);
+        setExpandedCommits(entry?.expanded ?? new Set());
+        setCommitFilesCache(entry?.filesCache ?? {});
+        setCommitFilesLoaded({});
+        setScrollTop(entry?.scrollTop ?? 0);
+    }
+
+    useLayoutEffect(() => {
+        scrollTopRef.current = cacheRestore?.scrollTop ?? 0;
+        hasRestoredScroll.current = false;
+    }, [cacheRestore]);
 
     useEffect(() => {
-        hasInitialized.current = false;
-    }, [cacheKey]);
+        if (scrollContainerRef.current && gitLogs.length > 0 && !hasRestoredScroll.current) {
+            scrollContainerRef.current.scrollTop = scrollTopRef.current;
+            hasRestoredScroll.current = true;
+        }
+    }, [cacheRestore, gitLogs.length]);
 
     useEffect(() => {
-        if (cacheKey && !hasInitialized.current) {
-            hasInitialized.current = true;
-
-            const c = graphCache[cacheKey];
-            if (c && c.logs.length > 0) {
-                // Soft-cap restored logs so huge caches don't rehydrate the whole history.
-                setGitLogs(c.logs.length > GRAPH_LOG_SOFT_CAP ? c.logs.slice(0, GRAPH_LOG_SOFT_CAP) : c.logs);
-                setExpandedCommits(c.expanded);
-                setCommitFilesCache(c.filesCache);
-                setScrollTop(c.scrollTop);
-                if (gitRepo) {
-                    const gen = ++streamGenRef.current;
-                    streamActiveRef.current = false;
-                    void (async () => {
-                        try {
-                            await commands.gitLogStreamStart(gitRepo, "graph", showAllBranches);
-                            if (gen !== streamGenRef.current) return;
-                            await drainStream(c.logs.length, gen);
-                            if (gen !== streamGenRef.current) return;
-                            streamActiveRef.current = true;
-                        } catch {
-                            /* ignore */
-                        }
-                    })();
-                }
-            } else {
-                void refresh({ track: false });
-            }
+        if (!cacheKey || !gitRepo) return;
+        const entry = graphCache[cacheKey];
+        if (entry?.logs.length) {
+            const gen = ++streamGenRef.current;
+            streamActiveRef.current = false;
+            void commands.gitLogStreamStart(gitRepo, "graph", showAllBranches).then(async () => {
+                if (gen !== streamGenRef.current) return;
+                await drainStream(entry.logs.length, gen);
+                if (gen === streamGenRef.current) streamActiveRef.current = true;
+            }).catch(() => { /* a subsequent refresh can retry the stream */ });
+        } else {
+            void refresh({ track: false });
         }
         return () => {
             streamGenRef.current += 1;
@@ -444,9 +439,11 @@ export default function Graph({
 
     const totalHeight = rowLayout.totalHeight;
     const rowLayoutRef = useRef(rowLayout);
-    rowLayoutRef.current = rowLayout;
     const heightRef = useRef(containerHeight);
-    heightRef.current = containerHeight;
+    useLayoutEffect(() => {
+        rowLayoutRef.current = rowLayout;
+        heightRef.current = containerHeight;
+    }, [rowLayout, containerHeight]);
 
     const { startIdx, endIdx } = useMemo(
         () => computeVisibleRange(rowLayout, scrollTop, containerHeight, OVERSCAN_PX),
@@ -546,18 +543,42 @@ export default function Graph({
 
     // When filters change and the current selection is muted, snap to the next match.
     const filterKey = `${authorFilter}\0${branchFilter}\0${kindFilter}\0${refKindFilter}\0${dateFilter}\0${rich ? (deferredLocalSearch || deferredCommitSearch) : deferredCommitSearch}`;
+    const [appliedFilter, setAppliedFilter] = useState<string | null>(null);
+    const [filterJump, setFilterJump] = useState<{ top: number; hash: string } | null>(null);
+    if (appliedFilter !== filterKey) {
+        setAppliedFilter(filterKey);
+        if (selectedHash && mutedHashes?.has(selectedHash) && matchCount > 0) {
+            const from = Math.max(0, gitLogs.findIndex(log => log.hash === selectedHash));
+            for (let step = 1; step <= gitLogs.length; step++) {
+                const index = (from + step) % gitLogs.length;
+                const log = gitLogs[index];
+                if (mutedHashes.has(log.hash)) continue;
+                setSelectedHash(log.hash);
+                setFilterJump({ top: Math.max(0, rowTop(rowLayout, index) - 40), hash: log.hash });
+                break;
+            }
+        }
+    }
     useEffect(() => {
-        if (!mutedHashes || !selectedHash || matchCount === 0) return;
-        if (!mutedHashes.has(selectedHash)) return;
-        jumpToNextMatch(1);
-        // eslint-disable-next-line react-hooks/exhaustive-deps -- only react to filter changes
-    }, [filterKey]);
+        const container = scrollContainerRef.current;
+        if (!filterJump || !container) return;
+        container.scrollTop = filterJump.top;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        let row: Element | null = null;
+        const frame = requestAnimationFrame(() => {
+            row = container.querySelector(`[data-hash="${filterJump.hash}"]`);
+            row?.classList.add("graph-commit-flash");
+            timer = setTimeout(() => row?.classList.remove("graph-commit-flash"), 800);
+        });
+        return () => { cancelAnimationFrame(frame); clearTimeout(timer); row?.classList.remove("graph-commit-flash"); };
+    }, [filterJump]);
 
     // Keep manager detail panel in sync with selected commit (unless viewing a file of that commit).
-    useEffect(() => {
-        if (!rich || !selectedHash) return;
-        const log = gitLogs.find((l) => l.hash === selectedHash);
-        if (!log) return;
+    const [detailInputs, setDetailInputs] = useState<readonly unknown[] | null>(null);
+    if (detailInputs === null || !Object.is(detailInputs[0], rich) || !Object.is(detailInputs[1], selectedHash) || !Object.is(detailInputs[2], gitLogs)) {
+        setDetailInputs([rich, selectedHash, gitLogs]);
+        const log = rich && selectedHash ? gitLogs.find(entry => entry.hash === selectedHash) : undefined;
+        if (log) {
         setDetail((prev) => {
             if (prev?.kind === "file" && prev.log.hash === selectedHash) {
                 return { ...prev, log };
@@ -569,7 +590,8 @@ export default function Graph({
             if (prev.log.hash !== selectedHash) return { kind: "commit", log };
             return prev;
         });
-    }, [rich, selectedHash, gitLogs]);
+        }
+    }
 
     // Keyboard: j/k or arrows move selection among matches; Tab next; Enter expands; n/N; H → HEAD.
     // Search fields (in-graph + manager titlebar) also accept arrows/Tab for match nav.

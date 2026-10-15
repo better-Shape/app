@@ -92,14 +92,17 @@ export function WelcomeCloneDialog({
     const [pendingUrl, setPendingUrl] = React.useState("");
     const [cloning, setCloning] = React.useState(false);
 
-    React.useEffect(() => {
+    const [dialogScope, setDialogScope] = React.useState<readonly [typeof open] | null>(null);
+    if (dialogScope === null || !Object.is(dialogScope[0], open)) {
+        setDialogScope([open]);
         if (!open) {
             setStep("source");
             setUrl("");
             setPendingUrl("");
             setCloning(false);
         }
-    }, [open]);
+
+    }
 
     const goToDir = (repoUrl: string) => {
         setPendingUrl(repoUrl);
@@ -226,9 +229,12 @@ export function WelcomeSshDialog({
 }) {
     const [target, setTarget] = React.useState("");
 
-    React.useEffect(() => {
+    const [dialogScope, setDialogScope] = React.useState<readonly [typeof open] | null>(null);
+    if (dialogScope === null || !Object.is(dialogScope[0], open)) {
+        setDialogScope([open]);
         if (!open) setTarget("");
-    }, [open]);
+
+    }
 
     const connect = (value: string) => {
         const trimmed = value.trim();

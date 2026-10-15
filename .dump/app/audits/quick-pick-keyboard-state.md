@@ -21,8 +21,9 @@ Clicking a result still selects that result. The prop documentation now states
 that existing contract rather than describing an unimplemented fallback.
 
 Scheduled focus is canceled when its owning effect is replaced or unmounted.
-The existing open/count focus dependencies and all markup, classes, copy and
-visual tokens are unchanged.
+Focus follows opening or the search input becoming available, not result counts.
+Asynchronous result updates preserve focus on the result the user selected.
+Markup, classes, copy and visual tokens are unchanged.
 
 ## Evidence
 

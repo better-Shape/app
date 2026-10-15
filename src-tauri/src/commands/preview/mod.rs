@@ -4,3 +4,4 @@ pub mod design_proxy;
 pub mod design_sandbox;
 pub mod design_source;
 pub mod preview_render;
+mod registration_gate;

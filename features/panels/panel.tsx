@@ -1,5 +1,6 @@
 "use client";
 
+import { useIsMounted } from "@/lib/ui/use-mounted";
 import React, { useRef, useCallback, useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 
@@ -54,19 +55,21 @@ export function Panel({
         panes.map(p => p.preferredSize || 250)
     );
 
-    // Restore persisted sizes after mount so SSR and first client render match.
-    useEffect(() => {
-        if (!storageKey) return;
-        const stored = localStorage.getItem(STORAGE_PREFIX + storageKey);
-        if (!stored) return;
-        try {
-            const parsed = JSON.parse(stored) as number[];
-            if (Array.isArray(parsed) && parsed.length === panes.length) {
-                setSizes(parsed);
-            }
-        } catch { /* ignore corrupt storage */ }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [storageKey]);
+    const hydrated = useIsMounted();
+    const [restoredKey, setRestoredKey] = useState<string | undefined>(undefined);
+    if (hydrated && restoredKey !== storageKey) {
+        setRestoredKey(storageKey);
+        if (storageKey) {
+            try {
+                const stored = localStorage.getItem(STORAGE_PREFIX + storageKey);
+                const parsed: unknown = stored ? JSON.parse(stored) : null;
+                if (Array.isArray(parsed) && parsed.length === panes.length
+                    && parsed.every(value => typeof value === "number" && Number.isFinite(value) && value > 0)) {
+                    setSizes(parsed);
+                }
+            } catch { /* unavailable or corrupt storage keeps the current sizes */ }
+        }
+    }
 
     // Render-phase sync: adjust sizes state immediately if the panes configuration changes in length
     if (sizes.length !== panes.length) {

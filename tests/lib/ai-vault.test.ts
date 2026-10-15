@@ -53,6 +53,50 @@ describe("key vault", () => {
         expect(result.persisted).toBe(false);
     });
 
+    it.each([
+        ["stored", "example-stored", false],
+        ["deleted", "", false],
+        ["write", "example-pending", true],
+        ["delete", "", true],
+        ["stored", "", true],
+        ["deleted", "example-not-deleted", true],
+    ])("validates only a durable matching %s intent after reload", async (state, value, unvalidated) => {
+        localStorage.setItem("bettershape-ai-vault-entry:openai", JSON.stringify({ state, token: "previous-session" }));
+        native.mutate("openai", value, "initial", true, "test-scope");
+        expect(hasUnvalidatedSecretIntent("openai")).toBe(true);
+        await readSecretsDetailed(["openai"]);
+        expect(hasUnvalidatedSecretIntent("openai")).toBe(unvalidated);
+        expect(aiStoreKey).not.toHaveBeenCalled();
+    });
+
+    it("does not validate a foreign intent that changes while a stored read is pending", async () => {
+        localStorage.setItem("bettershape-ai-vault-entry:openai", JSON.stringify({ state: "stored", token: "before" }));
+        native.mutate("openai", "example-stored", "initial", true, "test-scope");
+        aiLoadKeys.mockImplementationOnce(async () => {
+            localStorage.setItem("bettershape-ai-vault-entry:openai", JSON.stringify({ state: "stored", token: "after" }));
+            return [native.read("openai")];
+        });
+        await readSecretsDetailed(["openai"]);
+        expect(hasUnvalidatedSecretIntent("openai")).toBe(true);
+    });
+
+    it("does not validate a stored intent from an unavailable or session-only read", async () => {
+        localStorage.setItem("bettershape-ai-vault-entry:openai", JSON.stringify({ state: "stored", token: "previous-session" }));
+        aiLoadKeys.mockResolvedValueOnce([{ status: "unavailable", id: "openai" }]);
+        await readSecretsDetailed(["openai"]);
+        expect(hasUnvalidatedSecretIntent("openai")).toBe(true);
+        native.mutate("openai", "example-unsaved", "initial", false, "test-scope");
+        await readSecretsDetailed(["openai"]);
+        expect(hasUnvalidatedSecretIntent("openai")).toBe(true);
+    });
+
+    it("does not invent a pending intent for a key without inventory", async () => {
+        native.mutate("openai", "example-stored", "initial", true, "test-scope");
+        expect(hasUnvalidatedSecretIntent("openai")).toBe(false);
+        await readSecretsDetailed(["openai"]);
+        expect(hasUnvalidatedSecretIntent("openai")).toBe(false);
+    });
+
     it("probes the keychain once per session", async () => {
         expect(await vaultAvailable()).toBe(true);
         expect(await vaultAvailable()).toBe(true);

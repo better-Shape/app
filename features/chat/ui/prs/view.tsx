@@ -78,7 +78,7 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
     const [detailRevision, setDetailRevision] = useState(0);
     const [resourceRevision, setResourceRevision] = useState(0);
     /** Coalesce explicit refresh intent behind current list work; automatic polls remain skippable. */
-    const load = useCallback(async function loadList(mode: "initial" | "poll" | "refresh" = "initial") {
+    const fetchList = useCallback(async function loadList(mode: "initial" | "poll" | "refresh" = "initial") {
         const background = mode !== "initial";
         if (background && loadBusy.current) {
             if (mode === "refresh") pendingRefresh.current = true;
@@ -88,17 +88,11 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
         loadBusy.current = true;
         if (!background) {
             repoKey.current = null;
-            setItems([]);
-            setRepo(null);
-            setHasMore(false);
             loadedPages.current = 1;
             pageIds.current = [];
             nextPollPage.current = 2;
         }
-        setLoading(true);
-        setError(null);
-        try {
-            const resolved = await resolveOwnerRepo(project_path);
+        return resolveOwnerRepo(project_path).then(async resolved => {
             if (version !== loadVersion.current) return;
             const nextRepoKey = resolved ? `${resolved.owner}/${resolved.repo}` : null;
             if (nextRepoKey !== repoKey.current) {
@@ -155,24 +149,44 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
             settlePrOverrides(mapped);
             setItems(previous => reconcilePageRows(previous, mapped, nextPageIds, item => item.id));
             setDetailRevision((revision) => revision + 1);
-        } catch (e) {
+        }).catch(e => {
             if (version !== loadVersion.current) return;
             if (!background) setItems([]);
             setError(e instanceof Error ? e.message : "Could not load pull requests.");
-        } finally {
+        }).finally(async () => {
             if (version === loadVersion.current) {
                 loadBusy.current = false;
-                setLoading(false);
                 if (pendingRefresh.current) {
                     pendingRefresh.current = false;
+                    setError(null);
                     await loadList("refresh");
+                } else {
+                    setLoading(false);
                 }
             }
-        }
+        });
     }, [auth.loggedIn, project_path, sort, state]);
 
+    const load = useCallback((mode: "initial" | "poll" | "refresh" = "initial") => {
+        if (mode === "initial" || !loadBusy.current) {
+            setLoading(true);
+            setError(null);
+        }
+        return fetchList(mode);
+    }, [fetchList]);
+
+    const [listInputs, setListInputs] = useState<readonly unknown[] | null>(null);
+    if (listInputs === null || !Object.is(listInputs[0], fetchList)) {
+        setListInputs([fetchList]);
+        setItems([]);
+        setRepo(null);
+        setHasMore(false);
+        setLoading(true);
+        setError(null);
+    }
+
     useEffect(() => {
-        void load();
+        void fetchList();
         const refreshVisible = () => { if (!document.hidden) void load("poll"); };
         const timer = window.setInterval(refreshVisible, 30_000);
         document.addEventListener("visibilitychange", refreshVisible);
@@ -183,7 +197,7 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
             window.clearInterval(timer);
             document.removeEventListener("visibilitychange", refreshVisible);
         };
-    }, [load]);
+    }, [load, fetchList]);
 
     const refresh = useCallback(() => {
         setResourceRevision((revision) => revision + 1);
@@ -241,15 +255,24 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
     const detailNumber = selected?.number;
     const detailOwner = repo?.owner;
     const detailRepo = repo?.repo;
-    useEffect(() => {
+    const [detailInputs, setDetailInputs] = useState<readonly unknown[] | null>(null);
+    if (detailInputs === null
+        || !Object.is(detailInputs[0], detailId)
+        || !Object.is(detailInputs[1], detailNumber)
+        || !Object.is(detailInputs[2], detailOwner)
+        || !Object.is(detailInputs[3], detailRepo)
+        || !Object.is(detailInputs[4], detailRevision)) {
+        setDetailInputs([detailId, detailNumber, detailOwner, detailRepo, detailRevision]);
         setDetailError(null);
         setRequestedReviewers(null);
+        setDetailLoading(Boolean(detailId && detailNumber && detailOwner && detailRepo));
+    }
+
+    useEffect(() => {
         if (!detailId || !detailNumber || !detailOwner || !detailRepo) {
-            setDetailLoading(false);
             return;
         }
         let cancelled = false;
-        setDetailLoading(true);
         void commands.githubApiGet(`/repos/${detailOwner}/${detailRepo}/pulls/${detailNumber}`)
             .then((raw) => {
                 if (cancelled) return;

@@ -235,9 +235,11 @@ export function DesignStudio({
         }
     }, [reportMappingError, selectedAuthorization]);
 
-    useEffect(() => {
+    const [projectInputs, setProjectInputs] = useState<readonly unknown[] | null>(null);
+    if (projectInputs === null || !Object.is(projectInputs[0], projectPath)) {
+        setProjectInputs([projectPath]);
         setBootRoot(projectPath);
-    }, [projectPath]);
+    }
 
     const currentUrl = getPreviewCurrentUrl() || iframeSrc || urlBar;
     const activePage = useMemo(() => {
@@ -249,14 +251,11 @@ export function DesignStudio({
         }
     }, [currentUrl]);
 
-    useEffect(() => {
-        if (tabs.length) return;
-        const url = currentUrl || iframeSrc || "";
-        if (!url) return;
-        const tab = createBrowserTab(url);
+    if (!tabs.length && (currentUrl || iframeSrc)) {
+        const tab = createBrowserTab(currentUrl || iframeSrc || "", "tab-1");
         setTabs([tab]);
         setActiveTabId(tab.id);
-    }, [currentUrl, iframeSrc, tabs.length]);
+    }
 
     const activeTabIdRef = useRef(activeTabId);
     useLayoutEffect(() => { activeTabIdRef.current = activeTabId; }, [activeTabId]);
@@ -594,6 +593,18 @@ export function DesignStudio({
         [designerRoot, resolveElement],
     );
 
+    const [bootInputs, setBootInputs] = useState<readonly unknown[] | null>(null);
+    if (bootInputs === null || !Object.is(bootInputs[0], bootRoot)) {
+        setBootInputs([bootRoot]);
+        setBooting(true);
+        setReady(false);
+        setBootError(null);
+        setLayers([]);
+        setSelectionState(null);
+        setTarget(null);
+        setThemeTokens([]);
+    }
+
     useEffect(() => {
         let cancelled = false;
         let unsubscribeReady = () => {};
@@ -603,13 +614,7 @@ export function DesignStudio({
         const ownerAtBoot = projectPathRef.current;
         let opening: { authorization: DesignAuthorization; url: string; promise: Promise<boolean> } | null = null;
         authorizationRef.current = null;
-        setBooting(true);
-        setReady(false);
-        setBootError(null);
-        setLayers([]);
-        setSelection(null);
-        setTarget(null);
-        setThemeTokens([]);
+        selectionRevision.current += 1;
         resetPreviewState();
         void (async () => {
             try {
@@ -959,9 +964,7 @@ export function DesignStudio({
         return () => window.removeEventListener("keydown", onKey);
     }, [redoDesign, undoDesign]);
 
-    useEffect(() => {
-        if (toolMode === "normal") setPromptOpen(false);
-    }, [toolMode]);
+    if (toolMode === "normal" && promptOpen) setPromptOpen(false);
 
     useEffect(() => {
         const onToggleInspect = () => {

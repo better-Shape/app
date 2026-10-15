@@ -45,9 +45,9 @@ export function faviconFromUrl(url: string) {
     }
 }
 
-export function createBrowserTab(url: string): BrowserTab {
+export function createBrowserTab(url: string, id = `tab-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`): BrowserTab {
     return {
-        id: `tab-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        id,
         url,
         title: tabTitleFromUrl(url) || "New tab",
         favicon: faviconFromUrl(url),

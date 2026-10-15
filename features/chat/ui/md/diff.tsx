@@ -109,7 +109,9 @@ export function InlineDiff({ file, original, replacement, isGenerating }: {
     const rows = React.useMemo(() => buildDiffRows(original, replacement), [original, replacement]);
     const language = React.useMemo(() => getLanguage(file), [file]);
 
-    React.useEffect(() => {
+    const [editScope, setEditScope] = React.useState<readonly [typeof rows, typeof file, typeof isGenerating] | null>(null);
+    if (editScope === null || !Object.is(editScope[0], rows) || !Object.is(editScope[1], file) || !Object.is(editScope[2], isGenerating)) {
+        setEditScope([rows, file, isGenerating]);
         const nextSelected: Record<string, boolean> = {};
         rows.forEach((row) => {
             if (row.type !== 'equal') nextSelected[row.id] = true;
@@ -126,8 +128,8 @@ export function InlineDiff({ file, original, replacement, isGenerating }: {
         } else if (status !== "accepted" && status !== "rejected") {
             setStatus("pending");
         }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [rows, file, isGenerating]);
+
+    }
 
     const mergedContent = React.useMemo(() => {
         const output: string[] = [];

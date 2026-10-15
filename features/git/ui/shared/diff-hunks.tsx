@@ -75,6 +75,8 @@ export function DiffHunkToolbar({
   const [busy, setBusy] = useState(false);
   const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
 
+  if ((!hunk || !modifiedEditor || !containerEl) && pos !== null) setPos(null);
+
   const run = useCallback(
     async (op: "stage" | "unstage" | "restore") => {
       if (!hunk || busy) return;
@@ -119,10 +121,7 @@ export function DiffHunkToolbar({
   }, [run, mode]);
 
   useLayoutEffect(() => {
-    if (!hunk || !modifiedEditor || !containerEl) {
-      setPos(null);
-      return;
-    }
+    if (!hunk || !modifiedEditor || !containerEl) return;
 
     const update = () => {
       const line = Math.max(1, hunk.newStart);

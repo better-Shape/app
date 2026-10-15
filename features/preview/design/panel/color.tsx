@@ -12,7 +12,7 @@ import { WeatherSunny20Regular } from "@fluentui/react-icons/headless/svg/weathe
 
 
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { useEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown";
 import { Icon } from "@/components/ui/icon";
@@ -136,17 +136,22 @@ export function ColorField({
     const alphaRef = useRef<HTMLDivElement>(null);
     const hsvRef = useRef(hsv);
     const alphaLiveRef = useRef(alpha);
-    hsvRef.current = hsv;
-    alphaLiveRef.current = alpha;
+    useLayoutEffect(() => {
+        hsvRef.current = hsv;
+        alphaLiveRef.current = alpha;
+    }, [hsv, alpha]);
 
-    useEffect(() => {
+    const [colorScope, setColorScope] = useState<readonly [typeof colorValue] | null>(null);
+    if (colorScope === null || !Object.is(colorScope[0], colorValue)) {
+        setColorScope([colorValue]);
         const next = cssColorToHex(colorValue);
         setDraft(next.hex);
         setAlpha(next.alpha);
         setVisible(colorValue !== "transparent");
         const [r, g, b] = hexToRgb(next.hex);
         setHsv(rgbToHsv(r, g, b));
-    }, [colorValue]);
+
+    }
 
     const normalizedHex = draft.replace(/^#/, "").slice(0, 6).toUpperCase();
     const color = /^[0-9A-F]{6}$/.test(normalizedHex) ? `#${normalizedHex}` : "#FFFFFF";
@@ -303,11 +308,11 @@ export function ColorField({
                                 backgroundImage:
                                     "linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, transparent)",
                             }}
-                            onPointerDown={scrub(
+                            onPointerDown={(event) => scrub(
                                 svRef,
                                 (x, y) => applyHsv({ ...hsvRef.current, s: x, v: 1 - y }),
                                 () => applyHsv(hsvRef.current, true),
-                            )}
+                            )(event)}
                         >
                             <span
                                 className="pointer-events-none absolute size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow"
@@ -321,11 +326,11 @@ export function ColorField({
                                 background:
                                     "linear-gradient(to right,#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00)",
                             }}
-                            onPointerDown={scrub(
+                            onPointerDown={(event) => scrub(
                                 hueRef,
                                 (x) => applyHsv({ ...hsvRef.current, h: x * 360 }),
                                 () => applyHsv(hsvRef.current, true),
-                            )}
+                            )(event)}
                         >
                             <span
                                 className="pointer-events-none absolute top-1/2 size-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow"
@@ -340,11 +345,11 @@ export function ColorField({
                                 backgroundSize: "8px 8px",
                                 backgroundPosition: "0 0,0 4px,4px -4px,-4px 0",
                             }}
-                            onPointerDown={scrub(
+                            onPointerDown={(event) => scrub(
                                 alphaRef,
                                 (x) => updateAlpha(Math.round(x * 100)),
                                 () => updateAlpha(alphaLiveRef.current, true),
-                            )}
+                            )(event)}
                         >
                             <div
                                 className="absolute inset-0 rounded-full"

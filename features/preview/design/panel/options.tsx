@@ -5,7 +5,7 @@ import { Code20Regular } from "@fluentui/react-icons/headless/svg/code";
 import { MoreHorizontal20Regular } from "@fluentui/react-icons/headless/svg/more-horizontal";
 
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { SettingSwitch } from "@/features/settings/ui/shared/controls";
 import { Button } from "@/components/ui/button";
 import {
@@ -53,9 +53,12 @@ function OptionInput({
     onCommit: (next: string) => void;
 }) {
     const [draft, setDraft] = useState(value);
-    useEffect(() => {
+    const [valueScope, setValueScope] = useState<readonly [typeof value] | null>(null);
+    if (valueScope === null || !Object.is(valueScope[0], value)) {
+        setValueScope([value]);
         setDraft(value);
-    }, [value]);
+
+    }
     return (
         <Input
             className={CONTROL}

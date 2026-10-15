@@ -1,12 +1,13 @@
 "use client";
 
+import { useIsMounted } from "@/lib/ui/use-mounted";
+
 import { ArrowLeft20Regular } from "@fluentui/react-icons/headless/svg/arrow-left";
 import { ArrowRight20Regular } from "@fluentui/react-icons/headless/svg/arrow-right";
 import { ArrowSync20Regular } from "@fluentui/react-icons/headless/svg/arrow-sync";
 import { Camera20Filled } from "@fluentui/react-icons/headless/svg/camera";
 import { Code20Regular } from "@fluentui/react-icons/headless/svg/code";
 import { Database20Regular } from "@fluentui/react-icons/headless/svg/database";
-import { Dismiss20Regular } from "@fluentui/react-icons/headless/svg/dismiss";
 import { Globe20Regular } from "@fluentui/react-icons/headless/svg/globe";
 import { History20Regular } from "@fluentui/react-icons/headless/svg/history";
 import { Link20Regular } from "@fluentui/react-icons/headless/svg/link";
@@ -20,7 +21,7 @@ import { WeatherMoon20Regular } from "@fluentui/react-icons/headless/svg/weather
 import { WeatherSunny20Regular } from "@fluentui/react-icons/headless/svg/weather-sunny";
 
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Favicon } from "@/components/ui/favicon";
 import { Icon } from "@/components/ui/icon";
@@ -48,8 +49,6 @@ import { getLastDevUrl } from "@/features/preview/store";
 import { iconFor } from "./model";
 import { ToolBtn } from "./tool";
 
-const PAGE_W = 1280;
-const PAGE_H = 800;
 const AGENT_TAB = "agent";
 const BOOKMARKS_KEY = "bettershape-browser-bookmarks";
 const BOOKMARK_BAR_KEY = "bettershape-browser-bookmark-bar";
@@ -71,17 +70,6 @@ function saveJson(key: string, value: unknown) {
     } catch {
         /* ignore */
     }
-}
-
-function fitPage(width: number, height: number) {
-    const scale = Math.min(width / PAGE_W, height / PAGE_H);
-    const w = PAGE_W * scale;
-    const h = PAGE_H * scale;
-    return { left: (width - w) / 2, top: (height - h) / 2, width: w, height: h };
-}
-
-function modifiersOf(e: { altKey: boolean; ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }) {
-    return (e.altKey ? 1 : 0) | (e.ctrlKey ? 2 : 0) | (e.metaKey ? 4 : 0) | (e.shiftKey ? 8 : 0);
 }
 
 function looksLikeUrl(raw: string) {
@@ -137,84 +125,6 @@ export function steerFrame(
     } catch {
         return false;
     }
-}
-
-// ---------------------------------------------------------------------------
-// Tab strip
-
-function TabChip({
-    active,
-    title,
-    url,
-    favicon,
-    loading,
-    icon,
-    onSelect,
-    onClose,
-}: {
-    active: boolean;
-    title: string;
-    url: string;
-    favicon?: string | null;
-    loading?: boolean;
-    icon?: React.ReactNode;
-    onSelect: () => void;
-    onClose?: () => void;
-}) {
-    return (
-        <div
-            role="tab"
-            aria-selected={active}
-            onMouseDown={(e) => {
-                if (e.button === 1 && onClose) {
-                    e.preventDefault();
-                    onClose();
-                    return;
-                }
-                if (e.button === 0) onSelect();
-            }}
-            className={cn(
-                "group/tab flex h-7 min-w-0 max-w-44 flex-1 cursor-default select-none items-center gap-1.5 rounded-lg pl-2 pr-1 text-xs",
-                "transition-colors duration-[var(--transition-fast)] ease-[var(--ease-out)]",
-                active
-                    ? "bg-surface-2 text-text-primary"
-                    : "text-text-muted hover:bg-panel-hover hover:text-text-secondary",
-            )}
-        >
-            <span className="flex size-3.5 shrink-0 items-center justify-center">
-                {loading ? (
-                    <span className="size-3 animate-spin rounded-full border-[1.5px] border-text-muted border-t-transparent" />
-                ) : icon ? (
-                    icon
-                ) : favicon ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={favicon} alt="" className="size-3.5 rounded-sm object-contain" draggable={false} />
-                ) : url ? (
-                    <Favicon url={url} size={14} />
-                ) : (
-                    <Icon icon={Globe20Regular} className="text-text-muted" />
-                )}
-            </span>
-            <span className="min-w-0 flex-1 truncate">{title}</span>
-            {onClose ? (
-                <button
-                    type="button"
-                    aria-label="Close tab"
-                    onMouseDown={(e) => e.stopPropagation()}
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        onClose();
-                    }}
-                    className={cn(
-                        "flex size-5 shrink-0 items-center justify-center rounded text-text-muted hover:bg-panel-active hover:text-text-primary",
-                        active ? "opacity-100" : "opacity-0 group-hover/tab:opacity-100",
-                    )}
-                >
-                    <Icon icon={Dismiss20Regular} />
-                </button>
-            ) : null}
-        </div>
-    );
 }
 
 // ---------------------------------------------------------------------------
@@ -416,258 +326,6 @@ function UrlBar({
     );
 }
 
-// ---------------------------------------------------------------------------
-// Page stage: the streamed frame plus input forwarding
-
-function PageStage({
-    tab,
-    image,
-    picking,
-    onPicked,
-}: {
-    tab: BrowserTab;
-    image: string | undefined;
-    picking: boolean;
-    onPicked: (el: BrowserPickedElement) => void;
-}) {
-    const hostRef = useRef<HTMLDivElement>(null);
-    const [box, setBox] = useState({ w: 0, h: 0 });
-    const [hover, setHover] = useState<BrowserPickedElement | null>(null);
-    const lastMove = useRef(0);
-    const lastPick = useRef(0);
-    const pickSeq = useRef(0);
-
-    useEffect(() => {
-        const el = hostRef.current;
-        if (!el) return;
-        const measure = () => setBox({ w: el.clientWidth, h: el.clientHeight });
-        measure();
-        const obs = new ResizeObserver(measure);
-        obs.observe(el);
-        return () => obs.disconnect();
-    }, []);
-
-    useEffect(() => {
-        if (!picking) setHover(null);
-    }, [picking]);
-
-    const fitted = fitPage(box.w, box.h);
-
-    const readPoint = (clientX: number, clientY: number) => {
-        const host = hostRef.current;
-        if (!host) return null;
-        const bounds = host.getBoundingClientRect();
-        const rect = fitPage(bounds.width, bounds.height);
-        const x = clientX - bounds.left - rect.left;
-        const y = clientY - bounds.top - rect.top;
-        if (x < 0 || y < 0 || x > rect.width || y > rect.height) return null;
-        return { x: (x / rect.width) * 100, y: (y / rect.height) * 100 };
-    };
-
-    const send = useCallback(
-        (event: Parameters<typeof commands.browserInput>[1]) => {
-            void commands.browserInput(tab.id, event).catch(() => {});
-        },
-        [tab.id],
-    );
-
-    const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-        const p = readPoint(e.clientX, e.clientY);
-        if (!p) {
-            if (picking) setHover(null);
-            return;
-        }
-        const now = performance.now();
-        if (picking) {
-            if (now - lastPick.current < 50) return;
-            lastPick.current = now;
-            const seq = ++pickSeq.current;
-            void commands
-                .browserPick(tab.id, p.x, p.y, false)
-                .then((el) => {
-                    if (seq === pickSeq.current) setHover(el);
-                })
-                .catch(() => {});
-            return;
-        }
-        if (now - lastMove.current < 30) return;
-        lastMove.current = now;
-        send({ kind: "move", x: p.x, y: p.y, modifiers: modifiersOf(e) });
-    };
-
-    const button = (b: number): "left" | "right" | "middle" => (b === 2 ? "right" : b === 1 ? "middle" : "left");
-
-    const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-        hostRef.current?.focus({ preventScroll: true });
-        const p = readPoint(e.clientX, e.clientY);
-        if (!p) return;
-        if (picking) {
-            e.preventDefault();
-            void commands
-                .browserPick(tab.id, p.x, p.y, true)
-                .then((el) => {
-                    if (el) onPicked(el);
-                })
-                .catch(() => {});
-            return;
-        }
-        send({ kind: "down", x: p.x, y: p.y, button: button(e.button), clicks: Math.max(1, e.detail || 1), modifiers: modifiersOf(e) });
-    };
-
-    const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
-        if (picking) return;
-        const p = readPoint(e.clientX, e.clientY);
-        if (!p) return;
-        send({ kind: "up", x: p.x, y: p.y, button: button(e.button), clicks: Math.max(1, e.detail || 1), modifiers: modifiersOf(e) });
-    };
-
-    const onWheel = (e: React.WheelEvent<HTMLDivElement>) => {
-        const p = readPoint(e.clientX, e.clientY);
-        if (!p) return;
-        const factor = e.deltaMode === 1 ? 16 : 1;
-        send({ kind: "wheel", x: p.x, y: p.y, dx: e.deltaX * factor, dy: e.deltaY * factor, modifiers: modifiersOf(e) });
-    };
-
-    const onKeyDown = async (e: React.KeyboardEvent<HTMLDivElement>) => {
-        if (picking) return;
-        const mods = modifiersOf(e);
-        const ctrl = e.ctrlKey || e.metaKey;
-        if (ctrl && e.key.toLowerCase() === "l") {
-            e.preventDefault();
-            window.dispatchEvent(new Event("bettershape-browser-focus-url"));
-            return;
-        }
-        if (e.key === "F5" || (ctrl && e.key.toLowerCase() === "r")) {
-            e.preventDefault();
-            void commands.browserReload(tab.id, e.shiftKey);
-            return;
-        }
-        if (e.altKey && e.key === "ArrowLeft") {
-            e.preventDefault();
-            void commands.browserBack(tab.id);
-            return;
-        }
-        if (e.altKey && e.key === "ArrowRight") {
-            e.preventDefault();
-            void commands.browserForward(tab.id);
-            return;
-        }
-        if (ctrl && e.key.toLowerCase() === "v") {
-            e.preventDefault();
-            try {
-                const text = await navigator.clipboard.readText();
-                if (text) send({ kind: "text", text });
-            } catch {
-                /* clipboard unavailable */
-            }
-            return;
-        }
-        e.preventDefault();
-        if (e.key.length === 1 && !ctrl && !e.altKey) {
-            send({ kind: "text", text: e.key });
-            return;
-        }
-        send({ kind: "key", type: "keyDown", key: e.key, code: e.code, modifiers: mods });
-    };
-
-    const onKeyUp = (e: React.KeyboardEvent<HTMLDivElement>) => {
-        if (picking) return;
-        if (e.key.length === 1 && !(e.ctrlKey || e.metaKey) && !e.altKey) return;
-        send({ kind: "key", type: "keyUp", key: e.key, code: e.code, modifiers: modifiersOf(e) });
-    };
-
-    const hoverBox = hover && box.w > 0
-        ? {
-              left: fitted.left + (hover.rect.x / 100) * fitted.width,
-              top: fitted.top + (hover.rect.y / 100) * fitted.height,
-              width: (hover.rect.w / 100) * fitted.width,
-              height: (hover.rect.h / 100) * fitted.height,
-          }
-        : null;
-
-    return (
-        <div
-            ref={hostRef}
-            tabIndex={0}
-            role="application"
-            aria-label={tab.title || "Page"}
-            className={cn(
-                "relative h-full w-full select-none overflow-hidden bg-editor outline-none",
-                picking ? "cursor-crosshair" : "cursor-default",
-            )}
-            onPointerMove={onPointerMove}
-            onPointerDown={onPointerDown}
-            onPointerUp={onPointerUp}
-            onPointerLeave={() => setHover(null)}
-            onWheel={onWheel}
-            onKeyDown={(e) => void onKeyDown(e)}
-            onKeyUp={onKeyUp}
-            onContextMenu={(e) => e.preventDefault()}
-        >
-            {image ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                    src={image}
-                    alt=""
-                    draggable={false}
-                    className="pointer-events-none absolute inset-0 h-full w-full object-contain"
-                />
-            ) : null}
-            {hoverBox ? (
-                <>
-                    <div
-                        className="pointer-events-none absolute z-10 rounded-sm border border-accent bg-accent/15"
-                        style={hoverBox}
-                    />
-                    <span
-                        className="pointer-events-none absolute z-10 rounded-md bg-accent px-1.5 py-0.5 font-mono text-2xs text-white"
-                        style={{
-                            left: Math.max(fitted.left, hoverBox.left),
-                            top: Math.max(fitted.top, hoverBox.top - 20),
-                        }}
-                    >
-                        {hover?.label}
-                    </span>
-                </>
-            ) : null}
-        </div>
-    );
-}
-
-// ---------------------------------------------------------------------------
-// Error and new-tab pages
-
-function ErrorPage({ tab }: { tab: BrowserTab }) {
-    return (
-        <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
-            <Icon icon={Globe20Regular} className="text-text-muted" />
-            <div className="flex flex-col gap-1">
-                <span className="text-sm font-medium text-text-primary">This site can&apos;t be reached</span>
-                {tab.url ? <span className="text-xs text-text-muted">{hostnameOf(tab.url) || tab.url}</span> : null}
-                <span className="text-xs text-text-secondary">{tab.error}</span>
-            </div>
-            <Button variant="secondary" size="sm" onClick={() => void commands.browserReload(tab.id, true)}>
-                Try again
-            </Button>
-        </div>
-    );
-}
-
-function EnginePage({ error, onRetry }: { error: string; onRetry: () => void }) {
-    return (
-        <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
-            <Icon icon={Globe20Regular} className="text-text-muted" />
-            <div className="flex flex-col gap-1">
-                <span className="text-sm font-medium text-text-primary">The browser couldn&apos;t start</span>
-                <span className="max-w-md text-xs text-text-secondary">{error}</span>
-            </div>
-            <Button variant="secondary" size="sm" onClick={onRetry}>
-                Try again
-            </Button>
-        </div>
-    );
-}
-
 function NewTabPage({
     onOpen,
     onUseTool,
@@ -800,9 +458,9 @@ export function BrowserView({
     const [toolsError, setToolsError] = useState<string | null>(null);
     const [savingShot, setSavingShot] = useState(false);
     const [frameSrc, setFrameSrc] = useState("about:blank");
-    const [reloadKey, setReloadKey] = useState(0);
+    const reloadKey = 0;
     const [pageMenu, setPageMenu] = useState<{ x: number; y: number } | null>(null);
-    const openedOnce = useRef(false);
+    const [openedOnce, setOpenedOnce] = useState(false);
     const frameRef = useRef<HTMLIFrameElement>(null);
     const activeIdRef = useRef<string | null>(null);
     const rustNav = useRef(false);
@@ -810,37 +468,39 @@ export function BrowserView({
     const frameTab = useRef<string | null>(null);
     const currentUrlRef = useRef("");
 
-    useEffect(() => {
+    const hydrated = useIsMounted();
+    const [restoredPreferences, setRestoredPreferences] = useState(false);
+    if (hydrated && !restoredPreferences) {
+        setRestoredPreferences(true);
         setBookmarks(loadJson<Bookmark[]>(BOOKMARKS_KEY, []));
         setBookmarkBar(loadJson<boolean>(BOOKMARK_BAR_KEY, false));
-    }, []);
+
+    }
 
     // Jump to the agent's tab when it starts driving; leave it when it stops.
-    const wasAgentActive = useRef(false);
-    useEffect(() => {
-        if (agentActive && !wasAgentActive.current) setLocalActive(AGENT_TAB);
-        if (!agentActive) setLocalActive((cur) => (cur === AGENT_TAB ? null : cur));
-        wasAgentActive.current = agentActive;
-    }, [agentActive]);
+    const [wasAgentActive, setWasAgentActive] = useState(false);
+    if (wasAgentActive !== agentActive) {
+        setWasAgentActive(agentActive);
+        if (agentActive) setLocalActive(AGENT_TAB);
+        else setLocalActive(current => current === AGENT_TAB ? null : current);
+    }
 
-    useEffect(() => {
-        if (controlled) return;
-        if (openedOnce.current) return;
-        openedOnce.current = true;
+    if (hydrated && !controlled && !openedOnce) {
+        setOpenedOnce(true);
         const last = getLastDevUrl();
         if (last) setUrlDraft(last);
         setTabs([blankTab("new-1")]);
         setActiveId("new-1");
-    }, [controlled]);
+    }
 
-    useEffect(() => {
-        if (!controlled || !tabIds) return;
-        setTabs((prev) => {
-            if (prev.length === tabIds.length && prev.every((tab, index) => tab.id === tabIds[index])) return prev;
-            return tabIds.map((id) => prev.find((tab) => tab.id === id) ?? blankTab(id));
-        });
-        if (tabId) setActiveId(tabId);
-    }, [controlled, tabIds, tabId]);
+    const [tabScope, setTabScope] = useState({ controlled, tabIds: undefined as string[] | undefined, tabId: null as string | null });
+    if (tabScope.controlled !== controlled || tabScope.tabIds !== tabIds || tabScope.tabId !== tabId) {
+        setTabScope({ controlled, tabIds, tabId });
+        if (controlled && tabIds) {
+            setTabs(previous => tabIds.map(id => previous.find(tab => tab.id === id) ?? blankTab(id)));
+            if (tabId) setActiveId(tabId);
+        }
+    }
 
     const noteNavigation = useCallback((url: string, title: string | undefined, error: string | null, travel = false, favicon?: string) => {
         if (!url || url === "about:blank") return;
@@ -896,31 +556,24 @@ export function BrowserView({
     const showAgent = localActive === AGENT_TAB && agentActive;
     const active = useMemo(() => tabs.find((t) => t.id === activeId) ?? null, [tabs, activeId]);
     const pageUrlRef = useRef("");
-    pageUrlRef.current = active?.url ?? "";
-    useEffect(() => {
+    useLayoutEffect(() => { pageUrlRef.current = active?.url ?? ""; }, [active?.url]);
+    const [toolsScope, setToolsScope] = useState(active?.url);
+    if (toolsScope !== active?.url) {
+        setToolsScope(active?.url);
         setToolsUrl(null);
         setToolsError(null);
-    }, [active?.url]);
+    }
     const urlValue = urlDraft ?? (showAgent ? agentFrame?.url || "" : displayUrl(active?.url || ""));
 
-    useEffect(() => {
+    const [selectionScope, setSelectionScope] = useState<{ activeId: string | null; showAgent: boolean } | null>(null);
+    if (selectionScope === null || selectionScope.activeId !== activeId || selectionScope.showAgent !== showAgent) {
+        setSelectionScope({ activeId, showAgent });
         setUrlDraft(null);
         setPicking(false);
         setHover(null);
-    }, [activeId, showAgent]);
+    }
 
-    activeIdRef.current = activeId;
-
-    const selectTab = (id: string) => {
-        if (id === AGENT_TAB) {
-            setLocalActive(AGENT_TAB);
-            return;
-        }
-        setLocalActive(null);
-        setActiveId(id);
-        const tab = tabs.find((t) => t.id === id);
-        setFrameSrc(tab && !tab.pending && tab.url ? tab.url : "about:blank");
-    };
+    useLayoutEffect(() => { activeIdRef.current = activeId; }, [activeId]);
 
     const submitUrl = (raw: string) => {
         setUrlDraft(null);
@@ -956,7 +609,7 @@ export function BrowserView({
     };
 
     const currentUrl = showAgent ? agentFrame?.url || "" : active?.url || "";
-    currentUrlRef.current = currentUrl;
+    useLayoutEffect(() => { currentUrlRef.current = currentUrl; }, [currentUrl]);
     useEffect(() => {
         if (!active?.url || !onMeta) return;
         onMeta(active.id, active.title, active.url, active.favicon);

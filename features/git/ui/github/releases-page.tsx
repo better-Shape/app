@@ -67,11 +67,7 @@ export function ReleasesPage() {
     const owner = repo?.owner;
     const repoName = repo?.repo;
 
-    const load = useCallback(async () => {
-        setLoading(true);
-        setError(null);
-        try {
-            const resolved = await resolveOwnerRepo(project_path);
+    const fetchList = useCallback(() => resolveOwnerRepo(project_path).then(async resolved => {
             setRepo(resolved);
             if (!resolved) {
                 setReleases([]);
@@ -116,17 +112,29 @@ export function ReleasesPage() {
                     };
                 }),
             );
-        } catch (e) {
+    }).catch(e => {
             setError(e instanceof Error ? e.message : String(e));
             setReleases([]);
-        } finally {
+    }).finally(() => {
             setLoading(false);
-        }
-    }, [project_path, auth.loggedIn]);
+    }), [project_path, auth.loggedIn]);
+
+    const load = useCallback(() => {
+        setLoading(true);
+        setError(null);
+        return fetchList();
+    }, [fetchList]);
+
+    const [requestInputs, setRequestInputs] = useState<readonly unknown[] | null>(null);
+    if (requestInputs === null || !Object.is(requestInputs[0], fetchList)) {
+        setRequestInputs([fetchList]);
+        setLoading(true);
+        setError(null);
+    }
 
     useEffect(() => {
-        void load();
-    }, [load]);
+        void fetchList();
+    }, [fetchList]);
 
     const q = query.trim().toLowerCase();
     const filtered = useMemo(
@@ -142,18 +150,9 @@ export function ReleasesPage() {
         [releases, q],
     );
 
-    useEffect(() => {
-        if (filtered.length === 0) {
-            setSelectedId(null);
-            return;
-        }
-        if (selectedId != null && filtered.some((r) => r.id === selectedId)) return;
-        setSelectedId(filtered[0]!.id);
-    }, [filtered, selectedId]);
+    const nextSelectedId = filtered.find(row => row.id === selectedId)?.id ?? filtered[0]?.id ?? null;
+    if (nextSelectedId !== selectedId) setSelectedId(nextSelectedId);
 
-    useEffect(() => {
-        // Reset selection-linked UI when the chosen release changes.
-    }, [selectedId]);
 
     const selected = useMemo(
         () => filtered.find((r) => r.id === selectedId) ?? null,

@@ -426,11 +426,10 @@ function RotatingComposerHint({ paused }: { paused: boolean }) {
     const [phase, setPhase] = React.useState<"in" | "out" | "enter">("in");
     const indexRef = React.useRef(0);
 
+    if (paused && phase !== "in") setPhase("in");
+
     React.useEffect(() => {
-        if (paused) {
-            setPhase("in");
-            return;
-        }
+        if (paused) return;
         let exitTimer: ReturnType<typeof setTimeout> | undefined;
         let enterTimer: ReturnType<typeof setTimeout> | undefined;
         const hold = window.setInterval(() => {

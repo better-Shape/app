@@ -1,6 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useIsMounted } from "@/lib/ui/use-mounted";
+
+import { useElementById } from "@/lib/ui/use-element-by-id";
+
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Chat from "@/features/chat/ui/chat";
 import { useProjectState } from "@/lib/backend";
@@ -117,18 +121,21 @@ export function AgentLayout({ children }: { children: React.ReactNode }) {
     const [splash, setSplash] = useState(false);
     const [splashVisible, setSplashVisible] = useState(false);
     const [isResizing, setIsResizing] = useState(false);
-    const [navSlot, setNavSlot] = useState<HTMLElement | null>(null);
+
     const [sidebarFlyout, setSidebarFlyout] = useState(false);
     const flyoutTimer = useRef<number | null>(null);
     const dragging = useRef(false);
     const widthRef = useRef(560);
+    useLayoutEffect(() => { widthRef.current = workspaceWidth; }, [workspaceWidth]);
 
-    useEffect(() => {
+    const hydrated = useIsMounted();
+    const [restoredPreferences, setRestoredPreferences] = useState(false);
+    if (hydrated && !restoredPreferences) {
+        setRestoredPreferences(true);
         try {
             const w = Number(localStorage.getItem("bettershape-agent-workspace-width"));
             if (w >= MIN_WORKSPACE && w <= MAX_WORKSPACE_PX) {
                 setWorkspaceWidth(w);
-                widthRef.current = w;
             }
             setWorkspaceOpen(localStorage.getItem("bettershape-agent-workspace") !== "false");
             setSidebarOpen(localStorage.getItem("bettershape-agent-sidebar") !== "false");
@@ -139,7 +146,8 @@ export function AgentLayout({ children }: { children: React.ReactNode }) {
         } catch {
             /* ignore */
         }
-    }, []);
+
+    }
 
     // Warm start-command + route map when a project opens (or fingerprint changes).
     useEffect(() => {
@@ -152,26 +160,7 @@ export function AgentLayout({ children }: { children: React.ReactNode }) {
     useEffect(() => startAgentBackgroundExitToasts(), []);
 
     // Resolve sidebar nav portal target when overlay / explorer needs it.
-    useEffect(() => {
-        if (!overlay) {
-            setNavSlot(null);
-            return;
-        }
-        const find = () => document.getElementById(AGENT_SIDEBAR_NAV_SLOT);
-        setNavSlot(find());
-        const id = window.setInterval(() => {
-            const el = find();
-            if (el) {
-                setNavSlot(el);
-                window.clearInterval(id);
-            }
-        }, 30);
-        const stop = window.setTimeout(() => window.clearInterval(id), 1500);
-        return () => {
-            window.clearInterval(id);
-            window.clearTimeout(stop);
-        };
-    }, [overlay, sidebarOpen]);
+    const navSlot = useElementById(AGENT_SIDEBAR_NAV_SLOT, Boolean(overlay));
 
     useEffect(() => {
         if (!splash) return;

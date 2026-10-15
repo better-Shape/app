@@ -65,11 +65,11 @@ export function QuickPick({
     const showInput = query !== undefined && onQueryChange !== undefined;
 
     React.useEffect(() => {
-        const frame = open ? requestAnimationFrame(() => inputRef.current?.focus()) : undefined;
+        const frame = open && showInput ? requestAnimationFrame(() => inputRef.current?.focus()) : undefined;
         return () => {
             if (frame !== undefined) cancelAnimationFrame(frame);
         };
-    }, [open, items.length]);
+    }, [open, showInput]);
 
     /** Wrap through results, keeping an empty list out of modulo-zero arithmetic. */
     const move = (delta: number) => {

@@ -12,7 +12,9 @@ import { type IconGlyph, Icon } from "@/components/ui/icon";
 
 import {
     getRepoName,
-    loadRepoHistory,
+    getRepoHistorySnapshot,
+    getServerRepoHistorySnapshot,
+    subscribeRepoHistory,
     type RepoHistoryEntry,
 } from "@/lib/workspace/repo-history";
 import { cn } from "@/lib/utils";
@@ -177,14 +179,7 @@ export const WelcomeScreen = ({
 };
 
 /** Load recent folders for the welcome screen (client-only). */
-export const useRecentFolders = (): RepoHistoryEntry[] => {
-    const [entries, setEntries] = React.useState<RepoHistoryEntry[]>([]);
-    React.useEffect(() => {
-        setEntries(loadRepoHistory().slice(0, 15));
-        /** Reload history (max 15) whenever the window regains focus. */
-        const onFocus = () => setEntries(loadRepoHistory().slice(0, 15));
-        window.addEventListener("focus", onFocus);
-        return () => window.removeEventListener("focus", onFocus);
-    }, []);
-    return entries;
-};
+export function useRecentFolders(): RepoHistoryEntry[] {
+    const entries = React.useSyncExternalStore(subscribeRepoHistory, getRepoHistorySnapshot, getServerRepoHistorySnapshot);
+    return React.useMemo(() => entries.slice(0, 15), [entries]);
+}

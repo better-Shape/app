@@ -39,9 +39,14 @@ export function MicrophoneSettings() {
     }, []);
 
     useEffect(() => {
-        void refresh();
-        return () => stopRef.current?.();
-    }, [refresh]);
+        let disposed = false;
+        void listMicrophones().then(next => {
+            if (!disposed) setOptions(next);
+        }).catch(cause => {
+            if (!disposed) setError(microphoneErrorMessage(cause));
+        });
+        return () => { disposed = true; stopRef.current?.(); };
+    }, []);
 
     const allowAndRefresh = async () => {
         if (unavailable) return;

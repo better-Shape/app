@@ -1,5 +1,7 @@
 "use client";
 
+import { useElementById } from "@/lib/ui/use-element-by-id";
+
 import React, { useMemo } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
@@ -116,23 +118,7 @@ export default function Chat({
     }, []);
 
     useSyncChatGenerating(session.conversationId ?? session.activeChatTabId, session.isLoading);
-    const [tabsSlot, setTabsSlot] = React.useState<HTMLElement | null>(null);
-    React.useEffect(() => {
-        const find = () => document.getElementById(AGENT_TABS_SLOT);
-        setTabsSlot(find());
-        const timer = window.setInterval(() => {
-            const el = find();
-            if (el) {
-                setTabsSlot(el);
-                window.clearInterval(timer);
-            }
-        }, 50);
-        const stop = window.setTimeout(() => window.clearInterval(timer), 2000);
-        return () => {
-            window.clearInterval(timer);
-            window.clearTimeout(stop);
-        };
-    }, []);
+    const tabsSlot = useElementById(AGENT_TABS_SLOT);
 
     const taskItems = useMemo((): ComposerTaskItem[] => {
         const lastAssistant = [...session.messages].reverse().find((m) => m.role === "assistant");

@@ -107,11 +107,14 @@ function TreeNode({
         nodeRef.current?.scrollIntoView({ block: "nearest" });
     }, [revealed]);
 
-    const load = useCallback(async () => {
+    const load = useCallback(() => {
         if (!entry.is_dir) return;
         const id = ++seq.current;
-        try { const x = sortEntries(await commands.lsDir(entry.path)); if (seq.current === id) setChildren(x); }
-        catch { if (seq.current === id) setChildren([]); }
+        return commands.lsDir(entry.path).then(entries => {
+            if (seq.current === id) setChildren(sortEntries(entries));
+        }).catch(() => {
+            if (seq.current === id) setChildren([]);
+        });
     }, [entry.is_dir, entry.path]);
 
     useEffect(() => {

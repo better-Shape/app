@@ -1,6 +1,8 @@
 "use client";
 
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { useIsMounted } from "@/lib/ui/use-mounted";
+
+import { lazy, Suspense, useCallback, useLayoutEffect, useEffect, useRef, useState } from "react";
 import { useProjectState } from "@/lib/backend/project-state";
 import { registerBoundTerminalTab } from "@/features/terminal/session";
 import { cn } from "@/lib/utils";
@@ -21,21 +23,24 @@ function clearBodyResize() {
 export function TerminalDock() {
     const { project_path } = useProjectState();
     const cwdRef = useRef(project_path);
-    cwdRef.current = project_path;
+    useEffect(() => { cwdRef.current = project_path; }, [project_path]);
     const [open, setOpen] = useState(false);
     const [mounted, setMounted] = useState(false);
     const [height, setHeight] = useState(DEFAULT_H);
     const [resizing, setResizing] = useState(false);
     const heightRef = useRef(DEFAULT_H);
+    useLayoutEffect(() => { heightRef.current = height; }, [height]);
+    useEffect(() => { clearBodyResize(); }, []);
     const dragging = useRef(false);
 
-    useEffect(() => {
-        clearBodyResize();
+    const hydrated = useIsMounted();
+    const [restoredPreferences, setRestoredPreferences] = useState(false);
+    if (hydrated && !restoredPreferences) {
+        setRestoredPreferences(true);
         try {
             const h = Number(localStorage.getItem(HEIGHT_KEY));
             if (h >= MIN_H && h <= 800) {
                 setHeight(h);
-                heightRef.current = h;
             }
             const wasOpen = localStorage.getItem(OPEN_KEY) === "true";
             setOpen(wasOpen);
@@ -43,7 +48,8 @@ export function TerminalDock() {
         } catch {
             /* ignore */
         }
-    }, []);
+
+    }
 
     const persistOpen = useCallback((next: boolean) => {
         if (!next) {

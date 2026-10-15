@@ -1,5 +1,7 @@
 "use client";
 
+import { useIsMounted } from "@/lib/ui/use-mounted";
+
 import { ArrowMaximize20Regular } from "@fluentui/react-icons/headless/svg/arrow-maximize";
 import { ArrowMinimize20Regular } from "@fluentui/react-icons/headless/svg/arrow-minimize";
 import { Checkmark20Regular } from "@fluentui/react-icons/headless/svg/checkmark";
@@ -138,7 +140,7 @@ export function DesignPreviewGallery({
     const initialIndex = Math.max(0, items.findIndex((p) => p.id === selected));
     const [index, setIndex] = useState(initialIndex >= 0 ? initialIndex : 0);
     const [open, setOpen] = useState(false);
-    const [mounted, setMounted] = useState(false);
+    const mounted = useIsMounted();
     const [submitting, setSubmitting] = useState(false);
     const [tweaks, setTweaks] = useState({ radius: 8, padding: 12, gap: 8 });
     const [tweakTab, setTweakTab] = useState<"radius" | "padding" | "gap">("radius");
@@ -146,7 +148,6 @@ export function DesignPreviewGallery({
     const dialogIframeRef = useRef<HTMLIFrameElement | null>(null);
     const [frameReady, setFrameReady] = useState(false);
 
-    useEffect(() => setMounted(true), []);
 
     useEffect(() => {
         if (!items.length) return;
@@ -176,9 +177,12 @@ export function DesignPreviewGallery({
         };
     }, [open, items.length]);
 
-    useEffect(() => {
+    const [previewScope, setPreviewScope] = useState<readonly [typeof index, typeof items] | null>(null);
+    if (previewScope === null || !Object.is(previewScope[0], index) || !Object.is(previewScope[1], items)) {
+        setPreviewScope([index, items]);
         setFrameReady(false);
-    }, [index, items]);
+
+    }
 
     useEffect(() => {
         const onMessage = (e: MessageEvent) => {

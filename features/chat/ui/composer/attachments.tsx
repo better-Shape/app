@@ -9,6 +9,7 @@ import { WindowConsole20Regular } from "@fluentui/react-icons/headless/svg/windo
 
 
 import React from "react";
+import { useObjectUrl } from "@/lib/ui/use-object-url";
 import { type IconGlyph, Icon } from "@/components/ui/icon";
 
 
@@ -179,25 +180,6 @@ export async function processAttachment(att: ComposerAttachment): Promise<Compos
     }
 }
 
-function useObjectUrl(file: File | null, dataUrl?: string): string | null {
-    const [url, setUrl] = React.useState<string | null>(dataUrl ?? null);
-
-    React.useEffect(() => {
-        if (dataUrl) {
-            setUrl(dataUrl);
-            return;
-        }
-        if (!file) {
-            setUrl(null);
-            return;
-        }
-        const next = URL.createObjectURL(file);
-        setUrl(next);
-        return () => URL.revokeObjectURL(next);
-    }, [file, dataUrl]);
-
-    return url;
-}
 
 const KIND_ICON: Record<Exclude<AttachmentKind, "file">, IconGlyph> = {
     image: Camera20Filled,

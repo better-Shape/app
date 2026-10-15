@@ -37,7 +37,11 @@ import { notify } from "@/features/notifications";
 
 function CompactionEditor({ value }: { value: string }) {
     const [draft, setDraft] = React.useState(value);
-    React.useEffect(() => setDraft(value), [value]);
+    const [valueScope, setValueScope] = React.useState<readonly [typeof value] | null>(null);
+    if (valueScope === null || !Object.is(valueScope[0], value)) {
+        setValueScope([value]);
+        setDraft(value);
+    }
     const dirty = draft !== value;
 
     return (
@@ -215,7 +219,11 @@ function CompactionStatus({ instructions }: { instructions: string }) {
 
 function RulesEditor({ value }: { value: string }) {
     const [draft, setDraft] = React.useState(value);
-    React.useEffect(() => setDraft(value), [value]);
+    const [valueScope, setValueScope] = React.useState<readonly [typeof value] | null>(null);
+    if (valueScope === null || !Object.is(valueScope[0], value)) {
+        setValueScope([value]);
+        setDraft(value);
+    }
     const dirty = draft !== value;
 
     return (
@@ -332,7 +340,7 @@ export function AiSettingsPanel({
     );
     const subagentDefaultModel = resolveSubagentDefaultModel(a.subagentDefaultModel, subagentModels);
     const visibleSubagentModels = allModels.filter((m) => isSubagentModelEnabled(m.id, subagentModels));
-    const featuredIds = React.useMemo(() => {
+    const featuredIds = (() => {
         const ids: string[] = [];
         const seen = new Set<string>();
         for (const m of allModels) {
@@ -341,7 +349,7 @@ export function AiSettingsPanel({
             ids.push(m.id);
         }
         return new Set(ids);
-    }, [allModels]);
+    })();
     const displayedModels = showAllModels
         ? allModels
         : allModels.filter((m) => featuredIds.has(m.id) || m.id === "auto");

@@ -1,12 +1,33 @@
+use std::sync::Arc;
+
 use tauri::{AppHandle, Manager};
 use tokio::sync::{oneshot, Mutex};
 
 use crate::core::error::AppError;
 
-// The lock covers native acknowledgement, not just scheduling on the UI thread.
+use super::registration_gate::RegistrationGate;
+
+// Every caller targets the single "main" webview below, regardless of its own
+// window. Serialize replacements on that controller through acknowledgement.
+// A per-calling-window lock would allow conflicting writes to the same target.
 static REGISTRATION: Mutex<()> = Mutex::const_new(());
-#[cfg(windows)]
 type Completion = oneshot::Sender<Result<(), String>>;
+
+struct CancelPending(Arc<RegistrationGate>);
+impl Drop for CancelPending {
+    fn drop(&mut self) {
+        self.0.cancel_before_commit();
+    }
+}
+
+fn finish_registration(send: Completion, result: Result<(), String>) {
+    if send.send(result).is_err() {
+        // Never remove a committed replacement just because its caller left:
+        // the previous script may already be gone. Pending callbacks cancel
+        // before replacement and remove only their newly added script instead.
+        log::debug!(target: "design", "Design bridge caller disconnected before acknowledgement");
+    }
+}
 
 fn wrap_iframe_only(script: &str) -> String {
     format!(
@@ -45,39 +66,59 @@ pub async fn register_design_bridge(app: AppHandle, script: String) -> Result<()
         .ok_or_else(|| AppError::Message("The main webview is unavailable.".into()))?;
     let wrapped = wrap_iframe_only(&script);
     let (send, receive) = oneshot::channel();
+    let gate = Arc::new(RegistrationGate::default());
+    let callback_gate = Arc::clone(&gate);
     win.with_webview(move |webview| {
         if send.is_closed() {
             return;
         }
         #[cfg(windows)]
-        install_on_windows(&webview, &wrapped, send);
+        install_on_windows(&webview, &wrapped, send, callback_gate);
         #[cfg(target_os = "macos")]
-        let _ = send.send(install_on_macos(&webview, &wrapped));
+        if callback_gate.try_commit() {
+            finish_registration(send, install_on_macos(&webview, &wrapped));
+        }
         #[cfg(target_os = "linux")]
-        let _ = send.send(install_on_linux(&webview, &wrapped));
+        if callback_gate.try_commit() {
+            finish_registration(send, install_on_linux(&webview, &wrapped));
+        }
         #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
         {
-            let _ = (webview, wrapped);
-            let _ = send.send(Err(
-                "Design inspection is unavailable on this platform.".into()
-            ));
+            let _ = (webview, wrapped, callback_gate);
+            finish_registration(
+                send,
+                Err("Design inspection is unavailable on this platform.".into()),
+            );
         }
     })
-    .map_err(|error| AppError::Message(error.to_string()))?;
-    await_registration(receive, std::time::Duration::from_secs(10)).await
+    .map_err(|error| {
+        gate.cancel_before_commit();
+        AppError::Message(error.to_string())
+    })?;
+    await_registration(receive, gate, std::time::Duration::from_secs(10)).await
 }
 
 async fn await_registration(
-    receive: oneshot::Receiver<Result<(), String>>,
+    mut receive: oneshot::Receiver<Result<(), String>>,
+    gate: Arc<RegistrationGate>,
     timeout: std::time::Duration,
 ) -> Result<(), AppError> {
-    match tokio::time::timeout(timeout, receive).await {
-        Ok(Ok(result)) => result.map_err(AppError::Message),
-        Ok(Err(_)) => Err(AppError::Message(
-            "The webview closed before installing the design bridge.".into(),
-        )),
+    let _cancel_on_drop = CancelPending(Arc::clone(&gate));
+    let completion = match tokio::time::timeout(timeout, &mut receive).await {
+        Ok(result) => result,
+        Err(_) if gate.cancel_before_commit() => {
+            return Err(AppError::Message(
+                "Timed out installing the design bridge.".into(),
+            ));
+        }
+        // Once the native callback claims the synchronous replacement, it owns
+        // the result. Do not report a timeout and then undo its acknowledged work.
+        Err(_) => receive.await,
+    };
+    match completion {
+        Ok(result) => result.map_err(AppError::Message),
         Err(_) => Err(AppError::Message(
-            "Timed out installing the design bridge.".into(),
+            "The webview closed before installing the design bridge.".into(),
         )),
     }
 }
@@ -95,7 +136,12 @@ pub fn design_mode_log(level: String, message: String) {
 }
 
 #[cfg(windows)]
-fn install_on_windows(webview: &tauri::webview::PlatformWebview, script: &str, send: Completion) {
+fn install_on_windows(
+    webview: &tauri::webview::PlatformWebview,
+    script: &str,
+    send: Completion,
+    gate: Arc<RegistrationGate>,
+) {
     use std::{cell::RefCell, rc::Rc, sync::Mutex};
     use webview2_com::AddScriptToExecuteOnDocumentCreatedCompletedHandler;
     use windows_core::HSTRING;
@@ -119,11 +165,13 @@ fn install_on_windows(webview: &tauri::webview::PlatformWebview, script: &str, s
                     };
                     let new_id = id.to_string();
                     if !hr.is_ok() || new_id.is_empty() {
-                        let _ =
-                            send.send(Err(format!("WebView2 rejected the design bridge: {hr:?}")));
+                        finish_registration(
+                            send,
+                            Err(format!("WebView2 rejected the design bridge: {hr:?}")),
+                        );
                         return Ok(());
                     }
-                    if send.is_closed() {
+                    if !gate.try_commit() {
                         let _ = callback_core.RemoveScriptToExecuteOnDocumentCreated(
                             &HSTRING::from(new_id.as_str()),
                         );
@@ -140,18 +188,15 @@ fn install_on_windows(webview: &tauri::webview::PlatformWebview, script: &str, s
                             let _ = callback_core.RemoveScriptToExecuteOnDocumentCreated(
                                 &HSTRING::from(new_id.as_str()),
                             );
-                            let _ = send
-                                .send(Err(format!("Could not replace the design bridge: {error}")));
+                            finish_registration(
+                                send,
+                                Err(format!("Could not replace the design bridge: {error}")),
+                            );
                             return Ok(());
                         }
                     }
-                    *SCRIPT_ID.lock().unwrap_or_else(|error| error.into_inner()) =
-                        Some(new_id.clone());
-                    if send.send(Ok(())).is_err() {
-                        let _ = callback_core
-                            .RemoveScriptToExecuteOnDocumentCreated(&HSTRING::from(new_id));
-                        *SCRIPT_ID.lock().unwrap_or_else(|error| error.into_inner()) = None;
-                    }
+                    *SCRIPT_ID.lock().unwrap_or_else(|error| error.into_inner()) = Some(new_id);
+                    finish_registration(send, Ok(()));
                     Ok(())
                 },
             ));
@@ -161,7 +206,7 @@ fn install_on_windows(webview: &tauri::webview::PlatformWebview, script: &str, s
     };
     if let Err(error) = result {
         if let Some(send) = completion.borrow_mut().take() {
-            let _ = send.send(Err(error));
+            finish_registration(send, Err(error));
         }
     }
 }
@@ -254,6 +299,7 @@ mod tests {
         let (send, receive) = oneshot::channel();
         let task = tokio::spawn(await_registration(
             receive,
+            Arc::new(RegistrationGate::default()),
             std::time::Duration::from_secs(1),
         ));
         tokio::task::yield_now().await;
@@ -266,22 +312,56 @@ mod tests {
     async fn registration_rejects_native_failure_closed_channel_and_timeout() {
         let (send, receive) = oneshot::channel();
         send.send(Err("native rejected".into())).unwrap();
-        assert!(
-            await_registration(receive, std::time::Duration::from_secs(1))
-                .await
-                .is_err()
-        );
+        assert!(await_registration(
+            receive,
+            Arc::new(RegistrationGate::default()),
+            std::time::Duration::from_secs(1)
+        )
+        .await
+        .is_err());
         let (send, receive) = oneshot::channel();
         drop(send);
+        assert!(await_registration(
+            receive,
+            Arc::new(RegistrationGate::default()),
+            std::time::Duration::from_secs(1)
+        )
+        .await
+        .is_err());
+        let (send, receive) = oneshot::channel();
+        let gate = Arc::new(RegistrationGate::default());
         assert!(
-            await_registration(receive, std::time::Duration::from_secs(1))
+            await_registration(receive, Arc::clone(&gate), std::time::Duration::ZERO)
                 .await
                 .is_err()
         );
-        let (send, receive) = oneshot::channel();
-        assert!(await_registration(receive, std::time::Duration::ZERO)
-            .await
-            .is_err());
         assert!(send.is_closed());
+        assert!(!gate.try_commit());
+    }
+    #[tokio::test]
+    async fn claimed_native_commit_keeps_its_receiver_after_the_deadline() {
+        let (send, receive) = oneshot::channel();
+        let gate = Arc::new(RegistrationGate::default());
+        assert!(gate.try_commit());
+        let task = tokio::spawn(await_registration(receive, gate, std::time::Duration::ZERO));
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        assert!(!task.is_finished());
+        send.send(Ok(())).unwrap();
+        assert!(task.await.unwrap().is_ok());
+    }
+
+    #[tokio::test]
+    async fn dropping_a_pending_caller_prevents_late_native_replacement() {
+        let (_send, receive) = oneshot::channel();
+        let gate = Arc::new(RegistrationGate::default());
+        let task = tokio::spawn(await_registration(
+            receive,
+            Arc::clone(&gate),
+            std::time::Duration::from_secs(10),
+        ));
+        tokio::task::yield_now().await;
+        task.abort();
+        assert!(task.await.unwrap_err().is_cancelled());
+        assert!(!gate.try_commit());
     }
 }

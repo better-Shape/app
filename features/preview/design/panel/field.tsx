@@ -3,7 +3,7 @@
 import { ChevronDown20Regular } from "@fluentui/react-icons/headless/svg/chevron-down";
 
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
     DropdownMenu,
@@ -45,9 +45,12 @@ export function Field({
 }) {
     const [draft, setDraft] = useState(value ?? "");
     const dragged = useRef(false);
-    useEffect(() => {
+    const [valueScope, setValueScope] = useState<readonly [typeof value] | null>(null);
+    if (valueScope === null || !Object.is(valueScope[0], value)) {
+        setValueScope([value]);
         setDraft(value ?? "");
-    }, [value]);
+
+    }
     const hasPrefix = Boolean(label || icon);
     const tokenable = hasPrefix && isTokenProperty(property);
     const scrub = (event: React.PointerEvent<HTMLElement>) => {
@@ -341,9 +344,12 @@ export function TextContentField({
     onCommit: (next: string) => void;
 }) {
     const [draft, setDraft] = useState(value);
-    useEffect(() => {
+    const [valueScope, setValueScope] = useState<readonly [typeof value] | null>(null);
+    if (valueScope === null || !Object.is(valueScope[0], value)) {
+        setValueScope([value]);
         setDraft(value);
-    }, [value]);
+
+    }
     return (
         <textarea
             className={cn(

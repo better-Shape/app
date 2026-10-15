@@ -74,15 +74,23 @@ export function ProblemsTab() {
      * tab switch so the panel follows the file the user is looking at; the
      * debounce below collapses a burst of switches into one run.
      */
+    const [runInputs, setRunInputs] = useState<readonly unknown[] | null>(null);
+    if (runInputs === null
+        || !Object.is(runInputs[0], project_path)
+        || !Object.is(runInputs[1], selection)
+        || !Object.is(runInputs[2], active_file)
+        || !Object.is(runInputs[3], manualRun)) {
+        setRunInputs([project_path, selection, active_file, manualRun]);
+        setBusy(Boolean(project_path && selection.targets.length));
+    }
+
     useEffect(() => {
         const { targets, skipped } = selection;
         if (!project_path || targets.length === 0) {
-            setBusy(false);
             return;
         }
 
         let cancelled = false;
-        setBusy(true);
         const timer = setTimeout(async () => {
             const problems: Problem[] = [];
             const partialErrors: LintRun["partialErrors"] = [];

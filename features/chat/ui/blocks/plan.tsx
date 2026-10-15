@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Collapse } from "./collapse";
 import { CalendarCheckmark24Filled } from "@fluentui/react-icons";
 import { recordPlanOrigin, resolveProjectPlanPath } from "@/features/chat/lib/plan-origin";
+import { notify } from "@/features/notifications";
 
 type PlanStep = {
     label: string;
@@ -101,6 +102,31 @@ export function PlanningBlock({ steps, completedCount, totalCount, isGenerating 
 }
 
 
+
+function PlanBuildButton({ missing, busy, onBuild }: {
+    missing: boolean;
+    busy: boolean;
+    onBuild: () => Promise<void>;
+}) {
+    const label = missing ? "Plan missing" : busy ? "Building…" : "Build";
+    return (
+        <Button
+            disabled={busy || missing}
+            onClick={() => { void onBuild(); }}
+            variant={missing ? "outline" : "default"}
+            size="sm"
+            className={cn("gap-1", missing && "text-error border-error/40")}
+        >
+            {label}
+            {!missing ? (
+                <span className="ml-1 inline-flex items-center gap-0.5 opacity-80">
+                    <kbd className="text-[10px]">{modKeyLabel()}</kbd>
+                    <kbd className="text-[10px]">↵</kbd>
+                </span>
+            ) : null}
+        </Button>
+    );
+}
 
 /** Display a saved plan, recover its supplied markdown when necessary, and keep Build tied to its originating chat. */
 export function PlanSavedBlock({
@@ -183,18 +209,14 @@ export function PlanSavedBlock({
             window.dispatchEvent(new CustomEvent("bettershape-build-plan", {
                 detail: { path, title, conversationId: viewedConversationId },
             }));
+        } catch {
+            notify.error("Could not build plan", "The plan could not be saved. Check file permissions and try again.");
         } finally {
             setChecking(false);
         }
     };
 
-    const mod = modKeyLabel();
     const todos = preview?.todos ?? [];
-    const buildLabel = missing
-        ? "Plan missing"
-        : isLoading || checking
-          ? "Building…"
-          : "Build";
 
     const todoCount = todos.length;
 
@@ -242,21 +264,7 @@ export function PlanSavedBlock({
                     ) : null}
 
                     <div className="flex justify-end">
-                        <Button
-                            disabled={isLoading || checking || missing}
-                            onClick={() => { void handleBuild(); }}
-                            variant={missing ? "outline" : "default"}
-                            size="sm"
-                            className={cn("gap-1", missing && "text-error border-error/40")}
-                        >
-                            {buildLabel}
-                            {!missing ? (
-                                <span className="ml-1 inline-flex items-center gap-0.5 opacity-80">
-                                    <kbd className="text-[10px]">{mod}</kbd>
-                                    <kbd className="text-[10px]">↵</kbd>
-                                </span>
-                            ) : null}
-                        </Button>
+                        <PlanBuildButton missing={missing} busy={isLoading || checking} onBuild={handleBuild} />
                     </div>
                 </div>
             </Collapse>

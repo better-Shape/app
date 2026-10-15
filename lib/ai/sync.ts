@@ -238,8 +238,15 @@ export function initAiConfigSync(): () => void {
         // A locked probe or partial read is not completed hydration. Retry it
         // on the same serialized queue before writing the current settings.
         if (!hydrated && (booting || retryHydration)) {
-            try { hydrated = await hydrateSecrets(touched, reconcile); }
-            finally { booting = false; }
+            const hydrationRevision = credentialRevision;
+            try {
+                hydrated = await hydrateSecrets(touched, reconcile);
+                // Hydration already persisted migration candidates and validated
+                // durable reads. Do not rewrite the unchanged startup snapshot.
+                // Edits made during its awaits retain their newer revision, and
+                // drafts / pending deletions / foreign intents still force retry.
+                if (hydrated) persistedCredentialRevision = hydrationRevision;
+            } finally { booting = false; }
         }
         if (getCredentialRecoveryConflicts().length) {
             notify.error("Credential recovery needs review", "Reload after the other window finishes saving, or re-enter the affected credentials in Settings > Providers. Existing saved copies have not been removed.");
