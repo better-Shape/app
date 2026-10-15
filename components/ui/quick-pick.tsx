@@ -95,6 +95,9 @@ export function QuickPick({
                         "absolute left-1/2 top-[14%] z-[201] w-[min(520px,calc(100%-2rem))] -translate-x-1/2 outline-none",
                     )}
                     aria-describedby={undefined}
+                    onEscapeKeyDown={(event) => {
+                        if (event.isComposing || event.keyCode === 229) event.preventDefault();
+                    }}
                     onKeyDown={(e) => {
                         if (e.nativeEvent.isComposing || e.keyCode === 229) return;
                         if (e.key === "ArrowDown") {

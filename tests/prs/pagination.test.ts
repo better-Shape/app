@@ -35,3 +35,12 @@ it("deduplicates moving boundaries and removes truncated pages", () => {
     expect(reconcilePageRows(previous, [{ id: "2" }], [["2"], ["2", "1"]], row => row.id)).toEqual([{ id: "2" }, { id: "1" }]);
     expect(reconcilePageRows(previous, [], [[]], row => row.id)).toEqual([]);
 });
+
+it("treats page IDs as authoritative even when fresh contains unindexed rows", () => {
+    const retained: { id: string; title: string; ci?: string } = { id: "retained", title: "enriched", ci: "success" };
+    const added = { id: "added", title: "new" };
+    const rows = reconcilePageRows([retained], [added, { id: "unindexed", title: "outside the page set" }],
+        [["added"], ["retained"]], row => row.id);
+    expect(rows).toEqual([added, retained]);
+    expect(rows[1]).toBe(retained);
+});

@@ -106,3 +106,13 @@ it.each(["  repository  ", "   "])("handles an empty result list with query %j",
     if (query.trim()) expect(submit).toHaveBeenCalledExactlyOnceWith("repository");
     else expect(submit).not.toHaveBeenCalled();
 });
+
+it.each([{ isComposing: true }, { keyCode: 229 }])("does not dismiss the dialog for composition Escape %j", async options => {
+    const changeOpen = vi.fn();
+    await act(async () => root.render(<QuickPick open onOpenChange={changeOpen} query="draft"
+        onQueryChange={() => {}} items={items} onSelect={select} />));
+    act(() => { press("Escape", options); });
+    expect(changeOpen).not.toHaveBeenCalled();
+    act(() => { press("Escape"); });
+    expect(changeOpen).toHaveBeenCalledExactlyOnceWith(false);
+});

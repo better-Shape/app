@@ -47,9 +47,11 @@ export function MediaLightbox({
 }) {
     const [index, setIndex] = React.useState(initialIndex);
 
-    React.useEffect(() => {
+    const [selectionScope, setSelectionScope] = React.useState({ open, initialIndex, designs });
+    if (selectionScope.open !== open || selectionScope.initialIndex !== initialIndex || selectionScope.designs !== designs) {
+        setSelectionScope({ open, initialIndex, designs });
         if (open) setIndex(initialIndex);
-    }, [open, initialIndex, designs]);
+    }
 
     React.useEffect(() => {
         if (!open) return;

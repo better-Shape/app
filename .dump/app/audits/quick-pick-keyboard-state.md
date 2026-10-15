@@ -46,3 +46,30 @@ within the existing design. Unslop applies to this note. No skill scripts,
 installers, generators, dependencies or new visual assets are needed.
 
 Reviewed by Arena.ai.
+
+## Related preview and pagination ownership
+
+The media lightbox had the same passive-reset defect. Changing its design array,
+initial index or open state could first commit the previously selected index
+against the new preview collection. It now adjusts its component-local index
+before committing children, preserving the original reset dependencies and paging
+when those dependencies are unchanged. Three original-source failures use
+layout-effect observations; two controls cover stable paging and the unchanged
+HTML sandbox/Escape-listener lifecycle. All five pass with the repair. The DOM
+checks do not establish image rendering quality or native WebView execution.
+
+PR page reconciliation has a different contract: `pageIds` owns membership and
+order, while `fresh` supplies row replacements. The list refresh builds both from
+the same responses before publication. Unindexed fresh rows must not be appended
+as a fallback, because that would bypass the authoritative page set. The helper
+now documents this boundary and a characterization test covers an unindexed
+fresh row alongside retained enrichment. Existing list tests cover page pruning,
+queued refresh and later-page failures. No pagination runtime behavior changed.
+
+Quick-pick Escape dismissal is owned by Radix's document listener, not the
+content's keyboard handler. Installed `@radix-ui/react-dismissable-layer` calls
+`onEscapeKeyDown` before checking `defaultPrevented` and dismissing. Composition
+Escape must therefore be canceled at that callback as well. Two additional
+original-source failures cover both `isComposing` and boundary key code 229,
+while subsequent ordinary Escape still dismisses. All thirteen quick-pick tests
+pass with both guards. Physical input-method behavior still needs platform testing.

@@ -22,7 +22,12 @@ export function appendUnique<T>(previous: T[], next: T[], key: (row: T) => strin
     return [...rows.values()];
 }
 
-/** Keep untouched rows enriched while replacing only the pages refreshed by this request. */
+/**
+ * pageIds owns membership and order; fresh only supplies replacement row data.
+ * Callers must build refreshed IDs and rows together before publishing. Rows
+ * absent from that index are deliberately omitted, even when present in fresh.
+ * Untouched indexed rows retain their enrichment from previous.
+ */
 export function reconcilePageRows<T>(previous: T[], fresh: T[], pageIds: string[][], key: (row: T) => string): T[] {
     const rows = new Map(previous.map((row) => [key(row), row]));
     for (const row of fresh) rows.set(key(row), row);
