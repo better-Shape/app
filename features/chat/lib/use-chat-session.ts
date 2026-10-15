@@ -1028,6 +1028,7 @@ export function useChatSession(
                     return false;
                 }
                 if (!ownsRequest(target, clientRequestId)) return false;
+                // Attachment and mention preparation can outlive a provider change; check again at admission.
                 if (!hasUsableProvider(getSettings().ai.providers)) {
                     throw new Error("Add an API key in Settings → Providers to chat.");
                 }

@@ -1,5 +1,10 @@
 import type { ComposerAttachment } from "@/features/chat/ui/composer/attachments";
 
+const ATTACHMENT_PROCESSING_TIMEOUT_MS = 8_000;
+const ATTACHMENT_PROCESSING_POLL_MS = 40;
+const MAX_TEXT_ATTACHMENT_CHARACTERS = 80_000;
+const MAX_INLINE_BINARY_BYTES = 2_500_000;
+
 const CODE_EXTENSIONS = new Set([
     "ts", "tsx", "js", "jsx", "rs", "py", "go", "java", "c", "cpp", "h", "hpp",
     "css", "scss", "less", "html", "xml", "svg", "json", "toml", "yaml", "yml",
@@ -25,7 +30,7 @@ function pause(signal: AbortSignal): Promise<void> {
         const timer = setTimeout(() => {
             signal.removeEventListener("abort", cancel);
             resolve();
-        }, 40);
+        }, ATTACHMENT_PROCESSING_POLL_MS);
         signal.addEventListener("abort", cancel, { once: true });
     });
 }
@@ -36,7 +41,7 @@ export async function waitForSendAttachments(
     currentFiles: () => readonly ComposerAttachment[],
     signal: AbortSignal,
 ): Promise<ComposerAttachment[]> {
-    const deadline = Date.now() + 8000;
+    const deadline = Date.now() + ATTACHMENT_PROCESSING_TIMEOUT_MS;
     while (true) {
         assertActive(signal);
         const current = new Map(currentFiles().map(file => [file.id, file]));
@@ -98,13 +103,13 @@ function imageBlock(file: ComposerAttachment): string {
 /** Preserve text content up to the documented limit, disclosing the original size. */
 async function textBlock(file: ComposerAttachment, signal: AbortSignal): Promise<string> {
     const text = await readAttachment(file, false, signal);
-    const content = text.length > 80000 ? `${text.slice(0, 80000)}\n... [truncated, ${text.length} chars total]` : text;
+    const content = text.length > MAX_TEXT_ATTACHMENT_CHARACTERS ? `${text.slice(0, MAX_TEXT_ATTACHMENT_CHARACTERS)}\n... [truncated, ${text.length} chars total]` : text;
     return attachedFile(file, content, "text/plain");
 }
 
 /** Inline supported binary assets only within the size budget, otherwise provide an explicit notice. */
 async function binaryBlock(file: ComposerAttachment, signal: AbortSignal): Promise<string> {
-    if (file.size > 2_500_000) {
+    if (file.size > MAX_INLINE_BINARY_BYTES) {
         return attachedFile(file, `[Binary asset too large to inline (${file.size} bytes). Ask the user for a path in the repo, or copy it locally.]`);
     }
     const dataUrl = await readAttachment(file, true, signal);

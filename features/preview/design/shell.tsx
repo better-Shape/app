@@ -549,6 +549,7 @@ export function DesignStudio({
         if (!resolved) throw new Error("Could not map this element to a source file. Select it again, then retry.");
         assertAuthorized();
         await commands.applyDesignSourcePatch({ projectPath: designerRoot, target: resolved, operation });
+        commands.invalidateFileCache(joinProjectPath(designerRoot, resolved.file));
         assertAuthorized();
     }), [designerRoot, resolveElement]);
 
@@ -1114,7 +1115,7 @@ export function DesignStudio({
         });
         if (patch.field === "text") {
             frame?.postMessage({ type: "bettershape-design-set-text", key: patch.key, text: String(patch.value) }, designMessageOrigin(authorizationRef.current, designerRootRef.current));
-            void persistJsx(current, { text: String(patch.value) }, assertAuthorized).catch(reportMappingError);
+            void persistJsx(current, { text: String(patch.value) }, assertAuthorized, { instance: true }).catch(reportMappingError);
             return;
         }
         if (patch.field === "attr" && patch.attr) {

@@ -2,12 +2,13 @@ import { act, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 const SOURCE = 'export default function App() { return <main><div className="card">Hello</div><div>Other</div></main>; }';
+const COMPONENT_INSTANCE = 'export const Layout = () => <Card>Hello</Card>;';
 type PanelProps = ComponentProps<typeof import("@/features/preview/design/panel").DesignStylePanel>;
 const backend = vi.hoisted(() => ({
     service: { projectPath: "/project", url: "http://localhost:5173", ptyId: 7 },
     ready: new Set<(url: string) => void>(), register: vi.fn(), probe: vi.fn(),
     exportSelection: null as null | ((scale: number, format: string) => Promise<void>),
-    undo: vi.fn(), redo: vi.fn(),
+    undo: vi.fn(), redo: vi.fn(), invalidate: vi.fn(),
     panel: null as PanelProps | null, read: vi.fn(), patch: vi.fn(), save: vi.fn(), css: vi.fn(), cssRead: vi.fn(),
 }));
 vi.mock("@/lib/backend", () => ({ commands: {
@@ -15,7 +16,7 @@ vi.mock("@/lib/backend", () => ({ commands: {
     listDesignAssets: async () => [], rememberPreviewUrl: async () => {},
     registerDesignBridge: backend.register, probePreviewUrl: backend.probe,
     readFile: backend.cssRead, readFileFromDisk: backend.read, applyDesignSourcePatch: backend.patch, saveFile: backend.save,
-    primeFileCache: vi.fn(), invalidateFileCache: vi.fn(), undoDesignSourcePatch: backend.undo, redoDesignSourcePatch: backend.redo,
+    primeFileCache: vi.fn(), invalidateFileCache: backend.invalidate, undoDesignSourcePatch: backend.undo, redoDesignSourcePatch: backend.redo,
 } }));
 vi.mock("@/lib/ui/css-variables-loader", async original => ({ ...await original<typeof import("@/lib/ui/css-variables-loader")>(), resolveGlobalsCss: backend.css }));
 vi.mock("@/features/detection/lib/lib", () => ({ detectDevCommand: async () => ({ command: "npm run dev", urlHint: "http://localhost:5173" }) }));
@@ -42,8 +43,8 @@ beforeEach(() => {
     backend.redo.mockReset().mockResolvedValue({ changed: false });
     invalidateGlobalsCssCache();
     backend.cssRead.mockReset().mockResolvedValue(":root { --seed: red; }");
-    backend.panel = null;
-    backend.read.mockReset().mockResolvedValue(SOURCE);
+    backend.panel = null; backend.invalidate.mockReset();
+    backend.read.mockReset().mockImplementation(async (path: string) => path.endsWith("Layout.tsx") ? COMPONENT_INSTANCE : SOURCE);
     backend.patch.mockReset().mockResolvedValue({}); backend.save.mockReset().mockResolvedValue(undefined);
     backend.css.mockReset().mockResolvedValue({ path: "/project/src/globals.css", content: ":root {}" });
     backend.exportSelection = null; backend.ready.clear(); backend.register.mockReset().mockResolvedValue(undefined); backend.probe.mockReset().mockResolvedValue(true);
@@ -192,7 +193,7 @@ async function selectForMutation() {
             data: { type: "bettershape-design-selection", element: {
                 rect: { x: 0, y: 0, width: 100, height: 30 }, key: "selected", tag: "div", text: "Hello", classes: ["card"], styles: {}, attributes: {},
                 source: { fileName: "src/App.tsx", lineNumber: 1, columnNumber: 1 },
-                component: { tag: "Card", properties: [] },
+                component: { tag: "Card", properties: [], source: { fileName: "src/Layout.tsx", lineNumber: 1, columnNumber: 1 } },
             } },
         }));
     });
@@ -228,12 +229,13 @@ it.each(mutationActions.filter(([name]) => name !== "token"))("revalidates %s af
     const panel = await selectForMutation();
     let finish!: (value: string) => void;
     backend.read.mockClear();
-    if (name !== "delete" && name !== "duplicate") backend.read.mockResolvedValueOnce(SOURCE);
+    const source = name === "component" ? COMPONENT_INSTANCE : SOURCE;
+    if (name !== "delete" && name !== "duplicate") backend.read.mockResolvedValueOnce(source);
     backend.read.mockImplementationOnce(() => new Promise<string>(resolve => { finish = resolve; }));
     await act(async () => { apply(panel); });
     expect(backend.read).toHaveBeenCalledTimes(name === "delete" || name === "duplicate" ? 1 : 2);
     backend.service = { ...backend.service, ptyId: 8 };
-    await act(async () => finish(SOURCE));
+    await act(async () => finish(source));
     expect(backend.patch).not.toHaveBeenCalled();
 });
 
@@ -466,6 +468,7 @@ it.each([
     expect(concurrentCalls).toBe(1);
     expect(concurrentReads).toBe(reads);
     expect(backend.patch).toHaveBeenCalledTimes(2);
+    expect(backend.invalidate).toHaveBeenCalledExactlyOnceWith("/project/src/App.tsx");
     const structuralPatch = backend.patch.mock.calls[1][0];
     expect(structuralPatch.operation).toBe(operation);
     const { openingStart, openingEnd, nodeStart, nodeEnd } = structuralPatch.target;
@@ -512,4 +515,42 @@ it.each(["delete", "duplicate"] as const)("continues queued edits after native %
     expect(concurrentCalls).toBe(1);
     expect(backend.patch).toHaveBeenCalledTimes(2);
     expect(backend.patch.mock.calls[1][0].content).toContain("text-red");
+});
+
+
+it.each(["delete", "duplicate"] as const)("invalidates the source cache after acknowledged %s, even if the preview was replaced", async operation => {
+    const panel = await selectForMutation();
+    let finish!: () => void;
+    backend.patch.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; }));
+    await act(async () => { if (operation === "delete") panel.onDelete?.(); else panel.onDuplicate?.(); });
+    expect(backend.invalidate).not.toHaveBeenCalled();
+    backend.service = { ...backend.service, ptyId: 8 };
+    await act(async () => finish());
+    expect(backend.invalidate).toHaveBeenCalledExactlyOnceWith("/project/src/App.tsx");
+});
+
+it.each(["delete", "duplicate"] as const)("does not invalidate cached source when native %s rejects", async operation => {
+    const panel = await selectForMutation();
+    backend.patch.mockRejectedValueOnce(new Error("Write rejected"));
+    await act(async () => { if (operation === "delete") await panel.onDelete?.(); else await panel.onDuplicate?.(); });
+    expect(backend.invalidate).not.toHaveBeenCalled();
+});
+
+it("edits component child text at the instance rather than its shared DOM implementation", async () => {
+    const element = (await selectForMutation()).element!;
+    backend.read.mockImplementation(async (path: string) => path.endsWith("Layout.tsx")
+        ? 'export const Layout = () => <Card>Hello</Card>;' : SOURCE);
+    await selectSource({ ...element, component: { ...element.component!, source: { fileName: "src/Layout.tsx", lineNumber: 1, columnNumber: 1 } } });
+    await act(async () => backend.panel!.onComponentPatch?.({ key: element.key, field: "text", value: "Changed" }));
+    expect(backend.patch).toHaveBeenCalledTimes(1);
+    expect(backend.patch.mock.calls[0][0]).toMatchObject({ target: { file: "src/Layout.tsx", tag: "Card" } });
+    expect(backend.patch.mock.calls[0][0].content).toContain("<Card>Changed</Card>");
+});
+
+it("does not fall back to shared implementation text when the component instance cannot be mapped", async () => {
+    const element = (await selectForMutation()).element!;
+    backend.read.mockResolvedValue(SOURCE);
+    await selectSource({ ...element, component: { ...element.component!, source: { fileName: "src/Missing.tsx", lineNumber: 1, columnNumber: 1 } } });
+    await act(async () => backend.panel!.onComponentPatch?.({ key: element.key, field: "text", value: "Changed" }));
+    expect(backend.patch).not.toHaveBeenCalled();
 });
