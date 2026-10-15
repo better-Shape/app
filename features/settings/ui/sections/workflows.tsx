@@ -244,7 +244,7 @@ function WorkflowDialog({
                                         "rounded-full px-2.5 py-1 text-xs",
                                         (draft.when ?? "both") === id
                                             ? "bg-panel-hover text-text-primary"
-                                            : "text-text-muted hover:bg-panel-hover/60",
+                                            : "text-text-muted hover:bg-[var(--row-hover)]",
                                     )}
                                 >
                                     {label}
@@ -299,7 +299,7 @@ function WorkflowDialog({
                                         "rounded-full px-2.5 py-1 text-xs",
                                         draft.mode === id
                                             ? "bg-panel-hover text-text-primary"
-                                            : "text-text-muted hover:bg-panel-hover/60",
+                                            : "text-text-muted hover:bg-[var(--row-hover)]",
                                     )}
                                 >
                                     {id ?? "Any"}

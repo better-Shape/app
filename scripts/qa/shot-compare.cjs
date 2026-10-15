@@ -1,0 +1,12 @@
+const { chromium } = require("playwright");
+const { default: sparticuz } = require("@sparticuz/chromium");
+(async () => {
+  process.env.LD_LIBRARY_PATH = `/tmp/sandboxlibs/lib:${process.env.LD_LIBRARY_PATH ?? ""}`;
+  const b = await chromium.launch({ executablePath: await sparticuz.executablePath(), args: ["--no-sandbox","--disable-dev-shm-usage","--enable-unsafe-swiftshader"] });
+  const p = await b.newPage({ viewport: { width: 1100, height: 760 }, deviceScaleFactor: 2 });
+  await p.goto("file:///home/user/app/scripts/motion/compare.html");
+  await p.waitForTimeout(1200);
+  await p.screenshot({ path: "/home/user/app/.dump/app/qa/motion/spring-compare.png", fullPage: true });
+  console.log("captured");
+  await b.close();
+})();

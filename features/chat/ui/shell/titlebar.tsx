@@ -1,6 +1,5 @@
 "use client";
 
-import { PanelBottom20Filled } from "@fluentui/react-icons/headless/svg/panel-bottom";
 import { People20Filled } from "@fluentui/react-icons/headless/svg/people";
 
 
@@ -15,7 +14,8 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { Breadcrumb, BreadcrumbItem } from "@/components/ui/breadcrumb";
 import { getRepoName } from "@/lib/workspace/repo-history";
 import { useProjectState } from "@/lib/backend";
-import { AGENT_CHROME_ACTIONS_SLOT } from "@/features/agent/chrome";
+import { AGENT_CHROME_ACTIONS_SLOT, usePanelCommit } from "@/features/agent/chrome";
+import { PanelGlyph } from "@/components/ui/panel-glyph";
 import { CommitMenu } from "@/features/agent/workspace/commit-menu";
 import {
     DropdownMenu,
@@ -119,6 +119,7 @@ export function ChatTitlebar({
 }) {
     const { project_path } = useProjectState();
     const repo = project_path ? getRepoName(project_path) : null;
+    const terminalCommit = usePanelCommit();
     const [actionsSlot, setActionsSlot] = useState<HTMLElement | null>(null);
     const terminalOpen = useStoredFlag("bettershape-agent-terminal-open", "bettershape-terminal-open");
     useSyncExternalStore(subscribeSubagents, getSubagents, getSubagents);
@@ -154,11 +155,17 @@ export function ChatTitlebar({
                     type="button"
                     aria-label={terminalOpen ? "Hide terminal" : "Show terminal"}
                     aria-pressed={terminalOpen}
-                    onClick={toggleTerminal}
-                    className="flex size-7 items-center justify-center rounded-md text-text-muted hover:bg-panel-hover hover:text-text-primary data-[active=true]:text-text-primary"
+                    data-panel-toggle="terminal"
+                    data-panel-committed={terminalCommit.committed ? "true" : undefined}
+                    {...terminalCommit.handlers}
+                    onClick={() => {
+                        terminalCommit.commit();
+                        toggleTerminal();
+                    }}
+                    className="flex size-7 items-center justify-center rounded-md text-text-muted hover:bg-[var(--btn-hover)] hover:text-text-primary data-[active=true]:text-text-primary"
                     data-active={terminalOpen}
                 >
-                    <Icon icon={PanelBottom20Filled} />
+                    <PanelGlyph side="bottom" open={terminalOpen} />
                 </button>
             </Tooltip>
         </div>

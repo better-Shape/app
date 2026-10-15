@@ -1,17 +1,23 @@
 "use client";
 
 import { useLoading } from "@/features/loading/context";
+import { useDelayedFlag } from "@/lib/ui/use-delayed-flag";
 import { cn } from "@/lib/utils";
 
 export function LoadingBar({ className }: { className?: string }) {
     const { isLoading } = useLoading();
+    // Git work can finish in well under a second. Without the delay the bar blinks
+    // in and out on every fast stage or fetch, which reads as a fault rather than
+    // progress; the minimum visible time keeps it from stuttering back out once it
+    // has appeared.
+    const showBar = useDelayedFlag(isLoading, { delayMs: 200, minVisibleMs: 400 });
 
     return (
         <div className={cn("h-[4px] w-full bg-transparent overflow-hidden relative", className)}>
             <div
                 className={cn(
                     "absolute top-0 left-0 h-full bg-accent transition-transform duration-500 ease-[var(--ease-out)]",
-                    isLoading ? "w-full animate-progress" : "w-0"
+                    showBar ? "w-full animate-progress" : "w-0"
                 )}
             />
             <style jsx>{`

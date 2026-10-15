@@ -74,7 +74,7 @@ function brandFromText(text: string): Brand | null {
  * untrusted text, not a vetted link. Only `http:`/`https:` may become an href;
  * a `javascript:` URI would run in the app's own origin on click.
  *
- * `hostnameOf` cannot do this job — it exists for display and coerces any
+ * `hostnameOf` cannot do this job, it exists for display and coerces any
  * string into a hostname by prepending `https://`, so it never rejects.
  */
 function safeHref(url: string): string | null {
@@ -195,7 +195,7 @@ function SourcesBranch({ sources }: { sources: WebSearchResult[] }) {
                 <Icon
                     icon={ChevronDown20Regular}
                     className={cn(
-                        "text-text-muted opacity-50 transition-transform duration-[var(--transition-fast)] ease-[var(--ease-out)]",
+                        "text-text-muted opacity-50 transition-transform duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
                         open && "rotate-180",
                     )}
                 />
@@ -380,7 +380,7 @@ export function WebSourcesMenu({ results }: { results: WebSearchResult[] }) {
                 <DropdownMenuTrigger asChild>
                     <button
                         type="button"
-                        className="rounded-md p-1 text-text-muted hover:bg-panel-hover hover:text-text-secondary"
+                        className="rounded-md p-1 text-text-muted hover:bg-[var(--btn-hover)] hover:text-text-secondary"
                         aria-label={`${results.length} web sources`}
                     >
                         <Icon icon={Globe20Regular} />

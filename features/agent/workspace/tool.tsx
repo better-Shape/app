@@ -27,7 +27,7 @@ export function ToolBtn({
             onClick={onClick}
             className={cn(
                 "flex size-7 shrink-0 items-center justify-center rounded text-text-muted",
-                "hover:bg-panel-hover hover:text-text-primary",
+                "hover:bg-[var(--btn-hover)] hover:text-text-primary",
                 "disabled:pointer-events-none disabled:opacity-30",
                 active && "text-text-primary",
             )}

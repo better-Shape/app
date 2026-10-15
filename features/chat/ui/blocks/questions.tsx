@@ -216,7 +216,7 @@ export function QuestionsCard({
                                 onClick={() => selectOption(opt)}
                                 className={cn(
                                     "flex items-start gap-2 rounded-md px-1 py-1.5 text-left text-[13px] leading-snug",
-                                    "text-text-secondary hover:bg-panel-hover hover:text-text-primary",
+                                    "text-text-secondary hover:bg-[var(--row-hover)] hover:text-text-primary",
                                     selected && "text-text-primary",
                                     (!pending || submitting) && "cursor-default",
                                 )}

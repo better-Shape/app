@@ -84,7 +84,7 @@ export function ChatUsageButton({ compact = false }: { compact?: boolean }) {
         <Tooltip content={usage.tooltip}>
             <button
                 type="button"
-                className="flex h-7 shrink-0 items-center gap-1.5 rounded-md px-1.5 text-sm text-text-muted hover:bg-panel-hover hover:text-text-primary"
+                className="flex h-7 shrink-0 items-center gap-1.5 rounded-md px-1.5 text-sm text-text-muted hover:bg-[var(--btn-hover)] hover:text-text-primary"
                 onClick={() =>
                     void import("@/lib/window/open-settings").then(({ openSettingsWindow }) =>
                         openSettingsWindow({ category: "providers" }),

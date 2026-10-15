@@ -288,7 +288,7 @@ function BreadcrumbFolderItem({ part, folderPath, nextPartName, gitStatuses, git
     return (
         <MenubarMenu>
             <MenubarTrigger
-                className="flex items-center gap-1 h-5 hover:text-text-primary px-1.5 py-0.5 rounded-[5px] cursor-pointer transition-colors outline-none hover:bg-panel-hover data-[state=open]:bg-panel-hover data-[state=open]:text-text-primary max-w-[250px]"
+                className="flex items-center gap-1 h-5 hover:text-text-primary px-1.5 py-0.5 rounded-[5px] cursor-pointer transition-colors outline-none hover:bg-[var(--row-hover)] data-[state=open]:bg-panel-hover data-[state=open]:text-text-primary max-w-[250px]"
                 onClick={onTriggerClick}
             >
                 <span className="truncate">{part}</span>
@@ -344,7 +344,7 @@ function BreadcrumbOutlineItem({
 }: { part: string, kind: string | null, symbols: OutlineSymbol[], activeSymbolId: string | null, filePath: string }) {
     return (
         <MenubarMenu>
-            <MenubarTrigger className="flex items-center gap-1 h-5 hover:text-text-primary px-1.5 py-0.5 rounded-[5px] cursor-pointer transition-colors outline-none hover:bg-panel-hover data-[state=open]:bg-panel-hover data-[state=open]:text-text-primary max-w-[250px]">
+            <MenubarTrigger className="flex items-center gap-1 h-5 hover:text-text-primary px-1.5 py-0.5 rounded-[5px] cursor-pointer transition-colors outline-none hover:bg-[var(--row-hover)] data-[state=open]:bg-panel-hover data-[state=open]:text-text-primary max-w-[250px]">
                 {kind === null ? (
                     <FileIcon name={part} className="w-3.5 h-3.5 shrink-0" />
                 ) : (

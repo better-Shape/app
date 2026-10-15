@@ -33,13 +33,13 @@ import {
 export type ChatTab = {
     id: string;
     title: string;
-    /** Models used in this chat — for tab avatar stack. */
+    /** Models used in this chat, for tab avatar stack. */
     models?: string[];
     /** Git status letter for file-diff tabs (A/M/D/…). */
     gitStatus?: string;
 };
 
-/** Draft / unsaved conversation sentinel — still used by the chat session store. */
+/** Draft / unsaved conversation sentinel, still used by the chat session store. */
 export const NEW_CHAT_TAB_ID = "__new_chat__";
 
 export function isEphemeralChatTabId(id: string): boolean {
@@ -152,7 +152,7 @@ function SortableChatTab({
                                 onClose(tab.id);
                             }}
                             className={cn(
-                                "absolute inset-y-0 right-0 z-[2] flex w-7 items-center justify-end pr-1 opacity-0 transition-opacity group-hover:opacity-100",
+                                "absolute inset-y-0 right-0 z-[2] flex w-7 items-center justify-end pr-1 opacity-0 transition-opacity duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] group-hover:opacity-100",
                                 "bg-linear-to-l to-transparent from-50%",
                                 isActive ? "from-surface-3" : "from-panel-hover",
                             )}
@@ -190,7 +190,7 @@ function SortableChatTab({
     );
 }
 
-/** Chat conversation tabs — same TabBarShell as workspace / editor tabs. */
+/** Chat conversation tabs, same TabBarShell as workspace / editor tabs. */
 export function ChatTabBar({
     title,
     onNewChat,

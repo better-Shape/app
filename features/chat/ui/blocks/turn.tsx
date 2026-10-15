@@ -49,7 +49,7 @@ function fileName(path: string): string {
     return path.split(/[\\/]/).pop() || path;
 }
 
-/** Action word bright; detail muted — no chip / full-line highlight. */
+/** Action word bright; detail muted, no chip / full-line highlight. */
 function GroupActionLabel({
     action,
     detail,
@@ -342,7 +342,7 @@ function EditApprovalRow({ block }: { block: Chunk }) {
                     <Icon
                         icon={ChevronRight20Regular}
                         className={cn(
-                            "shrink-0 text-text-muted opacity-50 transition-transform duration-[var(--transition-fast)] ease-[var(--ease-out)]",
+                            "shrink-0 text-text-muted opacity-50 transition-transform duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
                             diffOpen && "rotate-90",
                         )}
                     />
@@ -364,7 +364,7 @@ function EditApprovalRow({ block }: { block: Chunk }) {
     );
 }
 
-/** Applied (previously gated) edit — same presentation as a normal edit row. */
+/** Applied (previously gated) edit, same presentation as a normal edit row. */
 function StepRowAppliedEdit({ block }: { block: Chunk }) {
     const { add, del } = editDelta(block);
     const file = block.file || "";

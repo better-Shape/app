@@ -156,7 +156,7 @@ function TreeNode({
                     type="button"
                     onClick={() => { onSelect?.(entry); setOpen((v) => !v); }}
                     className={cn(
-                        "flex h-6 w-full items-center gap-1 rounded-md pr-2 text-left text-sm text-text-secondary hover:bg-panel-hover hover:text-text-primary",
+                        "flex h-6 w-full items-center gap-1 rounded-md pr-2 text-left text-sm text-text-secondary hover:bg-[var(--row-hover)] hover:text-text-primary",
                         revealed && "bg-panel-active text-text-primary",
                         selected && !revealed && "bg-panel-hover text-text-primary",
                         cut && "opacity-50",
@@ -224,7 +224,7 @@ function TreeNode({
                     ? "bg-panel-active text-text-primary"
                     : selected
                       ? "bg-panel-hover text-text-primary"
-                      : "text-text-secondary hover:bg-panel-hover hover:text-text-primary",
+                      : "text-text-secondary hover:bg-[var(--row-hover)] hover:text-text-primary",
                 cut && "opacity-50",
             )}
             style={{ paddingLeft: pad }}
@@ -395,7 +395,7 @@ export function FileTree({
     }, [statusByPath]);
 
     // Padding on the wrapper (not margin on the island) keeps the flex parent
-    // from shifting — the island sits inset without pushing layout sideways.
+    // from shifting, the island sits inset without pushing layout sideways.
     return (
         <div
             data-explorer-root="true"

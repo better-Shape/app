@@ -80,6 +80,13 @@ const eslintConfig = defineConfig([
     "public/preview/**",
     // Coverage
     "coverage/**",
+    // Playwright output from `npm run qa`: traces, screenshots and a report bundle
+    // whose assets are minified. ESLint reads them as source and its formatter
+    // dies on the 500KB+ bundles, so `npm run qa && npm run lint` used to crash.
+    "test-results/**",
+    "playwright-report/**",
+    "blob-report/**",
+    "playwright/.cache/**",
   ]),
   {
     // Node tooling scripts; the Next.js config never defines the React hooks

@@ -810,7 +810,7 @@ export function GitHubDetailPane({
                                 ) : (
                                     <div className="flex flex-col gap-2">
                                         <p className="text-sm text-text-muted">
-                                            Orient before the diff — what changed, how checks
+                                            Orient before the diff, what changed, how checks
                                             look, and merge readiness. Runs only when you ask.
                                         </p>
                                         <Button
@@ -867,7 +867,7 @@ export function GitHubDetailPane({
                                                         <li key={`check-${c.id}`}>
                                                             <button
                                                                 type="button"
-                                                                className="w-full rounded-lg px-2 py-1.5 text-left text-xs hover:bg-panel-hover"
+                                                                className="w-full rounded-lg px-2 py-1.5 text-left text-xs hover:bg-[var(--row-hover)]"
                                                                 onClick={() =>
                                                                     openUrl(c.html_url)
                                                                 }
@@ -935,7 +935,7 @@ export function GitHubDetailPane({
                                                             key={`p-${c.id}`}
                                                             className="px-2 py-1 text-xs text-text-secondary"
                                                         >
-                                                            {c.name} — {c.status}
+                                                            {c.name}, {c.status}
                                                         </li>
                                                     ))}
                                                 </ul>
@@ -994,7 +994,7 @@ export function GitHubDetailPane({
                                             <li key={f.filename}>
                                                 <button
                                                     type="button"
-                                                    className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-panel-hover"
+                                                    className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-[var(--row-hover)]"
                                                     onClick={() =>
                                                         void openChangedFile(f.filename)
                                                     }
@@ -1093,7 +1093,7 @@ export function GitHubDetailPane({
                                     <li key={c.sha}>
                                         <button
                                             type="button"
-                                            className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left hover:bg-panel-hover"
+                                            className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left hover:bg-[var(--row-hover)]"
                                             onClick={() =>
                                                 openUrl(
                                                     `https://github.com/${owner}/${repo}/commit/${c.sha}`,
@@ -1135,7 +1135,7 @@ export function GitHubDetailPane({
                                         <li key={run.id}>
                                             <button
                                                 type="button"
-                                                className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left hover:bg-panel-hover"
+                                                className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left hover:bg-[var(--row-hover)]"
                                                 onClick={() => openUrl(run.html_url)}
                                             >
                                                 <Icon
@@ -1223,7 +1223,7 @@ export function GitHubDetailPane({
                                             <button
                                                 type="button"
                                                 className={cn(
-                                                    "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-panel-hover",
+                                                    "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-[var(--row-hover)]",
                                                     focusedFindingPath === f.filename &&
                                                         "bg-panel-hover ring-1 ring-border",
                                                 )}
@@ -1272,7 +1272,7 @@ export function GitHubDetailPane({
                                 assets.map((a) => (
                                     <li
                                         key={a.id}
-                                        className="flex items-center justify-between gap-2 rounded-lg px-2 py-2 hover:bg-panel-hover"
+                                        className="flex items-center justify-between gap-2 rounded-lg px-2 py-2 hover:bg-[var(--row-hover)]"
                                     >
                                         <div className="min-w-0">
                                             <div className="truncate text-sm">{a.name}</div>

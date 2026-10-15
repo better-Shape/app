@@ -131,9 +131,8 @@ function HeaderIconBtn({
                 onClick={onClick}
                 className={cn(
                     "flex size-7 items-center justify-center rounded-md text-text-muted",
-                    "transition-colors duration-[var(--transition-fast)] ease-[var(--ease-out)]",
-                    "hover:bg-panel-hover hover:text-text-primary",
-                    active && "bg-panel-hover text-text-primary",
+                    "transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary",
+                    active && "bg-[var(--btn-open)] hover:bg-[var(--btn-open-hover)] text-text-primary",
                 )}
             >
                 {children}
@@ -178,7 +177,7 @@ function UndoBar() {
             <button
                 type="button"
                 onClick={() => undoChat()}
-                className="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-sm text-text-secondary transition-colors duration-[var(--transition-fast)] ease-[var(--ease-out)] hover:bg-panel-hover hover:text-text-primary"
+                className="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-sm text-text-secondary transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary"
             >
                 <Icon icon={ArrowUndo20Regular} className="icon-sm" />
                 Undo
@@ -187,7 +186,7 @@ function UndoBar() {
                 type="button"
                 aria-label="Dismiss undo"
                 onClick={() => dismissChatUndo()}
-                className="flex size-6 shrink-0 items-center justify-center rounded-md text-text-muted transition-colors duration-[var(--transition-fast)] ease-[var(--ease-out)] hover:bg-panel-hover hover:text-text-primary"
+                className="flex size-6 shrink-0 items-center justify-center rounded-md text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary"
             >
                 <Icon icon={Dismiss20Regular} className="icon-sm" />
             </button>
@@ -206,7 +205,7 @@ export function ChatList({
     onNewChat,
 }: {
     onNewChat: () => void;
-    /** @deprecated unified Sessions list — ignored */
+    /** @deprecated unified Sessions list, ignored */
     listKind?: "chat";
 }) {
     const viewedChatId = useChatStreamOptional().viewedConversationId;
@@ -674,7 +673,7 @@ export function ChatList({
                                 <button
                                     type="button"
                                     aria-label="Filter"
-                                    className="flex size-7 items-center justify-center rounded-md text-text-muted transition-colors duration-[var(--transition-fast)] ease-[var(--ease-out)] hover:bg-panel-hover hover:text-text-primary data-[state=open]:bg-panel-hover data-[state=open]:text-text-primary"
+                                    className="flex size-7 items-center justify-center rounded-md text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary data-[state=open]:bg-[var(--btn-open)] data-[state=open]:hover:bg-[var(--btn-open-hover)] data-[state=open]:text-text-primary"
                                 >
                                     <Icon icon={Filter20Regular} />
                                 </button>
@@ -719,7 +718,7 @@ export function ChatList({
                                 <button
                                     type="button"
                                     aria-label="Sessions actions"
-                                    className="flex size-7 items-center justify-center rounded-md text-text-muted transition-colors duration-[var(--transition-fast)] ease-[var(--ease-out)] hover:bg-panel-hover hover:text-text-primary data-[state=open]:bg-panel-hover data-[state=open]:text-text-primary"
+                                    className="flex size-7 items-center justify-center rounded-md text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary data-[state=open]:bg-[var(--btn-open)] data-[state=open]:hover:bg-[var(--btn-open-hover)] data-[state=open]:text-text-primary"
                                 >
                                     <Icon icon={MoreHorizontal20Regular} />
                                 </button>
@@ -793,7 +792,7 @@ export function ChatList({
                     <button
                         type="button"
                         onClick={() => window.dispatchEvent(new Event("bettershape-new-project"))}
-                        className="mt-1 flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm text-text-muted hover:bg-panel-hover hover:text-text-secondary"
+                        className="mt-1 flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--row-hover)] hover:text-text-secondary"
                     >
                         <Icon icon={FolderOpen20Regular} />
                         New project
@@ -804,7 +803,7 @@ export function ChatList({
                     <button
                         type="button"
                         onClick={onNewChat}
-                        className="mt-1 flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm text-text-muted hover:bg-panel-hover hover:text-text-secondary"
+                        className="mt-1 flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--row-hover)] hover:text-text-secondary"
                     >
                         <Icon icon={Compose20Regular} className="shrink-0" />
                         <span>New chat</span>

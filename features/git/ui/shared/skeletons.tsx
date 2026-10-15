@@ -1,8 +1,9 @@
 "use client";
 
 import { cn } from "@/lib/utils";
+import { GIT_ROW, GIT_ROW_TEXT, type GitRowVariant } from "./row-shell";
 
-/** Simple pulse block used for Git Manager loading placeholders. */
+/** A block placeholder: toolbars, headers, avatars, anything that is not a text line. */
 export function Skeleton({ className }: { className?: string }) {
     return (
         <div
@@ -15,17 +16,54 @@ export function Skeleton({ className }: { className?: string }) {
     );
 }
 
-/** Matches GitHub list rows (title + subtitle + meta). */
-export function GitListSkeleton({ rows = 8 }: { rows?: number }) {
+/**
+ * A placeholder for one line of text.
+ *
+ * The height comes from the line box itself rather than from a guessed `h-*`: the
+ * span carries the same type classes as the text it replaces and holds one
+ * transparent glyph, so its height is whatever the real line measures, a hard-coded
+ * height drifts the moment either the font scale or the type class changes.
+ */
+export function SkeletonLine({
+    text,
+    width = "w-[70%]",
+    className,
+}: {
+    /** Type classes of the line being stood in for, e.g. `text-sm leading-snug`. */
+    text: string;
+    width?: string;
+    className?: string;
+}) {
+    return (
+        <span
+            aria-hidden
+            className={cn("block select-none animate-pulse truncate rounded-md bg-panel-hover/80 text-transparent", text, width, className)}
+        >
+            M
+        </span>
+    );
+}
+
+/**
+ * Matches Git Manager list rows.
+ *
+ * `variant` selects the row recipe in `row-shell.ts` that the loaded list will use,
+ * so the placeholder and the rows it precedes share one geometry.
+ */
+export function GitListSkeleton({ rows = 8, variant = "run" }: { rows?: number; variant?: GitRowVariant }) {
+    const text = GIT_ROW_TEXT[variant];
     return (
         <ul className="flex flex-col gap-0.5 p-1" aria-busy aria-label="Loading">
             {Array.from({ length: rows }, (_, i) => (
-                <li key={i} className="flex flex-col gap-1.5 rounded-lg px-2 py-2">
-                    <div className="flex items-start justify-between gap-2">
-                        <Skeleton className="h-4 w-[70%]" />
-                        <Skeleton className="h-3 w-10 shrink-0" />
-                    </div>
-                    <Skeleton className="ml-6 h-3 w-[45%]" />
+                <li key={i} className={cn(GIT_ROW[variant], "pointer-events-none")}>
+                    {variant === "dense" ? (
+                        <SkeletonLine text={text.title} width="w-[70%]" />
+                    ) : (
+                        <div className="flex w-full flex-col gap-0.5">
+                            <SkeletonLine text={text.title} width={i % 3 === 0 ? "w-[85%]" : "w-[65%]"} />
+                            <SkeletonLine text={text.meta} width="w-[40%]" className="ml-4" />
+                        </div>
+                    )}
                 </li>
             ))}
         </ul>
@@ -40,7 +78,7 @@ export function GitDetailSkeleton() {
                 <Skeleton className="mt-0.5 h-7 w-7 shrink-0 rounded-lg" />
                 <div className="min-w-0 flex-1 space-y-2">
                     <Skeleton className="h-5 w-[75%]" />
-                    <Skeleton className="h-3 w-[50%]" />
+                    <SkeletonLine text="text-xs" width="w-[50%]" />
                 </div>
                 <Skeleton className="h-7 w-24 shrink-0 rounded-lg" />
             </div>
@@ -48,18 +86,18 @@ export function GitDetailSkeleton() {
             <div className="flex gap-3 pt-2">
                 <Skeleton className="h-8 w-8 shrink-0 rounded-full" />
                 <div className="min-w-0 flex-1 space-y-2 rounded-xl border border-border-subtle p-3">
-                    <Skeleton className="h-3 w-24" />
-                    <Skeleton className="h-3 w-full" />
-                    <Skeleton className="h-3 w-[90%]" />
-                    <Skeleton className="h-3 w-[60%]" />
+                    <SkeletonLine text="text-xs" width="w-24" />
+                    <SkeletonLine text="text-xs" width="w-full" />
+                    <SkeletonLine text="text-xs" width="w-[90%]" />
+                    <SkeletonLine text="text-xs" width="w-[60%]" />
                 </div>
             </div>
             <div className="flex gap-3">
                 <Skeleton className="h-8 w-8 shrink-0 rounded-full" />
                 <div className="min-w-0 flex-1 space-y-2 rounded-xl border border-border-subtle p-3">
-                    <Skeleton className="h-3 w-28" />
-                    <Skeleton className="h-3 w-full" />
-                    <Skeleton className="h-3 w-[80%]" />
+                    <SkeletonLine text="text-xs" width="w-28" />
+                    <SkeletonLine text="text-xs" width="w-full" />
+                    <SkeletonLine text="text-xs" width="w-[80%]" />
                 </div>
             </div>
         </div>
@@ -85,7 +123,7 @@ export function GitManagerShellSkeleton() {
             </aside>
             <section className="min-h-0 min-w-0 flex-1 border-l border-border-subtle/40 p-3">
                 <Skeleton className="mb-3 h-9 w-48" />
-                <GitListSkeleton rows={10} />
+                <GitListSkeleton rows={10} variant="dense" />
             </section>
         </div>
     );

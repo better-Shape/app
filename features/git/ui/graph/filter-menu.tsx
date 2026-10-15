@@ -31,7 +31,7 @@ export function FilterMenu({
                     type="button"
                     variant="ghost"
                     size="sm"
-                    className="h-8 max-w-[180px] gap-1 rounded-lg border border-border bg-transparent px-2.5 text-sm font-regular text-text-secondary hover:bg-panel-hover hover:text-text-primary"
+                    className="h-8 max-w-[180px] gap-1 rounded-lg border border-border bg-transparent px-2.5 text-sm font-regular text-text-secondary hover:bg-[var(--btn-hover)] hover:text-text-primary"
                 >
                     <span className="truncate">{current}</span>
                     <Icon icon={ChevronDown20Regular} className="shrink-0 text-text-muted" />

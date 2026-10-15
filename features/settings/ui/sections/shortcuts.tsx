@@ -368,7 +368,7 @@ export function KeyboardShortcutsView() {
                                             <button
                                                 type="button"
                                                 aria-label={`Edit ${b.label}`}
-                                                className="flex size-7 items-center justify-center rounded-md text-text-muted hover:bg-panel-hover hover:text-text-primary"
+                                                className="flex size-7 items-center justify-center rounded-md text-text-muted hover:bg-[var(--btn-hover)] hover:text-text-primary"
                                                 onClick={() => setRecording(b)}
                                             >
                                                 <Icon icon={Edit20Regular} />
@@ -376,7 +376,7 @@ export function KeyboardShortcutsView() {
                                             <button
                                                 type="button"
                                                 aria-label={`Remove shortcut for ${b.label}`}
-                                                className="flex size-7 items-center justify-center rounded-md text-text-muted hover:bg-panel-hover hover:text-error"
+                                                className="flex size-7 items-center justify-center rounded-md text-text-muted hover:bg-[var(--btn-hover)] hover:text-error"
                                                 onClick={() => {
                                                     setKeybindingOverride(b.label, "");
                                                     reload();

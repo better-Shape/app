@@ -285,7 +285,7 @@ export function GitHubSection({ section }: { section: GitHubListSection }) {
         <div className="workbench-panel flex h-full min-h-0 flex-col overflow-hidden border border-border-subtle bg-panel">
             <ScrollArea className="h-full min-h-0 p-2" fadeFrom="from-panel">
                 {loading && items.length === 0 ? (
-                    <GitListSkeleton rows={10} />
+                    <GitListSkeleton rows={10} variant="dense" />
                 ) : error && items.length === 0 ? (
                     <div className="flex flex-col gap-2 px-2 py-3">
                         <p className="text-sm text-text-muted">{error}</p>
@@ -310,7 +310,7 @@ export function GitHubSection({ section }: { section: GitHubListSection }) {
                                     type="button"
                                     onClick={() => setSelectedId(item.id)}
                                     className={cn(
-                                        "flex w-full flex-col gap-0.5 rounded-lg px-2 py-2 text-left hover:bg-panel-hover/60",
+                                        "flex w-full flex-col gap-0.5 rounded-lg px-2 py-2 text-left hover:bg-[var(--row-hover)]",
                                         selectedId === item.id && "bg-panel-hover",
                                     )}
                                 >

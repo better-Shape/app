@@ -118,7 +118,7 @@ export function DesignToolbar({
                                     "group flex min-w-0 max-w-56 flex-1 items-center gap-1.5 rounded-t-md px-2",
                                     active
                                         ? "bg-panel text-text-primary"
-                                        : "bg-transparent text-text-secondary hover:bg-panel-hover",
+                                        : "bg-transparent text-text-secondary hover:bg-[var(--row-hover)]",
                                 )}
                                 data-no-drag
                             >

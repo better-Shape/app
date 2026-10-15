@@ -243,7 +243,7 @@ function TerminalCommandMenu({ command }: { command: string }) {
                 <button
                     type="button"
                     aria-label="Command options"
-                    className="rounded p-1 text-text-muted hover:bg-panel-hover hover:text-text-primary"
+                    className="rounded p-1 text-text-muted hover:bg-[var(--btn-hover)] hover:text-text-primary"
                 >
                     <Icon icon={MoreHorizontal20Regular} />
                 </button>
@@ -279,7 +279,7 @@ function TerminalCommandMenu({ command }: { command: string }) {
     );
 }
 
-/** Inline text row matching staged/checked arrow UI — action bright, detail muted; expand shows output only. */
+/** Inline text row matching staged/checked arrow UI, action bright, detail muted; expand shows output only. */
 function TerminalCommandRow({
     command,
     statusLabel,

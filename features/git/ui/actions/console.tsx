@@ -199,7 +199,7 @@ export function ActionsConsole({ focus }: { focus: ActionsFocus }) {
 
             let nextRuns: WorkflowRun[] = [];
             if (statusFilter === "in_progress") {
-                // GitHub allows one status per request — merge queued + in_progress.
+                // GitHub allows one status per request, merge queued + in_progress.
                 const [progressRaw, queuedRaw, workflowsRaw] = await Promise.all([
                     parseApi(`${base}&status=in_progress`),
                     parseApi(`${base}&status=queued`),
@@ -555,7 +555,7 @@ export function ActionsConsole({ focus }: { focus: ActionsFocus }) {
     const artifactRow = (art: Artifact) => (
         <li
             key={art.id}
-            className="flex items-center justify-between gap-2 rounded-lg px-2 py-2 hover:bg-panel-hover"
+            className="flex items-center justify-between gap-2 rounded-lg px-2 py-2 hover:bg-[var(--row-hover)]"
         >
             <div className="min-w-0">
                 <div className="truncate text-sm">{art.name}</div>
@@ -889,7 +889,7 @@ export function ActionsConsole({ focus }: { focus: ActionsFocus }) {
                                           allowedTabs[0] === "artifacts" ? (
                                             <ScrollArea className="min-h-0 flex-1 p-2">
                                                 {loadingDetail ? (
-                                                    <GitListSkeleton rows={5} />
+                                                    <GitListSkeleton rows={5} variant="dense" />
                                                 ) : artifacts.length === 0 ? (
                                                     <p className="px-2 py-3 text-sm text-text-muted">
                                                         No artifacts for this run.
@@ -942,7 +942,7 @@ export function ActionsConsole({ focus }: { focus: ActionsFocus }) {
                                                                 <ul className="flex flex-col gap-0.5">
                                                                     {workflows.map((wf) => (
                                                                         <li key={wf.id}>
-                                                                            <div className="flex items-center gap-2 rounded-lg px-2 py-2 hover:bg-panel-hover">
+                                                                            <div className="flex items-center gap-2 rounded-lg px-2 py-2 hover:bg-[var(--row-hover)]">
                                                                                 <button
                                                                                     type="button"
                                                                                     className="min-w-0 flex-1 text-left"
@@ -995,7 +995,7 @@ export function ActionsConsole({ focus }: { focus: ActionsFocus }) {
                                                     >
                                                         <ScrollArea className="min-h-0 flex-1 p-2">
                                                             {loadingDetail ? (
-                                                                <GitListSkeleton rows={5} />
+                                                                <GitListSkeleton rows={5} variant="dense" />
                                                             ) : artifacts.length === 0 ? (
                                                                 <p className="px-2 py-3 text-sm text-text-muted">
                                                                     No artifacts for this run.

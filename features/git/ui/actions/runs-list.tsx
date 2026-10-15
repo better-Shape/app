@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import type { WorkflowRun } from "./types";
 import { actorAvatarUrl, formatRelative, statusIcon, statusTone } from "./utils";
 import { GitListSkeleton } from "@/features/git/ui/shared/skeletons";
+import { GIT_ROW } from "@/features/git/ui/shared/row-shell";
 
 function RunStatusIcon({
     status,
@@ -54,7 +55,7 @@ export function RunsList({
                 */}
                 <div>
                     {loading && runs.length === 0 ? (
-                        <GitListSkeleton rows={8} />
+                        <GitListSkeleton rows={8} variant="run" />
                     ) : runs.length === 0 ? (
                         <p className="px-3 py-4 text-sm text-text-muted">No runs match.</p>
                     ) : (
@@ -66,10 +67,10 @@ export function RunsList({
                                     variant="ghost"
                                     onClick={() => onSelect(run.id)}
                                     className={cn(
-                                        "h-auto w-full flex-col items-stretch gap-0.5 rounded-xl px-3 py-2 text-left font-normal",
+                                        GIT_ROW.run,
                                         selectedRunId === run.id
                                             ? "bg-panel-hover"
-                                            : "hover:bg-panel-hover/60",
+                                            : "hover:bg-[var(--row-hover)]",
                                     )}
                                 >
                                     <div className="flex items-start gap-2">

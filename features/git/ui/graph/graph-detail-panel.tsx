@@ -18,6 +18,7 @@ import { resolveGithubAvatarUrl } from "@/lib/git/github-avatar";
 import { renderCommitMessage, getRelativeTime } from "./utils";
 import { ManagerDiffEditor } from "@/features/git/ui/shared/manager-diff";
 import { notify } from "@/features/notifications";
+import { useCopyToClipboard } from "@/lib/ui/use-copy";
 import { Tooltip } from "@/components/ui/tooltip";
 
 export type GraphDetailSelection =
@@ -72,7 +73,7 @@ export function GraphDetailPanel({
     repoPath: string | null;
     /** Unmount Monaco while the graph pane is keep-alive-hidden. */
     active?: boolean;
-    /** File list only — diff opens in a sibling panel. */
+    /** File list only, diff opens in a sibling panel. */
     forceCommit?: boolean;
     onClose: () => void;
     onClearFile?: () => void;
@@ -87,6 +88,9 @@ export function GraphDetailPanel({
     const [sideBySide, setSideBySide] = useState(false);
     const [commitFiles, setCommitFiles] = useState<GitFileParams[]>([]);
     const [filesLoading, setFilesLoading] = useState(false);
+    // A commit can have two parents, so the confirmation is keyed by hash: the one
+    // that was copied turns green and the other keeps its normal colour.
+    const { copiedText: copiedParent, copy: copyParent } = useCopyToClipboard({ silent: true, resetMs: 1200 });
 
     const [filesInputs, setFilesInputs] = useState<readonly unknown[] | null>(null);
     if (filesInputs === null || !Object.is(filesInputs[0], log) || !Object.is(filesInputs[1], repoPath) || !Object.is(filesInputs[2], file)) {
@@ -253,11 +257,11 @@ export function GraphDetailPanel({
                         <button
                             key={p}
                             type="button"
-                            className="font-mono text-text-secondary hover:text-accent"
-                            onClick={() => {
-                                void navigator.clipboard.writeText(p);
-                                notify.success("Copied", "Parent hash copied");
-                            }}
+                            className={cn(
+                                "font-mono transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] press-spring",
+                                copiedParent === p ? "text-success" : "text-text-secondary hover:text-accent",
+                            )}
+                            onClick={() => void copyParent(p)}
                         >
                             {p.slice(0, 7)}
                         </button>
@@ -297,7 +301,7 @@ export function GraphDetailPanel({
                                         key={f.path}
                                         type="button"
                                         onClick={() => onOpenFile?.(f)}
-                                        className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-panel-hover"
+                                        className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-[var(--row-hover)]"
                                     >
                                         <FileIcon name={name} className="h-3.5 w-3.5 shrink-0" />
                                         <span className="min-w-0 flex-1 truncate text-sm text-text-primary">

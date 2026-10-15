@@ -504,7 +504,7 @@ function ChatMessageItemInner({
                             {forked ? (
                                 <button
                                     type="button"
-                                    className="mb-2 inline-flex max-w-full items-center gap-1.5 rounded-md px-1 py-0.5 text-xs text-text-muted hover:bg-panel-hover hover:text-text-primary"
+                                    className="mb-2 inline-flex max-w-full items-center gap-1.5 rounded-md px-1 py-0.5 text-xs text-text-muted hover:bg-[var(--row-hover)] hover:text-text-primary"
                                     onClick={() => {
                                         if (!forked.id) return;
                                         window.dispatchEvent(

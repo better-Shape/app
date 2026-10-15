@@ -35,7 +35,7 @@ export function ComposerTasksStrip({ items }: { items: ComposerTaskItem[] }) {
             <DropdownMenuTrigger asChild>
                 <button
                     type="button"
-                    className="flex h-6 max-w-[200px] items-center gap-1.5 rounded-md px-1.5 text-sm text-text-secondary hover:bg-panel-hover hover:text-text-primary"
+                    className="flex h-6 max-w-[200px] items-center gap-1.5 rounded-md px-1.5 text-sm text-text-secondary hover:bg-[var(--btn-hover)] hover:text-text-primary"
                     aria-label="Tasks"
                 >
                     <span className="flex size-4 shrink-0 items-center justify-center">

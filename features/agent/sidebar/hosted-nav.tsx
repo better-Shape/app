@@ -54,7 +54,7 @@ export function HostedSidebarBack({
                     type="button"
                     onClick={onBack}
                     aria-label={label}
-                    className="flex size-7 items-center justify-center rounded-md text-text-muted hover:bg-panel-hover hover:text-text-primary"
+                    className="flex size-7 items-center justify-center rounded-md text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary"
                 >
                     <Icon icon={icon} />
                 </button>
@@ -71,7 +71,7 @@ export function HostedSidebarBack({
                         type="button"
                         onClick={onBack}
                         aria-label={label}
-                        className="flex size-9 items-center justify-center rounded-md text-text-secondary transition-colors duration-[var(--transition-fast)] ease-[var(--ease-out)] hover:bg-panel-hover hover:text-text-primary"
+                        className="flex size-9 items-center justify-center rounded-md text-text-secondary transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary"
                     >
                         <Icon icon={icon} />
                     </button>

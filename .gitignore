@@ -46,6 +46,12 @@ yarn-error.log*
 /blob-report/
 /playwright/.cache/
 
+# generated capture output: GIFs, contact sheets, frame sequences and the spring
+# comparison page. Re-record with scripts/qa/make-gifs.cjs, scripts/qa/shot-*.cjs
+# and scripts/motion/compare.mjs --write. The documents beside them are tracked.
+/.dump/app/qa/
+/scripts/motion/compare.html
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

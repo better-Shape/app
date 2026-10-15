@@ -43,8 +43,8 @@ export function AgentTabsChip() {
                 className={cn(
                     "inline-flex w-fit max-w-full items-center gap-1.5 rounded-lg px-2 py-1",
                     "text-sm font-normal text-text-secondary",
-                    "hover:bg-panel-hover hover:text-text-primary",
-                    "transition-colors duration-[var(--transition-fast)] ease-[var(--ease-out)]",
+                    "transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--row-hover)] hover:text-text-primary",
+                    "transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
                 )}
             >
                 <Icon icon={Bot20Regular} className="text-text-muted" />
@@ -69,7 +69,7 @@ export function AgentTabsChip() {
                                 openSubagent(card.id);
                                 setOpen(false);
                             }}
-                            className="flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1 text-left text-sm font-normal text-text-secondary hover:bg-panel-hover hover:text-text-primary"
+                            className="flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1 text-left text-sm font-normal text-text-secondary transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--row-hover)] hover:text-text-primary"
                         >
                             <span className="min-w-0 flex-1 truncate">{card.title}</span>
                         </button>

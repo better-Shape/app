@@ -134,7 +134,7 @@ function TerminalInstance({ tab, isActive }: { tab: TerminalTab, isActive: boole
             if (isActive && rect.width >= 120 && rect.height >= 80) return true;
             await new Promise((res) => setTimeout(res, 50));
         }
-        // Don't give up forever — wait for a real resize if the panel was still settling.
+        // Don't give up forever, wait for a real resize if the panel was still settling.
         return await new Promise<boolean>((resolve) => {
             let done = false;
             const finish = (ok: boolean) => {
@@ -323,6 +323,9 @@ function TerminalInstance({ tab, isActive }: { tab: TerminalTab, isActive: boole
                 unlistenOutput = await listen<{ id: number; data: string }>("pty-output", (e) => {
                     if (e.payload.id === ptyId && term) {
                         term.write(e.payload.data);
+                        // Tells the tab strip this tab has output the user has not
+                        // looked at yet. A no-op past the first chunk.
+                        globalTerminalStore.noteOutput(ptyId);
 
                         // Detect development server URLs for the Preview panel
                         const devMatch = e.payload.data.match(/https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]):\d+/);
@@ -559,7 +562,7 @@ export default function Terminal({
 }: {
     onClose?: () => void;
     isOpen?: boolean;
-    /** Hide Problems/Output/Tests chrome — terminal tabs only. */
+    /** Hide Problems/Output/Tests chrome, terminal tabs only. */
     terminalOnly?: boolean;
 }) {
     const { project_path } = useProjectState();
@@ -567,6 +570,7 @@ export default function Terminal({
     const [projectActiveTabs, setProjectActiveTabs] = useState<Record<string, string | null>>(globalTerminalStore.activeProjectTabs);
     const [secondaryActiveTabs, setSecondaryActiveTabs] = useState<Record<string, string | null>>(globalTerminalStore.activeSecondaryTabs);
     const [focusedGroups, setFocusedGroups] = useState<Record<string, TerminalGroupId>>(globalTerminalStore.focusedGroup);
+    const [unreadTabs, setUnreadTabs] = useState<Set<string>>(new Set(globalTerminalStore.unreadTabs));
     const safeCwd = project_path || "global";
     const currentTabs = terminalTabs.filter(t => t.cwd === safeCwd);
     const leftTabs = currentTabs.filter((t) => (t.group ?? "left") === "left");
@@ -650,6 +654,7 @@ export default function Terminal({
         setProjectActiveTabs({ ...globalTerminalStore.activeProjectTabs });
         setSecondaryActiveTabs({ ...globalTerminalStore.activeSecondaryTabs });
         setFocusedGroups({ ...globalTerminalStore.focusedGroup });
+        setUnreadTabs(new Set(globalTerminalStore.unreadTabs));
     }), []);
 
     const setActiveTerminalId = useCallback((id: string | null) => {
@@ -962,6 +967,7 @@ export default function Terminal({
         >
             {tabs.map((tab) => {
                 const isActive = activeId === tab.id;
+                const unread = !isActive && unreadTabs.has(tab.id);
                 return (
                     <div
                         key={tab.id}
@@ -969,17 +975,28 @@ export default function Terminal({
                         className={workbenchTabItemClass(isActive)}
                     >
                         <span className="max-w-[160px] truncate text-sm">{tab.title}</span>
-                        <button
-                            type="button"
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                closeTab(tab.id);
-                            }}
-                            className={WORKBENCH_TAB_CLOSE_BUTTON_CLASS}
-                            aria-label={`Close ${tab.title}`}
-                        >
-                            <Icon icon={Dismiss20Regular} />
-                        </button>
+                        {unread ? <span className="sr-only">New output</span> : null}
+                        {/* One 16px slot, two occupants: the unread dot hands it to
+                            the close button under the pointer, at the same beat the
+                            file tabs use, so no state change shifts the title. */}
+                        <div className="relative flex h-4 w-4 shrink-0 items-center justify-center">
+                            <span className="t-tab-dot absolute" data-on={unread ? "true" : "false"} aria-hidden />
+                            <button
+                                type="button"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    closeTab(tab.id);
+                                }}
+                                className={cn(
+                                    WORKBENCH_TAB_CLOSE_BUTTON_CLASS,
+                                    "absolute transition-opacity duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
+                                    isActive ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+                                )}
+                                aria-label={`Close ${tab.title}`}
+                            >
+                                <Icon icon={Dismiss20Regular} />
+                            </button>
+                        </div>
                     </div>
                 );
             })}
@@ -1084,7 +1101,7 @@ export default function Terminal({
                                         "",
                                         active
                                             ? "bg-surface-3 text-text-primary"
-                                            : "text-text-muted hover:bg-panel-hover hover:text-text-secondary",
+                                            : "text-text-muted hover:bg-[var(--btn-hover)] hover:text-text-secondary",
                                     )}
                                     onClick={() => setActiveView(viewId)}
                                 >

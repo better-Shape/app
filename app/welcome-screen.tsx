@@ -120,7 +120,7 @@ const RecentProjects = ({
                         <button
                             type="button"
                             onClick={() => onOpenProject(entry.path)}
-                            className="flex w-full items-baseline justify-between gap-4 rounded-md px-1 py-1.5 text-left text-sm hover:bg-panel-hover"
+                            className="flex w-full items-baseline justify-between gap-4 rounded-md px-1 py-1.5 text-left text-sm hover:bg-[var(--row-hover)]"
                         >
                             <span className="shrink-0 text-text-primary">{getRepoName(entry.path)}</span>
                             <span className="min-w-0 truncate text-right text-text-muted">

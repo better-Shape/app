@@ -5,7 +5,6 @@ import { ChevronRight20Regular } from "@fluentui/react-icons/headless/svg/chevro
 import { WindowConsole20Regular } from "@fluentui/react-icons/headless/svg/window-console";
 
 
-import type { ReactNode } from "react";
 import { Icon } from "@/components/ui/icon";
 
 import { Button } from "@/components/ui/button";
@@ -13,7 +12,9 @@ import { ScrollArea } from "@/components/ui/scroll";
 import { cn } from "@/lib/utils";
 import type { WorkflowJob, WorkflowStep } from "./types";
 import { durationLabel, statusIcon, statusTone } from "./utils";
+import { Collapse } from "@/components/ui/collapse";
 import { GitListSkeleton } from "@/features/git/ui/shared/skeletons";
+import { GIT_ROW } from "@/features/git/ui/shared/row-shell";
 
 function JobStatusIcon({
     status,
@@ -33,19 +34,6 @@ function JobStatusIcon({
                 icon.spin && "animate-spin",
             )}
         />
-    );
-}
-
-function AnimatedCollapse({ open, children }: { open: boolean; children: ReactNode }) {
-    return (
-        <div
-            className={cn(
-                "grid transition-[grid-template-rows,opacity] duration-200 ease-[var(--ease-out)]",
-                open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
-            )}
-        >
-            <div className="min-h-0 overflow-hidden">{children}</div>
-        </div>
     );
 }
 
@@ -82,7 +70,7 @@ export function JobsPanel({
                 </div>
                 <ScrollArea className="min-h-0 flex-1" fadeFrom="from-panel">
                     {loading && flat.length === 0 ? (
-                        <GitListSkeleton rows={8} />
+                        <GitListSkeleton rows={8} variant="dense" />
                     ) : flat.length === 0 ? (
                         <p className="px-3 py-4 text-sm text-text-muted">No steps yet.</p>
                     ) : (
@@ -92,10 +80,10 @@ export function JobsPanel({
                                     <button
                                         type="button"
                                         className={cn(
-                                            "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs",
+                                            GIT_ROW.dense,
                                             selectedJobId === job.id
                                                 ? "bg-panel-hover"
-                                                : "hover:bg-panel-hover/60",
+                                                : "hover:bg-[var(--row-hover)]",
                                         )}
                                         onClick={() => onSelectStep?.(job.id, step)}
                                     >
@@ -127,7 +115,7 @@ export function JobsPanel({
             </div>
             <ScrollArea className="min-h-0 flex-1 mx-1.5" fadeFrom="from-panel">
                 {loading && jobs.length === 0 ? (
-                    <GitListSkeleton rows={6} />
+                    <GitListSkeleton rows={6} variant="job" />
                 ) : jobs.length === 0 ? (
                     <p className="px-3 py-4 text-sm text-text-muted">No jobs yet.</p>
                 ) : (
@@ -140,13 +128,13 @@ export function JobsPanel({
                             >
                                 <Button
                                     variant="ghost"
-                                    className="h-auto w-full items-start gap-1 rounded-xl px-2 py-2 text-left font-normal"
+                                    className={GIT_ROW.job}
                                     onClick={() => onToggleJob(job.id)}
                                 >
                                     <Icon
                                         icon={ChevronRight20Regular}
                                         className={cn(
-                                            "mt-0.5 shrink-0 text-text-muted transition-transform duration-200 ease-[var(--ease-out)]",
+                                            "mt-0.5 shrink-0 text-text-muted transition-transform duration-[var(--spring-flick-dur)] ease-[var(--spring-flick)]",
                                             open && "rotate-90",
                                         )}
                                     />
@@ -167,14 +155,14 @@ export function JobsPanel({
                                         </div>
                                     </div>
                                 </Button>
-                                <AnimatedCollapse open={open}>
+                                <Collapse open={open}>
                                     {job.steps && job.steps.length > 0 ? (
                                         <ul className="pb-2 pl-7 pr-2">
                                             {job.steps.map((step) => (
                                                 <li key={`${job.id}-${step.number}`}>
                                                     <button
                                                         type="button"
-                                                        className="flex w-full items-center gap-2 rounded-lg px-1.5 py-1 text-left text-xs hover:bg-panel-hover/60"
+                                                        className="flex w-full items-center gap-2 rounded-lg px-1.5 py-1 text-left text-xs hover:bg-[var(--row-hover)]"
                                                         onClick={() => onSelectStep?.(job.id, step)}
                                                     >
                                                         <JobStatusIcon
@@ -212,7 +200,7 @@ export function JobsPanel({
                                             </Button>
                                         ) : null}
                                     </div>
-                                </AnimatedCollapse>
+                                </Collapse>
                             </div>
                         );
                     })

@@ -15,8 +15,8 @@ export type MorphMenuVariant = "default" | "morph";
 /**
  * Pill trigger → panel.
  *
- * - `variant="default"` — static pill + absolute popover (no size tween)
- * - `variant="morph"` — transitions.dev PlusMenu size/radius morph
+ * - `variant="default"`, static pill + absolute popover (no size tween)
+ * - `variant="morph"`, transitions.dev PlusMenu size/radius morph
  *
  * Same idea as `Button variant="ghost"`: opt in per instance.
  *
@@ -97,7 +97,7 @@ export function MorphMenu({
                     onClick={() => setOpen((v) => !v)}
                     className={cn(
                         "inline-flex h-8 items-center gap-1.5 squircle-2xl border border-border bg-surface-3/80 backdrop-blur-sm px-3 text-sm text-text-secondary",
-                        "hover:bg-panel-hover hover:text-text-primary",
+                        "hover:bg-[var(--btn-hover)] hover:text-text-primary",
                         open && "bg-panel-active text-text-primary",
                     )}
                 >

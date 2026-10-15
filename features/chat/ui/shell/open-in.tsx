@@ -112,7 +112,7 @@ export function OpenInMenu({ path }: { path?: string | null } = {}) {
                         aria-label="Open in"
                         variant="outline"
                         size="sm"
-                        className="px-1.5 text-sm text-text-muted hover:bg-panel-hover hover:text-text-primary"
+                        className="px-1.5 text-sm text-text-muted hover:bg-[var(--btn-hover)] hover:text-text-primary"
                     >
                         <BrandIcon icon={cursor} />
                         <span>Open</span>

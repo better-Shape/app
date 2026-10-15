@@ -5,7 +5,9 @@ import { useClock } from "@/lib/ui/use-clock";
 import { CHAT_SHELVES, type ChatShelfId, type RowVariant } from "./shelf-spec";
 
 /**
- * The session list's shelves.
+ * The session list's shelves, one per state a chat can be in: pinned, working, or the chat
+ * on screen. Every section derives from data BetterShape already tracks, so a shelf needs
+ * nothing persisted to exist.
  *
  * A flat list cannot say "which of these is running" and "which one am I looking
  * at" without the user reading every row. t3code solves that with labelled
@@ -93,13 +95,8 @@ export const SORT_OPTIONS: { value: ChatSort; label: string }[] = [
 ];
 
 /**
- * List order inside one shelf.
- *
- * Pin used to lead this comparator, which turned newest-first into a tiebreak
- * within the pinned block and quietly overrode the sort menu for everything else.
- * Shelves now own the pin split, so the sort choice is the whole answer. The id
- * tiebreak keeps equal-timestamped rows from swapping between two otherwise
- * identical renders, which is what makes a reorder animate instead of flicker.
+ * Shelves own the pin split, so the sort choice is the whole answer. The id tiebreak keeps
+ * equal-timestamped rows from swapping, which is what makes a reorder animate.
  */
 export function sortShelf(chats: readonly Conversation[], sort: ChatSort): Conversation[] {
     const sorted = [...chats];
@@ -214,18 +211,9 @@ export interface ChatGroupHeader {
 export type ChatShelfChild = ChatShelfHeader | ChatShelfRow | ChatGroupHeader;
 
 /**
- * Headers and rows as one flat sequence.
- *
- * The variant in `key` is the whole point. Two rows in the same variant key the
- * same, so React moves the existing node and a chat hopping between the settled
- * and working shelves slides. Crossing into the pinned card changes height, and
- * there the key changes too: React tears the row down, the motion layer fades the
- * old box out and the new one in, and the height change reads as a crossfade
- * rather than a jump.
- *
- * With a single section there are no headers at all, which is what keeps the
- * common case — one chat, nothing pinned, nothing running — looking like the flat
- * list it replaced.
+ * Headers and rows as one flat sequence. The variant in `key` is the point: same variant
+ * keys the same, so React moves the node and the row slides, while crossing into the
+ * pinned card changes the key and the height change crossfades instead of jumping.
  */
 export function buildShelfChildren(
     sections: readonly ChatShelfSection[],
@@ -327,12 +315,373 @@ export interface ChatShelfRowProps {
     handlers: ChatLifecycleHandlers;
 }
 
-/** Render a session row with shared lifecycle actions, inline rename, selection, and optional shelf dragging. */
-function ChatRow({
-    activity,
-    shelf,
-    draggable = false,
-    disposition,
+/** Colour submenu shared shape: radio list over the chat colour palette. */
+const ChatColourSubmenuItems = ({ color, chooseColor }: {
+    color: ChatColor | null;
+    chooseColor: (next: string) => void;
+}) => (
+    <>
+        <DropdownMenuSubTrigger>
+            <Icon icon={Color20Regular} />
+            Colour
+        </DropdownMenuSubTrigger>
+        <DropdownMenuSubContent className="min-w-32">
+            <DropdownMenuRadioGroup value={color ?? "none"} onValueChange={chooseColor}>
+    <DropdownMenuRadioItem value="none">None</DropdownMenuRadioItem>
+    {CHAT_COLORS.map((entry) => (
+        <DropdownMenuRadioItem key={entry} value={entry}>
+            {entry.charAt(0).toUpperCase() + entry.slice(1)}
+        </DropdownMenuRadioItem>
+    ))}
+
+            </DropdownMenuRadioGroup>
+        </DropdownMenuSubContent>
+    </>
+);
+
+/** Trigger button for the chat actions dropdown. */
+const ChatActionsTrigger = () => (
+    <Tooltip content="Chat actions" side="bottom">
+        <DropdownMenuTrigger asChild>
+            <button
+                type="button"
+                aria-label="Chat actions"
+                className="flex size-6 items-center justify-center rounded-md text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary"
+            >
+                <Icon icon={MoreHorizontal20Regular} className="icon-sm" />
+            </button>
+        </DropdownMenuTrigger>
+    </Tooltip>
+);
+
+/** Hover-revealed row actions: pin button plus the lifecycle and colour menus. */
+const ChatRowActionMenus = ({ pinned, color, actions, chooseColor, addToCollection, onTogglePin }: {
+    pinned: boolean;
+    color: ChatColor | null;
+    actions: ReturnType<typeof buildChatLifecycleActions>;
+    chooseColor: (next: string) => void;
+    addToCollection: () => void;
+    onTogglePin: (pinned: boolean) => void;
+}) => {
+    const dropdown = {
+        Item: (props: { onClick?: () => void; className?: string; children?: ReactNode }) => (
+            <DropdownMenuItem {...props} />
+        ),
+        Separator: () => <DropdownMenuSeparator />,
+    };
+    return (
+        <span className="flex min-w-0 overflow-hidden">
+            {pinned ? null : (
+            <Tooltip content="Pin" side="bottom">
+                <button
+                    type="button"
+                    aria-label="Pin"
+                    onClick={() => onTogglePin(true)}
+                    className="flex size-6 items-center justify-center rounded-md text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary"
+                >
+                    <Icon icon={Pin20Regular} className="icon-sm" />
+                </button>
+            </Tooltip>
+            )}
+            <DropdownMenu modal={false}>
+                <ChatActionsTrigger />
+                <DropdownMenuContent side="bottom" align="end" sideOffset={6} className="min-w-48">
+                    {renderLifecycleActions(actions, dropdown)}
+                    <DropdownMenuSeparator />
+                    <DropdownMenuSub>
+                        <ChatColourSubmenuItems color={color} chooseColor={chooseColor} />
+                    </DropdownMenuSub>
+                    <DropdownMenuItem onClick={addToCollection}>
+                        <Icon icon={Collections20Regular} />
+                        Add to collection
+                    </DropdownMenuItem>
+                </DropdownMenuContent>
+            </DropdownMenu>
+        </span>
+    );
+};
+/** Expanded list of a chat's subagents under its row. */
+const ChatRowSubagents = ({ id, color, subagents, onOpen }: {
+    id: string;
+    color: ChatColor | null;
+    subagents: SubagentCard[];
+    onOpen: () => void;
+}) => {
+    /** Open one subagent: clear the parent chat's unread flag, open it, then show the worker. */
+    const openWorker = (card: SubagentCard) => {
+        clearChatUnread(id);
+        onOpen();
+        openSubagent(card.id);
+    };
+    return (
+        <div className="flex flex-col">
+            {subagents.map((card) => (
+                <button
+                    key={`s-${card.id}`}
+                    type="button"
+                    onClick={() => openWorker(card)}
+                    className={cn(
+                        "flex h-8 items-center gap-2 pr-2 pl-7 text-left text-sm text-text-secondary",
+                        color
+                            ? "hover:bg-[color-mix(in_oklch,var(--chat-tint)_4%,transparent)] hover:text-text-primary"
+                            : "transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--row-hover)] hover:text-text-primary",
+                    )}
+                >
+                    <span className={cn("size-1.5 shrink-0 rounded-full", nestedDot(card.status))} aria-hidden />
+                    <span className="block min-w-0 flex-1 overflow-hidden whitespace-nowrap [mask-image:linear-gradient(to_right,#000_0,#000_calc(100%-1.5rem),transparent)]">
+                        {card.title}
+                    </span>
+                </button>
+            ))}
+        </div>
+    );
+};
+
+/** Colour submenu for the row context menu. */
+const ChatColourContextSubmenu = ({ color, chooseColor }: {
+    color: ChatColor | null;
+    chooseColor: (next: string) => void;
+}) => (
+    <ContextMenuSub>
+        <ContextMenuSubTrigger>
+            <Icon icon={Color20Regular} />
+            Colour
+        </ContextMenuSubTrigger>
+        <ContextMenuSubContent className="min-w-32">
+            <ContextMenuRadioGroup value={color ?? "none"} onValueChange={chooseColor}>
+                <ContextMenuRadioItem value="none">None</ContextMenuRadioItem>
+                {CHAT_COLORS.map((entry) => (
+                    <ContextMenuRadioItem key={entry} value={entry}>
+                        {entry.charAt(0).toUpperCase() + entry.slice(1)}
+                    </ContextMenuRadioItem>
+                ))}
+            </ContextMenuRadioGroup>
+        </ContextMenuSubContent>
+    </ContextMenuSub>
+);
+
+/** The row's right-click menu: lifecycle actions plus colour and collection entries. */
+const ChatRowContextMenu = ({ actions, color, chooseColor, addToCollection }: {
+    actions: ReturnType<typeof buildChatLifecycleActions>;
+    color: ChatColor | null;
+    chooseColor: (next: string) => void;
+    addToCollection: () => void;
+}) => {
+    const context = {
+        Item: (props: { onClick?: () => void; className?: string; children?: ReactNode }) => (
+            <ContextMenuItem {...props} />
+        ),
+        Separator: () => <ContextMenuSeparator />,
+    };
+    return (
+        <ContextMenuContent className="min-w-48">
+            {renderLifecycleActions(actions, context)}
+            <ContextMenuSeparator />
+            <ChatColourContextSubmenu color={color} chooseColor={chooseColor} />
+            <ContextMenuItem onClick={addToCollection}>
+                <Icon icon={Collections20Regular} />
+                Add to collection
+            </ContextMenuItem>
+        </ContextMenuContent>
+    );
+};
+
+/** Status dots at the row edge: generation spinner and unread marker. */
+const ChatRowStatusDots = ({ generating, unread }: { generating: boolean; unread: boolean }) => (
+    <span className="flex shrink-0 items-center gap-1">
+        {generating ? (
+            <Eclipse size={12} className="text-text-muted" aria-hidden />
+        ) : null}
+        {unread ? (
+            <span className="size-2 shrink-0 rounded-full bg-accent" aria-label="Unread" />
+        ) : null}
+    </span>
+);
+
+/** Unpin button shown on pinned rows. */
+const ChatRowUnpinButton = ({ pinned, onTogglePin }: {
+    pinned: boolean;
+    onTogglePin: (pinned: boolean) => void;
+}) => pinned ? (
+    <Tooltip content="Unpin" side="bottom">
+        <button
+            type="button"
+            aria-label="Unpin"
+            onClick={() => onTogglePin(false)}
+            className="flex size-6 items-center justify-center rounded-md text-text-primary"
+        >
+            <Icon icon={Pin20Filled} className="icon-sm" />
+        </button>
+    </Tooltip>
+) : null;
+
+/** Chevron toggle that expands or collapses the subagent list. */
+const ChatRowSubagentToggle = ({ nestedCount, expanded, setExpanded }: {
+    nestedCount: number;
+    expanded: boolean;
+    setExpanded: React.Dispatch<React.SetStateAction<boolean>>;
+}) => nestedCount > 0 ? (
+    <button
+        type="button"
+        aria-label={expanded ? "Hide agents" : "Show agents"}
+        aria-expanded={expanded}
+        onClick={() => setExpanded((open) => !open)}
+        className="flex size-5 shrink-0 items-center justify-center text-text-muted"
+    >
+        <Icon
+            icon={ChevronRight20Regular}
+            className={cn(
+                "icon-sm transition-transform duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
+                expanded && "rotate-90",
+            )}
+        />
+    </button>
+) : null;
+
+/** The row's trailing cluster: status dots, hover actions, unpin, and the subagent toggle. */
+const ChatRowTrailingActions = ({ generating, unread, pinned, nestedCount, expanded, color, actions, chooseColor, addToCollection, onTogglePin, setExpanded }: {
+    generating: boolean;
+    unread: boolean;
+    pinned: boolean;
+    nestedCount: number;
+    expanded: boolean;
+    color: ChatColor | null;
+    actions: ReturnType<typeof buildChatLifecycleActions>;
+    chooseColor: (next: string) => void;
+    addToCollection: () => void;
+    onTogglePin: (pinned: boolean) => void;
+    setExpanded: React.Dispatch<React.SetStateAction<boolean>>;
+}) => (
+    <>
+        <ChatRowStatusDots generating={generating} unread={unread} />
+        <span className="flex shrink-0 items-center">
+            <span className="grid grid-cols-[0fr] overflow-hidden transition-[grid-template-columns] duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] group-hover/chat:grid-cols-[1fr] group-has-[[data-state=open]]/chat:grid-cols-[1fr]">
+            <span className="flex min-w-0 overflow-hidden">
+            <ChatRowActionMenus
+                pinned={pinned}
+                color={color}
+                actions={actions}
+                chooseColor={chooseColor}
+                addToCollection={addToCollection}
+                onTogglePin={onTogglePin}
+            />
+            </span>
+            </span>
+            <ChatRowUnpinButton pinned={pinned} onTogglePin={onTogglePin} />
+        </span>
+        <ChatRowSubagentToggle nestedCount={nestedCount} expanded={expanded} setExpanded={setExpanded} />
+    </>
+);
+
+/** Row-open button: selection checkbox, title, and card meta line. */
+const ChatRowOpenButton = ({ title, variant, timestamp, meta, selecting, selected, onToggleSelect, onOpen }: {
+    title: string;
+    variant: RowVariant;
+    timestamp: number;
+    meta: string;
+    selecting: boolean;
+    selected: boolean;
+    onToggleSelect?: () => void;
+    onOpen: () => void;
+}) => {
+    /** Cmd/Ctrl-click toggles selection instead of opening the chat. */
+    const handleOpenClick = (event: React.MouseEvent) => {
+        if (event.ctrlKey || event.metaKey) {
+            onToggleSelect?.();
+            return;
+        }
+        onOpen();
+    };
+    const fade = "1.25rem";
+    return (
+        <button
+            type="button"
+            onClick={handleOpenClick}
+            className="flex min-w-0 flex-1 items-center gap-2 text-left"
+        >
+    <span
+        className={cn(
+            "grid shrink-0 transition-[grid-template-columns,opacity,margin] duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
+            selecting ? "mr-1 grid-cols-[14px] opacity-100" : "grid-cols-[0px] opacity-0",
+        )}
+    >
+        <span className="overflow-hidden">
+            <Checkmark
+                checked={selected}
+                onCheckedChange={() => onToggleSelect?.()}
+                label={`Select ${title}`}
+                tabIndex={selecting ? 0 : -1}
+            />
+        </span>
+    </span>
+    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span
+            className="block min-w-0 overflow-hidden whitespace-nowrap text-sm font-normal text-text-primary"
+            style={{
+                maskImage: `linear-gradient(to right, #000 0, #000 calc(100% - ${fade}), transparent)`,
+            }}
+        >
+            {title}
+        </span>
+        {variant === "card" ? (
+            <span className="flex min-w-0 items-center gap-1.5 text-xs text-text-muted">
+                <span className="shrink-0 tabular-nums">
+                    {chatRelativeTime(timestamp, Date.now())}
+                </span>
+                {meta ? (
+                    <>
+                        <span aria-hidden>·</span>
+                        <span className="min-w-0 truncate">{meta}</span>
+                    </>
+                ) : null}
+            </span>
+        ) : null}
+    </span>
+        </button>
+    );
+};
+
+/**
+ * The row ladder for an uncoloured row. These two used to be the same fill, so a row could
+ * not answer the question a hover exists for and a selected row went inert.
+ */
+const uncolouredChromeClass = (color: ChatColor | null, active: boolean): string | false =>
+    !color &&
+    (active
+        ? "bg-[var(--row-selected)] text-text-primary hover:bg-[var(--row-selected-hover)]"
+        : "text-text-primary hover:bg-[var(--row-hover)]");
+
+/** Row chrome classes: card height, uncoloured squircle/hover states, coloured hover wash. */
+const rowChromeClass = (variant: RowVariant, color: ChatColor | null, active: boolean): string =>
+    cn(
+        "group/chat relative flex w-full items-center gap-1 px-2 text-sm",
+        variant === "card" ? "h-[78px] py-2" : "h-10",
+        !color && "squircle-2xl",
+        "transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
+        uncolouredChromeClass(color, active),
+        color && "text-text-primary hover:bg-[color-mix(in_oklch,var(--chat-tint)_4%,transparent)]",
+    );
+
+/** Outer tint classes for a coloured row; the active tint stacks stronger. */
+const outerTintClass = (color: ChatColor | null, active: boolean): string | null =>
+    color && (active
+        ? "bg-[color-mix(in_oklch,var(--chat-tint)_30%,transparent)] text-text-primary"
+        : "bg-[color-mix(in_oklch,var(--chat-tint)_22%,transparent)] text-text-primary");
+
+/** Expansion state for a row's subagents; opens the first time subagents appear. */
+const useSubagentExpansion = (nestedCount: number) => {
+    const [expanded, setExpanded] = useState(false);
+    // Expand the row the first time its subagents appear. Tracked during render, not in an effect.
+    const [seenWorkers, setSeenWorkers] = useState(0);
+    if (seenWorkers !== nestedCount) {
+        setSeenWorkers(nestedCount);
+        if (seenWorkers === 0 && nestedCount > 0) setExpanded(true);
+    }
+    return { expanded, setExpanded };
+};
+
+/** One sidebar chat row: title, card meta, pin and colour menus, subagent expansion. */
+const ChatRow = ({
     id,
     title,
     path,
@@ -399,9 +748,7 @@ function ChatRow({
         setRenaming(true);
     };
 
-    // The row overrides `startRename` with its own so Rename is guaranteed to
-    // target a row that is on screen; everything else is shared with the
-    // selection menu in the header.
+    // `startRename` is the row's own so Rename always targets a row on screen.
     const actions = buildChatLifecycleActions(
         [{ id, title, path, pinned, disposition }],
         { ...handlers, startRename },
@@ -730,7 +1077,7 @@ function ShelfHeader({
             <Icon
                 icon={ChevronDown20Regular}
                 className={cn(
-                    "icon-sm transition-transform duration-200 ease-[var(--ease-out)]",
+                    "icon-sm transition-transform duration-[var(--spring-flick-dur)] ease-[var(--spring-flick)]",
                     !open && "-rotate-90",
                 )}
             />

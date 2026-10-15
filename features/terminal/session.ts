@@ -40,6 +40,12 @@ class TerminalSessionStore {
     instances = new Map<string, Instance>();
     /** Output captured while no xterm is attached (background Run). */
     ptyScrollback = new Map<number, string>();
+    /**
+     * Tabs that produced output while the user was looking at something else.
+     * One meaning, no second colour: a dot means "there is output on this tab you
+     * have not seen yet", which is true of a running build and of a finished one.
+     */
+    unreadTabs = new Set<string>();
     listeners = new Set<() => void>();
 
     subscribe(l: () => void): () => void {
@@ -51,14 +57,49 @@ class TerminalSessionStore {
     }
     setTabs(u: (p: TerminalTab[]) => TerminalTab[]) {
         this.tabs = u(this.tabs).map((t) => ({ ...t, group: t.group ?? "left" }));
+        // A closed tab must not keep a dot alive for an id that can never be shown.
+        if (this.unreadTabs.size > 0) {
+            const live = new Set(this.tabs.map((t) => t.id));
+            for (const id of [...this.unreadTabs]) if (!live.has(id)) this.unreadTabs.delete(id);
+        }
         this.notify();
     }
     setActive(cwd: string, id: string | null) {
         this.activeProjectTabs = { ...this.activeProjectTabs, [cwd]: id };
+        if (id) this.clearUnread(id);
         this.notify();
     }
     setSecondaryActive(cwd: string, id: string | null) {
         this.activeSecondaryTabs = { ...this.activeSecondaryTabs, [cwd]: id };
+        if (id) this.clearUnread(id);
+        this.notify();
+    }
+
+    /** The tab the user is currently looking at in either split group. */
+    visibleTabIds(): Set<string> {
+        const ids = new Set<string>();
+        for (const id of Object.values(this.activeProjectTabs)) if (id) ids.add(id);
+        for (const id of Object.values(this.activeSecondaryTabs)) if (id) ids.add(id);
+        return ids;
+    }
+
+    /**
+     * Record that a pty produced output. Called on every chunk, so the only work
+     * that happens past the first one is a set lookup: the subscription is notified
+     * once per tab becoming unread, not once per chunk, which keeps the 60fps
+     * budget out of the output path.
+     */
+    noteOutput(ptyId: number) {
+        const tab = this.tabs.find((t) => t.boundPtyId === ptyId);
+        if (!tab) return;
+        if (this.visibleTabIds().has(tab.id)) return;
+        if (this.unreadTabs.has(tab.id)) return;
+        this.unreadTabs.add(tab.id);
+        this.notify();
+    }
+
+    clearUnread(tabId: string) {
+        if (!this.unreadTabs.delete(tabId)) return;
         this.notify();
     }
     setFocusedGroup(cwd: string, group: TerminalGroupId) {
@@ -74,6 +115,7 @@ class TerminalSessionStore {
         }
         this.ptyScrollback.set(ptyId, next);
         // Live-attached xterms write via their own listeners; nothing else to notify.
+        this.noteOutput(ptyId);
     }
 
     takePtyScrollback(ptyId: number): string {
@@ -85,7 +127,7 @@ class TerminalSessionStore {
     }
 }
 
-/** Singleton — Terminal UI and DevRunHost share this. */
+/** Singleton, Terminal UI and DevRunHost share this. */
 export const terminalSessionStore = new TerminalSessionStore();
 
 export function registerBoundTerminalTab(opts: {

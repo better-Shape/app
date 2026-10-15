@@ -30,9 +30,9 @@ const variantClasses: Record<ButtonVariant, string> = {
         "bg-accent text-accent-fg hover:bg-accent-hover aria-disabled:bg-accent/50 aria-disabled:text-accent-fg disabled:bg-accent/50 disabled:text-accent-fg",
     secondary:
         "bg-surface-3 text-text-secondary hover:bg-surface-4 hover:text-text-primary aria-disabled:bg-surface-3 aria-disabled:text-text-disabled disabled:bg-surface-3 disabled:text-text-disabled",
-    ghost: "bg-transparent text-text-secondary hover:bg-panel-hover hover:text-text-primary aria-disabled:bg-transparent aria-disabled:text-text-disabled disabled:bg-transparent disabled:text-text-disabled",
+    ghost: "bg-transparent text-text-secondary hover:bg-[var(--btn-hover)] hover:text-text-primary aria-disabled:bg-transparent aria-disabled:text-text-disabled disabled:bg-transparent disabled:text-text-disabled",
     outline:
-        "border border-input-border bg-transparent text-text-primary hover:bg-panel-hover aria-disabled:border-border-subtle aria-disabled:text-text-disabled disabled:border-border-subtle disabled:text-text-disabled",
+        "border border-input-border bg-transparent text-text-primary hover:bg-[var(--btn-hover)] aria-disabled:border-border-subtle aria-disabled:text-text-disabled disabled:border-border-subtle disabled:text-text-disabled",
     destructive:
         "bg-error text-white hover:bg-error/90 aria-disabled:bg-error/50 aria-disabled:text-white disabled:bg-error/50 disabled:text-white",
     danger: "bg-error text-white hover:bg-error/90 aria-disabled:bg-error/50 aria-disabled:text-white disabled:bg-error/50 disabled:text-white",
@@ -40,9 +40,9 @@ const variantClasses: Record<ButtonVariant, string> = {
 };
 
 const tertiaryOverride: Partial<Record<ButtonVariant, string>> = {
-    default: "bg-transparent text-accent hover:bg-panel-hover hover:text-accent-hover",
-    confirm: "bg-transparent text-accent hover:bg-panel-hover hover:text-accent-hover",
-    secondary: "bg-transparent text-text-secondary hover:bg-panel-hover hover:text-text-primary",
+    default: "bg-transparent text-accent hover:bg-[var(--btn-hover)] hover:text-accent-hover",
+    confirm: "bg-transparent text-accent hover:bg-[var(--btn-hover)] hover:text-accent-hover",
+    secondary: "bg-transparent text-text-secondary hover:bg-[var(--btn-hover)] hover:text-text-primary",
     destructive: "bg-transparent text-error hover:bg-error/10 hover:text-error",
     danger: "bg-transparent text-error hover:bg-error/10 hover:text-error",
 };

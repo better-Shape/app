@@ -1,40 +1,27 @@
 "use client";
 
-import { Checkmark20Regular } from "@fluentui/react-icons/headless/svg/checkmark";
-import { Clipboard20Regular } from "@fluentui/react-icons/headless/svg/clipboard";
+import { CopyButton as CopyAffordance } from "@/components/ui/copy-button";
 
-
-import { useState } from "react";
-import { Icon } from "@/components/ui/icon";
-
-import { cn } from "@/lib/utils";
-
+/**
+ * The commit card's copy control. Chrome lives here; the write, the confirmation
+ * timing and the drawn mark come from the shared `CopyButton`, so this stays a
+ * styling shell rather than a second copy implementation.
+ */
 export function CopyButton({ text }: { text: string }) {
-    const [copied, setCopied] = useState(false);
-
-    const handleCopy = async (e: React.MouseEvent) => {
-        e.stopPropagation();
-        try {
-            await navigator.clipboard.writeText(text);
-            setCopied(true);
-            setTimeout(() => setCopied(false), 1500);
-        } catch {
-            /* ignore */
-        }
-    };
-
     return (
-        <button
-            onClick={handleCopy}
-            className={cn(
-                "flex items-center gap-1 px-1.5 py-0.5 rounded-lg text-sm font-medium transition-colors mt-1.5 cursor-pointer",
-                copied
-                    ? "bg-success/15 text-success"
-                    : "bg-panel-hover text-text-muted hover:text-text-primary hover:bg-panel-active",
-            )}
-        >
-            {copied ? <Icon icon={Checkmark20Regular} /> : <Icon icon={Clipboard20Regular} />}
-            {copied ? "Copied" : "Copy"}
-        </button>
+        <CopyAffordance
+            text={text}
+            label="Copy"
+            showLabel
+            successDescription="Commit card copied to clipboard"
+            className="mt-1.5 text-sm font-medium"
+            boxClassName={[
+                "gap-1 px-1.5 py-0.5 text-text-muted",
+                "transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
+                "hover:bg-[var(--btn-hover)] hover:text-text-primary",
+                "data-[copy-state=copied]:bg-success/15",
+                "data-[copy-state=failed]:bg-error/10",
+            ].join(" ")}
+        />
     );
 }

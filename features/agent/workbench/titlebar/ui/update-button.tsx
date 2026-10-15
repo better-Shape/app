@@ -44,7 +44,7 @@ export function TitlebarUpdateButton() {
       <button
         type="button"
         disabled={busy && status.kind === "checking"}
-        className="flex h-full min-w-0 items-center rounded-sm px-1.5 transition-colors hover:bg-panel-hover disabled:opacity-70"
+        className="flex h-full min-w-0 items-center rounded-sm px-1.5 transition-colors hover:bg-[var(--btn-hover)] disabled:opacity-70"
         title={
           status.kind === "available"
             ? `Update available: ${status.version}`
@@ -67,7 +67,7 @@ export function TitlebarUpdateButton() {
       {canDismiss ? (
         <button
           type="button"
-          className="flex h-full w-5 shrink-0 mr-1.5 items-center justify-center rounded-sm text-text-muted transition-colors hover:bg-panel-hover hover:text-text-primary"
+          className="flex h-full w-5 shrink-0 mr-1.5 items-center justify-center rounded-sm text-text-muted transition-colors hover:bg-[var(--btn-hover)] hover:text-text-primary"
           title="Dismiss"
           aria-label="Dismiss update"
           onClick={(e) => {

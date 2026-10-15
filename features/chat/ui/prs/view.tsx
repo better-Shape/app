@@ -364,7 +364,7 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
                         type="button"
                         aria-label="Back to list"
                         onClick={() => selectPr(null)}
-                        className="mt-0.5 flex size-7 items-center justify-center rounded-md text-text-muted hover:bg-panel-hover hover:text-text-primary"
+                        className="mt-0.5 flex size-7 items-center justify-center rounded-md text-text-muted hover:bg-[var(--btn-hover)] hover:text-text-primary"
                     >
                         <Icon icon={ArrowLeft20Regular} />
                     </button>
@@ -396,7 +396,7 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
                                 <button
                                     type="button"
                                     aria-label="More"
-                                    className="flex size-7 items-center justify-center rounded-md text-text-muted hover:bg-panel-hover hover:text-text-primary"
+                                    className="flex size-7 items-center justify-center rounded-md text-text-muted hover:bg-[var(--btn-hover)] hover:text-text-primary"
                                 >
                                     <Icon icon={MoreHorizontal20Regular} />
                                 </button>

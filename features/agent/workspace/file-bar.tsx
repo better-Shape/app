@@ -1,7 +1,6 @@
 "use client";
 
-import { Clipboard20Regular } from "@fluentui/react-icons/headless/svg/clipboard";
-import { Icon } from "@/components/ui/icon";
+import { CopyButton } from "@/components/ui/copy-button";
 import { Button } from "@/components/ui/button";
 import { useEditorView } from "@/core/providers/editor";
 import { useProjectState } from "@/lib/backend";
@@ -23,18 +22,16 @@ export function FileBar({ path }: { path: string }) {
                 className="h-7 min-w-0 flex-1 !pt-0"
             />
             <div className="flex shrink-0 items-center gap-1">
-                <Button
-                    type="button"
-                    variant="ghost"
-                    size="xs"
+                {/* Used to be a bare glyph that gave no sign it had done anything.
+                    The check now draws over the clipboard, and the toast only fires
+                    once the write has actually landed. */}
+                <CopyButton
+                    text={path}
+                    label="Copy path"
+                    successDescription="Path copied to clipboard"
                     className="h-6 px-1.5 text-text-muted"
-                    aria-label="Copy path"
-                    onClick={() => {
-                        void navigator.clipboard.writeText(path);
-                    }}
-                >
-                    <Icon icon={Clipboard20Regular} />
-                </Button>
+                    boxClassName="min-h-6 justify-center hover:bg-[var(--btn-hover)] hover:text-text-primary"
+                />
                 {markdown ? (
                     <Button
                         type="button"

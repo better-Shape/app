@@ -39,7 +39,7 @@ interface EditorAction {
     iconNode?: React.ReactNode;
     /** Optional section header when browsing (Recent Agents, etc.). */
     section?: string;
-    /** Right-side muted meta (path, relative time) — preferred over shortcut badges for browse rows. */
+    /** Right-side muted meta (path, relative time), preferred over shortcut badges for browse rows. */
     meta?: string;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     run: () => any;
@@ -688,7 +688,7 @@ export function CommandPalette() {
                                             action.reply && "ml-6",
                                             idx === selectedIndex
                                                 ? "bg-panel-hover text-text-primary"
-                                                : "text-text-secondary hover:bg-panel-hover",
+                                                : "text-text-secondary hover:bg-[var(--row-hover)]",
                                             action.muted && "text-text-disabled [&_img]:opacity-50 [&_svg]:opacity-50",
                                         )}
                                         onMouseEnter={() => setSelectedIndex(idx)}
@@ -1383,7 +1383,7 @@ function getAppCommands(): EditorAction[] {
         },
     ];
 
-    // Focused popout has no sidebars/status — zen mode is not applicable.
+    // Focused popout has no sidebars/status, zen mode is not applicable.
     if (isPopoutPath()) {
         return commands.filter((c) => c.id !== "app.view.zenMode");
     }

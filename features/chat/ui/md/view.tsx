@@ -18,6 +18,7 @@ import { SyntaxHighlighter } from "@/lib/ui/syntax-highlight";
 import { looksLikeProseMarkdown, preprocessChatMarkdown } from "./stream";
 import { ChatLinkChip } from "./link-chip";
 import { Button } from "@/components/ui/button";
+import { SwapText } from "@/components/ui/swap";
 import { commands, getProjectPath } from "@/lib/backend";
 import { resolveProjectFilePath } from "@/lib/path/utils";
 import { ChatMermaid } from "./mermaid";
@@ -115,7 +116,12 @@ function CodeBlock({ language, code, ...rest }: { language: string; code: string
                     onClick={copy}
                     aria-label={copied ? "Copied" : "Copy code"}
                 >
-                    <Icon icon={copied ? Checkmark20Regular : Clipboard20Regular} />
+                    <SwapText
+                        value={copied ? "Copied" : "Copy code"}
+                        render={(label) => (
+                            <Icon icon={label === "Copied" ? Checkmark20Regular : Clipboard20Regular} />
+                        )}
+                    />
                 </Button>
             </div>
             <SyntaxHighlighter
@@ -183,7 +189,7 @@ function createMarkdownComponents(options?: { nested?: boolean }) {
                 const name = (children as string).split(/[\\/]/).pop() || (children as string);
                 return (
                     <span
-                        className="mx-0.5 inline-flex cursor-pointer items-center gap-1.5 squircle-lg  bg-panel-hover px-2 py-0.5 align-middle font-sans chat-text text-text-primary transition-colors hover:bg-panel-hover"
+                        className="mx-0.5 inline-flex cursor-pointer items-center gap-1.5 squircle-lg  bg-panel-hover px-2 py-0.5 align-middle font-sans chat-text text-text-primary transition-colors hover:bg-[var(--row-hover)]"
                         title={children as string}
                         onClick={() => {
                             void openProjectFile(children as string, name);
@@ -296,7 +302,7 @@ function useRevealText(full: string, live: boolean): string {
     const moreToShow = shown < len;
 
     useEffect(() => {
-        // Finished message that never streamed in this mount — show fully.
+        // Finished message that never streamed in this mount, show fully.
         if (!live && !wasLive.current) {
             setShown(len);
             return;

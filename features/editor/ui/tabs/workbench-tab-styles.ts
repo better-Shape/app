@@ -25,11 +25,13 @@ export const WORKBENCH_TAB_ACTIONS_CLASS =
 
 export function workbenchTabItemClass(active: boolean, dragging?: boolean) {
     return cn(
-        "workbench-tab-item group relative box-border flex h-7 shrink-0 cursor-pointer select-none items-center gap-2 overflow-hidden whitespace-nowrap squircle-lg px-2.5 font-normal transition-colors",
+        "workbench-tab-item group relative box-border flex h-7 shrink-0 cursor-pointer select-none items-center gap-2 overflow-hidden whitespace-nowrap squircle-lg px-2.5 font-normal press-spring",
         active
             ? "is-active min-w-[60px] bg-white/10 text-text-primary"
-            : "text-text-muted hover:bg-panel-hover hover:text-text-secondary",
-        dragging && "opacity-40",
+            : "text-text-muted hover:bg-[var(--row-hover)] hover:text-text-secondary",
+        // `scale` is its own property, so the lift composes with the transform dnd-kit
+        // writes inline on the dragged tab instead of replacing it.
+        dragging && "opacity-40 [scale:1.02] shadow-lg",
     );
 }
 
@@ -42,4 +44,4 @@ export const WORKBENCH_TAB_CONTENT_CLASS =
 export const WORKBENCH_TAB_CONTENT_ACTIVE_CLASS = "workbench-tab-content is-active";
 
 export const WORKBENCH_TAB_ACTION_BUTTON_CLASS =
-    "flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-panel-hover hover:text-text-primary";
+    "flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-[var(--row-hover)] hover:text-text-primary";

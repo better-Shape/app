@@ -1,22 +1,26 @@
 "use client";
 
-import { Button } from "@/components/ui/button";
+import { CrashScreen } from "@/components/layout/error/crash-screen";
 
 export default function Error({
+    error,
     reset,
 }: {
     error: Error & { digest?: string };
     reset: () => void;
 }) {
+    // The route boundary used to say only "Can't reach this page" and throw the error
+    // away, so the one screen a user sees when the UI fails to load was also the one
+    // Same screen as the other two boundaries, so the three cannot drift apart.
     return (
-        <div className="flex min-h-full flex-col items-center justify-center gap-3 bg-background px-6 text-center">
-            <p className="text-base font-medium text-text-primary">Can’t reach this page</p>
-            <p className="max-w-sm text-sm text-text-secondary">
-                The BetterShape UI failed to load. Retry without leaving the app.
-            </p>
-            <Button type="button" onClick={() => reset()}>
-                Reconnect
-            </Button>
-        </div>
+        <CrashScreen
+            title="This page hit an error"
+            hint="One part of the interface failed to draw. Nothing was saved over. Trying again re-renders just this part, and your project and the agent's work are untouched."
+            message={error.message || "The BetterShape UI failed to load."}
+            digest={error.digest}
+            stack={error.stack}
+            onRetry={() => reset()}
+            onReload={() => window.location.reload()}
+        />
     );
 }

@@ -89,7 +89,7 @@ function applyLiveTweaks(
     tweaks: { radius: number; padding: number; gap: number },
 ) {
     // The frame is sandboxed `allow-scripts` only, so its origin is opaque ("null")
-    // whatever the preview src points at — "*" is the only deliverable target here.
+    // whatever the preview src points at, "*" is the only deliverable target here.
     try { iframe?.contentWindow?.postMessage({ type: "bettershape-preview-tweaks", tweaks }, "*"); } catch {}
     try {
         const doc = iframe?.contentDocument;
@@ -297,7 +297,7 @@ export function DesignPreviewGallery({
                         <Tooltip content="Open">
                             <button
                                 type="button"
-                                className="flex size-7 items-center justify-center rounded-full text-text-muted hover:bg-panel-hover hover:text-text-primary"
+                                className="flex size-7 items-center justify-center rounded-full text-text-muted hover:bg-[var(--btn-hover)] hover:text-text-primary"
                                 onClick={() => setOpen(true)}
                             >
                                 <Icon icon={ArrowMaximize20Regular} />
@@ -308,7 +308,7 @@ export function DesignPreviewGallery({
                                 <button
                                     type="button"
                                     disabled={!canPick}
-                                    className="flex size-7 items-center justify-center rounded-full text-text-muted hover:bg-panel-hover hover:text-text-primary disabled:opacity-40"
+                                    className="flex size-7 items-center justify-center rounded-full text-text-muted hover:bg-[var(--btn-hover)] hover:text-text-primary disabled:opacity-40"
                                     onClick={() => choose(item.id)}
                                 >
                                     <Icon icon={Checkmark20Regular} />
@@ -338,7 +338,7 @@ export function DesignPreviewGallery({
                                           <>
                                               <button
                                                   type="button"
-                                                  className="rounded-md p-1.5 text-text-muted hover:bg-panel-hover hover:text-text-primary disabled:opacity-30"
+                                                  className="rounded-md p-1.5 text-text-muted hover:bg-[var(--btn-hover)] hover:text-text-primary disabled:opacity-30"
                                                   disabled={index === 0}
                                                   onClick={() => setIndex((i) => Math.max(0, i - 1))}
                                               >
@@ -346,7 +346,7 @@ export function DesignPreviewGallery({
                                               </button>
                                               <button
                                                   type="button"
-                                                  className="rounded-md p-1.5 text-text-muted hover:bg-panel-hover hover:text-text-primary disabled:opacity-30"
+                                                  className="rounded-md p-1.5 text-text-muted hover:bg-[var(--btn-hover)] hover:text-text-primary disabled:opacity-30"
                                                   disabled={index >= items.length - 1}
                                                   onClick={() => setIndex((i) => Math.min(items.length - 1, i + 1))}
                                               >
@@ -359,7 +359,7 @@ export function DesignPreviewGallery({
                                               <button
                                                   type="button"
                                                   disabled={!canPick}
-                                                  className="rounded-md p-1.5 text-text-muted hover:bg-panel-hover hover:text-text-primary disabled:opacity-30"
+                                                  className="rounded-md p-1.5 text-text-muted hover:bg-[var(--btn-hover)] hover:text-text-primary disabled:opacity-30"
                                                   onClick={() => choose(item.id)}
                                               >
                                                   <Icon icon={Checkmark20Regular} />
@@ -370,7 +370,7 @@ export function DesignPreviewGallery({
                                           type="button"
                                           aria-label="Minimize"
                                           onClick={() => setOpen(false)}
-                                          className="rounded-md p-1.5 text-text-muted hover:bg-panel-hover hover:text-text-primary"
+                                          className="rounded-md p-1.5 text-text-muted hover:bg-[var(--btn-hover)] hover:text-text-primary"
                                       >
                                           <Icon icon={ArrowMinimize20Regular} />
                                       </button>

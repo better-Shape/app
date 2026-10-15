@@ -18,6 +18,9 @@ import { GitChromeActions } from "@/features/git/ui/manager/chrome";
 import { Icon } from "@/components/ui/icon";
 
 import { Button } from "@/components/ui/button";
+import { Collapse } from "@/components/ui/collapse";
+import { SwapText } from "@/components/ui/swap";
+import { useCopyToClipboard } from "@/lib/ui/use-copy";
 import { Input } from "@/components/ui/input";
 import { FileIcon } from "@/components/ui/file-icon";
 import { cn } from "@/lib/utils";
@@ -128,7 +131,7 @@ function BranchRow({
                         "group flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors",
                         selected
                             ? "bg-panel-hover text-text-primary"
-                            : "text-text-secondary hover:bg-panel-hover/60 hover:text-text-primary",
+                            : "text-text-secondary hover:bg-[var(--row-hover)] hover:text-text-primary",
                         isCurrent && !selected && "bg-accent/10 text-text-primary",
                     )}
                 >
@@ -194,26 +197,13 @@ function SectionHeader({
             <Icon
                 icon={ChevronRight20Regular}
                 className={cn(
-                    "shrink-0 transition-transform duration-200 ease-[var(--ease-out)]",
+                    "shrink-0 transition-transform duration-[var(--spring-flick-dur)] ease-[var(--spring-flick)]",
                     open && "rotate-90",
                 )}
             />
             <span className="flex-1">{label}</span>
             <span className="tabular-nums opacity-80">{count}</span>
         </button>
-    );
-}
-
-function AnimatedCollapse({ open, children }: { open: boolean; children: React.ReactNode }) {
-    return (
-        <div
-            className={cn(
-                "grid transition-[grid-template-rows,opacity] duration-200 ease-[var(--ease-out)]",
-                open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
-            )}
-        >
-            <div className="min-h-0 overflow-hidden">{children}</div>
-        </div>
     );
 }
 
@@ -322,7 +312,7 @@ export function BranchWindow({ active = true }: { active?: boolean }) {
     }, [branchDetails]);
 
     const q = filter.trim().toLowerCase();
-    /** Cap DOM rows — huge remotes (CI bots) otherwise mount thousands of BranchRows. */
+    /** Cap DOM rows, huge remotes (CI bots) otherwise mount thousands of BranchRows. */
     const BRANCH_LIST_CAP = 400;
 
     const localItems = useMemo((): BranchItem[] => {
@@ -546,9 +536,11 @@ export function BranchWindow({ active = true }: { active?: boolean }) {
         }
     };
 
+    // Every copy on this panel, the toolbar button and the row menus, goes through
+    // one awaited write, so a denied clipboard no longer reports success.
+    const { copiedText: copiedName, copy: copyText } = useCopyToClipboard();
     const handleCopy = (name: string) => {
-        void navigator.clipboard.writeText(name);
-        notify.success("Copied", name);
+        void copyText(name, name);
     };
 
     const handleOpenRemote = async () => {
@@ -640,7 +632,7 @@ export function BranchWindow({ active = true }: { active?: boolean }) {
                     open={localOpen}
                     onToggle={() => setLocalOpen((v) => !v)}
                 />
-                <AnimatedCollapse open={localOpen}>
+                <Collapse open={localOpen}>
                     <div className="mb-3 space-y-0.5">
                         {localItems.length === 0 ? (
                             <div className="px-2 py-2 text-sm text-text-muted">No local branches</div>
@@ -679,7 +671,7 @@ export function BranchWindow({ active = true }: { active?: boolean }) {
                             </>
                         )}
                     </div>
-                </AnimatedCollapse>
+                </Collapse>
 
                 <SectionHeader
                     label="Remote"
@@ -687,7 +679,7 @@ export function BranchWindow({ active = true }: { active?: boolean }) {
                     open={remoteOpen}
                     onToggle={() => setRemoteOpen((v) => !v)}
                 />
-                <AnimatedCollapse open={remoteOpen}>
+                <Collapse open={remoteOpen}>
                     <div className="space-y-2">
                         {remoteGroups.length === 0 ? (
                             <div className="px-2 py-2 text-sm text-text-muted">No remote branches</div>
@@ -712,7 +704,7 @@ export function BranchWindow({ active = true }: { active?: boolean }) {
                                                 <Icon
                                                     icon={ChevronRight20Regular}
                                                     className={cn(
-                                                        "transition-transform duration-200 ease-[var(--ease-out)]",
+                                                        "transition-transform duration-[var(--spring-flick-dur)] ease-[var(--spring-flick)]",
                                                         open && "rotate-90",
                                                     )}
                                                 />
@@ -720,7 +712,7 @@ export function BranchWindow({ active = true }: { active?: boolean }) {
                                                 <span className="flex-1 truncate font-medium">{remote}</span>
                                                 <span className="text-xs tabular-nums">{fullCount}</span>
                                             </button>
-                                            <AnimatedCollapse open={open}>
+                                            <Collapse open={open}>
                                                 <div className="ml-2 space-y-0.5 border-l border-border-subtle/50 pl-1">
                                                     {items.map((item) => (
                                                         <BranchRow
@@ -738,7 +730,7 @@ export function BranchWindow({ active = true }: { active?: boolean }) {
                                                         />
                                                     ))}
                                                 </div>
-                                            </AnimatedCollapse>
+                                            </Collapse>
                                         </div>
                                     );
                                 })}
@@ -751,7 +743,7 @@ export function BranchWindow({ active = true }: { active?: boolean }) {
                             </>
                         )}
                     </div>
-                </AnimatedCollapse>
+                </Collapse>
             </div>
         </div>
     );
@@ -828,10 +820,12 @@ export function BranchWindow({ active = true }: { active?: boolean }) {
                         <Button
                             size="sm"
                             variant="outline"
-                            className="h-8"
+                            className={cn("h-8", copiedName === selectedItem.name && "text-success")}
                             onClick={() => handleCopy(selectedItem.name)}
                         >
-                            Copy
+                            {/* The word the user is already reading is the acknowledgement;
+                                nothing else needs to move. */}
+                            <SwapText value={copiedName === selectedItem.name ? "Copied" : "Copy"} live />
                         </Button>
                         <Button
                             size="sm"
@@ -881,7 +875,7 @@ export function BranchWindow({ active = true }: { active?: boolean }) {
                                                         "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left",
                                                         selected
                                                             ? "bg-panel-hover text-text-primary"
-                                                            : "hover:bg-panel-hover/60",
+                                                            : "hover:bg-[var(--row-hover)]",
                                                     )}
                                                 >
                                                     <FileIcon name={name} className="h-3.5 w-3.5 shrink-0" />

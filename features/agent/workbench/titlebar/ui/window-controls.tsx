@@ -110,7 +110,7 @@ function WindowControlButtons({
             <button
                 type="button"
                 aria-label="Minimize"
-                className="control-button flex h-full w-[46px] cursor-default items-center justify-center transition-colors hover:bg-panel-hover active:bg-panel-active"
+                className="control-button flex h-full w-[46px] cursor-default items-center justify-center transition-colors hover:bg-[var(--btn-hover)] active:bg-panel-active"
                 onClick={onMinimize}
             >
                 <IconMinimize />
@@ -118,7 +118,7 @@ function WindowControlButtons({
             <button
                 type="button"
                 aria-label={isMaximized ? "Restore" : "Maximize"}
-                className="control-button flex h-full w-[46px] cursor-default items-center justify-center transition-colors hover:bg-panel-hover active:bg-panel-active"
+                className="control-button flex h-full w-[46px] cursor-default items-center justify-center transition-colors hover:bg-[var(--btn-hover)] active:bg-panel-active"
                 onClick={onToggleMaximize}
             >
                 {isMaximized ? <IconRestore /> : <IconMaximize />}

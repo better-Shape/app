@@ -124,7 +124,7 @@ export function PullRequestsList({
                         <button
                             type="button"
                             aria-label="Sort"
-                            className="flex size-7 items-center justify-center rounded-md text-text-muted hover:bg-panel-hover hover:text-text-primary"
+                            className="flex size-7 items-center justify-center rounded-md text-text-muted hover:bg-[var(--btn-hover)] hover:text-text-primary"
                         >
                             <Icon icon={ArrowSortDown20Regular} />
                         </button>
@@ -147,7 +147,7 @@ export function PullRequestsList({
                         <button
                             type="button"
                             aria-label="Filters"
-                            className="flex size-7 items-center justify-center rounded-md text-text-muted hover:bg-panel-hover hover:text-text-primary"
+                            className="flex size-7 items-center justify-center rounded-md text-text-muted hover:bg-[var(--btn-hover)] hover:text-text-primary"
                         >
                             <Icon icon={Filter20Regular} />
                         </button>
@@ -165,7 +165,7 @@ export function PullRequestsList({
                     type="button"
                     aria-label="Refresh"
                     onClick={onRefresh}
-                    className="flex size-7 items-center justify-center rounded-md text-text-muted hover:bg-panel-hover hover:text-text-primary"
+                    className="flex size-7 items-center justify-center rounded-md text-text-muted hover:bg-[var(--btn-hover)] hover:text-text-primary"
                 >
                     <Icon icon={ArrowSync20Regular} />
                 </button>

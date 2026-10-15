@@ -118,7 +118,7 @@ export function DictationButton() {
                 className={
                     state === "listening"
                         ? "flex size-7 shrink-0 items-center justify-center rounded-md bg-error/15 text-error"
-                        : "flex size-7 shrink-0 items-center justify-center rounded-md text-text-muted hover:bg-panel-hover hover:text-text-primary disabled:opacity-50"
+                        : "flex size-7 shrink-0 items-center justify-center rounded-md text-text-muted hover:bg-[var(--btn-hover)] hover:text-text-primary disabled:opacity-50"
                 }
             >
                 <Icon icon={MicPulse20Regular} className={state === "listening" ? "animate-pulse" : undefined} />

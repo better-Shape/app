@@ -545,7 +545,7 @@ export function CommitMenu({ projectPath }: { projectPath: string }) {
                     variant="outline"
                     size="sm"
                     disabled={busy}
-                    className="px-1.5 text-sm font-normal text-text-muted hover:bg-panel-hover hover:text-text-primary"
+                    className="px-1.5 text-sm font-normal text-text-muted hover:bg-[var(--btn-hover)] hover:text-text-primary"
                 >
                     <span>Commit</span>
                     {totals.plus > 0 ? <span className="tabular-nums text-success">+{totals.plus}</span> : null}

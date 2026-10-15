@@ -74,7 +74,7 @@ function ServerCard({
         <button
             type="button"
             onClick={onOpen}
-            className="flex h-full w-full items-start gap-3 squircle-2xl bg-surface-4 p-3 text-left transition-colors hover:bg-panel-hover"
+            className="flex h-full w-full items-start gap-3 squircle-2xl bg-surface-4 p-3 text-left transition-colors hover:bg-[var(--row-hover)]"
         >
             <ServerMark name={server.name} url={server.url} />
             <div className="min-w-0 flex-1">

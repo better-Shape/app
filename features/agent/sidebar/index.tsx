@@ -44,8 +44,14 @@ function NavItem({
                     aria-label={label}
                     aria-current={active ? "page" : undefined}
                     className={cn(
-                        "size-9 shrink-0 text-text-secondary hover:text-text-primary",
-                        active && "bg-panel-active text-text-primary",
+                        // The icon-button ladder, not the row one: a 36px target needs a
+                        // stronger fill than a full-width row to read at all. Hover is the
+                        // midpoint of the way to the committed fill, the committed fill
+                        // marks the current page, and a committed icon still steps up when
+                        // pointed at, so it never goes inert. See `--btn-hover`.
+                        "size-9 shrink-0 text-text-secondary transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary",
+                        active &&
+                            "bg-[var(--btn-open)] text-text-primary hover:bg-[var(--btn-open-hover)]",
                     )}
                 >
                     <Icon icon={icon} />
@@ -62,8 +68,15 @@ function NavItem({
             onClick={onClick}
             aria-current={active ? "page" : undefined}
             className={cn(
-                "flex h-9 w-full items-center justify-start gap-2 px-1.5! text-left",
-                active && "bg-panel-active",
+                // The row ladder. The committed row keeps a step-up on hover for the same
+                // reason every other row does, a current page that stops responding to
+                // the pointer reads as disabled, and an uncommitted row previews the
+                // commit at the midpoint. This row previously had only the committed fill,
+                // so it had no hover state in either position.
+                "flex h-9 w-full items-center justify-start gap-2 px-1.5! text-left transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
+                active
+                    ? "bg-[var(--row-selected)] hover:bg-[var(--row-selected-hover)]"
+                    : "hover:bg-[var(--row-hover)]",
             )}
         >
             <Icon icon={icon} className="shrink-0 text-text-muted" />
@@ -123,7 +136,7 @@ export function AgentSidebar({
             aria-hidden={!open}
             className={cn(
                 "relative z-20 flex h-full shrink-0 flex-col overflow-hidden bg-sidebar text-text-primary",
-                "transition-[width,border-color] duration-[var(--transition-base)] ease-[var(--ease-out)]",
+                "transition-[width,border-color] duration-[var(--spring-quick-dur)] ease-[var(--spring-quick)]",
                 !open ? "w-0 border-r-transparent" : expanded ? "w-80" : "w-12",
             )}
         >
@@ -131,7 +144,7 @@ export function AgentSidebar({
                 className={cn(
                     "flex h-full min-h-0 shrink-0 flex-col",
                     expanded ? "w-80" : "w-12",
-                    "transition-[opacity,transform] duration-[var(--transition-base)] ease-[var(--ease-out)]",
+                    "transition-[opacity,transform] duration-[var(--spring-quick-dur)] ease-[var(--spring-quick)]",
                     !open && "pointer-events-none -translate-x-full opacity-0",
                 )}
             >
@@ -171,7 +184,7 @@ export function AgentSidebar({
                                     <button
                                         type="button"
                                         aria-label="Account"
-                                        className="flex items-center gap-2 rounded-md px-1.5 py-1 text-left hover:bg-panel-hover"
+                                        className="flex items-center gap-2 rounded-md px-1.5 py-1 text-left transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)]"
                                     >
                                         <ProfileAvatar
                                             gitAvatarUrl={github.loggedIn ? github.avatarUrl : null}
@@ -205,7 +218,11 @@ export function AgentSidebar({
                                     variant="ghost"
                                     size="sm"
                                     onClick={newChat}
-                                    className="flex h-9 w-full items-center justify-start gap-2 px-1.5! text-left"
+                                    // Row ladder, stated here as `NavItem` states it. This
+                                    // row used to inherit whatever hover `variant="ghost"`
+                                    // happened to carry, which meant it silently followed the
+                                    // button rung the moment the two were separated.
+                                    className="flex h-9 w-full items-center justify-start gap-2 px-1.5! text-left transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--row-hover)]"
                                 >
                                     <Icon icon={Compose20Regular} className="shrink-0 text-text-muted" />
                                     <span className="min-w-0 flex-1 truncate">New Chat</span>
@@ -272,7 +289,7 @@ export function AgentSidebar({
                                 <button
                                     type="button"
                                     onClick={() => void openSettingsWindow()}
-                                    className="flex size-9 items-center justify-center rounded-md text-text-muted hover:bg-panel-hover hover:text-text-primary"
+                                    className="flex size-9 items-center justify-center rounded-md text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary"
                                     aria-label="Settings"
                                 >
                                     <Icon icon={Settings20Regular} />

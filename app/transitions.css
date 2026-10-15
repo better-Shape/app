@@ -5,11 +5,13 @@
   --goo-fancy-alpha: 19;
   --goo-fancy-bias: -9;
 
-  --dropdown-open-dur: 140ms;
-  --dropdown-close-dur: 90ms;
+  --dropdown-open-dur: var(--spring-tap-dur);
   --dropdown-pre-scale: 0.97;
   --dropdown-closing-scale: 0.99;
-  --dropdown-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --dropdown-ease: var(--spring-tap);
+  /* Sampled against `--spring-tap`'s own settle time. Any other duration truncates the
+     curve and the remainder pops when the animation is removed. */
+  --dropdown-close-dur: var(--spring-tap-dur);
 
   --morph-open-dur: 320ms;
   --morph-close-dur: 240ms;
@@ -61,27 +63,53 @@
   --hint-blur: 6px;
   --hint-ease: cubic-bezier(0.22, 1, 0.36, 1);
 
-  --check-opacity-dur: 400ms;
-  --check-rotate-dur: 400ms;
+  /* Swap lag: how long a replaced value stays on screen to fend off. The composer
+     hints are the slow case, a label that flips on click is the fast one, so this
+     defaults to the hint timing and `components/ui/swap.tsx` shortens it per use. */
+  --swap-dur: var(--hint-swap);
+  --swap-ease: var(--hint-ease);
+
+  /* Container reveal: a section, accordion body or disclosure growing into place.
+     200ms is long enough to read as the row making room and short enough that a
+     second click never lands mid-flight, which matters because these toggles are
+     clicked repeatedly (see the frequency gate in DESIGN.md). */
+  --reveal-dur: var(--spring-quick-dur);
+  --reveal-ease: var(--spring-quick);
+
+  --check-opacity-dur: var(--spring-surface-dur);
+  --check-rotate-dur: var(--spring-surface-dur);
   --check-rotate-from: 80deg;
-  --check-bob-dur: 400ms;
+  --check-bob-dur: var(--spring-flick-dur);
   --check-y-amount: 8px;
-  --check-blur-dur: 400ms;
+  --check-blur-dur: var(--spring-surface-dur);
   --check-blur-from: 4px;
-  --check-path-dur: 400ms;
+  --check-path-dur: var(--spring-surface-dur);
   --check-path-delay: 60ms;
-  --check-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
-  --check-ease-opacity: cubic-bezier(0.22, 1, 0.36, 1);
-  --check-ease-rotate: cubic-bezier(0.22, 1, 0.36, 1);
-  --check-ease-bob: cubic-bezier(0.34, 1.35, 0.64, 1);
-  --check-ease-path: cubic-bezier(0.22, 1, 0.36, 1);
+  --check-ease-out: var(--spring-surface);
+  --check-ease-opacity: var(--spring-surface);
+  --check-ease-rotate: var(--spring-surface);
+  --check-ease-bob: var(--spring-flick);
+  --check-ease-path: var(--spring-surface);
 
   /* Subtle press: snap in, soft settle out (no spring overshoot). */
   --press-in-dur: 80ms;
   --press-in-ease: cubic-bezier(0.3, 0.0, 0.2, 1);
-  --press-out-dur: 220ms;
-  --press-out-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --press-out-dur: var(--spring-tap-dur);
+  --press-out-ease: var(--spring-tap);
   --press-scale: 0.985;
+
+  /* Panel rail: how much of the rail the toggle icon hides.
+     0 is the open glyph (Fluent's filled panel), 1 pulls the rail back to the
+     frame band so a closed panel reads as an outlined box. Hover and focus stop
+     at the midpoint, so the icon previews half the change it is about to make. */
+  --panel-rail-open: 0;
+  --panel-rail-closed: 1;
+  --panel-rail-peek: 0.5;
+  /* Shares `--spring-quick` with the panel's own width transition so the icon commits
+     with the panel it drives rather than racing it. Both used to be a 140ms bezier. */
+  --panel-rail-dur: var(--spring-quick-dur);
+  --panel-rail-ease: var(--spring-quick);
+
 }
 
 @keyframes bettershape-popover-in {
@@ -112,17 +140,25 @@
   animation: bettershape-popover-out var(--dropdown-close-dur) var(--dropdown-ease);
 }
 
+/*
+ * Critically damped. The menu travels 0.97 to 1, so 6% overshoot is a third of a pixel:
+ * invisible, and on a surface the user is about to click into.
+ */
+
 /* Apple-style press: fast ease-out into the squash, spring with overshoot on release. */
 .press-spring {
   transform: scale(1);
   transform-origin: center;
+  /* `scale` is a separate property from `transform`, so a lift that uses it can
+     animate without fighting the press scale or a drag transform written inline. */
   transition:
     transform var(--press-out-dur) var(--press-out-ease),
+    scale var(--press-out-dur) var(--press-out-ease),
     filter var(--press-out-dur) var(--press-out-ease),
-    background-color 160ms var(--ease-out),
-    color 160ms var(--ease-out),
-    border-color 160ms var(--ease-out),
-    opacity 160ms var(--ease-out);
+    background-color var(--spring-tap-dur) var(--spring-tap),
+    color var(--spring-tap-dur) var(--spring-tap),
+    border-color var(--spring-tap-dur) var(--spring-tap),
+    opacity var(--spring-tap-dur) var(--spring-tap);
 }
 .press-spring:hover:not(:disabled):not([aria-disabled="true"]):not([data-pressed="true"]) {
   filter: brightness(1.05);
@@ -147,6 +183,78 @@
     transform: none;
     filter: none;
   }
+  /* The rail still reports the panel state; it just stops travelling to it. */
+  .panel-glyph__hide {
+    transition: none;
+  }
+}
+
+/* ── Panel toggle rail ────────────────────────────────────────
+   The rail of the panel icon is the one part of it that reports state, so it
+   moves: full when the panel is open, pulled back to the frame band when it is
+   closed, and halfway while the toggle is hovered or focused so the icon shows
+   the change it is about to make. Only `transform` animates.
+
+   The mask hides the rail's excess. Its transform-origin is the rail's free
+   edge, set inline in viewBox units by `components/ui/panel-glyph.tsx`, because
+   a percentage origin would mean something different under `fill-box` and
+   `view-box`. */
+.panel-glyph {
+  --panel-rail-hide: var(--panel-rail-open);
+}
+
+.panel-glyph[data-open="false"] {
+  --panel-rail-hide: var(--panel-rail-closed);
+}
+
+.panel-glyph__hide {
+  transform: scaleX(var(--panel-rail-hide, 0));
+  transition: transform var(--panel-rail-dur) var(--panel-rail-ease);
+}
+
+/*
+ * A bottom panel's rail travels vertically. `transform-origin` is set by the component
+ * because a percentage would resolve against `transform-box`, so this rule picks the axis.
+ */
+.panel-glyph--bottom .panel-glyph__hide {
+  transform: scaleY(var(--panel-rail-hide, 0));
+}
+
+/*
+ * Without this, `:hover` keeps pinning the rail at the midpoint and a pointer that stays
+ * on the button never sees the commit. Cleared on pointer-out so the next hover previews.
+ */
+[data-panel-toggle]:not([data-panel-committed="true"]):hover:not(:disabled):not([aria-disabled="true"]) .panel-glyph,
+[data-panel-toggle]:not([data-panel-committed="true"]):focus-visible .panel-glyph {
+  --panel-rail-hide: var(--panel-rail-peek);
+}
+
+/*
+ * For a toggle that arrives in a new place and has no previous value. The end keyframe is
+ * omitted so an implicit `to` resolves to the element's own position, and one keyframe
+ * serves both panel sides and both states.
+ */
+@keyframes t-panel-rail-commit {
+  from {
+    transform: scaleX(var(--panel-rail-peek));
+  }
+}
+
+[data-panel-commit-mount="true"] .panel-glyph__hide {
+  animation: t-panel-rail-commit var(--panel-rail-dur) var(--panel-rail-ease);
+}
+
+/* Mask fills are luminance, not theme color. They must not inherit `fill:
+   currentColor` from `.bettershape-icon *`, or the mask would carry the text
+   alpha and a black rect could stop hiding the rail. */
+.panel-glyph .panel-glyph__keep {
+  fill: white;
+  stroke: none;
+}
+
+.panel-glyph .panel-glyph__hide {
+  fill: black;
+  stroke: none;
 }
 
 .bettershape-goo-filters {
@@ -447,8 +555,39 @@
 }
 
 .t-success-check svg path {
+  /* A stroked path, not a filled glyph: the draw animates `stroke-dashoffset`,
+     which a filled Fluent shape cannot show. The dash length covers the path with
+     room to spare, so 20 → 0 reads as the whole mark being drawn. */
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
   stroke-dasharray: 20;
   stroke-dashoffset: 20;
+}
+
+.t-success-check svg {
+  width: var(--icon-size);
+  height: var(--icon-size);
+  display: block;
+  overflow: visible;
+}
+
+/* Compact timing for a checkbox in a dense list: the full beat is 400ms, which is
+   over the UI ceiling for something the user clicks through dozens of times. The
+   travels shrink with it so the mark still reads as drawn rather than dropped in. */
+.t-success-check[data-motion="compact"] {
+  --check-opacity-dur: 180ms;
+  --check-rotate-dur: 220ms;
+  --check-blur-dur: 220ms;
+  --check-bob-dur: 220ms;
+  --check-path-dur: 240ms;
+  --check-path-delay: 40ms;
+  --check-rotate-from: 45deg;
+  --check-y-amount: 4px;
+  --check-blur-from: 2px;
+  --check-ease-bob: var(--spring-tap);
 }
 
 .t-success-check[data-state="in"] {
@@ -610,7 +749,7 @@
   mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 20px), transparent);
 }
 .t-swap[data-ready="true"]:not(.t-swap--block) {
-  transition: width 80ms var(--ease-out);
+  transition: width var(--spring-tap-dur) var(--spring-tap);
 }
 .t-swap--block {
   display: grid;
@@ -640,11 +779,11 @@
   text-overflow: ellipsis;
 }
 .t-swap__layer--out {
-  animation: t-swap-out var(--hint-swap) var(--hint-ease) forwards;
+  animation: t-swap-out var(--swap-dur) var(--swap-ease) forwards;
   pointer-events: none;
 }
 .t-swap__layer--in {
-  animation: t-swap-in var(--hint-swap) var(--hint-ease) both;
+  animation: t-swap-in var(--swap-dur) var(--swap-ease) both;
 }
 @keyframes t-swap-out {
   to {
@@ -664,6 +803,28 @@
     transform: translateY(0);
     filter: blur(0);
   }
+}
+
+/* ── Terminal tab activity ─────────────────────────────────
+   Shared slot with the close button: the dot grows in where the X will be, so
+   neither state moves the title. It starts just under full size rather than at
+   zero, a 6px circle scaling up from nothing reads as a blink. */
+.t-tab-dot {
+  display: block;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--accent);
+  opacity: 0;
+  transform: scale(0.4);
+  transition:
+    opacity var(--spring-tap-dur) var(--spring-tap),
+    transform var(--spring-tap-dur) var(--spring-tap);
+}
+
+.t-tab-dot[data-on="true"] {
+  opacity: 1;
+  transform: scale(1);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -717,9 +878,43 @@
   .t-spin-check__ring {
     animation: none !important;
   }
+  .t-tab-dot {
+    transition: none !important;
+    transform: none !important;
+  }
+  /*
+   * The exception layer over the blanket reset in `app/globals.css`. `reduce` means as
+   * little motion as the interface can afford, not none: a frozen spinner is
+   * indistinguishable from a hung app, so motion that carries meaning slows down and
+   * motion that only decorates stops. These target class names because a universal rule
+   * would also strip focus and status transitions.
+   *
+   * `.onboard-orb` is the app's other infinite animation and nothing renders it. Wiring
+   * that blob up needs a guard here that also restores the keyframe's resting state.
+   */
+  .animate-pulse,
+  .git-generate-shimmer {
+    animation: none !important;
+  }
+
+  /* `animation-iteration-count` has to be re-asserted, not just the duration: the reset
+     sets it to 1 on `*`, so without this a slowed spinner turns once and stops. */
+  .animate-spin,
+  .imsg-typing span {
+    animation-duration: 2.4s !important;
+    animation-iteration-count: infinite !important;
+  }
+
+  /* The rail is a transform on a decorative SVG part, easy to miss in a review of
+     motion guards. It still has to honour the preference. */
+  .panel-glyph__hide,
+  [data-panel-commit-mount="true"] .panel-glyph__hide {
+    transition: none !important;
+    animation: none !important;
+  }
 }
 
-/* Design Mode — match sidebar chrome to background */
+/* Design Mode, match sidebar chrome to background */
 html[data-design-mode="1"] .titlebar-container {
   background-color: var(--background) !important;
 }

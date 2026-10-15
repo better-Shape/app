@@ -19,6 +19,7 @@ import {
     GraphNode
 } from "@/lib/backend";
 import { notify } from "@/features/notifications";
+import { useCopyToClipboard } from "@/lib/ui/use-copy";
 import { Tooltip } from "@/components/ui/tooltip";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import { getRelativeTime, renderCommitMessage } from "./utils";
@@ -52,15 +53,15 @@ export const GraphCommitRow = React.memo(function GraphCommitRow({
     laneAvatarUrl?: string | null;
     /** panel = sidebar graph; editor = Git Manager. Affects commit tooltip placement. */
     surface?: "panel" | "editor";
-    /** Filter miss — dim lane lines (keep topology); text/refs stay readable. */
+    /** Filter miss, dim lane lines (keep topology); text/refs stay readable. */
     muted?: boolean;
     selected?: boolean;
     onSelect?: (hash: string) => void;
     /** Manager: clicking a branch/tag pill filters the graph. */
     onRefActivate?: (ref: RefInfo) => void;
-    /** Filter hit — soft lane emphasis. */
+    /** Filter hit, soft lane emphasis. */
     matchHighlight?: boolean;
-    /** Adjacent commit above/below is a match — fade mute into it. */
+    /** Adjacent commit above/below is a match, fade mute into it. */
     blendTop?: boolean;
     blendBottom?: boolean;
     /** Workspace graph: names and avatars, no lane lines or branch pills. */
@@ -73,6 +74,10 @@ export const GraphCommitRow = React.memo(function GraphCommitRow({
     const isMerge = log.parent_count > 1;
     const filesLoadingRef = useRef(false);
     const [showBranchInput, setShowBranchInput] = useState(false);
+    // One copy hook per row: the row owns the short hash in the meta column, and the
+    // confirmation has to land on the hash itself rather than only in a toast at the
+    // edge of the window.
+    const { copied: hashCopied, copy: copyHash } = useCopyToClipboard({ silent: true, resetMs: 1100 });
 
     const [tooltipOpen, setTooltipOpen] = useState(false);
     const isDraggingRef = useRef(false);
@@ -156,7 +161,7 @@ export const GraphCommitRow = React.memo(function GraphCommitRow({
                         tabIndex={-1}
                         className={cn(
                             "relative z-0 flex cursor-pointer items-center whitespace-nowrap outline-none group",
-                            isExpanded ? "rounded-none bg-transparent" : "rounded-lg hover:bg-panel-hover",
+                            isExpanded ? "rounded-none bg-transparent" : "rounded-lg hover:bg-[var(--row-hover)]",
                             !isExpanded && selected && "bg-panel-active",
                         )}
                         style={{ height: ROW_HEIGHT, lineHeight: `${ROW_HEIGHT}px` }}
@@ -301,8 +306,11 @@ export const GraphCommitRow = React.memo(function GraphCommitRow({
                                         </div>
                                         <div className="flex items-center gap-4 mt-0.5 text-text-muted pointer-events-auto">
                                             <div
-                                                className="flex items-center gap-1.5 cursor-pointer hover:text-text-primary transition-colors py-0.5"
-                                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); navigator.clipboard.writeText(log.hash); notify.success("Copied", "Commit hash copied to clipboard"); }}
+                                                className={cn(
+                                                    "flex items-center gap-1.5 cursor-pointer transition-colors py-0.5 press-spring",
+                                                    hashCopied ? "text-success" : "hover:text-text-primary",
+                                                )}
+                                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); void copyHash(log.hash, "Commit hash copied to clipboard"); }}
                                             >
                                                 <Icon icon={Clipboard20Regular} />
                                                 <span className="text-sm font-medium select-text">{log.hash.slice(0, 7)}</span>
@@ -336,13 +344,15 @@ export const GraphCommitRow = React.memo(function GraphCommitRow({
                             <span className="hidden w-[52px] shrink-0 whitespace-nowrap text-right text-sm tabular-nums text-text-muted @[320px]:inline">
                                 {getRelativeTime(log.date)}
                             </span>
-                            <Tooltip content={log.hash} side="top" delayDuration={250}>
+                            <Tooltip content={hashCopied ? "Copied" : log.hash} side="top" delayDuration={250}>
                                 <span
-                                    className="hidden w-[52px] shrink-0 cursor-default whitespace-nowrap text-right font-mono text-xs tabular-nums text-text-disabled opacity-70 @[480px]:inline"
+                                    className={cn(
+                                        "hidden w-[52px] shrink-0 cursor-default whitespace-nowrap text-right font-mono text-xs tabular-nums transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] @[480px]:inline",
+                                        hashCopied ? "text-success opacity-100" : "text-text-disabled opacity-70",
+                                    )}
                                     onClick={(e) => {
                                         e.stopPropagation();
-                                        void navigator.clipboard.writeText(log.hash);
-                                        notify.success("Copied", "Commit hash copied");
+                                        void copyHash(log.hash, "Commit hash copied");
                                     }}
                                 >
                                     {log.hash.slice(0, 7)}
@@ -513,7 +523,7 @@ export const GraphCommitRow = React.memo(function GraphCommitRow({
                                                         e.stopPropagation();
                                                         onOpenFile(file.path);
                                                     }}
-                                                    className="flex w-full min-w-0 items-center gap-2 overflow-hidden rounded-md px-2 hover:bg-panel-hover group/file cursor-pointer"
+                                                    className="flex w-full min-w-0 items-center gap-2 overflow-hidden rounded-md px-2 hover:bg-[var(--row-hover)] group/file cursor-pointer"
                                                     style={{ height: 22 }}
                                                 >
                                                     <div className="w-3.5 flex justify-center opacity-80 shrink-0">

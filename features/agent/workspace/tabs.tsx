@@ -88,7 +88,14 @@ function SortableWorkspaceTab({
                 >
                     <div className={cn(WORKBENCH_TAB_CONTENT_CLASS, isActive && WORKBENCH_TAB_CONTENT_ACTIVE_CLASS)}>
                     <div className="relative flex h-4 w-4 shrink-0 items-center justify-center">
-                        <span className={cn("flex items-center justify-center", canClose && "group-hover:opacity-0")}>
+                        <span
+                            className={cn(
+                                "flex items-center justify-center transition-opacity duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
+                                // The icon hands its slot to the close button, so both fade
+                                // rather than one blinking out under the pointer.
+                                canClose && "group-hover:opacity-0",
+                            )}
+                        >
                             {tab.kind === "browser" && tab.url ? (
                                 <Favicon url={tab.url} src={tab.favicon} size={16} />
                             ) : tab.kind === "file" || tab.kind === "diff" ? (
@@ -106,7 +113,7 @@ function SortableWorkspaceTab({
                                     event.stopPropagation();
                                     onClose(tab.id);
                                 }}
-                                className="absolute inset-0 flex items-center justify-center text-text-muted opacity-0 hover:text-text-primary group-hover:opacity-100"
+                                className="absolute inset-0 flex items-center justify-center text-text-muted opacity-0 transition-opacity duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:text-text-primary group-hover:opacity-100"
                             >
                                 <Icon icon={Dismiss20Regular} className="icon-sm" />
                             </button>

@@ -8,6 +8,7 @@ import { useMemo } from "react";
 import { Icon } from "@/components/ui/icon";
 
 import { Tooltip } from "@/components/ui/tooltip";
+import { SwapText } from "@/components/ui/swap";
 import { FileIcon } from "@/components/ui/file-icon";
 import { useProjectState, commands } from "@/lib/backend";
 import { useAllProgressMessages } from "@/lib/ui/status-progress";
@@ -106,14 +107,23 @@ const EditorStatusItems = ({
     return (
         <>
             <StatusItem label="Go to Line/Column" onClick={openLinePicker}>
-                {`Ln ${editorStatus.line}, Col ${editorStatus.column}`}
+                {/* The one status value that changes while the user watches it, so it
+                    crosses rather than blinking between two readings. Tabular digits
+                    keep the digits themselves from shifting. */}
+                <SwapText
+                    value={`Ln ${editorStatus.line}, Col ${editorStatus.column}`}
+                    durationMs={90}
+                    className="tabular-nums"
+                />
             </StatusItem>
 
             <StatusItem label="Select Indentation" onClick={onIndentation}>
                 <span className="hidden sm:inline">
-                    {editorStatus.insertSpaces
-                        ? `Spaces: ${editorStatus.spaces}`
-                        : `Tab Size: ${editorStatus.spaces}`}
+                    <SwapText
+                        value={editorStatus.insertSpaces
+                            ? `Spaces: ${editorStatus.spaces}`
+                            : `Tab Size: ${editorStatus.spaces}`}
+                    />
                 </span>
                 <span className="sm:hidden">{editorStatus.spaces}</span>
             </StatusItem>
@@ -123,13 +133,15 @@ const EditorStatusItems = ({
             </StatusItem>
 
             <StatusItem label="Select End of Line Sequence" onClick={onEol}>
-                <span className="hidden md:inline">{editorStatus.eol}</span>
+                <span className="hidden md:inline">
+                    <SwapText value={editorStatus.eol} />
+                </span>
             </StatusItem>
 
             <Tooltip content="Format Document">
                 <button
                     type="button"
-                    className="hidden lg:flex h-full px-1.5 items-center text-text-primary hover:bg-panel-hover transition-colors"
+                    className="hidden lg:flex h-full px-1.5 items-center text-text-primary hover:bg-[var(--row-hover)] transition-colors"
                     onClick={() => dispatchEditorAction("format")}
                 >
                     <Icon icon={Code20Regular} />
@@ -138,12 +150,14 @@ const EditorStatusItems = ({
 
             <StatusItem label="Select Language Mode" onClick={openLanguagePicker}>
                 <span className="hidden sm:inline">
-                    {languageLabel}
+                    <SwapText value={languageLabel} />
                     {typescriptVersion && editorStatus.language.includes("typescript") && (
                         <span className="text-text-muted ml-1">TS {typescriptVersion}</span>
                     )}
                 </span>
-                <span className="sm:hidden">{languageLabel.slice(0, 3).toUpperCase()}</span>
+                <span className="sm:hidden">
+                    <SwapText value={languageLabel.slice(0, 3).toUpperCase()} durationMs={90} />
+                </span>
             </StatusItem>
 
             <PythonInterpreterStatus language={editorStatus.language} projectPath={projectPath} />

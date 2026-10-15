@@ -192,6 +192,9 @@ Timing is in `app/transitions.css` and the `--transition-*` and `--ease-*` token
 | `--transition-base` | 140ms |
 | `--ease-out` / `--ease-spring` | `cubic-bezier(0.16, 1, 0.3, 1)` |
 | `--ease-in` | `cubic-bezier(0.7, 0, 0.84, 0)` |
+| `--swap-dur` / `--swap-ease` | 380ms / `cubic-bezier(0.22, 1, 0.36, 1)`: how long a replaced value keeps its slot |
+| `--reveal-dur` / `--reveal-ease` | 200ms / `--ease-out`: a section or disclosure body growing to its height |
+| `--ease-overshoot` | `linear(0, 0.28 18%, 0.87 42%, 1.06 62%, 1.01 78%, 1)`, `@supports` only |
 
 Specific systems:
 
@@ -199,8 +202,18 @@ Specific systems:
 - Morph (the expanding menu): open 320ms, close 240ms. Fade 180ms with a 40ms delay. Closed size 40px square, open size 260 by 180px, radius 16px.
 - Press: `.press-spring` scales to `--press-scale` 0.985. Press-in 80ms with `cubic-bezier(0.3, 0, 0.2, 1)`. Press-out 220ms with `cubic-bezier(0.22, 1, 0.36, 1)`. Hover brightens to 1.05, pressed darkens to 0.94.
 - Loading: the `ButtonSpinner` in `components/ui/button.tsx` uses three iMessage-style dots (`imsg-typing`). `LoadingGlyph` uses `Arc` from `loading-dev`.
+- Panel rail: a panel toggle icon previews the state it switches to. Its rail sits at `--panel-rail-open` 0, at `--panel-rail-closed` 1 when the panel is closed, and at `--panel-rail-peek` 0.5 while the toggle is hovered or focused. `--panel-rail-dur` is 140ms, matched to `--transition-base` so the icon commits with the panel it drives, on `--panel-rail-ease`. Only `transform` animates. `components/ui/panel-glyph.tsx` owns the geometry and `app/transitions.css` owns the rule.
+  - **The preview yields to the commit.** A hover preview is a promise about a click that has not happened yet, and it is spent the moment one does. `usePanelCommit` in `features/agent/chrome.tsx` marks the button `data-panel-committed="true"` on the user's click, which the peek rule excludes, and clears it on pointer-out or blur so the preview is reversible. Without it, `:hover` kept the rail pinned at the midpoint and a pointer that stayed on the button never showed the state it had just switched to, measured at `--panel-rail-hide` 0.5 with the panel already closed.
+  - The mark is set by the *click*, never by watching the state prop. Panels also move on their own, when a project loads and the workspace opens, when the layout restores a preference or zen mode takes the sidebar, and treating those as commits suppressed the preview for the whole session.
+  - **A replacement finishes the travel.** Closing the sidebar swaps the toggle for the title-bar peek toggle, which has no previous value to transition from. It mounts with `data-panel-commit-mount="true"` and `t-panel-rail-commit` animates the rail from `--panel-rail-peek` to wherever the button now says it should be. The end keyframe is left implicit so one rule serves both panel sides and both states. A cold first paint passes nothing, because nothing was committed and nothing should play.
+- State fills: every row and icon button in the sidebar sits on one ladder declared in `app/globals.css`: `--row-hover` 4%, `--row-selected` 8%, `--row-selected-hover` 10%. Hover is exactly half of the committed fill, so pointing at a row fills it halfway toward the state the click is going to put it in; `--row-selected-hover` exists because a selected row still has to answer the pointer, and a selected row that stops responding reads as disabled. Tinted rows run the same ladder as a percentage of their own colour (`--chat-tint` at 22 / 26 / 30 / 34, where the 4% step is the midpoint of 22 → 30). The fill transitions on `--transition-fast`. The rules this replaces had hover and selected on the *same* tone, one control that hovered with no fill at all, and a coloured row that hovered brighter (34%) than the state the click commits (30%). `scripts/qa/probe-sidebar-ladder.cjs` measures the ladder live.
+- Value swap: when a label or number is replaced in place, it crosses to the new value over `--swap-dur` on `--swap-ease`, ghosting out and copying in. `components/ui/swap.tsx` owns the timing and shortens the token per surface (90ms for the status bar, 140ms for a copy label). A first render never animates; only a change does.
+- Confirmation: "that worked" is drawn, not faded. `DrawnCheck` in `components/ui/checkmark.tsx` renders the stroked path that `t-success-check` rotates, bobs and draws in. A filled Fluent glyph cannot show this, because the draw animates `stroke-dashoffset`. The dense-list case uses `data-motion="compact"` to run the same beat in about 240ms.
+- Container reveal: `components/ui/collapse.tsx` animates `grid-template-rows: 0fr → 1fr` over `--reveal-dur`, which reaches the content's own height without measuring it. Its closed branch is `inert`, so a collapsed section's controls leave the tab order.
+- Terminal activity: `.t-tab-dot` marks a terminal tab that produced output while the user was looking elsewhere. One dot, one meaning, no pulse, because the strip is on screen for the whole session and constant motion there is noise. It shares the close button's reserved slot and hands it over on hover.
+- Spring: only the popover entrance overshoots, through `--ease-overshoot` behind `@supports (animation-timing-function: linear(0, 1))`. `cubic-bezier` is clamped to its endpoints, so `linear()` is the only curve that can pass 1. It is not applied to the press release: returning from `--press-scale` 0.985 means a 12% overshoot moves the control 0.2% of its size, which is invisible.
 
-Reduced motion: `app/transitions.css` and `app/globals.css` contain `prefers-reduced-motion: reduce` blocks, and 8 files in `app`, `components`, `features` and `lib` reference it. A new animation needs the same guard.
+Reduced motion: `app/globals.css` carries the blanket reset (every animation to `0.01ms` for a single iteration, every transition to `0.01ms`), and `app/transitions.css` carries the exception layer on top of it. Decorative waits stop; informational motion (`.animate-spin`, `.imsg-typing span`) slows to 2.4s and **keeps iterating**, since a frozen spinner is indistinguishable from a hung app, and `animation-iteration-count: infinite !important` has to be re-asserted because the blanket reset sets it to `1`, which would otherwise turn a slowed spinner into one slow turn and then a still image. A new animation needs a decision in that block, and a guard on a class that no element carries is worse than no guard because it reads as coverage. `tests/ui/reduced-motion.test.ts` holds the source contract; `scripts/qa/probe-reduced-motion.cjs` holds the computed result in a real engine.
 
 ## 7. Components
 
@@ -210,6 +223,7 @@ The shared set lives in `components/ui/`. Extend these before you write a new pr
 | --- | --- | --- |
 | Button | `button.tsx` | The only button. See the table below |
 | Icon | `icon.tsx` | Wraps a Fluent glyph. Size follows `--icon-size` |
+| Panel glyph | `panel-glyph.tsx` | A panel toggle icon whose rail reports panel state, with the hover and focus preview from `data-panel-toggle`. Not a Fluent glyph: it composes Fluent's silhouette with a mask |
 | Input, Textarea | `input.tsx`, `textarea.tsx` | Input is `h-chrome` (30px), `squircle-2xl`, `border-input-border`, `bg-input-bg`, `px-sm`, `text-sm`. Textarea uses `border-border-secondary` |
 | Switch | `switch.tsx` | Radix switch. A `loading` state shows a spinning sync icon |
 | Slider | `slider.tsx` | Radix slider |
@@ -222,8 +236,12 @@ The shared set lives in `components/ui/`. Extend these before you write a new pr
 | Search, combobox, quick pick | `search.tsx`, `combobox.tsx`, `quick-pick.tsx` | Command surfaces |
 | Scroll | `scroll.tsx` | Radix scroll area. Scrollbar `--scrollbar` |
 | Collapsible, disclosure | `collapsible.tsx`, `disclosure.tsx` | Expand and collapse |
+| Collapse | `collapse.tsx` | The container reveal. `0fr → 1fr` on `--reveal-dur`, closed branch `inert` |
+| Swap | `swap.tsx` | Cross-fades a value that was replaced in place, never a first render |
+| Copy | `copy-button.tsx` + `lib/ui/use-copy.ts` | The copy affordance. Awaits the write before it confirms, draws its check, and offers manual copy instead of a retry when the clipboard is denied |
 | Breadcrumb, sorting, checkmark | `breadcrumb.tsx`, `sorting.tsx`, `checkmark.tsx` | Small controls |
-| Loading, shimmer text | `loading.tsx`, `shimmer-text.tsx` | Progress and pending states |
+| Loading, shimmer text | `loading.tsx`, `shimmer-text.tsx` | Progress and pending states. `LoadingBar` waits out `useDelayedFlag` (200ms) so sub-200ms work shows nothing, then holds for 400ms |
+| Skeletons | `features/git/ui/shared/skeletons.tsx` | Placeholders read their row geometry from `row-shell.ts`, which the live rows import too |
 
 Radix packages in `package.json` cover dialog, alert dialog, context menu, dropdown, menubar, scroll area, slider, switch, tabs and tooltip. Use them through the wrappers above.
 

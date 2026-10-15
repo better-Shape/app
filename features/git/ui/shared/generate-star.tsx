@@ -77,10 +77,10 @@ export function GenerateStarButton({
                     placement === "corner"
                         ? "bottom-1 right-1"
                         : "right-1 top-1/2 -translate-y-1/2",
-                    "hover:bg-panel-hover hover:text-text-primary",
+                    "hover:bg-[var(--btn-hover)] hover:text-text-primary",
                     "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent",
                     "disabled:pointer-events-none disabled:opacity-40",
-                    "transition-colors duration-[var(--transition-fast)] ease-[var(--ease-out)]",
+                    "transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
                     loading && "text-accent",
                     className,
                 )}

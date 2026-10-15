@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
+import { Collapse } from "./collapse";
 import { cn } from "@/lib/utils";
 
 /** Shared animated nav group used by Git Manager, Settings, and Stats sidebars. */
@@ -26,16 +27,9 @@ export function CollapsibleNavGroup({
             >
                 <span className="min-w-0 truncate">{label}</span>
             </button>
-            <div
-                className={cn(
-                    "grid transition-[grid-template-rows,opacity] duration-200 ease-[var(--ease-out)]",
-                    open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
-                )}
-            >
-                <div className="min-h-0 overflow-hidden">
-                    <div className="space-y-0.5 pb-0.5">{children}</div>
-                </div>
-            </div>
+            <Collapse open={open}>
+                <div className="space-y-0.5 pb-0.5">{children}</div>
+            </Collapse>
         </div>
     );
 }
@@ -60,10 +54,15 @@ export function NavLeafButton({
             onClick={onClick}
             disabled={disabled}
             className={cn(
-                "h-9 w-full justify-start gap-1 px-1.5! font-medium",
+                // A nav row, so it uses the row ladder rather than numbers of its own:
+                // it used to hover at 60% of a 4% fill and commit at 4%, which is a
+                // hand-rolled approximation of the same idea with the wrong values at
+                // both ends. Hover is the midpoint of the way to the committed fill, and
+                // a committed row still steps up so it never goes inert.
+                "h-9 w-full justify-start gap-1 px-1.5! font-medium transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
                 active
-                    ? "bg-panel-hover text-text-primary"
-                    : "text-text-secondary hover:bg-panel-hover/60 hover:text-text-primary",
+                    ? "bg-[var(--row-selected)] text-text-primary hover:bg-[var(--row-selected-hover)]"
+                    : "text-text-secondary hover:bg-[var(--row-hover)] hover:text-text-primary",
                 disabled && "pointer-events-none opacity-40",
                 className,
             )}

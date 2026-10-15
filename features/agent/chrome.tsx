@@ -1,10 +1,7 @@
 "use client";
 
-import { PanelLeft20Filled } from "@fluentui/react-icons/headless/svg/panel-left";
-import { PanelRight20Filled } from "@fluentui/react-icons/headless/svg/panel-right";
-
-import type { ReactNode } from "react";
-import { Icon } from "@/components/ui/icon";
+import { useState, type ReactNode } from "react";
+import { PanelGlyph } from "@/components/ui/panel-glyph";
 
 import { cn } from "@/lib/utils";
 import { usePlatform } from "@/lib/platform";
@@ -24,25 +21,36 @@ function Btn({
     onClick,
     disabled,
     active,
+    panelToggle,
     children,
 }: {
     label: string;
     onClick: () => void;
     disabled?: boolean;
     active?: boolean;
+    /** Names the panel this button toggles, so the stylesheet can preview it on hover. */
+    panelToggle?: string;
     children: ReactNode;
 }) {
+    const { committed, commit, handlers } = usePanelCommit();
+
     return (
         <Tooltip content={label}>
             <button
                 type="button"
+                data-panel-toggle={panelToggle}
+                data-panel-committed={committed ? "true" : undefined}
                 aria-label={label}
                 aria-pressed={active}
                 disabled={disabled}
-                onClick={onClick}
+                onClick={() => {
+                    commit();
+                    onClick();
+                }}
+                {...handlers}
                 className={cn(
                     "flex size-7 items-center justify-center rounded-md text-text-muted press-spring",
-                    "hover:bg-panel-hover hover:text-text-primary",
+                    "hover:bg-[var(--btn-hover)] hover:text-text-primary",
                     active && "text-text-primary",
                     "disabled:pointer-events-none disabled:text-text-disabled",
                 )}
@@ -83,6 +91,17 @@ export function AgentChrome({
 }) {
     const isMac = usePlatform() === "macos";
 
+    // The peek toggle is mounted by the click that closed the sidebar, so detecting that
+    // transition lets the arriving button continue the travel its predecessor started.
+    // The count lives in state because a render-phase update makes React discard the pass
+    // a local flag was set in, so a local would never reach the committed render.
+    const [sidebarCloseCount, setSidebarCloseCount] = useState(0);
+    const [previousSidebarOpen, setPreviousSidebarOpen] = useState(sidebarOpen);
+    if (previousSidebarOpen !== sidebarOpen) {
+        setPreviousSidebarOpen(sidebarOpen);
+        if (!sidebarOpen) setSidebarCloseCount((count) => count + 1);
+    }
+
     return (
         <div className="relative z-30 flex h-titlebar shrink-0 items-stretch overflow-hidden bg-transparent" data-tauri-drag-region>
             {isMac && windowControls ? (
@@ -96,7 +115,7 @@ export function AgentChrome({
                     onMouseEnter={onSidebarHoverStart}
                     onMouseLeave={onSidebarHoverEnd}
                 >
-                    <SidebarToggleBtn open={false} onToggle={onToggleSidebar} />
+                    <SidebarToggleBtn open={false} commitOnMount={sidebarCloseCount > 0} onToggle={onToggleSidebar} />
                 </div>
             ) : null}
             <div
@@ -111,9 +130,10 @@ export function AgentChrome({
                         label={rightOpen ? "Hide panel" : "Show panel"}
                         disabled={!canToggleRight}
                         active={rightOpen}
+                        panelToggle="workspace"
                         onClick={onToggleRight}
                     >
-                        <Icon icon={PanelRight20Filled} />
+                        <PanelGlyph side="right" open={rightOpen} />
                     </Btn>
                 ) : null}
                 {padWindowControls && !isMac ? <WindowControlsSpacer /> : null}
@@ -122,27 +142,69 @@ export function AgentChrome({
     );
 }
 
+/**
+ * Marks a panel toggle as having just committed, and clears the mark on pointer-out.
+ *
+ * Without it `:hover` keeps the icon pinned at the preview midpoint, so the pointer still
+ * resting on the button never sees the state it just switched to. Set during render so the
+ * attribute lands in the same commit as the state, with no frame of stale preview.
+ */
+export function usePanelCommit() {
+    const [committed, setCommitted] = useState(false);
+
+    const release = () => setCommitted((current) => (current ? false : current));
+    return {
+        committed,
+        /**
+         * Called from the toggle's own click, not from watching the state prop: state also
+         * moves on its own, and treating those changes as commits suppressed the hover
+         * preview for the rest of the session.
+         */
+        commit: () => setCommitted(true),
+        release,
+        handlers: { onPointerLeave: release, onBlur: release },
+    };
+}
+
 export function SidebarToggleBtn({
     open,
     onToggle,
     collapsed,
+    commitOnMount,
 }: {
     open: boolean;
     onToggle: () => void;
     collapsed?: boolean;
+    /**
+     * Set when this button appeared because a panel just closed, so its rail starts where
+     * the preview left off. Unset on a cold paint: nothing was committed, so nothing plays.
+     */
+    commitOnMount?: boolean;
 }) {
+    const { committed, commit, handlers } = usePanelCommit();
+    // Captured on the first render and then left alone: whether this element was born
+    // from a commit is a fact about its mount, not about later renders.
+    const [bornFromCommit] = useState(Boolean(commitOnMount));
+
     return (
         <Tooltip content={open ? "Hide sidebar" : "Show sidebar"} side={collapsed ? "right" : "bottom"} delayDuration={80}>
             <button
                 type="button"
+                data-panel-toggle="sidebar"
+                data-panel-committed={committed ? "true" : undefined}
+                data-panel-commit-mount={bornFromCommit && !committed ? "true" : undefined}
+                {...handlers}
                 aria-label={open ? "Hide sidebar" : "Show sidebar"}
-                onClick={onToggle}
+                onClick={() => {
+                    commit();
+                    onToggle();
+                }}
                 className={cn(
-                    "flex items-center justify-center rounded-md text-text-muted hover:bg-panel-hover hover:text-text-primary",
+                    "flex items-center justify-center rounded-md text-text-muted hover:bg-[var(--btn-hover)] hover:text-text-primary",
                     collapsed ? "size-9" : "size-7",
                 )}
             >
-                <Icon icon={PanelLeft20Filled} />
+                <PanelGlyph side="left" open={open} />
             </button>
         </Tooltip>
     );

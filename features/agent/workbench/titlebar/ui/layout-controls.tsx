@@ -4,7 +4,7 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 const titlebarIconButtonClass =
-    "flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded text-text-secondary transition-colors duration-[var(--transition-fast)] ease-[var(--ease-out)] hover:bg-panel-hover hover:text-text-primary";
+    "flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded text-text-secondary transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary";
 
 function TitlebarLayoutButton({
     label,

@@ -215,7 +215,7 @@ export function DesignLeftPanel({
                                 <div
                                     key={layer.key}
                                     className={cn(
-                                        "flex h-8 w-full items-center gap-1.5 px-1.5 text-sm text-text-secondary hover:bg-panel-hover hover:text-text-primary",
+                                        "flex h-8 w-full items-center gap-1.5 px-1.5 text-sm text-text-secondary hover:bg-[var(--row-hover)] hover:text-text-primary",
                                         selected && "bg-panel-active text-text-primary",
                                     )}
                                     style={{ paddingLeft: 9 + Math.min(layer.depth, 12) * 12 }}
@@ -287,7 +287,7 @@ export function DesignLeftPanel({
                                 type="button"
                                 onClick={() => onPageChange(page.path)}
                                 className={cn(
-                                    "flex min-h-8 w-full items-center gap-2 squircle-xl px-2 text-left text-sm text-text-secondary hover:bg-panel-hover hover:text-text-primary",
+                                    "flex min-h-8 w-full items-center gap-2 squircle-xl px-2 text-left text-sm text-text-secondary hover:bg-[var(--row-hover)] hover:text-text-primary",
                                     activePage === page.path && "bg-panel-active text-text-primary",
                                 )}
                             >
@@ -313,7 +313,7 @@ export function DesignLeftPanel({
                                 key={page.path}
                                 type="button"
                                 onClick={() => onPageChange(page.path)}
-                                className="flex h-8 w-full items-center gap-2 px-3 text-left text-sm text-text-secondary hover:bg-panel-hover hover:text-text-primary"
+                                className="flex h-8 w-full items-center gap-2 px-3 text-left text-sm text-text-secondary hover:bg-[var(--row-hover)] hover:text-text-primary"
                             >
                                 <Icon icon={Document20Regular} className="text-accent" />
                                 <span className="min-w-0 flex-1 truncate">{page.label}</span>
@@ -334,7 +334,7 @@ export function DesignLeftPanel({
                                         key={item.path}
                                         type="button"
                                         onClick={() => onOpenPath?.(item.path)}
-                                        className="flex h-7 w-full items-center gap-2 px-3 text-left text-sm text-text-secondary hover:bg-panel-hover hover:text-text-primary"
+                                        className="flex h-7 w-full items-center gap-2 px-3 text-left text-sm text-text-secondary hover:bg-[var(--row-hover)] hover:text-text-primary"
                                     >
                                         <Icon icon={CheckboxUnchecked20Regular} className="text-accent" />
                                         <span className="min-w-0 flex-1 truncate">{item.name.replace(/\.(tsx|jsx)$/i, "")}</span>
@@ -380,7 +380,7 @@ export function DesignLeftPanel({
                                         key={item.path}
                                         type="button"
                                         onClick={() => onOpenPath?.(item.path)}
-                                        className="flex h-7 w-full items-center gap-2 px-3 text-left text-sm text-text-secondary hover:bg-panel-hover"
+                                        className="flex h-7 w-full items-center gap-2 px-3 text-left text-sm text-text-secondary hover:bg-[var(--row-hover)]"
                                     >
                                         <Icon icon={Document20Regular} />
                                         <span className="min-w-0 flex-1 truncate">{item.name}</span>
@@ -400,7 +400,7 @@ export function DesignLeftPanel({
                                 key={item.path}
                                 type="button"
                                 onClick={() => onOpenPath?.(item.path)}
-                                className="flex h-7 w-full items-center gap-2 px-3 text-left text-sm text-text-secondary hover:bg-panel-hover"
+                                className="flex h-7 w-full items-center gap-2 px-3 text-left text-sm text-text-secondary hover:bg-[var(--row-hover)]"
                             >
                                 <Icon icon={Grid20Regular} className="text-success" />
                                 <span className="min-w-0 flex-1 truncate">{item.name}</span>
@@ -418,7 +418,7 @@ export function DesignLeftPanel({
                                 key={item.path}
                                 type="button"
                                 onClick={() => onOpenPath?.(item.path)}
-                                className="flex h-7 w-full items-center gap-2 px-3 text-left text-sm text-text-secondary hover:bg-panel-hover"
+                                className="flex h-7 w-full items-center gap-2 px-3 text-left text-sm text-text-secondary hover:bg-[var(--row-hover)]"
                             >
                                 <Icon icon={Code20Regular} className="text-text-muted" />
                                 <span className="min-w-0 flex-1 truncate">{item.name}</span>

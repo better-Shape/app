@@ -1,0 +1,78 @@
+"use client";
+
+import { Clipboard20Regular } from "@fluentui/react-icons/headless/svg/clipboard";
+
+import { DrawnCheck } from "@/components/ui/checkmark";
+import { Icon } from "@/components/ui/icon";
+import { SwapText } from "@/components/ui/swap";
+import { useCopyToClipboard } from "@/lib/ui/use-copy";
+import { cn } from "@/lib/utils";
+
+export interface CopyButtonProps {
+    /** Text written to the clipboard. */
+    text: string;
+    /** Spoken label, and the tooltip when `showLabel` is false. */
+    label?: string;
+    /** Render the word next to the glyph instead of glyph-only. */
+    showLabel?: boolean;
+    /** Toast copy, e.g. "Commit hash copied to clipboard". */
+    successDescription?: string;
+    className?: string;
+    /** Extra classes for the button box, so call sites keep their own chrome. */
+    boxClassName?: string;
+}
+
+/**
+ * The copy affordance, in one place.
+ *
+ * Before this, a copy glyph could mean three different things depending on which
+ * panel you were in: a toast, a silent no-op, or a word that flipped instantly.
+ * The glyph and word now cross through `SwapText`, so the control answers in one
+ * beat whether it is icon-only or labelled.
+ */
+export function CopyButton({
+    text,
+    label = "Copy",
+    showLabel = false,
+    successDescription,
+    className,
+    boxClassName,
+}: CopyButtonProps) {
+    const { copied, failed, copy } = useCopyToClipboard({ successDescription });
+
+    const face = copied ? "Copied" : label;
+
+    return (
+        <button
+            type="button"
+            data-copy-state={copied ? "copied" : failed ? "failed" : "idle"}
+            aria-label={copied ? "Copied" : label}
+            title={showLabel ? undefined : label}
+            onClick={(e) => {
+                e.stopPropagation();
+                void copy(text);
+            }}
+            className={cn(
+                "press-spring inline-flex items-center gap-1.5 rounded-lg",
+                copied && "text-success",
+                failed && "text-error",
+                className,
+                boxClassName,
+            )}
+        >
+            <SwapText
+                value={face}
+                live
+                render={(face) => (
+                    <>
+                        {/* The incoming layer is keyed by value, so the drawn mark
+                            mounts exactly when the value flips to "Copied" and its
+                            one-shot draw plays then, never on first paint. */}
+                        {face === "Copied" ? <DrawnCheck /> : <Icon icon={Clipboard20Regular} />}
+                        {showLabel ? <span>{face === "Copied" ? "Copied" : "Copy"}</span> : null}
+                    </>
+                )}
+            />
+        </button>
+    );
+}

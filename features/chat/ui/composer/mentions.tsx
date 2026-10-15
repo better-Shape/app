@@ -497,7 +497,7 @@ export function MentionPicker({
             {mode === "mention" && activeCategory ? (
                 <button
                     type="button"
-                    className="flex w-full items-center gap-2 px-2.5 py-1.5 text-sm text-text-secondary hover:bg-panel-hover hover:text-text-primary"
+                    className="flex w-full items-center gap-2 px-2.5 py-1.5 text-sm text-text-secondary hover:bg-[var(--row-hover)] hover:text-text-primary"
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => setActiveCategory(null)}
                 >
@@ -521,7 +521,7 @@ export function MentionPicker({
                                     "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm",
                                     idx === highlight
                                         ? "bg-panel-hover text-text-primary"
-                                        : "text-text-primary hover:bg-panel-hover",
+                                        : "text-text-primary hover:bg-[var(--row-hover)]",
                                 )}
                                 onMouseDown={(e) => e.preventDefault()}
                                 onMouseEnter={() => setHighlight(idx)}
@@ -556,7 +556,7 @@ export function MentionPicker({
                             "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm",
                             idx === highlight
                                 ? "bg-panel-hover text-text-primary"
-                                : "text-text-primary hover:bg-panel-hover",
+                                : "text-text-primary hover:bg-[var(--row-hover)]",
                         )}
                         onMouseDown={(e) => e.preventDefault()}
                         onMouseEnter={() => setHighlight(idx)}
@@ -625,7 +625,7 @@ export function MentionPicker({
                             <button
                                 key={cat.id}
                                 type="button"
-                                className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm text-text-primary hover:bg-panel-hover"
+                                className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm text-text-primary hover:bg-[var(--row-hover)]"
                                 onMouseDown={(e) => e.preventDefault()}
                                 onClick={() => setActiveCategory(cat.id)}
                             >

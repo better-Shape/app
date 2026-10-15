@@ -23,6 +23,7 @@ import React, { useState, useCallback, useEffect, useRef } from "react";
 import { Icon } from "@/components/ui/icon";
 
 import { cn } from "@/lib/utils";
+import { useCopyToClipboard } from "@/lib/ui/use-copy";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
@@ -229,7 +230,7 @@ const ChangeRow = ({
                     onClick={() => onShowDiff(file.path, file.staged)}
                     className={cn(
                         "flex items-center px-0.5 py-0.5 cursor-pointer rounded-lg group relative h-7 transition-colors",
-                        selected ? "bg-panel-hover" : "hover:bg-panel-hover",
+                        selected ? "bg-panel-hover" : "hover:bg-[var(--row-hover)]",
                     )}
                 >
                     <div
@@ -272,7 +273,7 @@ const ChangeSectionHeader = ({ title, count, isAllStaged, isSomeStaged, onToggle
     onToggleStage: () => void;
 }) => (
     <div
-        className="flex items-center group py-1 rounded-lg shrink-0 cursor-pointer hover:bg-panel-hover transition-colors"
+        className="flex items-center group py-1 rounded-lg shrink-0 cursor-pointer hover:bg-[var(--row-hover)] transition-colors"
         onClick={onToggleOpen}
     >
         <div className="w-4 h-4 -mr-2.5 flex items-center justify-center shrink-0 text-text-primary hover:text-text-primary" />
@@ -1260,22 +1261,22 @@ const PanelHeaderActions = ({
     setIsGitRepo: (value: boolean) => void;}) => (
     <div className="flex shrink-0 items-center gap-0.5">
     <Tooltip content="Refresh Repository">
-        <Button variant="ghost" size="icon" className="w-6 h-6 hover:bg-panel-hover" onClick={() => refresh()}>
+        <Button variant="ghost" size="icon" className="w-6 h-6 hover:bg-[var(--btn-hover)]" onClick={() => refresh()}>
             <Icon icon={ArrowSync20Regular} />
         </Button>
     </Tooltip>
     <Tooltip content="Pull">
-        <Button variant="ghost" size="icon" className="w-6 h-6 hover:bg-panel-hover" onClick={handlePull}>
+        <Button variant="ghost" size="icon" className="w-6 h-6 hover:bg-[var(--btn-hover)]" onClick={handlePull}>
             <Icon icon={ArrowDownload20Regular} />
         </Button>
     </Tooltip>
     <Tooltip content="Push">
-        <Button variant="ghost" size="icon" className="w-6 h-6 hover:bg-panel-hover" onClick={handlePush}>
+        <Button variant="ghost" size="icon" className="w-6 h-6 hover:bg-[var(--btn-hover)]" onClick={handlePush}>
             <Icon icon={ArrowUp20Regular} />
         </Button>
     </Tooltip>
     <Tooltip content="Sync Changes">
-        <Button variant="ghost" size="icon" className="w-6 h-6 hover:bg-panel-hover" onClick={handleSync}>
+        <Button variant="ghost" size="icon" className="w-6 h-6 hover:bg-[var(--btn-hover)]" onClick={handleSync}>
             <Icon icon={ArrowUpload20Regular} />
         </Button>
     </Tooltip>
@@ -1397,7 +1398,7 @@ const RepoSelectorTrigger = ({
         <Button
             variant="ghost"
             size="sm"
-            className="h-7 w-full justify-between gap-2 px-2 hover:bg-panel-hover text-text-secondary hover:text-text-primary"
+            className="h-7 w-full justify-between gap-2 px-2 hover:bg-[var(--row-hover)] text-text-secondary hover:text-text-primary"
         >
             <span className="flex items-center gap-1.5 min-w-0">
                 <Icon icon={Folder20Filled} className="shrink-0" />
@@ -1696,7 +1697,13 @@ const RemoteRow = ({
     setEditingRemote: (value: { name: string; url: string } | null) => void;
     handleSaveRemoteUrl: () => void;
     handleRemoveRemote: (name: string) => void;
-}) => (
+}) => {
+    // Copying a remote URL used to give no sign at all that anything happened. The
+    // button now holds its own confirmation: green glyph, "Copied" tooltip, and the
+    // toast only fires once the write has landed.
+    const { copied, copy } = useCopyToClipboard({ silent: true, resetMs: 1200 });
+
+    return (
     <div key={remote.name} className="rounded-lg border border-border-subtle bg-panel-secondary p-2">
         {editingRemote?.name === remote.name ? (
             <div className="space-y-2">
@@ -1719,13 +1726,20 @@ const RemoteRow = ({
                 </div>
                 <div className="flex gap-1 shrink-0">
                     <RemoteActionButton content="Edit URL" label="Edit URL" icon={Edit20Regular} onClick={() => setEditingRemote(remote)} />
-                    <RemoteActionButton content="Copy URL" label="Copy URL" icon={Clipboard20Regular} onClick={() => navigator.clipboard.writeText(remote.url)} />
+                    <RemoteActionButton
+                        content={copied ? "Copied" : "Copy URL"}
+                        label={copied ? "Copied" : "Copy URL"}
+                        icon={Clipboard20Regular}
+                        onClick={() => void copy(remote.url, "Remote URL copied")}
+                        className={cn("h-6 w-6", copied && "text-success")}
+                    />
                     <RemoteActionButton content="Remove" label="Remove remote" icon={Delete20Filled} onClick={() => handleRemoveRemote(remote.name)} className="h-6 w-6 text-error" />
                 </div>
             </div>
         )}
-    </div>
-);
+        </div>
+    );
+};
 
 /** Remote list inside the remotes dialog: loading, empty, and row states. */
 const RemoteList = ({
@@ -2695,7 +2709,7 @@ const Source = ({
     const [hasRemote, setHasRemote] = useState(false);
     const [lastCommit, setLastCommit] = useState<GitLogEntry | null>(null);
     const [needsSync, setNeedsSync] = useState(false);
-    // Assume repo until discovery proves otherwise — avoids empty-state flash on remount.
+    // Assume repo until discovery proves otherwise, avoids empty-state flash on remount.
     const [isGitRepo, setIsGitRepo] = useState(true);
 
     const [isChangesOpen, setIsChangesOpen] = useState(true);
@@ -2755,7 +2769,7 @@ const Source = ({
     });
 
     useEffect(() => {
-        // Soft refresh on mount — don't flash the global loading bar for routine open.
+        // Soft refresh on mount, don't flash the global loading bar for routine open.
         refresh({ track: false });
     }, [refresh]);
 

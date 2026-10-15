@@ -243,7 +243,7 @@ export function InlineDiff({ file, original, replacement, isGenerating }: {
                         </span>
                     </button>
                     <button
-                        className="px-1.5 py-0.5 rounded-md text-xs font-medium text-text-muted hover:text-text-primary transition-colors hover:bg-panel-hover disabled:opacity-50"
+                        className="px-1.5 py-0.5 rounded-md text-xs font-medium text-text-muted hover:text-text-primary transition-colors hover:bg-[var(--row-hover)] disabled:opacity-50"
                         onClick={handleReject}
                         disabled={status === "applying" || status === "rejected"}
                     >

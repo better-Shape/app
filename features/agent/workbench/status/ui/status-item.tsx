@@ -21,7 +21,7 @@ export function StatusItem({
                 disabled={!onClick}
                 onClick={onClick}
                 className={cn(
-                    "h-full px-2 text-xs font-normal text-text-primary hover:bg-panel-hover transition-colors",
+                    "h-full px-2 text-xs font-normal text-text-primary hover:bg-[var(--row-hover)] transition-colors",
                     !onClick && "cursor-default hover:bg-transparent",
                     className,
                 )}

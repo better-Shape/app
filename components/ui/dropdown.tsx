@@ -19,7 +19,7 @@ import { useOverlayRoot } from "@/lib/ui/overlay-root";
  */
 
 const itemClasses =
-    "group relative flex cursor-default select-none items-center gap-2 squircle-2xl px-4! py-1.5 text-sm outline-none transition-[background-color,color,transform] duration-[var(--transition-fast)] ease-[var(--ease-out)] focus:bg-panel-hover focus:text-text-primary data-disabled:pointer-events-none data-disabled:opacity-50";
+    "group relative flex cursor-default select-none items-center gap-2 squircle-2xl px-4! py-1.5 text-sm outline-none transition-[background-color,color,transform] duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] focus:bg-panel-hover focus:text-text-primary data-disabled:pointer-events-none data-disabled:opacity-50";
 const containerClasses =
     "bettershape-popover-content z-dropdown overflow-hidden squircle-2xl border border-border-secondary bg-sidebar text-text-primary shadow-md";
 const shortcutClasses =
@@ -28,7 +28,7 @@ const shortcutClasses =
 const menuInsetClasses = "p-1.5";
 const menuCollisionPadding = 8;
 
-/** Overflow scrim — GitLab-style fade when the panel can scroll. */
+/** Overflow scrim, GitLab-style fade when the panel can scroll. */
 function DropdownScrollScrim({ side, visible }: { side: "up" | "down"; visible: boolean }) {
     return (
         <div
@@ -471,7 +471,7 @@ const MenubarTrigger = React.forwardRef<
             if (onPointerDown) onPointerDown(e);
         }}
         className={cn(
-            "flex cursor-default select-none items-center rounded-md px-sm py-xs text-sm font-normal leading-none outline-none focus:bg-panel-hover focus:text-text-primary data-[state=open]:bg-panel-hover data-[state=open]:text-text-primary transition-colors duration-[var(--transition-fast)] ease-[var(--ease-out)]",
+            "flex cursor-default select-none items-center rounded-md px-sm py-xs text-sm font-normal leading-none outline-none focus:bg-panel-hover focus:text-text-primary data-[state=open]:bg-panel-hover data-[state=open]:text-text-primary transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
             className
         )}
         {...props}

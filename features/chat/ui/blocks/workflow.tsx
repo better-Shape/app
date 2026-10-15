@@ -110,7 +110,7 @@ export function parseGitLogLines(content?: string): GitLogLine[] {
                 subject: structured[4].trim(),
             }];
         }
-        // Legacy: `abc1234 2024-01-01 — subject (author)`
+        // Legacy: `abc1234 2024-01-01, subject (author)`
         const legacy = trimmed.match(/^([0-9a-f]{7,40})\s+(\S+)\s+—\s+(.+?)\s+\(([^)]+)\)\s*$/i);
         if (legacy) {
             return [{
@@ -464,7 +464,7 @@ function countDiffLines(body: string): { add: number; del: number } {
     return { add, del };
 }
 
-/** Git summary row — same text style as Visited / Edited, details in a quiet dropdown. */
+/** Git summary row, same text style as Visited / Edited, details in a quiet dropdown. */
 function GitActionChip({
     label,
     detail,
@@ -502,7 +502,7 @@ function GitActionChip({
             {children ? (
                 <Icon
                     icon={ChevronRight20Regular}
-                    className="shrink-0 text-text-muted opacity-50 transition-transform duration-[var(--transition-fast)] ease-[var(--ease-out)] group-data-[state=open]/line:rotate-90"
+                    className="shrink-0 text-text-muted opacity-50 transition-transform duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] group-data-[state=open]/line:rotate-90"
                 />
             ) : null}
         </button>
@@ -676,7 +676,7 @@ function GitLogGroup({ lines }: { lines: GitLogLine[] }) {
                 {lines.map((line) => (
                     <div
                         key={`${line.hash}-${line.subject}`}
-                        className="flex flex-col gap-0.5 rounded-lg px-2 py-1.5 hover:bg-panel-hover/60"
+                        className="flex flex-col gap-0.5 rounded-lg px-2 py-1.5 hover:bg-[var(--row-hover)]"
                     >
                         <div className="flex min-w-0 items-center gap-2">
                             <span className="shrink-0 font-mono text-xs text-text-secondary">{line.hash}</span>
@@ -704,7 +704,7 @@ function GitBranchesGroup({ lines }: { lines: GitBranchLine[] }) {
                 {lines.map((line) => (
                     <div
                         key={line.name}
-                        className="flex min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-panel-hover/60"
+                        className="flex min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-[var(--row-hover)]"
                     >
                         <span
                             className={cn(

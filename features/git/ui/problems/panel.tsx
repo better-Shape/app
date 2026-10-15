@@ -57,7 +57,7 @@ function ProblemRow({ problem, onOpen }: { problem: Problem; onOpen: (target: Pr
                 type="button"
                 onClick={() => onOpen({ path: problem.path, line: problem.line, column: problem.column })}
                 aria-label={[label, problem.ruleId, problem.message, position].filter(Boolean).join(" — ")}
-                className="flex w-full items-start gap-2 rounded-md px-2 py-1 text-left hover:bg-panel-hover focus-visible:bg-panel-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus-ring"
+                className="flex w-full items-start gap-2 rounded-md px-2 py-1 text-left hover:bg-[var(--row-hover)] focus-visible:bg-panel-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus-ring"
             >
                 <span className={cn("mt-0.5 shrink-0", SEVERITY_CLASS[problem.severity])}>
                     <Icon icon={SEVERITY_GLYPH[problem.severity]} className="icon-sm" />
@@ -146,7 +146,7 @@ export function ProblemsPanel({
                     type="button"
                     aria-label="Re-run ESLint"
                     onClick={onRerun}
-                    className="flex size-7 shrink-0 items-center justify-center rounded-md text-text-muted hover:bg-panel-hover hover:text-text-primary"
+                    className="flex size-7 shrink-0 items-center justify-center rounded-md text-text-muted hover:bg-[var(--btn-hover)] hover:text-text-primary"
                 >
                     <Icon
                         icon={ArrowSync20Regular}

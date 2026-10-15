@@ -79,8 +79,12 @@ function SidebarPeek({
             ref={attachHost}
             data-sidebar-peek=""
             className={cn(
-                "fixed z-30 flex w-82 flex-col overflow-visible transition-opacity duration-200 ease-[var(--ease-out)]",
-                shown ? "opacity-100" : "pointer-events-none opacity-0",
+                "fixed z-30 flex w-82 flex-col overflow-visible origin-left",
+                // Comes out of the rail button rather than fading in at a fixed spot:
+                // the layer grows from the edge the pointer is on and travels the last
+                // few pixels, which is what makes the rail feel like a handle.
+                "transition-[opacity,transform,translate] duration-[var(--spring-quick-dur)] ease-[var(--spring-quick)]",
+                shown ? "opacity-100 translate-x-0" : "pointer-events-none opacity-0 -translate-x-1.5",
             )}
             style={{ top: 0, bottom: 8, left: 8 }}
             onMouseEnter={onEnter}
@@ -107,7 +111,7 @@ function SidebarPeek({
 }
 
 /**
- * Agent View — left sidebar (agent / settings / git / files nav),
+ * Agent View, left sidebar (agent / settings / git / files nav),
  * center chrome + content; expanded workspace is full-height; rail under chrome.
  */
 export function AgentLayout({ children }: { children: React.ReactNode }) {
@@ -322,7 +326,7 @@ export function AgentLayout({ children }: { children: React.ReactNode }) {
                 setOverlay(null);
                 return;
             }
-            // Git Manager overlay removed — Graph lives in the right workspace tab.
+            // Git Manager overlay removed, Graph lives in the right workspace tab.
             if (detail.type === "git") {
                 setOverlay(null);
                 persistWorkspace(true);
@@ -533,6 +537,8 @@ export function AgentLayout({ children }: { children: React.ReactNode }) {
                 <div
                     className={cn(
                         "pointer-events-none absolute inset-0 z-[100] flex items-center justify-center bg-transparent",
+                        // Ambient, not interactive: the splash is not something the user
+                        // drives, so it keeps the bezier. See the Motion block in globals.css.
                         "transition-opacity duration-300 ease-[var(--ease-out)]",
                         splashVisible ? "opacity-100" : "opacity-0",
                     )}
@@ -636,6 +642,16 @@ src="/logos/logo.png"
                             }}
                         >
                             <div className="absolute inset-y-3 -left-1.5 w-3 cursor-col-resize" />
+                            {/* Matches the panel separators: a hairline that lights up on
+                                hover and stays lit while the drag is live. */}
+                            <div
+                                aria-hidden
+                                className={cn(
+                                    "pointer-events-none absolute inset-y-3 left-0 w-px transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
+                                    rightExpanded && "group-hover:bg-accent/40",
+                                    isResizing && "bg-accent/60",
+                                )}
+                            />
                         </div>
                         <div
                             style={{
@@ -646,7 +662,7 @@ src="/logos/logo.png"
                                 "h-full min-w-0 overflow-hidden",
                                 rightExpanded ? "py-2 pr-2" : "pointer-events-none p-0",
                                 !isResizing &&
-                                    "transition-[width] duration-200 ease-[var(--ease-out)]",
+                                    "transition-[width] duration-[var(--spring-quick-dur)] ease-[var(--spring-quick)]",
                             )}
                             aria-hidden={!rightExpanded}
                         >

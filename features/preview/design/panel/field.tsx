@@ -19,7 +19,7 @@ import { cn } from "@/lib/utils";
 import type { Styles } from "./types";
 import { isTokenProperty, TokenMenu } from "./tokens";
 
-/** Inspector control height — keep in sync with panel rows; do not shrink. */
+/** Inspector control height, keep in sync with panel rows; do not shrink. */
 export const CONTROL = "h-8 min-h-8 text-sm leading-none";
 
 export function Field({
@@ -187,7 +187,7 @@ export function SelectField({
                     size="xs"
                     className={cn(
                         CONTROL,
-                        "min-w-0 flex-1 justify-start gap-0 border border-border bg-panel-hover px-0 text-text-primary hover:bg-panel-hover",
+                        "min-w-0 flex-1 justify-start gap-0 border border-border bg-panel-hover px-0 text-text-primary hover:bg-[var(--btn-hover)]",
                         className,
                     )}
                 >

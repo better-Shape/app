@@ -20,6 +20,7 @@ import { SuppressNativeTooltips } from "@/components/ui/suppress-native-tooltips
 import { CommandPaletteBridge } from "@/features/agent/palette";
 import { DesignPreviewCaptureHost } from "@/features/chat/ui/design-capture";
 import { WebviewReconnect } from "@/components/layout/webview-reconnect";
+import { PreviewCrash } from "@/components/layout/error/preview-crash";
 
 function pathMatches(pathname: string | null, base: string) {
     if (!pathname) return false;
@@ -173,6 +174,9 @@ function Content({ children }: { children: React.ReactNode }) {
                 <DesignPreviewCaptureHost />
             </div>
             <WebviewReconnect />
+            {/* Preview-only: `?crash=global` throws above the page boundary so the root
+                error boundary can be inspected. Inert in a real build. */}
+            <PreviewCrash scope="global" />
             <div id="bettershape-overlays" />
         </div>
     );

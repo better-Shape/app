@@ -175,7 +175,7 @@ export function ChatHistoryMenu({
                                     </span>
                                     <button
                                         type="button"
-                                        className="invisible flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-text-muted hover:bg-panel-hover hover:text-text-primary group-hover:visible"
+                                        className="invisible flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-text-muted hover:bg-[var(--btn-hover)] hover:text-text-primary group-hover:visible"
                                         aria-label={`Delete ${conversation.title}`}
                                         onPointerDown={(e) => e.preventDefault()}
                                         onClick={(e) => {

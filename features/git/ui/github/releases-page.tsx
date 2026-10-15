@@ -18,6 +18,7 @@ import { FadeTruncate } from "@/components/ui/fade-truncate";
 import { GitMarkdown } from "./markdown";
 import { formatRelative } from "@/features/git/ui/actions/utils";
 import { GitListSkeleton } from "@/features/git/ui/shared/skeletons";
+import { GIT_ROW } from "@/features/git/ui/shared/row-shell";
 import { useFilter } from "@/features/git/ui/manager/filter-context";
 import { Avatar } from "./detail/widgets";
 import { formatBytes, type ReleaseAsset } from "./detail/types";
@@ -205,7 +206,7 @@ export function ReleasesPage() {
                 <div className="flex flex-col gap-0.5 px-1.5 pb-2">
                     {loading && filtered.length === 0 ? (
                         <div className="px-1 py-1">
-                            <GitListSkeleton rows={8} />
+                            <GitListSkeleton rows={8} variant="release" />
                         </div>
                     ) : error && filtered.length === 0 ? (
                         <p className="px-2 py-3 text-sm text-text-muted">{error}</p>
@@ -222,10 +223,10 @@ export function ReleasesPage() {
                                     type="button"
                                     onClick={() => setSelectedId(rel.id)}
                                     className={cn(
-                                        "flex w-full flex-col gap-0.5 rounded-lg px-2 py-1.5 text-left transition-colors",
+                                        GIT_ROW.release,
                                         active
                                             ? "bg-panel-hover text-text-primary"
-                                            : "text-text-secondary hover:bg-panel-hover/60 hover:text-text-primary",
+                                            : "text-text-secondary hover:bg-[var(--row-hover)] hover:text-text-primary",
                                     )}
                                 >
                                     <span className="flex min-w-0 items-center gap-1.5">

@@ -10,9 +10,10 @@ import {
 } from "./welcome-dialogs";
 import { WelcomeScreen, useRecentFolders } from "./welcome-screen";
 import { loginGitHub } from "@/lib/github/store";
+import { PreviewCrash } from "@/components/layout/error/preview-crash";
 
 /**
- * Agent window home — welcome when idle.
+ * Agent window home, welcome when idle.
  * Project open is owned by Main's ProjectOpenHost (always mounted).
  */
 export default function Home() {
@@ -37,6 +38,9 @@ export default function Home() {
 
     const dialogs = (
         <>
+            {/* Preview-only: `?crash=route` throws here so the route error boundary can
+                be looked at without breaking the app on purpose. Inert in a real build. */}
+            <PreviewCrash scope="route" />
             <WelcomeCloneDialog
                 open={cloneOpen}
                 onOpenChange={setCloneOpen}

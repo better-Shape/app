@@ -13,7 +13,7 @@ import { SidebarSwitchPanelMenuItems } from "./sidebar-panel-menu";
 /** Same bar height as AI chat tabs (`h-[36px]`). */
 export const SIDEBAR_PANEL_HEADER_HEIGHT_CLASS = "h-[36px]";
 
-/** Title typography — same size/weight as chat tab labels. */
+/** Title typography, same size/weight as chat tab labels. */
 export const SIDEBAR_PANEL_TITLE_CLASS =
     "min-w-0 flex-1 truncate text-sm font-normal text-text-primary";
 
@@ -64,7 +64,7 @@ export function SidebarPanelActionButton({
         <Button
             variant="ghost"
             size="icon"
-            className="shrink-0 mt-0.5 text-text-muted hover:bg-panel-hover hover:text-text-primary"
+            className="shrink-0 mt-0.5 text-text-muted hover:bg-[var(--btn-hover)] hover:text-text-primary"
             {...props}
         >
             {children}

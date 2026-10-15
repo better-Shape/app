@@ -93,7 +93,7 @@ function LinkEl({
                 type="button"
                 title={href}
                 className={cn(
-                    "mx-0.5 inline-flex max-w-full items-center gap-1.5 rounded-lg border border-border-subtle bg-panel px-2 py-0.5 align-middle text-sm text-text-primary transition-colors hover:bg-panel-hover",
+                    "mx-0.5 inline-flex max-w-full items-center gap-1.5 rounded-lg border border-border-subtle bg-panel px-2 py-0.5 align-middle text-sm text-text-primary transition-colors hover:bg-[var(--row-hover)]",
                     className,
                 )}
                 onClick={(e) => {
@@ -134,7 +134,7 @@ function createComponents(ctx?: GitMarkdownCtx): Components {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         img: ({ src, alt }: any) => {
             if (!src) return null;
-            // Status badges / shields only — not screenshots with short alts.
+            // Status badges / shields only, not screenshots with short alts.
             const isBadge =
                 /shields\.io|\/badge\/|badge\.fury|img\.shields|github\.com\/.*\/actions\/workflows\/.*\/badge/i.test(
                     src,
@@ -157,13 +157,13 @@ function createComponents(ctx?: GitMarkdownCtx): Components {
             );
         },
 
-        // Bot “buttons” are often <a class="btn"> — also catch bare <button>
+        // Bot “buttons” are often <a class="btn">, also catch bare <button>
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         button: ({ children, ...rest }: any) => {
             return (
                 <button
                     type="button"
-                    className="my-1 inline-flex max-w-full items-center gap-1.5 rounded-lg border border-border-subtle bg-panel px-2.5 py-1.5 text-sm text-text-primary hover:bg-panel-hover"
+                    className="my-1 inline-flex max-w-full items-center gap-1.5 rounded-lg border border-border-subtle bg-panel px-2.5 py-1.5 text-sm text-text-primary hover:bg-[var(--row-hover)]"
                     onClick={(e) => {
                         e.preventDefault();
                         e.stopPropagation();

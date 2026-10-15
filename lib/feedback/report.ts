@@ -12,6 +12,8 @@ import { redactChatForReport } from "@/lib/diagnostics/scrub";
 import type { Conversation } from "@/lib/backend/types";
 
 export const REPORT_CATEGORIES = [
+  /** Offered by the crash screen, and available from settings like any other. */
+  "Crash",
   "Agent / AI",
   "Models & providers",
   "Plugins & Composio",

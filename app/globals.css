@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "@fontsource/ibm-plex-mono/400.css";
 @import "@fontsource/ibm-plex-mono/500.css";
+@import "./springs.css";
 @import "./transitions.css";
 
 /* Vendored agent skill docs contain Tailwind example classes (e.g.
@@ -33,13 +34,29 @@
   --panel-secondary: var(--surface-2);
   --panel-active: rgba(255, 255, 255, 0.06);
   --panel-hover: rgba(255, 255, 255, 0.04);
+  /* The row ladder. Hover is exactly half of the committed fill, so pointing at a row
+     fills it halfway toward what the click commits. `--row-selected-hover` keeps a
+     committed row answering the pointer, which Material specifies as an additive layer. */
+  --row-hover: rgba(255, 255, 255, 0.04); /* midpoint: exactly half of --row-selected */
+  --row-selected: rgba(255, 255, 255, 0.08); /* committed */
+  --row-selected-hover: rgba(255, 255, 255, 0.1); /* committed, still hovered */
+
+  /* The button ladder, one rung above the row ladder. The line is button versus row, not
+     icon versus text: Material 3 puts a button's hover layer at 8% whatever its variant,
+     and macOS puts a toolbar icon at 0.08 against a list row at 0.04. A 28px icon at the
+     row's 4% measures about 8 channel units of change against the sidebar, which is the
+     edge of what an uncalibrated display shows. The committed rung moves up with it,
+     because a hover fill equal to the open fill is the defect this ladder prevents. */
+  --btn-hover: rgba(255, 255, 255, 0.08); /* midpoint: two thirds of --btn-open */
+  --btn-open: rgba(255, 255, 255, 0.12); /* committed: menu open, panel active */
+  --btn-open-hover: rgba(255, 255, 255, 0.14); /* committed, still hovered */
   --titlebar: var(--chrome);
   --activitybar: transparent;
   --editor-secondary: var(--surface-1);
   --statusbar: transparent;
   --statusbar-fg: var(--text-primary);
 
-  /* ── Text (neutral — no blue cast) ─────────────────────── */
+  /* ── Text (neutral, no blue cast) ─────────────────────── */
   --text-primary: #f2f2f2;
   --text-secondary: #a3a3a3;
   --text-muted: #ffffff79;
@@ -66,7 +83,7 @@
   --focus: var(--accent);
   --accent-fg: var(--action-label);
   --border-focus: var(--focus);
-  /* Readable on dark surfaces — never use --accent (too deep) as body text */
+  /* Readable on dark surfaces, never use --accent (too deep) as body text */
   --accent-text: #9eb0ff;
   --accent-text-hover: #c4ceff;
   --accent-text-bg: color-mix(in srgb, var(--accent-text) 16%, transparent);
@@ -194,9 +211,24 @@
   /* ── Motion ────────────────────────────────────────────── */
   --transition-fast: 90ms;
   --transition-base: 140ms;
+  /* Kept for ambient and exit motion only, a splash fading in, a logo crossfade, a
+     spinner. Everything a user DRIVES (a hover tint, a press, a selection, a rotating
+     chevron, a panel resizing, a section expanding) uses the `--spring-*` pair from
+     `app/springs.css`, because `cubic-bezier(0.16, 1, 0.3, 1)` front-loads the whole
+     move into its first tenth and then spends the rest of its declared duration
+     crawling, 57% of it, measured in `scripts/motion/compare.html`. On a 90ms tint
+     that dead tail was longer than the movement, which is why hover read as a repaint
+     rather than a response. A spring decelerates through its landing instead, so it is
+     still visibly moving when it arrives and an interruption mid-flight continues from
+     where the eye last saw it.
+     This file's old note claimed tints were exempt because "a fade has no shape to get
+     right". That was wrong: the fill is the most-touched transition in the app and the
+     one whose dead tail the eye learns first.
+     `--ease-spring` used to live here as a duplicate of `--ease-out`, a token named
+     for a spring that was not one, with no consumers. The real springs now own that
+     vocabulary, so the name was removed rather than left as a decoy. */
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
-  --ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
 
   --z-dropdown: 1102;
   --z-modal: 200;
@@ -340,7 +372,7 @@
   --spacing-icon-md: var(--icon-md);
   --spacing-icon-lg: var(--icon-lg);
 
-  /* Do NOT map --spacing-xs/sm/md/lg/xl — that hijacks Tailwind max-w-* to 4–24px.
+  /* Do NOT map --spacing-xs/sm/md/lg/xl, that hijacks Tailwind max-w-* to 4–24px.
      Use @utility px-sm / py-xs / etc. below instead. */
 
   --spacing-chrome: var(--chrome-height);
@@ -394,7 +426,7 @@
 @utility rounded-full { border-radius: 9999px; }
 
 /*
- * Squircle — same API as rounded-* (sizes, sides, corners, logical, arbitrary).
+ * Squircle, same API as rounded-* (sizes, sides, corners, logical, arbitrary).
  * Use squircle-xl, squircle-t-3xl, squircle-tl-full, squircle-[18px], etc.
  */
 @utility squircle {
@@ -619,7 +651,7 @@ body {
   font-variant-ligatures: common-ligatures;
 }
 
-/* Monaco editor surface — dark background, no default light border */
+/* Monaco editor surface, dark background, no default light border */
 .bettershape-editor-surface .monaco-editor,
 .bettershape-editor-surface .monaco-editor .margin,
 .bettershape-editor-surface .monaco-editor-background,
@@ -820,7 +852,7 @@ body[data-resizing] .xterm {
   flex-shrink: 0;
 }
 
-/* ── Prose — comfortable markdown (Conductor density) ───── */
+/* ── Prose, comfortable markdown (Conductor density) ───── */
 .prose-compact p {
   margin-top: 0.85em;
   margin-bottom: 0.85em;
@@ -967,7 +999,7 @@ body[data-resizing] .xterm {
 
 .monaco-editor .suggest-widget .monaco-list .monaco-list-row:hover:not(.focused) {
   background-color: var(--panel-hover) !important;
-  transition: background-color var(--transition-fast) var(--ease-out);
+  transition: background-color var(--spring-tap-dur) var(--spring-tap);
 }
 
 .monaco-editor .suggest-widget .monaco-list .monaco-list-row.focused {
@@ -1027,7 +1059,7 @@ body[data-resizing] .xterm {
   font-weight: 500;
 }
 
-/* Toast notifications — CSS transitions so stack moves stay interruptible (Sonner/shadcn). */
+/* Toast notifications, CSS transitions so stack moves stay interruptible (Sonner/shadcn). */
 .bettershape-toast {
   opacity: 0;
   transform: translate3d(0, 14px, 0) scale(0.96);
@@ -1088,11 +1120,11 @@ body[data-resizing] .xterm {
 
 .bettershape-modal-panel[data-state="open"],
 .bettershape-modal-panel:not([data-state]) {
-  animation: bettershape-modal-in var(--transition-base) var(--ease-out);
+  animation: bettershape-modal-in var(--spring-surface-dur) var(--spring-surface);
 }
 
 .bettershape-modal-panel[data-state="closed"] {
-  animation: bettershape-modal-out var(--transition-fast) var(--ease-in);
+  animation: bettershape-modal-out var(--spring-panel-dur) var(--spring-panel);
 }
 
 .bettershape-popover-content--from-right {
@@ -1107,11 +1139,11 @@ body[data-resizing] .xterm {
   background-color: var(--overlay-scrim);
   backdrop-filter: blur(3px);
   -webkit-backdrop-filter: blur(3px);
-  animation: bettershape-overlay-in var(--transition-base) var(--ease-out);
+  animation: bettershape-overlay-in var(--spring-surface-dur) var(--spring-surface);
 }
 
 .bettershape-overlay[data-state="closed"] {
-  animation: bettershape-overlay-out var(--transition-fast) var(--ease-in);
+  animation: bettershape-overlay-out var(--spring-panel-dur) var(--spring-panel);
 }
 
 .bettershape-overlay-content {
@@ -1168,7 +1200,7 @@ body[data-resizing] .xterm {
   height: 0 !important;
 }
 
-/* Native window chrome — HWND is opaque and Windows owns snap/maximize rounding. */
+/* Native window chrome, HWND is opaque and Windows owns snap/maximize rounding. */
 #bettershape-workbench {
   overflow: hidden;
 }
@@ -1262,7 +1294,7 @@ body[data-resizing] .xterm {
   border-bottom-right-radius: 0.625rem;
 }
 
-/* Typing indicator — three bouncing dots */
+/* Typing indicator, three bouncing dots */
 .imsg-typing {
   display: inline-flex;
   align-items: center;
@@ -1346,7 +1378,7 @@ body[data-resizing] .xterm {
   width: 18.75%;
   height: 18.75%;
   translate: -50% -50%;
-  /* Soft ease matching bubble dots — avoid flat linear scale */
+  /* Soft ease matching bubble dots, avoid flat linear scale */
   animation: send-spiral-pulse 1.8s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
   animation-delay: calc(var(--spiral-i, 0) * 0.225s);
 }
@@ -1558,7 +1590,7 @@ body[data-resizing] .xterm {
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: 0fr;
   width: 100%;
-  transition: grid-template-rows 180ms var(--ease-out);
+  transition: grid-template-rows var(--spring-quick-dur) var(--spring-quick);
 }
 
 .chat-collapse[data-open="true"] {
@@ -1627,7 +1659,7 @@ body[data-resizing] .xterm {
   border-radius: 9999px;
 }
 
-/* Soft mute — no CSS transitions (they lag when filters change). */
+/* Soft mute, no CSS transitions (they lag when filters change). */
 .graph-commit-mute .graph-line {
   stroke-opacity: 0.18;
 }
@@ -1736,7 +1768,7 @@ body[data-resizing] .xterm {
 }
 
 .animate-in {
-  animation: bettershape-fade-in var(--transition-base) var(--ease-out) both;
+  animation: bettershape-fade-in var(--spring-quick-dur) var(--spring-quick) both;
 }
 
 @keyframes bettershape-orb-breathe {

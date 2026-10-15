@@ -225,7 +225,7 @@ export function PlanSavedBlock({
             <button
                 type="button"
                 onClick={() => setOpen((v) => !v)}
-                className="flex w-full items-center gap-2 text-left transition-colors duration-[var(--transition-fast)] ease-[var(--ease-out)]"
+                className="flex w-full items-center gap-2 text-left transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]"
             >
                 <span className="flex size-4 shrink-0 items-center justify-center text-text-muted">
                     <Icon icon={CalendarCheckmark24Filled} className="icon-sm" />
@@ -236,7 +236,7 @@ export function PlanSavedBlock({
                 <Icon
                     icon={ChevronDown20Regular}
                     className={cn(
-                        "icon-sm shrink-0 text-text-muted transition-transform duration-[var(--transition-fast)] ease-[var(--ease-out)]",
+                        "icon-sm shrink-0 text-text-muted transition-transform duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
                         open && "rotate-180",
                     )}
                 />

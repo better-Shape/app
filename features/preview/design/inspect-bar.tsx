@@ -29,6 +29,33 @@ type PendingStyles = { selection: InspectionSelection; styles: Record<string, st
 
 type Tab = "radius" | "padding" | "gap";
 
+/** Matches no real page, so a canvas that is not a loopback preview gets no message. */
+const OFF_PREVIEW_ORIGIN = "https://preview.bettershape.invalid";
+
+/**
+ * The canvas keeps its real origin (`allow-same-origin`), so host messages are
+ * pinned to a loopback preview origin, the only place the design bridge is ever
+ * injected (design_bridge.rs `wrap_iframe_only`). A canvas that has navigated
+ * anywhere else matches nothing and receives no project path, and a loopback
+ * canvas that moved port still works because the live origin wins.
+ */
+function frameOrigin(frame: HTMLIFrameElement | null | undefined): string {
+    let live = "";
+    try {
+        live = frame?.contentWindow?.origin || "";
+    } catch {
+        /* cross-origin handle without `origin` */
+    }
+    if (live && isLocalPreviewUrl(live)) return live;
+    try {
+        const fromSrc = new URL(frame?.src || "").origin;
+        if (fromSrc !== "null" && isLocalPreviewUrl(fromSrc)) return fromSrc;
+    } catch {
+        /* no usable src */
+    }
+    return OFF_PREVIEW_ORIGIN;
+}
+
 function parsePx(value: string | undefined): number {
     if (!value) return 0;
     const first = value.split(/\s+/)[0] ?? value;
@@ -253,7 +280,7 @@ export function DesignInspectOverlay({
                 <button
                     type="button"
                     onClick={onToggle}
-                    className="mr-0.5 flex size-7 items-center justify-center rounded-full text-text-muted hover:bg-panel-hover hover:text-text-primary"
+                    className="mr-0.5 flex size-7 items-center justify-center rounded-full text-text-muted hover:bg-[var(--btn-hover)] hover:text-text-primary"
                     aria-label="Exit design mode"
                 >
                     ←

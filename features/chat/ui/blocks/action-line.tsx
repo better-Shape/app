@@ -132,7 +132,7 @@ export function ActionLine({
                     <Icon
                         icon={ChevronRight20Regular}
                         className={cn(
-                            "shrink-0 text-text-muted icon-sm transition-transform duration-[var(--transition-fast)] ease-[var(--ease-out)]",
+                            "shrink-0 text-text-muted icon-sm transition-transform duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
                             isOpen && "rotate-90",
                         )}
                     />

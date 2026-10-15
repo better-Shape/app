@@ -21,7 +21,7 @@ export type FileDiffTabInfo = {
     status: string;
     staged: boolean;
     repo: string;
-    /** Historical commit hash — when set, compare parent..commit instead of working tree. */
+    /** Historical commit hash, when set, compare parent..commit instead of working tree. */
     commit?: string;
     parent?: string;
 };
@@ -165,7 +165,7 @@ export function SingleFileDiffEditor({ tab }: { tab: FileDiffTabInfo }) {
                     type="button"
                     onClick={() => setSplit((v) => !v)}
                     className={cn(
-                        "flex size-7 items-center justify-center rounded-md text-text-muted hover:bg-panel-hover",
+                        "flex size-7 items-center justify-center rounded-md text-text-muted hover:bg-[var(--btn-hover)]",
                         split && "bg-panel-hover text-text-primary",
                     )}
                     aria-label={split ? "Unified diff" : "Split diff"}
@@ -178,14 +178,14 @@ export function SingleFileDiffEditor({ tab }: { tab: FileDiffTabInfo }) {
                         <button
                             type="button"
                             onClick={() => void toggleStage()}
-                            className="rounded-md px-2 py-1 text-xs text-text-secondary hover:bg-panel-hover hover:text-text-primary"
+                            className="rounded-md px-2 py-1 text-xs text-text-secondary hover:bg-[var(--btn-hover)] hover:text-text-primary"
                         >
                             {tab.staged ? "Unstage" : "Stage"}
                         </button>
                         <button
                             type="button"
                             onClick={() => void discard()}
-                            className="flex size-7 items-center justify-center rounded-md text-text-muted hover:bg-panel-hover hover:text-text-primary"
+                            className="flex size-7 items-center justify-center rounded-md text-text-muted hover:bg-[var(--btn-hover)] hover:text-text-primary"
                             aria-label="Discard changes"
                             title="Discard"
                         >
@@ -199,7 +199,7 @@ export function SingleFileDiffEditor({ tab }: { tab: FileDiffTabInfo }) {
                         const abs = `${tab.repo.replace(/[\\/]+$/, "")}/${tab.path.replace(/\\/g, "/")}`;
                         void openProjectFile(abs);
                     }}
-                    className="rounded-md px-2 py-1 text-xs text-text-secondary hover:bg-panel-hover hover:text-text-primary"
+                    className="rounded-md px-2 py-1 text-xs text-text-secondary hover:bg-[var(--btn-hover)] hover:text-text-primary"
                 >
                     Open
                 </button>

@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
 export type SearchInputProps = Omit<React.InputHTMLAttributes<HTMLInputElement>, "type" | "size"> & {
     /** Spinner on the right while results load (search-by-type). */
     isLoading?: boolean;
-    /** Icon + field only — no chrome. Command palette / menu filters. */
+    /** Icon + field only, no chrome. Command palette / menu filters. */
     borderless?: boolean;
     /** Fade the list under a sticky dropdown search so the edge isn’t a hard cut. */
     stickyFade?: boolean;
@@ -102,7 +102,7 @@ export const SearchInput = React.forwardRef<HTMLInputElement, SearchInputProps>(
                     className={cn(
                         "h-full w-full min-w-0 text-sm font-medium text-text-primary outline-none",
                         "placeholder:text-input-placeholder",
-                        "transition-colors duration-[var(--transition-fast)] ease-[var(--ease-out)]",
+                        "transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
                         "disabled:cursor-not-allowed disabled:opacity-50",
                         "[&::-webkit-search-cancel-button]:hidden [&::-webkit-search-decoration]:hidden",
                         borderless

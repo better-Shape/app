@@ -166,7 +166,7 @@ function GitManagerEmpty({ reason }: { reason: GitEmptyReason }) {
     );
 }
 
-/** Content-only skeleton — nav lives in the agent sidebar when embedded. */
+/** Content-only skeleton, nav lives in the agent sidebar when embedded. */
 function GitContentSkeleton() {
     return (
         <div
@@ -175,12 +175,12 @@ function GitContentSkeleton() {
             aria-label="Loading Git Manager"
         >
             <Skeleton className="mb-3 h-9 w-48" />
-            <GitListSkeleton rows={10} />
+            <GitListSkeleton rows={10} variant="dense" />
         </div>
     );
 }
 
-/** Minimal Back control while Git is loading / empty — still uses the agent sidebar slot. */
+/** Minimal Back control while Git is loading / empty, still uses the agent sidebar slot. */
 function GitEmbedNavChrome() {
     const { navPortalTarget, sidebarExpanded = true, onClose } = useContext(GitEmbedCtx);
     if (!navPortalTarget || !onClose) return null;
@@ -240,14 +240,14 @@ function GitManagerGate() {
                 return;
             }
 
-            // Show the shell immediately once we have a repo — don't wait on log I/O.
+            // Show the shell immediately once we have a repo, don't wait on log I/O.
             if (!cancelled) {
                 setEmptyReason(null);
                 setChecking(false);
             }
 
             try {
-                // One cheap `git log -1` — avoid starting a full unbounded stream just to probe.
+                // One cheap `git log -1`, avoid starting a full unbounded stream just to probe.
                 const logs = await commands.gitLog(repoPath, 1);
                 if (!cancelled && logs.length === 0) {
                     setEmptyReason("no-commits");

@@ -54,7 +54,7 @@ function Tool({
                 aria-label={label}
                 className={cn(
                     "size-10 rounded-lg",
-                    active && "bg-panel-hover text-panel-fg hover:bg-panel-hover hover:text-panel-fg",
+                    active && "bg-panel-hover text-panel-fg hover:bg-[var(--btn-hover)] hover:text-panel-fg",
                 )}
             >
                 <Icon icon={icon} />

@@ -189,7 +189,7 @@ export function LocalTags() {
                                 <ContextMenuTrigger asChild>
                                     <button
                                         type="button"
-                                        className="flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left hover:bg-panel-hover"
+                                        className="flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left hover:bg-[var(--row-hover)]"
                                     >
                                         <Icon icon={History20Regular} className="mt-0.5 shrink-0 text-text-muted" />
                                         <span className="min-w-0 flex-1">
@@ -235,7 +235,7 @@ export function LocalTags() {
                         ))}
                         {tagsTruncated > 0 ? (
                             <p className="px-2 py-2 text-xs text-text-muted">
-                                Showing {visibleTags.length} of {filtered.length} tags — type to search
+                                Showing {visibleTags.length} of {filtered.length} tags, type to search
                             </p>
                         ) : null}
                     </div>

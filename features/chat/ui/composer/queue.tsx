@@ -44,7 +44,7 @@ export function QueuedMessagesPanel({
             <DropdownMenuTrigger asChild>
                 <button
                     type="button"
-                    className="flex h-6 items-center gap-1.5 rounded-md px-1.5 text-sm text-text-secondary hover:bg-panel-hover hover:text-text-primary"
+                    className="flex h-6 items-center gap-1.5 rounded-md px-1.5 text-sm text-text-secondary hover:bg-[var(--btn-hover)] hover:text-text-primary"
                     aria-label="Queued messages"
                 >
                     Queued
