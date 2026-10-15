@@ -11,15 +11,7 @@ import { FolderOpen20Regular } from "@fluentui/react-icons/headless/svg/folder-o
 import { MoreHorizontal20Regular } from "@fluentui/react-icons/headless/svg/more-horizontal";
 import { Search20Regular } from "@fluentui/react-icons/headless/svg/search";
 
-import {
-    useCallback,
-    useEffect,
-    useMemo,
-    useRef,
-    useState,
-    useSyncExternalStore,
-    type ReactNode,
-} from "react";
+import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { isComposingKey, isSidebarShortcut } from "./shortcuts";
 import {
     getChatDispositions, getChatDispositionsServer,
@@ -301,6 +293,16 @@ export function ChatList({
         setChats([]);
         setSelectedIds([]);
     }
+    // A read already in flight belongs to the project the sidebar just left. Retire it in the
+    // commit that switches projects - a layout effect runs before the effect below reloads, and
+    // a stale read landing between the two would otherwise fill the new project's shelves (and
+    // stay there if the new project's read failed).
+    const loadedProject = useRef(project_path);
+    useLayoutEffect(() => {
+        if (loadedProject.current === project_path) return;
+        loadedProject.current = project_path;
+        chatsVersion.current += 1;
+    }, [project_path]);
     const loadChats = useCallback(() => {
         const version = ++chatsVersion.current;
         if (!project_path) return Promise.resolve();

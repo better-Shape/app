@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { useDevRunStatus } from "@/features/preview/run-status";
+import { notify } from "@/features/notifications";
 import {
     ensureBackgroundRun,
     sameDevCommand,
@@ -48,14 +49,22 @@ export function DevRunHost() {
         };
 
         const onStop = () => {
-            void stopBackgroundRun();
+            void stopBackgroundRun().catch(() => {
+                notify.error("Could not stop the run", "The preview process is still running. Try again.");
+            });
         };
 
         const onRestart = (e: Event) => {
             const detail = (e as CustomEvent<{ command?: string }>).detail;
             const command = detail?.command?.trim() || runRef.current.command;
             void (async () => {
-                await stopBackgroundRun();
+                try {
+                    await stopBackgroundRun();
+                } catch {
+                    // Starting a replacement now would leave the old server running unowned.
+                    notify.error("Could not stop the run", "The preview process is still running. Try again.");
+                    return;
+                }
                 if (command) await ensureBackgroundRun(command);
             })();
         };

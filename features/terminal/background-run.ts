@@ -286,7 +286,12 @@ export async function ensureBackgroundRun(command: string, cwdOverride?: string)
 
     const generation = ++runGeneration;
     const promise = (async () => {
-        if (runtime) await stopCurrentRun();
+        if (runtime && !(await stopCurrentRun())) {
+            // The previous server could not be killed. Spawning a replacement now would leave
+            // that process running with nothing owning it, still holding its port, so stop here
+            // and let the caller report the failure.
+            throw new Error("Could not stop the running preview process");
+        }
         if (generation !== runGeneration) throw new Error("Preview start cancelled");
         startDevRun(trimmed);
         lastReadyUrl = null;
@@ -336,24 +341,45 @@ export async function ensureBackgroundRun(command: string, cwdOverride?: string)
     }
 }
 
+/** Stop the current run. Rejects when the process is confirmed to still be alive. */
 export async function stopBackgroundRun() {
     runGeneration += 1;
-    await stopCurrentRun();
+    if (!(await stopCurrentRun())) {
+        throw new Error("Could not stop the running preview process");
+    }
 }
 
-async function stopCurrentRun() {
+/**
+ * Ask native to kill the current run, and report whether it is gone.
+ *
+ * A kill failure keeps the runtime and its listeners: the process is still alive, so it
+ * stays observable and a later Stop can retry. Clearing the state first would leave the
+ * process running with nothing owning it, and the next start would spawn a second server
+ * on top of it.
+ */
+async function stopCurrentRun(): Promise<boolean> {
     const current = runtime;
-    runtime = null;
-    lastReadyUrl = null;
-    announcedReady = null;
-    clearDevRun();
-    if (!current) return;
-    current.dispose();
+    if (!current) {
+        lastReadyUrl = null;
+        announcedReady = null;
+        clearDevRun();
+        return true;
+    }
+    let killed = true;
     try {
         const { invoke } = await import("@tauri-apps/api/core");
         await invoke("pty_kill", { id: current.ptyId });
     } catch {
-        /* ignore */
+        killed = false;
     }
+    if (!killed) return false;
+    if (runtime === current) {
+        runtime = null;
+        lastReadyUrl = null;
+        announcedReady = null;
+        clearDevRun();
+    }
+    current.dispose();
     terminalSessionStore.clearPtyScrollback(current.ptyId);
+    return true;
 }

@@ -36,9 +36,11 @@ const commands = {
     revealPath: vi.fn(async () => {}),
 };
 
+const projectState = vi.hoisted(() => ({ path: "/repo/app" }));
+
 vi.mock("@/lib/backend", () => ({
     commands,
-    useProjectState: () => ({ project_path: "/repo/app" }),
+    useProjectState: () => ({ project_path: projectState.path }),
 }));
 
 vi.mock("@tauri-apps/api/event", () => ({
@@ -187,6 +189,8 @@ beforeEach(async () => {
             delete (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
         };
     }
+    projectState.path = "/repo/app";
+    commands.getConversations.mockImplementation(async () => CONVERSATIONS);
     host = document.createElement("div");
     document.body.appendChild(host);
     root = createRoot(host);
@@ -251,6 +255,27 @@ afterEach(() => {
         expect(open).toBeDefined();
         act(() => open!.click());
         expect(getChatDispositions().a).toEqual(value);
+    });
+
+    it("drops a chat load that started for the project the sidebar just left", async () => {
+        await act(async () => root.unmount());
+        let resolveOld!: (value: Conversation[]) => void;
+        commands.getConversations.mockImplementationOnce(
+            () => new Promise<Conversation[]>(resolve => { resolveOld = resolve; }),
+        );
+        root = createRoot(host);
+        await act(async () => root.render(<ChatList onNewChat={() => {}} />));
+        // The user switches projects while the first project's read is still in flight, and the
+        // new project's read does not answer yet, so only the stale read could fill the shelves.
+        commands.getConversations.mockImplementation(() => new Promise<Conversation[]>(() => {}));
+        projectState.path = "/repo/other";
+        await act(async () => {
+            root.render(<ChatList onNewChat={() => {}} />);
+            resolveOld(CONVERSATIONS);
+        });
+        expect(rowOrder()).toEqual([]);
+        commands.getConversations.mockImplementation(async () => CONVERSATIONS);
+        projectState.path = "/repo/app";
     });
 
     it("keeps loaded sessions when a background refresh fails", async () => {

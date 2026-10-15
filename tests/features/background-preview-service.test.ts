@@ -272,6 +272,32 @@ it("does not adopt a URL from a session that is no longer running", async () => 
     expect(background.getBackgroundPreviewService()).toBeNull();
 });
 
+it("refuses to replace a live run whose process cannot be killed", async () => {
+    await background.ensureBackgroundRun("npm run dev", "/project");
+    emit("preview-ready", { id: 7, url: "http://localhost:5173", source: "output" });
+    expect(background.getBackgroundPreviewService()).toEqual({ ptyId: 7, projectPath: "/project", url: "http://localhost:5173" });
+    // A replacement start has to stop the old server first; if that kill fails, spawning a
+    // second PTY would leave the first running unowned and still holding its port.
+    mocks.kill.mockRejectedValueOnce(new Error("kill failed"));
+    await expect(background.ensureBackgroundRun("npm run preview", "/project")).rejects.toThrow("Could not stop the running preview process");
+    expect(mocks.spawn).toHaveBeenCalledTimes(1);
+    expect(background.getBackgroundPreviewService()).toEqual({ ptyId: 7, projectPath: "/project", url: "http://localhost:5173" });
+    // The run stays owned, so a later Stop can still reach it and the exit event is still observed.
+    await background.stopBackgroundRun();
+    expect(mocks.kill).toHaveBeenCalledTimes(2);
+    expect(background.getBackgroundPreviewService()).toBeNull();
+});
+
+it("keeps the run observable when a Stop cannot kill its process, and retries", async () => {
+    await background.ensureBackgroundRun("npm run dev", "/project");
+    emit("preview-ready", { id: 7, url: "http://localhost:5173", source: "output" });
+    mocks.kill.mockRejectedValueOnce(new Error("kill failed"));
+    await expect(background.stopBackgroundRun()).rejects.toThrow("Could not stop the running preview process");
+    expect(background.getBackgroundPreviewService()).toEqual({ ptyId: 7, projectPath: "/project", url: "http://localhost:5173" });
+    await background.stopBackgroundRun();
+    expect(background.getBackgroundPreviewService()).toBeNull();
+});
+
 it("does not revive an exited selected PTY when its early exit was dropped", async () => {
     mocks.spawn.mockImplementationOnce(async () => { floodEarlyExits(); emit("pty-exit", { id: 7, exit_code: 7 }); return 7; });
     mocks.read.mockResolvedValue({ sessionId: 7, running: false, exitCode: 7 });

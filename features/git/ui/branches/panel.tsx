@@ -12,7 +12,7 @@ import { LayoutColumnTwo20Regular } from "@fluentui/react-icons/headless/svg/lay
 import { LayoutRowTwo20Regular } from "@fluentui/react-icons/headless/svg/layout-row-two";
 
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { emit, listen } from "@tauri-apps/api/event";
 import { GitChromeActions } from "@/features/git/ui/manager/chrome";
 import { Icon } from "@/components/ui/icon";
@@ -259,13 +259,17 @@ export function BranchWindow({ active = true }: { active?: boolean }) {
     }, []);
 
     const fetchBranches = useCallback(() => {
-        if (!project_path) return Promise.resolve();
+        const request = ++branchRequest.current;
+        const owner = project_path;
+        if (!owner) return Promise.resolve();
         return Promise.all([
-                commands.gitBranches(project_path),
-                commands.gitRemoteBranches(project_path),
-                commands.gitCurrentBranch(project_path),
+                commands.gitBranches(owner),
+                commands.gitRemoteBranches(owner),
+                commands.gitCurrentBranch(owner),
         ]).then(async ([locals, remotes, current]) => {
-            const details = await commands.gitBranchDetails(project_path, current, true);
+            const details = await commands.gitBranchDetails(owner, current, true);
+            // A newer read - a refresh, or a different repository - owns the state now.
+            if (request !== branchRequest.current) return;
             setLocalBranches(locals);
             setRemoteBranches(remotes);
             setCurrentBranch(current);
@@ -276,9 +280,11 @@ export function BranchWindow({ active = true }: { active?: boolean }) {
                 return null;
             });
         }).catch(e => {
+            if (request !== branchRequest.current) return;
             notify.gitError(e);
         }).finally(() => {
-            setLoading(false);
+            // A superseded read must not clear the spinner the current read still owns.
+            if (request === branchRequest.current) setLoading(false);
         });
     }, [project_path]);
 
@@ -287,9 +293,21 @@ export function BranchWindow({ active = true }: { active?: boolean }) {
         return fetchBranches();
     }, [project_path, fetchBranches]);
 
+    /** Identity of the newest branch read, so a superseded one cannot write state. */
+    const branchRequest = useRef(0);
+    // Reads that started before this commit belong to the repository the panel just left. This
+    // cleanup runs inside that commit - after the render that resets the spinner, before the
+    // effect below loads the new repository - so a late result cannot replace the new repository's
+    // branches, and cannot stay on screen when the new read fails.
+    useLayoutEffect(() => () => {
+        branchRequest.current += 1;
+    }, [project_path]);
+    // `fetchBranches` is recreated exactly when `project_path` changes (its only dependency), so
+    // the project is the input that matters here - and the callback cannot be compared during
+    // render, because it reads the request counter.
     const [requestInputs, setRequestInputs] = useState<readonly unknown[] | null>(null);
-    if (requestInputs === null || !Object.is(requestInputs[0], project_path) || !Object.is(requestInputs[1], fetchBranches)) {
-        setRequestInputs([project_path, fetchBranches]);
+    if (requestInputs === null || requestInputs[0] !== project_path) {
+        setRequestInputs([project_path]);
         setLoading(Boolean(project_path));
     }
 
