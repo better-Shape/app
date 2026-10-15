@@ -49,9 +49,38 @@ pub fn read(root: &Path, file: SettingsFile) -> Result<Option<Value>, &'static s
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(_) => return Err("Settings file cannot be read"),
     }
+    open_settings_file(&path)
+}
+
+/// Open the settings file and verify the file we actually read.
+///
+/// The `symlink_metadata` check above is only a hint: the entry can be replaced
+/// between it and this open, so the open handle - not that stat - decides what is
+/// readable. On Unix the entry must still resolve to the same device and inode as the
+/// handle, which rejects a symlink (or a swapped file) without needing platform flags;
+/// elsewhere the handle's own file type has to be a regular file.
+fn open_settings_file(path: &Path) -> Result<Option<Value>, &'static str> {
+    let file = File::open(path).map_err(|_| "Settings file cannot be read")?;
+    let opened = file
+        .metadata()
+        .map_err(|_| "Settings file cannot be read")?;
+    if !opened.is_file() {
+        return Err("Settings file is not a regular file");
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let entry = fs::symlink_metadata(path).map_err(|_| "Settings file cannot be read")?;
+        if entry.file_type().is_symlink()
+            || entry.dev() != opened.dev()
+            || entry.ino() != opened.ino()
+        {
+            return Err("Settings file is not a regular file");
+        }
+    }
     let mut bytes = Vec::new();
-    File::open(path)
-        .and_then(|file| file.take(MAX_BYTES as u64 + 1).read_to_end(&mut bytes))
+    file.take(MAX_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)
         .map_err(|_| "Settings file cannot be read")?;
     if bytes.len() > MAX_BYTES {
         return Err("Settings file is too large");
@@ -317,6 +346,34 @@ mod tests {
         assert!(write(&root.0, SettingsFile::Primary, json!({}), None).is_err());
         assert_eq!(fs::read(target).unwrap(), b"{}");
     }
+    #[cfg(unix)]
+    #[test]
+    fn refuses_a_symlink_that_replaces_the_entry_before_the_open() {
+        let root = Directory::new();
+        let outside = Directory::new();
+        let path = root.0.join("settings.json");
+        fs::write(&path, br#"{"settings":{"local":true}}"#).unwrap();
+        // A regular file passes the cheap check and reads normally.
+        assert!(read(&root.0, SettingsFile::Primary).is_ok());
+        // Then a symlink to another record replaces the entry: the cheap check has
+        // already run, so only the opened handle can still tell what was read.
+        let target = outside.0.join("private.json");
+        fs::write(&target, br#"{"settings":{"outside":true}}"#).unwrap();
+        fs::remove_file(&path).unwrap();
+        std::os::unix::fs::symlink(&target, &path).unwrap();
+        // Opening the path alone follows the swap, which is why the handle is verified.
+        assert_eq!(
+            fs::read(&path).unwrap(),
+            br#"{"settings":{"outside":true}}"#
+        );
+        assert!(open_settings_file(&path).is_err());
+        assert!(read(&root.0, SettingsFile::Primary).is_err());
+        assert_eq!(
+            fs::read(&target).unwrap(),
+            br#"{"settings":{"outside":true}}"#
+        );
+    }
+
     #[test]
     fn bounds_reads_and_writes_without_replacing_existing_data() {
         let root = Directory::new();
