@@ -1,6 +1,10 @@
 const MIME_ESSENCE = /^[!#$%&'*+.^_`|~\w-]+\/[!#$%&'*+.^_`|~\w-]+$/;
 const PARAMETER_VALUE = /^[\t\x20-\x7e\x80-\xff]*$/;
-const trimEnd = (value: string) => value.replace(/[\t\n\r ]+$/, "");
+function trimEnd(value: string): string {
+    let end = value.length;
+    while (end > 0 && "\t\n\r ".includes(value[end - 1])) end--;
+    return value.slice(0, end);
+}
 const nextSeparator = (source: string, start: number) => {
     const index = source.indexOf(";", start);
     return index < 0 ? source.length : index;
@@ -31,10 +35,11 @@ export function mimeCharset(source: string): string | undefined {
     let index = separator + 1;
     while (index < source.length) {
         const end = nextSeparator(source, index);
-        const equals = source.indexOf("=", index);
-        if (equals < 0 || equals > end) { index = end + 1; continue; }
-        const name = source.slice(index, equals).replace(/^[\t\n\r ]+/, "").toLowerCase();
-        const parsed = parameterValue(source, equals + 1);
+        const equals = source.slice(index, end).indexOf("=");
+        if (equals < 0) { index = end + 1; continue; }
+        const valueStart = index + equals + 1;
+        const name = source.slice(index, valueStart - 1).replace(/^[\t\n\r ]+/, "").toLowerCase();
+        const parsed = parameterValue(source, valueStart);
         index = parsed.end + 1;
         if (name === "charset" && (parsed.quoted || parsed.value !== "") && PARAMETER_VALUE.test(parsed.value)) return parsed.value;
     }
