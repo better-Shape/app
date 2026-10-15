@@ -129,3 +129,19 @@ it.each([
     const other = service === "search" ? "composio" : "search";
     expect(merged.ai.providers.services[other]).toEqual(incoming.ai.providers.services[other]);
 });
+
+it("keeps an unknown service's edited key paired with its existing destination without creating absent fields", () => {
+    const before = { ai: { providers: { services: { future: { apiKey: "", provider: "old", preference: "before" } } } } };
+    const live = structuredClone(before); live.ai.providers.services.future.apiKey = "example-local";
+    const incoming = structuredClone(before);
+    incoming.ai.providers.services.future = { apiKey: "example-saved", provider: "other", preference: "saved" };
+    expect(mergeSettingsHydration(before, live, incoming).ai.providers.services.future).toEqual({
+        apiKey: "example-local", provider: "old", preference: "saved",
+    });
+});
+it("keeps an unknown service's edited account from importing a saved credential", () => {
+    const before = { ai: { providers: { services: { future: { apiKey: "", userId: "before" } } } } };
+    const live = structuredClone(before); live.ai.providers.services.future.userId = "local-account";
+    const incoming = structuredClone(before); incoming.ai.providers.services.future.apiKey = "example-saved";
+    expect(mergeSettingsHydration(before, live, incoming).ai.providers.services.future).toEqual(live.ai.providers.services.future);
+});

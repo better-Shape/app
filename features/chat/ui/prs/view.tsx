@@ -38,7 +38,7 @@ import {
 } from "./mapping";
 import { applyPrOverrides, settlePrOverrides, usePrOverridesVersion } from "./overrides";
 import { appendUnique, getGitHubPage, reconcilePageRows } from "./pagination";
-import { PrFilesTab, PrTimelineTab, PrReviewers } from "./detail-tabs";
+import { PrFilesTab, PrTimelineTab, PrReviewers, type RequestedReviewerSnapshot } from "./detail-tabs";
 import { apiSortParam, type PrSortMode } from "./ranking";
 import { selectPr, updateSelectedPr, usePrUi } from "./store";
 
@@ -63,7 +63,7 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
     const selectedId = pane === "list" ? null : prUi.selectedId;
     const [detailError, setDetailError] = useState<string | null>(null);
     const [detailLoading, setDetailLoading] = useState(false);
-    const [requestedReviewers, setRequestedReviewers] = useState<{ key: string; revision: number; names: string[] } | null>(null);
+    const [requestedReviewers, setRequestedReviewers] = useState<(RequestedReviewerSnapshot & { key: string; revision: number }) | null>(null);
     const [hasMore, setHasMore] = useState(false);
     const loadedPages = useRef(1);
     const pageIds = useRef<string[][]>([]);
@@ -258,10 +258,11 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
                 const detail = payload as Record<string, unknown>;
                 const requested = Array.isArray(detail.requested_reviewers) ? detail.requested_reviewers as { login?: string }[] : [];
                 const teams = Array.isArray(detail.requested_teams) ? detail.requested_teams as { name?: string; slug?: string }[] : [];
-                if (Array.isArray(detail.requested_reviewers) && Array.isArray(detail.requested_teams)) {
+                if (Array.isArray(detail.requested_reviewers) || Array.isArray(detail.requested_teams)) {
                     setRequestedReviewers({
                         key: `${detailOwner}/${detailRepo}#${detailNumber}`,
                         revision: detailRevision,
+                        complete: Array.isArray(detail.requested_reviewers) && Array.isArray(detail.requested_teams),
                         names: [
                             ...requested.flatMap((user) => user?.login ? [user.login] : []),
                             ...teams.flatMap((team) => team?.name || team?.slug ? [`Team: ${team.name || team.slug}`] : []),
@@ -476,7 +477,7 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
                                 <div className="min-w-0 text-text-secondary">
                                     <PrReviewers item={selected} requested={
                                         requestedReviewers?.key === `${selected.repo}#${selected.number}` && requestedReviewers.revision === detailRevision
-                                            ? requestedReviewers.names : null
+                                            ? requestedReviewers : null
                                     } revision={resourceRevision} />
                                 </div>
                             </div>

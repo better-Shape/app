@@ -10,6 +10,23 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use super::ai_providers::AiProviderConfig;
+use super::credential_match::matches_credential_value;
+
+static PUBLIC_HEADER_DEFAULTS: LazyLock<HashMap<String, HashMap<String, String>>> =
+    LazyLock::new(|| {
+        serde_json::from_str(include_str!(
+            "../../../lib/ai/provider-default-headers.json"
+        ))
+        .expect("compiled public provider header defaults must be valid")
+    });
+
+fn public_header_default(provider: &str, name: &str) -> Option<&'static str> {
+    PUBLIC_HEADER_DEFAULTS
+        .get(provider)?
+        .iter()
+        .find(|(header, _)| header.eq_ignore_ascii_case(name))
+        .map(|(_, value)| value.as_str())
+}
 
 const RECORD_PREFIX: &str = "bettershape-vault-v1\n";
 
@@ -172,26 +189,38 @@ impl Vault {
     /// Reject stale credentials instead of copying a newer secret into an
     /// older window's endpoint configuration. Keys and endpoints stay paired.
     pub fn matches_config(&self, config: &AiProviderConfig) -> bool {
-        let matches = |id: &str, value: &str, scope: &str| {
+        let matches = |id: &str, value: &str, scope: &str, public_default: Option<&str>| {
             self.entries.get(id).is_none_or(|snapshot| {
-                snapshot.api_key == value
-                    && (value.is_empty() || snapshot.scope.as_deref() == Some(scope))
+                matches_credential_value(
+                    &snapshot.api_key,
+                    snapshot.scope.as_deref(),
+                    value,
+                    scope,
+                    public_default,
+                )
             })
         };
         config.providers.iter().all(|provider| {
             let scope = provider_scope(provider);
-            matches(&provider.id, &provider.api_key, &scope)
+            matches(&provider.id, &provider.api_key, &scope, None)
                 && provider.headers.iter().all(|(name, value)| {
-                    matches(&format!("header:{}:{name}", provider.id), value, &scope)
+                    matches(
+                        &format!("header:{}:{name}", provider.id),
+                        value,
+                        &scope,
+                        public_header_default(&provider.id, name),
+                    )
                 })
         }) && matches(
             "service:search",
             &config.search.api_key,
             &serde_json::json!(["search-v1", config.search.provider]).to_string(),
+            None,
         ) && matches(
             "service:composio",
             &config.composio.api_key,
             &serde_json::json!(["composio-v1", config.composio.user_id]).to_string(),
+            None,
         )
     }
 }
@@ -504,6 +533,102 @@ mod tests {
             Some(&provider_scope(&config.providers[0])),
             |_| true,
         );
+        assert!(!vault.matches_config(&config));
+    }
+
+    fn header_config(provider: &str, name: &str, value: &str) -> AiProviderConfig {
+        let mut config: AiProviderConfig = serde_json::from_value(serde_json::json!({
+            "providers": [{ "id": provider, "kind": "openai", "baseUrl": "https://gateway.invalid/v1" }]
+        })).unwrap();
+        config.providers[0]
+            .headers
+            .insert(name.into(), value.into());
+        config
+    }
+
+    #[test]
+    fn cleared_preset_overrides_restore_public_headers_without_restoring_secrets() {
+        for (provider, defaults) in PUBLIC_HEADER_DEFAULTS.iter() {
+            for (name, value) in defaults {
+                for persisted in [true, false] {
+                    let config = header_config(provider, name, value);
+                    let id = format!("header:{provider}:{name}");
+                    let mut vault = Vault::default();
+                    let old = vault
+                        .write_scoped(
+                            &id,
+                            "private-override",
+                            INITIAL_REVISION,
+                            Some(&provider_scope(&config.providers[0])),
+                            |_| true,
+                        )
+                        .current;
+                    vault.write(&id, "", &old.revision, |_| persisted);
+                    assert!(vault.matches_config(&config), "{provider}/{name}");
+                    assert!(!vault.matches_config(&header_config(
+                        provider,
+                        name,
+                        "private-override"
+                    )));
+                    assert!(vault.matches_config(&header_config(provider, name, "")));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn public_header_lookup_is_case_insensitive_but_values_and_provider_ids_are_exact() {
+        assert_eq!(
+            public_header_default("openrouter", "x-title"),
+            Some("BetterShape")
+        );
+        assert_eq!(public_header_default("custom", "X-Title"), None);
+        assert_eq!(public_header_default("openrouter", "Authorization"), None);
+        for (provider, name, value) in [
+            ("custom", "X-Title", "BetterShape"),
+            ("openrouter", "Authorization", "BetterShape"),
+            ("openrouter", "X-Title", "bettershape"),
+        ] {
+            let mut vault = Vault::default();
+            vault.write(
+                &format!("header:{provider}:{name}"),
+                "",
+                INITIAL_REVISION,
+                |_| true,
+            );
+            assert!(!vault.matches_config(&header_config(provider, name, value)));
+        }
+    }
+
+    #[test]
+    fn public_default_does_not_replace_a_saved_header_or_bypass_its_destination() {
+        for saved in ["private-override", "BetterShape"] {
+            let mut vault = Vault::default();
+            vault.write_scoped(
+                "header:openrouter:X-Title",
+                saved,
+                INITIAL_REVISION,
+                Some("different-scope"),
+                |_| true,
+            );
+            assert!(!vault.matches_config(&header_config("openrouter", "X-Title", "BetterShape")));
+        }
+    }
+
+    #[test]
+    fn public_literals_do_not_bypass_cleared_api_keys_or_services() {
+        let mut config = header_config("openrouter", "X-Title", "BetterShape");
+        let mut vault = Vault::default();
+        vault.write("openrouter", "", INITIAL_REVISION, |_| true);
+        config.providers[0].api_key = "BetterShape".into();
+        assert!(!vault.matches_config(&config));
+        config.providers[0].api_key.clear();
+        vault.write("service:search", "", INITIAL_REVISION, |_| true);
+        config.search.api_key = "BetterShape".into();
+        assert!(!vault.matches_config(&config));
+        config.search.api_key.clear();
+        vault.write("service:composio", "", INITIAL_REVISION, |_| true);
+        config.composio.api_key = "BetterShape".into();
         assert!(!vault.matches_config(&config));
     }
 }

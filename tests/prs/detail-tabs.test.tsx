@@ -39,7 +39,7 @@ it("lists only submitted reviewers, not authors of pending draft reviews", async
     const host = document.createElement("div"); document.body.append(host); const root = createRoot(host);
     const item = mapPullRow({ id: 1, number: 7, title: "PR", state: "open" }, "owner/repo");
     try {
-        await act(async () => root.render(<PrReviewers item={item} requested={[]} revision={0} />));
+        await act(async () => root.render(<PrReviewers item={item} requested={{ names: [], complete: true }} revision={0} />));
         expect(host.textContent).toContain("Reviewed: reviewer");
         expect(host.textContent).not.toContain("draft-author");
         expect(host.textContent).not.toContain("reviewer, reviewer");
@@ -48,5 +48,5 @@ it("lists only submitted reviewers, not authors of pending draft reviews", async
 
 it("does not render None before the reviews resource has loaded", () => {
     const item = mapPullRow({ id: 1, number: 7, title: "PR", state: "open" }, "owner/repo");
-    expect(renderToString(<PrReviewers item={item} requested={[]} revision={0} />)).not.toContain("None");
+    expect(renderToString(<PrReviewers item={item} requested={{ names: [], complete: true }} revision={0} />)).not.toContain("None");
 });

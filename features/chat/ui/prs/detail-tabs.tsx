@@ -63,7 +63,9 @@ export function PrTimelineTab({ item, revision }: { item: PrItem; revision: numb
     </>;
 }
 
-export function PrReviewers({ item, requested, revision }: { item: PrItem; requested: string[] | null; revision: number }) {
+export type RequestedReviewerSnapshot = { names: string[]; complete: boolean };
+
+export function PrReviewers({ item, requested, revision }: { item: PrItem; requested: RequestedReviewerSnapshot | null; revision: number }) {
     const resource = usePagedPrResource(`/repos/${item.repo}/pulls/${item.number}/reviews`, `${revision}:${item.updatedAt ?? ""}:${item.headSha ?? ""}`);
     const completed = [...new Set(resource.rows.flatMap((row) => {
         if (row.state === "PENDING") return [];
@@ -71,10 +73,11 @@ export function PrReviewers({ item, requested, revision }: { item: PrItem; reque
         return user?.login ? [user.login] : [];
     }))];
     return <>
-        {requested && requested.length > 0 ? <p>Requested: {requested.join(", ")}</p> : null}
+        {requested && requested.names.length > 0 ? <p>Requested: {requested.names.join(", ")}</p> : null}
         {requested === null ? <p className="text-text-muted">Requested reviewers not loaded</p> : null}
+        {requested && !requested.complete ? <p className="text-text-muted">Requested reviewer list incomplete</p> : null}
         {completed.length > 0 ? <p>Reviewed: {completed.join(", ")}</p> : null}
-        {resource.loaded && !resource.loading && !resource.error && requested?.length === 0 && completed.length === 0 ? "None" : null}
+        {resource.loaded && !resource.loading && !resource.error && requested?.complete && requested.names.length === 0 && completed.length === 0 ? "None" : null}
         <ResourceStatus resource={resource} noun="reviews" />
     </>;
 }

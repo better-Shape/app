@@ -1,0 +1,24 @@
+{
+  "openrouter": {
+    "HTTP-Referer": "https://github.com/Owie6789/BetterShape",
+    "X-Title": "BetterShape"
+  },
+  "nvidia": {
+    "HTTP-Referer": "https://github.com/Owie6789/BetterShape",
+    "X-Title": "BetterShape",
+    "X-BILLING-INVOKE-ORIGIN": "BetterShape"
+  },
+  "llmgateway": {
+    "HTTP-Referer": "https://github.com/Owie6789/BetterShape",
+    "X-Title": "BetterShape",
+    "X-Source": "bettershape"
+  },
+  "zenmux": {
+    "HTTP-Referer": "https://github.com/Owie6789/BetterShape",
+    "X-Title": "BetterShape"
+  },
+  "kilo": {
+    "HTTP-Referer": "https://github.com/Owie6789/BetterShape",
+    "X-Title": "BetterShape"
+  }
+}

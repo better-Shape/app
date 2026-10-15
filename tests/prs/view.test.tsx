@@ -356,3 +356,21 @@ it("does not infer empty requested-reviewer lists from incomplete detail data", 
     expect(reviewers?.textContent).toContain("Requested reviewers not loaded");
     expect(reviewers?.textContent).not.toContain("None");
 });
+
+it.each([
+    { detail: { requested_reviewers: [{ login: "alice" }] }, known: "Requested: alice" },
+    { detail: { requested_teams: [{ slug: "maintainers" }] }, known: "Requested: Team: maintainers" },
+    { detail: { requested_reviewers: [] }, known: "" },
+    { detail: { requested_teams: [] }, known: "" },
+])("shows known requested reviewers without treating partial detail as complete: %j", async ({ detail, known }) => {
+    mocks.get.mockImplementation(async (path: string) => {
+        if (path.includes("/pulls?")) return [{ id: 1, number: 7, title: "Partial details", state: "open" }];
+        if (path.endsWith("/pulls/7")) return detail;
+        return [];
+    });
+    await act(async () => root.render(<PullRequestsPanel />));
+    const reviewers = [...host.querySelectorAll("span")].find(node => node.textContent === "Reviewers")?.parentElement;
+    if (known) expect(reviewers?.textContent).toContain(known);
+    expect(reviewers?.textContent).toContain("Requested reviewer list incomplete");
+    expect(reviewers?.textContent).not.toContain("None");
+});

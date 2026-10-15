@@ -1,6 +1,7 @@
 pub mod ai_providers;
 pub mod ai_vault;
 pub mod bounded_text;
+pub(crate) mod credential_match;
 pub mod error;
 pub mod git_bin;
 pub mod mic;

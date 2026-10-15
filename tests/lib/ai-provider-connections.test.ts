@@ -227,3 +227,28 @@ describe("provider browsing", () => {
         expect(matchesProviderQuery(providerPreset("groq"), "")).toBe(true);
     });
 });
+
+
+it.each(["openrouter", "nvidia", "llmgateway", "zenmux", "kilo"] as const)(
+    "keeps %s public defaults separate from keychain overrides through removal and blanking", id => {
+        const expected: Record<string, string> = {
+            "HTTP-Referer": "https://github.com/Owie6789/BetterShape", "X-Title": "BetterShape",
+            ...(id === "nvidia" ? { "X-BILLING-INVOKE-ORIGIN": "BetterShape" } : {}),
+            ...(id === "llmgateway" ? { "X-Source": "bettershape" } : {}),
+        };
+        const settings = configured(id, { apiKey: "example-provider-key" });
+        const connection = settings.connections[id];
+        expect(providerHeaders(id, connection)).toEqual(expected);
+        expect(toRustAiConfig(settings).providers.find(provider => provider.id === id)?.headers).toEqual(expected);
+        for (const name of Object.keys(expected)) {
+            connection.headers = { [name]: "example-private-override" };
+            expect(providerHeaders(id, connection)[name]).toBe("example-private-override");
+            expect(providerSecrets(settings)[headerSecretId(id, name)]).toBe("example-private-override");
+            connection.headers = {};
+            expect(providerHeaders(id, connection)).toEqual(expected);
+            expect(providerSecrets(settings)[headerSecretId(id, name)]).toBeUndefined();
+            connection.headers = { [name]: "" };
+            expect(providerHeaders(id, connection)[name]).toBeUndefined();
+        }
+    },
+);

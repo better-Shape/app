@@ -230,3 +230,15 @@ Mention expansion, project rules and workflow preparation now finish before the 
 Design inspection retains the exact window and origin that entered select mode for teardown only. Revoking a service still rejects incoming selections, source writes and outgoing project metadata, but a data-free normal-mode message can release the original document's click capture. No wildcard origin or fresh authority is granted. Seven negative controls covered exit/replacement followed by disable, unmount or project change, plus iframe replacement. The browser discards a message whose explicit target origin no longer matches the recipient document.
 
 Origin research checked MDN's Window.postMessage reference in `mdn/content`, the WPT `webmessaging/postMessage_origin_mismatch_xorigin.sub.htm` scenario, and TypeScript's `Window.postMessage` declarations. These describe exact-origin delivery and stable targeting; the DOM tests verify the host's outgoing payload and recipient, not execution in a packaged WebView.
+
+## Public preset headers are not deleted credential overrides
+
+Removing a private header override restores the preset's public attribution value in the renderer. An empty native credential tombstone must reject the old private override but permit that exact known public value. The renderer and native vault now consume one checked-in public-header registry. Native admission selects defaults by provider and header name; the renderer cannot supply or expand the exception. Nonempty stored bindings still require exact value and scope matching. Provider keys and service keys receive no default exception.
+
+The extracted native value comparison failed its cleared-override control under the original predicate. All three isolated comparison tests pass with Clippy, including nonempty and wrong-scope rejection. Five frontend tests pin the existing public defaults, override removal, explicit blanking and separation from credential inventory. Native vault integration tests exercise the registry wiring, failed/durable clears and non-header rejection, but full application tests remain blocked by offline dependency resolution. GitHub workflow dispatch also returned HTTP 403 for the integration, so local helper tests are not substituted for full native or platform verification.
+
+## Partial reviewer data and unknown credential bundles
+
+Requested-reviewer data now carries completeness separately from known names. A partial payload can display available users or teams without claiming that the missing list is empty. None requires both requested lists and the completed-review resource to be known empty. Four mounted regressions reproduced the loss of partial names or completeness before this correction.
+
+Unknown service hydration deliberately retains the conservative credential bundle. Narrowing the fallback to apiKey alone failed two tests by mixing an edited key/account with a saved destination/credential. Fields absent from the local object are deleted rather than invented, and unrelated preferences still hydrate. The precise search and Composio field lists remain unchanged.
