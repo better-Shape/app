@@ -11,42 +11,12 @@ import { setChatGenerating } from "./generating-chats";
 import { NEW_CHAT_TAB_ID } from "../ui/shell/tabs";
 import { upsertTaggedBlockInContent } from "./upsert-stream-blocks";
 
+import { parseChatStatus, type TurnPhase } from "./chat-status";
+export type { TurnPhase } from "./chat-status";
+
 function isForeignConversation(id?: string | null) {
     return Boolean(id && id.startsWith("mw-worker-"));
 }
-
-const TOOL_LABELS: Record<string, string> = {
-    read_file: "Reading file",
-    list_dir: "Listing directory",
-    grep: "Searching",
-    search_files: "Finding files",
-    search_codebase: "Searching codebase",
-    codebase_overview: "Mapping codebase",
-    edit_file: "Editing file",
-    run_terminal: "Running command",
-    wait: "Waiting",
-    read_terminal: "Reading terminal",
-    list_terminals: "Listing terminals",
-    inspect_runtime: "Inspecting page",
-    ask_user: "Asking a question",
-    render_design_previews: "Creating preview",
-    update_todos: "Updating todos",
-    save_plan: "Saving plan",
-};
-
-/** Explicit turn phase driven by Rust events — keeps chrome from lying. */
-export type TurnPhase =
-    | "idle"
-    | "thinking"
-    | "tool"
-    | "awaiting_approval"
-    | "awaiting_input"
-    | "waiting"
-    | "running_command"
-    | "editing"
-    | "completed"
-    | "failed"
-    | "cancelled";
 
 export type ChatStreamState = {
     isLoading: boolean;
@@ -145,42 +115,6 @@ function appendAssistantChunk(prev: ChatMessage[], chunk: string): ChatMessage[]
         ...prev,
         { role: "assistant", content: chunk, timestamp: Date.now() / 1000 },
     ];
-}
-
-/** Translate known tool names into runtime phases, retaining a generic tool phase for extensions. */
-function phaseFromTool(tool: string | undefined): TurnPhase {
-    if (tool === "ask_user") return "awaiting_input";
-    if (tool === "wait") return "waiting";
-    if (tool === "run_terminal") return "running_command";
-    if (tool === "edit_file" || tool === "create_file") return "editing";
-    return "tool";
-}
-
-/** Prefer an explicit runtime label, otherwise derive a user-facing label from the phase and tool. */
-function labelForPhase(phase: TurnPhase, tool?: string, label?: string): string | null {
-    if (label?.trim()) return label.trim();
-    switch (phase) {
-        case "awaiting_input":
-            return "Waiting for your answers";
-        case "waiting":
-            return "Waiting";
-        case "thinking":
-            return "Thinking";
-        case "awaiting_approval":
-            return "Waiting for approval";
-        case "running_command":
-            return "Running command";
-        case "editing":
-            return "Editing file";
-        case "tool":
-            if (tool) {
-                const pretty = TOOL_LABELS[tool] ?? tool.replace(/_/g, " ");
-                return pretty.charAt(0).toUpperCase() + pretty.slice(1);
-            }
-            return "Working";
-        default:
-            return null;
-    }
 }
 
 export function ChatStreamProvider({ children }: { children: React.ReactNode }) {
@@ -449,18 +383,25 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
             return null;
         };
 
+        const resolveLiveOwner = (conversationId?: string | null, turnId?: string) => {
+            const key = resolveLiveKey(conversationId);
+            if (!key || ignoredIdsRef.current.has(key)) return null;
+            const live = liveTurnsRef.current.get(key);
+            if (!live || (turnId && turnId !== live.turnId)) return null;
+            return { key, live };
+        };
+
         /** Apply updates only to an admitted matching turn, updating its activity independently of which conversation is visible. */
         const patchLive = (conversationId: string | null | undefined, update: (live: LiveTurn) => void, turnId?: string) => {
-            const key = resolveLiveKey(conversationId);
-            if (!key || ignoredIdsRef.current.has(key)) return;
-            const live = liveTurnsRef.current.get(key);
-            if (!live || (turnId && turnId !== live.turnId)) return;
+            const owner = resolveLiveOwner(conversationId, turnId);
+            if (!owner) return;
+            const { key, live } = owner;
             update(live);
             setChatGenerating(live.conversationId, true);
             setChatActivity(live.conversationId, live.turnPhase);
-            const shown =
-                (viewingIdRef.current && viewingIdRef.current === live.conversationId) ||
-                (!viewingIdRef.current && key === PENDING_KEY);
+            const shown = viewingIdRef.current
+                ? viewingIdRef.current === live.conversationId
+                : key === PENDING_KEY;
             if (shown) {
                 setMessages(live.messages);
                 setIsLoading(true);
@@ -781,24 +722,11 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
             listen<{ phase?: string; tool?: string; label?: string; conversationId?: string; turnId?: string }>("chat_status", (event) => {
                 const { phase, tool, label, conversationId, turnId } = event.payload ?? {};
                 if (isForeignConversation(conversationId)) return;
-                let nextPhase: TurnPhase | null = null;
-                let nextLabel: string | null = null;
-                if (phase === "approval") {
-                    nextPhase = label === "Waiting for your answers" ? "awaiting_input" : "awaiting_approval";
-                    nextLabel = label?.trim() || "Waiting for approval";
-                } else if (phase === "model") {
-                    nextPhase = "thinking";
-                    nextLabel = label?.trim() || "Thinking";
-                } else if (phase === "tool") {
-                    nextPhase = phaseFromTool(tool);
-                    nextLabel = labelForPhase(nextPhase, tool, label);
-                } else if (label?.trim()) {
-                    nextLabel = label.trim();
-                }
-                if (!nextPhase && !nextLabel) return;
+                const status = parseChatStatus({ phase, tool, label });
+                if (!status) return;
                 patchLive(conversationId, (live) => {
-                    if (nextPhase) live.turnPhase = nextPhase;
-                    if (nextLabel) live.activityLabel = nextLabel;
+                    if (status.phase) live.turnPhase = status.phase;
+                    if (status.label) live.activityLabel = status.label;
                 }, turnId);
             }),
         );

@@ -519,3 +519,48 @@ it("does not resolve a completed or replaced request as a live failure owner", a
     expect(api.getRequestOwner(old)).toBeNull();
     expect(api.getRequestOwner(next)).toEqual({ conversationId: "A" });
 });
+
+it.each([
+    [{ phase: "approval" }, "awaiting_approval", "Waiting for approval"],
+    [{ phase: "approval", label: "Waiting for your answers" }, "awaiting_input", "Waiting for your answers"],
+    [{ phase: "approval", label: "  Approval details  " }, "awaiting_approval", "Approval details"],
+    [{ phase: "model", label: "  " }, "thinking", "Thinking"],
+    [{ phase: "model", label: "  Analyzing  " }, "thinking", "Analyzing"],
+    [{ phase: "tool", tool: "ask_user" }, "awaiting_input", "Waiting for your answers"],
+    [{ phase: "tool", tool: "wait" }, "waiting", "Waiting"],
+    [{ phase: "tool", tool: "run_terminal" }, "running_command", "Running command"],
+    [{ phase: "tool", tool: "edit_file" }, "editing", "Editing file"],
+    [{ phase: "tool", tool: "create_file" }, "editing", "Editing file"],
+    [{ phase: "tool", tool: "read_file" }, "tool", "Reading file"],
+    [{ phase: "tool", tool: "extension_command" }, "tool", "Extension command"],
+    [{ phase: "tool", tool: "constructor" }, "tool", "Constructor"],
+    [{ phase: "tool", tool: "toString" }, "tool", "ToString"],
+    [{ phase: "tool", tool: "hasOwnProperty" }, "tool", "HasOwnProperty"],
+    [{ phase: "tool" }, "tool", "Working"],
+    [{ phase: "tool", tool: "wait", label: "  Custom wait  " }, "waiting", "Custom wait"],
+    [{ phase: "extension", label: "  Custom status  " }, "thinking", "Custom status"],
+    [{ phase: "extension", label: "   " }, "thinking", "Thinking"],
+    [{}, "thinking", "Thinking"],
+])("preserves runtime status projection for %j", async (status, phase, label) => {
+    await mount(null);
+    emit("chat_started", { conversationId: "A", turnId: "status-turn" });
+    act(() => { api.showConversation("A"); });
+    emit("chat_status", { ...status, conversationId: "A", turnId: "status-turn" });
+    expect(api.turnPhase).toBe(phase);
+    expect(api.activityLabel).toBe(label);
+    expect(api.isLoading).toBe(true);
+});
+
+it("accepts an unscoped status only for the sole pending draft without adopting another view", async () => {
+    await mount(null);
+    act(() => { api.appendUserOptimistic("draft", null, "pending-status"); });
+    emit("chat_status", { phase: "tool", tool: "wait" });
+    expect(api.turnPhase).toBe("waiting");
+    expect(api.messages.map(message => message.content)).toEqual(["draft", ""]);
+    act(() => { api.showConversation("other", [msg("user", "other transcript")]); });
+    emit("chat_status", { phase: "tool", tool: "edit_file" });
+    expect(api.turnPhase).toBe("idle");
+    expect(api.messages.map(message => message.content)).toEqual(["other transcript"]);
+    act(() => { api.showConversation(null); });
+    expect(api.turnPhase).toBe("editing");
+});
