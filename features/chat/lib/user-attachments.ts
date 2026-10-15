@@ -1,3 +1,4 @@
+import { decodeXmlAttr } from "@/lib/chat/xml";
 import type { ComposerAttachment } from "../ui/composer/attachments";
 
 const ATTACHMENT_BLOCK_RE =
@@ -39,11 +40,14 @@ export function parseUserAttachments(content: string): {
     const attachments: ParsedUserAttachment[] = [];
     const text = content
         .replace(ATTACHMENT_BLOCK_RE, (_full, tag: string, attrs: string, body: string) => {
-            const name = attrs.match(ATTACHMENT_NAME_RE)?.[1] || "attachment";
+            const rawName = attrs.match(ATTACHMENT_NAME_RE)?.[1] || "attachment";
+            const name = /\bname_encoding="xml"/.test(attrs) ? decodeXmlAttr(rawName) : rawName;
             const mimeType = attrs.match(ATTACHMENT_TYPE_RE)?.[1] || "application/octet-stream";
             const size = Number(attrs.match(ATTACHMENT_SIZE_RE)?.[1] || "0") || 0;
             const trimmed = body.trim();
-            const dataUrl = trimmed.startsWith("data:") ? trimmed : undefined;
+            const lastLine = trimmed.slice(trimmed.lastIndexOf("\n") + 1).trim();
+            const dataUrl = trimmed.startsWith("data:") ? trimmed
+                : tag === "asset" && lastLine.startsWith("data:") ? lastLine : undefined;
 
             let kind: ParsedUserAttachment["kind"] = "file";
             if (mimeType === "text/x-bettershape-terminal") kind = "terminal";
@@ -74,15 +78,18 @@ export async function attachmentsToComposer(
     const out: ComposerAttachment[] = [];
     for (const att of parsed) {
         let file: File;
+        let error: string | undefined;
         if (att.dataUrl) {
             try {
                 const res = await fetch(att.dataUrl);
-                const blob = await res.blob();
-                file = new File([blob], att.name, { type: att.mimeType || blob.type });
+                const bytes = await res.arrayBuffer();
+                file = new File([bytes], att.name, { type: att.mimeType || res.headers.get("content-type") || "" });
             } catch {
+                error = "Stored attachment bytes could not be restored. Reattach the original file before sending.";
                 file = new File([], att.name, { type: att.mimeType });
             }
         } else {
+            error = "Original attachment bytes are not stored in this message. Reattach the file before sending.";
             file = new File([], att.name, { type: att.mimeType });
         }
         out.push({
@@ -95,7 +102,8 @@ export async function attachmentsToComposer(
                 : att.kind === "terminal" ? "terminal"
                 : att.kind === "code" ? "code"
                 : "file",
-            status: "ready",
+            status: error ? "error" : "ready",
+            error,
             dataUrl: att.kind === "image" ? att.dataUrl : undefined,
             mimeType: att.mimeType,
             size: att.size || file.size,

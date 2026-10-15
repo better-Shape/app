@@ -173,3 +173,19 @@ it.each(["font", "text", "audio"].flatMap(kind => ["a>b", "a&b", "a&gt;b"].map(s
         if (kind === "font") expect(result).toContain("data:font/woff;base64,aGVsbG8=");
         else if (kind === "text") expect(result).toContain("\nhello\n</attached_file>");
     });
+
+it.each([
+    ['text/plain;charset=windows-1252', [0x80, 0xe9], '€é'],
+    ['text/plain;charset="windows-1252"', [0x80, 0xe9], '€é'],
+    ['text/plain;label=";charset=utf-8";charset=windows-1252', [0x80, 0xe9], '€é'],
+    ['text/plain;charset="win\\dows-1252"', [0x80, 0xe9], '€é'],
+    ['text/plain;charset=utf-16le', [0xe9, 0, 0xac, 0x20], 'é€'],
+    ['text/plain;charset=unknown', [0xc3, 0xa9], 'é'],
+    ['text/plain;charset="";charset=windows-1252', [0xc3, 0xa9], 'é'],
+    ['text/plain;charset=;charset=windows-1252', [0x80, 0xe9], '€é'],
+    ['not-a-mime;charset=windows-1252', [0xc3, 0xa9], 'é'],
+] as const)("decodes declared text bytes for %s without relying on the host's MIME fallback", async (type, bytes, expected) => {
+    const file = new File([new Uint8Array(bytes)], "encoded.txt", { type });
+    const result = await messageWithAttachments("message", [{ id: "encoded", file, name: file.name, kind: "file", status: "ready", mimeType: file.type, size: file.size }], new AbortController().signal);
+    expect(result).toContain(`\n${expected}\n</attached_file>`);
+});

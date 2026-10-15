@@ -653,3 +653,33 @@ it("keeps explicit re-entry made while an uninventoried tombstone is loading", a
     expect(settings.getSettings().ai.providers.connections.openai.apiKey).toBe("example-explicit-reentry");
     expect(native.values.get("openai")).toBe("example-explicit-reentry");
 });
+
+it.each(["local", "desktop"])("retains the %s legacy copy while recovery is an unacknowledged draft", async storage => {
+    reset();
+    const settings = await import("@/lib/settings");
+    const drafts = await import("@/lib/ai/credential-drafts");
+    await settings.initSettings();
+    settings.setSecretsVaulted(true);
+    await vi.waitFor(() => expect(bridge.disk).not.toBeNull());
+    expect(settings.areSecretsVaulted()).toBe(true);
+    const legacy = structuredClone(settings.getSettings());
+    legacy.ai.providers.connections.openai.apiKey = "example-legacy-copy";
+    bridge.disk = structuredClone(legacy);
+    localStorage.setItem("bettershape-settings-v1", JSON.stringify(legacy));
+    settings.registerCredentialRecoveryConflicts(["openai"]);
+    bridge.readStore.mockClear();
+    settings.acceptCredentialRecovery({ openai: "example-recovery-draft" });
+    await vi.waitFor(() => expect(bridge.readStore).toHaveBeenCalled());
+    await Promise.all(bridge.readStore.mock.results.map(result => result.value));
+    const persisted = storage === "local" ? localStorage.getItem("bettershape-settings-v1") : JSON.stringify(bridge.disk);
+    expect(persisted).toContain("example-legacy-copy");
+    expect(persisted).not.toContain("example-recovery-draft");
+    expect(settings.areSecretsVaulted()).toBe(false);
+    expect(drafts.getUnsavedCredentialCount()).toBe(1);
+    expect(settings.providerSecretsForVault().openai).toBe("example-recovery-draft");
+    const scope = credentialScopes(settings.getSettings().ai.providers).openai;
+    drafts.acknowledgeCredentialDraft("openai", drafts.credentialDraftVersion("openai", "example-recovery-draft", scope));
+    settings.setSecretsVaulted(true);
+    expect(localStorage.getItem("bettershape-settings-v1")).not.toContain("example-");
+    await vi.waitFor(() => expect(JSON.stringify(bridge.disk)).not.toContain("example-"));
+});

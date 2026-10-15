@@ -1,3 +1,4 @@
+import { mimeCharset } from "@/lib/http/mime-charset";
 import { escapeXmlAttr } from "@/lib/chat/xml";
 import type { ComposerAttachment } from "@/features/chat/ui/composer/attachments";
 
@@ -61,6 +62,22 @@ export async function waitForSendAttachments(
     }
 }
 
+/** Fence the exact serialized inputs at admission; later additions belong to the next draft. */
+export function assertSendAttachmentsUnchanged(
+    prepared: readonly ComposerAttachment[],
+    currentFiles: readonly ComposerAttachment[],
+): void {
+    const current = new Map(currentFiles.map(file => [file.id, file]));
+    for (const file of prepared) {
+        const live = current.get(file.id);
+        if (!live) throw new Error("An attachment was removed during preparation. Review the message and retry.");
+        if (live.status !== "ready" || live.file !== file.file || live.dataUrl !== file.dataUrl
+            || live.name !== file.name || live.kind !== file.kind || live.mimeType !== file.mimeType || live.size !== file.size) {
+            throw new Error("An attachment changed during preparation. Review the message and retry.");
+        }
+    }
+}
+
 /** Read one file with settled error/abort handling and no retained signal or reader callbacks. */
 function readAttachment(file: ComposerAttachment, dataUrl: boolean, signal: AbortSignal): Promise<string> {
     assertActive(signal);
@@ -88,7 +105,7 @@ function readAttachment(file: ComposerAttachment, dataUrl: boolean, signal: Abor
         signal.addEventListener("abort", cancel, { once: true });
         try {
             if (dataUrl) reader.readAsDataURL(file.file);
-            else reader.readAsText(file.file.slice(0, MAX_TEXT_ATTACHMENT_READ_BYTES, file.file.type));
+            else reader.readAsText(file.file.slice(0, MAX_TEXT_ATTACHMENT_READ_BYTES, file.file.type), mimeCharset(file.file.type));
         } catch { fail(); }
     });
 }

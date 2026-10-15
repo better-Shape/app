@@ -132,3 +132,40 @@ it.each(["model", "mode"])("does not send with a %s from an uncommitted suspende
         await act(async () => { suspended = null; release(); });
     }
 });
+
+it.each(["reading", "expanding"].flatMap(phase => ["removed", "replaced", "added"].map(change => ({ phase, change }))))(
+    "revalidates submitted attachments after $phase when an attachment is $change", async ({ phase, change }) => {
+        const file = new File(["submitted bytes"], "original.txt", { type: "text/plain" });
+        const original = { id: "submitted", file, name: file.name, kind: "file" as const, status: "ready" as const, mimeType: file.type, size: file.size };
+        const newerFile = new File(["newer bytes"], "newer.txt", { type: "text/plain" });
+        const newer = { ...original, id: change === "replaced" ? original.id : "newer", file: newerFile, name: newerFile.name, size: newerFile.size };
+        await act(async () => session.setUploadedFiles([original]));
+        let finish!: () => void;
+        if (phase === "reading") {
+            vi.spyOn(FileReader.prototype, "readAsText").mockImplementation(function(this: FileReader) {
+                finish = () => {
+                    Object.defineProperty(this, "result", { value: "submitted bytes" });
+                    this.dispatchEvent(new ProgressEvent("load"));
+                };
+            });
+        } else {
+            backend.expand.mockImplementationOnce(message => new Promise<string>(resolve => { finish = () => resolve(message); }));
+        }
+        let sending!: Promise<boolean>;
+        await act(async () => { sending = session.handleSendMessage(); });
+        await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+        await act(async () => session.setUploadedFiles(change === "removed" ? [] : change === "replaced" ? [newer] : [original, newer]));
+        await act(async () => { finish(); expect(await sending).toBe(change === "added"); });
+        if (change === "added") {
+            expect(backend.send).toHaveBeenCalledOnce();
+            expect(backend.send.mock.calls[0][0]).toContain("submitted bytes");
+            expect(backend.send.mock.calls[0][0]).not.toContain("newer bytes");
+            expect(session.uploadedFiles).toEqual([newer]);
+        } else {
+            expect(backend.send).not.toHaveBeenCalled();
+            expect(host.querySelectorAll('[data-role="user"]')).toHaveLength(0);
+            expect(session.inputValue).toBe("keep this draft");
+            expect(session.sendError).toMatch(/attachment.*(removed|changed)/i);
+        }
+    },
+);

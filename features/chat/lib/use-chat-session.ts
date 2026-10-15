@@ -34,7 +34,7 @@ import {
 import { getSettings } from "@/lib/settings";
 import { getVisibleModels, resolveChatModels, sanitizeEnabledModels, subagentModelsForSend } from "@/lib/settings/models";
 import { getCatalogDefaultEnabledIds, getCatalogModels, useBetterShapeCatalog } from "@/lib/catalog/store";
-import { messageWithAttachments, waitForSendAttachments } from "./send-attachments";
+import { assertSendAttachmentsUnchanged, messageWithAttachments, waitForSendAttachments } from "./send-attachments";
 import { hasAnyUsableProvider as hasUsableProvider } from "@/lib/ai/providers";
 import { matchSlashCommand } from "@/lib/chat/workflows";
 import { notify } from "@/features/notifications";
@@ -1012,6 +1012,7 @@ export function useChatSession(
             if (!hasUsableProvider(getSettings().ai.providers)) {
                 throw new Error("Add an API key in Settings → Providers to chat.");
             }
+            assertSendAttachmentsUnchanged(readyFiles, uploadedFilesRef.current);
             // No optimistic transcript exists until all asynchronous preparation succeeds.
             const clientRequestId = createChatRequestId(target);
             appendUserOptimistic(userMsg, target, clientRequestId);

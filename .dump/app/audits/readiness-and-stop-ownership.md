@@ -252,3 +252,19 @@ The mount-only legacy-mode conversion was unreachable because the state always i
 ## Explicit PR override snapshots
 
 PR list and detail rendering now subscribe to the immutable override map rather than a separate version counter. The same subscribed snapshot is passed into override projection, so memo dependencies describe the data read instead of relying on an otherwise unused version. The timed trust, sweep, rollback and settlement rules are unchanged. Tests cover a retained snapshot after a newer global write, the expiry boundary, and mounted row removal/restoration without a parent render. Removing the old dependency without replacing its data contract would have left optimistic rows stale.
+
+## Revalidate admission and recovery receipts
+
+Attachment serialization is not admission: removal or replacement during file reading or later mention/rule preparation must still cancel the send before an optimistic transcript is inserted. The final synchronous fence compares the prepared IDs, immutable File identities and serialized metadata against committed composer state. New attachments are excluded from that comparison and remain for the next draft. Mounted controls cover removal, replacement and addition during both file reading and mention expansion.
+
+Stored asset instructions precede their data URL. Frontend restoration now accepts the final payload line as the native decoder does, decodes versioned names exactly once, and restores bytes using an ArrayBuffer. Missing/unreadable bytes become explicit error chips requiring reattachment, not ready empty files. This does not invent original bytes for text/audio/oversized attachments whose full original bytes were never stored. Tests perform serialize → parse → restore → resend for binary assets, including delimiter/entity-looking names, and preserve bare legacy payloads.
+
+Credential recovery consent creates an unacknowledged draft. It resets the vaulted flag before changing recovery authorities, and replacement of a legacy copy also independently requires zero unsaved drafts. Local and desktop-store regressions reproduce early deletion under an old successful receipt and verify retention until the replacement draft is acknowledged. These are host-side persistence tests, not native keychain execution.
+
+## MIME charset compatibility research
+
+The File API's package-data algorithm explicitly falls back to the Blob type's charset before UTF-8: <https://github.com/w3c/FileAPI/blob/main/index.bs#L1194-L1225>. The claim that the standard always ignores MIME charset is inaccurate, but relying on host compliance is not sufficient here. WebKit fixed its missing fallback in June 2026: <https://github.com/WebKit/WebKit/commit/90c69edf1c0ebeef9a60ead6ad3e6cae9a19577a>. The installed jsdom FileReader also ignores Blob charset. A source fix in current WebKit does not prove deployment to every supported packaged host.
+
+The bounded reader now supplies the declared encoding explicitly, retaining the Blob type and FileReader's BOM/default behavior. The dependency-free parser handles quoted pairs, embedded semicolons, empty/duplicate parameters and invalid MIME essences. Non-UTF-8 bytes reproduce the host fallback failure in six controls; the expanded serialization suite passes after the explicit argument. Upstream reference tests: <https://github.com/web-platform-tests/wpt/blob/master/FileAPI/reading-data-section/filereader_readAsText_blob_type_charset.any.js>. Those upstream browser tests were inspected, not executed in packaged WebViews.
+
+An independent 1,445-case projection comparison against the installed WHATWG MIME parser caught missing whole-input trailing-whitespace removal for an unterminated quote. The parser was corrected before publication; all 1,445 comparisons now agree. Checked-in fixtures retain the unterminated/closed-quote distinction and parameter edge cases. This is parser parity evidence, not browser or native packaging evidence.

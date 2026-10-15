@@ -420,6 +420,8 @@ export function registerLegacyVaultConflicts(values: Record<string, string>): vo
 }
 
 export function acceptCredentialRecovery(values: Record<string, string>): void {
+    // Recovery consent is a new unsaved intent, not a successful keychain receipt.
+    if (Object.keys(values).length) secretsVaulted = false;
     for (const id of Object.keys(values)) {
         credentialRecoveryConflicts.delete(id);
         explicitLegacyReplacements.add(id);
@@ -803,7 +805,7 @@ function canReplaceStoredSettings(stored: Partial<BetterShapeSettings> | null | 
     const legacy = Object.entries(providerSecrets(normalizeProvidersSettings(stored?.ai?.providers)));
     if (legacy.length === 0) return true;
     const live = providerSecretsForVault();
-    return secretsVaulted && legacy.every(([id, value]) => live[id] === value || explicitLegacyReplacements.has(id));
+    return secretsVaulted && getUnsavedCredentialCount() === 0 && legacy.every(([id, value]) => live[id] === value || explicitLegacyReplacements.has(id));
 }
 
 function persist() {

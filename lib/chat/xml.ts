@@ -6,3 +6,8 @@ export function escapeXmlAttr(value: string): string {
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;");
 }
+
+/** Decode the producer's four entities exactly once, preserving literal entity names. */
+export function decodeXmlAttr(value: string): string {
+    return value.replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+}
