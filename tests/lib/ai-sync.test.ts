@@ -5,10 +5,10 @@ const native = createNativeVault();
 const state = vi.hoisted(() => ({
     secrets: {} as Record<string, string>, headers: { Authorization: "" } as Record<string, string>, vaulted: false,
     listeners: new Set<() => void>(), vault: new Map<string, string>(),
-    load: vi.fn(), store: vi.fn(), remove: vi.fn(), configure: vi.fn(), error: vi.fn(),
+    supported: vi.fn(), load: vi.fn(), store: vi.fn(), remove: vi.fn(), configure: vi.fn(), error: vi.fn(),
 }));
 vi.mock("@/lib/backend", () => ({ commands: {
-    aiVaultSupported: async () => true,
+    aiVaultSupported: state.supported,
     aiLoadKeys: state.load, aiStoreKey: state.store, aiDeleteKey: state.remove, setAiConfig: state.configure,
 } }));
 vi.mock("@/features/notifications", () => ({ notify: { error: state.error } }));
@@ -46,6 +46,7 @@ function change(secrets: Record<string, string>) {
 beforeEach(async () => {
     vi.resetModules();
     localStorage.clear();
+    state.supported.mockReset().mockResolvedValue(true);
     state.headers = { Authorization: "" };
     state.secrets = {}; state.vaulted = false; native.reset(); state.vault = native.values; state.listeners.clear();
     state.load.mockReset().mockImplementation(async (ids: string[]) => ids.map(native.read));
@@ -219,4 +220,49 @@ it("migrates a legacy draft when an inventoried account is missing rather than e
     stop = sync.initAiConfigSync(); await sync.aiConfigReady();
     expect(state.secrets.openai).toBe("example-legacy-copy");
     expect(state.vault.get("openai")).toBe("example-legacy-copy");
+});
+
+it("hydrates untouched saved keys when retry unlocks a vault unavailable at startup", async () => {
+    state.vault.set("openai", "example-persisted");
+    state.supported.mockResolvedValue(false);
+    stop = sync.initAiConfigSync(); await sync.aiConfigReady();
+    expect(state.secrets).toEqual({});
+    state.supported.mockResolvedValue(true);
+    await sync.retryCredentialPersistence();
+    expect(state.secrets.openai).toBe("example-persisted");
+    expect(state.configure).toHaveBeenLastCalledWith({ secrets: { openai: "example-persisted" } });
+});
+
+it("retries unavailable key reads without requiring a restart", async () => {
+    state.vault.set("openai", "example-persisted");
+    state.load.mockImplementationOnce(async (ids: string[]) => ids.map(id => ({ status: "unavailable", id })));
+    stop = sync.initAiConfigSync(); await sync.aiConfigReady();
+    expect(state.secrets).toEqual({});
+    await sync.retryCredentialPersistence();
+    expect(state.secrets.openai).toBe("example-persisted");
+});
+
+it("preserves edits made while retry hydration is in flight", async () => {
+    state.vault.set("openai", "example-persisted");
+    state.supported.mockResolvedValue(false);
+    stop = sync.initAiConfigSync(); await sync.aiConfigReady();
+    state.supported.mockResolvedValue(true);
+    let finish!: (rows: VaultSnapshot[]) => void;
+    state.load.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const retry = sync.retryCredentialPersistence();
+    await vi.waitFor(() => expect(state.load).toHaveBeenCalled());
+    change({ openai: "example-edited-during-retry" });
+    finish([native.read("openai")]);
+    await retry; await sync.aiConfigReady();
+    expect(state.secrets.openai).toBe("example-edited-during-retry");
+});
+
+it("does not repeatedly hydrate inaccessible keys on unrelated settings changes", async () => {
+    state.load.mockImplementationOnce(async (ids: string[]) => ids.map(id => ({ status: "unavailable", id })));
+    stop = sync.initAiConfigSync(); await sync.aiConfigReady();
+    change({}); await sync.aiConfigReady();
+    change({}); await sync.aiConfigReady();
+    expect(state.load).toHaveBeenCalledTimes(1);
+    await sync.retryCredentialPersistence();
+    expect(state.load).toHaveBeenCalledTimes(2);
 });

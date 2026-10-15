@@ -296,3 +296,33 @@ it("rolls back a discard if deleting its recovery copy fails", async () => {
         expect(mocks.markFileDirty).toHaveBeenLastCalledWith("/example.txt", true);
     } finally { write?.mockRestore(); }
 });
+
+it("does not close any secondary window when the main file prompt is cancelled", async () => {
+    nativeWindow.message.mockResolvedValue("Cancel");
+    await closeDirtyMain();
+    expect(mocks.others).not.toHaveBeenCalled();
+    expect(nativeWindow.destroy).not.toHaveBeenCalled();
+});
+
+it("asks for main-window consent before beginning secondary closures", async () => {
+    nativeWindow.message.mockImplementationOnce(async () => {
+        expect(mocks.others).not.toHaveBeenCalled();
+        return "Don't save";
+    });
+    await closeDirtyMain();
+    expect(mocks.others).toHaveBeenCalledOnce();
+    expect(nativeWindow.destroy).toHaveBeenCalledOnce();
+});
+
+it("restores the main draft if it changes while secondary windows are closing", async () => {
+    nativeWindow.message.mockResolvedValue("Don't save");
+    mocks.others.mockImplementationOnce(async () => {
+        window.dispatchEvent(new CustomEvent("bettershape-editor-changed", { detail: { path: "/example.txt" } }));
+        saveDirtyBuffer("/example.txt", "edit while closing peers", "saved");
+        return true;
+    });
+    await closeDirtyMain();
+    expect(nativeWindow.destroy).not.toHaveBeenCalled();
+    expect(loadDirtyBuffer("/example.txt")?.content).toBe("edit while closing peers");
+    expect(mocks.markFileDirty).toHaveBeenLastCalledWith("/example.txt", true);
+});

@@ -520,7 +520,7 @@ export function DesignStudio({
         let unsubscribeReady = () => {};
         let opened = false;
         const ownerAtBoot = projectPathRef.current;
-        let opening: Promise<boolean> | null = null;
+        let opening: { authorization: DesignAuthorization; promise: Promise<boolean> } | null = null;
         authorizationRef.current = null;
         setBooting(true);
         setReady(false);
@@ -556,13 +556,26 @@ export function DesignStudio({
                 }
                 const dev = detected;
 
-                const openWhenReachable = (url: string) => {
-                    if (opened) return Promise.resolve(true);
-                    if (opening) return opening;
-                    opening = (async () => {
-                        if (cancelled || projectPathRef.current !== ownerAtBoot || !sameProjectPath(getBackgroundRunCwd() || "", info.projectRoot)) return false;
-                        const authorization = authorizeDesignPreview(info.projectRoot, url);
-                        if (!authorization) return false;
+                const openWhenReachable = (url: string): Promise<boolean> => {
+                    if (cancelled || projectPathRef.current !== ownerAtBoot || !sameProjectPath(getBackgroundRunCwd() || "", info.projectRoot)) return Promise.resolve(false);
+                    const authorization = authorizeDesignPreview(info.projectRoot, url);
+                    if (!authorization) return Promise.resolve(false);
+                    if (opened && isCurrentDesignAuthorization(authorizationRef.current, info.projectRoot)) return Promise.resolve(true);
+                    if (opening) {
+                        if (opening.authorization.serviceId === authorization.serviceId && opening.authorization.origin === authorization.origin) return opening.promise;
+                        // A replacement's one readiness event must survive an older
+                        // registration/probe. Revalidate it after that owner finishes.
+                        return opening.promise.then(() => openWhenReachable(url));
+                    }
+                    opened = false;
+                    authorizationRef.current = null;
+                    setReady(false);
+                    setBooting(true);
+                    setSelected(null);
+                    setTarget(null);
+                    setLayers([]);
+                    setThemeTokens([]);
+                    const promise = (async () => {
                         await commands.registerDesignBridge(scopeDesignBridge(DESIGN_BRIDGE_SCRIPT, authorization));
                         if (cancelled) return false;
                         const reachable = await commands.probePreviewUrl(url);
@@ -578,9 +591,10 @@ export function DesignStudio({
                         if (!cancelled) setBootError(cause instanceof Error ? cause.message : "Could not connect to the project preview.");
                         return false;
                     }).finally(() => {
-                        opening = null;
+                        if (opening?.promise === promise) opening = null;
                     });
-                    return opening;
+                    opening = { authorization, promise };
+                    return promise;
                 };
 
                 unsubscribeReady = subscribePreviewReady((url) => {

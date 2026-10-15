@@ -25,12 +25,11 @@ type Runtime = {
     ptyId: number;
     command: string;
     cwd: string;
-    unOut: () => void;
-    unExit: () => void;
-    unReady: () => void;
+    dispose: () => void;
 };
 
 let runtime: Runtime | null = null;
+let runGeneration = 0;
 let starting: { command: string; cwd: string; promise: Promise<number> } | null = null;
 const readyListeners = new Set<ReadyListener>();
 let lastReadyUrl: string | null = null;
@@ -132,33 +131,62 @@ function emitReady(url: string) {
     }
 }
 
-async function attachListeners(ptyId: number) {
+/** Register the entire event owner before spawning; activate only the returned PTY. */
+async function attachListeners() {
     const { listen } = await import("@tauri-apps/api/event");
-
-    const unOut = await listen<{ id: number; data: string }>("pty-output", (ev) => {
-        if (ev.payload.id !== ptyId) return;
-        terminalSessionStore.appendPtyOutput(ptyId, ev.payload.data);
-        noteDevRunOutput(ev.payload.data);
-    });
-
-    const unExit = await listen<{ id: number; exit_code?: number | null }>("pty-exit", (ev) => {
-        if (ev.payload.id !== ptyId) return;
-        noteDevRunExit(ev.payload.exit_code ?? 0);
-        if (runtime?.ptyId === ptyId) {
-            runtime.unOut();
-            runtime.unExit();
-            runtime.unReady();
-            runtime = null;
+    const cleanup: Array<() => void> = [];
+    let active = true;
+    let ptyId: number | null = null;
+    let exited = false;
+    let overflow = false;
+    const earlyReady = new Map<number, PreviewReady>();
+    const earlyExit = new Map<number, number>();
+    const dispose = () => {
+        active = false;
+        for (const unlisten of cleanup.splice(0)) {
+            try { void Promise.resolve(unlisten()).catch(() => undefined); } catch { /* Finish releasing the remaining listeners. */ }
         }
-    });
-
-    const unReady = await listen<PreviewReady>("preview-ready", (ev) => {
-        if (ev.payload.id !== ptyId) return;
-        console.info("[preview] ready event", ev.payload.url);
-        rememberReady(ev.payload);
-    });
-
-    return { unOut, unExit, unReady };
+    };
+    const exit = (code: number) => {
+        exited = true;
+        lastReadyUrl = null;
+        announcedReady = null;
+        if (runtime?.ptyId === ptyId) runtime = null;
+        dispose();
+        noteDevRunExit(code);
+    };
+    try {
+        cleanup.push(await listen<{ id: number; data: string }>("pty-output", ({ payload }) => {
+            if (!active || payload.id !== ptyId || exited) return;
+            terminalSessionStore.appendPtyOutput(payload.id, payload.data);
+            noteDevRunOutput(payload.data);
+        }));
+        cleanup.push(await listen<{ id: number; exit_code?: number | null }>("pty-exit", ({ payload }) => {
+            if (!active) return;
+            if (ptyId === null) {
+                if (earlyExit.size < 128) earlyExit.set(payload.id, payload.exit_code ?? 0);
+                else overflow = true; // Missing an early exit must never grant authority.
+            } else if (payload.id === ptyId) exit(payload.exit_code ?? 0);
+        }));
+        cleanup.push(await listen<PreviewReady>("preview-ready", ({ payload }) => {
+            if (!active || exited) return;
+            if (ptyId === null) {
+                if (earlyReady.get(payload.id)?.source === "output" && payload.source !== "output") return;
+                if (earlyReady.size < 32 || earlyReady.has(payload.id)) earlyReady.set(payload.id, payload);
+            } else if (payload.id === ptyId) rememberReady(payload);
+        }));
+    } catch (error) { dispose(); throw error; }
+    return {
+        dispose,
+        activate(id: number): boolean {
+            ptyId = id;
+            if (overflow || earlyExit.has(id)) { exit(earlyExit.get(id) ?? 1); return false; }
+            const ready = earlyReady.get(id);
+            earlyReady.clear(); earlyExit.clear();
+            if (ready) rememberReady(ready);
+            return active && !exited;
+        },
+    };
 }
 
 /**
@@ -188,65 +216,44 @@ export async function ensureBackgroundRun(command: string, cwdOverride?: string)
         return ensureBackgroundRun(trimmed, cwd);
     }
 
+    const generation = ++runGeneration;
     const promise = (async () => {
-        if (runtime) {
-            await stopBackgroundRun();
-        }
-
+        if (runtime) await stopCurrentRun();
+        if (generation !== runGeneration) throw new Error("Preview start cancelled");
         startDevRun(trimmed);
         lastReadyUrl = null;
         announcedReady = null;
-
-        // Listen for preview-ready BEFORE spawn. Next can boot in <1s; attaching
-        // after invoke was racing the event and leaving Design Mode on a white canvas.
-        const { listen } = await import("@tauri-apps/api/event");
+        let owner: Awaited<ReturnType<typeof attachListeners>> | undefined;
+        let ptyId: number | undefined;
         const { invoke } = await import("@tauri-apps/api/core");
-        const spawnId: { current: number | null } = { current: null };
-        const earlyEvents = new Map<number, PreviewReady>();
-        const earlyReady = await listen<PreviewReady>("preview-ready", (ev) => {
-            if (spawnId.current === null) {
-                if (earlyEvents.get(ev.payload.id)?.source === "output" && ev.payload.source !== "output") return;
-                if (earlyEvents.size < 32 || earlyEvents.has(ev.payload.id)) earlyEvents.set(ev.payload.id, ev.payload);
-                return;
-            }
-            if (ev.payload.id !== spawnId.current) return;
-            console.info("[preview] ready event (early)", ev.payload.url);
-            rememberReady(ev.payload);
-        });
-
-        console.info("[preview] invoking pty_spawn_run", trimmed);
         try {
-            const ptyId = await invoke<number>("pty_spawn_run", {
-                cwd,
-                command: trimmed,
-            });
-            spawnId.current = ptyId;
-            const early = earlyEvents.get(ptyId);
-            if (early) rememberReady(early);
-            console.info("[preview] pty_spawn_run =>", ptyId);
-
+            owner = await attachListeners();
+            if (generation !== runGeneration) throw new Error("Preview start cancelled");
+            ptyId = await invoke<number>("pty_spawn_run", { cwd, command: trimmed });
+            if (generation !== runGeneration) throw new Error("Preview start cancelled");
             setDevRunPtyId(ptyId);
-            const listeners = await attachListeners(ptyId);
-
+            if (!owner.activate(ptyId)) throw new Error("Preview process exited during startup");
+            if (generation !== runGeneration) throw new Error("Preview start cancelled");
+            runtime = { ptyId, command: trimmed, cwd, dispose: owner.dispose };
             registerBoundTerminalTab({
                 title: `Run: ${trimmed.split(/\s+/).slice(0, 3).join(" ")}`,
                 cwd,
                 shell: resolveDefaultTerminalShell(),
                 boundPtyId: ptyId,
             });
-
-            runtime = {
-                ptyId,
-                command: trimmed,
-                cwd,
-                unOut: () => listeners.unOut(),
-                unExit: () => listeners.unExit(),
-                unReady: () => listeners.unReady(),
-            };
-
             if (lastReadyUrl) emitReady(lastReadyUrl);
             return ptyId;
-        } finally { earlyReady(); }
+        } catch (error) {
+            owner?.dispose();
+            if (generation === runGeneration) {
+                runtime = null;
+                lastReadyUrl = null;
+                announcedReady = null;
+                clearDevRun();
+            }
+            if (ptyId !== undefined) await invoke("pty_kill", { id: ptyId }).catch(() => undefined);
+            throw error;
+        }
     })();
     const request = { command: trimmed, cwd, promise };
     starting = request;
@@ -259,21 +266,18 @@ export async function ensureBackgroundRun(command: string, cwdOverride?: string)
 }
 
 export async function stopBackgroundRun() {
+    runGeneration += 1;
+    await stopCurrentRun();
+}
+
+async function stopCurrentRun() {
     const current = runtime;
     runtime = null;
     lastReadyUrl = null;
     announcedReady = null;
-    if (!current) {
-        clearDevRun();
-        return;
-    }
-    try {
-        current.unOut();
-        current.unExit();
-        current.unReady();
-    } catch {
-        /* ignore */
-    }
+    clearDevRun();
+    if (!current) return;
+    current.dispose();
     try {
         const { invoke } = await import("@tauri-apps/api/core");
         await invoke("pty_kill", { id: current.ptyId });
@@ -281,5 +285,4 @@ export async function stopBackgroundRun() {
         /* ignore */
     }
     terminalSessionStore.clearPtyScrollback(current.ptyId);
-    clearDevRun();
 }

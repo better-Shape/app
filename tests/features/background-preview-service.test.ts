@@ -1,14 +1,15 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
     listeners: new Map<string, Set<(event: { payload: unknown }) => void>>(),
-    spawn: vi.fn(),
+    spawn: vi.fn(), kill: vi.fn(), registration: vi.fn(), release: vi.fn(),
 }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: async (name: string, fn: (event: { payload: unknown }) => void) => {
+    await mocks.registration(name);
     const listeners = mocks.listeners.get(name) ?? new Set();
     mocks.listeners.set(name, listeners); listeners.add(fn);
-    return () => { listeners.delete(fn); };
+    return () => { listeners.delete(fn); return mocks.release(name); };
 } }));
-vi.mock("@tauri-apps/api/core", () => ({ invoke: (command: string) => command === "pty_spawn_run" ? mocks.spawn() : Promise.resolve() }));
+vi.mock("@tauri-apps/api/core", () => ({ invoke: (command: string) => command === "pty_spawn_run" ? mocks.spawn() : mocks.kill() }));
 vi.mock("@/lib/backend", () => ({ getProjectPath: () => "/project" }));
 vi.mock("@/lib/settings", () => ({ resolveDefaultTerminalShell: () => "default" }));
 vi.mock("@/features/terminal/session", () => ({ registerBoundTerminalTab: vi.fn(), terminalSessionStore: { appendPtyOutput: vi.fn(), clearPtyScrollback: vi.fn() } }));
@@ -16,6 +17,7 @@ let background: typeof import("@/features/terminal/background-run");
 function emit(name: string, payload: unknown) { for (const listener of mocks.listeners.get(name) ?? []) listener({ payload }); }
 beforeEach(async () => {
     vi.resetModules(); mocks.listeners.clear(); mocks.spawn.mockReset().mockResolvedValue(7);
+    mocks.release.mockReset().mockResolvedValue(undefined); mocks.kill.mockReset().mockResolvedValue(undefined); mocks.registration.mockReset().mockResolvedValue(undefined);
     background = await import("@/features/terminal/background-run");
 });
 afterEach(async () => { await background.stopBackgroundRun(); });
@@ -71,4 +73,56 @@ it("shares one start across concurrent callers and permits retry after failure",
     mocks.spawn.mockRejectedValueOnce(new Error("failed start"));
     await expect(background.ensureBackgroundRun("npm run dev", "/project")).rejects.toThrow("failed start");
     expect(await background.ensureBackgroundRun("npm run dev", "/project")).toBe(7);
+});
+
+it("rejects a PTY that exits before the spawn reply, even after announcing readiness", async () => {
+    mocks.spawn.mockImplementationOnce(async () => {
+        emit("preview-ready", { id: 7, url: "http://localhost:5173", source: "output" });
+        emit("pty-exit", { id: 7, exit_code: 0 });
+        return 7;
+    });
+    await expect(background.ensureBackgroundRun("npm run dev")).rejects.toThrow();
+    expect(background.getBackgroundPreviewService()).toBeNull();
+    expect(background.getLastPreviewReadyUrl()).toBeNull();
+    expect([...mocks.listeners.values()].every(listeners => listeners.size === 0)).toBe(true);
+    expect(await background.ensureBackgroundRun("npm run dev")).toBe(7);
+});
+
+it("does not mistake another PTY's early exit for this run's exit", async () => {
+    mocks.spawn.mockImplementationOnce(async () => {
+        emit("pty-exit", { id: 8 });
+        emit("preview-ready", { id: 7, url: "http://localhost:5173", source: "output" });
+        return 7;
+    });
+    await background.ensureBackgroundRun("npm run dev");
+    expect(background.getBackgroundPreviewService()?.ptyId).toBe(7);
+});
+
+it("revokes a start stopped while the spawn reply is still pending", async () => {
+    let resolve!: (id: number) => void;
+    mocks.spawn.mockImplementationOnce(() => new Promise<number>(done => { resolve = done; }));
+    const start = background.ensureBackgroundRun("npm run dev");
+    const rejected = expect(start).rejects.toThrow();
+    await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalled());
+    await background.stopBackgroundRun();
+    emit("preview-ready", { id: 7, url: "http://localhost:5173", source: "output" });
+    resolve(7);
+    await rejected;
+    expect(background.getBackgroundPreviewService()).toBeNull();
+    expect(mocks.kill).toHaveBeenCalled();
+});
+
+it("removes all provisional listeners when registration fails before spawn", async () => {
+    mocks.registration.mockImplementation(async (name: string) => { if (name === "pty-exit") throw new Error("cannot register"); });
+    await expect(background.ensureBackgroundRun("npm run dev")).rejects.toThrow("cannot register");
+    expect(mocks.spawn).not.toHaveBeenCalled();
+    expect([...mocks.listeners.values()].every(listeners => listeners.size === 0)).toBe(true);
+});
+
+it("handles asynchronous native unlisten failures during shutdown", async () => {
+    await background.ensureBackgroundRun("npm run dev");
+    mocks.release.mockRejectedValue(new Error("webview gone"));
+    await background.stopBackgroundRun();
+    expect(background.getBackgroundPreviewService()).toBeNull();
+    expect([...mocks.listeners.values()].every(listeners => listeners.size === 0)).toBe(true);
 });

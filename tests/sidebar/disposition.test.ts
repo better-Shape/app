@@ -39,8 +39,8 @@ describe("persistent session disposition", () => {
         meta.setChatDisposition("a", { state: "settled" });
         meta.setChatDisposition("a", old);
         expect(meta.getChatDispositions()["a"]).toEqual(old);
-        localStorage.setItem("bettershape-sidebar-dispositions", JSON.stringify({ a: { state: "settled" } }));
-        window.dispatchEvent(new StorageEvent("storage", { key: "bettershape-sidebar-dispositions" }));
+        localStorage.setItem("bettershape-sidebar-dispositions:v2:a", JSON.stringify({ state: "settled" }));
+        window.dispatchEvent(new StorageEvent("storage", { key: "bettershape-sidebar-dispositions:v2:a" }));
         expect(meta.getChatDispositions()["a"]).toEqual({ state: "settled" });
         // jsdom queues zero-delay storage events independently of our wake timer.
         vi.advanceTimersByTime(1);
@@ -54,10 +54,11 @@ it("refreshes after another window changes storage while no sidebar is subscribe
     meta.setChatDisposition("a", { state: "settled" });
     stop();
     // No StorageEvent is delivered to this detached subscriber.
-    localStorage.setItem("bettershape-sidebar-dispositions", JSON.stringify({ a: { state: "snoozed", until: Date.now() - 1 }, b: { state: "settled" } }));
+    localStorage.setItem("bettershape-sidebar-dispositions:v2:a", JSON.stringify({ state: "snoozed", until: Date.now() - 1 }));
+    localStorage.setItem("bettershape-sidebar-dispositions:v2:b", JSON.stringify({ state: "settled" }));
     stop = meta.subscribeChatDispositions(vi.fn());
     expect(meta.getChatDispositions()).toEqual({ a: { state: "active" }, b: { state: "settled" } });
-    expect(JSON.parse(localStorage.getItem("bettershape-sidebar-dispositions")!)).toEqual(meta.getChatDispositions());
+    expect(JSON.parse(localStorage.getItem("bettershape-sidebar-dispositions:v2:a")!)).toEqual({ state: "active" });
 });
 
 it("preserves session-local intent on remount when persistence is unavailable", async () => {
@@ -68,4 +69,62 @@ it("preserves session-local intent on remount when persistence is unavailable", 
     stop();
     stop = meta.subscribeChatDispositions(vi.fn());
     expect(meta.getChatDispositions()["a"]).toEqual({ state: "settled" });
+});
+
+it("keeps independent chat changes from two WebViews with stale snapshots", async () => {
+    const first = await import("@/lib/sidebar/chat-disposition");
+    first.getChatDispositions();
+    vi.resetModules();
+    const second = await import("@/lib/sidebar/chat-disposition");
+    second.getChatDispositions();
+    first.setChatDisposition("a", { state: "settled" });
+    second.setChatDisposition("b", { state: "settled" });
+    vi.resetModules();
+    const restarted = await import("@/lib/sidebar/chat-disposition");
+    expect(restarted.getChatDispositions()).toEqual({ a: { state: "settled" }, b: { state: "settled" } });
+});
+
+it("wakes only the expired chat without overwriting another WebView's changes", async () => {
+    const first = await import("@/lib/sidebar/chat-disposition");
+    first.setChatDisposition("a", { state: "snoozed", until: Date.now() + 100 });
+    vi.resetModules();
+    const second = await import("@/lib/sidebar/chat-disposition");
+    second.setChatDisposition("b", { state: "settled" });
+    first.wakeSnoozedChats(Date.now() + 101);
+    vi.resetModules();
+    const restarted = await import("@/lib/sidebar/chat-disposition");
+    expect(restarted.getChatDispositions()).toEqual({ a: { state: "active" }, b: { state: "settled" } });
+});
+
+it("retains legacy values and persists clears as tombstones without rewriting the seed", async () => {
+    const legacy = JSON.stringify({ a: { state: "settled" }, b: { state: "active" } });
+    localStorage.setItem("bettershape-sidebar-dispositions", legacy);
+    const meta = await import("@/lib/sidebar/chat-disposition");
+    meta.setChatDisposition("a", undefined);
+    expect(localStorage.getItem("bettershape-sidebar-dispositions")).toBe(legacy);
+    vi.resetModules();
+    const restarted = await import("@/lib/sidebar/chat-disposition");
+    expect(restarted.getChatDispositions()).toEqual({ b: { state: "active" } });
+});
+
+it("keeps failed per-chat writes local while reading other windows' successful changes", async () => {
+    const meta = await import("@/lib/sidebar/chat-disposition");
+    const write = vi.spyOn(Storage.prototype, "setItem").mockImplementationOnce(() => { throw new Error("full"); });
+    meta.setChatDisposition("a", { state: "settled" });
+    write.mockRestore();
+    localStorage.setItem("bettershape-sidebar-dispositions:v2:b", JSON.stringify({ state: "settled" }));
+    stop = meta.subscribeChatDispositions(vi.fn());
+    expect(meta.getChatDispositions()).toEqual({ a: { state: "settled" }, b: { state: "settled" } });
+    meta.setChatDisposition("c", { state: "active" });
+    expect(JSON.parse(localStorage.getItem("bettershape-sidebar-dispositions:v2:a")!)).toEqual({ state: "settled" });
+});
+
+it("does not erase a cached disposition when storage reads become unavailable", async () => {
+    const meta = await import("@/lib/sidebar/chat-disposition");
+    meta.setChatDisposition("a", { state: "settled" });
+    const read = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => { throw new Error("blocked"); });
+    try {
+        stop = meta.subscribeChatDispositions(vi.fn());
+        expect(meta.getChatDispositions().a).toEqual({ state: "settled" });
+    } finally { read.mockRestore(); }
 });

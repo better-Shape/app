@@ -339,7 +339,6 @@ export function ChatList({
 
     const openChat = useCallback((id: string) => {
         clearChatUnread(id);
-        if (getChatDispositions()[id]) setChatDisposition(id, { state: "active" });
         window.dispatchEvent(new CustomEvent("bettershape-chat-load", { detail: { id } }));
     }, []);
 

@@ -50,7 +50,6 @@ export function installWindowCloseGuard(): () => void {
                         if (cancelled) return;
                         if (hasGeneratingChats()) { await win.hide(); return; }
                     }
-                    if (win.label === "main" && !(await closeOtherWindows(win.label))) return;
                     const approvedRevision = getCredentialDraftRevision();
                     const discard = await confirmCredentialClose(() => confirm(
                         "Credential changes have not been saved to the OS keychain. Closing can lose new keys; failed deletions may leave stored keys. Close anyway?",
@@ -64,6 +63,10 @@ export function installWindowCloseGuard(): () => void {
                             await reportCancelledClose(win.label);
                             return;
                         }
+                        if (isGenerating()) { await win.hide(); return; }
+                        // The main window's prompts must complete before closing peers.
+                        if (win.label === "main" && !(await closeOtherWindows(win.label))) return;
+                        if (!unchanged()) { await reportCancelledClose(win.label); return; }
                         if (isGenerating()) { await win.hide(); return; }
                         const unknownRevision = unknownEditorRevision;
                         const recovery = discardPaths.map((path) => ({ buffer: loadDirtyBuffer(path), revision: editedPaths.get(path) }));

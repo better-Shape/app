@@ -177,6 +177,15 @@ afterEach(() => {
 });
 
 
+    it.each(["settled", "snoozed"] as const)("viewing a %s history row preserves its disposition", (state) => {
+        const value = state === "snoozed" ? { state, until: Date.now() + 60_000 } as const : { state };
+        act(() => setChatDisposition("a", value));
+        const open = [...row("a").querySelectorAll("button")].find(button => button.textContent?.includes("Alpha"));
+        expect(open).toBeDefined();
+        act(() => open!.click());
+        expect(getChatDispositions().a).toEqual(value);
+    });
+
     it("renders every chat with a motion id and no headers when one shelf holds them all", () => {
         expect(rowOrder()).toEqual(["d", "a", "c", "b"]);
         expect(shelfHeaders()).toHaveLength(0);
