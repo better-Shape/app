@@ -1093,7 +1093,7 @@ export function DesignStudio({
             const assertAuthorized = admitSelectionWrite();
             if (!current || !assertAuthorized) return;
             iframeRef.current?.contentWindow?.postMessage(
-                { type: "bettershape-design-set-text", key: current.key, text },
+                { type: "bettershape-design-set-text", key: current.key, text, silent: true },
                 designMessageOrigin(authorizationRef.current, designerRootRef.current),
             );
             updateSelected(assertAuthorized, { ...current, text });
@@ -1116,7 +1116,7 @@ export function DesignStudio({
             const assertAuthorized = admitSelectionWrite();
             if (!current || !assertAuthorized) return;
             iframeRef.current?.contentWindow?.postMessage(
-                { type: "bettershape-design-set-attr", key: current.key, name, value },
+                { type: "bettershape-design-set-attr", key: current.key, name, value, silent: true },
                 designMessageOrigin(authorizationRef.current, designerRootRef.current),
             );
             updateSelected(assertAuthorized, {
@@ -1157,7 +1157,7 @@ export function DesignStudio({
             return { ...now, component: { ...now.component, properties } };
         });
         if (patch.field === "text") {
-            frame?.postMessage({ type: "bettershape-design-set-text", key: patch.key, text: String(patch.value) }, designMessageOrigin(authorizationRef.current, designerRootRef.current));
+            frame?.postMessage({ type: "bettershape-design-set-text", key: patch.key, text: String(patch.value), silent: true }, designMessageOrigin(authorizationRef.current, designerRootRef.current));
             void persistJsx(current, { text: String(patch.value) }, assertAuthorized, { instance: true })
                 .then(() => setMappingError(null)).catch(reportUnsavedPreviewEdit);
             return;

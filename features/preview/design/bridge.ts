@@ -1613,7 +1613,11 @@ export const DESIGN_BRIDGE_SCRIPT = String.raw`
         if (keyFor(textNodes[ti]) === data.key) {
           textNodes[ti].textContent = data.text || "";
           select(textNodes[ti]);
-          post("bettershape-design-commit-text", { element: snapshot(textNodes[ti]), text: textNodes[ti].textContent || "" });
+          // A host-initiated edit is already written to source by the host, with the scope
+          // it chose (an instance edit stays instance-scoped). Echoing the generic commit
+          // would persist the same text a second time, unscoped, and could widen an
+          // instance edit into the shared component source.
+          if (!data.silent) post("bettershape-design-commit-text", { element: snapshot(textNodes[ti]), text: textNodes[ti].textContent || "" });
           sendTree();
           break;
         }
@@ -1641,7 +1645,9 @@ export const DESIGN_BRIDGE_SCRIPT = String.raw`
           if (!unknownDomAttr(attrNodes[ai], attrName)) {
             attrNodes[ai].setAttribute(attrName, data.value || "");
           }
-          post("bettershape-design-commit-attr", {
+          // Same rule as set-text: the host already persisted a host-initiated attribute
+          // edit under its own scope, so it must not be persisted again here.
+          if (!data.silent) post("bettershape-design-commit-attr", {
             element: snapshot(attrNodes[ai]),
             attributes: (function () { var o = {}; o[attrName] = data.value || ""; return o; })()
           });
