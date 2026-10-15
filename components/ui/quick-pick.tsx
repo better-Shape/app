@@ -44,14 +44,16 @@ const isCompositionKey = (event: KeyboardEvent): boolean => event.isComposing ||
 /** What a keypress asks the picker to do. */
 type PickAction = "next" | "previous" | "confirm";
 
+/** The keys the picker routes, and the action each one asks for. */
+const PICK_ACTIONS: Record<string, PickAction | undefined> = {
+    ArrowDown: "next",
+    ArrowUp: "previous",
+    Enter: "confirm",
+};
+
 /** Translate a keypress into a picker action; composing keys belong to the input method. */
-function pickAction(event: KeyboardEvent): PickAction | null {
-    if (isCompositionKey(event)) return null;
-    if (event.key === "ArrowDown") return "next";
-    if (event.key === "ArrowUp") return "previous";
-    if (event.key === "Enter") return "confirm";
-    return null;
-}
+const pickAction = (event: KeyboardEvent): PickAction | null =>
+    isCompositionKey(event) ? null : PICK_ACTIONS[event.key] ?? null;
 
 /** The picker identity a highlight belongs to: reopening, retyping or a new result set. */
 type SelectionScope = { open: boolean; query?: string; count: number };
@@ -67,7 +69,7 @@ const moveSelection = (length: number, delta: number) => (current: number) => {
  * reopens, the query changes, or the result count changes, so the row a keypress confirms is
  * always the row the current query produced.
  */
-function usePickSelection(scope: SelectionScope) {
+const usePickSelection = (scope: SelectionScope) => {
     const [selected, setSelected] = React.useState(0);
     const [identity, setIdentity] = React.useState(scope);
     if (identity.open !== scope.open || identity.query !== scope.query || identity.count !== scope.count) {
@@ -75,20 +77,55 @@ function usePickSelection(scope: SelectionScope) {
         setSelected(0);
     }
     return [selected, setSelected] as const;
-}
+};
 
 /** Focus the filter field while it is shown, cancelling pending frame work when it is not. */
-function useFilterFocus(active: boolean, inputRef: React.RefObject<HTMLInputElement | null>) {
+const useFilterFocus = (
+    open: boolean,
+    showInput: boolean,
+    inputRef: React.RefObject<HTMLInputElement | null>,
+) => {
     React.useEffect(() => {
-        const frame = active ? requestAnimationFrame(() => inputRef.current?.focus()) : undefined;
+        const frame = open && showInput ? requestAnimationFrame(() => inputRef.current?.focus()) : undefined;
         return () => {
             if (frame !== undefined) cancelAnimationFrame(frame);
         };
-    }, [active, inputRef]);
-}
+    }, [open, showInput, inputRef]);
+};
+
+/** Non-filterable picker: the placeholder is the only line under the title. */
+const PlaceholderLine = ({ placeholder, title }: { placeholder: string; title?: string }) =>
+    placeholder ? (
+        <div className={cn("px-2.5 text-sm text-text-muted", title ? "pb-2" : "py-2")}>{placeholder}</div>
+    ) : null;
+
+/** The filter field, shown only when the picker owns a query. */
+const FilterField = ({
+    placeholder,
+    query,
+    onQueryChange,
+    inputRef,
+}: {
+    placeholder: string;
+    query?: string;
+    /** Absent only in the impossible case of a field rendered without a query owner. */
+    onQueryChange?: (value: string) => void;
+    inputRef: React.RefObject<HTMLInputElement | null>;
+}) => (
+    <div className="px-2 pb-1.5 pt-1">
+        <input
+            ref={inputRef}
+            value={query}
+            onChange={(event) => onQueryChange?.(event.target.value)}
+            placeholder={placeholder}
+            className="w-full bg-transparent text-sm text-text-primary outline-none placeholder:text-text-muted"
+            aria-label={placeholder}
+        />
+    </div>
+);
 
 /** Title line and, when the picker is filterable, the filter field itself. */
-function PickHeader({
+const PickHeader = ({
     title,
     placeholder,
     showInput,
@@ -100,31 +137,47 @@ function PickHeader({
     placeholder: string;
     showInput: boolean;
     query?: string;
-    onQueryChange: (value: string) => void;
+    onQueryChange?: (value: string) => void;
     inputRef: React.RefObject<HTMLInputElement | null>;
-}) {
-    if (showInput) {
-        return (
-            <div className="px-2 pb-1.5 pt-1">
-                <input
-                    ref={inputRef}
-                    value={query}
-                    onChange={(event) => onQueryChange(event.target.value)}
-                    placeholder={placeholder}
-                    className="w-full bg-transparent text-sm text-text-primary outline-none placeholder:text-text-muted"
-                    aria-label={placeholder}
-                />
-            </div>
-        );
-    }
-    if (!placeholder) return null;
-    return (
-        <div className={cn("px-2.5 text-sm text-text-muted", title ? "pb-2" : "py-2")}>{placeholder}</div>
-    );
-}
+}) => (
+    <>
+        {title ? <div className="px-2.5 py-1.5 text-center text-sm text-text-primary">{title}</div> : null}
+        {showInput ? (
+            <FilterField
+                placeholder={placeholder}
+                query={query}
+                onQueryChange={onQueryChange}
+                inputRef={inputRef}
+            />
+        ) : (
+            <PlaceholderLine placeholder={placeholder} title={title} />
+        )}
+    </>
+);
 
-/** One selectable result row: icon or icon node, label with its description, and a hint. */
-function PickRow({
+/** Icon slot: a caller-provided node wins over a catalog glyph, and neither renders nothing. */
+const PickRowIcon = ({ iconNode, icon }: Pick<QuickPickItem, "iconNode" | "icon">) => {
+    if (iconNode) {
+        return <span className="flex size-4 shrink-0 items-center justify-center">{iconNode}</span>;
+    }
+    if (!icon) return null;
+    return <Icon icon={icon} className="shrink-0 text-text-muted" />;
+};
+
+/** Row label with its muted description, kept to one truncating line. */
+const PickRowLabel = ({ label, description }: Pick<QuickPickItem, "label" | "description">) => (
+    <span className="min-w-0 flex-1 truncate font-medium text-text-primary">
+        {label}
+        {description ? <span className="ml-2 font-normal text-text-muted">{description}</span> : null}
+    </span>
+);
+
+/** Optional trailing hint, kept outside the label's truncation. */
+const PickRowHint = ({ hint }: Pick<QuickPickItem, "hint">) =>
+    hint ? <span className="shrink-0 text-xs text-text-muted">{hint}</span> : null;
+
+/** One selectable result row: icon, label with its description, and a hint. */
+const PickRow = ({
     item,
     selected,
     onHover,
@@ -134,32 +187,108 @@ function PickRow({
     selected: boolean;
     onHover: () => void;
     onSelect: () => void;
-}) {
+}) => (
+    <button
+        type="button"
+        onMouseEnter={onHover}
+        onClick={onSelect}
+        className={cn(
+            "flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm",
+            selected ? "bg-panel-hover text-text-primary" : "text-text-secondary hover:bg-panel-hover/60",
+        )}
+    >
+        <PickRowIcon iconNode={item.iconNode} icon={item.icon} />
+        <PickRowLabel label={item.label} description={item.description} />
+        <PickRowHint hint={item.hint} />
+    </button>
+);
+
+/** Accessible names for the dialog: the caller's title first, then the placeholder. */
+const pickerLabels = (title?: string, placeholder?: string) => ({
+    title: title || placeholder || "Quick pick",
+    description: placeholder || "Select an option",
+});
+
+/** Keyboard ownership for the picker: wrapping moves, row confirmation and query submission. */
+const usePickKeys = ({
+    items,
+    selected,
+    setSelected,
+    onSelect,
+    query,
+    onSubmitQuery,
+}: {
+    items: QuickPickItem[];
+    selected: number;
+    setSelected: React.Dispatch<React.SetStateAction<number>>;
+    onSelect: (item: QuickPickItem) => void;
+    query?: string;
+    onSubmitQuery?: (query: string) => void;
+}) => {
+    /** Move the highlight, wrapping at both ends. */
+    const move = (delta: number) => setSelected(moveSelection(items.length, delta));
+
+    /** Select a result; clicking must not submit the query instead of that result. */
+    const confirm = (index = selected) => {
+        const item = items[index];
+        if (item) onSelect(item);
+    };
+
+    /** Enter prefers an explicit nonempty query; otherwise confirm the highlighted result. */
+    const submit = () => {
+        const value = query?.trim();
+        if (onSubmitQuery && value) onSubmitQuery(value);
+        else confirm();
+    };
+
+    /** Route a keypress: moves and confirmation only, so the field keeps the typing keys. */
+    const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+        const action = pickAction(event.nativeEvent);
+        if (!action) return;
+        event.preventDefault();
+        if (action === "confirm") submit();
+        else move(action === "next" ? 1 : -1);
+    };
+
+    return { confirm, handleKeyDown };
+};
+
+/** The result list, or the empty state when the query matched nothing. */
+const PickList = ({
+    items,
+    selected,
+    emptyText,
+    onHover,
+    onSelect,
+}: {
+    items: QuickPickItem[];
+    selected: number;
+    emptyText: string;
+    onHover: (index: number) => void;
+    onSelect: (index: number) => void;
+}) => {
+    if (items.length === 0) {
+        return <div className="px-2.5 py-3 text-sm text-text-muted">{emptyText}</div>;
+    }
     return (
-        <button
-            type="button"
-            onMouseEnter={onHover}
-            onClick={onSelect}
-            className={cn(
-                "flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm",
-                selected ? "bg-panel-hover text-text-primary" : "text-text-secondary hover:bg-panel-hover/60",
-            )}
-        >
-            {item.iconNode ? (
-                <span className="flex size-4 shrink-0 items-center justify-center">{item.iconNode}</span>
-            ) : item.icon ? (
-                <Icon icon={item.icon} className="shrink-0 text-text-muted" />
-            ) : null}
-            <span className="min-w-0 flex-1 truncate font-medium text-text-primary">
-                {item.label}
-                {item.description ? (
-                    <span className="ml-2 font-normal text-text-muted">{item.description}</span>
-                ) : null}
-            </span>
-            {item.hint ? <span className="shrink-0 text-xs text-text-muted">{item.hint}</span> : null}
-        </button>
+        <>
+            {items.map((item, index) => (
+                <PickRow
+                    key={item.id}
+                    item={item}
+                    selected={index === selected}
+                    onHover={() => onHover(index)}
+                    onSelect={() => onSelect(index)}
+                />
+            ))}
+        </>
     );
-}
+};
+
+/** Escape must not dismiss the dialog while an IME composition is ending. */
+const blockCompositionEscape = (event: KeyboardEvent) => {
+    if (isCompositionKey(event)) event.preventDefault();
+};
 
 /** Picker with wrapped keyboard selection, optional search, and explicit query submission. */
 export function QuickPick({
@@ -177,32 +306,18 @@ export function QuickPick({
     const overlayRoot = useOverlayRoot();
     const [selected, setSelected] = usePickSelection({ open, query, count: items.length });
     const inputRef = React.useRef<HTMLInputElement>(null);
+    const labels = pickerLabels(title, placeholder);
     const showInput = query !== undefined && onQueryChange !== undefined;
 
-    useFilterFocus(open && showInput, inputRef);
-
-    const move = (delta: number) => setSelected(moveSelection(items.length, delta));
-
-    /** Select a result; clicking must not submit the query instead of that result. */
-    const confirm = (index = selected) => {
-        const item = items[index];
-        if (item) onSelect(item);
-    };
-
-    /** Enter prefers an explicit nonempty query; otherwise confirm the highlighted result. */
-    const submit = () => {
-        const value = query?.trim();
-        if (onSubmitQuery && value) onSubmitQuery(value);
-        else confirm();
-    };
-
-    const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-        const action = pickAction(event.nativeEvent);
-        if (!action) return;
-        event.preventDefault();
-        if (action === "confirm") submit();
-        else move(action === "next" ? 1 : -1);
-    };
+    useFilterFocus(open, showInput, inputRef);
+    const { confirm, handleKeyDown } = usePickKeys({
+        items,
+        selected,
+        setSelected,
+        onSelect,
+        query,
+        onSubmitQuery,
+    });
 
     return (
         <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -214,44 +329,29 @@ export function QuickPick({
                         "absolute left-1/2 top-[14%] z-[201] w-[min(520px,calc(100%-2rem))] -translate-x-1/2 outline-none",
                     )}
                     aria-describedby={undefined}
-                    onEscapeKeyDown={(event) => {
-                        if (isCompositionKey(event)) event.preventDefault();
-                    }}
+                    onEscapeKeyDown={blockCompositionEscape}
                     onKeyDown={handleKeyDown}
                 >
-                    <Dialog.Title className="sr-only">{title || placeholder || "Quick pick"}</Dialog.Title>
-                    <Dialog.Description className="sr-only">
-                        {placeholder || "Select an option"}
-                    </Dialog.Description>
+                    <Dialog.Title className="sr-only">{labels.title}</Dialog.Title>
+                    <Dialog.Description className="sr-only">{labels.description}</Dialog.Description>
                     <div className={cn(BETTERSHAPE_MODAL_PANEL_CLASS, "overflow-hidden p-1.5")}>
-                        {title ? (
-                            <div className="px-2.5 py-1.5 text-center text-sm text-text-primary">
-                                {title}
-                            </div>
-                        ) : null}
                         <PickHeader
                             title={title}
                             placeholder={placeholder}
                             showInput={showInput}
                             query={query}
-                            onQueryChange={onQueryChange ?? (() => {})}
+                            onQueryChange={onQueryChange}
                             inputRef={inputRef}
                         />
 
                         <div className="max-h-[min(320px,50vh)] overflow-y-auto custom-scrollbar">
-                            {items.length === 0 ? (
-                                <div className="px-2.5 py-3 text-sm text-text-muted">{emptyText}</div>
-                            ) : (
-                                items.map((item, index) => (
-                                    <PickRow
-                                        key={item.id}
-                                        item={item}
-                                        selected={index === selected}
-                                        onHover={() => setSelected(index)}
-                                        onSelect={() => confirm(index)}
-                                    />
-                                ))
-                            )}
+                            <PickList
+                                items={items}
+                                selected={selected}
+                                emptyText={emptyText}
+                                onHover={setSelected}
+                                onSelect={confirm}
+                            />
                         </div>
                     </div>
                 </Dialog.Content>
