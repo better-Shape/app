@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { Annotation, EditorSelection, EditorState, Compartment } from "@codemirror/state";
 import { LanguageDescription } from "@codemirror/language";
 import { languages } from "@codemirror/language-data";
@@ -114,7 +114,7 @@ export function CodeMirrorEditor({
     const viewRef = useRef<EditorView | null>(null);
     const pathRef = useRef(path);
     const setContentRef = useRef(setContent);
-    setContentRef.current = setContent;
+    useLayoutEffect(() => { setContentRef.current = setContent; }, [setContent]);
 
     useEffect(() => {
         const host = hostRef.current;

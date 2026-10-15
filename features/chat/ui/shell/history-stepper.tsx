@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { Tooltip } from "@/components/ui/tooltip";
 
@@ -107,7 +107,7 @@ export function useChatTurnActive(
     const rafRef = useRef(0);
     const activeRef = useRef(0);
     const streamingRef = useRef(!!opts?.streaming);
-    streamingRef.current = !!opts?.streaming;
+    useLayoutEffect(() => { streamingRef.current = !!opts?.streaming; }, [opts?.streaming]);
     const nodesCache = useRef<HTMLElement[]>([]);
 
     useEffect(() => {

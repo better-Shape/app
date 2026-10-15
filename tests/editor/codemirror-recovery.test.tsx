@@ -1,5 +1,5 @@
 import { resetDirtyBufferRecovery } from "../helpers/dirty-buffers";
-import { act } from "react";
+import { act, startTransition, Suspense } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { EditorView } from "@codemirror/view";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -22,9 +22,16 @@ beforeEach(() => {
     host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
 });
 afterEach(() => { act(() => root?.unmount()); host.remove(); resetDirtyBufferRecovery(); vi.useRealTimers(); });
+function Suspend({ pending }: { pending?: Promise<void> }) {
+    if (pending) throw pending;
+    return null;
+}
+function editor(content: string, path: string, onChange = change, pending?: Promise<void>) {
+    return <Suspense fallback={null}><CodeMirrorEditor path={path} content={content} setContent={onChange}
+        savedContentRef={saved} isDirtyRef={dirty} bufferVersionRef={version} /><Suspend pending={pending} /></Suspense>;
+}
 async function mount(content = "recovered text", path = "/draft.txt") {
-    await act(async () => root?.render(<CodeMirrorEditor path={path} content={content} setContent={change}
-        savedContentRef={saved} isDirtyRef={dirty} bufferVersionRef={version} />));
+    await act(async () => root?.render(editor(content, path)));
     const element = host.querySelector(".cm-editor");
     if (!(element instanceof HTMLElement)) throw new Error("Editor did not mount");
     const view = EditorView.findFromDOM(element);
@@ -84,4 +91,22 @@ it("does not create a user draft or edit signal for an external content refresh"
         expect(edited).not.toHaveBeenCalled();
         expect(loadDirtyBuffer("/draft.txt")).toBeNull();
     } finally { window.removeEventListener("bettershape-editor-changed", edited); }
+});
+
+it("delivers edits only to the committed callback while a replacement render is suspended", async () => {
+    const view = await mount();
+    const replacement = vi.fn();
+    let release!: () => void;
+    const pending = new Promise<void>(resolve => { release = resolve; });
+    try {
+        await act(async () => startTransition(() => root?.render(editor("recovered text", "/draft.txt", replacement, pending))));
+        act(() => view.dispatch({ changes: { from: view.state.doc.length, insert: "!" } }));
+        expect(change).toHaveBeenCalledWith("recovered text!");
+        expect(replacement).not.toHaveBeenCalled();
+        expect(loadDirtyBuffer("/draft.txt")).toMatchObject({ content: "recovered text!", savedContent: "disk text" });
+    } finally {
+        await act(async () => { release(); root?.render(editor("recovered text", "/draft.txt", replacement)); });
+    }
+    act(() => view.dispatch({ changes: { from: view.state.doc.length, insert: "?" } }));
+    expect(replacement).toHaveBeenCalledWith("recovered text!?");
 });

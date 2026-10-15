@@ -5,7 +5,7 @@ import { Clipboard20Regular } from "@fluentui/react-icons/headless/svg/clipboard
 
 
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { getBetterShapeSyntaxTheme } from "@/lib/ui/syntax-theme";
@@ -288,9 +288,11 @@ function useRevealText(full: string, live: boolean): string {
     const len = full.length;
     const [shown, setShown] = useState(() => (live ? Math.min(24, len) : len));
     const shownRef = useRef(shown);
-    shownRef.current = shown;
     const wasLive = useRef(live);
-    if (live) wasLive.current = true;
+    useLayoutEffect(() => {
+        shownRef.current = shown;
+        if (live) wasLive.current = true;
+    }, [shown, live]);
     const moreToShow = shown < len;
 
     useEffect(() => {
