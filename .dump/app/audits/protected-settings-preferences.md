@@ -65,3 +65,47 @@ The isolated crate uses the actual repository helpers and upstream sources at th
 The stale-endpoint fixture now makes the new canonical preferences record stale too. Leaving that record current would correctly recover the new endpoint and would no longer reproduce the test's stated scenario. Storage-event fixtures now write the durable record before delivering the notification. Fixture teardown drains dynamic imports so a prior simulated renderer cannot write into the next test's disk mock. No assertion was weakened.
 
 No UI layout, CSS, workflow, installer, vendored skill or generated preview contract changes in this batch.
+
+## Recovery after a rejected canonical read
+
+A rejected read of the canonical preferences file used to be swallowed. The
+queue then opened a fresh adapter for the same path, so the retry acquired
+overwrite authority for a record this renderer had never read, and a failed
+initialization stayed cached. Four consumer regressions reproduce that with the
+pre-change renderer (the exact pre-change source is `de8205f:lib/settings/store.ts`, which a
+control run restores under `finally`): overwriting unread preferences after recovery, no explicit
+retry, losing edits made during a failing retry read, and reusing a second read's
+revision for the first write.
+
+The renderer now keeps a pending hydration context (`before`,
+`localPreferences`, `localRecord`, `primaryApplied`, optional `preferences`)
+until the canonical record has actually been read and merged:
+
+- Reads and writes are serialized, and the write reuses the hydration read's
+  adapter and revision. A rejected canonical read aborts the write instead of
+  obtaining fresh authority.
+- `initSettings()` retries an incomplete initialization while coalescing any
+  initialization already in flight.
+- A readable legacy primary still hydrates while canonical preferences are
+  unavailable; that automatic hydration rebases the comparison baseline so it is
+  not mistaken for a user edit when preferences recover.
+- Preferences written before the primary was readable are projected through
+  `projectSettingsOverlay(defaults, live, ...known)`: fields whose primary value
+  is still unknown are omitted rather than serialized as defaults, and the same
+  sparse projection is used for the local record so a restart cannot expand those
+  defaults back into authority.
+- A key recovered after the vault receipt was issued revokes that receipt, so a
+  stale acknowledgement cannot erase a credential first read later.
+
+Verification: 98 renderer tests across `settings-bridge-ordering`,
+`settings-desktop-store`, `settings-hydration`, `settings-persistence` and
+`ai-vault-fallback` pass, `tsc --noEmit` and `eslint --max-warnings=0` are clean,
+and the eight new regressions fail with the pre-change renderer restored under
+`finally`. Sparse structural fields merge field-by-field; arrays and open-ended
+maps stay whole values, so deletions recorded in the overlay survive
+(`mergeSettingsOverlay`, covered by a dedicated test).
+
+Limitations that remain: an explicit edit to a value that happens to equal the
+displayed default is still only detected by value, because no touched-field mask
+is tracked. Whole-snapshot compare-and-replace is not a field-wise multi-window
+merge, and Windows/macOS replacement behavior is still unverified on this host.

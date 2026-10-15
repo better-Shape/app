@@ -145,3 +145,25 @@ it("keeps an unknown service's edited account from importing a saved credential"
     const incoming = structuredClone(before); incoming.ai.providers.services.future.apiKey = "example-saved";
     expect(mergeSettingsHydration(before, live, incoming).ai.providers.services.future).toEqual(live.ai.providers.services.future);
 });
+
+it("projects only known or changed overlay fields while a legacy source is unreadable", async () => {
+    const { projectSettingsOverlay } = await import("@/lib/settings/hydration");
+    const defaults = { editor: { fontSize: 14, tabSize: 4 }, folders: ["default"], entries: { retained: 1 } };
+    const live = { editor: { fontSize: 22, tabSize: 4 }, folders: ["default"], entries: { added: 2 } };
+    expect(projectSettingsOverlay(defaults, live, undefined)).toEqual({ editor: { fontSize: 22 }, entries: { added: 2 } });
+    expect(projectSettingsOverlay(defaults, live, { editor: { tabSize: 8 }, folders: [], entries: { removed: 3 } })).toEqual({
+        editor: { fontSize: 22, tabSize: 4 }, folders: ["default"], entries: { added: 2 },
+    });
+});
+
+it("merges sparse structural fields without making dynamic maps or arrays undeletable", async () => {
+    const { mergeSettingsOverlay, projectSettingsOverlay } = await import("@/lib/settings/hydration");
+    const defaults = { editor: { fontSize: 14, tabSize: 4 }, approvals: {}, folders: [] };
+    const live = { editor: { fontSize: 22, tabSize: 8 }, approvals: { obsolete: true }, folders: ["old"] };
+    expect(mergeSettingsOverlay(defaults, live, { editor: { fontSize: 29 }, approvals: {}, folders: [] })).toEqual({
+        editor: { fontSize: 29, tabSize: 8 }, approvals: {}, folders: [],
+    });
+    expect(projectSettingsOverlay(defaults, { ...live, approvals: { replacement: false } }, { approvals: { obsolete: true } })).toEqual({
+        editor: { fontSize: 22, tabSize: 8 }, approvals: { replacement: false }, folders: ["old"],
+    });
+});

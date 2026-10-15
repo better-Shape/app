@@ -46,3 +46,22 @@ function merge(before: unknown, live: unknown, incoming: unknown, path: string[]
 export function mergeSettingsHydration<T extends object>(before: T, live: T, incoming: T): T {
     return merge(before, live, incoming, []) as T;
 }
+
+/** Keep known overlay fields and edits, not defaults whose legacy values are still unread. */
+export function projectSettingsOverlay(defaults: unknown, live: unknown, ...known: unknown[]): unknown {
+    if (!record(live) || record(defaults) && Object.keys(defaults).length === 0) return live;
+    const base = record(defaults) ? defaults : {};
+    const saved = known.filter(record);
+    return Object.fromEntries(Object.entries(live)
+        .filter(([key, value]) => saved.some(source => Object.prototype.hasOwnProperty.call(source, key)) || !equal(base[key], value))
+        .map(([key, value]) => [key, projectSettingsOverlay(base[key], value, ...saved.map(source => source[key]))]));
+}
+
+/** Fixed settings fields merge sparsely; arrays and open-ended maps remain whole values. */
+export function mergeSettingsOverlay(defaults: unknown, base: unknown, patch: unknown): unknown {
+    if (!record(defaults) || Object.keys(defaults).length === 0 || !record(base) || !record(patch)) return patch;
+    return {
+        ...base,
+        ...Object.fromEntries(Object.entries(patch).map(([key, value]) => [key, mergeSettingsOverlay(defaults[key], base[key], value)])),
+    };
+}

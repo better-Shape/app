@@ -132,8 +132,9 @@ it("does not accept credentials from a tampered redacted notification record", a
     settings.updateSettingSection("ai", { providers: { ...providers, connections: { ...providers.connections,
         openai: { ...providers.connections.openai, apiKey: "example-live-draft" },
     } } });
-    const incoming = JSON.parse(localStorage.getItem(REDACTED)!);
-    incoming.ai.providers.connections.openai.apiKey = "example-forged";
+    const incoming = { ...JSON.parse(localStorage.getItem(REDACTED)!),
+        ai: { providers: { connections: { openai: { apiKey: "example-forged" } } } },
+    };
     localStorage.setItem(REDACTED, JSON.stringify(incoming));
     window.dispatchEvent(new StorageEvent("storage", { key: REDACTED, newValue: JSON.stringify(incoming) }));
     expect(settings.providerSecretsForVault().openai).toBe("example-live-draft");

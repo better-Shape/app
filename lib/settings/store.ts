@@ -1,7 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import { mergeSettingsHydration } from "./hydration";
+import { mergeSettingsHydration, mergeSettingsOverlay, projectSettingsOverlay } from "./hydration";
 import { getUnsavedCredentialCount, stageCredentialDrafts } from "@/lib/ai/credential-drafts";
 import { isWindows } from "@/lib/platform";
 import { normalizeColorTheme, type ColorThemeId } from "./themes";
@@ -746,7 +746,7 @@ export function getFileExcludePatterns(): string {
 }
 
 function applySettingsFromPayload(next: Partial<BetterShapeSettings> | BetterShapeSettings) {
-    currentSettings = mergeRedactedPreferences(currentSettings, mergeSettings(DEFAULT_SETTINGS, next));
+    currentSettings = mergeRedactedPreferences(currentSettings, next);
     hydrated = true;
     applyAppearanceSettings(currentSettings);
 }
@@ -769,7 +769,7 @@ async function reconcileSettingsNotification(): Promise<void> {
         emitLocal();
         return;
     }
-    if (!desktopHydrated) return;
+    if (!desktopInitializationFinished) return;
     const pending = pendingDesktopPersistence;
     const before = currentSettings;
     await pending;
@@ -822,7 +822,8 @@ function readLocalPreferences(overlayOnly = true): Partial<BetterShapeSettings> 
 
 /** Preferences may restore ordinary fields, but cannot carry keys or rebind a retained credential. */
 function mergeRedactedPreferences(base: BetterShapeSettings, patch: Partial<BetterShapeSettings>): BetterShapeSettings {
-    const merged = forStorage(mergeSettings(base, patch));
+    const overlay = mergeSettingsOverlay(DEFAULT_SETTINGS, base, patch) as Partial<BetterShapeSettings>;
+    const merged = forStorage(mergeSettings(base, overlay));
     return { ...merged, ai: { ...merged.ai, providers: mergeProviderConnections(base.ai.providers, merged.ai.providers) } };
 }
 
@@ -860,7 +861,7 @@ function persist() {
         let key = localSettingsKey();
         const raw = localStorage.getItem(key);
         if (key === STORAGE_KEY && raw && !canReplaceStoredSettings(JSON.parse(raw))) key = REDACTED_STORAGE_KEY;
-        localStorage.setItem(key, JSON.stringify(forStorage(currentSettings)));
+        localStorage.setItem(key, JSON.stringify(desktopPreferenceSnapshot(currentSettings, pendingDesktopHydration?.preferences)));
         if (key === STORAGE_KEY) localStorage.removeItem(REDACTED_STORAGE_KEY);
         localPersistenceFailed = false;
     } catch { localPersistenceFailed = true; }
@@ -874,20 +875,92 @@ async function readDesktopPrimary(load: typeof import("./desktop-store").loadDes
     } catch { return undefined; }
 }
 
+interface DesktopHydration {
+    before: BetterShapeSettings;
+    localPreferences: Partial<BetterShapeSettings> | undefined;
+    localRecord: Partial<BetterShapeSettings> | undefined;
+    primaryApplied: boolean;
+    preferences?: Partial<BetterShapeSettings>;
+}
+
 let pendingDesktopPersistence: Promise<void> = Promise.resolve();
-let desktopHydrated = false;
+let desktopInitializationFinished = false;
+// An attempted read is not authority to replace a file. Retain the original
+// edit baseline until canonical preferences have actually been read and merged.
+let pendingDesktopHydration: DesktopHydration | undefined;
+
+function desktopPreferenceSnapshot(live: BetterShapeSettings, preferences: Partial<BetterShapeSettings> | undefined) {
+    const redacted = forStorage(live);
+    const context = pendingDesktopHydration;
+    return context && !context.primaryApplied
+        ? projectSettingsOverlay(forStorage(DEFAULT_SETTINGS), redacted, preferences, context.localRecord, context.localPreferences) as Partial<BetterShapeSettings>
+        : redacted;
+}
+
+function applyDesktopHydration(
+    primary: Awaited<ReturnType<typeof readDesktopPrimary>>,
+    preferences: Partial<BetterShapeSettings> | undefined,
+    context: DesktopHydration,
+) {
+    const stored = primary?.settings;
+    let incoming = stored ? mergeSettings(DEFAULT_SETTINGS, stored, { preserveSecrets: true }) : context.before;
+    if (preferences) incoming = mergeRedactedPreferences(incoming, preferences);
+    if (!primary && context.localRecord) incoming = mergeRedactedPreferences(incoming, context.localRecord);
+    if (context.localPreferences) incoming = mergeRedactedPreferences(incoming, context.localPreferences);
+    const localSecrets = providerSecretsForVault();
+    if (stored) {
+        const localScopes = credentialScopes(currentSettings.ai.providers);
+        const storedProviders = normalizeProvidersSettings(stored.ai?.providers);
+        const storedSecrets = providerSecrets(storedProviders);
+        const storedScopes = credentialScopes(storedProviders);
+        legacyCredentialsPresent ||= Object.keys(storedSecrets).length > 0;
+        for (const [id, value] of Object.entries(localSecrets)) {
+            if (((storedSecrets[id] !== undefined && storedSecrets[id] !== value) || storedScopes[id] !== localScopes[id]) && !explicitLegacyReplacements.has(id)) credentialRecoveryConflicts.add(id);
+        }
+    }
+    currentSettings = mergeSettingsHydration(context.before, currentSettings, incoming);
+    // A vault receipt for the earlier state cannot acknowledge newly recovered keys.
+    if (Object.entries(providerSecretsForVault()).some(([id, value]) => localSecrets[id] !== value)) secretsVaulted = false;
+    persist();
+    applyAppearanceSettings(currentSettings);
+    emitLocal();
+    return incoming;
+}
 
 /** Serialize redacted writes; protected legacy credentials remain only in their original file. */
-function persistToTauriStore(): Promise<void> {
-    if (!desktopHydrated) return Promise.resolve();
+function queueDesktopPersistence(): Promise<void> {
     pendingDesktopPersistence = pendingDesktopPersistence.then(async () => {
         const { loadDesktopStore: load } = await import("./desktop-store");
         const primary = await readDesktopPrimary(load);
-        const snapshot = forStorage(currentSettings);
+        const context = pendingDesktopHydration;
+        if (context && primary && !context.primaryApplied) {
+            // A preferences outage must not hide a readable legacy credential.
+            // Rebase the comparison baseline so this automatic hydration is not
+            // mistaken for a user edit when canonical preferences recover.
+            context.before = applyDesktopHydration(primary, context.preferences, context);
+            context.primaryApplied = true;
+        }
         const preferences = await load("settings-preferences.json");
+        const storedPreferences = await preferences.get<Partial<BetterShapeSettings>>("settings");
+        if (context) context.before = applyDesktopHydration(primary, storedPreferences, context);
+        const live = currentSettings;
+        const snapshot = desktopPreferenceSnapshot(live, storedPreferences);
+        // Reuse the hydration read's adapter/revision. A fresh read here would
+        // grant authority to overwrite settings this window never hydrated.
         await preferences.set("settings", snapshot);
         await preferences.save();
         nativePersistenceFailed = false;
+        if (context) {
+            if (context.primaryApplied) pendingDesktopHydration = undefined;
+            else {
+                // Keep retrying an unread primary without serializing its unknown
+                // fields as defaults or treating committed edits as forever dirty.
+                context.before = live;
+                context.preferences = snapshot;
+                context.localPreferences = undefined;
+                context.localRecord = undefined;
+            }
+        }
         if (primary?.store.replaceable && canReplaceStoredSettings(primary.settings)) {
             await primary.store.set("settings", snapshot);
             // Compatibility cleanup cannot revoke a committed preferences write.
@@ -897,47 +970,28 @@ function persistToTauriStore(): Promise<void> {
     return pendingDesktopPersistence;
 }
 
+function persistToTauriStore(): Promise<void> {
+    return desktopInitializationFinished ? queueDesktopPersistence() : Promise.resolve();
+}
+
 export function initSettings(): Promise<void> {
-    return desktopInitialization ??= hydrateDesktopSettings();
+    if (!desktopInitialization || (desktopInitializationFinished && pendingDesktopHydration)) {
+        desktopInitializationFinished = false;
+        desktopInitialization = hydrateDesktopSettings();
+    }
+    return desktopInitialization;
 }
 
 async function hydrateDesktopSettings(): Promise<void> {
     initSettingsBridge();
-    const settingsAtStart = getSettings();
-    const localSecretsAtStart = providerSecretsForVault();
-    const localScopesAtStart = credentialScopes(settingsAtStart.ai.providers);
-    const localPreferencesAtStart = readLocalPreferences();
-    const localRecordAtStart = readLocalPreferences(false);
-    try {
-        const { loadDesktopStore: load } = await import("./desktop-store");
-        const primary = await readDesktopPrimary(load);
-        const stored = primary?.settings;
-        const preferences = await load("settings-preferences.json")
-            .then(preferences => preferences.get<Partial<BetterShapeSettings>>("settings"))
-            .catch(() => undefined);
-        let incoming = stored ? mergeSettings(DEFAULT_SETTINGS, stored, { preserveSecrets: true }) : currentSettings;
-        if (preferences && (primary || !localRecordAtStart)) {
-            incoming = mergeRedactedPreferences(incoming, preferences);
-        }
-        if (localPreferencesAtStart) incoming = mergeRedactedPreferences(incoming, localPreferencesAtStart);
-        if (stored) {
-            const localSecrets = localSecretsAtStart;
-            const storedProviders = normalizeProvidersSettings(stored.ai?.providers);
-            const storedSecrets = providerSecrets(storedProviders);
-            const storedScopes = credentialScopes(storedProviders);
-            legacyCredentialsPresent ||= Object.keys(storedSecrets).length > 0;
-            for (const [id, value] of Object.entries(localSecrets)) {
-                if (((storedSecrets[id] !== undefined && storedSecrets[id] !== value) || storedScopes[id] !== localScopesAtStart[id]) && !explicitLegacyReplacements.has(id)) credentialRecoveryConflicts.add(id);
-            }
-        }
-        currentSettings = mergeSettingsHydration(settingsAtStart, currentSettings, incoming);
-        persist();
-        desktopHydrated = true;
-        await persistToTauriStore();
-    } catch {
-        // Browser dev or store unavailable — localStorage is enough
-    }
-    desktopHydrated = true;
+    pendingDesktopHydration ??= {
+        before: getSettings(),
+        localPreferences: readLocalPreferences(),
+        localRecord: readLocalPreferences(false),
+        primaryApplied: false,
+    };
+    await queueDesktopPersistence();
+    desktopInitializationFinished = true;
     hydrated = true;
     applyAppearanceSettings(currentSettings);
     emitLocal();

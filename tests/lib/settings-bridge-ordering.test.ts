@@ -111,3 +111,158 @@ it("keeps native reconciliation available when compatibility-file cleanup fails"
     bridge.listener!({ payload: null });
     await vi.waitFor(() => expect(settings.getSettings().editor.fontSize).toBe(24));
 });
+
+it("does not overwrite unread preferences when the store recovers between initialization and saving", async () => {
+    const original = { record: { settings: { editor: { fontSize: 27, tabSize: 8 } } }, revision: "saved" };
+    bridge.files.set("settings-preferences.json", original);
+    const read = bridge.read.getMockImplementation()!;
+    let failed = false;
+    bridge.read.mockImplementation((file: SettingsFileName) => {
+        if (file === "settings-preferences.json" && !failed) {
+            failed = true;
+            return Promise.reject(new Error("Temporarily unavailable"));
+        }
+        return read(file);
+    });
+    const settings = await open();
+    expect(bridge.write).not.toHaveBeenCalled();
+    expect(bridge.files.get("settings-preferences.json")).toEqual(original);
+    settings.updateSettingSection("terminal", { fontSize: 21 });
+    await vi.waitFor(() => expect(settings.getSettings().editor.fontSize).toBe(27));
+    await vi.dynamicImportSettled();
+    expect(settings.getSettings().editor.tabSize).toBe(8);
+    expect(settings.getSettings().terminal.fontSize).toBe(21);
+    expect(bridge.files.get("settings-preferences.json")?.record?.settings).toMatchObject({
+        editor: { fontSize: 27, tabSize: 8 }, terminal: { fontSize: 21 },
+    });
+});
+
+it("retries incomplete initialization without granting writes during a continuing read outage", async () => {
+    bridge.files.set("settings-preferences.json", { record: { settings: { editor: { fontSize: 28 } } }, revision: "saved" });
+    const read = bridge.read.getMockImplementation()!;
+    let unavailable = true;
+    bridge.read.mockImplementation((file: SettingsFileName) => file === "settings-preferences.json" && unavailable
+        ? Promise.reject(new Error("Temporarily unavailable")) : read(file));
+    const settings = await open();
+    settings.updateSettingSection("terminal", { fontSize: 22 });
+    await vi.dynamicImportSettled();
+    await settings.initSettings();
+    expect(bridge.write).not.toHaveBeenCalled();
+    unavailable = false;
+    await settings.initSettings();
+    await vi.dynamicImportSettled();
+    expect(settings.getSettings().editor.fontSize).toBe(28);
+    expect(settings.getSettings().terminal.fontSize).toBe(22);
+});
+
+it("keeps edits made during a recovery read while hydrating unrelated saved fields", async () => {
+    const read = bridge.read.getMockImplementation()!;
+    bridge.read.mockImplementation((file: SettingsFileName) => file === "settings-preferences.json"
+        ? Promise.reject(new Error("Unavailable")) : read(file));
+    const settings = await open();
+    const saved = { record: { settings: { editor: { fontSize: 26, tabSize: 8 }, terminal: { fontSize: 20 } } }, revision: "saved" };
+    bridge.files.set("settings-preferences.json", saved);
+    let finish!: (snapshot: SettingsFileSnapshot) => void;
+    bridge.read.mockImplementation((file: SettingsFileName) => file === "settings-preferences.json"
+        ? new Promise(resolve => { finish = resolve; }) : read(file));
+    const recovery = settings.initSettings();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    settings.updateSettingSection("editor", { fontSize: 31 });
+    bridge.read.mockImplementation(read);
+    finish(structuredClone(saved));
+    await recovery;
+    await vi.dynamicImportSettled();
+    expect(settings.getSettings().editor).toMatchObject({ fontSize: 31, tabSize: 8 });
+    expect(settings.getSettings().terminal.fontSize).toBe(20);
+});
+
+it("uses the hydration read revision for the first write instead of acquiring overwrite authority from a second read", async () => {
+    const original = { record: { settings: { editor: { fontSize: 26 } } }, revision: "before" };
+    const replacement = { record: { settings: { editor: { fontSize: 30 } } }, revision: "replacement" };
+    bridge.files.set("settings-preferences.json", original);
+    const read = bridge.read.getMockImplementation()!;
+    let first = true;
+    bridge.read.mockImplementation(async (file: SettingsFileName) => {
+        const snapshot = await read(file);
+        if (file === "settings-preferences.json" && first) {
+            first = false;
+            bridge.files.set(file, replacement);
+        }
+        return snapshot;
+    });
+    await open();
+    expect(bridge.files.get("settings-preferences.json")).toEqual(replacement);
+    expect(bridge.write).toHaveBeenCalledWith("settings-preferences.json", expect.anything(), "before");
+    expect(bridge.write).not.toHaveBeenCalledWith("settings.json", expect.anything(), expect.anything());
+});
+
+it("does not use an earlier vault receipt to erase credentials first recovered after a read outage", async () => {
+    const settingsModule = await import("@/lib/settings");
+    const legacy = structuredClone(settingsModule.DEFAULT_SETTINGS);
+    legacy.ai.providers.connections.openai.apiKey = "example-late-legacy";
+    const primary = { record: { settings: legacy }, revision: "legacy" };
+    bridge.files.set("settings.json", primary);
+    const read = bridge.read.getMockImplementation()!;
+    let unavailable = true;
+    bridge.read.mockImplementation((file: SettingsFileName) => unavailable
+        ? Promise.reject(new Error("Unavailable")) : read(file));
+    const settings = await open();
+    expect(settings.providerSecretsForVault().openai).toBeUndefined();
+    settings.setSecretsVaulted(true);
+    await vi.dynamicImportSettled();
+    expect(settings.areSecretsVaulted()).toBe(true);
+    unavailable = false;
+    await settings.initSettings();
+    await vi.dynamicImportSettled();
+    expect(settings.providerSecretsForVault().openai).toBe("example-late-legacy");
+    expect(settings.areSecretsVaulted()).toBe(false);
+    expect(bridge.files.get("settings.json")).toEqual(primary);
+    expect(JSON.stringify(bridge.files.get("settings-preferences.json"))).not.toContain("example-late-legacy");
+});
+
+it("keeps unknown primary fields out of the overlay and hydrates them when that file recovers", async () => {
+    const original = { record: { settings: { editor: { fontSize: 28, tabSize: 8 }, terminal: { fontSize: 19 } } }, revision: "primary" };
+    bridge.files.set("settings.json", original);
+    const read = bridge.read.getMockImplementation()!;
+    let primaryUnavailable = true;
+    bridge.read.mockImplementation((file: SettingsFileName) => file === "settings.json" && primaryUnavailable
+        ? Promise.reject(new Error("Primary unavailable")) : read(file));
+    const settings = await open();
+    settings.updateSettingSection("editor", { fontSize: 31 });
+    await vi.dynamicImportSettled();
+    expect(bridge.files.get("settings.json")).toEqual(original);
+    expect(bridge.files.get("settings-preferences.json")?.record?.settings).toEqual({ editor: { fontSize: 31 } });
+    primaryUnavailable = false;
+    await settings.initSettings();
+    await vi.dynamicImportSettled();
+    expect(settings.getSettings().editor).toMatchObject({ fontSize: 31, tabSize: 8 });
+    expect(settings.getSettings().terminal.fontSize).toBe(19);
+});
+
+it("preserves sparse local preferences across a restart before the unknown primary recovers", async () => {
+    bridge.files.set("settings.json", { record: { settings: { editor: { fontSize: 28, tabSize: 8 } } }, revision: "primary" });
+    const read = bridge.read.getMockImplementation()!;
+    let unavailable = true;
+    bridge.read.mockImplementation((file: SettingsFileName) => file === "settings.json" && unavailable
+        ? Promise.reject(new Error("Unavailable")) : read(file));
+    const first = await open();
+    first.updateSettingSection("editor", { fontSize: 31 });
+    await vi.dynamicImportSettled();
+    expect(JSON.parse(localStorage.getItem(PRIMARY)!)).toEqual({ editor: { fontSize: 31 } });
+    vi.resetModules();
+    const second = await open();
+    expect(second.getSettings().editor.fontSize).toBe(31);
+    expect(bridge.files.get("settings-preferences.json")?.record?.settings).toEqual({ editor: { fontSize: 31 } });
+    unavailable = false;
+    await second.initSettings();
+    expect(second.getSettings().editor).toMatchObject({ fontSize: 31, tabSize: 8 });
+});
+
+it("does not replace another window's known fields with absent sparse overlay defaults", async () => {
+    const settings = await open();
+    settings.updateSettingSection("editor", { tabSize: 8 });
+    await vi.dynamicImportSettled();
+    localStorage.setItem(PRIMARY, JSON.stringify({ editor: { fontSize: 29 } }));
+    bridge.listener!({ payload: null });
+    expect(settings.getSettings().editor).toMatchObject({ fontSize: 29, tabSize: 8 });
+});
