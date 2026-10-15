@@ -2,23 +2,35 @@ import { afterEach, expect, it, vi } from "vitest";
 import { credentialScopes, defaultProvidersSettings } from "@/lib/ai/providers";
 import { createNativeVault } from "../helpers/native-vault";
 const native = createNativeVault();
-const bridge = vi.hoisted(() => ({ readStore: vi.fn(), load: vi.fn(), store: vi.fn(), remove: vi.fn(), configure: vi.fn(), error: vi.fn(), supported: true, disk: null as unknown }));
+const bridge = vi.hoisted(() => ({ readStore: vi.fn(), load: vi.fn(), store: vi.fn(), remove: vi.fn(), configure: vi.fn(), error: vi.fn(), supported: true, disk: null as unknown, preferences: null as unknown, preferencesAvailable: true, primaryAvailable: true }));
 vi.mock("@/lib/backend", () => ({ commands: {
     aiVaultSupported: async () => bridge.supported, setIndexEmbeddings: async () => undefined, setChatMemoryEnabled: async () => undefined,
     aiLoadKeys: bridge.load, aiStoreKey: bridge.store, aiDeleteKey: bridge.remove, setAiConfig: bridge.configure,
 } }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: async () => () => undefined, emit: async () => undefined }));
 vi.mock("@/features/notifications", () => ({ notify: { error: bridge.error } }));
-vi.mock("@tauri-apps/plugin-store", () => ({ load: async () => ({
-    get: bridge.readStore,
-    set: async (_key: string, value: unknown) => { bridge.disk = structuredClone(value); },
-    save: async () => undefined,
-}) }));
+async function mockDesktopStore(path: string) {
+    if (path === "settings.json" && !bridge.primaryAvailable) throw new Error("Primary unavailable");
+    if (path === "settings-preferences.json" && !bridge.preferencesAvailable) throw new Error("Preferences unavailable");
+    return path === "settings-preferences.json" ? {
+        get: async () => bridge.preferences,
+        set: async (_key: string, value: unknown) => { bridge.preferences = structuredClone(value); },
+        delete: async () => { bridge.preferences = null; return true; },
+        save: async () => undefined,
+    } : {
+        replaceable: true,
+        get: bridge.readStore,
+        set: async (_key: string, value: unknown) => { bridge.disk = structuredClone(value); },
+        save: async () => undefined,
+    };
+}
+vi.mock("@tauri-apps/plugin-store", () => ({ load: mockDesktopStore }));
+vi.mock("@/lib/settings/desktop-store", () => ({ loadDesktopStore: mockDesktopStore }));
 let stop: (() => void) | undefined;
-afterEach(() => { stop?.(); stop = undefined; localStorage.clear(); });
+afterEach(async () => { stop?.(); stop = undefined; await vi.dynamicImportSettled(); localStorage.clear(); });
 
 function reset() {
-    vi.resetModules(); localStorage.clear(); native.reset(); bridge.disk = null; bridge.supported = true;
+    vi.resetModules(); localStorage.clear(); native.reset(); bridge.disk = null; bridge.preferences = null; bridge.preferencesAvailable = true; bridge.primaryAvailable = true; bridge.supported = true;
     bridge.readStore.mockReset().mockImplementation(async () => bridge.disk);
     bridge.load.mockReset().mockImplementation(async (ids: string[]) => ids.map(native.read));
     bridge.store.mockReset().mockImplementation(async (id: string, value: string, expected: string, scope?: string) => native.mutate(id, value, expected, true, scope));
@@ -305,7 +317,8 @@ it("rejects stale redacted endpoint metadata after a newer key and destination w
         openai: { ...providers.connections.openai, apiKey: "example-new", baseUrl: "https://new.invalid/v1" },
     } } });
     await a.sync.aiConfigReady(); a.unsubscribe(); native.restart();
-    bridge.disk = stale;
+    await vi.dynamicImportSettled();
+    bridge.disk = stale; bridge.preferences = stale;
     bridge.readStore.mockResolvedValue(stale);
     localStorage.setItem("bettershape-settings-v1", JSON.stringify(stale));
     bridge.configure.mockClear();
@@ -696,4 +709,90 @@ it("hydrates previous-session receipts without rewriting keys on unrelated setti
     await reopened.sync.aiConfigReady();
     expect(bridge.store).not.toHaveBeenCalled();
     expect(bridge.remove).not.toHaveBeenCalled();
+});
+
+
+it("persists desktop preferences without rewriting a protected legacy credential file", async () => {
+    reset();
+    const settings = await import("@/lib/settings");
+    const legacy = structuredClone(settings.DEFAULT_SETTINGS);
+    legacy.ai.providers.connections.openai.apiKey = "example-desktop-legacy";
+    bridge.disk = structuredClone(legacy);
+    await settings.initSettings();
+    settings.updateSettingSection("editor", { fontSize: 23 });
+    await vi.waitFor(() => expect((bridge.preferences as typeof legacy)?.editor.fontSize).toBe(23));
+    expect(bridge.disk).toEqual(legacy);
+    expect(JSON.stringify(bridge.preferences)).not.toContain("example-");
+    localStorage.clear(); vi.resetModules();
+    const reopened = await import("@/lib/settings");
+    await reopened.initSettings();
+    expect(reopened.getSettings().editor.fontSize).toBe(23);
+    expect(reopened.providerSecretsForVault().openai).toBe("example-desktop-legacy");
+    expect(bridge.disk).toEqual(legacy);
+});
+
+
+it("still hydrates the primary legacy store when the preference overlay is unavailable", async () => {
+    reset(); bridge.preferencesAvailable = false;
+    const settings = await import("@/lib/settings");
+    const legacy = structuredClone(settings.DEFAULT_SETTINGS);
+    legacy.ai.providers.connections.openai.apiKey = "example-primary-only";
+    legacy.editor.fontSize = 26;
+    bridge.disk = structuredClone(legacy);
+    await settings.initSettings();
+    expect(settings.getSettings().editor.fontSize).toBe(26);
+    expect(settings.providerSecretsForVault().openai).toBe("example-primary-only");
+    expect(bridge.disk).toEqual(legacy);
+});
+
+
+it("persists redacted desktop preferences even while the original file cannot be read", async () => {
+    reset(); bridge.primaryAvailable = false;
+    const settings = await import("@/lib/settings");
+    const legacy = structuredClone(settings.DEFAULT_SETTINGS);
+    legacy.ai.providers.connections.openai.apiKey = "example-unreadable-copy";
+    bridge.disk = structuredClone(legacy);
+    await settings.initSettings();
+    settings.updateSettingSection("editor", { fontSize: 24 });
+    await vi.waitFor(() => expect((bridge.preferences as typeof legacy)?.editor.fontSize).toBe(24));
+    expect(bridge.disk).toEqual(legacy);
+    expect(JSON.stringify(bridge.preferences)).not.toContain("example-");
+    localStorage.clear(); vi.resetModules();
+    const reopened = await import("@/lib/settings");
+    await reopened.initSettings();
+    expect(reopened.getSettings().editor.fontSize).toBe(24);
+    expect(reopened.providerSecretsForVault().openai).toBeUndefined();
+    bridge.primaryAvailable = true; localStorage.clear(); vi.resetModules();
+    const recovered = await import("@/lib/settings");
+    await recovered.initSettings();
+    expect(recovered.getSettings().editor.fontSize).toBe(24);
+    expect(recovered.providerSecretsForVault().openai).toBe("example-unreadable-copy");
+});
+
+
+it("does not let a stale overlay replace usable local preferences when the desktop primary is unreadable", async () => {
+    reset(); bridge.primaryAvailable = false;
+    const settings = await import("@/lib/settings");
+    const local = structuredClone(settings.DEFAULT_SETTINGS);
+    local.editor.fontSize = 28;
+    const stale = structuredClone(local); stale.editor.fontSize = 17;
+    bridge.preferences = stale;
+    localStorage.setItem("bettershape-settings-v1", JSON.stringify(local));
+    await settings.initSettings();
+    expect(settings.getSettings().editor.fontSize).toBe(28);
+    expect((bridge.preferences as typeof local).editor.fontSize).toBe(28);
+});
+
+
+it("keeps native preferences authoritative after the legacy primary becomes safe to redact", async () => {
+    reset();
+    const settings = await import("@/lib/settings");
+    const primary = structuredClone(settings.DEFAULT_SETTINGS);
+    primary.editor.fontSize = 15;
+    const preferences = structuredClone(primary); preferences.editor.fontSize = 28;
+    bridge.disk = primary; bridge.preferences = preferences;
+    await settings.initSettings();
+    expect(settings.getSettings().editor.fontSize).toBe(28);
+    expect((bridge.preferences as typeof preferences).editor.fontSize).toBe(28);
+    expect((bridge.disk as typeof primary).editor.fontSize).toBe(28);
 });

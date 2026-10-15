@@ -387,14 +387,14 @@ export const DEFAULT_SETTINGS: BetterShapeSettings = {
 };
 
 const STORAGE_KEY = "bettershape-settings-v1";
-// Only redacted settings go here. Keep malformed legacy bytes in their original
-// slot: they may contain the sole recoverable copy of an unmigrated credential.
+// Keep protected legacy bytes in their original slot. Only redacted
+// preferences may be written while credentials await migration or review.
 const REDACTED_STORAGE_KEY = "bettershape-settings-redacted-v1";
 
 function localSettingsKey(): string {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
-        try { JSON.parse(raw); }
+        try { if (!canReplaceStoredSettings(JSON.parse(raw))) return REDACTED_STORAGE_KEY; }
         catch { return REDACTED_STORAGE_KEY; }
     }
     return STORAGE_KEY;
@@ -443,7 +443,7 @@ export function acceptCredentialRecovery(values: Record<string, string>): void {
     applyVaultSecrets(values, true);
     if (currentSettings === before) {
         currentSettings = { ...currentSettings };
-        emit();
+        emitLocal();
     }
 }
 
@@ -531,7 +531,7 @@ export function applyVaultSecrets(secrets: Record<string, string>, overwrite = f
     };
     persist();
     void persistToTauriStore();
-    emit();
+    emitLocal();
 }
 
 let currentSettings: BetterShapeSettings = {
@@ -746,7 +746,7 @@ export function getFileExcludePatterns(): string {
 }
 
 function applySettingsFromPayload(next: Partial<BetterShapeSettings> | BetterShapeSettings) {
-    currentSettings = mergeSettings(DEFAULT_SETTINGS, next, { preserveSecrets: true });
+    currentSettings = mergeRedactedPreferences(currentSettings, mergeSettings(DEFAULT_SETTINGS, next));
     hydrated = true;
     applyAppearanceSettings(currentSettings);
 }
@@ -758,15 +758,32 @@ function emitLocal() {
     }
 }
 
-function emit() {
-    emitLocal();
-    if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) {
-        void import("@tauri-apps/api/event").then(({ emit: tauriEmit }) => {
-            void tauriEmit("bettershape-settings-changed", forStorage(currentSettings)).catch(() => {
-                /* ignore */
-            });
-        }).catch(() => { /* ignore */ });
+let settingsRefreshGeneration = 0;
+
+/** Events only invalidate a snapshot. Their delayed payloads never become storage authority. */
+async function reconcileSettingsNotification(): Promise<void> {
+    const generation = ++settingsRefreshGeneration;
+    const local = localPersistenceFailed ? undefined : readLocalPreferences(false);
+    if (local) {
+        applySettingsFromPayload(local);
+        emitLocal();
+        return;
     }
+    if (!desktopHydrated) return;
+    const pending = pendingDesktopPersistence;
+    const before = currentSettings;
+    await pending;
+    if (nativePersistenceFailed) return;
+    try {
+        const { loadDesktopStore } = await import("./desktop-store");
+        const store = await loadDesktopStore("settings-preferences.json");
+        const next = await store.get<Partial<BetterShapeSettings>>("settings");
+        if (generation !== settingsRefreshGeneration || pending !== pendingDesktopPersistence || before !== currentSettings) return;
+        if (next) {
+            applySettingsFromPayload(next);
+            emitLocal();
+        }
+    } catch { /* An unavailable store supplies no replacement authority. */ }
 }
 
 /** Sync settings across Tauri windows (settings window -> main editor window). */
@@ -778,8 +795,7 @@ export function initSettingsBridge(): void {
         if (!event.newValue) return;
         try {
             if (event.key !== localSettingsKey()) return;
-            applySettingsFromPayload(JSON.parse(event.newValue) as Partial<BetterShapeSettings>);
-            emitLocal();
+            void reconcileSettingsNotification();
         } catch {
             /* ignore malformed storage payload */
         }
@@ -787,60 +803,98 @@ export function initSettingsBridge(): void {
 
     if ("__TAURI_INTERNALS__" in window) {
         void import("@tauri-apps/api/event").then(({ listen }) =>
-            listen<BetterShapeSettings>("bettershape-settings-changed", (event) => {
-                applySettingsFromPayload(event.payload);
-                persist();
-                emitLocal();
-            }),
+            listen("bettershape-settings-changed", () => { void reconcileSettingsNotification(); }),
         ).catch(() => { /* The same-origin storage bridge remains available. */ });
     }
+}
+
+/** Reading preferences never grants authority to rewrite an unreadable original record. */
+function readLocalPreferences(overlayOnly = true): Partial<BetterShapeSettings> | undefined {
+    try {
+        const key = localSettingsKey();
+        if (overlayOnly && key !== REDACTED_STORAGE_KEY) return;
+        const raw = localStorage.getItem(key);
+        const parsed: unknown = raw ? JSON.parse(raw) : undefined;
+        return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+            ? parsed as Partial<BetterShapeSettings> : undefined;
+    } catch { return; }
+}
+
+/** Preferences may restore ordinary fields, but cannot carry keys or rebind a retained credential. */
+function mergeRedactedPreferences(base: BetterShapeSettings, patch: Partial<BetterShapeSettings>): BetterShapeSettings {
+    const merged = forStorage(mergeSettings(base, patch));
+    return { ...merged, ai: { ...merged.ai, providers: mergeProviderConnections(base.ai.providers, merged.ai.providers) } };
 }
 
 function loadFromLocalStorage() {
     if (typeof window === "undefined") return;
     try {
-        const raw = localStorage.getItem(localSettingsKey());
-        if (raw) {
-            const parsed = JSON.parse(raw) as Partial<BetterShapeSettings>;
-            const rawChannel = parsed.updates?.channel;
+        const raw = localStorage.getItem(STORAGE_KEY);
+        let parsed: Partial<BetterShapeSettings> | undefined;
+        try { parsed = raw ? JSON.parse(raw) as Partial<BetterShapeSettings> : undefined; } catch { /* Preserve malformed legacy bytes. */ }
+        if (parsed) {
             currentSettings = mergeSettings(DEFAULT_SETTINGS, parsed);
             legacyCredentialsPresent ||= Object.keys(providerSecretsForVault()).length > 0;
-            if (rawChannel && rawChannel !== currentSettings.updates.channel) persist();
         }
-    } catch {
-        currentSettings = { ...DEFAULT_SETTINGS, editor: { ...DEFAULT_SETTINGS.editor }, terminal: { ...DEFAULT_SETTINGS.terminal }, git: { ...DEFAULT_SETTINGS.git }, ai: { ...DEFAULT_SETTINGS.ai }, files: { ...DEFAULT_SETTINGS.files }, eslint: { ...DEFAULT_SETTINGS.eslint }, prettier: { ...DEFAULT_SETTINGS.prettier }, lsp: { ...DEFAULT_SETTINGS.lsp }, node: { ...DEFAULT_SETTINGS.node }, python: { ...DEFAULT_SETTINGS.python } };
-    }
+        const preferences = readLocalPreferences();
+        if (preferences) currentSettings = mergeRedactedPreferences(currentSettings, preferences);
+        if (parsed?.updates?.channel && parsed.updates.channel !== currentSettings.updates.channel) persist();
+    } catch { /* Storage denial does not discard this window's settings. */ }
 }
 
 // Keep a legacy copy until migration succeeds, without copying it elsewhere.
 function canReplaceStoredSettings(stored: Partial<BetterShapeSettings> | null | undefined): boolean {
-    if (credentialRecoveryConflicts.size > 0) return false;
     const legacy = Object.entries(providerSecrets(normalizeProvidersSettings(stored?.ai?.providers)));
     if (legacy.length === 0) return true;
+    if (credentialRecoveryConflicts.size > 0) return false;
     const live = providerSecretsForVault();
     return secretsVaulted && getUnsavedCredentialCount() === 0 && legacy.every(([id, value]) => live[id] === value || explicitLegacyReplacements.has(id));
 }
 
+let localPersistenceFailed = false;
+let nativePersistenceFailed = false;
+
 function persist() {
     if (typeof window === "undefined") return;
     try {
-        const key = localSettingsKey();
+        let key = localSettingsKey();
         const raw = localStorage.getItem(key);
-        if (key === STORAGE_KEY && raw && !canReplaceStoredSettings(JSON.parse(raw))) return;
+        if (key === STORAGE_KEY && raw && !canReplaceStoredSettings(JSON.parse(raw))) key = REDACTED_STORAGE_KEY;
         localStorage.setItem(key, JSON.stringify(forStorage(currentSettings)));
         if (key === STORAGE_KEY) localStorage.removeItem(REDACTED_STORAGE_KEY);
-    } catch { /* ignore */ }
+        localPersistenceFailed = false;
+    } catch { localPersistenceFailed = true; }
 }
 
-/** Mirror redacted settings without replacing an unmigrated legacy copy. */
-async function persistToTauriStore(): Promise<void> {
+/** An unreadable primary grants no replacement authority, but need not block redacted preferences. */
+async function readDesktopPrimary(load: typeof import("./desktop-store").loadDesktopStore) {
     try {
-        const { load } = await import("@tauri-apps/plugin-store");
-        const store = await load("settings.json", { autoSave: true, defaults: {} });
-        if (!canReplaceStoredSettings(await store.get<Partial<BetterShapeSettings>>("settings"))) return;
-        await store.set("settings", forStorage(currentSettings));
-        await store.save();
-    } catch { /* ignore */ }
+        const store = await load("settings.json");
+        return { store, settings: await store.get<Partial<BetterShapeSettings>>("settings") };
+    } catch { return undefined; }
+}
+
+let pendingDesktopPersistence: Promise<void> = Promise.resolve();
+let desktopHydrated = false;
+
+/** Serialize redacted writes; protected legacy credentials remain only in their original file. */
+function persistToTauriStore(): Promise<void> {
+    if (!desktopHydrated) return Promise.resolve();
+    pendingDesktopPersistence = pendingDesktopPersistence.then(async () => {
+        const { loadDesktopStore: load } = await import("./desktop-store");
+        const primary = await readDesktopPrimary(load);
+        const snapshot = forStorage(currentSettings);
+        const preferences = await load("settings-preferences.json");
+        await preferences.set("settings", snapshot);
+        await preferences.save();
+        nativePersistenceFailed = false;
+        if (primary?.store.replaceable && canReplaceStoredSettings(primary.settings)) {
+            await primary.store.set("settings", snapshot);
+            // Compatibility cleanup cannot revoke a committed preferences write.
+            await primary.store.save().catch(() => undefined);
+        }
+    }).catch(() => { nativePersistenceFailed = true; });
+    return pendingDesktopPersistence;
 }
 
 export function initSettings(): Promise<void> {
@@ -852,10 +906,20 @@ async function hydrateDesktopSettings(): Promise<void> {
     const settingsAtStart = getSettings();
     const localSecretsAtStart = providerSecretsForVault();
     const localScopesAtStart = credentialScopes(settingsAtStart.ai.providers);
+    const localPreferencesAtStart = readLocalPreferences();
+    const localRecordAtStart = readLocalPreferences(false);
     try {
-        const { load } = await import("@tauri-apps/plugin-store");
-        const store = await load("settings.json", { autoSave: true, defaults: {} });
-        const stored = await store.get<Partial<BetterShapeSettings>>("settings");
+        const { loadDesktopStore: load } = await import("./desktop-store");
+        const primary = await readDesktopPrimary(load);
+        const stored = primary?.settings;
+        const preferences = await load("settings-preferences.json")
+            .then(preferences => preferences.get<Partial<BetterShapeSettings>>("settings"))
+            .catch(() => undefined);
+        let incoming = stored ? mergeSettings(DEFAULT_SETTINGS, stored, { preserveSecrets: true }) : currentSettings;
+        if (preferences && (primary || !localRecordAtStart)) {
+            incoming = mergeRedactedPreferences(incoming, preferences);
+        }
+        if (localPreferencesAtStart) incoming = mergeRedactedPreferences(incoming, localPreferencesAtStart);
         if (stored) {
             const localSecrets = localSecretsAtStart;
             const storedProviders = normalizeProvidersSettings(stored.ai?.providers);
@@ -865,20 +929,18 @@ async function hydrateDesktopSettings(): Promise<void> {
             for (const [id, value] of Object.entries(localSecrets)) {
                 if (((storedSecrets[id] !== undefined && storedSecrets[id] !== value) || storedScopes[id] !== localScopesAtStart[id]) && !explicitLegacyReplacements.has(id)) credentialRecoveryConflicts.add(id);
             }
-            currentSettings = mergeSettingsHydration(settingsAtStart, currentSettings,
-                mergeSettings(DEFAULT_SETTINGS, stored, { preserveSecrets: true }));
-            persist();
         }
-        if (canReplaceStoredSettings(stored)) {
-            await store.set("settings", forStorage(currentSettings));
-            await store.save();
-        }
+        currentSettings = mergeSettingsHydration(settingsAtStart, currentSettings, incoming);
+        persist();
+        desktopHydrated = true;
+        await persistToTauriStore();
     } catch {
         // Browser dev or store unavailable — localStorage is enough
     }
+    desktopHydrated = true;
     hydrated = true;
     applyAppearanceSettings(currentSettings);
-    emit();
+    emitLocal();
     // Keep the Rust indexer embeddings flag in sync with persisted settings.
     void import("@/lib/backend").then(({ commands }) => {
         commands.setIndexEmbeddings(currentSettings.ai.indexEmbeddings).catch(() => {
@@ -917,7 +979,7 @@ export function updateSettings(patch: Partial<BetterShapeSettings>): void {
     persist();
     applyAppearanceSettings(currentSettings);
     void persistToTauriStore();
-    emit();
+    emitLocal();
 }
 
 /** `true` uses the system default. A saved device id is requested exactly. */

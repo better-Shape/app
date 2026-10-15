@@ -685,3 +685,7 @@ export interface ProjectStatsSnapshot {
     git: GitInsights | null;
     projectFolders: string[];
 }
+
+export type SettingsFileName = "settings.json" | "settings-preferences.json";
+export type SettingsFileRecord = Record<string, unknown>;
+export interface SettingsFileSnapshot { record: SettingsFileRecord | null; revision: string }

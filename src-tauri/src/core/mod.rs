@@ -17,3 +17,6 @@ pub mod window_close;
 #[cfg(windows)]
 pub mod windows_notifications;
 pub mod workspace_trust;
+
+pub(crate) mod provider_header_defaults;
+pub(crate) mod settings_file;

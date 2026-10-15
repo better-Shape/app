@@ -12,21 +12,9 @@ use sha2::{Digest, Sha256};
 use super::ai_providers::AiProviderConfig;
 use super::credential_match::matches_credential_value;
 
-static PUBLIC_HEADER_DEFAULTS: LazyLock<HashMap<String, HashMap<String, String>>> =
-    LazyLock::new(|| {
-        serde_json::from_str(include_str!(
-            "../../../lib/ai/provider-default-headers.json"
-        ))
-        .expect("compiled public provider header defaults must be valid")
-    });
-
-fn public_header_default(provider: &str, name: &str) -> Option<&'static str> {
-    PUBLIC_HEADER_DEFAULTS
-        .get(provider)?
-        .iter()
-        .find(|(header, _)| header.eq_ignore_ascii_case(name))
-        .map(|(_, value)| value.as_str())
-}
+use super::provider_header_defaults::public_header_default;
+#[cfg(test)]
+use super::provider_header_defaults::PUBLIC_HEADER_DEFAULTS;
 
 const RECORD_PREFIX: &str = "bettershape-vault-v1\n";
 

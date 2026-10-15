@@ -209,6 +209,8 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::settings::read_settings_file,
+            commands::settings::write_settings_file,
             // AI providers (BYOK)
             commands::ai_config::set_ai_config,
             commands::ai_config::get_ai_config,

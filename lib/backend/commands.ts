@@ -1,5 +1,5 @@
 import { acknowledgeDirtyBuffer } from "@/lib/workspace/dirty-buffers";
-import type { AiVaultMutation, AiVaultReadResult, TurnJournal } from "@/lib/backend/types";
+import type { AiVaultMutation, AiVaultReadResult, SettingsFileName, SettingsFileSnapshot, TurnJournal } from "@/lib/backend/types";
 ﻿import { invoke } from "@tauri-apps/api/core";
 import { ActivityTotals, BrowserHistoryEntry, BrowserInputEvent, BrowserPickedElement, BrowserTab, BrowserTabsPayload, ChatGenerationState, ChatMessage, CodebaseSearchHit, CompactResult, CompactionStateView, ContentSearchResult, Conversation, EslintLintResult, FileEntry, FileInfo, FileSearchResult, GitActivityPoint, GitFileParams, GitRepoInfo, GitHubAuthLoginResult, GitHubAuthStatus, GitLogEntry, GitSyncStatus, GitStashEntry, BlameLine, HistoryEntry, IndexStatus, McpRegistryEntry, McpServerConfig, McpStatusEntry, McpToolInfo, PackageInfo, OutlineResponse, ProjectState, ProjectStatsSnapshot, ReplaceResult, SearchOptions, TestDiscoveryResult, TestRunSummaryResult, ContentMatch } from "@/lib/backend/types";
 
@@ -60,6 +60,9 @@ async function invokeCachedGit<T>(cacheKey: string, command: string, args: Recor
 }
 
 export const commands = {
+    readSettingsFile: (file: SettingsFileName) => invokeCommand<SettingsFileSnapshot>("read_settings_file", { file }),
+    writeSettingsFile: (file: SettingsFileName, settings: unknown, expected: string) =>
+        invokeCommand<string>("write_settings_file", { file, settings, expected }),
     invalidateFileCache: (path: string) => {
         fileContentCache.delete(path);
     },
