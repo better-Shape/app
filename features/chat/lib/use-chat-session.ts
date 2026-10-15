@@ -688,9 +688,18 @@ export function useChatSession(
         activeChatTabIdRef.current = activeChatTabId;
     }, [activeChatTabId]);
 
+    // The workspace a read belongs to. A response for the previous project must never
+    // replace the list the new project is showing.
+    const historyProjectRef = React.useRef(project_path);
+    React.useEffect(() => {
+        historyProjectRef.current = project_path;
+    }, [project_path]);
+
     const refreshMetadata = React.useCallback(async () => {
+        const requestedProject = project_path;
         try {
-            const convs = await commands.getConversations(project_path ?? undefined);
+            const convs = await commands.getConversations(requestedProject ?? undefined);
+            if (historyProjectRef.current !== requestedProject) return;
             setRecentConvs(convs);
             const viewed = getViewedConversationId();
             // The backend's current chat supplies the title only when it is the chat on screen.
@@ -714,6 +723,7 @@ export function useChatSession(
 
     const refreshHistory = React.useCallback(
         () => commands.getConversations(project_path ?? undefined).then(async convs => {
+            if (historyProjectRef.current !== project_path) return;
             setRecentConvs(convs);
             await refreshMetadata();
             const viewed = getViewedConversationId();
@@ -1184,6 +1194,10 @@ export function useChatSession(
             return;
         }
         try {
+            // Native compacts the chat it currently holds, so the chat on screen has to become
+            // that one first: a tab that is still loading would otherwise summarize the chat
+            // the user just left behind.
+            await activateViewedBackend();
             const result = await commands.compactChat({
                 focus: focus || undefined,
                 instructions: getSettings().ai.compactInstructions || undefined,

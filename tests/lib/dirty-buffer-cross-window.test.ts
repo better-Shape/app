@@ -43,6 +43,34 @@ it("keeps legacy recovery immutable and masks a cleared legacy draft after resta
     expect(restarted.listDirtyBuffers().map(buffer => buffer.path)).toEqual(["/other.txt"]);
 });
 
+it("keeps another WebView's draft when a clear lands in the same millisecond", async () => {
+    vi.setSystemTime(1_000);
+    const buffers = await import("@/lib/workspace/dirty-buffers");
+    buffers.stageDirtyBuffer("/tie.txt", "draft A", "disk");
+    // Another WebView persisted its own draft for the same path in the same millisecond.
+    localStorage.setItem(entryKey("/tie.txt"), JSON.stringify({
+        path: "/tie.txt", content: "draft B", savedContent: "disk", updatedAt: 1_000,
+    }));
+    // This window discards its draft; the clear keeps that draft's timestamp as its intent.
+    buffers.stageDirtyBuffer("/tie.txt", "disk", "disk");
+    // The wall clock cannot order the two writes and the record is not this window's draft, so
+    // removing it would destroy unsaved work another window still shows: the record wins and the
+    // clear settles there rather than sitting pending for the rest of the session.
+    expect(buffers.flushDirtyBuffers()).toBe(true);
+    expect(JSON.parse(localStorage.getItem(entryKey("/tie.txt")) ?? "null").content).toBe("draft B");
+    expect(buffers.listDirtyBuffers().map(buffer => buffer.path)).toEqual(["/tie.txt"]);
+});
+
+it("removes the durable record a clear actually owns", async () => {
+    vi.setSystemTime(2_000);
+    const buffers = await import("@/lib/workspace/dirty-buffers");
+    buffers.stageDirtyBuffer("/own.txt", "mine", "disk");
+    expect(buffers.flushDirtyBuffers()).toBe(true);
+    buffers.stageDirtyBuffer("/own.txt", "disk", "disk");
+    expect(buffers.flushDirtyBuffers()).toBe(true);
+    expect(localStorage.getItem(entryKey("/own.txt"))).toBeNull();
+});
+
 it("only retries unsuccessful entries after a partial flush", async () => {
     const buffers = await import("@/lib/workspace/dirty-buffers");
     buffers.stageDirtyBuffer("/a.txt", "A", "disk");

@@ -553,7 +553,10 @@ export function DesignStudio({
         assertAuthorized();
         await commands.applyDesignSourcePatch({ projectPath: designerRoot, target: resolved, operation });
         commands.invalidateFileCache(joinProjectPath(designerRoot, resolved.file));
-        assertAuthorized();
+        // No assertion after the patch: it is already committed to disk, so a grant revoked
+        // while it was in flight cannot prevent it. Throwing here would report a failed
+        // delete/duplicate for a change that exists, and the caller would skip its reload -
+        // the checks that can prevent an unauthorized patch are the ones before the write.
     }), [designerRoot, resolveElement]);
 
     const persistReorder = useCallback(

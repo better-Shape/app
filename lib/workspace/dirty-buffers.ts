@@ -24,6 +24,9 @@ const pendingBuffers = new Map<string, DirtyBuffer | null>();
 // across renderers, so a record another window persisted afterwards outranks
 // this window's staged change instead of being overwritten by it.
 const pendingIntents = new Map<string, number>();
+// What a staged clear is discarding. A removal only owns a durable record whose content is
+// exactly this draft; anything else was written by another renderer.
+const clearedContents = new Map<string, string>();
 let flushTimer: ReturnType<typeof setTimeout> | undefined;
 
 const UNSAFE_KEYS = new Set(["__proto__", "constructor", "prototype"]);
@@ -126,6 +129,27 @@ function writePending(): boolean {
             if (pendingBuffers.get(path) === buffer) {
                 pendingBuffers.delete(path);
                 pendingIntents.delete(path);
+                clearedContents.delete(path);
+            }
+            continue;
+        }
+        const cleared = clearedContents.get(path);
+        if (
+            buffer === null &&
+            cleared !== undefined &&
+            stored &&
+            stored.updatedAt === intentAt &&
+            stored.content !== cleared
+        ) {
+            // A clear stamped in the same millisecond as a durable record it does not hold:
+            // that record is another renderer's draft, and removing it would destroy unsaved
+            // work no one else can restore. Only a content match proves the record is ours.
+            // The clear has nothing unsaved left to protect, so the record wins and the clear
+            // settles here instead of staying pending for the rest of the session.
+            if (pendingBuffers.get(path) === buffer) {
+                pendingBuffers.delete(path);
+                pendingIntents.delete(path);
+                clearedContents.delete(path);
             }
             continue;
         }
@@ -145,6 +169,7 @@ function writePending(): boolean {
             if (pendingBuffers.get(path) === buffer) {
                 pendingBuffers.delete(path);
                 pendingIntents.delete(path);
+                clearedContents.delete(path);
             }
         } catch { /* Failed writes and removals stay visible to the unload guard. */ }
     }
@@ -157,8 +182,15 @@ export function stageDirtyBuffer(path: string, content: string, savedContent: st
     // A removal speaks for the draft this window is discarding, not for whatever
     // another renderer persisted afterwards, so it keeps that draft's timestamp.
     const intentAt = buffer?.updatedAt ?? ownedBuffers.get(path)?.updatedAt ?? Date.now();
-    if (buffer) ownedBuffers.set(path, buffer);
-    else ownedBuffers.delete(path);
+    if (buffer) {
+        ownedBuffers.set(path, buffer);
+        clearedContents.delete(path);
+    } else {
+        const discarded = ownedBuffers.get(path)?.content;
+        if (discarded === undefined) clearedContents.delete(path);
+        else clearedContents.set(path, discarded);
+        ownedBuffers.delete(path);
+    }
     pendingBuffers.set(path, buffer);
     pendingIntents.set(path, intentAt);
     if (flushTimer !== undefined) clearTimeout(flushTimer);
@@ -188,6 +220,10 @@ export function clearDirtyBuffer(path: string): boolean {
     ownedBuffers.delete(path);
     pendingBuffers.set(path, null);
     pendingIntents.set(path, previous?.updatedAt ?? Date.now());
+    // The removal owns exactly the draft it is discarding, so a durable record stamped in the
+    // same millisecond only goes when its content is this one.
+    if (previous) clearedContents.set(path, previous.content);
+    else clearedContents.delete(path);
     return flushDirtyBuffers();
 }
 

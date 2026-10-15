@@ -60,7 +60,7 @@ pub fn read(root: &Path, file: SettingsFile) -> Result<Option<Value>, &'static s
 /// handle, which rejects a symlink (or a swapped file) without needing platform flags;
 /// elsewhere the handle's own file type has to be a regular file.
 fn open_settings_file(path: &Path) -> Result<Option<Value>, &'static str> {
-    let file = File::open(path).map_err(|_| "Settings file cannot be read")?;
+    let file = open_entry(path)?;
     let opened = file
         .metadata()
         .map_err(|_| "Settings file cannot be read")?;
@@ -97,6 +97,26 @@ fn open_settings_file(path: &Path) -> Result<Option<Value>, &'static str> {
         return Err("Settings record is not an object");
     }
     Ok(Some(record))
+}
+
+/// Open the settings entry without following a link that replaced it since the stat above.
+///
+/// On Unix the device/inode comparison in `open_settings_file` rejects a swapped entry even when
+/// the open followed it. Windows has no equivalent stable accessor through `File`, so the handle
+/// is opened with `FILE_FLAG_OPEN_REPARSE_POINT`: a symlink then arrives as the link itself, whose
+/// attributes fail the regular-file check instead of being followed to an arbitrary target.
+fn open_entry(path: &Path) -> Result<File, &'static str> {
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+        options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
+    }
+    options
+        .open(path)
+        .map_err(|_| "Settings file cannot be read")
 }
 
 struct BoundedBytes(Vec<u8>);

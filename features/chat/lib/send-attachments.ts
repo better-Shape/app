@@ -117,9 +117,18 @@ function attachmentNameAttributes(value: string): string {
     return `name="${name}"${encoding}`;
 }
 
+/**
+ * Escape the only sequences in file content that the envelope parser would read as markup:
+ * a file that contains `</attached_file>` (or writes a nested `attached_*` tag) could otherwise
+ * close its own wrapper early and have the rest of its text parsed as message content.
+ */
+function escapeEnvelopeMarkup(content: string): string {
+    return content.replace(/<(\/?)attached_/gi, "&lt;$1attached_");
+}
+
 /** Keep the existing text/audio/oversized-asset envelope and MIME fallback. */
 function attachedFile(file: ComposerAttachment, content: string, fallbackType = "application/octet-stream"): string {
-    return `<attached_file ${attachmentNameAttributes(file.name)} type="${escapeXmlAttr(file.mimeType || fallbackType)}" size="${file.size}">\n${content}\n</attached_file>`;
+    return `<attached_file ${attachmentNameAttributes(file.name)} type="${escapeXmlAttr(file.mimeType || fallbackType)}" size="${file.size}">\n${escapeEnvelopeMarkup(content)}\n</attached_file>`;
 }
 
 /** Require prepared image data instead of silently omitting a malformed attachment. */

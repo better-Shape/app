@@ -245,6 +245,10 @@ const usePickKeys = ({
     const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
         const action = pickAction(event.nativeEvent);
         if (!action) return;
+        // A focused row button owns its own Enter activation. Confirming here instead would
+        // select the *highlighted* row and swallow the click the focused button produces, so
+        // keyboard users could not activate the row they tabbed to.
+        if (action === "confirm" && (event.target as HTMLElement).closest("button")) return;
         event.preventDefault();
         if (action === "confirm") submit();
         else move(action === "next" ? 1 : -1);

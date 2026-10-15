@@ -1527,6 +1527,11 @@ async fn spawn_pty_with_command(
     }
 
     // Reader thread: stream PTY output to the terminal panel (and agent callbacks).
+    //
+    // The drain is registered here, before the thread is scheduled: a child that exits
+    // immediately must not be reported as finished while the reader it needs in order to
+    // publish its last output has not started yet.
+    meta.begin_reading();
     let session_id = id;
     let token = cancellation_token;
     let app_for_thread = app.clone();
@@ -1534,7 +1539,6 @@ async fn spawn_pty_with_command(
     let writer_for_reader = writer;
     thread::spawn(move || {
         let mut buf = [0u8; 8192];
-        meta.begin_reading();
         loop {
             if token.is_cancelled() {
                 break;

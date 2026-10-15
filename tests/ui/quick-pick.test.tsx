@@ -32,6 +32,20 @@ beforeEach(() => {
 });
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.unstubAllGlobals(); });
 
+it("leaves Enter to a focused result button instead of confirming the highlighted row", async () => {
+    await act(async () => root.render(<Harness query="" allowSubmit />));
+    act(() => { press("ArrowDown"); });
+    const first = document.querySelectorAll<HTMLButtonElement>("[role=dialog] button")[0];
+    expect(first?.textContent).toBe("One");
+    act(() => {
+        first.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    });
+    // The browser activates the focused button itself; confirming here would instead select the
+    // highlighted row (Two) or submit the query, so keyboard users could not pick "One".
+    expect(select).not.toHaveBeenCalled();
+    expect(submit).not.toHaveBeenCalled();
+});
+
 it("resets the selected row before committing a new query's keyboard handler", async () => {
     await act(async () => root.render(<Harness />));
     act(() => { press("ArrowDown"); });

@@ -238,7 +238,20 @@ async function attachListeners() {
                     "pty_read_output", { id, tailChars: OUTPUT_SCAN_CHARS },
                 ).catch(() => null);
                 const url = printed && printed.sessionId === id && printed.running ? matchDevUrl(printed.output ?? "") : null;
-                if (url) earlyReady.set(id, { id, url, source: "output", revision: snapshot.previewRevision });
+                // A readiness event can arrive while the wider scan runs. It carries the run's own
+                // current revision, so it outranks a URL parsed from output buffered before it; the
+                // scan only fills the gap it was asked to fill.
+                if (url) {
+                    // A readiness event can arrive while the wider scan runs. It carries the run's
+                    // own current revision, so the scan only fills a gap it still owns - the same
+                    // ordering rule the status snapshot above applies to its own record.
+                    const retained: PreviewReady = { id, url, source: "output", revision: snapshot.previewRevision };
+                    const later = earlyReady.get(id);
+                    const ordered = typeof retained.revision === "number" && typeof later?.revision === "number";
+                    if (!isOlderReadiness(retained, later) && (ordered || later?.source !== "output" || later === readyBeforeRead)) {
+                        earlyReady.set(id, retained);
+                    }
+                }
             }
         },
         activate(id: number): boolean {
@@ -320,14 +333,26 @@ export async function ensureBackgroundRun(command: string, cwdOverride?: string)
             if (lastReadyUrl) emitReady(lastReadyUrl);
             return ptyId;
         } catch (error) {
-            owner?.dispose();
-            if (generation === runGeneration) {
-                runtime = null;
-                lastReadyUrl = null;
-                announcedReady = null;
-                if (getDevRunSnapshot().status !== "error") clearDevRun();
+            let killFailure: unknown;
+            if (ptyId !== undefined && invoke) {
+                killFailure = await invoke("pty_kill", { id: ptyId }).catch((reason: unknown) => reason);
             }
-            if (ptyId !== undefined && invoke) await invoke("pty_kill", { id: ptyId }).catch(() => undefined);
+            if (killFailure === undefined) {
+                owner?.dispose();
+                if (generation === runGeneration) {
+                    runtime = null;
+                    lastReadyUrl = null;
+                    announcedReady = null;
+                    if (getDevRunSnapshot().status !== "error") clearDevRun();
+                }
+            } else if (runtime === null && ptyId !== undefined && owner) {
+                // The kill was not confirmed, so this failed start may have left a live process.
+                // Keep owning it - listeners plus runtime - for the same reason `stopCurrentRun`
+                // does: Stop can then retry it, and a later start reports the running run instead
+                // of spawning a second server on top of an unowned one.
+                runtime = { ptyId, command: trimmed, cwd, dispose: owner.dispose };
+                setDevRunPtyId(ptyId);
+            }
             throw error;
         }
     })();

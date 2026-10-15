@@ -288,6 +288,40 @@ it("refuses to replace a live run whose process cannot be killed", async () => {
     expect(background.getBackgroundPreviewService()).toBeNull();
 });
 
+it("keeps a failed start's process owned when its kill cannot be confirmed", async () => {
+    mocks.read.mockResolvedValue({ sessionId: 7, running: false, exitCode: 7 });
+    mocks.kill.mockRejectedValueOnce(new Error("kill failed"));
+    await expect(background.ensureBackgroundRun("npm run dev", "/project")).rejects.toThrow("exited during startup");
+    // The start failed but its kill was not confirmed, so the PTY stays owned: a later Stop can
+    // still reach it, and the next start reports the running run instead of spawning on top.
+    expect(mocks.kill).toHaveBeenCalledTimes(1);
+    await background.stopBackgroundRun();
+    expect(mocks.kill).toHaveBeenCalledTimes(2);
+    expect(background.getBackgroundPreviewService()).toBeNull();
+});
+
+it("does not let a buffered-output scan replace readiness that arrived during it", async () => {
+    let scanStarted: () => void = () => {};
+    let finishScan: () => void = () => {};
+    const started = new Promise<void>(resolve => { scanStarted = resolve; });
+    mocks.read.mockImplementation(async ({ id, tailChars }: { id: number; tailChars: number }) => {
+        if (tailChars === 500) {
+            return { sessionId: id, running: true, exitCode: null, previewUrl: null, previewRevision: 4 };
+        }
+        scanStarted();
+        return new Promise(resolve => {
+            finishScan = () => resolve({ sessionId: id, running: true, output: "  Local: http://localhost:4321/\n" });
+        });
+    });
+    const running = background.ensureBackgroundRun("npm run dev", "/project");
+    await started;
+    // A readiness event with a newer revision lands while the scan is mid-flight.
+    emit("preview-ready", { id: 7, url: "http://localhost:9999", source: "output", revision: 5 });
+    finishScan();
+    expect(await running).toBe(7);
+    expect(background.getBackgroundPreviewService()?.url).toBe("http://localhost:9999");
+});
+
 it("keeps the run observable when a Stop cannot kill its process, and retries", async () => {
     await background.ensureBackgroundRun("npm run dev", "/project");
     emit("preview-ready", { id: 7, url: "http://localhost:5173", source: "output" });
