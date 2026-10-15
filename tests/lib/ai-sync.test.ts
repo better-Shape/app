@@ -3,6 +3,7 @@ import { createNativeVault, type VaultSnapshot, type VaultMutation } from "../he
 const native = createNativeVault();
 
 const state = vi.hoisted(() => ({
+    config: {} as Record<string, string>, scopeSuffix: "",
     secrets: {} as Record<string, string>, headers: { Authorization: "" } as Record<string, string>, vaulted: false,
     listeners: new Set<() => void>(), vault: new Map<string, string>(),
     supported: vi.fn(), load: vi.fn(), store: vi.fn(), remove: vi.fn(), configure: vi.fn(), error: vi.fn(),
@@ -31,11 +32,11 @@ vi.mock("@/lib/settings", () => ({
     subscribeSettings: (listener: () => void) => { state.listeners.add(listener); return () => { state.listeners.delete(listener); }; },
 }));
 vi.mock("@/lib/ai/providers", () => ({
-    credentialScopes: () => Object.fromEntries(["openai", "custom", "service:search", "service:composio", ...Object.keys(state.headers).map((name) => `header:custom:${name}`)].map((id) => [id, `test-scope:${id}`])),
+    credentialScopes: () => Object.fromEntries(["openai", "custom", "service:search", "service:composio", ...Object.keys(state.headers).map((name) => `header:custom:${name}`)].map((id) => [id, `test-scope:${id}${state.scopeSuffix}`])),
     PROVIDER_PRESETS: [{ id: "openai" }, { id: "custom" }],
     SEARCH_SECRET_ID: "service:search", COMPOSIO_SECRET_ID: "service:composio",
     headerSecretId: (id: string, name: string) => `header:${id}:${name}`,
-    toRustAiConfig: () => ({ secrets: { ...state.secrets } }),
+    toRustAiConfig: () => ({ secrets: { ...state.secrets }, ...state.config }),
 }));
 let stop: (() => void) | undefined;
 let sync: typeof import("@/lib/ai/sync");
@@ -47,7 +48,7 @@ beforeEach(async () => {
     vi.resetModules();
     localStorage.clear();
     state.supported.mockReset().mockResolvedValue(true);
-    state.headers = { Authorization: "" };
+    state.headers = { Authorization: "" }; state.config = {}; state.scopeSuffix = "";
     state.secrets = {}; state.vaulted = false; native.reset(); state.vault = native.values; state.listeners.clear();
     state.load.mockReset().mockImplementation(async (ids: string[]) => ids.map(native.read));
     state.store.mockReset().mockImplementation(async (id: string, secret: string, expected: string, scope?: string) => native.mutate(id, secret, expected, true, scope));
@@ -289,4 +290,60 @@ it("rejects send readiness after native configuration failure and recovers on re
     await sync.retryCredentialPersistence();
     await expect(sync.aiConfigReady()).resolves.toBeUndefined();
     expect(state.configure).toHaveBeenCalledTimes(2);
+});
+
+
+it("syncs noncredential settings without rewriting successfully stored keys", async () => {
+    state.secrets = { openai: "example-stored" };
+    stop = sync.initAiConfigSync(); await sync.aiConfigReady();
+    const writes = state.store.mock.calls.length;
+    expect(writes).toBeGreaterThan(0);
+    state.config = { model: "next-model" };
+    change({ ...state.secrets }); await sync.aiConfigReady();
+    change({ ...state.secrets }); await sync.aiConfigReady();
+    expect(state.store).toHaveBeenCalledTimes(writes);
+    expect(state.configure).toHaveBeenLastCalledWith({ secrets: { openai: "example-stored" }, model: "next-model" });
+});
+
+it("still validates unchanged saved keys on explicit persistence retry", async () => {
+    state.secrets = { openai: "example-stored" };
+    stop = sync.initAiConfigSync(); await sync.aiConfigReady();
+    const writes = state.store.mock.calls.length;
+    await sync.retryCredentialPersistence(); await sync.aiConfigReady();
+    expect(state.store.mock.calls.length).toBeGreaterThan(writes);
+});
+
+it("retries a failed credential write on an unchanged settings notification", async () => {
+    stop = sync.initAiConfigSync(); await sync.aiConfigReady();
+    state.store.mockRejectedValueOnce(new Error("Keychain locked"));
+    change({ openai: "example-retry" }); await sync.aiConfigReady();
+    expect(state.vault.has("openai")).toBe(false);
+    change({ ...state.secrets }); await sync.aiConfigReady();
+    expect(state.vault.get("openai")).toBe("example-retry");
+    expect(state.store).toHaveBeenCalledTimes(2);
+});
+
+it("persists a changed destination even when its credential text is unchanged", async () => {
+    state.secrets = { openai: "example-stored" };
+    stop = sync.initAiConfigSync(); await sync.aiConfigReady();
+    const writes = state.store.mock.calls.length;
+    state.scopeSuffix = ":new-destination";
+    change({ ...state.secrets }); await sync.aiConfigReady();
+    expect(state.store.mock.calls.length).toBeGreaterThan(writes);
+    expect(state.store).toHaveBeenLastCalledWith("openai", "example-stored", expect.any(String), "test-scope:openai:new-destination");
+});
+
+it("does not mark a newer credential edit clean when an older sync acknowledges", async () => {
+    stop = sync.initAiConfigSync(); await sync.aiConfigReady();
+    let finish!: () => void;
+    state.store.mockImplementationOnce((id: string, secret: string, expected: string, scope?: string) => new Promise<VaultMutation>(resolve => {
+        finish = () => resolve(native.mutate(id, secret, expected, true, scope));
+    }));
+    change({ openai: "example-earlier" });
+    await vi.waitFor(() => expect(state.store).toHaveBeenCalledTimes(1));
+    change({ openai: "example-later" });
+    change({ ...state.secrets });
+    finish(); await sync.aiConfigReady();
+    expect(state.vault.get("openai")).toBe("example-later");
+    expect(state.vaulted).toBe(true);
 });

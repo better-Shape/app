@@ -37,7 +37,7 @@ import {
     toRustAiConfig,
     type RustAiConfig,
 } from "@/lib/ai/providers";
-import { deletedSecretIds, hasLocalSecretIntent, hasPendingSecretWrite, knownSecretIds, readSecretsDetailed, recordSecretChanges, refreshVaultAvailability, vaultAvailable, writeSecretDetailed, writtenSecretIds } from "@/lib/ai/vault";
+import { deletedSecretIds, hasLocalSecretIntent, hasPendingSecretWrite, hasUnvalidatedSecretIntent, knownSecretIds, readSecretsDetailed, recordSecretChanges, refreshVaultAvailability, vaultAvailable, writeSecretDetailed, writtenSecretIds } from "@/lib/ai/vault";
 
 /**
  * Every id the keychain may hold a secret under: one per provider, one per
@@ -156,6 +156,19 @@ async function pushSecretsToVault(reconcile: Reconcile, prune = true, secrets = 
     return conflicted ? undefined : stored;
 }
 
+async function persistCredentials(reconcile: Reconcile): Promise<boolean> {
+    if (!(await vaultAvailable())) {
+        stageCredentialDrafts(providerSecretsForVault(), credentialScopes(getSettings().ai.providers));
+        setSecretsVaulted(false);
+        return false;
+    }
+    const stored = await pushSecretsToVault(reconcile);
+    if (stored === undefined) throw new Error("Provider settings are not applied");
+    setSecretsVaulted(stored);
+    if (!stored) notify.error("Could not update saved credentials", "Credential changes are unsaved and remain only in this window. Unlock the system keychain, then retry in Settings > Providers before closing.");
+    return stored;
+}
+
 async function hydrateSecrets(touched: Set<string>, reconcile: Reconcile): Promise<boolean> {
     reconcile(Object.fromEntries(deletedSecretIds().filter((id) => !touched.has(id)).map((id) => [id, ""])));
     stageCredentialDrafts(Object.fromEntries(writtenSecretIds().map((id) => [id, ""])));
@@ -206,6 +219,8 @@ async function hydrateSecrets(touched: Set<string>, reconcile: Reconcile): Promi
 export function initAiConfigSync(): () => void {
     let booting = true;
     let hydrated = false;
+    let credentialRevision = 0;
+    let persistedCredentialRevision = -1;
     let observed = providerSecretsForVault();
     let observedScopes = credentialScopes(getSettings().ai.providers);
     let observedConfigured = new Set(configuredSecretIds());
@@ -229,14 +244,11 @@ export function initAiConfigSync(): () => void {
             notify.error("Credential recovery needs review", "Reload after the other window finishes saving, or re-enter the affected credentials in Settings > Providers. Existing saved copies have not been removed.");
             throw new Error("Provider settings are not applied");
         }
-        if (await vaultAvailable()) {
-            const stored = await pushSecretsToVault(reconcile);
-            if (stored === undefined) throw new Error("Provider settings are not applied");
-            setSecretsVaulted(stored);
-            if (!stored) notify.error("Could not update saved credentials", "Credential changes are unsaved and remain only in this window. Unlock the system keychain, then retry in Settings > Providers before closing.");
-        } else {
-            stageCredentialDrafts(providerSecretsForVault(), credentialScopes(getSettings().ai.providers));
-            setSecretsVaulted(false);
+        const revision = credentialRevision;
+        const foreignIntent = Object.keys(providerSecretsForVault()).some(hasUnvalidatedSecretIntent);
+        if (retryHydration || foreignIntent || revision !== persistedCredentialRevision || getUnsavedCredentialCount() > 0 || writtenSecretIds().length > 0) {
+            // Acknowledging this batch must not mark edits made during its awaits as persisted.
+            if (await persistCredentials(reconcile)) persistedCredentialRevision = revision;
         }
         await syncAiConfig();
     };
@@ -261,6 +273,7 @@ export function initAiConfigSync(): () => void {
         const removedDescriptors = [...observedConfigured].filter((id) => !configured.has(id));
         const changes = Object.fromEntries([...new Set([...Object.keys(observed), ...Object.keys(next), ...removedDescriptors])]
             .filter((id) => observed[id] !== next[id] || removedDescriptors.includes(id) || Boolean(next[id]) && scopes[id] !== observedScopes[id]).map((id) => [id, next[id] ?? ""]));
+        if (Object.keys(changes).length) credentialRevision += 1;
         if (!hydrated) {
             for (const id of new Set([...Object.keys(observed), ...Object.keys(next), ...Object.keys(scopes), ...Object.keys(observedScopes), ...removedDescriptors])) {
                 if (observed[id] !== next[id] || scopes[id] !== observedScopes[id] || removedDescriptors.includes(id)) touched.add(id);

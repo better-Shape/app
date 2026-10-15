@@ -136,3 +136,11 @@ Primary references checked against the installed implementation:
 - [JavaScript module scope](https://github.com/mdn/content/blob/main/files/en-us/web/javascript/guide/modules/index.md) keeps module declarations out of the browser global object. Scanner global-function warnings on imported/exported sidebar modules do not justify adding IIFEs or suppressing analysis.
 
 These checks exercise frontend sequencing and payloads with a mocked native command boundary. They do not prove packaged native execution, cancel an already admitted IPC write, or protect against another process editing the file between lookup and mutation.
+
+## Credential sync admission
+
+Unrelated settings notifications still synchronize native provider configuration, but they no longer rewrite credentials after a successful persistence batch. Each synchronizer tracks a credential-edit revision. Only that captured revision becomes clean after acknowledgement, so a newer edit during an older write remains pending. Explicit Retry, unsaved drafts, pending deletions and changed shared intent tokens still enter persistence. The low-level vault write API continues checking native leases even for identical values.
+
+A local dirty flag alone is insufficient. An existing two-window regression showed that it skipped conflict detection after another window's failed write. The vault now remembers the intent token validated by each successful native mutation. Sync compares those tokens with current shared metadata, including completed foreign writes, before skipping persistence. A late acknowledgement records its original token, not a newer token observed after the await. This metadata contains no credential text. It does not replace native revision checks or add plaintext recovery storage.
+
+Regression coverage includes unrelated model changes without keychain writes, explicit Retry, failed writes and deletions, equal-value destination changes, newer edits during pending writes, completed and unsaved foreign changes, and foreign intent arriving during native acknowledgement. Native keychain execution remains a separate verification requirement.

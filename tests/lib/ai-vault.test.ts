@@ -20,6 +20,8 @@ import {
     readSecretsDetailed,
     vaultAvailable,
     writeSecret,
+    recordSecretChanges,
+    hasUnvalidatedSecretIntent,
 } from "@/lib/ai/vault";
 
 describe("key vault", () => {
@@ -102,4 +104,22 @@ describe("key vault", () => {
         expect(await readSecrets(["openai"])).toEqual({});
         expect(aiLoadKeys).not.toHaveBeenCalled();
     });
+
+    it("keeps a foreign intent unvalidated when an older native write acknowledges", async () => {
+        recordSecretChanges({ openai: "example-first" });
+        expect(hasUnvalidatedSecretIntent("openai")).toBe(true);
+        await writeSecret("openai", "example-first", "test-scope");
+        expect(hasUnvalidatedSecretIntent("openai")).toBe(false);
+        recordSecretChanges({ openai: "example-second" });
+        let finish!: () => void;
+        aiStoreKey.mockImplementationOnce((id, value, expected, scope) => new Promise(resolve => {
+            finish = () => resolve(native.mutate(id, value, expected, true, scope));
+        }));
+        const pending = writeSecret("openai", "example-second", "test-scope");
+        await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+        localStorage.setItem("bettershape-ai-vault-entry:openai", JSON.stringify({ state: "write", token: "another-window-intent" }));
+        finish(); await pending;
+        expect(hasUnvalidatedSecretIntent("openai")).toBe(true);
+    });
+
 });

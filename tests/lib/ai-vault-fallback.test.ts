@@ -480,3 +480,17 @@ it("migrates a local legacy key when the desktop copy is redacted at the same de
     expect(localStorage.getItem("bettershape-settings-v1")).not.toContain("example-legacy-local");
     expect(JSON.stringify(bridge.disk)).not.toContain("example-legacy-local");
 });
+
+it("revalidates another window's completed credential change before syncing unrelated settings", async () => {
+    reset(); const stops: (() => void)[] = []; stop = () => stops.forEach(fn => fn());
+    const a = await openWindow(); stops.push(a.unsubscribe);
+    a.edit("example-before-rotation"); await a.sync.aiConfigReady();
+    const b = await openWindow(); stops.push(b.unsubscribe);
+    b.edit("example-after-rotation"); await b.sync.aiConfigReady();
+    const configured = bridge.configure.mock.calls.length;
+    a.settings.updateSettingSection("editor", { fontSize: 17 });
+    await expect(a.sync.aiConfigReady()).rejects.toThrow("Provider settings are not applied");
+    expect(bridge.configure).toHaveBeenCalledTimes(configured);
+    expect(native.values.get("openai")).toBe("example-after-rotation");
+    expect(a.settings.getSettings().ai.providers.connections.openai.apiKey).toBe("example-before-rotation");
+});

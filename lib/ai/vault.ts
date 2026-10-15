@@ -7,6 +7,7 @@ const written = new Map<string, string>();
 const conflicts = new Map<string, { submitted: string; value: string; persisted: boolean }>();
 const revisions = new Map<string, string>();
 const scopes = new Map<string, string | undefined>();
+const validatedIntents = new Map<string, string>();
 const localIntents = new Map<string, { token: string; value: string; recorded: boolean; previousToken: string | null }>();
 const INVENTORY_PREFIX = "bettershape-ai-vault-entry:";
 const RECEIPT_PREFIX = "bettershape-ai-vault-receipt:";
@@ -66,6 +67,10 @@ export function knownSecretIds(): string[] { return inventoryEntries().map(([id]
 export function deletedSecretIds(): string[] { return inventoryEntries().filter(([id]) => isDeleted(id)).map(([id]) => id); }
 export function hasLocalSecretIntent(id: string): boolean { return localIntents.has(id); }
 export function hasPendingSecretWrite(id: string): boolean { return inventoryIntent(id)?.state === "write"; }
+/** A foreign intent invalidates sync's clean state even when this window's key text is unchanged. */
+export function hasUnvalidatedSecretIntent(id: string): boolean {
+    return inventoryIntent(id)?.token !== validatedIntents.get(id);
+}
 
 /** Reserve user intent synchronously, before availability checks or queued IPC. */
 export function recordSecretChanges(changes: Record<string, string>): boolean {
@@ -108,7 +113,7 @@ export function __setVaultAvailableForTesting(value: boolean | null): void {
     supported = value;
 }
 export function __resetVaultCacheForTesting(): void {
-    written.clear(); conflicts.clear(); revisions.clear(); scopes.clear(); localIntents.clear();
+    written.clear(); conflicts.clear(); revisions.clear(); scopes.clear(); validatedIntents.clear(); localIntents.clear();
     refreshVaultAvailability();
 }
 
@@ -218,6 +223,7 @@ export async function writeSecretDetailed(id: string, value: string, scope?: str
         }
         if (inventoryIntent(id)?.token !== intent.token && isDeleted(id)) return conflict("", inventoryIntent(id)?.state === "deleted");
         if (!result.applied) return conflict(current.apiKey, current.persisted);
+        if (current.persisted) validatedIntents.set(id, intent.token);
         return { kind: current.persisted ? "stored" : "failed" };
     } catch {
         // Rejections leave the draft unsaved; only a successful retry persists it.
