@@ -161,7 +161,7 @@ export function CollectionDialog({
                                     onClick={() => setIcon(id)}
                                     className={cn(
                                         "flex h-9 items-center justify-center rounded-md hover:bg-[var(--btn-hover)]",
-                                        icon === id && "bg-[var(--btn-open)]",
+                                        icon === id && "bg-[var(--btn-open)] hover:bg-[var(--btn-open-hover)]",
                                     )}
                                 >
                                     <Icon icon={COLLECTION_GLYPH[id]} className="icon-sm" style={{ color: CHAT_COLOR_HEX[color] }} />

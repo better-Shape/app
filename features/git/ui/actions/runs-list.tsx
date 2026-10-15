@@ -69,7 +69,7 @@ export function RunsList({
                                     className={cn(
                                         GIT_ROW.run,
                                         selectedRunId === run.id
-                                            ? "bg-panel-hover"
+                                            ? "bg-[var(--row-selected)] hover:bg-[var(--row-selected-hover)]"
                                             : "hover:bg-[var(--row-hover)]",
                                     )}
                                 >

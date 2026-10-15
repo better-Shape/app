@@ -162,7 +162,7 @@ export const GraphCommitRow = React.memo(function GraphCommitRow({
                         className={cn(
                             "relative z-0 flex cursor-pointer items-center whitespace-nowrap outline-none group",
                             isExpanded ? "rounded-none bg-transparent" : "rounded-lg hover:bg-[var(--row-hover)]",
-                            !isExpanded && selected && "bg-[var(--row-selected)]",
+                            !isExpanded && selected && "bg-[var(--row-selected)] hover:bg-[var(--row-selected-hover)]",
                         )}
                         style={{ height: ROW_HEIGHT, lineHeight: `${ROW_HEIGHT}px` }}
                         onClick={(e) => {

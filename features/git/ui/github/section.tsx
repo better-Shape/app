@@ -311,7 +311,7 @@ export function GitHubSection({ section }: { section: GitHubListSection }) {
                                     onClick={() => setSelectedId(item.id)}
                                     className={cn(
                                         "flex w-full flex-col gap-0.5 rounded-lg px-2 py-2 text-left hover:bg-[var(--row-hover)]",
-                                        selectedId === item.id && "bg-panel-hover",
+                                        selectedId === item.id && "bg-[var(--row-selected)] hover:bg-[var(--row-selected-hover)]",
                                     )}
                                 >
                                     <div className="flex items-start justify-between gap-2">

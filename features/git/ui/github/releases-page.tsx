@@ -225,7 +225,7 @@ export function ReleasesPage() {
                                     className={cn(
                                         GIT_ROW.release,
                                         active
-                                            ? "bg-panel-hover text-text-primary"
+                                            ? "bg-[var(--row-selected)] hover:bg-[var(--row-selected-hover)] text-text-primary"
                                             : "text-text-secondary hover:bg-[var(--row-hover)] hover:text-text-primary",
                                     )}
                                 >

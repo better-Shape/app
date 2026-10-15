@@ -153,7 +153,7 @@ function FolderSubMenu({ name, folderPath, isSelected, gitStatuses, gitModifiedD
         <MenubarNested open={open} onOpenChange={onOpenChange}>
             <MenubarNestedTrigger className={cn(
                 "flex items-center gap-2 px-2 py-1 text-xs cursor-default rounded-md outline-none",
-                isSelected ? "bg-[var(--btn-open)] text-text-primary font-medium" : "text-text-muted hover:text-text-primary focus:bg-panel-hover focus:text-text-primary"
+                isSelected ? "bg-[var(--btn-open)] focus:bg-[var(--btn-open-hover)] text-text-primary font-medium" : "text-text-muted hover:text-text-primary focus:bg-[var(--btn-hover)] focus:text-text-primary"
             )}>
                 <FileIcon name={name} isDir={true} className="w-3.5 h-3.5 shrink-0 opacity-80" />
                 <span className="truncate flex-1">{name}</span>
@@ -180,7 +180,7 @@ function FolderSubMenu({ name, folderPath, isSelected, gitStatuses, gitModifiedD
                         return (
                             <MenubarItem
                                 key={child.name}
-                                className="flex items-center gap-2 px-2 py-1 text-xs cursor-default rounded-md text-text-muted hover:text-text-primary focus:bg-panel-hover focus:text-text-primary outline-none"
+                                className="flex items-center gap-2 px-2 py-1 text-xs cursor-default rounded-md text-text-muted hover:text-text-primary focus:bg-[var(--row-hover)] focus:text-text-primary outline-none"
                                 onClick={() => {
                                     commands.openFile(child.path, child.name);
                                 }}
@@ -226,7 +226,7 @@ function SymbolSubMenu({ symbol, filePath, isSelected }: { symbol: OutlineSymbol
         <MenubarNested open={open} onOpenChange={setOpen}>
             <MenubarNestedTrigger className={cn(
                 "flex items-center gap-2 px-2 py-1 text-xs cursor-default rounded-md outline-none",
-                isSelected ? "bg-[var(--btn-open)] text-text-primary font-medium" : "text-text-muted hover:text-text-primary focus:bg-panel-hover focus:text-text-primary"
+                isSelected ? "bg-[var(--btn-open)] focus:bg-[var(--btn-open-hover)] text-text-primary font-medium" : "text-text-muted hover:text-text-primary focus:bg-[var(--btn-hover)] focus:text-text-primary"
             )}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={getSymbolIconPath(symbol.kind)} className="w-3.5 h-3.5 shrink-0 invert-0 dark:invert" alt="" />
@@ -237,7 +237,7 @@ function SymbolSubMenu({ symbol, filePath, isSelected }: { symbol: OutlineSymbol
                     sym.children.length === 0 ? (
                         <MenubarItem
                             key={sym.id}
-                            className="flex items-center gap-2 px-2 py-1 text-xs cursor-default rounded-md outline-none text-text-muted hover:text-text-primary focus:bg-panel-hover focus:text-text-primary"
+                            className="flex items-center gap-2 px-2 py-1 text-xs cursor-default rounded-md outline-none text-text-muted hover:text-text-primary focus:bg-[var(--row-hover)] focus:text-text-primary"
                             onClick={() => handleJump(filePath, sym)}
                         >
                             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -288,7 +288,7 @@ function BreadcrumbFolderItem({ part, folderPath, nextPartName, gitStatuses, git
     return (
         <MenubarMenu>
             <MenubarTrigger
-                className="flex items-center gap-1 h-5 hover:text-text-primary px-1.5 py-0.5 rounded-[5px] cursor-pointer transition-colors outline-none hover:bg-[var(--row-hover)] data-[state=open]:bg-panel-hover data-[state=open]:text-text-primary max-w-[250px]"
+                className="flex items-center gap-1 h-5 hover:text-text-primary px-1.5 py-0.5 rounded-[5px] cursor-pointer transition-colors outline-none hover:bg-[var(--row-hover)] data-[state=open]:bg-[var(--btn-open)] data-[state=open]:focus:bg-[var(--btn-open-hover)] data-[state=open]:hover:bg-[var(--btn-open-hover)] data-[state=open]:text-text-primary max-w-[250px]"
                 onClick={onTriggerClick}
             >
                 <span className="truncate">{part}</span>
@@ -307,7 +307,7 @@ function BreadcrumbFolderItem({ part, folderPath, nextPartName, gitStatuses, git
                                 key={child.name}
                                 className={cn(
                                     "flex items-center gap-2 px-2 py-1 text-xs cursor-default rounded-md outline-none",
-                                    isSelected ? "bg-[var(--row-selected)] text-text-primary font-medium" : "text-text-muted hover:text-text-primary focus:bg-panel-hover focus:text-text-primary"
+                                    isSelected ? "bg-[var(--row-selected)] focus:bg-[var(--row-selected-hover)] text-text-primary font-medium" : "text-text-muted hover:text-text-primary focus:bg-[var(--row-hover)] focus:text-text-primary"
                                 )}
                                 onClick={() => {
                                 commands.openFile(child.path, child.name);
@@ -344,7 +344,7 @@ function BreadcrumbOutlineItem({
 }: { part: string, kind: string | null, symbols: OutlineSymbol[], activeSymbolId: string | null, filePath: string }) {
     return (
         <MenubarMenu>
-            <MenubarTrigger className="flex items-center gap-1 h-5 hover:text-text-primary px-1.5 py-0.5 rounded-[5px] cursor-pointer transition-colors outline-none hover:bg-[var(--row-hover)] data-[state=open]:bg-panel-hover data-[state=open]:text-text-primary max-w-[250px]">
+            <MenubarTrigger className="flex items-center gap-1 h-5 hover:text-text-primary px-1.5 py-0.5 rounded-[5px] cursor-pointer transition-colors outline-none hover:bg-[var(--row-hover)] data-[state=open]:bg-[var(--btn-open)] data-[state=open]:focus:bg-[var(--btn-open-hover)] data-[state=open]:hover:bg-[var(--btn-open-hover)] data-[state=open]:text-text-primary max-w-[250px]">
                 {kind === null ? (
                     <FileIcon name={part} className="w-3.5 h-3.5 shrink-0" />
                 ) : (
@@ -365,7 +365,7 @@ function BreadcrumbOutlineItem({
                             key={sym.id}
                             className={cn(
                                 "flex items-center gap-2 px-2 py-1 text-xs cursor-default rounded-md outline-none",
-                                isSelected ? "bg-[var(--row-selected)] text-text-primary font-medium" : "text-text-muted hover:text-text-primary focus:bg-panel-hover focus:text-text-primary"
+                                isSelected ? "bg-[var(--row-selected)] focus:bg-[var(--row-selected-hover)] text-text-primary font-medium" : "text-text-muted hover:text-text-primary focus:bg-[var(--row-hover)] focus:text-text-primary"
                             )}
                             onClick={() => handleJump(filePath, sym)}
                         >

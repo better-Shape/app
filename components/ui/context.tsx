@@ -12,7 +12,7 @@ import * as ContextMenuPrimitive from "@radix-ui/react-context-menu";
 import { cn } from "@/lib/utils";
 
 const itemClasses =
-    "group relative flex cursor-default select-none items-center gap-3 rounded-lg px-1.5 py-1 text-sm outline-none focus:bg-panel-hover focus:text-text-primary data-disabled:pointer-events-none data-disabled:opacity-50 transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]";
+    "group relative flex cursor-default select-none items-center gap-3 rounded-lg px-1.5 py-1 text-sm outline-none focus:bg-[var(--row-hover)] focus:text-text-primary data-disabled:pointer-events-none data-disabled:opacity-50 transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]";
 const containerClasses =
     "bettershape-popover-content z-dropdown overflow-hidden squircle-2xl border border-border bg-surface-4 p-2 text-text-primary shadow-md";
 const shortcutClasses = "ml-auto shrink-0 pr-2 text-sm text-text-muted group-focus:text-text-primary";
@@ -49,7 +49,7 @@ const ContextMenuSubTrigger = React.forwardRef<
 >(({ className, inset, children, ...props }, ref) => (
     <ContextMenuPrimitive.SubTrigger
         ref={ref}
-        className={cn(itemClasses, "data-[state=open]:bg-panel-hover", inset && "pl-7 ",className)}
+        className={cn(itemClasses, "data-[state=open]:bg-[var(--row-selected)] data-[state=open]:hover:bg-[var(--row-selected-hover)] data-[state=open]:focus:bg-[var(--row-selected-hover)]", inset && "pl-7 ",className)}
         {...props}
     >
         {children}

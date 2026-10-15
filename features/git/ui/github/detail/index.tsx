@@ -1225,7 +1225,7 @@ export function GitHubDetailPane({
                                                 className={cn(
                                                     "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-[var(--row-hover)]",
                                                     focusedFindingPath === f.filename &&
-                                                        "bg-panel-hover ring-1 ring-border",
+                                                        "bg-[var(--row-selected)] hover:bg-[var(--row-selected-hover)] ring-1 ring-border",
                                                 )}
                                                 onClick={() =>
                                                     void openChangedFile(f.filename)

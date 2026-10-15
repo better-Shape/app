@@ -243,7 +243,7 @@ function WorkflowDialog({
                                     className={cn(
                                         "rounded-full px-2.5 py-1 text-xs",
                                         (draft.when ?? "both") === id
-                                            ? "bg-panel-hover text-text-primary"
+                                            ? "bg-[var(--row-selected)] hover:bg-[var(--row-selected-hover)] text-text-primary"
                                             : "text-text-muted hover:bg-[var(--row-hover)]",
                                     )}
                                 >
@@ -298,7 +298,7 @@ function WorkflowDialog({
                                     className={cn(
                                         "rounded-full px-2.5 py-1 text-xs",
                                         draft.mode === id
-                                            ? "bg-panel-hover text-text-primary"
+                                            ? "bg-[var(--row-selected)] hover:bg-[var(--row-selected-hover)] text-text-primary"
                                             : "text-text-muted hover:bg-[var(--row-hover)]",
                                     )}
                                 >

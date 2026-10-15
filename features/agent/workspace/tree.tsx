@@ -157,8 +157,8 @@ function TreeNode({
                     onClick={() => { onSelect?.(entry); setOpen((v) => !v); }}
                     className={cn(
                         "flex h-6 w-full items-center gap-1 rounded-md pr-2 text-left text-sm text-text-secondary hover:bg-[var(--row-hover)] hover:text-text-primary",
-                        revealed && "bg-[var(--row-selected)] text-text-primary",
-                        selected && !revealed && "bg-panel-hover text-text-primary",
+                        revealed && "bg-[var(--row-selected)] hover:bg-[var(--row-selected-hover)] text-text-primary",
+                        selected && !revealed && "bg-[var(--row-selected)] hover:bg-[var(--row-selected-hover)] text-text-primary",
                         cut && "opacity-50",
                     )}
                     style={{ paddingLeft: pad }}
@@ -221,9 +221,9 @@ function TreeNode({
             className={cn(
                 "flex h-6 w-full items-center gap-1.5 rounded-md pr-2 text-left text-sm",
                 active || revealed
-                    ? "bg-[var(--row-selected)] text-text-primary"
+                    ? "bg-[var(--row-selected)] hover:bg-[var(--row-selected-hover)] text-text-primary"
                     : selected
-                      ? "bg-panel-hover text-text-primary"
+                      ? "bg-[var(--row-selected)] hover:bg-[var(--row-selected-hover)] text-text-primary"
                       : "text-text-secondary hover:bg-[var(--row-hover)] hover:text-text-primary",
                 cut && "opacity-50",
             )}

@@ -925,7 +925,7 @@ export function SettingsView({
                                                             className={cn(
                                                                 "flex h-9 w-full items-center gap-1.5 rounded-lg px-2 text-left text-sm transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
                                                                 active
-                                                                    ? "bg-[var(--row-selected)] text-text-primary"
+                                                                    ? "bg-[var(--row-selected)] hover:bg-[var(--row-selected-hover)] text-text-primary"
                                                                     : "text-text-secondary hover:bg-[var(--row-hover)] hover:text-text-primary",
                                                             )}
                                                         >

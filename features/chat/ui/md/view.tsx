@@ -189,7 +189,7 @@ function createMarkdownComponents(options?: { nested?: boolean }) {
                 const name = (children as string).split(/[\\/]/).pop() || (children as string);
                 return (
                     <span
-                        className="mx-0.5 inline-flex cursor-pointer items-center gap-1.5 squircle-lg  bg-panel-hover px-2 py-0.5 align-middle font-sans chat-text text-text-primary transition-colors hover:bg-[var(--row-hover)]"
+                        className="mx-0.5 inline-flex cursor-pointer items-center gap-1.5 squircle-lg  bg-panel-hover px-2 py-0.5 align-middle font-sans chat-text text-text-primary transition-colors hover:bg-[var(--btn-hover)]"
                         title={children as string}
                         onClick={() => {
                             void openProjectFile(children as string, name);

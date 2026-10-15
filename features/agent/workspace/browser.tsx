@@ -1131,7 +1131,7 @@ export function BrowserView({
                         className={cn(
                             "flex size-7 shrink-0 items-center justify-center rounded text-text-muted",
                             "hover:bg-[var(--btn-hover)] hover:text-text-primary disabled:pointer-events-none disabled:opacity-30",
-                            picking && "bg-[var(--btn-open)] text-accent",
+                            picking && "bg-[var(--btn-open)] hover:bg-[var(--btn-open-hover)] text-accent",
                         )}
                     >
                         <Icon icon={Target20Regular} />
@@ -1141,7 +1141,7 @@ export function BrowserView({
                     <DropdownMenuTrigger asChild>
                         <button
                             type="button"
-                            className="flex size-7 shrink-0 items-center justify-center rounded text-text-muted hover:bg-[var(--btn-hover)] hover:text-text-primary data-[state=open]:bg-panel-hover data-[state=open]:text-text-primary"
+                            className="flex size-7 shrink-0 items-center justify-center rounded text-text-muted hover:bg-[var(--btn-hover)] hover:text-text-primary data-[state=open]:bg-[var(--btn-open)] data-[state=open]:focus:bg-[var(--btn-open-hover)] data-[state=open]:hover:bg-[var(--btn-open-hover)] data-[state=open]:text-text-primary"
                             aria-label="Developer tools"
                         >
                             <Icon icon={Code20Regular} />

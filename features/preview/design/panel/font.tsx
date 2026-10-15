@@ -96,7 +96,7 @@ export function FontField({
                     onPointerDown={measure}
                     className={cn(
                         CONTROL,
-                        "min-w-0 flex-1 justify-start border border-border bg-panel-hover px-1.5 text-text-primary hover:bg-[var(--row-hover)]",
+                        "min-w-0 flex-1 justify-start border border-border bg-panel-hover px-1.5 text-text-primary hover:bg-[var(--btn-hover)]",
                         className,
                     )}
                 >
@@ -178,7 +178,7 @@ export function WeightField({
                     onPointerDown={measure}
                     className={cn(
                         CONTROL,
-                        "min-w-0 flex-1 justify-start border border-border bg-panel-hover px-1.5 text-text-primary hover:bg-[var(--row-hover)]",
+                        "min-w-0 flex-1 justify-start border border-border bg-panel-hover px-1.5 text-text-primary hover:bg-[var(--btn-hover)]",
                         className,
                     )}
                 >

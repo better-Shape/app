@@ -98,7 +98,7 @@ export function MorphMenu({
                     className={cn(
                         "inline-flex h-8 items-center gap-1.5 squircle-2xl border border-border bg-surface-3/80 backdrop-blur-sm px-3 text-sm text-text-secondary",
                         "hover:bg-[var(--btn-hover)] hover:text-text-primary",
-                        open && "bg-[var(--btn-open)] text-text-primary",
+                        open && "bg-[var(--btn-open)] hover:bg-[var(--btn-open-hover)] text-text-primary",
                     )}
                 >
                     {trigger}

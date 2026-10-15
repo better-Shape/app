@@ -82,7 +82,7 @@ export function JobsPanel({
                                         className={cn(
                                             GIT_ROW.dense,
                                             selectedJobId === job.id
-                                                ? "bg-panel-hover"
+                                                ? "bg-[var(--row-selected)] hover:bg-[var(--row-selected-hover)]"
                                                 : "hover:bg-[var(--row-hover)]",
                                         )}
                                         onClick={() => onSelectStep?.(job.id, step)}
@@ -124,7 +124,7 @@ export function JobsPanel({
                         return (
                             <div
                                 key={job.id}
-                                className={cn(selectedJobId === job.id && "bg-panel-hover/50 rounded-xl")}
+                                className={cn(selectedJobId === job.id && "bg-[var(--row-selected)] rounded-xl")}
                             >
                                 <Button
                                     variant="ghost"

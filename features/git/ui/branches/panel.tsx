@@ -130,7 +130,7 @@ function BranchRow({
                     className={cn(
                         "group flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors",
                         selected
-                            ? "bg-panel-hover text-text-primary"
+                            ? "bg-[var(--row-selected)] hover:bg-[var(--row-selected-hover)] text-text-primary"
                             : "text-text-secondary hover:bg-[var(--row-hover)] hover:text-text-primary",
                         isCurrent && !selected && "bg-accent/10 text-text-primary",
                     )}
@@ -874,7 +874,7 @@ export function BranchWindow({ active = true }: { active?: boolean }) {
                                                     className={cn(
                                                         "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left",
                                                         selected
-                                                            ? "bg-panel-hover text-text-primary"
+                                                            ? "bg-[var(--row-selected)] hover:bg-[var(--row-selected-hover)] text-text-primary"
                                                             : "hover:bg-[var(--row-hover)]",
                                                     )}
                                                 >

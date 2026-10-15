@@ -19,7 +19,7 @@ import { useOverlayRoot } from "@/lib/ui/overlay-root";
  */
 
 const itemClasses =
-    "group relative flex cursor-default select-none items-center gap-2 squircle-2xl px-4! py-1.5 text-sm outline-none transition-[background-color,color,transform] duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] focus:bg-panel-hover focus:text-text-primary data-disabled:pointer-events-none data-disabled:opacity-50";
+    "group relative flex cursor-default select-none items-center gap-2 squircle-2xl px-4! py-1.5 text-sm outline-none transition-[background-color,color,transform] duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] focus:bg-[var(--row-hover)] focus:text-text-primary data-disabled:pointer-events-none data-disabled:opacity-50";
 const containerClasses =
     "bettershape-popover-content z-dropdown overflow-hidden squircle-2xl border border-border-secondary bg-sidebar text-text-primary shadow-md";
 const shortcutClasses =
@@ -133,7 +133,7 @@ const DropdownMenuSubTrigger = React.forwardRef<
         ref={ref}
         className={cn(
             itemClasses,
-            "data-[state=open]:bg-panel-hover",
+            "data-[state=open]:bg-[var(--row-selected)] data-[state=open]:hover:bg-[var(--row-selected-hover)] data-[state=open]:focus:bg-[var(--row-selected-hover)]",
             inset && "pl-7",
             className
         )}
@@ -471,7 +471,7 @@ const MenubarTrigger = React.forwardRef<
             if (onPointerDown) onPointerDown(e);
         }}
         className={cn(
-            "flex cursor-default select-none items-center rounded-md px-sm py-xs text-sm font-normal leading-none outline-none focus:bg-panel-hover focus:text-text-primary data-[state=open]:bg-panel-hover data-[state=open]:text-text-primary transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
+            "flex cursor-default select-none items-center rounded-md px-sm py-xs text-sm font-normal leading-none outline-none focus:bg-[var(--btn-hover)] focus:text-text-primary data-[state=open]:bg-[var(--btn-open)] data-[state=open]:hover:bg-[var(--btn-open-hover)] data-[state=open]:focus:bg-[var(--btn-open-hover)] data-[state=open]:text-text-primary transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
             className
         )}
         {...props}
@@ -489,7 +489,7 @@ const MenubarSubTrigger = React.forwardRef<
         ref={ref}
         className={cn(
             itemClasses,
-            "focus:bg-panel-hover focus:text-text-primary data-[state=open]:bg-panel-hover data-[state=open]:text-text-primary",
+            "focus:bg-[var(--row-hover)] focus:text-text-primary data-[state=open]:bg-[var(--row-selected)] data-[state=open]:hover:bg-[var(--row-selected-hover)] data-[state=open]:focus:bg-[var(--row-selected-hover)] data-[state=open]:text-text-primary",
             inset && "pl-7",
             className
         )}

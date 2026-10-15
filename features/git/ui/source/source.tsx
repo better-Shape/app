@@ -230,7 +230,7 @@ const ChangeRow = ({
                     onClick={() => onShowDiff(file.path, file.staged)}
                     className={cn(
                         "flex items-center px-0.5 py-0.5 cursor-pointer rounded-lg group relative h-7 transition-colors",
-                        selected ? "bg-panel-hover" : "hover:bg-[var(--row-hover)]",
+                        selected ? "bg-[var(--row-selected)] hover:bg-[var(--row-selected-hover)]" : "hover:bg-[var(--row-hover)]",
                     )}
                 >
                     <div
