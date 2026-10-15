@@ -81,16 +81,22 @@ pub fn admit<T>(
     Some(id)
 }
 
-/// Whether any of these terminals belongs to a lane whose Stop cleanup is
-/// still running. Retried cleanup must not overtake the guard that owns the
-/// lane's teardown, and it stays tracked until that guard drops.
-pub fn lane_cleanup_pending<'a>(
-    stopping: &HashSet<String>,
-    conversations: impl Iterator<Item = &'a str>,
-) -> bool {
-    conversations
-        .into_iter()
-        .any(|lane| stopping.contains(lane))
+/// Reserve every lane a teardown is about to touch, so no Stop can claim one of
+/// them while it runs. Observing the lanes first and killing afterwards leaves a
+/// window in which a Stop claims the lane and starts its own teardown over the
+/// same session registry; claiming is atomic per lane and the guards keep
+/// replacement admission blocked until the caller drops them. `None` means at
+/// least one lane is already owned by someone else - nothing is claimed then, so
+/// the caller keeps its sessions and can retry.
+pub fn claim_lanes<'a, 'b>(
+    stopping: &'a Mutex<HashSet<String>>,
+    lanes: impl IntoIterator<Item = &'b str>,
+) -> Option<Vec<StopGuard<'a>>> {
+    let mut guards = Vec::new();
+    for lane in lanes {
+        guards.push(begin_exclusive_cleanup(stopping, lane)?);
+    }
+    Some(guards)
 }
 
 pub fn begin_stop<'a, T>(
@@ -133,20 +139,38 @@ mod tests {
     use super::*;
 
     #[test]
-    fn retried_cleanup_waits_only_for_a_lane_that_is_still_stopping() {
-        let mut stopping = HashSet::from(["busy".to_string()]);
-        assert!(lane_cleanup_pending(&stopping, ["busy"].into_iter()));
-        // An unrelated lane, a missing conversation id and an empty set all let
-        // the retry through.
-        assert!(!lane_cleanup_pending(&stopping, ["idle"].into_iter()));
-        assert!(!lane_cleanup_pending(&stopping, std::iter::empty()));
-        assert!(!lane_cleanup_pending(
-            &stopping,
-            ["idle", "other"].into_iter()
-        ));
-        // Once the Stop guard drops, the retry is allowed through.
-        stopping.remove("busy");
-        assert!(!lane_cleanup_pending(&stopping, ["busy"].into_iter()));
+    fn retried_cleanup_is_refused_only_for_a_lane_that_is_still_stopping() {
+        let stopping = Mutex::new(HashSet::from(["busy".to_string()]));
+        // The stopping lane is refused, and the refusal claims nothing else.
+        assert!(claim_lanes(&stopping, ["busy"]).is_none());
+        // An unrelated lane and no lanes at all let the retry through.
+        assert_eq!(claim_lanes(&stopping, ["idle"]).unwrap().len(), 1);
+        assert!(claim_lanes(&stopping, std::iter::empty())
+            .unwrap()
+            .is_empty());
+        assert!(!stopping.lock().unwrap().contains("idle"));
+        // Once the Stop guard drops, the lane can be claimed again.
+        stopping.lock().unwrap().remove("busy");
+        assert!(claim_lanes(&stopping, ["busy"]).is_some());
+    }
+
+    #[test]
+    fn a_claimed_lane_cannot_be_claimed_by_a_stop_or_a_second_retry() {
+        let active = Mutex::new(HashMap::from([("a".to_string(), "request-a".to_string())]));
+        let stopping = Mutex::new(HashSet::new());
+        let retry = claim_lanes(&stopping, ["a"]).unwrap();
+        // A Stop racing this retry fails to claim instead of tearing the lane
+        // down underneath it, and neither does another retry.
+        assert!(begin_stop(&active, &stopping, "a", |request| *request == "request-a").is_none());
+        assert!(claim_lanes(&stopping, ["a"]).is_none());
+        // A lane that is only claimed exclusively is still not admitting turns.
+        assert!(admit(&active, &stopping, "a".into(), || Some((
+            "blocked".into(),
+            "request-b".to_string()
+        )))
+        .is_none());
+        drop(retry);
+        assert!(begin_stop(&active, &stopping, "a", |request| *request == "request-a").is_some());
     }
 
     #[test]

@@ -133,9 +133,20 @@ Fixed:
 - `restore_checkpoint` killed a lane's terminals twice around the turn-cleanup
   wait. The sweep is now `kill_terminals_for_conversation_exhaustive`, which
   documents why the second sweep is not redundant.
-- The retried-cleanup gate is now the pure `turn_order::lane_cleanup_pending`
-  helper and its lane scope is documented rather than incidental.
+- The retried-cleanup gate is now `turn_order::claim_lanes`: it *takes* each lane
+  the retry is about to kill or refuses all of them, instead of observing the
+  lanes and killing after the lock is released, which left a window for a Stop to
+  claim the lane and tear the same session registry down underneath the retry.
+  The guards keep replacement admission out until the kills finish, and its lane
+  scope is documented rather than incidental.
 
+- `TerminationTarget::terminate` recorded `-1` for every stopped session, including one whose process
+  had already exited before Stop polled it, which reported a clean exit as a killed session.
+  `exit_status::terminate` now returns `Terminated { code, killed }`: a process that had to be killed
+  keeps the cancellation marker (`-1`), an already-exited one reports the status it exited with, and a
+  kill that failed but raced an exit reports that exit (nothing was killed).
+- `pty_kill_all` reported only the first failure and only the first unreadable registry; both are now
+  aggregated, naming every session that still needs a stop (`aggregate_cleanup_failures`).
 Refuted:
 
 - Making `TerminalOwner::native_session` a required field would break the

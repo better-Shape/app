@@ -1054,30 +1054,37 @@ impl AgentState {
         request_id: Option<&str>,
     ) -> Result<(), crate::core::error::AppError> {
         let sessions = self.cancelled_terminals(conversation_id, request_id)?;
-        // A Stop for the lane still owns capture teardown until its guard
-        // drops (`kill_terminals_for_conversation` walks the same registry), so
-        // a retry must not run concurrently with it. The check is deliberately
-        // lane-scoped rather than request-scoped: the guard only records the
-        // conversation, and lane admission already refuses a new turn while the
-        // guard is held, so the only traffic it can hold back is a retry for an
-        // older request. That retry stays tracked and succeeds once cleanup
-        // finishes, while killing during an unrelated teardown could race the
-        // same session registry. Blocking is the safe direction.
-        {
-            let stopping = self.stopping_conversations.lock()?;
-            let pending = crate::core::turn_order::lane_cleanup_pending(
-                &stopping,
-                sessions
-                    .iter()
-                    .filter_map(|(_, owner)| owner.conversation_id.as_deref()),
-            );
-            if pending {
-                return Err(crate::core::error::AppError::Message(
-                    "Command cleanup is still running. Retry Stop when it finishes.".to_string(),
-                ));
-            }
-        }
-        self.kill_tracked_terminals(pty_state, sessions).await
+        // A Stop for the lane owns capture teardown until its guard drops
+        // (`kill_terminals_for_conversation` walks the same registry), so a
+        // retry must not run concurrently with it. Checking that and then
+        // killing would leave a window for a Stop to claim the lane after the
+        // check, so the lanes are *claimed* instead: `claim_lanes` takes every
+        // lane the retry is about to touch or refuses all of them, and the
+        // guards keep replacement admission out until the kills are done. That
+        // is lane-scoped rather than request-scoped, deliberately: the guard
+        // only records the conversation, and lane admission already refuses a
+        // new turn while the guard is held, so the only traffic this can hold
+        // back is a retry for an older request. Such a retry stays tracked and
+        // succeeds once cleanup finishes, while killing during an unrelated
+        // teardown could race the same session registry. Blocking is the safe
+        // direction.
+        let mut lanes: Vec<String> = sessions
+            .iter()
+            .filter_map(|(_, owner)| owner.conversation_id.clone())
+            .collect();
+        lanes.sort_unstable();
+        lanes.dedup();
+        let Some(claims) = crate::core::turn_order::claim_lanes(
+            &self.stopping_conversations,
+            lanes.iter().map(String::as_str),
+        ) else {
+            return Err(crate::core::error::AppError::Message(
+                "Command cleanup is still running. Retry Stop when it finishes.".to_string(),
+            ));
+        };
+        let cleanup = self.kill_tracked_terminals(pty_state, sessions).await;
+        drop(claims);
+        cleanup
     }
 
     pub async fn kill_terminals_for_conversation(

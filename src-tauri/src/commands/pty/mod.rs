@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::io::{Read, Write};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use tauri::{AppHandle, Emitter};
@@ -20,6 +20,13 @@ use tokio_util::sync::CancellationToken;
 const SESSION_OUTPUT_CAP: usize = 512_000;
 /// Finished agent sessions kept around for `read_terminal` after completion.
 const MAX_FINISHED_SESSIONS: usize = 20;
+
+/// How long the piped-session monitor waits for the pipe readers to drain before
+/// it reports a finished process. Seeing the child exit does not mean its output
+/// has been read yet, and a waiter that wakes on the exit signal alone would miss
+/// the last of it. Bounded, because a descendant that inherited the pipe can hold
+/// it open long after the tracked process exited.
+const PIPE_DRAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -64,6 +71,11 @@ pub struct SessionMeta {
     pub scrape_preview: AtomicBool,
     preview_ready: Mutex<PreviewReadiness>,
     pub cwd: Mutex<Option<String>>,
+    /// Reader threads that are still draining this session's output. An exit is not
+    /// published while one is draining: the bytes the process wrote just before it
+    /// exited are still in the pipe, and a caller that woke on the exit signal would
+    /// read a short buffer.
+    readers: AtomicUsize,
 }
 
 impl SessionMeta {
@@ -78,7 +90,28 @@ impl SessionMeta {
             scrape_preview: AtomicBool::new(false),
             preview_ready: Mutex::new(PreviewReadiness::default()),
             cwd: Mutex::new(None),
+            readers: AtomicUsize::new(0),
         }
+    }
+
+    /// Register a reader thread that is about to drain this session's output.
+    fn begin_reading(&self) {
+        self.readers.fetch_add(1, Ordering::SeqCst);
+    }
+
+    /// Deregister a reader thread that has stopped draining.
+    fn end_reading(&self) {
+        self.readers.fetch_sub(1, Ordering::SeqCst);
+    }
+
+    /// Whether output can still arrive after the process itself has exited.
+    pub fn draining(&self) -> bool {
+        self.readers.load(Ordering::SeqCst) > 0
+    }
+
+    /// Wait, up to `timeout`, for the readers that are draining this session.
+    pub fn await_drains(&self, timeout: std::time::Duration) {
+        exit_status::await_drains(&self.readers, timeout);
     }
 
     fn append_output(&self, data: &str) {
@@ -235,7 +268,7 @@ impl TerminationTarget {
                 cancellation_token,
                 meta,
             } => {
-                exit_status::terminate(
+                let observed = exit_status::terminate(
                     child,
                     |child| {
                         child
@@ -245,11 +278,14 @@ impl TerminationTarget {
                     |child| child.kill(),
                     timeout,
                 )?;
-                meta.mark_exited(Some(-1));
+                // A process that had already exited when Stop arrived was not killed, so its own
+                // status is reported; one this call killed keeps the cancellation marker (-1),
+                // which `mark_exited` then protects from a later collected status.
+                meta.mark_exited(Some(if observed.killed { -1 } else { observed.code }));
                 cancellation_token.cancel();
             }
             Self::Piped { child, meta } => {
-                exit_status::terminate(
+                let observed = exit_status::terminate(
                     child,
                     |slot| {
                         slot.as_mut()
@@ -264,7 +300,7 @@ impl TerminationTarget {
                     },
                     timeout,
                 )?;
-                meta.mark_exited(Some(-1));
+                meta.mark_exited(Some(if observed.killed { -1 } else { observed.code }));
             }
         }
         Ok(())
@@ -300,9 +336,9 @@ impl PtyState {
     }
 
     pub fn kill_all_sync(&self) {
-        let (targets, failure) = self.termination_targets();
-        if let Some(error) = failure {
-            log::warn!("Could not enumerate every terminal session: {error}");
+        let (targets, failures) = self.termination_targets();
+        for failure in failures {
+            log::warn!("Could not enumerate a terminal session: {failure}");
         }
         for (id, target) in targets {
             let result = target
@@ -346,18 +382,20 @@ impl PtyState {
         ownership_loss(recorded_owner)
     }
 
-    fn termination_targets(&self) -> (Vec<(u32, TerminationTarget)>, Option<AppError>) {
+    /// Every session that can be terminated, plus one message per registry that could not be
+    /// read. A caller that has to stop an unknown number of sessions must report the registry it
+    /// could not read: a partial sweep that stays silent about the sessions it never saw is the
+    /// failure mode this enumeration exists to avoid.
+    fn termination_targets(&self) -> (Vec<(u32, TerminationTarget)>, Vec<String>) {
         let mut targets = Vec::new();
-        let mut failure = None;
+        let mut failures = Vec::new();
         match self.sessions.lock() {
             Ok(sessions) => targets.extend(
                 sessions
                     .iter()
                     .map(|(id, session)| (*id, TerminationTarget::from_pty(session))),
             ),
-            Err(error) => {
-                failure = Some(AppError::from(error));
-            }
+            Err(error) => failures.push(format!("PTY sessions: {error}")),
         }
         match self.piped_sessions.lock() {
             Ok(sessions) => targets.extend(
@@ -365,11 +403,9 @@ impl PtyState {
                     .iter()
                     .map(|(id, session)| (*id, TerminationTarget::from_piped(session))),
             ),
-            Err(error) => {
-                failure.get_or_insert(AppError::from(error));
-            }
+            Err(error) => failures.push(format!("piped sessions: {error}")),
         }
-        (targets, failure)
+        (targets, failures)
     }
 
     fn release_terminated(&self, id: u32, owner: &Arc<SessionMeta>) -> Result<(), AppError> {
@@ -479,20 +515,30 @@ impl PtyState {
         if !meta.is_running() {
             return Some(false);
         }
-        // An unreadable registry cannot confirm an exit, but "status
-        // unavailable" blocks reading output. The metadata is authoritative for
-        // the running state, so fall back to it; a poisoned lock still leaves
-        // the handle registered for a later Stop retry.
-        if let Some(target) = self.termination_target(id, &meta).ok().flatten() {
-            return match target.poll() {
+        if let Ok(Some(target)) = self.termination_target(id, &meta) {
+            match target.poll() {
                 Ok(Some(code)) => {
+                    // The process is gone, but its readers may still be appending the bytes it
+                    // wrote last, and a session that looks finished with a short buffer loses
+                    // that output. Whoever drains the pipes publishes the exit (bounded), so
+                    // until then the session keeps reporting as running rather than publishing
+                    // an exit the output has not caught up with.
+                    if meta.draining() {
+                        return Some(true);
+                    }
                     target.meta().mark_exited(Some(code));
-                    Some(false)
+                    return Some(false);
                 }
-                Ok(None) => Some(true),
-                Err(_) => None,
-            };
+                Ok(None) => return Some(true),
+                // A contended or unreadable child status is not an exit; fall through to the
+                // metadata below instead of failing the read.
+                Err(_) => {}
+            }
         }
+        // The metadata is authoritative for the running state. Neither a registry that cannot
+        // be read nor a child status that cannot be polled is an exit, and "status unavailable"
+        // would block reading a terminal that is still tracked and stoppable; a poisoned or
+        // contended lock therefore keeps the session reported as running.
         Some(meta.is_running())
     }
 
@@ -505,6 +551,13 @@ impl PtyState {
             .session_meta(id)
             .ok_or_else(|| AppError::Message(format!("Terminal session {} not found", id)))?;
 
+        // Resolve the running state first: this is what decides whether an exit is already
+        // published, and the buffer must be read after it, or a session that just finished
+        // would be reported as exited with the output it had before its last bytes arrived.
+        let running = self
+            .session_is_running(id)
+            .ok_or_else(|| AppError::Message("Terminal process status is unavailable".into()))?;
+
         let full_output = meta
             .output
             .lock()
@@ -513,10 +566,6 @@ impl PtyState {
         let output_chars = full_output.chars().count();
         let tail = tail_chars.max(500).min(50_000);
         let output = tail_of(&full_output, tail);
-
-        let running = self
-            .session_is_running(id)
-            .ok_or_else(|| AppError::Message("Terminal process status is unavailable".into()))?;
         let command = meta.command.lock().ok().and_then(|c| c.clone());
         let waiting_for_input = running && looks_like_input_prompt(&full_output);
         let preview_ready = meta.preview_ready.lock()?.clone();
@@ -1485,6 +1534,7 @@ async fn spawn_pty_with_command(
     let writer_for_reader = writer;
     thread::spawn(move || {
         let mut buf = [0u8; 8192];
+        meta.begin_reading();
         loop {
             if token.is_cancelled() {
                 break;
@@ -1551,6 +1601,9 @@ async fn spawn_pty_with_command(
                 Err(_) => break,
             }
         }
+        // The pipe is drained: from here the exit this thread publishes describes a
+        // complete buffer.
+        meta.end_reading();
         let observed = exit_status::wait_for_exit(&child, |child| {
             child
                 .try_wait()
@@ -1646,13 +1699,16 @@ pub fn spawn_piped_session(
     drop(meta_map);
     drop(piped);
 
-    // Reader threads: drain pipes into the session buffer + callbacks.
+    // Reader threads: drain pipes into the session buffer + callbacks. The
+    // monitor below waits for them before it reports the exit, so a finished
+    // process is not announced while its last output is still in the pipe.
     for pipe in [stdout.map(PipeSource::Out), stderr.map(PipeSource::Err)]
         .into_iter()
         .flatten()
     {
         let meta_r = meta.clone();
         let cb = callbacks.clone();
+        meta.begin_reading();
         thread::spawn(move || {
             let mut reader: Box<dyn Read + Send> = match pipe {
                 PipeSource::Out(o) => Box::new(o),
@@ -1671,6 +1727,7 @@ pub fn spawn_piped_session(
                     }
                 }
             }
+            meta_r.end_reading();
         });
     }
 
@@ -1699,6 +1756,10 @@ pub fn spawn_piped_session(
             }
         };
         if let Some(code) = status {
+            // The child is gone, but its readers own the bytes it wrote last: give
+            // them the chance to finish appending before the session looks
+            // finished, so `exit_code`/`on_exit` never race a truncated buffer.
+            meta_m.await_drains(PIPE_DRAIN_TIMEOUT);
             meta_m.mark_exited(Some(code));
             if let Some(cb) = &cb_exit {
                 (cb.on_exit)(id, code);
@@ -1818,13 +1879,18 @@ async fn terminate_and_release(
 }
 
 pub async fn pty_kill_all(state: tauri::State<'_, PtyState>) -> Result<(), AppError> {
-    let (targets, mut failure) = state.termination_targets();
+    let (targets, mut failures) = state.termination_targets();
     for (id, target) in targets {
         if let Err(error) = terminate_and_release(&state, id, target).await {
-            failure.get_or_insert(error);
+            failures.push(format!("session {id}: {error}"));
         }
     }
-    failure.map_or(Ok(()), Err)
+    // Aggregate: the first failure used to be the only one reported, which hid the
+    // sessions that still needed a stop.
+    match crate::core::session_ownership::aggregate_cleanup_failures(failures) {
+        Some(message) => Err(AppError::Message(message)),
+        None => Ok(()),
+    }
 }
 
 #[cfg(test)]
@@ -1966,7 +2032,7 @@ mod scrape_tests {
     }
 
     #[test]
-    fn a_snapshot_cannot_grant_running_status_when_child_state_is_unavailable() {
+    fn an_unreadable_child_registry_reports_the_metadata_state_instead_of_failing() {
         let state = PtyState::new();
         state
             .session_meta
@@ -1978,7 +2044,13 @@ mod scrape_tests {
             panic!("test poisoned child-session lock");
         }));
         assert!(poisoned.is_err());
-        assert!(state.read_session_output(7, 500).is_err());
+        // The metadata is authoritative for the running state: an unreadable registry
+        // must not turn a read into an error, and it must not invent an exit either.
+        let snapshot = state.read_session_output(7, 500).unwrap();
+        assert!(snapshot.running);
+        assert_eq!(snapshot.exit_code, None);
+        // The handle stays tracked, so a later Stop can still confirm termination.
+        assert!(state.session_meta.lock().unwrap().contains_key(&7));
     }
 
     #[test]
@@ -1999,6 +2071,46 @@ mod scrape_tests {
     fn next_dev_gets_hostname_flag() {
         let out = with_ipv4_hostname("next dev --turbopack --port 3003");
         assert_eq!(out, "next dev --turbopack --port 3003 --hostname 127.0.0.1");
+    }
+}
+
+#[cfg(test)]
+mod drain_tests {
+    use super::*;
+
+    #[test]
+    fn a_session_with_draining_readers_is_not_reported_as_finished() {
+        let meta = Arc::new(SessionMeta::new(SessionKind::AgentPiped));
+        assert!(!meta.draining());
+        meta.begin_reading();
+        meta.begin_reading();
+        assert!(meta.draining());
+        // A wait that has nothing to wait for must not cost anything.
+        let started = std::time::Instant::now();
+        meta.await_drains(std::time::Duration::from_secs(5));
+        assert!(started.elapsed() < std::time::Duration::from_millis(50));
+        let reader = meta.clone();
+        thread::spawn(move || {
+            thread::sleep(std::time::Duration::from_millis(20));
+            reader.end_reading();
+            reader.end_reading();
+        });
+        meta.await_drains(std::time::Duration::from_secs(5));
+        assert!(!meta.draining());
+    }
+
+    #[test]
+    fn a_reader_that_never_finishes_does_not_hold_the_exit_forever() {
+        let meta = SessionMeta::new(SessionKind::AgentPiped);
+        meta.begin_reading();
+        let started = std::time::Instant::now();
+        meta.await_drains(std::time::Duration::from_millis(30));
+        let elapsed = started.elapsed();
+        assert!(
+            elapsed >= std::time::Duration::from_millis(25),
+            "{elapsed:?}"
+        );
+        assert!(elapsed < std::time::Duration::from_secs(5), "{elapsed:?}");
     }
 }
 
