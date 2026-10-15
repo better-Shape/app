@@ -103,6 +103,32 @@ it("prefers recovery another renderer persisted after this window loaded its cop
     expect(loadDirtyBuffer("/a.txt")?.content).toBe("my next edit");
 });
 
+it("does not show a stale staged copy over recovery another renderer persisted while it waited", () => {
+    const key = "bettershape-dirty-buffers-v2:%2Fa.txt";
+    stageDirtyBuffer("/a.txt", "local draft", "disk");
+    // The staged change is still waiting for its flush when the other renderer commits.
+    vi.setSystemTime(Date.now() + 1000);
+    localStorage.setItem(key, JSON.stringify({ path: "/a.txt", content: "newer draft", savedContent: "disk", updatedAt: Date.now() }));
+    expect(loadDirtyBuffer("/a.txt")?.content).toBe("newer draft");
+    expect(listDirtyBuffers().map((buffer) => buffer.content)).toEqual(["newer draft"]);
+    expect(flushDirtyBuffers()).toBe(true);
+});
+
+it("keeps both copies when a staged change ties a committed record in the same millisecond", () => {
+    const key = "bettershape-dirty-buffers-v2:%2Fa.txt";
+    stageDirtyBuffer("/a.txt", "local draft", "disk");
+    // Same stamp, different content: neither write can be shown to be newer.
+    localStorage.setItem(key, JSON.stringify({ path: "/a.txt", content: "other draft", savedContent: "disk", updatedAt: Date.now() }));
+    expect(flushDirtyBuffers()).toBe(false);
+    expect(JSON.parse(localStorage.getItem(key)!).content).toBe("other draft");
+    expect(loadDirtyBuffer("/a.txt")?.content).toBe("local draft");
+    // A later edit restamps past the tie and persists.
+    vi.setSystemTime(Date.now() + 1000);
+    stageDirtyBuffer("/a.txt", "local draft v2", "disk");
+    expect(flushDirtyBuffers()).toBe(true);
+    expect(JSON.parse(localStorage.getItem(key)!).content).toBe("local draft v2");
+});
+
 it("does not overwrite recovery another renderer persisted before a delayed flush", () => {
     const key = "bettershape-dirty-buffers-v2:%2Fa.txt";
     stageDirtyBuffer("/a.txt", "late local draft", "disk");

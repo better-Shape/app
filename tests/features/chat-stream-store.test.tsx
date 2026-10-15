@@ -365,6 +365,24 @@ it("reloads the persisted transcript for the exact stopped turn", async () => {
     expect(api.isLoading).toBe(false);
 });
 
+it("resyncs again when the cancelled turn finishes persisting after Stop's completion", async () => {
+    await mount("A"); await answerMessages("A", [msg("user", "Question")]);
+    emit("chat_started", { conversationId: "A", turnId: "stopped" });
+    act(() => api.stopLiveTurn());
+    // Stop's own completion releases the UI and reloads the transcript it saved then.
+    emit("chat_complete", { conversationId: "A", turnId: "stopped", error: "Cancelled" });
+    await answerMessages("A", [msg("user", "Question"), msg("assistant", "Stopped early")]);
+    expect(api.messages.at(-1)?.content).toBe("Stopped early");
+    // The turn then unwinds and persists its final transcript under the same turn id.
+    emit("chat_complete", { conversationId: "A", turnId: "stopped", error: "Cancelled" });
+    await answerMessages("A", [
+        msg("user", "Question"),
+        msg("assistant", "Stopped early"),
+        msg("assistant", "Written while unwinding"),
+    ]);
+    expect(api.messages.at(-1)?.content).toBe("Written while unwinding");
+});
+
 it("does not reload a stopped completion over a replacement send", async () => {
     await mount("A"); await answerMessages("A", [msg("user", "Question")]);
     emit("chat_started", { conversationId: "A", turnId: "stopped" });

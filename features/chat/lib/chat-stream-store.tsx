@@ -144,6 +144,10 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
     const turnIdRef = React.useRef<string | null>(null);
     const ignoredIdsRef = React.useRef<Set<string>>(new Set());
     const stoppedTurnsRef = React.useRef(new Map<string, string>());
+    // Turns that already reported a Cancelled completion. A stopped turn reports twice:
+    // Stop's own completion, then the turn finishing its persistence. The second one still
+    // carries the transcript that turn wrote last, so it must not be dropped as stale.
+    const cancelledTurnsRef = React.useRef(new Map<string, string>());
     const turnOrderRef = React.useRef(new TurnOrder());
 
     React.useEffect(() => {
@@ -428,7 +432,10 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
                     && (!convId || liveTurnsRef.current.get(convId)?.requestId !== eventRequestId)) return;
                 if (isForeignConversation(convId) || !tid || !turnOrder.start(convId ?? PENDING_KEY, tid)) return;
                 if (convId && stoppedTurnsRef.current.get(convId) === tid) return;
-                if (convId) stoppedTurnsRef.current.delete(convId);
+                if (convId) {
+                    stoppedTurnsRef.current.delete(convId);
+                    cancelledTurnsRef.current.delete(convId);
+                }
                 setChatActivity(convId, "thinking");
                 const startedModel = event.payload?.model;
                 const usedAuto = event.payload?.usedAuto;
@@ -546,9 +553,17 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
                 const current = conversationId ? liveTurnsRef.current.get(conversationId) : undefined;
                 if (conversationId && turnId && stoppedTurnsRef.current.get(conversationId) === turnId) {
                     stoppedTurnsRef.current.delete(conversationId);
+                    cancelledTurnsRef.current.set(conversationId, turnId);
                     // Stop removed the live owner, but its saved transcript still belongs to
                     // this exact turn. Never refresh over a replacement optimistic send.
                     if (!current && viewingIdRef.current === conversationId) void reloadViewedMessages();
+                    return;
+                }
+                if (conversationId && turnId && !current && cancelledTurnsRef.current.get(conversationId) === turnId) {
+                    // The cancelled turn is finishing its own persistence, after Stop already
+                    // released the UI. Its transcript is the one it just wrote, so resync to
+                    // it — still never over a replacement optimistic send (`!current`).
+                    if (viewingIdRef.current === conversationId) void reloadViewedMessages();
                     return;
                 }
                 if (turnId && turnId !== current?.turnId) return;
@@ -604,6 +619,7 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
                 // Cancelled turns are persisted server-side — resync so Stop
                 // doesn't leave a wiped/empty assistant bubble.
                 if (error === "Cancelled") {
+                    if (conversationId && turnId) cancelledTurnsRef.current.set(conversationId, turnId);
                     void reloadViewedMessages();
                     return;
                 }

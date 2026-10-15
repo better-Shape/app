@@ -156,6 +156,11 @@ export function DesignInspectOverlay({
             selectAuthorizedFrame(authorization);
         }).catch(() => {
             if (!cancelled && authorizationRef.current === authorization) {
+                // A failed (re-)registration means no bridge is answering, but the frame may
+                // still be armed from the previous activation: release its click capture
+                // before dropping authority, or the canvas keeps swallowing clicks while the
+                // UI reports design mode off.
+                stopInspection();
                 authorizationRef.current = null;
                 setSelection(null);
                 notify.error("Could not start design inspection");

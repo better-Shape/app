@@ -95,8 +95,15 @@ function readAll(): Map<string, DirtyBuffer> {
         map.set(path, stored && stored.updatedAt > buffer.updatedAt ? stored : { ...buffer });
     }
     for (const [path, buffer] of pendingBuffers) {
-        if (buffer) map.set(path, { ...buffer });
-        else {
+        if (buffer) {
+            // Same ordering rule the flush applies: a record another renderer persisted
+            // after this change outranks the staged copy, so a stale local draft cannot
+            // hide newer recovery. Equal stamps stay with the staged change, because the
+            // two writes cannot be ordered (see writePending).
+            const stored = map.get(path);
+            const intentAt = pendingIntents.get(path) ?? buffer.updatedAt;
+            map.set(path, stored && stored.updatedAt > intentAt ? stored : { ...buffer });
+        } else {
             // A newer record means the discarded content was re-drafted elsewhere.
             const stored = map.get(path);
             if (stored && stored.updatedAt > (pendingIntents.get(path) ?? 0)) map.set(path, stored);
@@ -120,6 +127,14 @@ function writePending(): boolean {
                 pendingBuffers.delete(path);
                 pendingIntents.delete(path);
             }
+            continue;
+        }
+        if (buffer && stored && stored.updatedAt === intentAt && stored.content !== buffer.content) {
+            // Two writers stamped the same millisecond, so the wall clock cannot say which
+            // one is newer. This staged copy must not replace a committed record on a guess:
+            // it stays pending instead, so this window still shows it and the unload guard
+            // keeps protecting it, while the durable record stays untouched. The next edit
+            // restamps and resolves the tie in the usual way.
             continue;
         }
         try {
