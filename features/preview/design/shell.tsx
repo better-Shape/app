@@ -598,9 +598,10 @@ export function DesignStudio({
         let cancelled = false;
         let unsubscribeReady = () => {};
         let opened = false;
+        let openedUrl: string | null = null;
         let startupFinished = false;
         const ownerAtBoot = projectPathRef.current;
-        let opening: { authorization: DesignAuthorization; promise: Promise<boolean> } | null = null;
+        let opening: { authorization: DesignAuthorization; url: string; promise: Promise<boolean> } | null = null;
         authorizationRef.current = null;
         setBooting(true);
         setReady(false);
@@ -640,10 +641,11 @@ export function DesignStudio({
                     if (cancelled || projectPathRef.current !== ownerAtBoot || !sameProjectPath(getBackgroundRunCwd() || "", info.projectRoot)) return Promise.resolve(false);
                     const authorization = authorizeDesignPreview(info.projectRoot, url);
                     if (!authorization) return Promise.resolve(false);
-                    if (opened && isCurrentDesignAuthorization(authorizationRef.current, info.projectRoot)) return Promise.resolve(true);
+                    const targetUrl = new URL(url).href;
+                    if (opened && openedUrl === targetUrl && isCurrentDesignAuthorization(authorizationRef.current, info.projectRoot)) return Promise.resolve(true);
                     if (opening) {
-                        if (opening.authorization.serviceId === authorization.serviceId && opening.authorization.origin === authorization.origin) return opening.promise;
-                        // A replacement's one readiness event must survive an older
+                        if (opening.url === targetUrl && opening.authorization.serviceId === authorization.serviceId && opening.authorization.origin === authorization.origin) return opening.promise;
+                        // A replacement service or path announcement must survive an older
                         // registration/probe. Revalidate it after that owner finishes.
                         return opening.promise.then(() => openWhenReachable(url));
                     }
@@ -666,6 +668,7 @@ export function DesignStudio({
                         // The owned probe just succeeded; do not introduce a second probe
                         // that can fail after this boot has been marked open.
                         opened = showPreviewUrl(url);
+                        openedUrl = opened ? targetUrl : null;
                         if (!opened) authorizationRef.current = null;
                         return opened;
                     })().catch((cause: unknown) => {
@@ -681,7 +684,7 @@ export function DesignStudio({
                             }
                         }
                     });
-                    opening = { authorization, promise };
+                    opening = { authorization, url: targetUrl, promise };
                     return promise;
                 };
 

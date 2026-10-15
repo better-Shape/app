@@ -554,3 +554,60 @@ it("does not fall back to shared implementation text when the component instance
     await act(async () => backend.panel!.onComponentPatch?.({ key: element.key, field: "text", value: "Changed" }));
     expect(backend.patch).not.toHaveBeenCalled();
 });
+
+async function announcePath(path: string) {
+    await act(async () => {
+        backend.service = { ...backend.service, url: `http://localhost:5173${path}` };
+        for (const callback of backend.ready) callback(backend.service.url);
+    });
+}
+it("opens a newly announced path and query on the same running service", async () => {
+    await render();
+    const previous = host.querySelector("iframe");
+    await announcePath("/workspace?mode=design#preview");
+    expect(host.querySelector("iframe")?.src).toBe("http://localhost:5173/workspace?mode=design#preview");
+    expect(host.querySelector("iframe")).not.toBe(previous);
+    expect(backend.register).toHaveBeenCalledTimes(2);
+});
+it("retains a later same-origin path while another path is registering", async () => {
+    await render();
+    let finish!: () => void;
+    backend.register.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; }));
+    await announcePath("/first");
+    expect(backend.register).toHaveBeenCalledTimes(2);
+    await announcePath("/latest?mode=design");
+    await act(async () => finish());
+    expect(host.querySelector("iframe")?.src).toBe("http://localhost:5173/latest?mode=design");
+    expect(backend.register).toHaveBeenCalledTimes(3);
+});
+it("coalesces equivalent readiness URLs without replacing the frame", async () => {
+    await render();
+    const previous = host.querySelector("iframe");
+    await announcePath("/");
+    await announcePath("");
+    expect(host.querySelector("iframe")).toBe(previous);
+    expect(backend.register).toHaveBeenCalledTimes(1);
+});
+it("allows a failed same-origin path to retry on the next announcement", async () => {
+    await render();
+    backend.probe.mockResolvedValueOnce(false);
+    await announcePath("/retry");
+    expect(host.textContent).toContain("Could not connect to the project preview.");
+    await announcePath("/retry");
+    expect(host.querySelector("iframe")?.src).toBe("http://localhost:5173/retry");
+    expect(host.textContent).not.toContain("Could not connect to the project preview.");
+});
+it.each(["?mode=design", "#preview"])("honors a query-only or fragment-only readiness change: %s", async suffix => {
+    await render();
+    await announcePath("/workspace");
+    await announcePath(`/workspace${suffix}`);
+    expect(host.querySelector("iframe")?.src).toBe(`http://localhost:5173/workspace${suffix}`);
+    expect(backend.register).toHaveBeenCalledTimes(3);
+});
+it("revokes retained selection callbacks when a new path replaces the document", async () => {
+    const panel = await selectForMutation();
+    await announcePath("/new-document");
+    await act(async () => panel.onCommit({ color: "red" }));
+    expect(backend.patch).not.toHaveBeenCalled();
+    expect(backend.save).not.toHaveBeenCalled();
+});
