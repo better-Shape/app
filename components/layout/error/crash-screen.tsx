@@ -6,6 +6,7 @@ import { ChevronRight20Regular } from "@fluentui/react-icons/headless/svg/chevro
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { submitProblemReport } from "@/lib/feedback/report";
+import { redactText } from "@/lib/diagnostics/scrub";
 
 export interface CrashScreenProps {
     /** What failed, in the user's terms: "Something went wrong", "IDE crashed". */
@@ -43,6 +44,7 @@ export function CrashScreen({
     const [reporting, setReporting] = useState(false);
     const [reported, setReported] = useState(false);
     const [detailsOpen, setDetailsOpen] = useState(false);
+    const [attachDetails, setAttachDetails] = useState(false);
     const retryRef = useRef<HTMLButtonElement>(null);
 
     // `autoFocus` does not fire in a boundary that mounts mid-render, so focus is
@@ -65,6 +67,23 @@ export function CrashScreen({
                 typeof window === "undefined"
                     ? "unknown"
                     : window.location.pathname + window.location.search;
+            // The exception stays off the report unless the user asks for it, and it
+            // goes through the same scrubber the chat reports use. A crash message can
+            // carry a path or a token, and a prefilled issue puts the text in a URL.
+            const technical = attachDetails
+                ? [
+                      "",
+                      "### Error",
+                      "```",
+                      redactText(message || "no message", 1500),
+                      "```",
+                      "",
+                      "### Stack",
+                      "```",
+                      redactText(stack ?? "no stack captured", 3000),
+                      "```",
+                  ]
+                : [];
             await submitProblemReport({
                 category: "Crash",
                 message: [
@@ -75,16 +94,7 @@ export function CrashScreen({
                     "### Where",
                     `- Screen: ${where}`,
                     `- Digest: ${digest ?? "none"}`,
-                    "",
-                    "### Error",
-                    "```",
-                    (message || "no message").slice(0, 1500),
-                    "```",
-                    "",
-                    "### Stack",
-                    "```",
-                    (stack ?? "no stack captured").slice(0, 3000),
-                    "```",
+                    ...technical,
                 ].join("\n"),
             });
             setReported(true);
@@ -133,8 +143,19 @@ export function CrashScreen({
                     {reported ? null : <Icon icon={ChevronRight20Regular} />}
                 </Button>
 
+                <label className="mt-2 flex cursor-pointer items-center gap-2 text-2xs text-text-muted">
+                    <input
+                        type="checkbox"
+                        checked={attachDetails}
+                        onChange={(event) => setAttachDetails(event.target.checked)}
+                        className="size-3.5 shrink-0 accent-accent"
+                    />
+                    Attach technical details
+                </label>
+
                 <p className="mt-1 max-w-[19rem] text-2xs leading-relaxed text-text-disabled">
                     Copies a redacted report and opens a prefilled issue. Nothing is sent until you submit it.
+                    {attachDetails ? " The stack is included and scrubbed." : " The stack stays out."}
                 </p>
 
                 {/*

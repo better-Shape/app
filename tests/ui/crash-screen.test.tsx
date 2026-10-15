@@ -4,6 +4,9 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const reportMock = vi.hoisted(() => vi.fn(async () => {}));
+vi.mock("@/lib/feedback/report", () => ({ submitProblemReport: reportMock }));
+
 /**
  * The crash screen is the surface a user meets when the product is already failing
  * them, and it used to be the one place in the app that ignored the design system:
@@ -20,6 +23,7 @@ let container: HTMLDivElement;
 let root: Root;
 
 beforeEach(() => {
+    reportMock.mockClear();
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -92,12 +96,25 @@ describe("CrashScreen", () => {
                     hint={props.hint ?? "Nothing is lost, and trying again is free."}
                     message={props.message ?? "boom"}
                     digest={props.digest}
+                    stack={props.stack}
                     onRetry={props.onRetry ?? (() => {})}
                     onReload={props.onReload ?? (() => {})}
                 />,
             ),
         );
     }
+
+    async function report() {
+        const button = [...container.querySelectorAll("button")].find((b) =>
+            b.textContent?.includes("Report"),
+        ) as HTMLButtonElement;
+        await act(async () => {
+            button.click();
+            await Promise.resolve();
+        });
+    }
+
+    const lastReport = () => reportMock.mock.calls.at(-1)?.[0].message as string;
 
     it("shows the title and the plain-language hint", async () => {
         await render({ title: "BetterShape hit an unexpected error", hint: "Your files on disk are untouched." });
@@ -145,6 +162,36 @@ describe("CrashScreen", () => {
         expect(buttons[1]?.textContent).toContain("Reload IDE");
         act(() => buttons[0]?.click());
         expect(onRetry).toHaveBeenCalledTimes(1);
+    });
+
+    // A crash message can carry a path or an API key, and the report becomes a prefilled
+    // issue URL, so the exception only travels when the user ticks the box, and it goes
+    // through the same scrubber the chat reports use.
+    const SECRET = "sk-live-abcdefghijklmnop";
+    const STACK = `Error: boom\n    at run (/home/odette/secret-project/src/run.ts:12:5)\n    ${SECRET}`;
+
+    it("leaves the exception out of the report by default", async () => {
+        await render({ message: "boom", stack: STACK });
+        await report();
+        const body = lastReport();
+        expect(body).toContain("### Where");
+        expect(body).not.toContain("### Stack");
+        expect(body).not.toContain(SECRET);
+    });
+
+    it("sends a scrubbed stack when the user attaches it", async () => {
+        await render({ message: "boom", stack: STACK });
+        const box = container.querySelector('input[type="checkbox"]') as HTMLInputElement;
+        act(() => box.click());
+        await report();
+        const body = lastReport();
+        expect(body).toContain("### Stack");
+        expect(body).not.toContain(SECRET);
+        expect(body).toContain("[redacted]");
+        // The home directory and the secret both have to be unreadable in the payload,
+        // whatever shape the scrubbing leaves them in.
+        expect(body).not.toContain("/home/");
+        expect(body).not.toContain("odette");
     });
 
     it("offers a way to report the crash without sending anything", async () => {

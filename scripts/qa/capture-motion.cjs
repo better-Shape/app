@@ -244,6 +244,14 @@ function buildSheet(framePaths, outPath, label) {
 
 // ── main ───────────────────────────────────────────────────────────────────
 
+// A typo in `--only` used to select no cases, write an empty manifest and exit 0.
+const KNOWN = new Set(CASES.map((c) => c.name));
+const UNKNOWN = ONLY.filter((name) => !KNOWN.has(name));
+if (UNKNOWN.length) {
+    console.error(`unknown case(s): ${UNKNOWN.join(", ")}\nknown cases: ${[...KNOWN].join(", ")}`);
+    process.exit(1);
+}
+
 async function main() {
     if (LIST) {
         for (const c of CASES) log(`${c.name}\t${c.title}`);

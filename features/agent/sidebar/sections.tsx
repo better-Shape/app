@@ -555,7 +555,7 @@ const ChatRowTrailingActions = ({ generating, unread, pinned, nestedCount, expan
     <>
         <ChatRowStatusDots generating={generating} unread={unread} />
         <span className="flex shrink-0 items-center">
-            <span className="grid grid-cols-[0fr] overflow-hidden transition-[grid-template-columns] duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] group-hover/chat:grid-cols-[1fr] group-has-[[data-state=open]]/chat:grid-cols-[1fr]">
+            <span className="grid grid-cols-[0fr] overflow-hidden invisible transition-[grid-template-columns,visibility] duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] group-hover/chat:visible group-hover/chat:grid-cols-[1fr] group-has-[[data-state=open]]/chat:visible group-has-[[data-state=open]]/chat:grid-cols-[1fr] group-focus-within/chat:visible group-focus-within/chat:grid-cols-[1fr]">
             <span className="flex min-w-0 overflow-hidden">
             <ChatRowActionMenus
                 pinned={pinned}

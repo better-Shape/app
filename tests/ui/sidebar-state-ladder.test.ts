@@ -231,3 +231,16 @@ function walk(dir: string, out: string[] = []): string[] {
     }
     return out;
 }
+
+describe("the collapsed chat row actions", () => {
+    it("are not focusable while they are hidden", () => {
+        // The reveal is a grid-width animation, so the buttons stay in the DOM at zero
+        // width. Without `invisible` a keyboard user lands on controls nobody can see.
+        const source = read("features/agent/sidebar/sections.tsx");
+        const reveal = source.match(/className="grid grid-cols-\[0fr\][^"]*"/)?.[0] ?? "";
+        expect(reveal, "the reveal wrapper moved or changed shape").not.toBe("");
+        expect(reveal).toContain("invisible");
+        expect(reveal).toMatch(/group-hover\/chat:visible/);
+        expect(reveal).toMatch(/group-focus-within\/chat:visible/);
+    });
+});

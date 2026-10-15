@@ -2,7 +2,7 @@
 
 import { CrashScreen } from "@/components/layout/error/crash-screen";
 
-export default function Error({
+export default function RouteError({
     error,
     reset,
 }: {
@@ -10,8 +10,8 @@ export default function Error({
     reset: () => void;
 }) {
     // The route boundary used to say only "Can't reach this page" and throw the error
-    // away, so the one screen a user sees when the UI fails to load was also the one
-    // Same screen as the other two boundaries, so the three cannot drift apart.
+    // away. It now renders the same screen as the other two boundaries, so the three
+    // cannot drift apart.
     return (
         <CrashScreen
             title="This page hit an error"

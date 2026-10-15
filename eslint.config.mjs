@@ -87,13 +87,18 @@ const eslintConfig = defineConfig([
     "playwright-report/**",
     "blob-report/**",
     "playwright/.cache/**",
+    // Generated QA output: screenshots, GIF frames, probe scripts and manifests.
+    // They are artifacts of a run, not application source, and they are not tracked.
+    ".dump/app/qa/**",
   ]),
   {
-    // Node tooling scripts; the Next.js config never defines the React hooks
-    // plugin for .cjs files, so its hook rules must be off there rather than
-    // warn, or ESLint fails the run on a missing plugin. This block must stay
-    // after the global rules blocks above or they re-enable the rules.
-    files: ["scripts/**/*.cjs"],
+    // Every CommonJS file, not only the ones under `scripts`: the Next.js config
+    // never defines the React hooks plugin for .cjs files, so its hook rules must
+    // be off there rather than warn, or ESLint fails the run on a missing plugin.
+    // A single .cjs anywhere outside this block stopped lint with exit 2. This
+    // block must stay after the global rules blocks above or they re-enable the
+    // rules.
+    files: ["**/*.cjs"],
     rules: {
       "react-hooks/set-state-in-effect": "off",
       "react-hooks/refs": "off",
