@@ -45,7 +45,7 @@ export function faviconFromUrl(url: string) {
     }
 }
 
-export function createBrowserTab(url: string, id = `tab-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`): BrowserTab {
+export function createBrowserTab(url: string, id = `tab-${crypto.randomUUID()}`): BrowserTab {
     return {
         id,
         url,

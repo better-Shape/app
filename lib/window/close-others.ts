@@ -1,10 +1,17 @@
 "use client";
 
+const CLOSE_STARTED = "bettershape-window-close-started";
 const CLOSE_CANCELLED = "bettershape-window-close-cancelled";
 
 export async function reportCancelledClose(label: string): Promise<void> {
     const { emitTo } = await import("@tauri-apps/api/event");
     await emitTo("main", CLOSE_CANCELLED, { label }).catch(() => undefined);
+}
+
+/** A live close guard has taken ownership; its human prompts have no deadline. */
+export async function reportStartedClose(label: string): Promise<void> {
+    const { emitTo } = await import("@tauri-apps/api/event");
+    await emitTo("main", CLOSE_STARTED, { label }).catch(() => undefined);
 }
 
 /** Native close() queues a request; only destruction confirms it completed. */
@@ -24,7 +31,12 @@ export function closeOtherWindows(mainLabel: string): Promise<boolean> {
             for (const unlisten of cleanup) stop(unlisten);
             resolve(closed);
         };
-        const timer = setTimeout(() => finish(false), 60_000);
+        let timer: ReturnType<typeof setTimeout>;
+        const armDeadline = () => {
+            clearTimeout(timer);
+            timer = setTimeout(() => finish(false), 60_000);
+        };
+        armDeadline();
         const track = async (registration: Promise<() => void>) => {
             const unlisten = await registration;
             if (active) cleanup.add(unlisten);
@@ -38,6 +50,7 @@ export function closeOtherWindows(mainLabel: string): Promise<boolean> {
             for (const window of windows) {
                 if (!active) return false;
                 if (window.label === mainLabel) continue;
+                armDeadline();
                 let outcome: boolean | undefined;
                 let complete!: (closed: boolean) => void;
                 const destroyed = new Promise<boolean>((done) => { complete = done; });
@@ -49,6 +62,10 @@ export function closeOtherWindows(mainLabel: string): Promise<boolean> {
                 };
                 await track(listen<{ label: string }>(CLOSE_CANCELLED, ({ payload }) => {
                     if (payload.label === window.label) endWindow(false);
+                }));
+                if (!active) return false;
+                await track(listen<{ label: string }>(CLOSE_STARTED, ({ payload }) => {
+                    if (payload.label === window.label) clearTimeout(timer);
                 }));
                 if (!active) return false;
                 await track(window.once(TauriEvent.WINDOW_DESTROYED, () => endWindow(true)));

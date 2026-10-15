@@ -169,7 +169,12 @@ export async function readSecrets(ids: string[]): Promise<Record<string, string>
 
 export type SecretWriteResult = { kind: "stored" | "failed" } | { kind: "conflict"; value: string; persisted: boolean };
 
-export async function writeSecretDetailed(id: string, value: string, scope?: string): Promise<SecretWriteResult> {
+export function writeSecretDetailed(id: string, value: string, scope?: string): Promise<SecretWriteResult> {
+    return writeSecretAttempt(id, value, scope, 3);
+}
+
+/** Bound contention retries; a continuously changing owner leaves an explicit unsaved draft. */
+async function writeSecretAttempt(id: string, value: string, scope: string | undefined, retries: number): Promise<SecretWriteResult> {
     const secret = value.trim();
     if (secret && !scope) return { kind: "failed" };
     const blocked = conflicts.get(id);
@@ -200,7 +205,9 @@ export async function writeSecretDetailed(id: string, value: string, scope?: str
         const { values: current, persisted, unavailable } = await readSecretsDetailed([id]);
         if (unavailable.has(id)) return { kind: "failed" };
         if (localIntents.get(id) === own) localIntents.delete(id);
-        if (!secret && inventoryIntent(id)?.state === "delete") return writeSecretDetailed(id, "");
+        if (!secret && inventoryIntent(id)?.state === "delete") {
+            return retries > 0 ? writeSecretAttempt(id, "", undefined, retries - 1) : { kind: "failed" };
+        }
         if ((current[id] ?? "") === secret && (!secret || scopes.get(id) === scope)) return { kind: persisted ? "stored" : "failed" };
         return conflict(current[id] ?? "", persisted);
     }

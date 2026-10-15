@@ -90,8 +90,16 @@ pub fn handle_menu_event(app: &AppHandle, event_id: &str) {
     execute_shortcut_action(app, event_id);
 }
 
-pub fn handle_shortcut(app: AppHandle, shortcut: String) {
-    execute_shortcut_action(&app, &shortcut);
+pub fn handle_shortcut(window: tauri::WebviewWindow, shortcut: String) -> Result<(), AppError> {
+    // IPC injects the invoking window; keyboard close must never fall back to
+    // main or trust a window label supplied by JavaScript. Menu Exit stays global.
+    if matches!(shortcut.as_str(), "Alt+F4" | "close_window") {
+        return window
+            .close()
+            .map_err(|error| AppError::Message(error.to_string()));
+    }
+    execute_shortcut_action(window.app_handle(), &shortcut);
+    Ok(())
 }
 
 pub fn spawn_new_window() -> Result<(), AppError> {

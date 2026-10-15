@@ -4,7 +4,7 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 const nativeWindow = vi.hoisted(() => ({ label: "settings", onCloseRequested: vi.fn(), destroy: vi.fn(), show: vi.fn(), hide: vi.fn(), message: vi.fn(), confirm: vi.fn(), unlisten: vi.fn() }));
-const mocks = vi.hoisted(() => ({ settings: vi.fn(), sync: vi.fn(), stop: vi.fn(), error: vi.fn(), others: vi.fn(), generating: false, saveAll: vi.fn(), getProjectState: vi.fn(), markFileDirty: vi.fn(), files: [] as Array<{ path: string; name: string; is_dirty: boolean }> }));
+const mocks = vi.hoisted(() => ({ settings: vi.fn(), sync: vi.fn(), stop: vi.fn(), error: vi.fn(), others: vi.fn(), started: vi.fn(), generating: false, saveAll: vi.fn(), getProjectState: vi.fn(), markFileDirty: vi.fn(), files: [] as Array<{ path: string; name: string; is_dirty: boolean }> }));
 vi.mock("next/navigation", () => ({ usePathname: () => "/settings" }));
 vi.mock("@/lib/settings", () => ({ initSettings: mocks.settings }));
 vi.mock("@/lib/github/store", () => ({ initGitHubAuth: vi.fn() }));
@@ -13,7 +13,7 @@ vi.mock("@/lib/mcp/registry", () => ({ syncActiveMcpServers: vi.fn() }));
 vi.mock("@/features/notifications", () => ({ notify: { error: mocks.error } }));
 vi.mock("@/lib/window/tauri-window", () => ({ isTauriRuntime: () => true, isMainTauriWindow: async () => false }));
 vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => nativeWindow }));
-vi.mock("@/lib/window/close-others", () => ({ closeOtherWindows: mocks.others, reportCancelledClose: async () => undefined }));
+vi.mock("@/lib/window/close-others", () => ({ closeOtherWindows: mocks.others, reportCancelledClose: async () => undefined, reportStartedClose: mocks.started }));
 vi.mock("@/features/chat/lib/generating-chats", () => ({ hasGeneratingChats: () => mocks.generating }));
 vi.mock("@/lib/workspace/save-all", () => ({ requestSaveAll: mocks.saveAll }));
 vi.mock("@/lib/backend", () => ({ getProjectSnapshot: () => ({ open_files: mocks.files }), commands: { getProjectState: mocks.getProjectState, markFileDirty: mocks.markFileDirty } }));
@@ -34,12 +34,13 @@ vi.mock("@/components/layout/webview-reconnect", () => ({ WebviewReconnect: () =
 import { acknowledgeCredentialDraft, credentialDraftVersion, stageCredentialDrafts } from "@/lib/ai/credential-drafts";
 import { stageDirtyBuffer, saveDirtyBuffer, loadDirtyBuffer } from "@/lib/workspace/dirty-buffers";
 import ClientLayout from "@/app/client-layout";
+import { requestGuardedWindowClose } from "@/lib/window/close-guard";
 let host: HTMLDivElement;
 let root: Root | undefined;
 beforeEach(() => {
     mockWindows("settings"); nativeWindow.label = "settings";
     resetDirtyBufferRecovery();
-    mocks.generating = false; mocks.files = [];
+    mocks.generating = false; mocks.files = []; mocks.started.mockResolvedValue(undefined);
     mocks.markFileDirty.mockReset().mockResolvedValue(undefined);
     nativeWindow.destroy.mockReset().mockResolvedValue(undefined);
     nativeWindow.message.mockReset().mockResolvedValue("Save");
@@ -50,7 +51,7 @@ beforeEach(() => {
     host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
 });
 afterEach(() => {
-    act(() => root?.unmount()); host.remove(); resetDirtyBufferRecovery();
+    act(() => root?.unmount()); host.remove(); resetDirtyBufferRecovery(); vi.useRealTimers();
     acknowledgeCredentialDraft("openai", credentialDraftVersion("openai", "example-key"));
 });
 async function render() { await act(async () => root?.render(<ClientLayout><div>Settings</div></ClientLayout>)); }
@@ -331,6 +332,56 @@ it("restores the main draft if it changes while secondary windows are closing", 
 it("reports failed native close registration without exposing backend details", async () => {
     nativeWindow.onCloseRequested.mockRejectedValueOnce(new Error("private registration detail"));
     await render();
-    expect(mocks.error).toHaveBeenCalledWith("Window close protection is unavailable", "Save your changes before restarting the app. Native close requests remain blocked.");
+    expect(mocks.error).toHaveBeenCalledWith("Window close protection is unavailable", "Retrying automatically. The titlebar Close button still checks your unsaved changes.");
+    expect(nativeWindow.destroy).not.toHaveBeenCalled();
+});
+
+it("retries native close registration and cancels future retries when unmounted", async () => {
+    vi.useFakeTimers();
+    nativeWindow.onCloseRequested.mockRejectedValueOnce(new Error("temporary"));
+    await render();
+    expect(nativeWindow.onCloseRequested).toHaveBeenCalledTimes(1);
+    await act(async () => vi.advanceTimersByTimeAsync(500));
+    expect(nativeWindow.onCloseRequested).toHaveBeenCalledTimes(2);
+    expect(mocks.error).toHaveBeenCalledTimes(1);
+    act(() => root?.unmount()); root = undefined;
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(nativeWindow.onCloseRequested).toHaveBeenCalledTimes(2);
+    expect(nativeWindow.unlisten).toHaveBeenCalledTimes(1);
+});
+it("keeps titlebar close guarded even when native registration fails", async () => {
+    nativeWindow.onCloseRequested.mockRejectedValueOnce(new Error("unavailable"));
+    await render();
+    stageCredentialDrafts({ openai: "example-key" });
+    nativeWindow.confirm.mockResolvedValueOnce(false);
+    expect(await requestGuardedWindowClose()).toBe(true);
+    expect(nativeWindow.confirm).toHaveBeenCalledTimes(1);
+    expect(nativeWindow.destroy).not.toHaveBeenCalled();
+    nativeWindow.confirm.mockResolvedValueOnce(true);
+    expect(await requestGuardedWindowClose()).toBe(true);
+    expect(nativeWindow.destroy).toHaveBeenCalledTimes(1);
+});
+it("flushes edits made after native destruction has been requested", async () => {
+    await render();
+    nativeWindow.destroy.mockImplementationOnce(async () => {
+        stageDirtyBuffer("/late.txt", "newer draft", "saved");
+        window.dispatchEvent(new CustomEvent("bettershape-editor-changed", { detail: { path: "/late.txt" } }));
+        // The pending debounce must already be durable before IPC completes.
+        expect([...Array(localStorage.length)].map((_, index) => localStorage.getItem(localStorage.key(index)!)).join("")).toContain("newer draft");
+    });
+    expect(await requestGuardedWindowClose()).toBe(true);
+    expect(nativeWindow.destroy).toHaveBeenCalledTimes(1);
+});
+
+it("acknowledges an already-open secondary prompt without asking twice", async () => {
+    await render(); stageCredentialDrafts({ openai: "example-key" });
+    let answer!: (approved: boolean) => void;
+    nativeWindow.confirm.mockImplementationOnce(() => new Promise<boolean>(resolve => { answer = resolve; }));
+    const first = requestGuardedWindowClose();
+    await vi.waitFor(() => expect(nativeWindow.confirm).toHaveBeenCalled());
+    await requestGuardedWindowClose();
+    expect(mocks.started).toHaveBeenCalledTimes(2);
+    expect(nativeWindow.confirm).toHaveBeenCalledTimes(1);
+    answer(false); await first;
     expect(nativeWindow.destroy).not.toHaveBeenCalled();
 });

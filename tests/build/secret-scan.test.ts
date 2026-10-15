@@ -52,6 +52,27 @@ describe("PR added-line credential scanner", () => {
         ]).status).toBe(0);
     });
 
+    it("allows complete multiline secret references without hiding adjacent literals", () => {
+        const reference = ["token: ${{", `  secrets.${token}`, "}}"]; // A valid variable name, not a literal token.
+        expect(scan(reference).status).toBe(0);
+        expect(scan([...reference, `literal: ${token}`]).status).toBe(1);
+        expect(scan(["token: ${{", `  '${token}'`, "}}"]).status).toBe(1);
+    });
+
+    it("uses hunk context to recognize references but never scans context as additions", () => {
+        const input = `diff --git a/example.yml b/example.yml\n@@ -1,3 +1,3 @@\n token: \${{\n-secrets.OLD\n+secrets.${token}\n }}\n`;
+        expect(spawnSync(process.execPath, [scanner], { input, encoding: "utf8" }).status).toBe(0);
+    });
+
+    it("never joins secret-reference delimiters across separate hunks", () => {
+        const input = `diff --git a/example.yml b/example.yml\n@@ -0,0 +1 @@\n+\${{\n@@ -8,0 +9,2 @@\n+secrets.${token}\n+}}\n`;
+        expect(spawnSync(process.execPath, [scanner], { input, encoding: "utf8" }).status).toBe(1);
+    });
+
+    it("keeps scanning secret literals after a bounded large hunk flush", () => {
+        expect(scan(["x".repeat(256 * 1024), token]).status).toBe(1);
+    });
+
     it.each(["-", " "])("ignores removed and context lines with prefix %s", (prefix) => {
         expect(scan([token], prefix).status).toBe(0);
     });

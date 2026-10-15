@@ -20,6 +20,7 @@ import {
     readSecretsDetailed,
     vaultAvailable,
     writeSecret,
+    writeSecretDetailed,
     recordSecretChanges,
     hasUnvalidatedSecretIntent,
 } from "@/lib/ai/vault";
@@ -95,6 +96,27 @@ describe("key vault", () => {
         expect(hasUnvalidatedSecretIntent("openai")).toBe(false);
         await readSecretsDetailed(["openai"]);
         expect(hasUnvalidatedSecretIntent("openai")).toBe(false);
+    });
+
+    it("bounds deletion retries during continuous ownership changes and permits a later retry", async () => {
+        await readSecrets(["openai"]);
+        recordSecretChanges({ openai: "" });
+        let generation = 0;
+        const replaceWithForeignDelete = () => localStorage.setItem("bettershape-ai-vault-entry:openai", JSON.stringify({ state: "delete", token: `foreign-${++generation}` }));
+        replaceWithForeignDelete();
+        aiLoadKeys.mockClear().mockImplementation(async ids => {
+            recordSecretChanges({ openai: "" });
+            replaceWithForeignDelete();
+            return ids.map(native.read);
+        });
+        expect(await writeSecretDetailed("openai", "")).toEqual({ kind: "failed" });
+        expect(aiLoadKeys).toHaveBeenCalledTimes(4);
+        expect(aiDeleteKey).not.toHaveBeenCalled();
+        expect(hasUnvalidatedSecretIntent("openai")).toBe(true);
+        aiLoadKeys.mockImplementation(async ids => ids.map(native.read));
+        recordSecretChanges({ openai: "" });
+        expect(await writeSecretDetailed("openai", "")).toEqual({ kind: "stored" });
+        expect(aiDeleteKey).toHaveBeenCalledTimes(1);
     });
 
     it("probes the keychain once per session", async () => {

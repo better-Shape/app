@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Window } from "@tauri-apps/api/window";
 import { notify } from "@/features/notifications";
+import { requestGuardedWindowClose } from "@/lib/window/close-guard";
 import { isTauriRuntime } from "@/lib/window/tauri-window";
 
 /** Expose native titlebar actions and mirror maximized/fullscreen state into the window chrome. */
@@ -59,7 +60,10 @@ export function useWindowControls() {
         } catch { notify.error("Could not resize the window"); }
     }, [appWindow]);
     const close = useCallback(() => {
-        appWindow?.close().catch(() => notify.error("Could not close the window", "Try again after saving your changes."));
+        if (!appWindow) return;
+        void requestGuardedWindowClose().then(handled => {
+            if (!handled) return appWindow.close();
+        }).catch(() => notify.error("Could not close the window", "Try again after saving your changes."));
     }, [appWindow]);
     return { isMaximized, minimize, toggleMaximize, close, closeWindow: close };
 }

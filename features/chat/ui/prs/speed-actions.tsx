@@ -109,6 +109,7 @@ export function PrRowActions({
             className={cn(
                 "flex shrink-0 items-center gap-0.5 transition-opacity",
                 speedMode ? REVEALED : REVEAL,
+                "any-pointer-coarse:opacity-100 any-pointer-coarse:pointer-events-auto",
                 "group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto",
             )}
         >

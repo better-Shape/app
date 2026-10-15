@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({
     cancelled: undefined as undefined | ((event: { payload: { label: string } }) => void),
+    started: undefined as undefined | ((event: { payload: { label: string } }) => void),
+    stopStarted: vi.fn(),
     destroyed: undefined as undefined | (() => void),
     stopCancel: vi.fn(), stopDestroyed: vi.fn(), close: vi.fn(), listen: vi.fn(), once: vi.fn(), enumerate: vi.fn(),
 }));
@@ -12,10 +14,13 @@ vi.mock("@tauri-apps/api/event", () => ({
 vi.mock("@tauri-apps/api/window", () => ({ getAllWindows: state.enumerate }));
 import { closeOtherWindows } from "@/lib/window/close-others";
 beforeEach(() => {
-    vi.clearAllMocks(); state.cancelled = undefined; state.destroyed = undefined;
+    vi.clearAllMocks(); state.cancelled = undefined; state.started = undefined; state.destroyed = undefined;
     state.close.mockReset().mockResolvedValue(undefined);
     state.stopCancel.mockReset(); state.stopDestroyed.mockReset();
-    state.listen.mockReset().mockImplementation(async (_event: string, callback: typeof state.cancelled) => { state.cancelled = callback; return state.stopCancel; });
+    state.listen.mockReset().mockImplementation(async (event: string, callback: typeof state.cancelled) => {
+        if (event === "bettershape-window-close-started") { state.started = callback; return state.stopStarted; }
+        state.cancelled = callback; return state.stopCancel;
+    });
     state.once.mockReset().mockImplementation(async (_event: string, callback: () => void) => { state.destroyed = callback; return state.stopDestroyed; });
     state.enumerate.mockReset().mockResolvedValue([{ label: "main" }, { label: "settings", close: state.close, once: state.once }]);
 });
@@ -99,4 +104,26 @@ it("continues cleanup if an unlisten function throws", async () => {
     state.destroyed?.();
     expect(await result).toBe(true);
     expect(state.stopDestroyed).toHaveBeenCalledOnce();
+});
+
+it("does not time out a secondary window while its human confirmation is open", async () => {
+    vi.useFakeTimers();
+    let finished = false;
+    const result = closeOtherWindows("main").then(closed => { finished = true; return closed; });
+    await vi.waitFor(() => expect(state.close).toHaveBeenCalled());
+    state.started?.({ payload: { label: "settings" } });
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(finished).toBe(false);
+    state.destroyed?.();
+    expect(await result).toBe(true);
+    expect(state.stopStarted).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+});
+it("does not let an unrelated close acknowledgement disable the deadline", async () => {
+    vi.useFakeTimers();
+    const result = closeOtherWindows("main");
+    await vi.waitFor(() => expect(state.close).toHaveBeenCalled());
+    state.started?.({ payload: { label: "different-window" } });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(await result).toBe(false);
 });

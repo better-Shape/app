@@ -10,8 +10,8 @@ pub fn handle_menu_event(app: &AppHandle, event_id: &str) {
 }
 
 #[tauri::command]
-pub fn handle_shortcut(app: AppHandle, shortcut: String) {
-    crate::commands::shortcuts::handle_shortcut(app, shortcut);
+pub fn handle_shortcut(window: tauri::WebviewWindow, shortcut: String) -> Result<(), AppError> {
+    crate::commands::shortcuts::handle_shortcut(window, shortcut)
 }
 
 #[tauri::command]
