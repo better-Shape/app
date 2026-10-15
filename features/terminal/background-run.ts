@@ -143,11 +143,13 @@ async function attachListeners() {
     const cleanup: Array<() => void> = [];
     let active = true;
     let ptyId: number | null = null;
+    let selectedId: number | null = null;
     let exited = false;
     let overflow = false;
     const earlyReady = new Map<number, PreviewReady>();
     const earlyExit = new Map<number, number | null>();
     const earlyOutput = new EarlyPtyOutput();
+    const unrelated = (id: number) => selectedId !== null && id !== selectedId;
     const dispose = () => {
         active = false;
         earlyOutput.clear();
@@ -165,21 +167,21 @@ async function attachListeners() {
     };
     try {
         cleanup.push(await listen<{ id: number; data: string }>("pty-output", ({ payload }) => {
-            if (!active || exited) return;
+            if (!active || exited || unrelated(payload.id)) return;
             if (ptyId === null) { earlyOutput.append(payload.id, payload.data); return; }
             if (payload.id !== ptyId) return;
             terminalSessionStore.appendPtyOutput(payload.id, payload.data);
             noteDevRunOutput(payload.data);
         }));
         cleanup.push(await listen<{ id: number; exit_code?: number | null }>("pty-exit", ({ payload }) => {
-            if (!active) return;
+            if (!active || unrelated(payload.id)) return;
             if (ptyId === null) {
-                if (earlyExit.size < 128) earlyExit.set(payload.id, payload.exit_code ?? null);
+                if (earlyExit.size < 128 || earlyExit.has(payload.id)) earlyExit.set(payload.id, payload.exit_code ?? null);
                 else overflow = true; // Missing an early exit must never grant authority.
             } else if (payload.id === ptyId) exit(payload.exit_code ?? null);
         }));
         cleanup.push(await listen<PreviewReady>("preview-ready", ({ payload }) => {
-            if (!active || exited) return;
+            if (!active || exited || unrelated(payload.id)) return;
             if (ptyId === null) {
                 if (earlyReady.get(payload.id)?.source === "output" && payload.source !== "output") return;
                 if (earlyReady.size < 32 || earlyReady.has(payload.id)) earlyReady.set(payload.id, payload);
@@ -188,7 +190,28 @@ async function attachListeners() {
     } catch (error) { dispose(); throw error; }
     return {
         dispose,
+        async reconcile(id: number): Promise<void> {
+            selectedId = id;
+            const hadExit = earlyExit.has(id);
+            const code = earlyExit.get(id) ?? null;
+            const ready = earlyReady.get(id);
+            earlyExit.clear(); earlyReady.clear();
+            if (hadExit) earlyExit.set(id, code);
+            if (ready) earlyReady.set(id, ready);
+            if (!overflow || hadExit) return;
+            // A full event buffer proves only that events were dropped, not that this child exited.
+            const { invoke } = await import("@tauri-apps/api/core");
+            const snapshot = await invoke<{ sessionId: number; running: boolean; exitCode?: number | null } | null>(
+                "pty_read_output", { id, tailChars: 500 },
+            );
+            if (!snapshot || snapshot.sessionId !== id || typeof snapshot.running !== "boolean") {
+                throw new Error("Preview process status is unavailable");
+            }
+            if (!snapshot.running && !earlyExit.has(id)) earlyExit.set(id, snapshot.exitCode ?? null);
+            overflow = false;
+        },
         activate(id: number): boolean {
+            if (!active || exited) return false;
             ptyId = id;
             for (const chunk of earlyOutput.take(id)) {
                 terminalSessionStore.appendPtyOutput(id, chunk);
@@ -245,6 +268,8 @@ export async function ensureBackgroundRun(command: string, cwdOverride?: string)
             owner = await attachListeners();
             if (generation !== runGeneration) throw new Error("Preview start cancelled");
             ptyId = await invoke<number>("pty_spawn_run", { cwd, command: trimmed });
+            if (generation !== runGeneration) throw new Error("Preview start cancelled");
+            await owner.reconcile(ptyId);
             if (generation !== runGeneration) throw new Error("Preview start cancelled");
             setDevRunPtyId(ptyId);
             if (!owner.activate(ptyId)) throw new Error("Preview process exited during startup");

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
     listeners: new Map<string, Set<(event: { payload: unknown }) => void>>(),
-    spawn: vi.fn(), kill: vi.fn(), registration: vi.fn(), release: vi.fn(),
+    spawn: vi.fn(), kill: vi.fn(), read: vi.fn(), registration: vi.fn(), release: vi.fn(),
 }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: async (name: string, fn: (event: { payload: unknown }) => void) => {
     await mocks.registration(name);
@@ -9,7 +9,7 @@ vi.mock("@tauri-apps/api/event", () => ({ listen: async (name: string, fn: (even
     mocks.listeners.set(name, listeners); listeners.add(fn);
     return () => { listeners.delete(fn); return mocks.release(name); };
 } }));
-vi.mock("@tauri-apps/api/core", () => ({ invoke: (command: string) => command === "pty_spawn_run" ? mocks.spawn() : mocks.kill() }));
+vi.mock("@tauri-apps/api/core", () => ({ invoke: (command: string, args: unknown) => command === "pty_spawn_run" ? mocks.spawn() : command === "pty_read_output" ? mocks.read(args) : mocks.kill() }));
 vi.mock("@/lib/backend", () => ({ getProjectPath: () => "/project" }));
 vi.mock("@/lib/settings", () => ({ resolveDefaultTerminalShell: () => "default" }));
 vi.mock("@/features/terminal/session", () => ({ registerBoundTerminalTab: vi.fn(), terminalSessionStore: { appendPtyOutput: vi.fn(), clearPtyScrollback: vi.fn() } }));
@@ -17,6 +17,7 @@ let background: typeof import("@/features/terminal/background-run");
 function emit(name: string, payload: unknown) { for (const listener of mocks.listeners.get(name) ?? []) listener({ payload }); }
 beforeEach(async () => {
     vi.resetModules(); mocks.listeners.clear(); mocks.spawn.mockReset().mockResolvedValue(7);
+    mocks.read.mockReset().mockResolvedValue({ sessionId: 7, running: true, exitCode: null });
     mocks.release.mockReset().mockResolvedValue(undefined); mocks.kill.mockReset().mockResolvedValue(undefined); mocks.registration.mockReset().mockResolvedValue(undefined);
     background = await import("@/features/terminal/background-run");
 });
@@ -148,7 +149,7 @@ it("clears startup status when loading the native bridge module fails", async ()
         expect(mocks.spawn).not.toHaveBeenCalled();
         expect([...mocks.listeners.values()].every(listeners => listeners.size === 0)).toBe(true);
     } finally {
-        vi.doMock("@tauri-apps/api/core", () => ({ invoke: (command: string) => command === "pty_spawn_run" ? mocks.spawn() : mocks.kill() }));
+        vi.doMock("@tauri-apps/api/core", () => ({ invoke: (command: string, args: unknown) => command === "pty_spawn_run" ? mocks.spawn() : command === "pty_read_output" ? mocks.read(args) : mocks.kill() }));
     }
 });
 
@@ -236,4 +237,93 @@ it("starts a different PTY for distinct double-slash POSIX projects", async () =
     expect(background.getBackgroundPreviewService()).toBeNull();
     emit("preview-ready", { id: 8, url: "http://localhost:5174", source: "output" });
     expect(background.getBackgroundPreviewService()).toEqual({ ptyId: 8, projectPath: "//work/app", url: "http://localhost:5174" });
+});
+
+function floodEarlyExits() {
+    for (let id = 100; id < 240; id++) emit("pty-exit", { id, exit_code: 0 });
+}
+
+it("reconciles an overflowing early-exit buffer against the selected live native session", async () => {
+    mocks.spawn.mockImplementationOnce(async () => {
+        floodEarlyExits();
+        emit("preview-ready", { id: 7, url: "http://localhost:5173", source: "output" });
+        return 7;
+    });
+    expect(await background.ensureBackgroundRun("npm run dev")).toBe(7);
+    expect(mocks.read).toHaveBeenCalledWith({ id: 7, tailChars: 500 });
+    expect(mocks.kill).not.toHaveBeenCalled();
+    expect(background.getBackgroundPreviewService()?.ptyId).toBe(7);
+});
+
+it("does not revive an exited selected PTY when its early exit was dropped", async () => {
+    mocks.spawn.mockImplementationOnce(async () => { floodEarlyExits(); emit("pty-exit", { id: 7, exit_code: 7 }); return 7; });
+    mocks.read.mockResolvedValue({ sessionId: 7, running: false, exitCode: 7 });
+    await expect(background.ensureBackgroundRun("npm run dev")).rejects.toThrow("exited during startup");
+    expect(mocks.read).toHaveBeenCalledOnce();
+    expect(background.getBackgroundPreviewService()).toBeNull();
+    const { getDevRunSnapshot } = await import("@/features/preview/run-status");
+    expect(getDevRunSnapshot().status).toBe("error");
+});
+
+it("keeps selected exit events received during reconciliation despite a stale running snapshot", async () => {
+    mocks.spawn.mockImplementationOnce(async () => { floodEarlyExits(); return 7; });
+    mocks.read.mockImplementationOnce(async () => {
+        floodEarlyExits();
+        emit("pty-exit", { id: 7, exit_code: 7 });
+        return { sessionId: 7, running: true, exitCode: null };
+    });
+    await expect(background.ensureBackgroundRun("npm run dev")).rejects.toThrow("exited during startup");
+    expect(mocks.read).toHaveBeenCalledOnce();
+    expect(background.getBackgroundPreviewService()).toBeNull();
+    expect([...mocks.listeners.values()].every(listeners => listeners.size === 0)).toBe(true);
+});
+
+it.each(["unavailable", "wrong session", "malformed"])("rejects %s status evidence after overflow", async state => {
+    mocks.spawn.mockImplementationOnce(async () => { floodEarlyExits(); return 7; });
+    if (state === "unavailable") mocks.read.mockRejectedValue(new Error("Native status unavailable"));
+    else mocks.read.mockResolvedValue(state === "wrong session" ? { sessionId: 8, running: true } : { sessionId: 7 });
+    await expect(background.ensureBackgroundRun("npm run dev")).rejects.toThrow();
+    expect(mocks.read).toHaveBeenCalledOnce();
+    expect(mocks.kill).toHaveBeenCalledOnce();
+    expect(background.getBackgroundPreviewService()).toBeNull();
+    expect([...mocks.listeners.values()].every(listeners => listeners.size === 0)).toBe(true);
+});
+
+it("keeps the selected output readiness received during native reconciliation", async () => {
+    mocks.spawn.mockImplementationOnce(async () => {
+        floodEarlyExits();
+        emit("preview-ready", { id: 7, url: "http://localhost:5173", source: "output" });
+        return 7;
+    });
+    mocks.read.mockImplementationOnce(async () => {
+        floodEarlyExits();
+        emit("preview-ready", { id: 8, url: "http://localhost:4444", source: "output" });
+        emit("preview-ready", { id: 7, url: "http://localhost:5174", source: "output" });
+        emit("preview-ready", { id: 7, url: "http://localhost:3000", source: "probe" });
+        expect(background.getBackgroundPreviewService()).toBeNull();
+        expect(background.getLastPreviewReadyUrl()).toBeNull();
+        return { sessionId: 7, running: true };
+    });
+    await background.ensureBackgroundRun("npm run dev");
+    expect(background.getBackgroundPreviewService()?.url).toBe("http://localhost:5174");
+});
+
+it("cannot publish a run stopped while overflow reconciliation was pending", async () => {
+    mocks.spawn.mockImplementationOnce(async () => { floodEarlyExits(); return 7; });
+    let finish!: () => void;
+    mocks.read.mockImplementationOnce(() => new Promise(resolve => {
+        finish = () => resolve({ sessionId: 7, running: true });
+    }));
+    const starting = background.ensureBackgroundRun("npm run dev");
+    const rejected = expect(starting).rejects.toThrow("cancelled");
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    await background.stopBackgroundRun();
+    emit("preview-ready", { id: 7, url: "http://localhost:5173", source: "output" });
+    finish(); await rejected;
+    expect(background.getBackgroundPreviewService()).toBeNull();
+    expect(background.getLastPreviewReadyUrl()).toBeNull();
+    expect([...mocks.listeners.values()].every(listeners => listeners.size === 0)).toBe(true);
+    expect(mocks.kill).toHaveBeenCalledOnce();
+    expect(await background.ensureBackgroundRun("npm run dev")).toBe(7);
+    expect(mocks.spawn).toHaveBeenCalledTimes(2);
 });
