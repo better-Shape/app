@@ -4,7 +4,9 @@
  * Rust owns spawn (`pty_spawn_run`), URL scrape, and TCP probe.
  */
 
+import { EarlyPtyOutput } from "./early-pty-output";
 import { getProjectPath } from "@/lib/backend";
+import { isWindows } from "@/lib/platform";
 import {
     clearDevRun,
     noteDevRunExit,
@@ -25,15 +27,28 @@ type Runtime = {
     ptyId: number;
     command: string;
     cwd: string;
-    unOut: () => void;
-    unExit: () => void;
-    unReady: () => void;
+    dispose: () => void;
 };
 
 let runtime: Runtime | null = null;
-let starting: { command: string; cwd: string; promise: Promise<number> } | null = null;
+let runGeneration = 0;
+let starting: { command: string; cwd: string; generation: number; promise: Promise<number> } | null = null;
 const readyListeners = new Set<ReadyListener>();
 let lastReadyUrl: string | null = null;
+let announcedReady: { id: number; url: string } | null = null;
+type PreviewReady = { id: number; url: string; source?: "output" | "probe" };
+
+/** Only a live run's own output can grant design editing; a port probe cannot. */
+export function getBackgroundPreviewService(): { ptyId: number; projectPath: string; url: string } | null {
+    if (!runtime || announcedReady?.id !== runtime.ptyId) return null;
+    return { ptyId: runtime.ptyId, projectPath: runtime.cwd, url: announcedReady.url };
+}
+
+function rememberReady(event: PreviewReady) {
+    if (event.source !== "output" && announcedReady?.id === event.id) return;
+    if (event.source === "output") announcedReady = { id: event.id, url: event.url };
+    emitReady(event.url);
+}
 
 function preferIpv4DevCommand(command: string): string {
     const t = command.trim();
@@ -45,7 +60,7 @@ function preferIpv4DevCommand(command: string): string {
 
 /** Strip Windows `\\?\` prefixes so cmd.exe and path compares see a normal drive path. */
 export function spawnCwd(path: string): string {
-    let value = path.trim();
+    let value = path;
     if (value.startsWith("\\\\?\\UNC\\")) value = `\\\\${value.slice(8)}`;
     else if (value.startsWith("\\\\?\\")) value = value.slice(4);
     else if (value.startsWith("//?/UNC/")) value = `//${value.slice(8)}`;
@@ -53,10 +68,20 @@ export function spawnCwd(path: string): string {
     return value;
 }
 
+/** Compare native project identities without treating POSIX double-slash roots as UNC. */
 export function sameProjectPath(a: string, b: string): boolean {
-    const norm = (value: string) =>
-        spawnCwd(value).replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
-    return norm(a) === norm(b);
+    if (!a || !b) return false;
+    // Drive and backslash UNC syntax is unambiguous; slash-only UNC needs Windows.
+    const windows = isWindows() || (/^(?:[a-z]:|\\\\)/i.test(a) && /^(?:[a-z]:|\\\\)/i.test(b));
+    const norm = (value: string) => {
+        const path = windows ? spawnCwd(value).replace(/\\/g, "/") : value;
+        const rootLength = path.startsWith("//") && !path.startsWith("///") ? 2 : 1;
+        const minimum = windows && /^[a-z]:\//i.test(path) ? 3 : rootLength;
+        let end = path.length;
+        while (end > minimum && path[end - 1] === "/") end -= 1;
+        return path.slice(0, end);
+    };
+    return windows ? norm(a).toLowerCase() === norm(b).toLowerCase() : norm(a) === norm(b);
 }
 
 /** Compare run commands ignoring hostname flags Rust may add. */
@@ -111,33 +136,70 @@ function emitReady(url: string) {
     }
 }
 
-async function attachListeners(ptyId: number) {
+/** Register the entire event owner before spawning; activate only the returned PTY. */
+async function attachListeners() {
     const { listen } = await import("@tauri-apps/api/event");
-
-    const unOut = await listen<{ id: number; data: string }>("pty-output", (ev) => {
-        if (ev.payload.id !== ptyId) return;
-        terminalSessionStore.appendPtyOutput(ptyId, ev.payload.data);
-        noteDevRunOutput(ev.payload.data);
-    });
-
-    const unExit = await listen<{ id: number; exit_code?: number | null }>("pty-exit", (ev) => {
-        if (ev.payload.id !== ptyId) return;
-        noteDevRunExit(ev.payload.exit_code ?? 0);
-        if (runtime?.ptyId === ptyId) {
-            runtime.unOut();
-            runtime.unExit();
-            runtime.unReady();
-            runtime = null;
+    const cleanup: Array<() => void> = [];
+    let active = true;
+    let ptyId: number | null = null;
+    let exited = false;
+    let overflow = false;
+    const earlyReady = new Map<number, PreviewReady>();
+    const earlyExit = new Map<number, number | null>();
+    const earlyOutput = new EarlyPtyOutput();
+    const dispose = () => {
+        active = false;
+        earlyOutput.clear();
+        for (const unlisten of cleanup.splice(0)) {
+            try { void Promise.resolve(unlisten()).catch(() => undefined); } catch { /* Finish releasing the remaining listeners. */ }
         }
-    });
-
-    const unReady = await listen<{ id: number; url: string }>("preview-ready", (ev) => {
-        if (ev.payload.id !== ptyId) return;
-        console.info("[preview] ready event", ev.payload.url);
-        emitReady(ev.payload.url);
-    });
-
-    return { unOut, unExit, unReady };
+    };
+    const exit = (code: number | null) => {
+        exited = true;
+        lastReadyUrl = null;
+        announcedReady = null;
+        if (runtime?.ptyId === ptyId) runtime = null;
+        dispose();
+        noteDevRunExit(code);
+    };
+    try {
+        cleanup.push(await listen<{ id: number; data: string }>("pty-output", ({ payload }) => {
+            if (!active || exited) return;
+            if (ptyId === null) { earlyOutput.append(payload.id, payload.data); return; }
+            if (payload.id !== ptyId) return;
+            terminalSessionStore.appendPtyOutput(payload.id, payload.data);
+            noteDevRunOutput(payload.data);
+        }));
+        cleanup.push(await listen<{ id: number; exit_code?: number | null }>("pty-exit", ({ payload }) => {
+            if (!active) return;
+            if (ptyId === null) {
+                if (earlyExit.size < 128) earlyExit.set(payload.id, payload.exit_code ?? null);
+                else overflow = true; // Missing an early exit must never grant authority.
+            } else if (payload.id === ptyId) exit(payload.exit_code ?? null);
+        }));
+        cleanup.push(await listen<PreviewReady>("preview-ready", ({ payload }) => {
+            if (!active || exited) return;
+            if (ptyId === null) {
+                if (earlyReady.get(payload.id)?.source === "output" && payload.source !== "output") return;
+                if (earlyReady.size < 32 || earlyReady.has(payload.id)) earlyReady.set(payload.id, payload);
+            } else if (payload.id === ptyId) rememberReady(payload);
+        }));
+    } catch (error) { dispose(); throw error; }
+    return {
+        dispose,
+        activate(id: number): boolean {
+            ptyId = id;
+            for (const chunk of earlyOutput.take(id)) {
+                terminalSessionStore.appendPtyOutput(id, chunk);
+                noteDevRunOutput(chunk);
+            }
+            if (overflow || earlyExit.has(id)) { exit(earlyExit.get(id) ?? null); return false; }
+            const ready = earlyReady.get(id);
+            earlyReady.clear(); earlyExit.clear();
+            if (ready) rememberReady(ready);
+            return active && !exited;
+        },
+    };
 }
 
 /**
@@ -156,7 +218,7 @@ export async function ensureBackgroundRun(command: string, cwdOverride?: string)
     }
     if (starting) {
         const pending = starting;
-        if (sameDevCommand(pending.command, trimmed) && sameProjectPath(pending.cwd, cwd)) {
+        if (pending.generation === runGeneration && sameDevCommand(pending.command, trimmed) && sameProjectPath(pending.cwd, cwd)) {
             return pending.promise;
         }
         try {
@@ -167,79 +229,69 @@ export async function ensureBackgroundRun(command: string, cwdOverride?: string)
         return ensureBackgroundRun(trimmed, cwd);
     }
 
+    const generation = ++runGeneration;
     const promise = (async () => {
-        if (runtime) {
-            await stopBackgroundRun();
-        }
-
+        if (runtime) await stopCurrentRun();
+        if (generation !== runGeneration) throw new Error("Preview start cancelled");
         startDevRun(trimmed);
         lastReadyUrl = null;
-
-        // Listen for preview-ready BEFORE spawn. Next can boot in <1s; attaching
-        // after invoke was racing the event and leaving Design Mode on a white canvas.
-        const { listen } = await import("@tauri-apps/api/event");
-        const { invoke } = await import("@tauri-apps/api/core");
-        const spawnId: { current: number | null } = { current: null };
-        const earlyReady = await listen<{ id: number; url: string }>("preview-ready", (ev) => {
-            if (spawnId.current === null || ev.payload.id !== spawnId.current) return;
-            console.info("[preview] ready event (early)", ev.payload.url);
-            emitReady(ev.payload.url);
-        });
-
-        console.info("[preview] invoking pty_spawn_run", trimmed);
-        const ptyId = await invoke<number>("pty_spawn_run", {
-            cwd,
-            command: trimmed,
-        });
-        spawnId.current = ptyId;
-        console.info("[preview] pty_spawn_run =>", ptyId);
-
-        setDevRunPtyId(ptyId);
-        const listeners = await attachListeners(ptyId);
-        earlyReady();
-
-        registerBoundTerminalTab({
-            title: `Run: ${trimmed.split(/\s+/).slice(0, 3).join(" ")}`,
-            cwd,
-            shell: resolveDefaultTerminalShell(),
-            boundPtyId: ptyId,
-        });
-
-        runtime = {
-            ptyId,
-            command: trimmed,
-            cwd,
-            unOut: () => listeners.unOut(),
-            unExit: () => listeners.unExit(),
-            unReady: () => listeners.unReady(),
-        };
-
-        return ptyId;
+        announcedReady = null;
+        let owner: Awaited<ReturnType<typeof attachListeners>> | undefined;
+        let ptyId: number | undefined;
+        let invoke: typeof import("@tauri-apps/api/core").invoke | undefined;
+        try {
+            ({ invoke } = await import("@tauri-apps/api/core"));
+            owner = await attachListeners();
+            if (generation !== runGeneration) throw new Error("Preview start cancelled");
+            ptyId = await invoke<number>("pty_spawn_run", { cwd, command: trimmed });
+            if (generation !== runGeneration) throw new Error("Preview start cancelled");
+            setDevRunPtyId(ptyId);
+            if (!owner.activate(ptyId)) throw new Error("Preview process exited during startup");
+            if (generation !== runGeneration) throw new Error("Preview start cancelled");
+            runtime = { ptyId, command: trimmed, cwd, dispose: owner.dispose };
+            registerBoundTerminalTab({
+                title: `Run: ${trimmed.split(/\s+/).slice(0, 3).join(" ")}`,
+                cwd,
+                shell: resolveDefaultTerminalShell(),
+                boundPtyId: ptyId,
+            });
+            if (lastReadyUrl) emitReady(lastReadyUrl);
+            return ptyId;
+        } catch (error) {
+            owner?.dispose();
+            if (generation === runGeneration) {
+                runtime = null;
+                lastReadyUrl = null;
+                announcedReady = null;
+                if (getDevRunSnapshot().status !== "error") clearDevRun();
+            }
+            if (ptyId !== undefined && invoke) await invoke("pty_kill", { id: ptyId }).catch(() => undefined);
+            throw error;
+        }
     })();
-    starting = { command: trimmed, cwd, promise };
+    const request = { command: trimmed, cwd, generation, promise };
+    starting = request;
 
     try {
         return await promise;
     } finally {
-        if (starting?.promise === promise) starting = null;
+        if (starting === request) starting = null;
     }
 }
 
 export async function stopBackgroundRun() {
+    runGeneration += 1;
+    await stopCurrentRun();
+}
+
+async function stopCurrentRun() {
     const current = runtime;
     runtime = null;
     lastReadyUrl = null;
-    if (!current) {
-        clearDevRun();
-        return;
-    }
-    try {
-        current.unOut();
-        current.unExit();
-        current.unReady();
-    } catch {
-        /* ignore */
-    }
+    announcedReady = null;
+    clearDevRun();
+    if (!current) return;
+    current.dispose();
     try {
         const { invoke } = await import("@tauri-apps/api/core");
         await invoke("pty_kill", { id: current.ptyId });
@@ -247,5 +299,4 @@ export async function stopBackgroundRun() {
         /* ignore */
     }
     terminalSessionStore.clearPtyScrollback(current.ptyId);
-    clearDevRun();
 }

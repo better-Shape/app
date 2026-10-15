@@ -3,7 +3,7 @@
 use serde_json::{json, Value};
 use tauri::{Emitter, Manager};
 
-use crate::agent::commands::{checkpoints, logging, streaming};
+use crate::agent::commands::{checkpoints, logging};
 use crate::agent::models::PendingEdit;
 use crate::agent::security;
 use crate::agent::tools::files;
@@ -405,10 +405,7 @@ fn decode_attached_image(content: &str, name_lc: &str) -> Option<Vec<u8>> {
         let close = tag.find('>')?;
         let attrs = &tag[..close].to_ascii_lowercase();
         let body = tag[close + 1..].trim();
-        let name_ok = attrs.contains(&format!("name=\"{name_lc}\""))
-            || attrs.contains(&format!("name='{name_lc}'"))
-            || (name_lc.is_empty() && attrs.contains("name="));
-        if name_ok || (!name_lc.is_empty() && attrs.contains(name_lc)) {
+        if crate::agent::tools::attachment_tags::image_name_matches(attrs, name_lc) {
             if let Some(comma) = body.find(',') {
                 if body[..comma].contains("base64") {
                     let data = body[comma + 1..].trim();
@@ -516,11 +513,8 @@ pub(super) async fn gate_edit_approval(
         &resolved.original_content,
         &resolved.merged_content,
     ));
-    let _ = ctx.app_handle.emit("agent-edit-pending", &pending);
-    streaming::emit_chat_status(
-        ctx.app_handle,
-        json!({ "phase": "approval", "label": "Waiting for edit approval" }),
-    );
+    ctx.emit_scoped_event("agent-edit-pending", json!(pending));
+    ctx.emit_status(json!({ "phase": "approval", "label": "Waiting for edit approval" }));
 
     let decision = wait_for_edit_decision(&edit_id, ctx).await;
     cleanup_pending_edit(&edit_id, ctx);
@@ -530,14 +524,14 @@ pub(super) async fn gate_edit_approval(
     // through the live-only token channel above.
     match decision {
         ApprovalDecision::Approved => {
-            let _ = ctx.app_handle.emit(
+            ctx.emit_scoped_event(
                 "agent-edit-resolved",
                 json!({ "id": edit_id, "approved": true }),
             );
             Ok(edit_id)
         }
         ApprovalDecision::Rejected => {
-            let _ = ctx.app_handle.emit(
+            ctx.emit_scoped_event(
                 "agent-edit-resolved",
                 json!({ "id": edit_id, "approved": false }),
             );
@@ -1068,5 +1062,41 @@ pub(super) fn tool_rename_file(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutcome {
             }
         }
         Err(e) => error_outcome("rename_file", &e.to_string()),
+    }
+}
+
+#[cfg(test)]
+mod image_attachment_tests {
+    use super::decode_attached_image;
+    use crate::agent::tools::attachment_tags::image_tag;
+
+    #[test]
+    fn decodes_escaped_image_names_to_original_attachment_bytes() {
+        for name in ["a>b.png", "a\"b.png", "a<b.png", "a&b.png", "a&gt;b.png"] {
+            let tag = image_tag(name, "image/png", "data:image/png;base64,YQ==");
+            assert_eq!(decode_attached_image(&tag, name), Some(b"a".to_vec()));
+        }
+    }
+
+    #[test]
+    fn selects_entity_looking_names_without_aliasing_another_image() {
+        let body = image_tag("a>b.png", "image/png", "data:image/png;base64,YQ==")
+            + &image_tag("a&gt;b.png", "image/png", "data:image/png;base64,Yg==");
+        assert_eq!(decode_attached_image(&body, "a>b.png"), Some(b"a".to_vec()));
+        assert_eq!(
+            decode_attached_image(&body, "a&gt;b.png"),
+            Some(b"b".to_vec())
+        );
+    }
+
+    #[test]
+    fn reads_legacy_literal_entity_names_without_decoding_them() {
+        let body =
+            "<attached_image name=\"a&gt;b.png\">data:image/png;base64,YQ==</attached_image>";
+        assert_eq!(
+            decode_attached_image(body, "a&gt;b.png"),
+            Some(b"a".to_vec())
+        );
+        assert_eq!(decode_attached_image(body, "a>b.png"), None);
     }
 }

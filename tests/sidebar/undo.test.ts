@@ -56,13 +56,13 @@ describe("undo stack", () => {
             kind: "pin",
             chatId: "a",
             label: "Pinned a",
-            revert: () => calls.push("revert-a"),
+            revert: () => { calls.push("revert-a"); },
         });
         pushChatUndo({
             kind: "pin",
             chatId: "b",
             label: "Pinned b",
-            revert: () => calls.push("revert-b"),
+            revert: () => { calls.push("revert-b"); },
         });
 
         expect(undoChat()?.chatId).toBe("b");
@@ -89,8 +89,8 @@ describe("undo stack", () => {
     it("commits every expired delete in one sweep", () => {
         const order: string[] = [];
         const now = Date.now();
-        pushChatUndo({ kind: "delete", chatId: "a", label: "a", now, commit: () => order.push("a") });
-        pushChatUndo({ kind: "delete", chatId: "b", label: "b", now, commit: () => order.push("b") });
+        pushChatUndo({ kind: "delete", chatId: "a", label: "a", now, commit: () => { order.push("a"); } });
+        pushChatUndo({ kind: "delete", chatId: "b", label: "b", now, commit: () => { order.push("b"); } });
 
         const expired = sweepChatUndo(now + CHAT_UNDO_WINDOW_MS + 50);
         expect(expired.map((entry) => entry.chatId)).toEqual(["b", "a"]);
@@ -156,4 +156,58 @@ describe("undo stack", () => {
         sweepChatUndo(Date.now() + CHAT_UNDO_WINDOW_MS + 1);
         expect(pendingRemovalChatIds().size).toBe(0);
     });
+});
+
+describe("batch removals", () => {
+    it("hides every selected chat as one undoable operation", () => {
+        pushChatUndo({ kind: "delete", chatId: "a", chatIds: ["a", "b", "c"], label: "Deleted 3 sessions" });
+        expect([...pendingRemovalChatIds()]).toEqual(["a", "b", "c"]);
+        undoChat();
+        expect(pendingRemovalChatIds().size).toBe(0);
+    });
+    it("keeps committing removals hidden until async persistence finishes", async () => {
+        let finish!: () => void;
+        const now = Date.now();
+        pushChatUndo({ kind: "archive", chatId: "a", chatIds: ["a", "b"], label: "Archive", now,
+            commit: () => new Promise<void>((resolve) => { finish = resolve; }) });
+        sweepChatUndo(now + CHAT_UNDO_WINDOW_MS);
+        expect(pendingChatUndoCount()).toBe(0);
+        expect([...pendingRemovalChatIds()]).toEqual(["a", "b"]);
+        finish();
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(pendingRemovalChatIds().size).toBe(0);
+    });
+    it("releases failed removals and does not strand other commits", async () => {
+        const now = Date.now();
+        const next = vi.fn();
+        pushChatUndo({ kind: "delete", chatId: "a", label: "a", now, commit: next });
+        pushChatUndo({ kind: "delete", chatId: "b", label: "b", now, commit: () => { throw new Error("disk failure"); } });
+        expect(() => sweepChatUndo(now + CHAT_UNDO_WINDOW_MS)).not.toThrow();
+        expect(next).toHaveBeenCalledTimes(1);
+        expect(pendingRemovalChatIds().size).toBe(0);
+    });
+});
+
+it("retains removal snapshot identity when unrelated pin entries change", () => {
+    pushChatUndo({ kind: "delete", chatId: "a", label: "Delete a" });
+    const hidden = pendingRemovalChatIds();
+    pushChatUndo({ kind: "pin", chatId: "b", label: "Pin b" });
+    expect(pendingRemovalChatIds()).toBe(hidden);
+    undoChat();
+    expect(pendingRemovalChatIds()).toBe(hidden);
+});
+it("retains overlapping removal owners until both commits settle", async () => {
+    const finishes: Array<() => void> = [];
+    const now = Date.now();
+    for (const kind of ["archive", "delete"] as const) {
+        pushChatUndo({ kind, chatId: "a", label: kind, now,
+            commit: () => new Promise<void>(resolve => { finishes.push(resolve); }) });
+    }
+    sweepChatUndo(now + CHAT_UNDO_WINDOW_MS);
+    const hidden = pendingRemovalChatIds();
+    finishes[0](); await Promise.resolve(); await Promise.resolve();
+    expect(pendingRemovalChatIds()).toBe(hidden);
+    finishes[1](); await Promise.resolve(); await Promise.resolve();
+    expect(pendingRemovalChatIds().size).toBe(0);
 });

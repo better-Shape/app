@@ -823,7 +823,10 @@ pub async fn run_agent_turn(mut config: AgentTurnConfig<'_>) -> Result<AgentTurn
         }
 
         // Reset the UI activity label: we're back in the model, not a tool.
-        streaming::emit_chat_status(config.app_handle, json!({ "phase": "model" }));
+        streaming::emit_chat_status(
+            config.app_handle,
+            json!({ "conversationId": conversation_id, "turnId": turn_id, "phase": "model" }),
+        );
 
         let outcome = match streaming::stream_chat_with_retry(
             config.client,
@@ -876,7 +879,7 @@ pub async fn run_agent_turn(mut config: AgentTurnConfig<'_>) -> Result<AgentTurn
                 );
                 streaming::emit_chat_status(
                     config.app_handle,
-                    json!({ "phase": "model", "label": "Retrying after model error" }),
+                    json!({ "conversationId": conversation_id, "turnId": turn_id, "phase": "model", "label": "Retrying after model error" }),
                 );
                 continue;
             }
@@ -956,7 +959,7 @@ pub async fn run_agent_turn(mut config: AgentTurnConfig<'_>) -> Result<AgentTurn
                 }));
                 streaming::emit_chat_status(
                     config.app_handle,
-                    json!({ "phase": "model", "label": "Continuing" }),
+                    json!({ "conversationId": conversation_id, "turnId": turn_id, "phase": "model", "label": "Continuing" }),
                 );
                 continue;
             }
@@ -1047,7 +1050,7 @@ pub async fn run_agent_turn(mut config: AgentTurnConfig<'_>) -> Result<AgentTurn
             if tool_calls[0].name != "decide" {
                 streaming::emit_chat_status(
                     config.app_handle,
-                    json!({ "phase": "tool", "tool": tool_calls[0].name }),
+                    json!({ "conversationId": conversation_id, "turnId": turn_id, "phase": "tool", "tool": tool_calls[0].name }),
                 );
             }
 
@@ -1252,12 +1255,12 @@ pub async fn run_agent_turn(mut config: AgentTurnConfig<'_>) -> Result<AgentTurn
             if call.name != "decide" {
                 let tool_status = if call.name == "render_design_previews" {
                     json!({
-                        "phase": "tool",
+                        "conversationId": conversation_id, "turnId": turn_id, "phase": "tool",
                         "tool": call.name,
                         "label": "Creating designs",
                     })
                 } else {
-                    json!({ "phase": "tool", "tool": call.name })
+                    json!({ "conversationId": conversation_id, "turnId": turn_id, "phase": "tool", "tool": call.name })
                 };
                 streaming::emit_chat_status(config.app_handle, tool_status);
             }

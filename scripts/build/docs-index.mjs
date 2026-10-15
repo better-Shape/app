@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 /**
- * Build search index from shape/docs. Run from shape repo root:
- *   bun run docs:index
+ * Build the search index from docs. Run from the repository root:
+ *   npm run docs:index
  */
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import matter from "gray-matter";
+import { parseFrontmatter } from "./frontmatter.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SHAPE_ROOT = path.resolve(__dirname, "../..");
@@ -133,7 +133,7 @@ function loadDoc(slug) {
   const filePath = path.join(DOCS_ROOT, ...slug) + ".mdx";
   if (!fs.existsSync(filePath)) return null;
   const raw = fs.readFileSync(filePath, "utf-8");
-  const { data, content } = matter(raw);
+  const { data, content } = parseFrontmatter(raw);
   return {
     slug,
     title: data.title ?? slug[slug.length - 1],

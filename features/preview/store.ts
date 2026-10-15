@@ -179,11 +179,12 @@ export function showPreviewUrl(raw: string) {
     try {
         url = normalizePreviewUrl(raw);
     } catch {
-        return;
+        return false;
     }
-    if (!isLocalPreviewUrl(url)) return;
+    if (!isLocalPreviewUrl(url)) return false;
     setLastDevUrl(url);
     commitNavigation(url, { replace: true, reload: true });
+    return true;
 }
 
 export async function navigatePreview(raw: string, opts?: { replace?: boolean }) {

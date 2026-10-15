@@ -55,7 +55,8 @@ vi.mock("@/lib/backend", () => ({
 }));
 
 import { ChatStreamProvider, useChatStream } from "@/features/chat/lib/chat-stream-store";
-import { resetGeneratingChatsForTests } from "@/features/chat/lib/generating-chats";
+import { getChatActivities, resetChatActivitiesForTests } from "@/features/chat/lib/chat-activity";
+import { isChatGenerating, resetGeneratingChatsForTests } from "@/features/chat/lib/generating-chats";
 
 type Api = ReturnType<typeof useChatStream>;
 
@@ -105,7 +106,15 @@ async function answerMessages(id: string, messages: unknown[]) {
     await settle();
 }
 
+const turnAliases = new Map<string, string>();
+function nativeTurnId(alias: string): string {
+    if (!turnAliases.has(alias)) turnAliases.set(alias, `${turnAliases.size + 1}:${alias}`);
+    return turnAliases.get(alias)!;
+}
 function emit(name: string, payload: unknown) {
+    if (payload && typeof payload === "object" && "turnId" in payload && typeof payload.turnId === "string") {
+        payload = { ...payload, turnId: nativeTurnId(payload.turnId) };
+    }
     act(() => {
         for (const handler of events.handlers.get(name) ?? []) handler({ payload });
     });
@@ -115,11 +124,13 @@ const msg = (role: "user" | "assistant", content: string): ChatMessage =>
     ({ role, content, timestamp: 1 }) as ChatMessage;
 
 beforeEach(() => {
+    turnAliases.clear();
     backend.current = null;
     backend.currentResolvers = [];
     backend.messageRequests = [];
     events.handlers.clear();
     resetGeneratingChatsForTests();
+    resetChatActivitiesForTests();
     host = document.createElement("div");
     document.body.appendChild(host);
     root = createRoot(host);
@@ -243,4 +254,268 @@ describe("a chat that runs in the background stays in the background", () => {
         emit("chat_started", { conversationId: "N2", turnId: "t-2", requestId: "r-draft" });
         expect(api.getDraftConversationId()).toBe("N2");
     });
+});
+
+
+describe("runtime event ownership", () => {
+    it("does not attribute unscoped or unknown status events to the viewed chat when two turns run", async () => {
+        await mount(null);
+        emit("chat_started", { conversationId: "A", turnId: "t-a" });
+        emit("chat_started", { conversationId: "B", turnId: "t-b" });
+        act(() => { api.showConversation("A"); });
+        emit("chat_status", { phase: "approval" });
+        emit("chat_status", { conversationId: "missing", phase: "approval" });
+        expect(api.turnPhase).toBe("thinking");
+        emit("chat_status", { conversationId: "B", phase: "approval" });
+        expect(api.turnPhase).toBe("thinking");
+        expect(getChatActivities().get("B")).toBe("approval");
+    });
+
+    it("keeps a newer turn alive when old tokens and completion arrive late", async () => {
+        await mount(null);
+        emit("chat_started", { conversationId: "A", turnId: "old" });
+        emit("chat_started", { conversationId: "A", turnId: "new" });
+        act(() => { api.showConversation("A"); });
+        emit("chat_token", { conversationId: "A", turnId: "old", chunk: "obsolete" });
+        emit("chat_complete", { conversationId: "A", turnId: "old", error: "Old failure" });
+        expect(api.isLoading).toBe(true);
+        expect(api.turnId).toBe(nativeTurnId("new"));
+        expect(isChatGenerating("A")).toBe(true);
+        expect(api.messages.some((message) => message.content.includes("obsolete"))).toBe(false);
+        emit("chat_complete", { conversationId: "A", turnId: "new", error: "429 rate limit" });
+        expect(getChatActivities().get("A")).toBe("limited");
+        expect(api.isLoading).toBe(false);
+    });
+
+    it("does not let a background token steal a pending draft before chat_started", async () => {
+        await mount(null);
+        act(() => { api.appendUserOptimistic("draft", null, "draft-request"); });
+        emit("chat_token", { conversationId: "B", turnId: "background", chunk: "background words" });
+        expect(api.getDraftConversationId()).toBeNull();
+        expect(api.messages.map((message) => message.content)).toEqual(["draft", ""]);
+        emit("chat_started", { conversationId: "New", turnId: "draft-turn", requestId: "draft-request" });
+        expect(api.getDraftConversationId()).toBe("New");
+        expect(api.messages.map((message) => message.content)).toEqual(["draft", ""]);
+    });
+
+    it("distinguishes input and background waiting using actual runtime phases", async () => {
+        await mount(null);
+        emit("chat_started", { conversationId: "A", turnId: "t-a" });
+        emit("agent-ask-pending", { id: "question" });
+        expect(getChatActivities().get("A")).toBe("input");
+        emit("chat_status", { phase: "tool", tool: "wait" });
+        expect(getChatActivities().get("A")).toBe("waiting");
+        emit("chat_complete", { conversationId: "A", turnId: "t-a", error: "Cancelled" });
+        expect(getChatActivities().has("A")).toBe(false);
+    });
+});
+
+it("does not restart a viewed idle chat from an orphaned token", async () => {
+    await mount("A");
+    await answerMessages("A", [msg("user", "Saved transcript")]);
+    emit("chat_token", { conversationId: "A", chunk: "stale unowned text" });
+    emit("chat_token", { conversationId: "A", turnId: "unknown-turn", chunk: "also stale" });
+    expect(api.isLoading).toBe(false);
+    expect(api.messages.map((message) => message.content)).toEqual(["Saved transcript"]);
+    expect(isChatGenerating("A")).toBe(false);
+    expect(getChatActivities().has("A")).toBe(false);
+});
+
+it.each(["command", "edit"])("scopes %s approvals and resolutions to their emitting live turn", async (kind) => {
+    await mount(null);
+    emit("chat_started", { conversationId: "A", turnId: "t-a" });
+    emit("chat_started", { conversationId: "B", turnId: "t-b" });
+    act(() => { api.showConversation("A"); });
+    emit(`agent-${kind}-pending`, { id: "approval-b", conversationId: "B", turnId: "t-b" });
+    expect(api.turnPhase).toBe("thinking");
+    expect(getChatActivities().get("B")).toBe("approval");
+    act(() => { api.showConversation("B"); });
+    expect(api.turnPhase).toBe("awaiting_approval");
+    emit(`agent-${kind}-resolved`, { id: "approval-b", conversationId: "B", turnId: "old-b", approved: true });
+    emit("chat_status", { conversationId: "B", turnId: "old-b", phase: "model" });
+    expect(api.turnPhase).toBe("awaiting_approval");
+    emit(`agent-${kind}-resolved`, { id: "approval-b", conversationId: "B", turnId: "t-b", approved: false });
+    expect(api.turnPhase).toBe("thinking");
+});
+
+it("keeps an optimistic replacement alive when old events arrive before its chat_started", async () => {
+    await mount(null);
+    emit("chat_started", { conversationId: "A", turnId: "old" });
+    act(() => { api.showConversation("A"); api.appendUserOptimistic("new request", "A", "new-request"); });
+    emit("chat_token", { conversationId: "A", turnId: "old", chunk: "obsolete text" });
+    emit("chat_status", { conversationId: "A", turnId: "old", phase: "approval" });
+    emit("chat_complete", { conversationId: "A", turnId: "old", error: "Cancelled" });
+    expect(api.isLoading).toBe(true);
+    expect(api.turnPhase).toBe("thinking");
+    expect(api.messages.some((message) => message.content.includes("obsolete"))).toBe(false);
+    emit("chat_started", { conversationId: "A", turnId: "new", requestId: "new-request" });
+    emit("chat_token", { conversationId: "A", turnId: "new", chunk: "new response" });
+    expect(api.turnId).toBe(nativeTurnId("new"));
+    expect(api.isLoading).toBe(true);
+    expect(api.messages.some((message) => message.content.includes("new response"))).toBe(true);
+});
+
+it("reloads the persisted transcript for the exact stopped turn", async () => {
+    await mount("A"); await answerMessages("A", [msg("user", "Question")]);
+    emit("chat_started", { conversationId: "A", turnId: "stopped" });
+    act(() => api.stopLiveTurn());
+    emit("chat_complete", { conversationId: "A", turnId: "stopped", error: "Cancelled" });
+    await answerMessages("A", [msg("user", "Question"), msg("assistant", "Persisted partial response")]);
+    expect(api.messages.at(-1)?.content).toBe("Persisted partial response");
+    expect(api.isLoading).toBe(false);
+});
+
+it("does not reload a stopped completion over a replacement send", async () => {
+    await mount("A"); await answerMessages("A", [msg("user", "Question")]);
+    emit("chat_started", { conversationId: "A", turnId: "stopped" });
+    act(() => api.stopLiveTurn());
+    act(() => api.appendUserOptimistic("Replacement", "A", "new-request"));
+    emit("chat_complete", { conversationId: "A", turnId: "stopped", error: "Cancelled" });
+    expect(backend.messageRequests).toHaveLength(0);
+    expect(api.isLoading).toBe(true);
+    expect(api.messages.some((message) => message.content === "Replacement")).toBe(true);
+});
+
+it("does not re-adopt a stopped turn from a delayed start after its replacement", async () => {
+    await mount("A"); await answerMessages("A", [msg("user", "Question")]);
+    emit("chat_started", { conversationId: "A", turnId: "stopped" });
+    act(() => api.stopLiveTurn());
+    act(() => api.appendUserOptimistic("Replacement", "A", "new-request"));
+    emit("chat_started", { conversationId: "A", turnId: "stopped" });
+    emit("chat_token", { conversationId: "A", turnId: "stopped", chunk: "obsolete" });
+    expect(api.turnId).toBe(null);
+    expect(api.messages.some((message) => message.content.includes("obsolete"))).toBe(false);
+    emit("chat_started", { conversationId: "A", turnId: "new", requestId: "new-request" });
+    expect(api.turnId).toBe(nativeTurnId("new"));
+});
+
+it.each(["A", null])("does not revive a stopped optimistic request for %s, even after its replacement", async (target) => {
+    const { createChatRequestId } = await import("@/lib/chat/request-ownership");
+    await mount(target);
+    if (target) await answerMessages(target, []);
+    const oldRequest = createChatRequestId(target);
+    act(() => api.appendUserOptimistic("old", target, oldRequest));
+    act(() => { api.stopLiveTurn(); });
+    const nextRequest = createChatRequestId(target);
+    act(() => api.appendUserOptimistic("new", target, nextRequest));
+    const oldId = target ?? "old-draft";
+    const nextId = target ?? "new-draft";
+    emit("chat_started", { conversationId: oldId, turnId: "old", requestId: oldRequest });
+    expect(api.turnId).toBeNull();
+    expect(api.viewedConversationId).toBe(target);
+    emit("chat_started", { conversationId: nextId, turnId: "new", requestId: nextRequest });
+    emit("chat_started", { conversationId: oldId, turnId: "old", requestId: oldRequest });
+    expect(api.viewedConversationId).toBe(nextId);
+    expect(api.turnId).toBe(nativeTurnId("new"));
+    emit("chat_complete", { conversationId: nextId, turnId: "new" });
+    emit("chat_started", { conversationId: nextId, turnId: "new", requestId: nextRequest });
+    expect(api.isLoading).toBe(false);
+});
+
+it("seeds turn ordering from native restoration before accepting delayed starts", async () => {
+    const { commands } = await import("@/lib/backend");
+    nativeTurnId("old");
+    vi.mocked(commands.getChatGenerationState).mockResolvedValueOnce({
+        isGenerating: true, turnId: nativeTurnId("restored"), requestId: "old-window:%22A%22:17", conversationId: "A", activityLabel: "Thinking", partialContent: null,
+    });
+    await mount("A"); await answerMessages("A", [msg("assistant", "current")]);
+    emit("chat_started", { conversationId: "A", turnId: "old" });
+    emit("chat_token", { conversationId: "A", turnId: "old", chunk: "obsolete" });
+    expect(api.turnId).toBe(nativeTurnId("restored"));
+    expect(api.messages.map(m => m.content)).toEqual(["current"]);
+    act(() => expect(api.stopLiveTurn()).toBe("old-window:%22A%22:17"));
+});
+
+it("stopping a background owner does not stop the conversation on screen", async () => {
+    await mount("A"); await answerMessages("A", []);
+    emit("chat_started", { conversationId: "A", turnId: "a" });
+    emit("chat_started", { conversationId: "B", turnId: "b" });
+    act(() => api.stopLiveTurn("B"));
+    expect(api.isLoading).toBe(true);
+    expect(api.turnId).toBe(nativeTurnId("a"));
+    expect(api.hasLiveTurn("A")).toBe(true);
+    expect(api.hasLiveTurn("B")).toBe(false);
+});
+
+it("keeps accepting tokens until the captured Stop is acknowledged", async () => {
+    await mount("A"); await answerMessages("A", []);
+    emit("chat_started", { conversationId: "A", turnId: "running" });
+    const stop = api.prepareStop("A");
+    expect(stop?.conversationId).toBe("A");
+    expect(api.hasLiveTurn("A")).toBe(true);
+    emit("chat_token", { conversationId: "A", turnId: "running", chunk: "still running" });
+    expect(api.messages.some(message => message.content.includes("still running"))).toBe(true);
+    act(() => stop?.commit());
+    expect(api.isLoading).toBe(false);
+});
+it("does not retire a replacement when an earlier Stop acknowledges late", async () => {
+    await mount("A"); await answerMessages("A", []);
+    emit("chat_started", { conversationId: "A", turnId: "old" });
+    const stop = api.prepareStop("A");
+    emit("chat_complete", { conversationId: "A", turnId: "old" });
+    emit("chat_started", { conversationId: "A", turnId: "replacement" });
+    act(() => stop?.commit());
+    expect(api.isLoading).toBe(true);
+    expect(api.turnId).toBe(nativeTurnId("replacement"));
+});
+it("follows the captured draft request across binding without stopping the next draft", async () => {
+    const { createChatRequestId } = await import("@/lib/chat/request-ownership");
+    await mount(null);
+    const request = createChatRequestId(null);
+    act(() => api.appendUserOptimistic("first draft", null, request));
+    const stop = api.prepareStop(null);
+    emit("chat_started", { conversationId: "A", turnId: "first", requestId: request });
+    act(() => api.startDraftChat());
+    const next = createChatRequestId(null);
+    act(() => api.appendUserOptimistic("next draft", null, next));
+    act(() => stop?.commit());
+    expect(api.hasLiveTurn("A")).toBe(false);
+    expect(api.ownsRequest(null, next)).toBe(true);
+    expect(api.isLoading).toBe(true);
+});
+it("does not use an earlier draft's conversation as a new draft's Stop owner", async () => {
+    const { createChatRequestId } = await import("@/lib/chat/request-ownership");
+    await mount(null);
+    const first = createChatRequestId(null);
+    act(() => api.appendUserOptimistic("first", null, first));
+    emit("chat_started", { conversationId: "A", turnId: "first", requestId: first });
+    act(() => api.startDraftChat());
+    const next = createChatRequestId(null);
+    act(() => api.appendUserOptimistic("next", null, next));
+    const stop = api.prepareStop(null);
+    expect(stop?.conversationId).toBeNull();
+    expect(stop?.requestId).toBe(next);
+    act(() => stop?.commit());
+    expect(isChatGenerating("A")).toBe(true);
+    expect(api.hasLiveTurn("A")).toBe(true);
+});
+
+it("resolves a request's live owner through draft binding, without using the current view", async () => {
+    const { createChatRequestId } = await import("@/lib/chat/request-ownership");
+    await mount(null);
+    const request = createChatRequestId(null);
+    act(() => api.appendUserOptimistic("draft", null, request));
+    expect(api.getRequestOwner(request)).toEqual({ conversationId: null });
+    emit("chat_started", { conversationId: "A", turnId: "bound", requestId: request });
+    act(() => api.startDraftChat());
+    const next = createChatRequestId(null);
+    act(() => api.appendUserOptimistic("next draft", null, next));
+    expect(api.getRequestOwner(request)).toEqual({ conversationId: "A" });
+    expect(api.getRequestOwner(next)).toEqual({ conversationId: null });
+    act(() => api.stopLiveTurn("A"));
+    expect(api.getRequestOwner(request)).toBeNull();
+    expect(api.getRequestOwner(next)).toEqual({ conversationId: null });
+});
+it("does not resolve a completed or replaced request as a live failure owner", async () => {
+    const { createChatRequestId } = await import("@/lib/chat/request-ownership");
+    await mount("A"); await answerMessages("A", []);
+    const old = createChatRequestId("A");
+    act(() => api.appendUserOptimistic("old", "A", old));
+    emit("chat_started", { conversationId: "A", turnId: "old", requestId: old });
+    emit("chat_complete", { conversationId: "A", turnId: "old" });
+    expect(api.getRequestOwner(old)).toBeNull();
+    const next = createChatRequestId("A");
+    act(() => api.appendUserOptimistic("next", "A", next));
+    expect(api.getRequestOwner(old)).toBeNull();
+    expect(api.getRequestOwner(next)).toEqual({ conversationId: "A" });
 });

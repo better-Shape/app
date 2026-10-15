@@ -5,7 +5,7 @@ import { ArrowSync20Regular } from "@fluentui/react-icons/headless/svg/arrow-syn
 import { Checkmark20Regular } from "@fluentui/react-icons/headless/svg/checkmark";
 import { Filter20Regular } from "@fluentui/react-icons/headless/svg/filter";
 import { Info20Regular } from "@fluentui/react-icons/headless/svg/info";
-import { useMemo } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import {
     DropdownMenu,
@@ -21,6 +21,7 @@ import { applyPrOverrides, usePrOverridesVersion } from "./overrides";
 import { matchPrQuery, parsePrQuery, unevaluableClauses } from "./query";
 import { PR_SORT_MODES, sortPrItems, type PrSortMode } from "./ranking";
 import { PrRow } from "./row";
+import { usePrCloseSweep } from "./close-sweep";
 import { useShiftHeld } from "./speed-actions";
 
 /** Merge readiness reads CI, so those rows load their status on mount instead of on scroll. */
@@ -31,6 +32,8 @@ export type IssueStateFilter = "open" | "closed" | "all";
 type PullRequestsListProps = {
     items: PrItem[];
     loading: boolean;
+    hasMore: boolean;
+    onLoadMore: () => void;
     error: string | null;
     signedIn: boolean;
     repo: { owner: string; repo: string } | null;
@@ -50,6 +53,8 @@ const EMPTY_REPO = { owner: "", repo: "" };
 export function PullRequestsList({
     items,
     loading,
+    hasMore,
+    onLoadMore,
     error,
     signedIn,
     repo,
@@ -64,6 +69,8 @@ export function PullRequestsList({
     onCiResolved,
 }: PullRequestsListProps) {
     const { selectedId } = usePrUi();
+    const listRef = useRef<HTMLDivElement | null>(null);
+    const sweep = usePrCloseSweep(listRef, `${repo?.owner}/${repo?.repo}`);
     const speedMode = useShiftHeld();
     const overrideVersion = usePrOverridesVersion();
 
@@ -80,6 +87,8 @@ export function PullRequestsList({
         const shown: PrItem[] = [];
         const bodyMatched = new Set<string>();
         for (const item of applyPrOverrides(items)) {
+            if (state === "open" && item.status !== "open") continue;
+            if (state === "closed" && item.status !== "closed" && item.status !== "merged") continue;
             const match = matchPrQuery(item, parsed);
             if (!match.matched) continue;
             if (match.matchedInBody) bodyMatched.add(item.id);
@@ -87,10 +96,17 @@ export function PullRequestsList({
         }
         return { shown: sortPrItems(shown, sort), bodyMatched };
         // overrideVersion re-runs this when a pending override lands or expires.
-    }, [items, parsed, sort, overrideVersion]);
+    }, [items, parsed, sort, state, overrideVersion]);
+
+    const shownRows = useRef(rows.shown);
+    useLayoutEffect(() => { shownRows.current = rows.shown; }, [rows.shown]);
+    const startSweep = sweep.start;
+    const onCloseSweepStart = useCallback((item: PrItem, event: PointerEvent) => {
+        startSweep(item, shownRows.current, event);
+    }, [startSweep]);
 
     return (
-        <div className="flex h-full min-h-0 flex-col bg-panel">
+        <div className="relative flex h-full min-h-0 flex-col bg-panel">
             <div className="flex shrink-0 items-center gap-2 px-3 pb-2 pt-3">
                 <span className="text-sm font-medium text-text-primary">Pull Requests</span>
             </div>
@@ -155,6 +171,9 @@ export function PullRequestsList({
                     <Icon icon={ArrowSync20Regular} />
                 </button>
             </div>
+            {error && items.length > 0 ? (
+                <p role="status" className="mx-3 mb-2 text-2xs text-text-muted">Refresh failed: {error}. Showing the last loaded data.</p>
+            ) : null}
             {ignored.length > 0 ? (
                 <p className="mx-3 mb-2 flex items-start gap-1.5 text-2xs leading-snug text-text-muted">
                     <Icon icon={Info20Regular} className="mt-px shrink-0" />
@@ -164,7 +183,12 @@ export function PullRequestsList({
                     </span>
                 </p>
             ) : null}
-            <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-4">
+            {hasMore ? <p role="status" className="mx-3 mb-2 text-2xs text-text-muted">Search and sorting apply to loaded pull requests. Load more to include older results.</p> : null}
+            {sweep.selected.size > 0 ? <p role="status" className="pointer-events-none absolute inset-x-2 bottom-2 z-10 rounded-md border border-border-subtle bg-panel px-3 py-2 text-xs text-text-muted">Release to close {sweep.selected.size} pull requests · Esc to cancel</p> : null}
+            {sweep.closing ? <p role="status" className="pointer-events-none absolute inset-x-2 bottom-2 z-10 rounded-md border border-border-subtle bg-panel px-3 py-2 text-xs text-text-muted">Closing pull requests…</p> : null}
+            <div ref={listRef} onPointerDownCapture={sweep.resetClickSuppression} className="min-h-0 flex-1 overflow-y-auto px-2 pb-4" onClickCapture={(event) => {
+                if (event.detail > 0 && sweep.suppressClick()) { event.preventDefault(); event.stopPropagation(); }
+            }}>
                 {loading && items.length === 0 ? (
                     <p className="px-2 py-3 text-sm text-text-muted">Loading…</p>
                 ) : error && items.length === 0 ? (
@@ -180,7 +204,7 @@ export function PullRequestsList({
                     <p className="px-2 py-3 text-sm text-text-muted">No pull requests</p>
                 ) : (
                     <>
-                        <p className="px-2.5 pb-1 text-xs text-text-muted">Others</p>
+                        <p className="px-2.5 pb-1 text-xs text-text-muted">{rows.shown.length} of {items.length} loaded pull requests</p>
                         <ul className="flex flex-col">
                             {rows.shown.map((item, index) => (
                                 <PrRow
@@ -189,6 +213,9 @@ export function PullRequestsList({
                                     repo={repo ?? EMPTY_REPO}
                                     selected={item.id === selectedId}
                                     speedMode={speedMode}
+                                    sweeping={sweep.selected.has(item.id)}
+                                    sweepBusy={sweep.closing || sweep.selected.size > 0}
+                                    onCloseSweepStart={onCloseSweepStart}
                                     eagerStatus={sort === "readiness" && index < EAGER_STATUS_LIMIT}
                                     matchedInBody={rows.bodyMatched.has(item.id)}
                                     onSelect={selectPr}
@@ -198,6 +225,7 @@ export function PullRequestsList({
                         </ul>
                     </>
                 )}
+                {hasMore ? <Button variant="secondary" size="sm" className="mt-2" disabled={loading} onClick={onLoadMore}>Load more pull requests</Button> : null}
             </div>
         </div>
     );

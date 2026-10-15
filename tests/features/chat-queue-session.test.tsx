@@ -15,10 +15,15 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const backend = vi.hoisted(() => ({
+    projectPath: "/proj" as string | null,
+    initialization: vi.fn(),
+    usableProvider: vi.fn(),
+    expand: vi.fn(),
     current: null as string | null,
     sent: [] as { message: string; conversationId: string | null }[],
     compacted: [] as Array<string | undefined>,
     pendingSends: [] as Array<() => void>,
+    pendingRejects: [] as Array<(error: Error) => void>,
     failNextSend: false,
     nextId: 1,
     conversations: new Set<string>(["X", "Y"]),
@@ -30,8 +35,9 @@ const stream = vi.hoisted(() => ({
     api: null as null | { setIsLoading: (v: boolean) => void },
 }));
 
+vi.mock("@/lib/ai/bootstrap", () => ({ waitForAiConfiguration: backend.initialization }));
 vi.mock("@/lib/backend", () => ({
-    useProjectState: () => ({ project_path: "/proj" }),
+    useProjectState: () => ({ project_path: backend.projectPath }),
     commands: {
         getCurrentConversationId: vi.fn(async () => backend.current),
         loadConversation: vi.fn(async (id: string) => {
@@ -55,7 +61,8 @@ vi.mock("@/lib/backend", () => ({
             backend.current = target;
             backend.sent.push({ message, conversationId: target });
             stream.liveConvId = target;
-            return new Promise<string>((resolve) => {
+            return new Promise<string>((resolve, reject) => {
+                backend.pendingRejects.push(reject);
                 backend.pendingSends.push(() => resolve("ok"));
             });
         }),
@@ -115,6 +122,8 @@ vi.mock("@/features/chat/lib/chat-stream-store", async () => {
                 // As in the store: binding a draft's turn also moves a draft view onto the new chat.
                 stream.adopter = fn
                     ? (id: string) => {
+                          const request = requests.current.get(null);
+                          if (request) { requests.current.delete(null); requests.current.set(id, request); }
                           if (viewRef.current === null) {
                               viewRef.current = id;
                               setViewed(id);
@@ -123,8 +132,33 @@ vi.mock("@/features/chat/lib/chat-stream-store", async () => {
                       }
                     : null;
             }, []);
-            const appendUserOptimistic = ReactModule.useCallback(() => setIsLoading(true), []);
-            const stopLiveTurn = ReactModule.useCallback(() => setIsLoading(false), []);
+            const requests = ReactModule.useRef(new Map<string | null, string>());
+            const appendUserOptimistic = ReactModule.useCallback((_message: string, target: string | null, id: string) => {
+                requests.current.set(target, id); setIsLoading(true);
+            }, []);
+            const ownsRequest = ReactModule.useCallback((target: string | null, id: string) => requests.current.get(target) === id, []);
+            const getRequestOwner = ReactModule.useCallback((requestId: string) => {
+                for (const [conversationId, owned] of requests.current) {
+                    if (owned === requestId) return { conversationId };
+                }
+                return null;
+            }, []);
+            const stopLiveTurn = ReactModule.useCallback((target = viewRef.current) => {
+                const id = requests.current.get(target) ?? null;
+                requests.current.delete(target);
+                if (stream.liveConvId === target) stream.liveConvId = null;
+                if (viewRef.current === target) setIsLoading(false);
+                return id;
+            }, []);
+            const prepareStop = ReactModule.useCallback((target: string | null) => {
+                const requestId = requests.current.get(target) ?? null;
+                if (!requestId && stream.liveConvId !== target) return null;
+                return { conversationId: target, requestId, commit: () => {
+                    if (requests.current.get(target) !== requestId) return;
+                    requests.current.delete(target);
+                    if (viewRef.current === target) setIsLoading(false);
+                } };
+            }, []);
             const startDraftChat = ReactModule.useCallback(() => {
                 showConversation(null);
                 setMessages([]);
@@ -136,6 +170,8 @@ vi.mock("@/features/chat/lib/chat-stream-store", async () => {
             );
             return {
                 hasLiveTurn,
+                ownsRequest,
+                getRequestOwner,
                 isLoading,
                 messages,
                 activityLabel: null,
@@ -156,6 +192,7 @@ vi.mock("@/features/chat/lib/chat-stream-store", async () => {
                 setDraftAdopter,
                 appendUserOptimistic,
                 stopLiveTurn,
+                prepareStop,
                 startDraftChat,
             };
         },
@@ -208,7 +245,7 @@ vi.mock("@/lib/catalog/store", () => ({
     useBetterShapeCatalog: () => ({ catalog: null }),
 }));
 vi.mock("@/lib/ai/providers", () => ({
-    hasAnyUsableProvider: () => true,
+    hasAnyUsableProvider: backend.usableProvider,
 }));
 vi.mock("@/features/notifications", () => ({ notify: { error: vi.fn(), info: vi.fn(), success: vi.fn() } }));
 vi.mock("@/lib/chat/incognito", () => ({
@@ -218,7 +255,7 @@ vi.mock("@/lib/chat/incognito", () => ({
     syncIncognitoFromBackend: async () => {},
 }));
 vi.mock("@/lib/chat/mentions", () => ({
-    buildMessageWithMentions: async (m: string) => m,
+    buildMessageWithMentions: backend.expand,
     mentionRanges: () => [],
 }));
 vi.mock("@/lib/chat/continue-action", () => ({ buildPlanBuildMessage: (p: string) => p }));
@@ -281,6 +318,7 @@ vi.mock("@/features/chat/lib/generating-chats", () => {
     };
 });
 
+import { commands } from "@/lib/backend";
 import { useChatSession } from "@/features/chat/lib/use-chat-session";
 
 type Session = ReturnType<typeof useChatSession>;
@@ -323,6 +361,7 @@ function emitChatComplete() {
 /** Mirrors the backend's `send_chat_message` invoke resolving (the turn fully returned). */
 async function resolveOldestSend() {
     const resolve = backend.pendingSends.shift();
+    backend.pendingRejects.shift();
     if (!resolve) throw new Error("no pending send to resolve");
     await act(async () => {
         resolve();
@@ -358,10 +397,16 @@ function sentMessages() {
 }
 
 beforeEach(async () => {
+    backend.projectPath = "/proj";
+    vi.mocked(commands.stopChatMessage).mockReset().mockResolvedValue(undefined);
+    backend.initialization.mockReset().mockResolvedValue(undefined);
+    backend.usableProvider.mockReset().mockReturnValue(true);
+    backend.expand.mockReset().mockImplementation(async (message: string) => message);
     backend.current = "X";
     backend.sent = [];
     backend.compacted = [];
     backend.pendingSends = [];
+    backend.pendingRejects = [];
     backend.failNextSend = false;
     backend.nextId = 1;
     stream.liveConvId = null;
@@ -378,6 +423,8 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
     await act(async () => root.unmount());
     host.remove();
 });
@@ -586,4 +633,315 @@ describe("built-in slash commands run instead of being sent as text", () => {
         expect(sentMessages()).toEqual(["why is /compact not running?@X"]);
         expect(backend.compacted).toEqual([]);
     });
+});
+
+it("preserves the composer and does not send while provider initialization is pending", async () => {
+    let ready!: () => void;
+    backend.initialization.mockImplementation(() => new Promise<void>(resolve => { ready = resolve; }));
+    act(() => session.handleInputChange({ target: { value: "wait for keys" } } as React.ChangeEvent<HTMLTextAreaElement>));
+    act(() => { void session.handleSendMessage(); });
+    await settle();
+    expect(backend.sent).toEqual([]);
+    expect(session.inputValue).toBe("wait for keys");
+    await act(async () => ready()); await settle();
+    expect(sentMessages()).toEqual(["wait for keys@X"]);
+    await resolveOldestSend();
+});
+
+it("does not send after Stop while provider initialization was pending", async () => {
+    let ready!: () => void;
+    backend.initialization.mockImplementation(() => new Promise<void>(resolve => { ready = resolve; }));
+    act(() => session.handleInputChange({ target: { value: "keep this draft" } } as React.ChangeEvent<HTMLTextAreaElement>));
+    act(() => { void session.handleSendMessage(); });
+    await settle();
+    await act(async () => session.handleStopMessage());
+    await act(async () => ready()); await settle();
+    expect(backend.sent).toEqual([]);
+    expect(session.inputValue).toBe("keep this draft");
+});
+
+it("retains the running owner after Stop rejects and permits retry", async () => {
+    await startTurn("running");
+    vi.mocked(commands.stopChatMessage).mockRejectedValueOnce(new Error("temporary"));
+    await act(async () => { await session.handleStopMessage(); });
+    expect(session.isLoading).toBe(true);
+    await act(async () => { await session.handleStopMessage(); });
+    expect(commands.stopChatMessage).toHaveBeenCalledTimes(2);
+    expect(session.isLoading).toBe(false);
+    await resolveOldestSend();
+});
+it("restores send-now queue entries when Stop fails instead of dispatching a replacement", async () => {
+    await startTurn("running");
+    await typeAndSend("queued");
+    const queued = session.messageQueue[0];
+    vi.mocked(commands.stopChatMessage).mockRejectedValueOnce(new Error("temporary"));
+    await act(async () => { await session.handleSendQueuedNow(queued.id); });
+    expect(session.messageQueue.map(item => item.content)).toEqual(["queued"]);
+    expect(sentMessages()).toEqual(["running@X"]);
+    expect(session.isLoading).toBe(true);
+    await typeAndSend("still queued");
+    expect(session.messageQueue.map(item => item.content)).toEqual(["queued", "still queued"]);
+    await resolveOldestSend();
+});
+
+it("holds follow-ups and reports a rejected draft send after its request binds", async () => {
+    await act(async () => { await session.handleNewChat(); });
+    await settle();
+    await startTurn("first draft message");
+    const owner = backend.current;
+    expect(owner).toMatch(/^new-/);
+    await typeAndSend("queued follow-up");
+    expect(session.messageQueue[0]?.conversationId).toBe(owner);
+    await act(async () => { backend.pendingSends.shift(); backend.pendingRejects.shift()!(new Error("bound send failed")); });
+    await settle();
+    expect(session.sendError).toBe("bound send failed");
+    expect(session.isLoading).toBe(false);
+    act(() => stream.api?.setIsLoading(false));
+    await settle();
+    expect(backend.sent).toHaveLength(1);
+    expect(session.messageQueue.map(item => [item.content, item.conversationId])).toEqual([["queued follow-up", owner]]);
+});
+
+it("does not replace another chat's error or transcript when a background send rejects", async () => {
+    const { notify } = await import("@/features/notifications");
+    vi.mocked(notify.error).mockClear();
+    await startTurn("background send");
+    await act(async () => { await session.handleLoadConversation("Y"); });
+    await settle();
+    const visible = session.messages;
+    await act(async () => { backend.pendingSends.shift(); backend.pendingRejects.shift()!(new Error("background failure")); });
+    await settle();
+    expect(session.conversationId).toBe("Y");
+    expect(session.messages).toEqual(visible);
+    expect(session.sendError).toBeNull();
+    expect(notify.error).toHaveBeenCalledWith("Could not send message", expect.stringContaining("queued messages remain paused"));
+});
+
+it("does not dispatch after unmount during asynchronous mention preparation", async () => {
+    let finish!: (message: string) => void;
+    backend.expand.mockImplementationOnce(() => new Promise<string>(resolve => { finish = resolve; }));
+    await act(async () => session.setInputValue("prepare me"));
+    let pending!: Promise<boolean>;
+    act(() => { pending = session.handleSendMessage(); });
+    await settle();
+    expect(backend.expand).toHaveBeenCalledTimes(1);
+    await act(async () => root.unmount());
+    await act(async () => { finish("prepared"); await Promise.resolve(); });
+    // If the backend is wrongly reached, settle it so a failed regression cannot leak a pending send.
+    if (backend.pendingSends.length) await resolveOldestSend();
+    await act(async () => { await pending; });
+    expect(backend.sent).toEqual([]);
+});
+
+it("cancels late preparation even when native Stop fails before dispatch", async () => {
+    let finish!: (message: string) => void;
+    backend.expand.mockImplementationOnce(() => new Promise<string>(resolve => { finish = resolve; }));
+    await act(async () => session.setInputValue("prepare me"));
+    let pending!: Promise<boolean>;
+    act(() => { pending = session.handleSendMessage(); });
+    await settle();
+    vi.mocked(commands.stopChatMessage).mockRejectedValueOnce(new Error("Stop unavailable"));
+    await act(async () => session.handleStopMessage());
+    await act(async () => { finish("prepared"); await Promise.resolve(); });
+    if (backend.pendingSends.length) await resolveOldestSend();
+    await act(async () => { await pending; });
+    expect(backend.sent).toEqual([]);
+    expect(session.isLoading).toBe(false);
+});
+
+function attachment(status: "ready" | "processing" | "error" = "ready") {
+    return {
+        id: "attachment-one", name: "image.png", file: new File(["image"], "image.png", { type: "image/png" }),
+        kind: "image" as const, mimeType: "image/png", size: 5, status, dataUrl: "data:image/png;base64,aW1hZ2U=",
+    };
+}
+async function stageAttachment(status: "ready" | "processing" | "error" = "ready") {
+    await act(async () => {
+        session.setInputValue("use this attachment");
+        session.setUploadedFiles([attachment(status)]);
+    });
+}
+it("keeps attachments and composer text when provider validation fails", async () => {
+    backend.usableProvider.mockReturnValue(false);
+    await stageAttachment();
+    let sent!: boolean;
+    await act(async () => { sent = await session.handleSendMessage(); });
+    expect(sent).toBe(false);
+    expect(backend.sent).toHaveLength(0);
+    expect(session.uploadedFiles).toHaveLength(1);
+    expect(session.inputValue).toBe("use this attachment");
+    expect(session.sendError).toMatch(/API key/);
+});
+it.each(["error", "processing"] as const)("does not silently omit an attachment left in %s state", async status => {
+    await stageAttachment(status);
+    vi.useFakeTimers();
+    let sending!: Promise<boolean>;
+    act(() => { sending = session.handleSendMessage(); });
+    await act(async () => vi.advanceTimersByTimeAsync(8100));
+    const dispatched = [...backend.sent];
+    if (backend.pendingSends.length) await resolveOldestSend();
+    let sent!: boolean;
+    await act(async () => { sent = await sending; });
+    expect(dispatched).toHaveLength(0);
+    expect(sent).toBe(false);
+    expect(session.uploadedFiles).toHaveLength(1);
+    expect(session.inputValue).toBe("use this attachment");
+    expect(session.sendError).toMatch(/attachment/i);
+});
+it("handles a FileReader failure as a retryable send error, not a rejected composer promise", async () => {
+    await stageAttachment();
+    await act(async () => session.setUploadedFiles([{ ...attachment(), kind: "file", name: "notes.txt", mimeType: "text/plain" }]));
+    vi.spyOn(FileReader.prototype, "readAsText").mockImplementation(function (this: FileReader) {
+        this.dispatchEvent(new ProgressEvent("error"));
+    });
+    let result: unknown;
+    await act(async () => {
+        result = await session.handleSendMessage().then(value => ({ value }), error => ({ error }));
+    });
+    expect(result).toEqual({ value: false });
+    expect(session.uploadedFiles).toHaveLength(1);
+    expect(session.inputValue).toBe("use this attachment");
+    expect(session.sendError).toMatch(/attachment/i);
+    expect(backend.sent).toHaveLength(0);
+});
+it("does not consume text or attachments added during preparation of an earlier message", async () => {
+    await stageAttachment();
+    let ready!: () => void;
+    backend.initialization.mockImplementationOnce(() => new Promise<void>(resolve => { ready = resolve; }));
+    act(() => { void session.handleSendMessage(); });
+    await settle();
+    await act(async () => {
+        session.setInputValue("next message");
+        session.setUploadedFiles(previous => [...previous, { ...attachment(), id: "attachment-two", name: "second.png" }]);
+    });
+    await act(async () => ready()); await settle();
+    expect(backend.sent).toHaveLength(1);
+    expect(backend.sent[0].message).toContain("image.png");
+    expect(backend.sent[0].message).not.toContain("second.png");
+    expect(session.inputValue).toBe("next message");
+    expect(session.uploadedFiles.map(file => file.id)).toEqual(["attachment-two"]);
+    await resolveOldestSend();
+});
+
+it("retries the retained attachment draft after the provider becomes available", async () => {
+    backend.usableProvider.mockReturnValue(false);
+    await stageAttachment();
+    await act(async () => { await session.handleSendMessage(); });
+    backend.usableProvider.mockReturnValue(true);
+    act(() => { void session.handleSendMessage(); });
+    await settle();
+    expect(backend.sent).toHaveLength(1);
+    expect(backend.sent[0].message).toContain('<attached_image name="image.png"');
+    expect(backend.sent[0].message).toContain("use this attachment");
+    expect(session.uploadedFiles).toHaveLength(0);
+    expect(session.inputValue).toBe("");
+    await resolveOldestSend();
+});
+it("retains attachments when provider availability changes during mention preparation", async () => {
+    await stageAttachment();
+    let finish!: (value: string) => void;
+    backend.expand.mockImplementationOnce(() => new Promise<string>(resolve => { finish = resolve; }));
+    let sending!: Promise<boolean>;
+    act(() => { sending = session.handleSendMessage(); });
+    await settle();
+    backend.usableProvider.mockReturnValue(false);
+    await act(async () => finish("expanded"));
+    await act(async () => { expect(await sending).toBe(false); });
+    expect(backend.sent).toHaveLength(0);
+    expect(session.uploadedFiles).toHaveLength(1);
+    expect(session.inputValue).toBe("use this attachment");
+    expect(session.isLoading).toBe(false);
+});
+it("Stop cancels pending attachment processing without dispatching or consuming the draft", async () => {
+    await stageAttachment("processing");
+    vi.useFakeTimers();
+    let sending!: Promise<boolean>;
+    act(() => { sending = session.handleSendMessage(); });
+    await act(async () => vi.advanceTimersByTimeAsync(40));
+    expect(session.isPreparing).toBe(true);
+    expect(session.isLoading).toBe(false);
+    await act(async () => { await session.handleStopMessage(); });
+    expect(session.isPreparing).toBe(false);
+    await act(async () => { expect(await sending).toBe(false); });
+    expect(backend.sent).toHaveLength(0);
+    expect(session.uploadedFiles).toHaveLength(1);
+    expect(session.inputValue).toBe("use this attachment");
+});
+it("preserves a newly edited draft even when its final text matches the submitted message", async () => {
+    await stageAttachment();
+    let ready!: () => void;
+    backend.initialization.mockImplementationOnce(() => new Promise<void>(resolve => { ready = resolve; }));
+    act(() => { void session.handleSendMessage(); });
+    await settle();
+    await act(async () => session.setInputValue("next draft"));
+    await act(async () => session.setInputValue("use this attachment"));
+    await act(async () => ready()); await settle();
+    expect(session.inputValue).toBe("use this attachment");
+    await resolveOldestSend();
+});
+
+it("clears preparation at native admission rather than waiting for the entire turn", async () => {
+    let ready!: () => void;
+    backend.initialization.mockImplementationOnce(() => new Promise<void>(resolve => { ready = resolve; }));
+    await act(async () => session.setInputValue("prepare then generate"));
+    act(() => { void session.handleSendMessage(); });
+    await settle();
+    expect(session.isPreparing).toBe(true);
+    expect(session.isLoading).toBe(false);
+    await act(async () => ready());
+    await settle();
+    expect(backend.pendingSends).toHaveLength(1);
+    expect(session.isPreparing).toBe(false);
+    expect(session.isLoading).toBe(true);
+    await resolveOldestSend();
+});
+it("clears Stop before an uncooperative provider initialization resolves", async () => {
+    let ready!: () => void;
+    backend.initialization.mockImplementationOnce(() => new Promise<void>(resolve => { ready = resolve; }));
+    await act(async () => session.setInputValue("keep this draft"));
+    let sending!: Promise<boolean>;
+    act(() => { sending = session.handleSendMessage(); });
+    await settle();
+    expect(session.isPreparing).toBe(true);
+    await act(async () => { await session.handleStopMessage(); });
+    expect(session.isPreparing).toBe(false);
+    expect(session.inputValue).toBe("keep this draft");
+    await act(async () => { ready(); expect(await sending).toBe(false); });
+    expect(backend.sent).toHaveLength(0);
+    expect(session.sendError).toBeNull();
+});
+
+it("does not expose or cancel another viewed chat's preparation", async () => {
+    await act(async () => session.handleLoadConversation("X"));
+    let ready!: () => void;
+    backend.initialization.mockImplementationOnce(() => new Promise<void>(resolve => { ready = resolve; }));
+    await act(async () => session.setInputValue("message for X"));
+    let sending!: Promise<boolean>;
+    act(() => { sending = session.handleSendMessage(); });
+    await settle();
+    expect(session.isPreparing).toBe(true);
+    await act(async () => session.handleLoadConversation("Y"));
+    expect(session.isPreparing).toBe(false);
+    await act(async () => { await session.handleStopMessage(); });
+    await act(async () => session.handleLoadConversation("X"));
+    expect(session.isPreparing).toBe(true);
+    await act(async () => { await session.handleStopMessage(); });
+    expect(session.isPreparing).toBe(false);
+    await act(async () => { ready(); expect(await sending).toBe(false); });
+    expect(backend.sent).toHaveLength(0);
+});
+it("cancels an unnamed draft's preparation when the project changes", async () => {
+    await act(async () => session.handleNewChat());
+    let ready!: () => void;
+    backend.initialization.mockImplementationOnce(() => new Promise<void>(resolve => { ready = resolve; }));
+    await act(async () => session.setInputValue("old project draft"));
+    let sending!: Promise<boolean>;
+    act(() => { sending = session.handleSendMessage(); });
+    await settle();
+    expect(session.isPreparing).toBe(true);
+    backend.projectPath = "/other-project";
+    await act(async () => root.render(<Harness onRender={s => { session = s; }} />));
+    expect(session.isPreparing).toBe(false);
+    await act(async () => { ready(); expect(await sending).toBe(false); });
+    expect(backend.sent).toHaveLength(0);
 });

@@ -1,9 +1,12 @@
 "use client";
 
+import { waitForAiConfiguration } from "@/lib/ai/bootstrap";
+import { createChatRequestId } from "@/lib/chat/request-ownership";
 import React from "react";
 import { listen } from "@tauri-apps/api/event";
 import { commands, Conversation, useProjectState } from "@/lib/backend";
 import { useChatStream } from "./chat-stream-store";
+import { useSendPreparations } from "./use-send-preparations";
 import { isChatGenerating } from "./generating-chats";
 import { type ReasoningEffort } from "../ui/composer/reasoning-effort";
 import type { ChatMessage } from "@/lib/backend/types";
@@ -31,6 +34,7 @@ import {
 import { getSettings } from "@/lib/settings";
 import { getVisibleModels, resolveChatModels, sanitizeEnabledModels, subagentModelsForSend } from "@/lib/settings/models";
 import { getCatalogDefaultEnabledIds, getCatalogModels, useBetterShapeCatalog } from "@/lib/catalog/store";
+import { messageWithAttachments, waitForSendAttachments } from "./send-attachments";
 import { hasAnyUsableProvider as hasUsableProvider } from "@/lib/ai/providers";
 import { matchSlashCommand } from "@/lib/chat/workflows";
 import { notify } from "@/features/notifications";
@@ -161,13 +165,18 @@ export function useChatSession(
     }, []);
     const uploadedFilesRef = React.useRef(uploadedFiles);
     uploadedFilesRef.current = uploadedFiles;
-    const [inputValue, setInputValue] = React.useState(() => {
+    const composerRevisionRef = React.useRef(0);
+    const [inputValue, updateInputValue] = React.useState(() => {
         try {
             return localStorage.getItem("bettershape-chat-input") || "";
         } catch {
             return "";
         }
     });
+    const setInputValue = React.useCallback((value: React.SetStateAction<string>) => {
+        composerRevisionRef.current += 1;
+        updateInputValue(value);
+    }, []);
     /** Every queued follow-up, across chats. Each one is bound to its `conversationId`. */
     const [messageQueue, setMessageQueue] = React.useState<QueuedChatMessage[]>([]);
     const messageQueueRef = React.useRef(messageQueue);
@@ -191,11 +200,13 @@ export function useChatSession(
         reloadViewedMessages,
         setDraftAdopter,
         getViewedConversationId,
-        getDraftConversationId,
         appendUserOptimistic,
         stopLiveTurn,
+        prepareStop,
         startDraftChat,
         hasLiveTurn,
+        ownsRequest,
+        getRequestOwner,
     } = useChatStream();
     const refreshMetadataRef = React.useRef<() => Promise<void>>(async () => {});
     const [recentConvs, setRecentConvs] = React.useState<Conversation[]>([]);
@@ -852,6 +863,7 @@ export function useChatSession(
     );
     /** Sends currently awaiting the backend. A counter, so overlapping sends cannot clear each other. */
     const sendsInFlightRef = React.useRef(0);
+    const preparations = useSendPreparations(project_path ?? null, conversationId);
     const skipQueueDrainRef = React.useRef(false);
     // Set when a send to a chat failed. The queue for that chat then waits for the next
     // successful send, so a failing message is not re-sent in a loop, while the view still
@@ -939,7 +951,7 @@ export function useChatSession(
      */
     const holdQueueAfterFailedSend = (conversationId: string | null) => {
         failedSendHoldRef.current = { conversationId };
-        stopLiveTurn();
+        stopLiveTurn(conversationId);
     };
 
     const sendMessageNow = async (
@@ -949,115 +961,130 @@ export function useChatSession(
     ): Promise<boolean> => {
         // The chat this message belongs to, fixed now: the user may switch chats mid-send.
         const target = targetId !== undefined ? targetId : getViewedConversationId();
-        if (!fromQueue) {
-            setInputValue("");
-            editingQueueIdRef.current = null;
+        const submittedRevision = composerRevisionRef.current;
+        const submittedIds = fromQueue ? [] : uploadedFilesRef.current.map(file => file.id);
+        const preparation = preparations.begin(target);
+        if (preparation.signal.aborted) return false;
+        try {
             try {
-                localStorage.removeItem("bettershape-chat-input");
+                await waitForAiConfiguration(preparation.signal);
             } catch {
-                /* ignore */
+                if (preparation.signal.aborted) return false;
+                throw new Error("Could not load provider settings. Retry after checking Settings > Providers.");
             }
-        }
-
-        const waitForAttachments = async () => {
-            const deadline = Date.now() + 8000;
-            while (Date.now() < deadline) {
-                const files = uploadedFilesRef.current;
-                if (!files.some((a) => a.status === "processing")) return files;
-                await new Promise((r) => setTimeout(r, 40));
+            if (preparation.signal.aborted) return false;
+            if (!hasUsableProvider(getSettings().ai.providers)) {
+                throw new Error("Add an API key in Settings → Providers to chat.");
             }
-            return uploadedFilesRef.current;
-        };
-        const readyFiles = fromQueue ? [] : await waitForAttachments();
+            const readyFiles = await waitForSendAttachments(submittedIds, () => uploadedFilesRef.current, preparation.signal);
+            const userMsg = await messageWithAttachments(messageContent, readyFiles, preparation.signal);
 
-        let userMsg = messageContent;
-        const attachmentBlocks: string[] = [];
-        for (const att of readyFiles) {
-            if (att.status !== "ready") continue;
-                const ext = att.name.split(".").pop()?.toLowerCase() || "";
-                const CODE_LIKE_EXT = new Set([
-                    "ts", "tsx", "js", "jsx", "rs", "py", "go", "java", "c", "cpp", "h", "hpp",
-                    "css", "scss", "less", "html", "xml", "svg", "json", "toml", "yaml", "yml",
-                    "md", "mdx", "sh", "bat", "ps1", "rb", "php", "swift", "kt", "kts", "dart",
-                    "lua", "r", "sql", "graphql", "gql", "proto", "txt", "log", "csv", "lock",
-                    "env", "ini", "cfg", "conf",
-                ]);
-                const BINARY_ASSET_EXT = new Set([
-                    "ttf", "otf", "woff", "woff2", "eot", "ico", "icns", "pdf",
-                ]);
+            if (preparation.signal.aborted) return false;
+            if (getViewedConversationId() === target) setSendError(null);
+            // Lets the backend's chat_started name this send, so a draft binds only to its own turn.
+            const clientRequestId = createChatRequestId(target);
+            appendUserOptimistic(userMsg, target, clientRequestId);
 
-                if (att.kind === "image" && att.dataUrl) {
-                    attachmentBlocks.push(
-                        `<attached_image name="${att.name}" type="${att.mimeType}" size="${att.size}">${att.dataUrl}</attached_image>`,
-                    );
-                } else if (att.kind === "audio") {
-                    attachmentBlocks.push(
-                        `<attached_file name="${att.name}" type="${att.mimeType || "audio"}" size="${att.size}">\n[Audio file attached — playback in UI; transcription not available in this turn.]\n</attached_file>`,
-                    );
-                } else {
-                    const isTextLike =
-                        att.mimeType.startsWith("text/") ||
-                        CODE_LIKE_EXT.has(ext) ||
-                        ["svg", "json", "xml", "md", "mdx"].includes(ext);
-
-                    if (isTextLike) {
-                        const text = await new Promise<string>((resolve, reject) => {
-                            const reader = new FileReader();
-                            reader.onload = () => resolve(reader.result as string);
-                            reader.onerror = reject;
-                            reader.readAsText(att.file);
-                        });
-
-                        const maxChars = 80000;
-                        const content =
-                            text.length > maxChars
-                                ? text.slice(0, maxChars) + `\n... [truncated, ${text.length} chars total]`
-                                : text;
-
-                        attachmentBlocks.push(
-                            `<attached_file name="${att.name}" type="${att.mimeType || "text/plain"}" size="${att.size}">\n${content}\n</attached_file>`,
-                        );
-                    } else if (BINARY_ASSET_EXT.has(ext) || att.mimeType.startsWith("font/")) {
-                        // Usable binary — instruct the agent to write/use the file, not just describe it.
-                        const dataUrl = await new Promise<string>((resolve, reject) => {
-                            const reader = new FileReader();
-                            reader.onload = () => resolve(reader.result as string);
-                            reader.onerror = reject;
-                            reader.readAsDataURL(att.file);
-                        });
-                        const maxBytes = 2_500_000;
-                        if (att.size <= maxBytes) {
-                            attachmentBlocks.push(
-                                `<attached_asset name="${att.name}" type="${att.mimeType || "application/octet-stream"}" size="${att.size}" usable="true">\n` +
-                                    `When the user asks to use this file (e.g. apply a font, add an icon), write it into the project from this data URL and wire it up — do not only describe it.\n` +
-                                    `${dataUrl}\n` +
-                                    `</attached_asset>`,
-                            );
-                        } else {
-                            attachmentBlocks.push(
-                                `<attached_file name="${att.name}" type="${att.mimeType || "application/octet-stream"}" size="${att.size}">\n[Binary asset too large to inline (${att.size} bytes). Ask the user for a path in the repo, or copy it locally.]\n</attached_file>`,
-                            );
+            try {
+                const settings = getSettings();
+                const expandedMessage = await buildMessageWithMentions(
+                    userMsg,
+                    project_path ?? null,
+                    selectionContextRef.current,
+                );
+                try {
+                    const { mentionRanges } = await import("@/lib/chat/mentions");
+                    const { trySelectPendingDesignConcept } = await import("@/lib/agent-preview/store");
+                    for (const range of mentionRanges(userMsg)) {
+                        if (range.mention.kind === "design") {
+                            const id = range.mention.id || range.mention.path || range.mention.label;
+                            if (id) await trySelectPendingDesignConcept(id);
                         }
                     }
+                } catch {
+                    /* pick already resolved or none pending */
                 }
-            }
+                const projectRules = isWorkspaceTrusted(project_path)
+                    ? await loadProjectRules(project_path ?? null)
+                    : "";
+                const mergedRules = [settings.ai.customRules, projectRules].filter(Boolean).join("\n\n") || undefined;
+                const { applyWorkflows, matchWorkflows, workflowAllowKeys } = await import("@/lib/chat/workflows");
+                const messageWithWorkflows = applyWorkflows(expandedMessage, settings.ai.workflows);
+                const pluginAutoAllow = matchWorkflows(userMsg, settings.ai.workflows).flatMap(workflowAllowKeys);
 
-            if (attachmentBlocks.length > 0) {
-                userMsg = `${attachmentBlocks.join("\n\n")}\n\n${userMsg}`;
-            }
+                const modelToSend = selectedModelRef.current || "auto";
+                const modeToSend = selectedModeRef.current;
+                const catalogIds = getCatalogModels().map((m) => m.id);
+                const subagentSend = subagentModelsForSend(settings.ai.subagentModels, catalogIds, {
+                    defaultModel: settings.ai.subagentDefaultModel,
+                });
 
-        setSendError(null);
-        // Lets the backend's chat_started name this send, so a draft binds only to its own turn.
-        const clientRequestId = crypto.randomUUID();
-        appendUserOptimistic(userMsg, target, clientRequestId);
-        if (!fromQueue) setUploadedFiles([]);
-
-        try {
-            if (!hasUsableProvider(getSettings().ai.providers)) {
-                setSendError("Add an API key in Settings → Providers to chat.");
-                // The optimistic turn was opened above; no backend turn will ever close it.
-                holdQueueAfterFailedSend(target);
+                if (preparation.signal.aborted) {
+                    const owner = getRequestOwner(clientRequestId);
+                    if (owner) stopLiveTurn(owner.conversationId);
+                    return false;
+                }
+                if (!ownsRequest(target, clientRequestId)) return false;
+                // Attachment and mention preparation can outlive a provider change; check again at admission.
+                if (!hasUsableProvider(getSettings().ai.providers)) {
+                    throw new Error("Add an API key in Settings → Providers to chat.");
+                }
+                if (!fromQueue) {
+                    // Only consume the submitted draft at admission. New edits/files belong to the next message.
+                    const submitted = new Set(submittedIds);
+                    setUploadedFiles(files => files.filter(file => !submitted.has(file.id)));
+                    if (getViewedConversationId() === target && composerRevisionRef.current === submittedRevision && inputValueRef.current === messageContent) {
+                        inputValueRef.current = "";
+                        setInputValue("");
+                        editingQueueIdRef.current = null;
+                        try { localStorage.removeItem("bettershape-chat-input"); } catch { /* Session draft still clears. */ }
+                    }
+                }
+                // Preparation ends at native admission, not at provider readiness.
+                preparations.finish(preparation);
+                await commands.sendChatMessage(
+                    messageWithWorkflows,
+                    modelToSend,
+                    modeToSend,
+                    mergedRules,
+                    undefined,
+                    settings.ai.reviewAdversarialEnabled,
+                    {
+                        autoRunMode: settings.ai.autoRunMode,
+                        requireEditApproval: settings.ai.requireEditApproval,
+                        protectDestructiveGit: settings.ai.protectDestructiveGit,
+                        pluginApprovalDefault: settings.ai.pluginApprovalDefault ?? "ask",
+                        pluginApprovals: settings.ai.pluginApprovals,
+                        pluginDisabledActions: settings.ai.pluginDisabledActions,
+                        pluginAutoAllow,
+                    },
+                    reasoningEffort,
+                    undefined,
+                    userMsg,
+                    undefined,
+                    undefined,
+                    subagentSend.models,
+                    subagentSend.defaultModel,
+                    settings.ai.compactInstructions || undefined,
+                    target,
+                    clientRequestId,
+                );
+                await refreshMetadata();
+                failedSendHoldRef.current = null;
+                return true;
+            } catch (err) {
+                const owner = getRequestOwner(clientRequestId);
+                if (!owner) return false;
+                holdQueueAfterFailedSend(owner.conversationId);
+                if (getViewedConversationId() !== owner.conversationId) {
+                    notify.error("Could not send message", "The failed chat's queued messages remain paused. Open that chat to retry.");
+                    return false;
+                }
+                console.error("Failed to send message:", err);
+                const errMsg = err instanceof Error ? err.message : String(err);
+                setSendError(errMsg);
                 setMessages((prev) => {
+                    if (prev.length < 1) return prev;
                     const last = prev[prev.length - 1];
                     if (last?.role === "assistant" && !last.content.trim()) {
                         return prev.slice(0, -1);
@@ -1066,85 +1093,17 @@ export function useChatSession(
                 });
                 return false;
             }
-
-            const settings = getSettings();
-            const expandedMessage = await buildMessageWithMentions(
-                userMsg,
-                project_path ?? null,
-                selectionContextRef.current,
-            );
-            try {
-                const { mentionRanges } = await import("@/lib/chat/mentions");
-                const { trySelectPendingDesignConcept } = await import("@/lib/agent-preview/store");
-                for (const range of mentionRanges(userMsg)) {
-                    if (range.mention.kind === "design") {
-                        const id = range.mention.id || range.mention.path || range.mention.label;
-                        if (id) await trySelectPendingDesignConcept(id);
-                    }
-                }
-            } catch {
-                /* pick already resolved or none pending */
+        } catch (error) {
+            // Preparation failures happen before an optimistic/native turn exists.
+            if (!preparation.signal.aborted) {
+                failedSendHoldRef.current = { conversationId: target };
+                const message = error instanceof Error ? error.message : "Could not prepare attachments. Retry or remove them before sending.";
+                if (getViewedConversationId() === target) setSendError(message);
+                else notify.error("Could not prepare message", message);
             }
-            const projectRules = isWorkspaceTrusted(project_path)
-                ? await loadProjectRules(project_path ?? null)
-                : "";
-            const mergedRules = [settings.ai.customRules, projectRules].filter(Boolean).join("\n\n") || undefined;
-            const { applyWorkflows, matchWorkflows, workflowAllowKeys } = await import("@/lib/chat/workflows");
-            const messageWithWorkflows = applyWorkflows(expandedMessage, settings.ai.workflows);
-            const pluginAutoAllow = matchWorkflows(userMsg, settings.ai.workflows).flatMap(workflowAllowKeys);
-
-            const modelToSend = selectedModelRef.current || "auto";
-            const modeToSend = selectedModeRef.current;
-            const catalogIds = getCatalogModels().map((m) => m.id);
-            const subagentSend = subagentModelsForSend(settings.ai.subagentModels, catalogIds, {
-                defaultModel: settings.ai.subagentDefaultModel,
-            });
-
-            await commands.sendChatMessage(
-                messageWithWorkflows,
-                modelToSend,
-                modeToSend,
-                mergedRules,
-                undefined,
-                settings.ai.reviewAdversarialEnabled,
-                {
-                    autoRunMode: settings.ai.autoRunMode,
-                    requireEditApproval: settings.ai.requireEditApproval,
-                    protectDestructiveGit: settings.ai.protectDestructiveGit,
-                    pluginApprovalDefault: settings.ai.pluginApprovalDefault ?? "ask",
-                    pluginApprovals: settings.ai.pluginApprovals,
-                    pluginDisabledActions: settings.ai.pluginDisabledActions,
-                    pluginAutoAllow,
-                },
-                reasoningEffort,
-                undefined,
-                userMsg,
-                undefined,
-                undefined,
-                subagentSend.models,
-                subagentSend.defaultModel,
-                settings.ai.compactInstructions || undefined,
-                target,
-                clientRequestId,
-            );
-            await refreshMetadata();
-            failedSendHoldRef.current = null;
-            return true;
-        } catch (err) {
-            console.error("Failed to send message:", err);
-            const errMsg = err instanceof Error ? err.message : String(err);
-            setSendError(errMsg);
-            // The send failed before any backend turn closed the optimistic one.
-            holdQueueAfterFailedSend(target);
-            setMessages((prev) => {
-                if (prev.length < 1) return prev;
-                const last = prev[prev.length - 1];
-                if (last?.role === "assistant" && !last.content.trim()) {
-                    return prev.slice(0, -1);
-                }
-                return prev;
-            });
             return false;
+        } finally {
+            preparations.finish(preparation);
         }
     };
 
@@ -1307,7 +1266,7 @@ export function useChatSession(
             }
             return prev;
         });
-    }, []);
+    }, [setInputValue]);
 
     const handleRemoveQueuedMessage = React.useCallback((id: string) => {
         if (editingQueueIdRef.current === id) {
@@ -1320,7 +1279,7 @@ export function useChatSession(
             }
         }
         setMessageQueue((prev) => prev.filter((m) => m.id !== id));
-    }, []);
+    }, [setInputValue]);
 
     const handleUpdateQueuedMessage = React.useCallback((id: string, content: string) => {
         setMessageQueue((prev) =>
@@ -1372,7 +1331,7 @@ export function useChatSession(
         window.addEventListener("bettershape-chat-insert-prompt", handleInsertPrompt as EventListener);
         return () =>
             window.removeEventListener("bettershape-chat-insert-prompt", handleInsertPrompt as EventListener);
-    }, [enqueueChatMessage]);
+    }, [enqueueChatMessage, setInputValue]);
 
     const messagesRef = React.useRef(messages);
     React.useEffect(() => {
@@ -1455,7 +1414,7 @@ export function useChatSession(
                 console.error("Failed to restore checkpoint:", err);
             }
         },
-        [refreshHistory, activateViewedBackend, messagesEndRef],
+        [activateViewedBackend, setInputValue, refreshHistory, messagesEndRef],
     );
 
     const handleRedo = React.useCallback(
@@ -1814,29 +1773,31 @@ export function useChatSession(
         openChatHistoryMenu();
     }, []);
 
-    const stoppingRef = React.useRef(false);
+    const stoppingRef = React.useRef(new Map<string, Promise<boolean>>());
 
-    React.useEffect(() => {
-        if (!isLoading) {
-            stoppingRef.current = false;
-        }
-    }, [isLoading]);
-
-    const handleStopMessage = async () => {
-        if (stoppingRef.current) return;
-        stoppingRef.current = true;
-        stopLiveTurn();
-        try {
-            const convId = getViewedConversationId() ?? getDraftConversationId();
-            await commands.stopChatMessage(convId);
-            if (convId) {
-                const { setChatGenerating } = await import("@/features/chat/lib/generating-chats");
-                setChatGenerating(convId, false);
+    const handleStopMessage = (): Promise<boolean> => {
+        const target = getViewedConversationId();
+        preparations.cancel(target);
+        const stop = prepareStop(target);
+        if (!stop) return Promise.resolve(true);
+        const key = stop.requestId ?? JSON.stringify([stop.conversationId, stop.turnId]);
+        const pending = stoppingRef.current.get(key);
+        if (pending) return pending;
+        const stopped = Promise.resolve().then(async () => {
+            try {
+                await commands.stopChatMessage(stop.conversationId, stop.requestId);
+                stop.commit();
+                return true;
+            } catch (error) {
+                console.error("Failed to stop:", error);
+                notify.error("Could not stop", "Stop was not confirmed. Try again.");
+                return false;
+            } finally {
+                stoppingRef.current.delete(key);
             }
-        } catch (e) {
-            console.error("Failed to stop:", e);
-            stoppingRef.current = false;
-        }
+        });
+        stoppingRef.current.set(key, stopped);
+        return stopped;
     };
 
     const handleSendQueuedNow = async (id: string) => {
@@ -1845,11 +1806,12 @@ export function useChatSession(
         setMessageQueue((prev) => prev.filter((m) => m.id !== id));
         skipQueueDrainRef.current = true;
         forceSendRef.current = true;
-        if (isLoadingRef.current) {
-            await handleStopMessage();
-        }
         let delivered = false;
         try {
+            if (isLoadingRef.current && !(await handleStopMessage())) {
+                restoreQueuedMessage(item);
+                return;
+            }
             delivered = await handleSendMessageRef.current(item.content);
             if (!delivered) restoreQueuedMessage(item);
         } catch (err) {
@@ -1869,6 +1831,7 @@ export function useChatSession(
     return {
         messages,
         isLoading,
+        isPreparing: preparations.isPreparing,
         activityLabel,
         sendError,
         setSendError,

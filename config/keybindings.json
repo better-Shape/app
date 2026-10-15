@@ -272,6 +272,20 @@
             "key": "Ctrl+Shift+D",
             "when": "global",
             "category": "Agent"
+        },
+        {
+            "id": "editor.splitRight",
+            "label": "Split Editor Right",
+            "key": "Ctrl+\\",
+            "when": "editorFocus",
+            "category": "View"
+        },
+        {
+            "id": "editor.closeSplit",
+            "label": "Close Split",
+            "key": "Ctrl+W Ctrl+W",
+            "when": "editorFocus",
+            "category": "View"
         }
     ]
 }

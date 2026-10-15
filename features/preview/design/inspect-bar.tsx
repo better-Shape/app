@@ -3,14 +3,15 @@
 import { TextFontSize20Regular } from "@fluentui/react-icons/headless/svg/text-font-size";
 
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 
 import { commands } from "@/lib/backend";
 import { useProjectState } from "@/lib/backend";
 import { cn } from "@/lib/utils";
-import { isLocalPreviewUrl } from "../store";
+import { notify } from "@/features/notifications";
+import { acceptsDesignMessage, authorizeDesignPreview, isCurrentDesignAuthorization, designMessageOrigin, scopeDesignBridge, type DesignAuthorization } from "./authorization";
 import {
     DESIGN_BRIDGE_SCRIPT,
     type DesignElementSnapshot,
@@ -18,34 +19,15 @@ import {
 import { patchJsx } from "./jsx-source";
 import { isUserSourcePath } from "./library";
 
+type InspectionSelection = {
+    element: DesignElementSnapshot;
+    projectPath: string;
+    authorization: DesignAuthorization;
+    assertPersistAuthorized: () => void;
+};
+type PendingStyles = { selection: InspectionSelection; styles: Record<string, string> };
+
 type Tab = "radius" | "padding" | "gap";
-
-/** Matches no real page, so a canvas that is not a loopback preview gets no message. */
-const OFF_PREVIEW_ORIGIN = "https://preview.bettershape.invalid";
-
-/**
- * The canvas keeps its real origin (`allow-same-origin`), so host messages are
- * pinned to a loopback preview origin — the only place the design bridge is ever
- * injected (design_bridge.rs `wrap_iframe_only`). A canvas that has navigated
- * anywhere else matches nothing and receives no project path, and a loopback
- * canvas that moved port still works because the live origin wins.
- */
-function frameOrigin(frame: HTMLIFrameElement | null | undefined): string {
-    let live = "";
-    try {
-        live = frame?.contentWindow?.origin || "";
-    } catch {
-        /* cross-origin handle without `origin` */
-    }
-    if (live && isLocalPreviewUrl(live)) return live;
-    try {
-        const fromSrc = new URL(frame?.src || "").origin;
-        if (fromSrc !== "null" && isLocalPreviewUrl(fromSrc)) return fromSrc;
-    } catch {
-        /* no usable src */
-    }
-    return OFF_PREVIEW_ORIGIN;
-}
 
 function parsePx(value: string | undefined): number {
     if (!value) return 0;
@@ -77,7 +59,13 @@ export function DesignInspectOverlay({
     onToggle: () => void;
 }) {
     const { project_path } = useProjectState();
-    const [selected, setSelected] = useState<DesignElementSnapshot | null>(null);
+    const authorizationRef = useRef<DesignAuthorization | null>(null);
+    const activated = useRef(false);
+    const projectPathRef = useRef(project_path ?? "");
+    useLayoutEffect(() => { projectPathRef.current = project_path ?? ""; }, [project_path]);
+    const [selection, setSelection] = useState<InspectionSelection | null>(null);
+    const selected = selection?.element ?? null;
+    const documentEpoch = useRef(0);
     const [frameSize, setFrameSize] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
     const [tab, setTab] = useState<Tab>("radius");
     const [radius, setRadius] = useState(8);
@@ -85,48 +73,115 @@ export function DesignInspectOverlay({
     const [gap, setGap] = useState(8);
     const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+    const pendingStyles = useRef<PendingStyles | null>(null);
+    const persistQueue = useRef(Promise.resolve());
+    const flushStyles = useCallback(() => {
+        if (persistTimer.current) clearTimeout(persistTimer.current);
+        persistTimer.current = null;
+        const pending = pendingStyles.current;
+        pendingStyles.current = null;
+        if (!pending) return;
+        const { selection: owner, styles } = pending;
+        persistQueue.current = persistQueue.current.then(() => persistStyles(
+            owner.projectPath, owner.element, styles, owner.assertPersistAuthorized,
+        ));
+    }, []);
+
+    // Turning inspection off stops admission, not an already accepted edit.
+    // Project changes, unmounts and document loads still revoke pending writes.
+    useLayoutEffect(() => {
+        const frame = iframeRef.current;
+        const onLoad = () => { documentEpoch.current += 1; setSelection(null); };
+        frame?.addEventListener("load", onLoad);
+        return () => frame?.removeEventListener("load", onLoad);
+    });
+    useLayoutEffect(() => () => {
+        documentEpoch.current += 1;
+        if (persistTimer.current) clearTimeout(persistTimer.current);
+        pendingStyles.current = null;
+        iframeRef.current?.contentWindow?.postMessage(
+            { type: "bettershape-design-set-mode", mode: "normal" },
+            designMessageOrigin(authorizationRef.current, project_path ?? ""),
+        );
+        authorizationRef.current = null;
+    }, [project_path, iframeRef]);
+
     // Turning design mode off clears the selection (adjusting state during render, no effect).
     const [seenEnabled, setSeenEnabled] = useState(enabled);
     if (enabled !== seenEnabled) {
         setSeenEnabled(enabled);
-        if (!enabled) setSelected(null);
+        if (!enabled) setSelection(null);
     }
 
     useEffect(() => {
         if (!enabled) {
+            flushStyles();
             iframeRef.current?.contentWindow?.postMessage(
-                { type: "bettershape-design-set-mode", mode: "normal", projectRoot: project_path },
-                frameOrigin(iframeRef.current),
+                { type: "bettershape-design-set-mode", mode: "normal" },
+                designMessageOrigin(authorizationRef.current, projectPathRef.current),
             );
+            activated.current = false;
+            authorizationRef.current = null;
             return;
         }
-        void commands.registerDesignBridge(DESIGN_BRIDGE_SCRIPT).then(() => {
+        // Only explicit activation grants access. A project switch or a frame
+        // navigation must not silently authorize an unrelated localhost page.
+        if (!activated.current) {
+            activated.current = true;
+            authorizationRef.current = authorizeDesignPreview(projectPathRef.current, iframeRef.current?.src ?? "");
+        }
+        const authorization = authorizationRef.current;
+        if (!authorization || !isCurrentDesignAuthorization(authorization, projectPathRef.current)) {
+            authorizationRef.current = null;
+            setSelection(null);
+            return;
+        }
+        let cancelled = false;
+        void commands.registerDesignBridge(scopeDesignBridge(DESIGN_BRIDGE_SCRIPT, authorization)).then(() => {
+            if (cancelled || authorizationRef.current !== authorization || !isCurrentDesignAuthorization(authorization, projectPathRef.current)) return;
             iframeRef.current?.contentWindow?.postMessage(
                 { type: "bettershape-design-set-mode", mode: "select", projectRoot: project_path },
-                frameOrigin(iframeRef.current),
+                designMessageOrigin(authorizationRef.current, projectPathRef.current),
             );
+        }).catch(() => {
+            if (!cancelled && authorizationRef.current === authorization) {
+                authorizationRef.current = null;
+                setSelection(null);
+                notify.error("Could not start design inspection");
+            }
         });
-    }, [enabled, iframeRef, project_path]);
+        return () => { cancelled = true; };
+    }, [enabled, flushStyles, iframeRef, project_path]);
 
     useEffect(() => {
         if (!enabled) return;
         const onMessage = (event: MessageEvent) => {
             // A selection is about to be written to disk by `apply`, so it must come
             // from the loopback canvas frame and nowhere else.
-            if (event.source !== iframeRef.current?.contentWindow) return;
-            if (!isLocalPreviewUrl(event.origin)) return;
+            if (!acceptsDesignMessage(event, iframeRef.current, authorizationRef.current, projectPathRef.current)) return;
             const data = event.data;
             if (!data || typeof data !== "object") return;
             if (data.type === "bettershape-design-ready") {
                 iframeRef.current?.contentWindow?.postMessage(
                     { type: "bettershape-design-set-mode", mode: "select", projectRoot: project_path },
-                    frameOrigin(iframeRef.current),
+                    designMessageOrigin(authorizationRef.current, projectPathRef.current),
                 );
                 return;
             }
             if (data.type !== "bettershape-design-selection") return;
             const el = data.element as DesignElementSnapshot | null;
-            setSelected(el);
+            const authorization = authorizationRef.current;
+            const ownerFrame = iframeRef.current;
+            const projectPath = projectPathRef.current;
+            const epoch = documentEpoch.current;
+            if (!el || !authorization || !ownerFrame) { setSelection(null); return; }
+            const assertPersistAuthorized = () => {
+                if (iframeRef.current !== ownerFrame || documentEpoch.current !== epoch
+                    || !isCurrentDesignAuthorization(authorization, projectPathRef.current)) {
+                    throw new Error("The preview changed before the design edit could be saved.");
+                }
+            };
+            setSelection({ element: el, authorization, projectPath, assertPersistAuthorized });
             // Remember the frame size at selection time, so the bar can be kept inside it.
             const frame = iframeRef.current;
             setFrameSize({ w: frame?.clientWidth ?? 0, h: frame?.clientHeight ?? 0 });
@@ -142,18 +197,23 @@ export function DesignInspectOverlay({
 
     const apply = useCallback(
         (styles: Record<string, string>) => {
-            const key = selected?.key;
+            if (!selection || authorizationRef.current !== selection.authorization) return;
+            try { selection.assertPersistAuthorized(); } catch { return; }
+            const key = selection.element.key;
             if (!key) return;
             iframeRef.current?.contentWindow?.postMessage(
                 { type: "bettershape-design-apply-preview", styles, key },
-                frameOrigin(iframeRef.current),
+                selection.authorization.origin,
             );
+            if (pendingStyles.current && pendingStyles.current.selection !== selection) flushStyles();
+            pendingStyles.current = {
+                selection,
+                styles: { ...pendingStyles.current?.styles, ...styles },
+            };
             if (persistTimer.current) clearTimeout(persistTimer.current);
-            persistTimer.current = setTimeout(() => {
-                void persistStyles(project_path, selected, styles);
-            }, 420);
+            persistTimer.current = setTimeout(flushStyles, 420);
         },
-        [iframeRef, project_path, selected],
+        [flushStyles, iframeRef, selection],
     );
 
     if (!enabled || !selected) return null;
@@ -249,11 +309,14 @@ async function persistStyles(
     root: string | null | undefined,
     element: DesignElementSnapshot | null,
     styles: Record<string, string>,
+    assertAuthorized: () => void,
 ) {
-    if (!root || !element?.source?.fileName) return;
-    if (!isUserSourcePath(element.source.fileName)) return;
-    const abs = joinProjectPath(root, element.source.fileName);
     try {
+        assertAuthorized();
+        if (!root || !element?.source?.fileName || !isUserSourcePath(element.source.fileName)) {
+            throw new Error("Could not map this element to an editable project source file.");
+        }
+        const abs = joinProjectPath(root, element.source.fileName);
         const before = await commands.readFileFromDisk(abs);
         const after = patchJsx(
             before,
@@ -267,9 +330,10 @@ async function persistStyles(
             { styles },
         );
         if (after === before) return;
+        assertAuthorized();
         await commands.saveFile(abs, after);
         commands.primeFileCache(abs, after);
     } catch {
-        /* live CSS still applied */
+        notify.error("Could not save design changes. Select the element again and retry.");
     }
 }

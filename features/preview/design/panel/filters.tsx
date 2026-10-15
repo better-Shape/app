@@ -8,6 +8,7 @@ import { WeatherSunny20Regular } from "@fluentui/react-icons/headless/svg/weathe
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { notify } from "@/features/notifications";
 import { cn } from "@/lib/utils";
 import {
     defaultFilterAmount,
@@ -136,9 +137,15 @@ export function ExportBlock({
                 size="xs"
                 loading={busy}
                 className={cn(CONTROL, "w-full")}
-                onClick={() => {
+                onClick={async () => {
                     setBusy(true);
-                    void onExport(Number(scale) || 2, format).finally(() => setBusy(false));
+                    try {
+                        await onExport(Number(scale) || 2, format);
+                    } catch (cause) {
+                        notify.error("Could not export selection", cause instanceof Error ? cause.message : "Check the destination and retry.");
+                    } finally {
+                        setBusy(false);
+                    }
                 }}
             >
                 Export

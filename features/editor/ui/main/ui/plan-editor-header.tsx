@@ -1,5 +1,7 @@
 "use client";
 
+import { modKeyGlyph as modKeyLabel } from "@/lib/platform";
+
 import { MoreHorizontal20Regular } from "@fluentui/react-icons/headless/svg/more-horizontal";
 import { TaskListSquareLtr20Regular } from "@fluentui/react-icons/headless/svg/task-list-square-ltr";
 
@@ -22,10 +24,7 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown";
 
-function modKeyLabel(): string {
-    if (typeof navigator === "undefined") return "Ctrl";
-    return /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl";
-}
+
 
 export function MarkdownViewSwitch({
     raw,

@@ -1,3 +1,5 @@
+import { acknowledgeDirtyBuffer } from "@/lib/workspace/dirty-buffers";
+import type { AiVaultMutation, AiVaultReadResult } from "@/lib/backend/types";
 ﻿import { invoke } from "@tauri-apps/api/core";
 import { ActivityTotals, BrowserHistoryEntry, BrowserInputEvent, BrowserPickedElement, BrowserTab, BrowserTabsPayload, ChatGenerationState, ChatMessage, CodebaseSearchHit, CompactResult, CompactionStateView, ContentSearchResult, Conversation, EslintLintResult, FileEntry, FileInfo, FileSearchResult, GitActivityPoint, GitFileParams, GitRepoInfo, GitHubAuthLoginResult, GitHubAuthStatus, GitLogEntry, GitSyncStatus, GitStashEntry, BlameLine, HistoryEntry, IndexStatus, McpRegistryEntry, McpServerConfig, McpStatusEntry, McpToolInfo, PackageInfo, OutlineResponse, ProjectState, ProjectStatsSnapshot, ReplaceResult, SearchOptions, TestDiscoveryResult, TestRunSummaryResult, ContentMatch } from "@/lib/backend/types";
 
@@ -124,6 +126,8 @@ export const commands = {
     saveFile: async (path: string, content: string) => {
         await invokeCommand<void>("save_file", { path, content });
         rememberFileContent(path, content);
+        acknowledgeDirtyBuffer(path, content);
+        if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("bettershape-file-saved", { detail: { path, content } }));
     },
     saveFileBytes: (path: string, bytes: number[]) =>
         invokeCommand<void>("save_file_bytes", { path, bytes }),
@@ -694,8 +698,8 @@ export const commands = {
             "redo_design_source_patch",
         ),
     /** Stops one conversation's turn. Without an id it stops the chat that is live. */
-    stopChatMessage: (conversationId?: string | null) =>
-        invokeCommand<void>("stop_chat_message", { conversationId: conversationId ?? null }),
+    stopChatMessage: (conversationId?: string | null, clientRequestId?: string | null) =>
+        invokeCommand<void>("stop_chat_message", { conversationId: conversationId ?? null, clientRequestId: clientRequestId ?? null }),
     getChatHistory: () => invokeCommand<ChatMessage[]>("get_chat_history"),
     getChatGenerationState: (conversationId?: string | null) =>
         invokeCommand<ChatGenerationState>("get_chat_generation_state", {
@@ -905,12 +909,12 @@ export const commands = {
     /** True when this machine has a usable OS keychain for provider keys. */
     aiVaultSupported: () => invokeCommand<boolean>("ai_vault_supported"),
     /** Store (or clear, with an empty key) one provider secret in the keychain. */
-    aiStoreKey: (providerId: string, apiKey: string) =>
-        invokeCommand<void>("ai_store_key", { providerId, apiKey }),
-    aiDeleteKey: (providerId: string) => invokeCommand<void>("ai_delete_key", { providerId }),
-    /** Read back stored secrets for the given ids (missing entries are omitted). */
+    aiStoreKey: (providerId: string, apiKey: string, expectedRevision: string, scope?: string) =>
+        invokeCommand<AiVaultMutation>("ai_store_key", { providerId, apiKey, expectedRevision, scope }),
+    aiDeleteKey: (providerId: string, expectedRevision: string) => invokeCommand<AiVaultMutation>("ai_delete_key", { providerId, expectedRevision }),
+    /** Read credential leases, including empty entries and persistence status. */
     aiLoadKeys: (providerIds: string[]) =>
-        invokeCommand<{ id: string; apiKey: string }[]>("ai_load_keys", { providerIds }),
+        invokeCommand<AiVaultReadResult[]>("ai_load_keys", { providerIds }),
     // Codebase index
     indexProject: (projectPath?: string) =>
         invokeCommand<boolean>("index_project", {

@@ -133,6 +133,7 @@ export function isUserSourcePath(file: string) {
     const name = file.replace(/\\/g, "/").toLowerCase();
     if (!name) return false;
     const blocked = [
+        "..",
         "node_modules",
         ".git",
         ".next",

@@ -8,6 +8,10 @@ permissions:
   contents: read
   pull-requests: read
 
+concurrency:
+  group: pr-hygiene-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   title-lint:
     name: PR Title Lint (Conventional)
@@ -64,42 +68,13 @@ jobs:
           echo "✓ No large files"
 
       - name: Check for accidentally committed secrets patterns
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          # Heuristic: look for actual secret values, not variable names or secret references
-          # We must NOT filter out all lines containing TAURI_SIGNING/BETTERSHAPE_CLOUD, as that would allow
-          # a real secret on such a line to evade detection
-          # Instead, only filter the specific GitHub Actions secret reference syntax
-          # Obfuscate private key pattern to avoid this file being flagged as secret by scanners
-          # Do NOT filter out private-key markers before scanning - that would allow evasion
-          DIFF=$(git diff origin/main...HEAD --unified=0 || git diff HEAD~1 --unified=0 || true)
-          # Only filter out the exact ${{ secrets.* }} reference pattern
-          FILTERED=$(echo "$DIFF" | sed -E 's/\$\{\{\s*secrets\.[^}]+\}\}//g' || true)
-          # Build private key pattern from parts to avoid literal in file triggering self-detection
-          P1="BEG"
-          P2="IN"
-          P3=".*PRIV"
-          P4="ATE"
-          PRIVATE_KEY_PATTERN="${P1}${P2}${P3}${P4}"
-          # Do NOT filter out lines containing private key markers - we want to detect them
-          # Only filter out this workflow's own pattern construction to avoid self-match
-          # A regex that *describes* the PEM marker (e.g. the scrubber in
-          # lib/diagnostics/scrub.ts writes -----BEGIN [A-Z ]+PRIVATE KEY-----[\s\S]*?)
-          # is not a key. A real block has a base64 body and no metacharacters.
-          # Excluding those pattern definitions keeps the check honest instead of
-          # forcing the scrubber to hide the marker it exists to find.
-          DESC_RE='PRIVATE KEY-----.{0,3}\[|BEGIN \[A-Z'
-          if echo "$FILTERED" | grep -v "P1=" | grep -v "P2=" | grep -v "P3=" | grep -v "P4=" | grep -v "PRIVATE_KEY_PATTERN=" | grep -vE "$DESC_RE" | grep -Ei "(${PRIVATE_KEY_PATTERN}|sk-ant-[a-zA-Z0-9-]{20,}|sk-proj-[a-zA-Z0-9-]{20,}|ghp_[a-zA-Z0-9]{36}|gho_[a-zA-Z0-9]{36}|AKIA[0-9A-Z]{16})" | grep -v "example" | grep -v ".gitignore"; then
-            echo "::error::Potential secret value detected in diff - please review"
-            echo "If this is a false positive (e.g. docs), add 'example' comment or adjust filter"
-            exit 1
-          fi
-          # Also check for aws_secret_access_key pattern separately
-          if echo "$FILTERED" | grep -Ei "aws_secret_access_key.*[A-Za-z0-9/+=]{40}" | grep -v "example" | grep -v ".gitignore"; then
-            echo "::error::Potential AWS secret detected"
-            exit 1
-          fi
-          echo "✓ No obvious secret values in diff"
+          : "${BASE_SHA:?Missing PR base SHA}" "${HEAD_SHA:?Missing PR head SHA}"
+          git diff "$BASE_SHA...$HEAD_SHA" --unified=0 | node scripts/ci/check-secrets.mjs
 
   label-check:
     name: Label Check

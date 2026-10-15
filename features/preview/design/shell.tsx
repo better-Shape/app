@@ -1,11 +1,10 @@
 "use client";
 
 import { Alert20Regular } from "@fluentui/react-icons/headless/svg/alert";
-import { Code20Regular } from "@fluentui/react-icons/headless/svg/code";
 import { Dismiss20Regular } from "@fluentui/react-icons/headless/svg/dismiss";
 
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type SetStateAction } from "react";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 
@@ -18,12 +17,13 @@ import {
     subscribePreviewReady,
 } from "@/features/terminal/background-run";
 import { commands } from "@/lib/backend";
-import { insertCssVariableInContent, setCachedGlobalsCssContent } from "@/lib/ui/css-variables";
-import { invalidateGlobalsCssCache, resolveGlobalsCss } from "@/lib/ui/css-variables-loader";
+import { insertCssVariableInContent } from "@/lib/ui/css-variables";
+import { updateGlobalsCssCache, resolveGlobalsCss } from "@/lib/ui/css-variables-loader";
 import { cn } from "@/lib/utils";
 import { discoverDesignPages, type DesignPage } from "../lib/discover-routes";
 import {
     getPreviewCurrentUrl,
+    showPreviewUrl,
     inferPreviewUrlFromPerformance,
     isLocalPreviewUrl,
     navigatePreview,
@@ -48,6 +48,9 @@ import { DragEdge } from "./resize";
 import { DesignToolbar, createBrowserTab, faviconFromUrl, pushTabUrl, tabTitleFromUrl, type BrowserTab } from "./toolbar";
 import { DesignSelectionPrompt } from "./selection-prompt";
 import type { DesignToolMode } from "./bottom-toolbar";
+import { acceptsDesignMessage, authorizeDesignPreview, isCurrentDesignAuthorization, designMessageOrigin, scopeDesignBridge, type DesignAuthorization } from "./authorization";
+
+type AuthorizedSelection = { element: DesignElementSnapshot; assertAuthorized: () => void };
 
 type SourceTarget = {
     file: string;
@@ -61,39 +64,12 @@ type SourceTarget = {
 };
 
 function CanvasLoadBar() {
-    return <div className="pointer-events-none absolute inset-x-0 top-0 z-20 h-0.5 bg-accent animate-pulse" />;
+    return <div role="progressbar" aria-label="Loading preview" className="pointer-events-none absolute inset-x-0 top-0 z-20 h-0.5 bg-accent animate-pulse" />;
 }
 
 function joinProjectPath(root: string, relative: string) {
     const separator = root.includes("\\") ? "\\" : "/";
     return `${root.replace(/[/\\]+$/, "")}${separator}${relative.replace(/[/\\]/g, separator)}`;
-}
-
-/** Matches no real page, so a canvas that is not a loopback preview gets no message. */
-const OFF_PREVIEW_ORIGIN = "https://preview.bettershape.invalid";
-
-/**
- * The canvas keeps its real origin (`allow-same-origin`), so host messages are
- * pinned to a loopback preview origin — the only place the design bridge is ever
- * injected (design_bridge.rs `wrap_iframe_only`). A canvas that has navigated
- * anywhere else matches nothing and receives no project path, and a loopback
- * canvas that moved port still works because the live origin wins.
- */
-function frameOrigin(frame: HTMLIFrameElement | null | undefined): string {
-    let live = "";
-    try {
-        live = frame?.contentWindow?.origin || "";
-    } catch {
-        /* cross-origin handle without `origin` */
-    }
-    if (live && isLocalPreviewUrl(live)) return live;
-    try {
-        const fromSrc = new URL(frame?.src || "").origin;
-        if (fromSrc !== "null" && isLocalPreviewUrl(fromSrc)) return fromSrc;
-    } catch {
-        /* no usable src */
-    }
-    return OFF_PREVIEW_ORIGIN;
 }
 
 let persistQueue: Promise<void> = Promise.resolve();
@@ -165,23 +141,6 @@ function loadImage(src: string) {
     });
 }
 
-function loopbackPreviewUrl(raw: string): string {
-    try {
-        const url = new URL(raw.includes("://") ? raw : `http://${raw}`);
-        if (
-            url.hostname === "localhost"
-            || url.hostname === "0.0.0.0"
-            || url.hostname === "[::1]"
-            || url.hostname === "::1"
-        ) {
-            url.hostname = "127.0.0.1";
-        }
-        return url.toString();
-    } catch {
-        return raw;
-    }
-}
-
 export function DesignStudio({
     onClose: _onClose,
     projectPath,
@@ -190,25 +149,46 @@ export function DesignStudio({
     projectPath: string;
 }) {
     const iframeRef = useRef<HTMLIFrameElement>(null);
+    const authorizationRef = useRef<DesignAuthorization | null>(null);
+    const projectPathRef = useRef(projectPath);
+    useLayoutEffect(() => { projectPathRef.current = projectPath; }, [projectPath]);
     const { iframeSrc, reloadKey, urlBar } = usePreviewStore();
     const [bootRoot, setBootRoot] = useState(projectPath);
     const [designerRoot, setDesignerRoot] = useState(projectPath);
-    const [framework, setFramework] = useState("");
+    const [, setFramework] = useState("");
     const [pages, setPages] = useState<DesignPage[]>([]);
-    const [assets, setAssets] = useState<Array<{
+    const [, setAssets] = useState<Array<{
         path: string;
         name: string;
         bytes: number;
         kind: "image" | "font" | "video" | "vector" | "style" | "component" | "code";
     }>>([]);
-    const [layers, setLayers] = useState<DesignLayerSnapshot[]>([]);
-    const [selected, setSelected] = useState<DesignElementSnapshot | null>(null);
+    const [, setLayers] = useState<DesignLayerSnapshot[]>([]);
+    // Keep the originating grant with its snapshot; host-side clones must not
+    // adopt a new grant merely because the server has since reconnected.
+    const [selection, setSelectionState] = useState<AuthorizedSelection | null>(null);
+    const selectionRevision = useRef(0);
     const [target, setTarget] = useState<SourceTarget | null>(null);
+    const setSelection = useCallback((next: AuthorizedSelection | null) => {
+        selectionRevision.current += 1;
+        setSelectionState(next);
+        setTarget(null);
+    }, []);
+    const selected = selection?.element ?? null;
+    const selectedAuthorization = selection?.assertAuthorized;
+    const updateSelected = useCallback((assertAuthorized: () => void, update: SetStateAction<DesignElementSnapshot | null>) => {
+        setSelectionState(current => {
+            if (current?.assertAuthorized !== assertAuthorized) return current;
+            const element = typeof update === "function" ? update(current?.element ?? null) : update;
+            return current && element ? { ...current, element } : null;
+        });
+    }, []);
+    const documentEpoch = useRef(0);
     const [mappingError, setMappingError] = useState<string | null>(null);
     const [bootError, setBootError] = useState<string | null>(null);
     const [ready, setReady] = useState(false);
     const [booting, setBooting] = useState(true);
-    const [saved, setSaved] = useState(true);
+    const [, setSaved] = useState(true);
     const [zoom, setZoom] = useState(100);
     const [toolMode, setToolMode] = useState<DesignToolMode>("normal");
     const [tabs, setTabs] = useState<BrowserTab[]>([]);
@@ -220,8 +200,40 @@ export function DesignStudio({
     const injectedBridge = useRef("");
     const toolModeRef = useRef(toolMode);
     const designerRootRef = useRef(designerRoot);
-    toolModeRef.current = toolMode;
-    designerRootRef.current = designerRoot;
+    useLayoutEffect(() => {
+        toolModeRef.current = toolMode;
+        designerRootRef.current = designerRoot;
+    }, [toolMode, designerRoot]);
+    useLayoutEffect(() => { authorizationRef.current = null; }, [projectPath, bootRoot]);
+
+    const reportMappingError = useCallback((cause: unknown) => {
+        setMappingError(cause instanceof Error ? cause.message : String(cause));
+    }, []);
+    const captureWriteAuthorization = useCallback(() => {
+        const authorization = authorizationRef.current;
+        const frame = iframeRef.current;
+        const epoch = documentEpoch.current;
+        const assertAuthorized = () => {
+            if (!frame || iframeRef.current !== frame || documentEpoch.current !== epoch
+                || authorizationRef.current !== authorization
+                || projectPathRef.current !== projectPath || designerRootRef.current !== designerRoot
+                || !isCurrentDesignAuthorization(authorization, designerRoot)) {
+                throw new Error("The preview changed. Select the element again before editing its source.");
+            }
+        };
+        assertAuthorized();
+        return assertAuthorized;
+    }, [designerRoot, projectPath]);
+    const admitSelectionWrite = useCallback(() => {
+        if (!selectedAuthorization) return null;
+        try {
+            selectedAuthorization();
+            return selectedAuthorization;
+        } catch (cause) {
+            reportMappingError(cause);
+            return null;
+        }
+    }, [reportMappingError, selectedAuthorization]);
 
     useEffect(() => {
         setBootRoot(projectPath);
@@ -247,7 +259,7 @@ export function DesignStudio({
     }, [currentUrl, iframeSrc, tabs.length]);
 
     const activeTabIdRef = useRef(activeTabId);
-    activeTabIdRef.current = activeTabId;
+    useLayoutEffect(() => { activeTabIdRef.current = activeTabId; }, [activeTabId]);
 
     const applyTabLocation = useCallback((raw: string, meta?: { title?: string; favicon?: string | null }) => {
         if (!raw || !isLocalPreviewUrl(raw)) return;
@@ -344,14 +356,13 @@ export function DesignStudio({
                     const next = {
                         file,
                         tag: hit.tag,
-                        openingStart: 0,
-                        openingEnd: 1,
-                        nodeStart: 0,
-                        nodeEnd: 1,
+                        openingStart: hit.openingStart,
+                        openingEnd: hit.openingEnd,
+                        nodeStart: hit.nodeStart,
+                        nodeEnd: hit.nodeEnd,
                         line: hit.line,
                         confidence: 80,
                     };
-                    setTarget(next);
                     return next;
                 } catch {
                     /* try the next file */
@@ -369,14 +380,24 @@ export function DesignStudio({
                     sourceColumn: element.source.columnNumber,
                 });
                 const next = matches[0] ?? null;
-                setTarget(next);
                 return next;
             }
-            setTarget(null);
             return null;
         },
         [activePage, designerRoot, pages],
     );
+
+    const selectElement = useCallback((element: DesignElementSnapshot, assertAuthorized: () => void) => {
+        setSelection({ element, assertAuthorized });
+        const revision = selectionRevision.current;
+        void resolveElement(element).then(resolved => {
+            if (selectionRevision.current !== revision) return;
+            assertAuthorized();
+            setTarget(resolved);
+        }).catch(cause => {
+            if (selectionRevision.current === revision) reportMappingError(cause);
+        });
+    }, [reportMappingError, resolveElement, setSelection]);
 
     const resolveInstance = useCallback(
         async (element: DesignElementSnapshot) => {
@@ -412,10 +433,10 @@ export function DesignStudio({
                     return {
                         file,
                         tag: hit.tag,
-                        openingStart: 0,
-                        openingEnd: 1,
-                        nodeStart: 0,
-                        nodeEnd: 1,
+                        openingStart: hit.openingStart,
+                        openingEnd: hit.openingEnd,
+                        nodeStart: hit.nodeStart,
+                        nodeEnd: hit.nodeEnd,
                         line: hit.line,
                         confidence: 90,
                     };
@@ -432,9 +453,11 @@ export function DesignStudio({
         async (
             element: DesignElementSnapshot,
             patch: { styles?: Record<string, string>; text?: string | null; attributes?: Record<string, string> },
+            assertAuthorized: () => void,
             opts?: { instance?: boolean },
         ) => {
             return enqueuePersist(async () => {
+                assertAuthorized();
                 const instance =
                     Boolean(opts?.instance) ||
                     Boolean(
@@ -464,6 +487,7 @@ export function DesignStudio({
                         after = patchHtmlOpening(before, resolved.openingStart, resolved.openingEnd, patch.styles);
                     }
                     if (patch.text != null || patch.attributes) {
+                        assertAuthorized();
                         await commands.applyDesignSourcePatch({
                             projectPath: designerRoot,
                             target: resolved,
@@ -474,6 +498,7 @@ export function DesignStudio({
                         return;
                     }
                     if (after === before) return;
+                    assertAuthorized();
                     await commands.applyDesignSourcePatch({
                         projectPath: designerRoot,
                         target: resolved,
@@ -501,6 +526,7 @@ export function DesignStudio({
                     patch,
                 );
                 if (after === before) return;
+                assertAuthorized();
                 await commands.applyDesignSourcePatch({
                     projectPath: designerRoot,
                     target: resolved,
@@ -512,9 +538,25 @@ export function DesignStudio({
         [designerRoot, resolveElement, resolveInstance],
     );
 
+    /** Serialize structure mutations with every other whole-file edit, retaining the admitting grant. */
+    const persistStructure = useCallback((
+        element: DesignElementSnapshot,
+        operation: "delete" | "duplicate",
+        assertAuthorized: () => void,
+    ) => enqueuePersist(async () => {
+        assertAuthorized();
+        const resolved = await resolveElement(element);
+        if (!resolved) throw new Error("Could not map this element to a source file. Select it again, then retry.");
+        assertAuthorized();
+        await commands.applyDesignSourcePatch({ projectPath: designerRoot, target: resolved, operation });
+        commands.invalidateFileCache(joinProjectPath(designerRoot, resolved.file));
+        assertAuthorized();
+    }), [designerRoot, resolveElement]);
+
     const persistReorder = useCallback(
-        async (element: DesignElementSnapshot, before: DesignElementSnapshot | null) => {
+        async (element: DesignElementSnapshot, before: DesignElementSnapshot | null, assertAuthorized: () => void) => {
             return enqueuePersist(async () => {
+                assertAuthorized();
                 const resolved = await resolveElement(element);
                 if (!resolved) throw new Error("Could not find this element in the project source.");
                 if (!isUserSourcePath(resolved.file)) {
@@ -540,6 +582,7 @@ export function DesignStudio({
                     : null;
                 const after = reorderJsx(source, query, beforeQuery);
                 if (after === source) return;
+                assertAuthorized();
                 await commands.applyDesignSourcePatch({
                     projectPath: designerRoot,
                     target: resolved,
@@ -555,12 +598,16 @@ export function DesignStudio({
         let cancelled = false;
         let unsubscribeReady = () => {};
         let opened = false;
-        let opening: Promise<boolean> | null = null;
+        let openedUrl: string | null = null;
+        let startupFinished = false;
+        const ownerAtBoot = projectPathRef.current;
+        let opening: { authorization: DesignAuthorization; url: string; promise: Promise<boolean> } | null = null;
+        authorizationRef.current = null;
         setBooting(true);
         setReady(false);
         setBootError(null);
         setLayers([]);
-        setSelected(null);
+        setSelection(null);
         setTarget(null);
         setThemeTokens([]);
         resetPreviewState();
@@ -582,9 +629,6 @@ export function DesignStudio({
                 if (cancelled) return;
                 setPages(discovered);
                 setAssets(projectAssets);
-                await commands.registerDesignBridge(DESIGN_BRIDGE_SCRIPT);
-                if (cancelled) return;
-
                 const detected = await detectDevCommand(info.projectRoot);
                 if (!detected) {
                     setBootError("No development command was found for this project.");
@@ -593,23 +637,59 @@ export function DesignStudio({
                 }
                 const dev = detected;
 
-                const openWhenReachable = (url: string) => {
-                    if (opened) return Promise.resolve(true);
-                    if (opening) return opening;
-                    opening = (async () => {
-                        if (cancelled || !(await commands.probePreviewUrl(url))) return false;
-                        opened = true;
-                        // Load the scraped URL directly — WebView2 injects the bridge into iframes.
-                        await navigatePreview(loopbackPreviewUrl(url), { replace: true });
-                        return true;
-                    })().finally(() => {
-                        opening = null;
+                const openWhenReachable = (url: string): Promise<boolean> => {
+                    if (cancelled || projectPathRef.current !== ownerAtBoot || !sameProjectPath(getBackgroundRunCwd() || "", info.projectRoot)) return Promise.resolve(false);
+                    const authorization = authorizeDesignPreview(info.projectRoot, url);
+                    if (!authorization) return Promise.resolve(false);
+                    const targetUrl = new URL(url).href;
+                    if (opened && openedUrl === targetUrl && isCurrentDesignAuthorization(authorizationRef.current, info.projectRoot)) return Promise.resolve(true);
+                    if (opening) {
+                        if (opening.url === targetUrl && opening.authorization.serviceId === authorization.serviceId && opening.authorization.origin === authorization.origin) return opening.promise;
+                        // A replacement service or path announcement must survive an older
+                        // registration/probe. Revalidate it after that owner finishes.
+                        return opening.promise.then(() => openWhenReachable(url));
+                    }
+                    opened = false;
+                    authorizationRef.current = null;
+                    setReady(false);
+                    setBooting(true);
+                    setBootError(null);
+                    setSelection(null);
+                    setTarget(null);
+                    setLayers([]);
+                    setThemeTokens([]);
+                    const promise = (async () => {
+                        await commands.registerDesignBridge(scopeDesignBridge(DESIGN_BRIDGE_SCRIPT, authorization));
+                        if (cancelled) return false;
+                        const reachable = await commands.probePreviewUrl(url);
+                        if (cancelled || projectPathRef.current !== ownerAtBoot || !reachable || !isCurrentDesignAuthorization(authorization, info.projectRoot)) return false;
+                        authorizationRef.current = authorization;
+                        setBootError(null);
+                        // The owned probe just succeeded; do not introduce a second probe
+                        // that can fail after this boot has been marked open.
+                        opened = showPreviewUrl(url);
+                        openedUrl = opened ? targetUrl : null;
+                        if (!opened) authorizationRef.current = null;
+                        return opened;
+                    })().catch((cause: unknown) => {
+                        if (!cancelled) setBootError(cause instanceof Error ? cause.message : "Could not connect to the project preview.");
+                        return false;
+                    }).finally(() => {
+                        if (opening?.promise === promise) {
+                            opening = null;
+                            if (!cancelled && startupFinished && !opened && projectPathRef.current === ownerAtBoot
+                                && isCurrentDesignAuthorization(authorization, info.projectRoot)) {
+                                setBooting(false);
+                                setBootError(previous => previous ?? "Could not connect to the project preview.");
+                            }
+                        }
                     });
-                    return opening;
+                    opening = { authorization, url: targetUrl, promise };
+                    return promise;
                 };
 
                 unsubscribeReady = subscribePreviewReady((url) => {
-                    void openWhenReachable(loopbackPreviewUrl(url));
+                    void openWhenReachable(url);
                 });
 
                 const runningHere =
@@ -617,18 +697,14 @@ export function DesignStudio({
                     && sameProjectPath(getBackgroundRunCwd()!, info.projectRoot);
                 const existingUrl = runningHere ? getLastPreviewReadyUrl() : null;
                 // Prefer the URL scraped from the terminal (actual bound port).
-                if (existingUrl && (await openWhenReachable(loopbackPreviewUrl(existingUrl)))) {
+                if (existingUrl && (await openWhenReachable(existingUrl))) {
                     /* opened */
                 } else {
                     await ensureBackgroundRun(dev.command, info.projectRoot);
                     for (let attempt = 0; attempt < 60 && !cancelled && !opened; attempt += 1) {
                         const announced = getLastPreviewReadyUrl();
-                        if (announced && (await openWhenReachable(loopbackPreviewUrl(announced)))) {
+                        if (announced && (await openWhenReachable(announced))) {
                             break;
-                        }
-                        if (attempt >= 10) {
-                            const hint = loopbackPreviewUrl(dev.urlHint);
-                            if (await openWhenReachable(hint)) break;
                         }
                         await new Promise((resolve) => window.setTimeout(resolve, 500));
                     }
@@ -643,31 +719,38 @@ export function DesignStudio({
                     setBootError(cause instanceof Error ? cause.message : String(cause));
                     setBooting(false);
                 }
+            } finally {
+                startupFinished = true;
             }
         })();
         return () => {
             cancelled = true;
+            selectionRevision.current += 1;
+            authorizationRef.current = null;
             unsubscribeReady();
         };
-    }, [bootRoot]);
+    }, [bootRoot, setSelection]);
 
     useEffect(() => {
         if (!ready) return;
+        const authorization = authorizationRef.current;
+        if (!authorization || !isCurrentDesignAuthorization(authorization, designerRootRef.current)) return;
         if (injectedBridge.current === DESIGN_BRIDGE_SCRIPT) return;
         const first = injectedBridge.current === "";
         injectedBridge.current = DESIGN_BRIDGE_SCRIPT;
-        void commands.registerDesignBridge(DESIGN_BRIDGE_SCRIPT).then(() => {
-            if (!first) previewReload();
+        void commands.registerDesignBridge(scopeDesignBridge(DESIGN_BRIDGE_SCRIPT, authorization)).then(() => {
+            if (!first && authorizationRef.current === authorization) previewReload();
+        }).catch((cause: unknown) => {
+            if (authorizationRef.current === authorization) setBootError(cause instanceof Error ? cause.message : "Could not register the design bridge.");
         });
     }, [ready]);
 
     useEffect(() => {
         const onMessage = (event: MessageEvent) => {
-            if (event.source !== iframeRef.current?.contentWindow) return;
-            // The design bridge is only injected into loopback frames
-            // (design_bridge.rs), so a canvas that navigated elsewhere has no
-            // business asking us to rewrite project sources.
-            if (!isLocalPreviewUrl(event.origin)) return;
+            if (!acceptsDesignMessage(event, iframeRef.current, authorizationRef.current, designerRootRef.current)) return;
+            if (!event.data || typeof event.data !== "object") return;
+            let assertAuthorized: () => void;
+            try { assertAuthorized = captureWriteAuthorization(); } catch { return; }
             const data = event.data as {
                 type?: string;
                 element?: DesignElementSnapshot;
@@ -685,7 +768,7 @@ export function DesignStudio({
                 if (Array.isArray(data.themeTokens)) setThemeTokens(data.themeTokens);
                 iframeRef.current?.contentWindow?.postMessage(
                     { type: "bettershape-design-set-mode", mode: toolModeRef.current, projectRoot: designerRootRef.current },
-                    frameOrigin(iframeRef.current),
+                    designMessageOrigin(authorizationRef.current, designerRootRef.current),
                 );
             } else if (data.type === "bettershape-design-tokens" && Array.isArray(data.themeTokens)) {
                 setThemeTokens(data.themeTokens);
@@ -693,9 +776,8 @@ export function DesignStudio({
                 setLayers(data.layers);
             } else if (data.type === "bettershape-design-selection") {
                 if (data.element) {
-                    setSelected(data.element);
+                    selectElement(data.element, assertAuthorized);
                     setPromptOpen(false);
-                    void resolveElement(data.element);
                     if (data.addToChat) {
                         const label = data.element.component?.name || data.element.component?.tag || data.element.tag;
                         window.dispatchEvent(
@@ -706,16 +788,16 @@ export function DesignStudio({
                         window.dispatchEvent(new Event("bettershape-chat-focus-input"));
                     }
                 } else {
-                    setSelected(null);
+                    setSelection(null);
                     setTarget(null);
                     setPromptOpen(false);
                 }
             } else if (data.type === "bettershape-design-commit-styles" && data.element && data.styles) {
-                setSelected(data.element);
+                selectElement(data.element, assertAuthorized);
                 void (async () => {
                     setSaved(false);
                     try {
-                        await persistJsx(data.element!, { styles: data.styles });
+                        await persistJsx(data.element!, { styles: data.styles }, assertAuthorized);
                         setMappingError(null);
                     } catch (cause) {
                         setMappingError(
@@ -729,7 +811,7 @@ export function DesignStudio({
                 void (async () => {
                     setSaved(false);
                     try {
-                        await persistJsx(data.element!, { text: data.text ?? "" });
+                        await persistJsx(data.element!, { text: data.text ?? "" }, assertAuthorized);
                         setMappingError(null);
                     } catch (cause) {
                         setMappingError(
@@ -743,7 +825,7 @@ export function DesignStudio({
                 void (async () => {
                     setSaved(false);
                     try {
-                        await persistJsx(data.element!, { attributes: data.attributes });
+                        await persistJsx(data.element!, { attributes: data.attributes }, assertAuthorized);
                         setMappingError(null);
                     } catch (cause) {
                         setMappingError(
@@ -757,7 +839,7 @@ export function DesignStudio({
                 void (async () => {
                     setSaved(false);
                     try {
-                        await persistReorder(data.element!, data.before ?? null);
+                        await persistReorder(data.element!, data.before ?? null, assertAuthorized);
                         setMappingError(null);
                     } catch (cause) {
                         setMappingError(
@@ -772,26 +854,15 @@ export function DesignStudio({
                 && data.element
             ) {
                 void (async () => {
-                    const resolved = await resolveElement(data.element!);
-                    if (!resolved) {
-                        setMappingError(
-                            "Could not map this element to a source file. Select it again, then retry.",
-                        );
-                        return;
-                    }
                     setSaved(false);
                     try {
-                        await commands.applyDesignSourcePatch({
-                            projectPath: designerRoot,
-                            target: resolved,
-                            operation: data.type === "bettershape-design-delete" ? "delete" : "duplicate",
-                        });
-                        setSelected(null);
+                        await persistStructure(data.element!, data.type === "bettershape-design-delete" ? "delete" : "duplicate", assertAuthorized);
+                        setSelection(null);
                         setTarget(null);
                         setReady(false);
                         previewReload();
-                    } catch {
-                        previewReload();
+                    } catch (cause) {
+                        reportMappingError(cause);
                     } finally {
                         setSaved(true);
                     }
@@ -800,27 +871,29 @@ export function DesignStudio({
         };
         window.addEventListener("message", onMessage);
         return () => window.removeEventListener("message", onMessage);
-    }, [designerRoot, persistJsx, persistReorder, resolveElement]);
+    }, [captureWriteAuthorization, designerRoot, persistJsx, persistReorder, persistStructure, reportMappingError, selectElement, setSelection]);
 
     const previewStyles = useCallback((styles: Record<string, string>) => {
+        const assertAuthorized = admitSelectionWrite();
+        if (!assertAuthorized) return;
         const previewFrame = iframeRef.current;
         const frame = previewFrame?.contentWindow;
         const key = selected?.key;
         if (frame) {
             frame.postMessage(
                 { type: "bettershape-design-apply-preview", styles, key },
-                frameOrigin(previewFrame),
+                designMessageOrigin(authorizationRef.current, designerRootRef.current),
             );
         }
-        setSelected((current) =>
+        updateSelected(assertAuthorized, (current) =>
             current ? { ...current, styles: { ...current.styles, ...styles } } : current,
         );
-    }, [selected?.key]);
+    }, [admitSelectionWrite, selected?.key, updateSelected]);
 
     useEffect(() => {
         iframeRef.current?.contentWindow?.postMessage(
             { type: "bettershape-design-set-mode", mode: toolMode, projectRoot: designerRoot },
-            frameOrigin(iframeRef.current),
+            designMessageOrigin(authorizationRef.current, designerRootRef.current),
         );
     }, [toolMode, ready, iframeSrc, designerRoot]);
 
@@ -828,7 +901,7 @@ export function DesignStudio({
         if (!ready) return;
         iframeRef.current?.contentWindow?.postMessage(
             { type: "bettershape-design-config", projectRoot: designerRoot },
-            frameOrigin(iframeRef.current),
+            designMessageOrigin(authorizationRef.current, designerRootRef.current),
         );
     }, [ready, designerRoot, iframeSrc]);
 
@@ -838,22 +911,34 @@ export function DesignStudio({
             if (result.file && result.content != null) {
                 commands.primeFileCache(result.file, result.content);
             }
-            iframeRef.current?.contentWindow?.postMessage({ type: "bettershape-design-refresh" }, frameOrigin(iframeRef.current));
+            iframeRef.current?.contentWindow?.postMessage({ type: "bettershape-design-refresh" }, designMessageOrigin(authorizationRef.current, designerRootRef.current));
         },
         [],
     );
 
     const undoDesign = useCallback(() => {
-        void enqueuePersist(async () => {
-            applyHistoryResult(await commands.undoDesignSourcePatch());
-        });
-    }, [applyHistoryResult]);
+        try {
+            const assertAuthorized = captureWriteAuthorization();
+            void enqueuePersist(async () => {
+                assertAuthorized();
+                const result = await commands.undoDesignSourcePatch();
+                assertAuthorized();
+                applyHistoryResult(result);
+            }).catch(reportMappingError);
+        } catch (cause) { reportMappingError(cause); }
+    }, [applyHistoryResult, captureWriteAuthorization, reportMappingError]);
 
     const redoDesign = useCallback(() => {
-        void enqueuePersist(async () => {
-            applyHistoryResult(await commands.redoDesignSourcePatch());
-        });
-    }, [applyHistoryResult]);
+        try {
+            const assertAuthorized = captureWriteAuthorization();
+            void enqueuePersist(async () => {
+                assertAuthorized();
+                const result = await commands.redoDesignSourcePatch();
+                assertAuthorized();
+                applyHistoryResult(result);
+            }).catch(reportMappingError);
+        } catch (cause) { reportMappingError(cause); }
+    }, [applyHistoryResult, captureWriteAuthorization, reportMappingError]);
 
     useEffect(() => {
         const onKey = (event: KeyboardEvent) => {
@@ -911,15 +996,16 @@ export function DesignStudio({
     const commitStyles = useCallback(
         async (styles: Record<string, string>) => {
             const current = selected;
-            if (!current) return;
+            const assertAuthorized = admitSelectionWrite();
+            if (!current || !assertAuthorized) return;
             // Keep the canvas updated even if source mapping fails.
             iframeRef.current?.contentWindow?.postMessage(
                 { type: "bettershape-design-apply-preview", styles, key: current.key },
-                frameOrigin(iframeRef.current),
+                designMessageOrigin(authorizationRef.current, designerRootRef.current),
             );
             setSaved(false);
             try {
-                await persistJsx(current, { styles });
+                await persistJsx(current, { styles }, assertAuthorized);
                 setMappingError(null);
             } catch (cause) {
                 setMappingError(
@@ -929,43 +1015,51 @@ export function DesignStudio({
                 setSaved(true);
             }
         },
-        [persistJsx, selected],
+        [admitSelectionWrite, persistJsx, selected],
     );
 
     const createToken = useCallback(
         async (name: string, value: string) => {
-            const resolved = await resolveGlobalsCss(designerRoot);
-            if (!resolved.path) {
-                throw new Error("Could not find a theme CSS file to store this token.");
-            }
-            const before = resolved.content || (await commands.readFileFromDisk(resolved.path));
-            const next = insertCssVariableInContent(before, name, value);
-            await commands.saveFile(resolved.path, next);
-            invalidateGlobalsCssCache();
-            setCachedGlobalsCssContent(next);
-            setThemeTokens((now) => {
-                const index = now.findIndex((token) => token.name === name);
-                if (index >= 0) {
-                    return now.map((token, i) => (i === index ? { name, value } : token));
-                }
-                return [...now, { name, value }];
-            });
+            try {
+                const assertAuthorized = captureWriteAuthorization();
+                await enqueuePersist(async () => {
+                    assertAuthorized();
+                    const resolved = await resolveGlobalsCss(designerRoot);
+                    if (!resolved.path) {
+                        throw new Error("Could not find a theme CSS file to store this token.");
+                    }
+                    const before = await commands.readFileFromDisk(resolved.path);
+                    const next = insertCssVariableInContent(before, name, value);
+                    assertAuthorized();
+                    await commands.saveFile(resolved.path, next);
+                    assertAuthorized();
+                    updateGlobalsCssCache(designerRoot, resolved.path, next);
+                    setThemeTokens((now) => {
+                        const index = now.findIndex((token) => token.name === name);
+                        if (index >= 0) {
+                            return now.map((token, i) => (i === index ? { name, value } : token));
+                        }
+                        return [...now, { name, value }];
+                    });
+                });
+            } catch (cause) { reportMappingError(cause); }
         },
-        [designerRoot],
+        [captureWriteAuthorization, designerRoot, reportMappingError],
     );
 
     const commitText = useCallback(
         async (text: string) => {
             const current = selected;
-            if (!current) return;
+            const assertAuthorized = admitSelectionWrite();
+            if (!current || !assertAuthorized) return;
             iframeRef.current?.contentWindow?.postMessage(
                 { type: "bettershape-design-set-text", key: current.key, text },
-                frameOrigin(iframeRef.current),
+                designMessageOrigin(authorizationRef.current, designerRootRef.current),
             );
-            setSelected({ ...current, text });
+            updateSelected(assertAuthorized, { ...current, text });
             setSaved(false);
             try {
-                await persistJsx(current, { text });
+                await persistJsx(current, { text }, assertAuthorized);
                 setMappingError(null);
             } catch (cause) {
                 setMappingError(cause instanceof Error ? cause.message : String(cause));
@@ -973,24 +1067,25 @@ export function DesignStudio({
                 setSaved(true);
             }
         },
-        [persistJsx, selected],
+        [admitSelectionWrite, persistJsx, selected, updateSelected],
     );
 
     const commitAttr = useCallback(
         async (name: string, value: string) => {
             const current = selected;
-            if (!current) return;
+            const assertAuthorized = admitSelectionWrite();
+            if (!current || !assertAuthorized) return;
             iframeRef.current?.contentWindow?.postMessage(
                 { type: "bettershape-design-set-attr", key: current.key, name, value },
-                frameOrigin(iframeRef.current),
+                designMessageOrigin(authorizationRef.current, designerRootRef.current),
             );
-            setSelected({
+            updateSelected(assertAuthorized, {
                 ...current,
                 attributes: { ...current.attributes, [name]: value },
             });
             setSaved(false);
             try {
-                await persistJsx(current, { attributes: { [name]: value } });
+                await persistJsx(current, { attributes: { [name]: value } }, assertAuthorized);
                 setMappingError(null);
             } catch (cause) {
                 setMappingError(cause instanceof Error ? cause.message : String(cause));
@@ -998,15 +1093,16 @@ export function DesignStudio({
                 setSaved(true);
             }
         },
-        [persistJsx, selected],
+        [admitSelectionWrite, persistJsx, selected, updateSelected],
     );
 
     const patchComponent = useCallback((patch: ComponentOptionPatch) => {
         const previewFrame = iframeRef.current;
         const frame = previewFrame?.contentWindow;
         const current = selected;
-        if (!current?.component) return;
-        setSelected((now) => {
+        const assertAuthorized = admitSelectionWrite();
+        if (!current?.component || !assertAuthorized) return;
+        updateSelected(assertAuthorized, (now) => {
             if (!now?.component) return now;
             const properties = now.component.properties.map((property) => {
                 if (patch.attr && property.attr !== patch.attr) return property;
@@ -1021,14 +1117,14 @@ export function DesignStudio({
             return { ...now, component: { ...now.component, properties } };
         });
         if (patch.field === "text") {
-            frame?.postMessage({ type: "bettershape-design-set-text", key: patch.key, text: String(patch.value) }, frameOrigin(previewFrame));
-            void persistJsx(current, { text: String(patch.value) });
+            frame?.postMessage({ type: "bettershape-design-set-text", key: patch.key, text: String(patch.value) }, designMessageOrigin(authorizationRef.current, designerRootRef.current));
+            void persistJsx(current, { text: String(patch.value) }, assertAuthorized, { instance: true }).catch(reportMappingError);
             return;
         }
         if (patch.field === "attr" && patch.attr) {
-            void persistJsx(current, { attributes: { [patch.attr]: String(patch.value) } }, { instance: true });
+            void persistJsx(current, { attributes: { [patch.attr]: String(patch.value) } }, assertAuthorized, { instance: true }).catch(reportMappingError);
         }
-    }, [persistJsx, selected]);
+    }, [admitSelectionWrite, persistJsx, reportMappingError, selected, updateSelected]);
 
     const openSource = useCallback(() => {
         if (!target) return;
@@ -1039,37 +1135,32 @@ export function DesignStudio({
     const applyStructure = useCallback(
         async (operation: "delete" | "duplicate") => {
             const current = selected;
-            const resolved = target ?? (current ? await resolveElement(current) : null);
-            if (!resolved) {
-                setMappingError(
-                    "Could not map this element to a source file. Select it again, then retry.",
-                );
-                return;
-            }
+            const assertAuthorized = admitSelectionWrite();
+            if (!current || !assertAuthorized) return;
             setSaved(false);
             try {
-                await commands.applyDesignSourcePatch({
-                    projectPath: designerRoot,
-                    target: resolved,
-                    operation,
-                });
-                setSelected(null);
+                await persistStructure(current, operation, assertAuthorized);
+                setSelection(null);
                 setTarget(null);
                 setReady(false);
                 previewReload();
-            } catch {
-                previewReload();
+            } catch (cause) {
+                reportMappingError(cause);
             } finally {
                 setSaved(true);
             }
         },
-        [designerRoot, resolveElement, selected, target],
+        [admitSelectionWrite, persistStructure, reportMappingError, selected, setSelection],
     );
 
     const exportSelection = useCallback(async (scale: number, format: string) => {
         const previewFrame = iframeRef.current;
         const frame = previewFrame?.contentWindow;
-        if (!frame) return;
+        const authorization = authorizationRef.current;
+        if (!frame || !isCurrentDesignAuthorization(authorization, designerRootRef.current)) return;
+        const isAuthorized = () => iframeRef.current === previewFrame
+            && authorizationRef.current === authorization
+            && isCurrentDesignAuthorization(authorization, designerRootRef.current);
         const requestId = crypto.randomUUID();
         const result = await new Promise<{ dataUrl?: string; width?: number; height?: number }>((resolve) => {
             const timer = window.setTimeout(() => {
@@ -1077,7 +1168,9 @@ export function DesignStudio({
                 resolve({});
             }, 12_000);
             const onMessage = (event: MessageEvent) => {
-                if (event.source !== frame) return;
+                if (!isAuthorized() || event.source !== frame) return;
+                if (!acceptsDesignMessage(event, previewFrame, authorization, designerRootRef.current)) return;
+                if (!event.data || typeof event.data !== "object") return;
                 const data = event.data as {
                     type?: string;
                     requestId?: string;
@@ -1091,10 +1184,11 @@ export function DesignStudio({
                 resolve(data);
             };
             window.addEventListener("message", onMessage);
-            frame.postMessage({ type: "bettershape-design-export", requestId, scale }, frameOrigin(previewFrame));
+            frame.postMessage({ type: "bettershape-design-export", requestId, scale }, authorization.origin);
         });
-        if (!result.dataUrl) return;
+        if (!result.dataUrl || !isAuthorized()) return;
         const image = await loadImage(result.dataUrl);
+        if (!isAuthorized()) return;
         const canvas = document.createElement("canvas");
         canvas.width = result.width || image.width;
         canvas.height = result.height || image.height;
@@ -1129,17 +1223,19 @@ export function DesignStudio({
             ext = "png";
         }
         const { save } = await import("@tauri-apps/plugin-dialog");
+        if (!isAuthorized()) return;
         const path = await save({
             defaultPath: `export.${ext}`,
             filters: [{ name: ext.toUpperCase(), extensions: [ext] }],
         });
-        if (typeof path !== "string") return;
+        if (typeof path !== "string" || !isAuthorized()) return;
         await commands.grantIpcPath(path).catch(() => undefined);
+        if (!isAuthorized()) return;
         await commands.saveFileBytes(path, Array.from(bytes));
     }, []);
 
     const selectedKey = selected?.key ?? null;
-    const canvasBusy = booting || !ready;
+    const canvasBusy = !bootError && (booting || !ready);
 
     const pickPackageJson = useCallback(async () => {
         const { open } = await import("@tauri-apps/plugin-dialog");
@@ -1250,8 +1346,11 @@ export function DesignStudio({
                                     sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox allow-downloads"
                                     referrerPolicy="no-referrer"
                                     onLoad={() => {
+                                        documentEpoch.current += 1;
+                                        setSelection(null);
+                                        setTarget(null);
                                         window.setTimeout(() => {
-                                            const target = frameOrigin(iframeRef.current);
+                                            const target = designMessageOrigin(authorizationRef.current, designerRootRef.current);
                                             const frame = iframeRef.current?.contentWindow;
                                             frame?.postMessage(
                                                 {
@@ -1345,7 +1444,7 @@ export function DesignStudio({
                             onAlign={(alignment: "center" | "center-x" | "center-y") =>
                                 iframeRef.current?.contentWindow?.postMessage(
                                     { type: "bettershape-design-align", alignment },
-                                    frameOrigin(iframeRef.current),
+                                    designMessageOrigin(authorizationRef.current, designerRootRef.current),
                                 )
                             }
                             onDuplicate={() => void applyStructure("duplicate")}

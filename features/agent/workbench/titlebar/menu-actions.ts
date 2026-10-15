@@ -1,3 +1,4 @@
+import { dirtyOpenFiles } from "@/lib/workspace/dirty-buffers";
 import { commands } from "@/lib/backend";
 import { HELP_LINKS } from "@/lib/errors/help-links";
 import { isPopoutPath } from "@/lib/window/tauri-window";
@@ -131,7 +132,7 @@ export function createMenuActionHandler(ctx: MenuActionContext) {
                 break;
             }
             case "Save All": {
-                for (const file of ctx.openFiles.filter((f) => f.is_dirty)) {
+                for (const file of dirtyOpenFiles(ctx.openFiles)) {
                     if (isBinaryAssetPath(file.path)) continue;
                     const content = await ctx.readLatestContent(file.path);
                     await commands.saveFile(file.path, content);

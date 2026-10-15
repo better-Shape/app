@@ -1,104 +1,244 @@
 "use client";
 
-/**
- * OS-keychain storage for BYOK secrets.
- *
- * Provider keys — plus the web-search and Composio keys — are the only secrets
- * the app holds. They are written to the operating system's credential store
- * (Keychain on macOS, Credential Manager on Windows, Secret Service on Linux)
- * through the Rust `ai_*` key commands, never into the settings JSON.
- *
- * If a machine has no usable keychain the app falls back to keeping keys in
- * local settings, because a missing keychain must never lock someone out of the
- * models they paid for. Settings redaction is switched on only once a keychain
- * has been confirmed working in this process.
- */
-
+/** Native, revision-checked OS-keychain storage shared by all WebViews. */
 import { commands } from "@/lib/backend";
 
-/**
- * Ids that already hold the value we last wrote, so a settings change that does
- * not touch the key costs nothing.
- */
 const written = new Map<string, string>();
-
+const conflicts = new Map<string, { submitted: string; value: string; persisted: boolean }>();
+const revisions = new Map<string, string>();
+const scopes = new Map<string, string | undefined>();
+const validatedIntents = new Map<string, string>();
+const localIntents = new Map<string, { token: string; value: string; recorded: boolean; previousToken: string | null }>();
+const INVENTORY_PREFIX = "bettershape-ai-vault-entry:";
+const RECEIPT_PREFIX = "bettershape-ai-vault-receipt:";
+type InventoryState = "stored" | "write" | "delete" | "deleted";
+type Intent = { state: InventoryState; token: string };
 let supported: boolean | null = null;
+let availabilityGeneration = 0;
+let availabilityProbe: Promise<boolean> | null = null;
 
-/** Probe (once per session) whether this machine can store secrets. */
-export async function vaultAvailable(): Promise<boolean> {
-    if (supported !== null) return supported;
+function inventoryKey(id: string): string { return `${INVENTORY_PREFIX}${encodeURIComponent(id)}`; }
+function readIntent(key: string): Intent | null {
     try {
-        supported = await commands.aiVaultSupported();
-    } catch {
-        // Desktop bridge missing (browser dev) or the probe failed.
-        supported = false;
-    }
-    return supported;
+        const raw = window.localStorage.getItem(key);
+        if (raw === "stored" || raw === "delete") return { state: raw, token: raw };
+        if (!raw) return null;
+        const value: unknown = JSON.parse(raw);
+        if (!value || typeof value !== "object" || !("state" in value) || !("token" in value)) return null;
+        if (!["stored", "write", "delete", "deleted"].includes(String(value.state)) || typeof value.token !== "string") return null;
+        return value as Intent;
+    } catch { return null; }
+}
+function inventoryIntent(id: string): Intent | null {
+    const intent = readIntent(inventoryKey(id));
+    if (intent?.state !== "write" && intent?.state !== "delete") return intent;
+    const receipt = readIntent(`${RECEIPT_PREFIX}${encodeURIComponent(id)}`);
+    return receipt?.token === intent.token
+        && receipt.state === (intent.state === "write" ? "stored" : "deleted") ? receipt : intent;
+}
+function recordReceipt(id: string, receipt: Intent): boolean {
+    try { window.localStorage.setItem(`${RECEIPT_PREFIX}${encodeURIComponent(id)}`, JSON.stringify(receipt)); return true; }
+    catch { return false; }
+}
+function recordInventory(id: string, intent: Intent): boolean {
+    try { window.localStorage.setItem(inventoryKey(id), JSON.stringify(intent)); return true; }
+    catch { return false; }
+}
+function inventoryEntries(): Array<[string, Intent]> {
+    const entries: Array<[string, Intent]> = [];
+    try {
+        for (let index = 0; index < window.localStorage.length; index += 1) {
+            const key = window.localStorage.key(index);
+            if (!key?.startsWith(INVENTORY_PREFIX)) continue;
+            try {
+                const id = decodeURIComponent(key.slice(INVENTORY_PREFIX.length));
+                const intent = inventoryIntent(id);
+                if (id && intent) entries.push([id, intent]);
+            } catch { /* Malformed metadata grants no authority. */ }
+        }
+    } catch { /* The caller reports failed write-ahead metadata separately. */ }
+    return entries;
+}
+function isDeleted(id: string): boolean {
+    const state = inventoryIntent(id)?.state;
+    return state === "delete" || state === "deleted";
+}
+export function knownSecretIds(): string[] { return inventoryEntries().map(([id]) => id); }
+export function deletedSecretIds(): string[] { return inventoryEntries().filter(([id]) => isDeleted(id)).map(([id]) => id); }
+export function hasLocalSecretIntent(id: string): boolean { return localIntents.has(id); }
+export function hasPendingSecretWrite(id: string): boolean { return inventoryIntent(id)?.state === "write"; }
+/** A foreign intent invalidates sync's clean state even when this window's key text is unchanged. */
+export function hasUnvalidatedSecretIntent(id: string): boolean {
+    return inventoryIntent(id)?.token !== validatedIntents.get(id);
 }
 
-/** Test seam: pin the availability answer without touching the keychain. */
+/** Reserve user intent synchronously, before availability checks or queued IPC. */
+export function recordSecretChanges(changes: Record<string, string>): boolean {
+    let recorded = true;
+    for (const [id, value] of Object.entries(changes)) {
+        conflicts.delete(id);
+        const token = Array.from(crypto.getRandomValues(new Uint32Array(4))).join("-");
+        const previousToken = inventoryIntent(id)?.token ?? null;
+        const saved = recordInventory(id, { state: value.trim() ? "write" : "delete", token });
+        localIntents.set(id, { token, value: value.trim(), recorded: saved, previousToken });
+        if (!saved) recorded = false;
+    }
+    return recorded;
+}
+export function recordSecretDeletions(ids: string[]): boolean {
+    return recordSecretChanges(Object.fromEntries(ids.map((id) => [id, ""])));
+}
+/** A retry revokes older probe results without claiming to cancel native work. */
+export function refreshVaultAvailability(): void {
+    availabilityGeneration += 1;
+    supported = null;
+    availabilityProbe = null;
+}
+/** Share one probe per retry generation; callers of a stale probe follow the current result. */
+export function vaultAvailable(): Promise<boolean> {
+    if (supported !== null) return Promise.resolve(supported);
+    if (availabilityProbe) return availabilityProbe;
+    const generation = availabilityGeneration;
+    availabilityProbe = Promise.resolve().then(() => commands.aiVaultSupported()).catch(() => false).then((available) => {
+        // A manual retry owns the new probe; older results must follow it, not overwrite it.
+        if (generation !== availabilityGeneration) return vaultAvailable();
+        supported = available;
+        availabilityProbe = null;
+        return available;
+    });
+    return availabilityProbe;
+}
 export function __setVaultAvailableForTesting(value: boolean | null): void {
+    refreshVaultAvailability();
     supported = value;
 }
-
-/** Forget the write cache (tests, and after a deliberate clear). */
 export function __resetVaultCacheForTesting(): void {
-    written.clear();
-    supported = null;
+    written.clear(); conflicts.clear(); revisions.clear(); scopes.clear(); validatedIntents.clear(); localIntents.clear();
+    refreshVaultAvailability();
 }
 
-/** Read the stored secrets for these ids. Missing entries are omitted. */
+interface SecretReadResult {
+    scopes: Record<string, string | undefined>;
+    values: Record<string, string>;
+    unavailable: Set<string>;
+    cleared: Set<string>;
+    persisted: boolean;
+}
+
+/** Reads acquire leases for empty entries, but never for inaccessible entries. */
+export async function readSecretsDetailed(ids: string[]): Promise<SecretReadResult> {
+    const result: SecretReadResult = { values: {}, scopes: {}, unavailable: new Set(ids), cleared: new Set(), persisted: true };
+    if (ids.length === 0) return result;
+    if (!(await vaultAvailable())) return { ...result, persisted: false };
+    const before = new Map(revisions);
+    const rows = await commands.aiLoadKeys(ids);
+    for (const row of rows) {
+        if (row.status === "unavailable") continue;
+        result.unavailable.delete(row.id);
+        result.persisted &&= row.persisted;
+        // An older read must not roll back a lease advanced by our own write.
+        if (revisions.get(row.id) !== before.get(row.id)) continue;
+        revisions.set(row.id, row.revision);
+        scopes.set(row.id, row.scope);
+        result.scopes[row.id] = row.scope;
+        const key = row.apiKey.trim();
+        if (!key && row.revision !== "initial") result.cleared.add(row.id);
+        written.set(row.id, key);
+        if (key && !isDeleted(row.id)) result.values[row.id] = key;
+    }
+    result.persisted &&= result.unavailable.size === 0;
+    return result;
+}
+
 export async function readSecrets(ids: string[]): Promise<Record<string, string>> {
-    if (ids.length === 0) return {};
-    if (!(await vaultAvailable())) return {};
-    try {
-        const rows = await commands.aiLoadKeys(ids);
-        const out: Record<string, string> = {};
-        for (const row of rows) {
-            const key = row.apiKey.trim();
-            if (key) {
-                out[row.id] = key;
-                written.set(row.id, key);
-            }
-        }
-        return out;
-    } catch {
-        return {};
-    }
+    return (await readSecretsDetailed(ids)).values;
 }
 
-/** Store a secret (empty clears it). Returns false when no keychain is usable. */
-export async function writeSecret(id: string, value: string): Promise<boolean> {
+export type SecretWriteResult = { kind: "stored" | "failed" } | { kind: "conflict"; value: string; persisted: boolean };
+
+export async function writeSecretDetailed(id: string, value: string, scope?: string): Promise<SecretWriteResult> {
     const secret = value.trim();
-    if (written.get(id) === secret) return true;
-    if (!(await vaultAvailable())) return false;
-    try {
-        if (secret) {
-            await commands.aiStoreKey(id, secret);
-        } else {
-            await commands.aiDeleteKey(id);
+    if (secret && !scope) return { kind: "failed" };
+    const blocked = conflicts.get(id);
+    if (blocked?.submitted === secret && !isDeleted(id)) return { kind: "conflict", value: blocked.value, persisted: blocked.persisted };
+    const conflict = (current: string, persisted: boolean): SecretWriteResult => {
+        conflicts.set(id, { submitted: secret, value: current, persisted });
+        return { kind: "conflict", value: current, persisted };
+    };
+    if (!secret && !revisions.has(id) && isDeleted(id)) {
+        const deletion = inventoryIntent(id);
+        const read = await readSecretsDetailed([id]);
+        if (read.unavailable.has(id)) return { kind: "failed" };
+        if (inventoryIntent(id)?.token !== deletion?.token || !isDeleted(id)) {
+            return conflict(read.values[id] ?? "", read.persisted);
         }
-        written.set(id, secret);
-        return true;
-    } catch {
-        // Keep the cache untouched so the next settings change retries.
-        return false;
     }
-}
-
-/** Remove a secret entirely (also used when a provider is reset). */
-export async function forgetSecret(id: string): Promise<void> {
-    written.delete(id);
-    if (!(await vaultAvailable())) return;
+    // After acquiring a missing deletion lease, retain it through queued IPC.
+    const expectedRevision = revisions.get(id) ?? "initial";
+    let intent = inventoryIntent(id);
+    const own = localIntents.get(id);
+    if (own && !own.recorded && (intent?.token ?? null) === own.previousToken) {
+        if (!recordInventory(id, { state: own.value ? "write" : "delete", token: own.token })) return { kind: "failed" };
+        own.recorded = true;
+        intent = inventoryIntent(id);
+    }
+    if (secret && isDeleted(id)) return conflict("", inventoryIntent(id)?.state === "deleted");
+    if (own && own.token !== intent?.token) {
+        const { values: current, persisted, unavailable } = await readSecretsDetailed([id]);
+        if (unavailable.has(id)) return { kind: "failed" };
+        if (localIntents.get(id) === own) localIntents.delete(id);
+        if (!secret && inventoryIntent(id)?.state === "delete") return writeSecretDetailed(id, "");
+        if ((current[id] ?? "") === secret && (!secret || scopes.get(id) === scope)) return { kind: persisted ? "stored" : "failed" };
+        return conflict(current[id] ?? "", persisted);
+    }
+    const matchingIntent = secret ? intent?.state === "write" : intent?.state === "delete" || intent?.state === "deleted";
+    if (!intent || (written.get(id) !== secret && (!own || own.value !== secret) && !matchingIntent)) {
+        if (!recordSecretChanges({ [id]: secret })) return { kind: "failed" };
+        intent = inventoryIntent(id);
+    }
+    const ownsIntent = localIntents.get(id)?.token === intent?.token;
+    if (secret && scopes.get(id) !== undefined && scopes.get(id) !== scope && !ownsIntent) {
+        return conflict(written.get(id) ?? "", true);
+    }
+    if (!intent || !(await vaultAvailable())) return { kind: "failed" };
     try {
-        await commands.aiDeleteKey(id);
-        written.set(id, "");
+        const result = secret
+            ? await commands.aiStoreKey(id, secret, expectedRevision, scope)
+            : await commands.aiDeleteKey(id, expectedRevision);
+        const current = result.current;
+        if ((revisions.get(id) ?? "initial") === expectedRevision) {
+            revisions.set(id, current.revision);
+            written.set(id, current.apiKey);
+            scopes.set(id, current.scope);
+        }
+        // A later user intent (in either window) owns its retry marker. A late
+        // callback may neither erase a deletion nor claim a newer draft saved.
+        const latest = inventoryIntent(id);
+        const stillOwnsIntent = latest?.token === intent?.token;
+        if (stillOwnsIntent && (ownsIntent || !secret) && result.applied && current.persisted) {
+            // Completion never rewrites the intent entry: another WebView
+            // can replace it between this check and the storage write.
+            if (!recordReceipt(id, { state: current.apiKey ? "stored" : "deleted", token: intent.token })) return { kind: "failed" };
+            if (localIntents.get(id)?.token === intent.token) localIntents.delete(id);
+        }
+        if (inventoryIntent(id)?.token !== intent.token && isDeleted(id)) return conflict("", inventoryIntent(id)?.state === "deleted");
+        if (!result.applied) return conflict(current.apiKey, current.persisted);
+        if (current.persisted) validatedIntents.set(id, intent.token);
+        return { kind: current.persisted ? "stored" : "failed" };
     } catch {
-        /* nothing stored, or no keychain — either way nothing to remove */
+        // Rejections leave the draft unsaved; only a successful retry persists it.
+        return { kind: "failed" };
     }
 }
-
-/** Ids this session has written, used to prune secrets of removed providers. */
+export async function writeSecret(id: string, value: string, scope?: string): Promise<boolean> {
+    if (!value.trim() && !recordSecretDeletions([id])) return false;
+    if (value.trim() && isDeleted(id) && written.get(id) !== value.trim() && !recordSecretChanges({ [id]: value })) return false;
+    return (await writeSecretDetailed(id, value, scope)).kind === "stored";
+}
+export async function forgetSecret(id: string): Promise<boolean> { return writeSecret(id, ""); }
 export function writtenSecretIds(): string[] {
-    return [...written.entries()].filter(([, value]) => value).map(([id]) => id);
+    return [...new Set([
+        ...inventoryEntries().filter(([, intent]) => intent.state === "delete").map(([id]) => id),
+        ...[...localIntents].filter(([, intent]) => !intent.value).map(([id]) => id),
+    ])];
 }

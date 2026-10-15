@@ -62,6 +62,9 @@ pub async fn send_chat_message(
     pty_state: tauri::State<'_, PtyState>,
     app_handle: tauri::AppHandle,
 ) -> Result<String, AppError> {
+    if state.request_is_cancelled(client_request_id.as_deref()) {
+        return Err(AppError::Message("Cancelled".to_string()));
+    }
     let review_adversarial_on = review_adversarial_enabled.unwrap_or(false);
     let raw_model = model
         .filter(|m| !m.trim().is_empty())
@@ -282,9 +285,7 @@ pub async fn send_chat_message(
         .unwrap_or(false);
     let has_images = model_router::content_has_images(&message) || history_has_images;
 
-    let turn_id = uuid::Uuid::new_v4().to_string();
     let conversation_id = Some(owned_conversation_id.clone());
-    state.reset_turn_meter(&turn_id);
     // Stale approvals from an earlier turn must never resolve this turn's items.
     // Leave them alone when another chat is still generating.
     if !state.any_in_flight() {
@@ -315,7 +316,9 @@ pub async fn send_chat_message(
             .collect(),
     };
     state.set_turn_policy_for(&owned_conversation_id, turn_policy);
-    if !state.try_begin_in_flight(turn_id.clone(), Some(owned_conversation_id.clone())) {
+    let Some(turn_id) =
+        state.try_begin_ordered_turn(owned_conversation_id.clone(), client_request_id.clone())
+    else {
         // Roll back the optimistic user message we just pushed.
         if let Ok(mut hist) = state.history.lock() {
             if hist
@@ -330,7 +333,8 @@ pub async fn send_chat_message(
             "This chat is already generating. Stop it or wait before sending another message."
                 .to_string(),
         ));
-    }
+    };
+    state.reset_turn_meter(&turn_id);
 
     if let Some(ref project) = current_proj_path {
         crate::commands::stats::bump_event(project, "ai_chat_turns");
@@ -348,6 +352,9 @@ pub async fn send_chat_message(
 
     // Fresh cancel token for this conversation. Other chats keep their own.
     let cancel = state.begin_cancel_token(&owned_conversation_id);
+    if state.request_is_cancelled(client_request_id.as_deref()) {
+        cancel.cancel();
+    }
 
     let needs_title = state.title.lock()?.is_none();
     let provisional_title = if needs_title {
@@ -544,7 +551,7 @@ pub async fn send_chat_message(
     if super::caption::should_caption(&model_concrete, has_images) {
         streaming::emit_chat_status(
             &app_handle,
-            json!({ "phase": "tool", "label": "Looking at image…" }),
+            json!({ "conversationId": conversation_id, "turnId": turn_id, "phase": "tool", "label": "Looking at image…" }),
         );
         let _ = super::caption::caption_history_images(
             &mut api_history,
@@ -624,6 +631,7 @@ pub async fn send_chat_message(
                 "model": model_to_use,
                 "turnId": &turn_id,
                 "conversationId": &owned_conversation_id,
+                "error": "Cancelled",
             }),
         );
         if let Some(path) = &current_proj_path {

@@ -126,9 +126,10 @@ export function ProblemsTab() {
             cancelled = true;
             clearTimeout(timer);
         };
-    }, [project_path, selection, active_file]);
+    }, [project_path, selection, active_file, manualRun]);
 
     useEffect(() => {
+        /** Invalidate the lint run when workspace file notifications arrive; the owning effect debounces the work. */
         const onFilesChanged = () => setManualRun((token) => token + 1);
         window.addEventListener("bettershape-files-changed", onFilesChanged);
         return () => window.removeEventListener("bettershape-files-changed", onFilesChanged);

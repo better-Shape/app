@@ -23,7 +23,6 @@ async function downloadDiagnostics() {
         exportedAt: new Date().toISOString(),
         userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "",
         platform: getPlatform(),
-        platformRaw: typeof navigator !== "undefined" ? navigator.platform : "",
         url: typeof window !== "undefined" ? window.location.href : "",
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });

@@ -72,6 +72,24 @@ pub struct ToolCtx<'a> {
 }
 
 impl<'a> ToolCtx<'a> {
+    pub fn emit_scoped_event(&self, event: &str, payload: Value) {
+        let payload = scoped_event_payload(
+            payload,
+            self.conversation_id.as_deref(),
+            self.turn_id.as_deref(),
+        );
+        let _ = self.app_handle.emit(event, payload);
+    }
+
+    pub fn emit_status(&self, payload: Value) {
+        let payload = scoped_event_payload(
+            payload,
+            self.conversation_id.as_deref(),
+            self.turn_id.as_deref(),
+        );
+        crate::agent::commands::streaming::emit_chat_status(self.app_handle, payload);
+    }
+
     pub fn emit_ui_token(&self, chunk: impl Into<String>) {
         let chunk = chunk.into();
         let _ = self.app_handle.emit(
@@ -83,6 +101,18 @@ impl<'a> ToolCtx<'a> {
             }),
         );
     }
+}
+
+fn scoped_event_payload(
+    mut payload: Value,
+    conversation_id: Option<&str>,
+    turn_id: Option<&str>,
+) -> Value {
+    if let Some(fields) = payload.as_object_mut() {
+        fields.insert("conversationId".into(), serde_json::json!(conversation_id));
+        fields.insert("turnId".into(), serde_json::json!(turn_id));
+    }
+    payload
 }
 
 pub struct ToolOutcome {
@@ -231,5 +261,24 @@ pub async fn execute_tool(name: &str, args_json: &str, ctx: &ToolCtx<'_>) -> Too
         tool_result,
         ui_chunk: outcome.ui_chunk,
         side_effect: outcome.side_effect,
+    }
+}
+
+#[cfg(test)]
+mod event_tests {
+    use super::scoped_event_payload;
+    use serde_json::json;
+
+    #[test]
+    fn tool_events_carry_authoritative_turn_identity_without_losing_payload() {
+        let payload = scoped_event_payload(
+            json!({ "id": "approval", "approved": true, "conversationId": "wrong" }),
+            Some("chat-a"),
+            Some("turn-a"),
+        );
+        assert_eq!(
+            payload,
+            json!({ "id": "approval", "approved": true, "conversationId": "chat-a", "turnId": "turn-a" })
+        );
     }
 }

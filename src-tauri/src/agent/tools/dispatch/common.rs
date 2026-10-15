@@ -1,7 +1,6 @@
 //! Shared helpers for tool dispatch.
 
 use serde_json::{json, Value};
-use tauri::Emitter;
 
 use super::{ToolCtx, ToolOutcome};
 
@@ -134,7 +133,7 @@ pub(super) fn cleanup_pending_design_pick(pick_id: &str, ctx: &ToolCtx<'_>) {
 }
 
 pub(super) fn emit_command_resolved(ctx: &ToolCtx<'_>, cmd_id: &str, approved: bool) {
-    let _ = ctx.app_handle.emit(
+    ctx.emit_scoped_event(
         "agent-command-resolved",
         json!({ "id": cmd_id, "approved": approved }),
     );
@@ -216,12 +215,7 @@ pub(super) fn clip(text: &str, limit: usize) -> String {
     )
 }
 
-pub(super) fn escape_xml_attr(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('"', "&quot;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-}
+pub(super) use crate::agent::tools::attachment_tags::escape_xml_attr;
 
 pub(super) fn escape_xml_preview_source(s: &str) -> String {
     escape_xml_attr(s)

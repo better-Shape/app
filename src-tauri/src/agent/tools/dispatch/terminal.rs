@@ -1,9 +1,8 @@
 //! Terminal session tools and command approval.
 
 use serde_json::{json, Value};
-use tauri::Emitter;
 
-use crate::agent::commands::{logging, streaming, terminal};
+use crate::agent::commands::{logging, terminal};
 use crate::agent::models::PendingCommand;
 use crate::agent::security::{self, commands::CommandSafety};
 use crate::agent::tools::files;
@@ -105,14 +104,11 @@ pub(super) async fn execute_terminal_session(
         return error_outcome("run_terminal", "Terminal state is not available.");
     };
 
-    streaming::emit_chat_status(
-        ctx.app_handle,
-        json!({
-            "phase": "tool",
-            "tool": "run_terminal",
-            "label": format!("Running {}", clip(command, 60)),
-        }),
-    );
+    ctx.emit_status(json!({
+        "phase": "tool",
+        "tool": "run_terminal",
+        "label": format!("Running {}", clip(command, 60)),
+    }));
 
     // Durable running status so late listeners / transcript reloads see a coherent card.
     ctx.emit_ui_token(format!(
@@ -575,11 +571,8 @@ pub(super) async fn run_git_commit_with_approval(
         "\n<terminal_command status=\"pending\" id=\"{}\">{}\nAwaiting approval: {}</terminal_command>\n",
         cmd_id, preview, pending.reason
     ));
-    let _ = ctx.app_handle.emit("agent-command-pending", pending);
-    streaming::emit_chat_status(
-        ctx.app_handle,
-        json!({ "phase": "approval", "label": "Waiting for approval" }),
-    );
+    ctx.emit_scoped_event("agent-command-pending", json!(pending));
+    ctx.emit_status(json!({ "phase": "approval", "label": "Waiting for approval" }));
 
     let decision = wait_for_command_decision(&cmd_id, ctx).await;
     cleanup_pending_command(&cmd_id, ctx);
@@ -658,11 +651,8 @@ pub(super) async fn run_with_approval(
         "\n<terminal_command status=\"pending\" id=\"{}\">{}\nAwaiting approval: {}</terminal_command>\n",
         cmd_id, command, reason
     ));
-    let _ = ctx.app_handle.emit("agent-command-pending", pending);
-    streaming::emit_chat_status(
-        ctx.app_handle,
-        json!({ "phase": "approval", "label": "Waiting for approval" }),
-    );
+    ctx.emit_scoped_event("agent-command-pending", json!(pending));
+    ctx.emit_status(json!({ "phase": "approval", "label": "Waiting for approval" }));
 
     let decision = wait_for_command_decision(&cmd_id, ctx).await;
     cleanup_pending_command(&cmd_id, ctx);

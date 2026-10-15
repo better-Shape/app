@@ -13,7 +13,7 @@ import { useProjectState, commands } from "@/lib/backend";
 import { useAllProgressMessages } from "@/lib/ui/status-progress";
 import { getLanguageLabel } from "@/features/editor/lib/language-options";
 import { openLanguageModePicker } from "@/features/editor/ui/main/ui/language-picker";
-import { useEditorSplitOptional } from "@/core/providers/editor";
+import { useEditorSplitOptional, useSplitFocusedFile } from "@/core/providers/editor";
 import {
     dispatchEditorAction,
     openStatusPalette,
@@ -156,8 +156,14 @@ const Status = () => {
     // only inside a file tab, so the split context is absent here and
     // pickStatusFile falls back to the backend active file.
     const split = useEditorSplitOptional();
+    const splitFocusedFile = useSplitFocusedFile();
     const { active_file, project_path } = useProjectState();
-    const statusFile = pickStatusFile(split, active_file);
+    // Inside the provider the context is authoritative. Outside it, the backend's
+    // active file can be the LEFT group's tab while the right group has focus, so
+    // the published focused path wins whenever the provider has reported one.
+    const statusFile = split
+        ? pickStatusFile(split, active_file)
+        : (splitFocusedFile ?? active_file ?? null);
     const progressMessages = useAllProgressMessages();
     const { editorStatus, typescriptVersion } = useEditorStatus();
     const latestProgressMessage = progressMessages[progressMessages.length - 1] ?? null;

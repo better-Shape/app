@@ -1,3 +1,4 @@
+mod attachment_tags;
 pub mod browse;
 pub mod dispatch;
 pub mod files;

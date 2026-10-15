@@ -1,3 +1,4 @@
+import { parseGitHubRemote } from "@/lib/github/remote";
 import type { IconGlyph } from "@/components/ui/icon";
 import { ArrowSync20Regular } from "@fluentui/react-icons/headless/svg/arrow-sync";
 import { CheckmarkCircle20Filled } from "@fluentui/react-icons/headless/svg/checkmark-circle";
@@ -103,13 +104,7 @@ export async function resolveOwnerRepo(
 ): Promise<{ owner: string; repo: string } | null> {
     if (!projectPath) return null;
     try {
-        const remote = await commands.gitRemoteUrl(projectPath);
-        if (!remote) return null;
-        const m =
-            remote.match(/github\.com[:/](.+?)\/(.+?)(?:\.git)?$/i) ||
-            remote.match(/[:/]([^/]+)\/([^/]+?)(?:\.git)?$/);
-        if (!m) return null;
-        return { owner: m[1], repo: m[2].replace(/\.git$/, "") };
+        return parseGitHubRemote(await commands.gitRemoteUrl(projectPath));
     } catch {
         return null;
     }

@@ -1,9 +1,12 @@
 "use client";
 
 import React from "react";
+import { TurnOrder } from "@/lib/chat/turn-order";
+import { isLocalChatRequest } from "@/lib/chat/request-ownership";
 import { listen } from "@tauri-apps/api/event";
 import { commands } from "@/lib/backend";
 import type { ChatMessage } from "@/lib/backend/types";
+import { setChatActivity } from "./chat-activity";
 import { setChatGenerating } from "./generating-chats";
 import { NEW_CHAT_TAB_ID } from "../ui/shell/tabs";
 import { upsertTaggedBlockInContent } from "./upsert-stream-blocks";
@@ -37,6 +40,8 @@ export type TurnPhase =
     | "thinking"
     | "tool"
     | "awaiting_approval"
+    | "awaiting_input"
+    | "waiting"
     | "running_command"
     | "editing"
     | "completed"
@@ -94,12 +99,21 @@ type ChatStreamContextValue = ChatStreamState & {
         conversationId: string | null,
         requestId?: string | null,
     ) => void;
-    /** Instantly drop the live-turn spinner so Stop does not wait on the stream. */
-    stopLiveTurn: () => void;
+    /** Capture ownership without retiring it. Commit only after native Stop acknowledges. */
+    prepareStop: (conversationId: string | null) => {
+        conversationId: string | null;
+        requestId: string | null;
+        turnId: string | null;
+        commit: () => void;
+    } | null;
+    /** Retire a known cancelled or failed local owner. */
+    stopLiveTurn: (conversationId?: string | null) => string | null;
     /** Leave a running turn in the background and show an empty draft. */
     startDraftChat: () => void;
     /** True while chat `id` (`null` = the draft) has a turn the frontend is tracking. */
     hasLiveTurn: (id: string | null) => boolean;
+    ownsRequest: (id: string | null, requestId: string) => boolean;
+    getRequestOwner: (requestId: string) => { conversationId: string | null } | null;
 };
 
 const defaultState: ChatStreamState = {
@@ -133,15 +147,23 @@ function appendAssistantChunk(prev: ChatMessage[], chunk: string): ChatMessage[]
     ];
 }
 
+/** Translate known tool names into runtime phases, retaining a generic tool phase for extensions. */
 function phaseFromTool(tool: string | undefined): TurnPhase {
+    if (tool === "ask_user") return "awaiting_input";
+    if (tool === "wait") return "waiting";
     if (tool === "run_terminal") return "running_command";
     if (tool === "edit_file" || tool === "create_file") return "editing";
     return "tool";
 }
 
+/** Prefer an explicit runtime label, otherwise derive a user-facing label from the phase and tool. */
 function labelForPhase(phase: TurnPhase, tool?: string, label?: string): string | null {
     if (label?.trim()) return label.trim();
     switch (phase) {
+        case "awaiting_input":
+            return "Waiting for your answers";
+        case "waiting":
+            return "Waiting";
         case "thinking":
             return "Thinking";
         case "awaiting_approval":
@@ -187,6 +209,8 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
     const messagesRef = React.useRef<ChatMessage[]>(messages);
     const turnIdRef = React.useRef<string | null>(null);
     const ignoredIdsRef = React.useRef<Set<string>>(new Set());
+    const stoppedTurnsRef = React.useRef(new Map<string, string>());
+    const turnOrderRef = React.useRef(new TurnOrder());
 
     React.useEffect(() => {
         messagesRef.current = messages;
@@ -202,6 +226,8 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
     }, []);
 
     const applyLive = React.useCallback((live: LiveTurn) => {
+        setChatGenerating(live.conversationId, true);
+        setChatActivity(live.conversationId, live.turnPhase);
         turnIdRef.current = live.turnId;
         setMessages(live.messages);
         setIsLoading(true);
@@ -270,10 +296,13 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
                     && gen.conversationId === id
                     && !liveTurnsRef.current.has(id)
                     && !ignoredIdsRef.current.has(id)
+                    && gen.turnId !== null && gen.turnId !== undefined
+                    && turnOrderRef.current.start(id, gen.turnId)
                 ) {
                     liveTurnsRef.current.set(id, {
                         conversationId: id,
-                        turnId: gen.turnId ?? null,
+                        turnId: gen.turnId,
+                        requestId: gen.requestId ?? null,
                         messages: history,
                         activityLabel: gen.activityLabel ?? "Thinking",
                         turnPhase: "thinking",
@@ -300,20 +329,50 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
         await reloadViewedMessages(seq);
     }, [reloadViewedMessages, showViewInternal]);
 
-    const stopLiveTurn = React.useCallback(() => {
-        const id = viewingIdRef.current;
+    const stopLiveTurn = React.useCallback((conversationId?: string | null) => {
+        const id = conversationId === undefined ? viewingIdRef.current : conversationId;
+        const requestId = liveTurnsRef.current.get(id ?? PENDING_KEY)?.requestId ?? null;
         if (id) {
             ignoredIdsRef.current.add(id);
+            const stoppedTurn = liveTurnsRef.current.get(id)?.turnId;
+            if (stoppedTurn) {
+                stoppedTurnsRef.current.set(id, stoppedTurn);
+                turnOrderRef.current.finish(id, stoppedTurn);
+            }
             liveTurnsRef.current.delete(id);
+            setChatGenerating(id, false);
+            setChatActivity(id, "cancelled");
         } else {
             liveTurnsRef.current.delete(PENDING_KEY);
         }
-        turnIdRef.current = null;
-        setIsLoading(false);
-        setActivityLabel(null);
-        setTurnPhase("cancelled");
-        setTurnId(null);
+        if (viewingIdRef.current === id) {
+            turnIdRef.current = null;
+            setIsLoading(false);
+            setActivityLabel(null);
+            setTurnPhase("cancelled");
+            setTurnId(null);
+        }
+        return requestId;
     }, []);
+
+    const prepareStop = React.useCallback((conversationId: string | null) => {
+        const captured = liveTurnsRef.current.get(conversationId ?? PENDING_KEY);
+        if (!captured) return null;
+        return {
+            conversationId: captured.conversationId,
+            requestId: captured.requestId ?? null,
+            turnId: captured.turnId,
+            commit: () => {
+                // A draft may bind while Stop waits. Follow its request, never the selected tab.
+                for (const [key, live] of liveTurnsRef.current) {
+                    if (live === captured || (captured.requestId && live.requestId === captured.requestId)) {
+                        stopLiveTurn(key === PENDING_KEY ? null : key);
+                        return;
+                    }
+                }
+            },
+        };
+    }, [stopLiveTurn]);
 
     const appendUserOptimistic = React.useCallback(
         (userMsg: string, conversationId: string | null, requestId?: string | null) => {
@@ -333,7 +392,10 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
                 { role: "user" as const, content: userMsg, timestamp: optimisticTs },
                 { role: "assistant" as const, content: "", timestamp: optimisticTs + 0.001 },
             ];
-            if (conversationId) ignoredIdsRef.current.delete(conversationId);
+            if (conversationId) {
+                ignoredIdsRef.current.delete(conversationId);
+                stoppedTurnsRef.current.delete(conversationId);
+            }
             liveTurnsRef.current.set(key, {
                 conversationId,
                 turnId: null,
@@ -370,7 +432,7 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
             });
         };
 
-        const finishedTurns = new Set<string>();
+        const turnOrder = turnOrderRef.current;
 
         /** The draft's turn now has a real conversation id: bind it (and the draft queue). */
         const bindDraft = (conversationId: string) => {
@@ -378,23 +440,24 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
             draftAdopterRef.current?.(conversationId);
         };
 
+        /** Resolve a scoped turn owner; accept legacy unscoped events only when exactly one live turn exists. */
         const resolveLiveKey = (conversationId?: string | null) => {
-            if (conversationId && liveTurnsRef.current.has(conversationId)) return conversationId;
-            const viewing = viewingIdRef.current;
-            if (viewing && liveTurnsRef.current.has(viewing)) return viewing;
-            if (liveTurnsRef.current.has(PENDING_KEY)) return PENDING_KEY;
-            if (liveTurnsRef.current.size === 1) {
-                return liveTurnsRef.current.keys().next().value ?? null;
-            }
-            return conversationId || null;
+            if (conversationId) return liveTurnsRef.current.has(conversationId) ? conversationId : null;
+            // Legacy unscoped events are only safe when exactly one turn exists.
+            // The selected tab does not identify which background agent emitted one.
+            if (liveTurnsRef.current.size === 1) return liveTurnsRef.current.keys().next().value ?? null;
+            return null;
         };
 
-        const patchLive = (conversationId: string | null | undefined, update: (live: LiveTurn) => void) => {
+        /** Apply updates only to an admitted matching turn, updating its activity independently of which conversation is visible. */
+        const patchLive = (conversationId: string | null | undefined, update: (live: LiveTurn) => void, turnId?: string) => {
             const key = resolveLiveKey(conversationId);
             if (!key || ignoredIdsRef.current.has(key)) return;
             const live = liveTurnsRef.current.get(key);
-            if (!live) return;
+            if (!live || (turnId && turnId !== live.turnId)) return;
             update(live);
+            setChatGenerating(live.conversationId, true);
+            setChatActivity(live.conversationId, live.turnPhase);
             const shown =
                 (viewingIdRef.current && viewingIdRef.current === live.conversationId) ||
                 (!viewingIdRef.current && key === PENDING_KEY);
@@ -417,7 +480,15 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
             }>("chat_started", (event) => {
                 const tid = event.payload?.turnId ?? null;
                 const convId = event.payload?.conversationId ?? null;
-                if (isForeignConversation(convId)) return;
+                const eventRequestId = event.payload?.requestId ?? null;
+                const pending = liveTurnsRef.current.get(PENDING_KEY);
+                if (isLocalChatRequest(eventRequestId)
+                    && pending?.requestId !== eventRequestId
+                    && (!convId || liveTurnsRef.current.get(convId)?.requestId !== eventRequestId)) return;
+                if (isForeignConversation(convId) || !tid || !turnOrder.start(convId ?? PENDING_KEY, tid)) return;
+                if (convId && stoppedTurnsRef.current.get(convId) === tid) return;
+                if (convId) stoppedTurnsRef.current.delete(convId);
+                setChatActivity(convId, "thinking");
                 const startedModel = event.payload?.model;
                 const usedAuto = event.payload?.usedAuto;
                 if (convId) {
@@ -425,11 +496,9 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
                     setChatGenerating(NEW_CHAT_TAB_ID, false);
                     ignoredIdsRef.current.delete(convId);
                 }
-                const pending = liveTurnsRef.current.get(PENDING_KEY);
                 // Only the send that opened the draft may bind it. The draft's turn has no chat
                 // id until this event, so the request id is the only link between the two. Any
                 // other chat that starts meanwhile keeps its own transcript and leaves the draft alone.
-                const eventRequestId = event.payload?.requestId ?? null;
                 const bindsDraft = Boolean(
                     pending && convId && pending.requestId && eventRequestId === pending.requestId,
                 );
@@ -464,6 +533,7 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
                 liveTurnsRef.current.set(key, {
                     conversationId: convId,
                     turnId: tid,
+                    requestId: eventRequestId,
                     messages: snapshot,
                     activityLabel: "Thinking",
                     turnPhase: "thinking",
@@ -493,31 +563,12 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
                     if (!chunk) return;
                     const meta = typeof raw === "string" ? undefined : raw;
                     if (isForeignConversation(meta?.conversationId)) return;
-                    if (meta?.turnId && finishedTurns.has(meta.turnId)) return;
-                    const convId = meta?.conversationId ?? viewingIdRef.current;
+                    const key = resolveLiveKey(meta?.conversationId);
+                    if (!key) return;
+                    const convId = key === PENDING_KEY ? null : key;
                     if (convId && ignoredIdsRef.current.has(convId)) return;
-                    const key = convId || PENDING_KEY;
-                    if (!liveTurnsRef.current.has(key)) {
-                        const pending = liveTurnsRef.current.get(PENDING_KEY);
-                        if (pending && key !== PENDING_KEY) {
-                            liveTurnsRef.current.delete(PENDING_KEY);
-                            pending.conversationId = convId;
-                            pending.turnId = meta?.turnId ?? pending.turnId;
-                            liveTurnsRef.current.set(key, pending);
-                            bindDraft(key);
-                        } else {
-                            liveTurnsRef.current.set(key, {
-                                conversationId: convId,
-                                turnId: meta?.turnId ?? null,
-                                messages:
-                                    viewingIdRef.current === convId
-                                        ? messagesRef.current
-                                        : (convId && transcriptCacheRef.current.get(convId)) || [],
-                                activityLabel: "Thinking",
-                                turnPhase: "thinking",
-                            });
-                        }
-                    }
+                    const current = liveTurnsRef.current.get(key);
+                    if (meta?.turnId && meta.turnId !== current?.turnId) return;
                     patchLive(convId, (live) => {
                         if (meta?.turnId) live.turnId = meta.turnId;
                         live.messages = appendAssistantChunk(live.messages, chunk);
@@ -550,7 +601,17 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
                 const { stats, model, error, conversationId, content, turnId } =
                     event.payload ?? {};
                 if (isForeignConversation(conversationId)) return;
-                if (turnId) finishedTurns.add(turnId);
+                if (turnId) turnOrder.finish(conversationId ?? PENDING_KEY, turnId);
+                const current = conversationId ? liveTurnsRef.current.get(conversationId) : undefined;
+                if (conversationId && turnId && stoppedTurnsRef.current.get(conversationId) === turnId) {
+                    stoppedTurnsRef.current.delete(conversationId);
+                    // Stop removed the live owner, but its saved transcript still belongs to
+                    // this exact turn. Never refresh over a replacement optimistic send.
+                    if (!current && viewingIdRef.current === conversationId) void reloadViewedMessages();
+                    return;
+                }
+                if (turnId && turnId !== current?.turnId) return;
+                setChatActivity(conversationId, error === "Cancelled" ? "cancelled" : error ? "failed" : "completed", error);
                 if (!error && stats) {
                     void import("@/lib/chat/last-turn-usage").then(({ setLastTurnUsage }) => {
                         setLastTurnUsage({
@@ -647,16 +708,18 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
         register(
             listen<{
                 id?: string;
+                conversationId?: string;
+                turnId?: string;
                 command?: string;
                 reason?: string;
                 safety?: string;
             }>("agent-command-pending", (event) => {
                 const cmd = event.payload?.command?.trim() || "Command";
                 const reason = event.payload?.reason?.trim();
-                patchLive(undefined, (live) => {
+                patchLive(event.payload?.conversationId, (live) => {
                     live.turnPhase = "awaiting_approval";
                     live.activityLabel = "Waiting for approval";
-                });
+                }, event.payload?.turnId);
                 notifyApprovalOsOnly(
                     event.payload?.id,
                     "Approval required",
@@ -668,15 +731,17 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
         register(
             listen<{
                 id?: string;
+                conversationId?: string;
+                turnId?: string;
                 file?: string;
                 reason?: string;
             }>("agent-edit-pending", (event) => {
                 const file = event.payload?.file?.trim() || "file";
                 const reason = event.payload?.reason?.trim();
-                patchLive(undefined, (live) => {
+                patchLive(event.payload?.conversationId, (live) => {
                     live.turnPhase = "awaiting_approval";
                     live.activityLabel = "Waiting for edit approval";
-                });
+                }, event.payload?.turnId);
                 notifyApprovalOsOnly(
                     event.payload?.id,
                     "Edit approval required",
@@ -686,39 +751,40 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
         );
 
         register(
-            listen<{ id?: string }>("agent-ask-pending", () => {
-                patchLive(undefined, (live) => {
-                    live.turnPhase = "awaiting_approval";
+            listen<{ id?: string; conversationId?: string; turnId?: string }>("agent-ask-pending", (event) => {
+                patchLive(event.payload?.conversationId, (live) => {
+                    live.turnPhase = "awaiting_input";
                     live.activityLabel = "Waiting for your answers";
-                });
+                }, event.payload?.turnId);
             }),
         );
 
         // Clear sticky approval labels once the user resolves the gate.
         register(
-            listen<{ id?: string; approved?: boolean }>("agent-command-resolved", () => {
-                patchLive(undefined, (live) => {
-                    live.turnPhase = "running_command";
-                    live.activityLabel = "Running command";
-                });
+            listen<{ id?: string; approved?: boolean; conversationId?: string; turnId?: string }>("agent-command-resolved", (event) => {
+                patchLive(event.payload?.conversationId, (live) => {
+                    live.turnPhase = event.payload?.approved === false ? "thinking" : "running_command";
+                    live.activityLabel = event.payload?.approved === false ? "Thinking" : "Running command";
+                }, event.payload?.turnId);
             }),
         );
         register(
-            listen<{ id?: string; approved?: boolean }>("agent-edit-resolved", () => {
-                patchLive(undefined, (live) => {
-                    live.turnPhase = "editing";
-                    live.activityLabel = "Editing file";
-                });
+            listen<{ id?: string; approved?: boolean; conversationId?: string; turnId?: string }>("agent-edit-resolved", (event) => {
+                patchLive(event.payload?.conversationId, (live) => {
+                    live.turnPhase = event.payload?.approved === false ? "thinking" : "editing";
+                    live.activityLabel = event.payload?.approved === false ? "Thinking" : "Editing file";
+                }, event.payload?.turnId);
             }),
         );
 
         register(
-            listen<{ phase?: string; tool?: string; label?: string }>("chat_status", (event) => {
-                const { phase, tool, label } = event.payload ?? {};
+            listen<{ phase?: string; tool?: string; label?: string; conversationId?: string; turnId?: string }>("chat_status", (event) => {
+                const { phase, tool, label, conversationId, turnId } = event.payload ?? {};
+                if (isForeignConversation(conversationId)) return;
                 let nextPhase: TurnPhase | null = null;
                 let nextLabel: string | null = null;
                 if (phase === "approval") {
-                    nextPhase = "awaiting_approval";
+                    nextPhase = label === "Waiting for your answers" ? "awaiting_input" : "awaiting_approval";
                     nextLabel = label?.trim() || "Waiting for approval";
                 } else if (phase === "model") {
                     nextPhase = "thinking";
@@ -730,10 +796,10 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
                     nextLabel = label.trim();
                 }
                 if (!nextPhase && !nextLabel) return;
-                patchLive(undefined, (live) => {
+                patchLive(conversationId, (live) => {
                     if (nextPhase) live.turnPhase = nextPhase;
                     if (nextLabel) live.activityLabel = nextLabel;
-                });
+                }, turnId);
             }),
         );
 
@@ -762,6 +828,16 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
         [],
     );
 
+    const getRequestOwner = React.useCallback((requestId: string) => {
+        for (const live of liveTurnsRef.current.values()) {
+            if (live.requestId === requestId) return { conversationId: live.conversationId };
+        }
+        return null;
+    }, []);
+
+    const ownsRequest = React.useCallback((id: string | null, requestId: string) =>
+        liveTurnsRef.current.get(id ?? PENDING_KEY)?.requestId === requestId, []);
+
     const value: ChatStreamContextValue = {
         isLoading,
         messages,
@@ -783,8 +859,11 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
         setDraftAdopter,
         appendUserOptimistic,
         stopLiveTurn,
+        prepareStop,
         startDraftChat,
         hasLiveTurn,
+        ownsRequest,
+        getRequestOwner,
     };
 
     return (

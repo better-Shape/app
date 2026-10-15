@@ -1,0 +1,18 @@
+## Implementation
+- [x] Retry incomplete keychain hydration while preserving local edits and destination fences.
+- [x] Replace aggregate shelf writes with per-chat records and migration tombstones.
+- [x] Register preview lifecycle listeners before spawning and fence cancelled starts.
+- [x] Reauthorize and reload replaced preview services, including overlapping registration.
+- [x] Preserve dormant shelf intent while viewing history.
+- [x] Obtain main-window consent before closing secondary windows and recheck afterward.
+- [x] Add failing-before/fixed-after regressions and strict changed-test type checking.
+- [x] Share abortable provider startup readiness between layouts and sends.
+- [x] Fence optimistic Stop by request identity and retain identity through native restoration.
+- [x] Replace finished-turn tombstones with native admission ordinals and per-conversation watermarks.
+- [x] Add native cleanup admission ownership and cancellation-token-owned terminal cleanup.
+- [x] Add native close retention before renderer registration and safe UTF-8 terminal output trimming.
+- [ ] Verify native admission, restored Stop, cancelled terminal cleanup and window callbacks in the complete Tauri build.
+- [ ] Verify concurrent conversation switching against shared browser, preview and approval resources.
+- [ ] Complete broad frontend verification on the published head.
+- [ ] Exercise OS vault retry, PTY events and multi-window closes in native builds.
+- [ ] Complete the whole-diff and sequential external review gates.

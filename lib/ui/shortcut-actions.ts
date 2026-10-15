@@ -196,6 +196,16 @@ export function dispatchShortcutAction(label: string, _key: string): boolean {
         case "Format Selection":
             dispatchEditorAction("formatSelection");
             return true;
+        case "Split Editor Right":
+            window.dispatchEvent(
+                new CustomEvent("bettershape-editor-split", { detail: { action: "right" } }),
+            );
+            return true;
+        case "Close Split":
+            window.dispatchEvent(
+                new CustomEvent("bettershape-editor-split", { detail: { action: "close" } }),
+            );
+            return true;
         case "Problems":
             window.dispatchEvent(new CustomEvent("bettershape-layout-toggle", { detail: { id: "panel", value: true } }));
             window.dispatchEvent(new CustomEvent("bettershape-set-panel-tab", { detail: "problems" }));

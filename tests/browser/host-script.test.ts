@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { steerFrame } from "@/features/agent/workspace/browser";
 
 function makeFrame(): HTMLIFrameElement {
@@ -18,7 +18,11 @@ afterEach(() => {
     document.body.innerHTML = "";
 });
 
-describe("page frame steering", () => {
+describe.each([
+    ["Linux", "Mozilla/5.0 (X11; Linux x86_64)"],
+    ["macOS", "Mozilla/5.0 (darwin) AppleWebKit/537.36 jsdom/28.1.0"],
+])("page frame steering on %s", (_platform, userAgent) => {
+    beforeEach(() => vi.stubGlobal("navigator", { userAgent }));
     it("navigates the frame by url when the page cannot be scripted", () => {
         const frame = makeFrame();
         frame.src = "https://example.com/first";

@@ -22,6 +22,7 @@ export type JsxPatch = {
 
 type Candidate = {
     node: unknown;
+    element: unknown;
     tag: string;
     line: number;
     column: number;
@@ -249,7 +250,7 @@ function collectFromAst(ast: ReturnType<typeof parseTsx>, query: JsxLocateQuery)
         const classes = classListFromOpening(path.node);
         const text = textFromElement(path);
         const base = { tag, line: loc.line, column: loc.column, classes, text };
-        out.push({ node: path.node, ...base, score: scoreCandidate(query, base) });
+        out.push({ node: path.node, element: path.parent?.node, ...base, score: scoreCandidate(query, base) });
     };
     visit(ast, {
         visitJSXOpeningElement(path) {
@@ -261,14 +262,35 @@ function collectFromAst(ast: ReturnType<typeof parseTsx>, query: JsxLocateQuery)
 }
 
 function collect(source: string, query: JsxLocateQuery): Candidate[] {
-    return collectFromAst(parseTsx(source), query);
+    // Recast expands tabs and normalizes CRLF before parsing; use the original bytes for native ranges.
+    return collectFromAst(babelTs.parse(source), query);
+}
+
+/** Babel positions count UTF-16 code units; native source patches require UTF-8 byte offsets. */
+function byteOffset(source: string, offset: unknown): number | null {
+    if (typeof offset !== "number" || !Number.isInteger(offset) || offset < 0 || offset > source.length) return null;
+    return new TextEncoder().encode(source.slice(0, offset)).length;
+}
+
+function jsxByteRange(source: string, node: unknown) {
+    const metadata = node as { start?: number; end?: number } | undefined;
+    const start = byteOffset(source, metadata?.start);
+    const end = byteOffset(source, metadata?.end);
+    return start !== null && end !== null && start < end ? { start, end } : null;
 }
 
 export function locateJsx(source: string, query: JsxLocateQuery) {
     const [best, second] = collect(source, query);
     if (!best || best.score < 40) return null;
     if (second && second.score === best.score && best.score < 70) return null;
-    return { tag: best.tag, line: best.line, column: best.column };
+    const opening = jsxByteRange(source, best.node);
+    const element = jsxByteRange(source, best.element);
+    if (!opening || !element) return null;
+    return {
+        tag: best.tag, line: best.line, column: best.column,
+        openingStart: opening.start, openingEnd: opening.end,
+        nodeStart: element.start, nodeEnd: element.end,
+    };
 }
 
 function kebabCss(property: string) {

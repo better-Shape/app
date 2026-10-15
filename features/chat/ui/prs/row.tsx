@@ -38,10 +38,13 @@ type PrRowProps = {
     repo: { owner: string; repo: string };
     selected: boolean;
     speedMode: boolean;
+    sweeping: boolean;
+    sweepBusy: boolean;
+    onCloseSweepStart: (item: PrItem, event: PointerEvent) => void;
     /** Merge readiness reads CI, so it cannot wait for the row to scroll into view. */
     eagerStatus: boolean;
     matchedInBody: boolean;
-    onSelect: (id: string) => void;
+    onSelect: (id: string, item: PrItem) => void;
     onCi: (id: string, ci: PrCi) => void;
 };
 
@@ -57,6 +60,9 @@ function PrRowImpl({
     repo,
     selected,
     speedMode,
+    sweeping,
+    sweepBusy,
+    onCloseSweepStart,
     eagerStatus,
     matchedInBody,
     onSelect,
@@ -84,11 +90,11 @@ function PrRowImpl({
     }, [eagerStatus, item.ci, item.headSha, item.id, near, onCi, repo]);
 
     return (
-        <li ref={ref} className="group flex items-stretch gap-0.5">
+        <li ref={ref} data-pr-id={item.id} className={cn("group flex items-stretch gap-0.5 rounded-lg", sweeping && "bg-error/15 ring-1 ring-error/40")}>
             <button
                 type="button"
                 aria-current={selected ? "true" : undefined}
-                onClick={() => onSelect(item.id)}
+                onClick={() => onSelect(item.id, item)}
                 className={cn(
                     "flex min-w-0 flex-1 gap-2.5 rounded-lg px-2.5 py-2 text-left",
                     selected ? "bg-panel-active" : "hover:bg-panel-hover",
@@ -153,7 +159,7 @@ function PrRowImpl({
                 ) : null}
                 <CiGlyph ci={item.ci} />
             </button>
-            <PrRowActions item={item} repo={repo} speedMode={speedMode} />
+            <PrRowActions item={item} repo={repo} speedMode={speedMode} sweepBusy={sweepBusy} onCloseSweepStart={onCloseSweepStart} />
         </li>
     );
 }

@@ -8,14 +8,17 @@ on:
   push:
     branches:
       - mega/absorb-all
+      - "draft/**"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: build-installers-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: build-installers-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  # Let cold native builds finish; newer pending runs coalesce instead of
+  # restarting Intel compilation on every review-fix push.
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -38,14 +41,14 @@ jobs:
             arch: aarch64
             target: aarch64-pc-windows-msvc
             bundles: nsis
-          # `macos-13` is retired from actions/runner-images, so Intel is produced by
-          # cross-compiling on the arm64 runner: the macOS SDK ships x86_64 slices.
+          # Use native runners for both architectures; SDK slices alone do not
+          # cross-compile native dependencies such as OpenSSL.
           - runner: macos-latest
             os: macos
             arch: aarch64
             target: aarch64-apple-darwin
             bundles: dmg
-          - runner: macos-latest
+          - runner: macos-15-intel
             os: macos
             arch: x86_64
             target: x86_64-apple-darwin
@@ -54,6 +57,11 @@ jobs:
             os: linux
             arch: x86_64
             target: x86_64-unknown-linux-gnu
+            bundles: deb,appimage,rpm
+          - runner: ubuntu-24.04-arm
+            os: linux
+            arch: aarch64
+            target: aarch64-unknown-linux-gnu
             bundles: deb,appimage,rpm
     env:
       # AppImage bundling runs the linuxdeploy AppImages tauri downloads, and those
@@ -70,7 +78,14 @@ jobs:
           install-system-deps: ${{ runner.os == 'Linux' && 'true' || 'false' }}
           cache-key: installers-${{ matrix.arch }}
 
-      - run: npm ci
+      - name: Install locked dependencies
+        # Native Windows ARM npm ci took 17m10s in run 38613470080. Keep a
+        # bounded step, but allow measured successful installs enough headroom.
+        timeout-minutes: 25
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci --ignore-scripts 2>&1 | tee "$RUNNER_TEMP/tauri-build.log"
 
       - name: Build runtime
         run: npm run build:runtime
@@ -82,11 +97,26 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ -n "${{ matrix.target }}" ]; then
-            npm run tauri -- build --bundles "${{ matrix.bundles }}" --target "${{ matrix.target }}"
-          else
-            npm run tauri -- build --bundles "${{ matrix.bundles }}"
+          ARGS=(build --bundles "${{ matrix.bundles }}")
+          if [ -n "${{ matrix.target }}" ]; then ARGS+=(--target "${{ matrix.target }}"); fi
+          npm run tauri -- "${ARGS[@]}" 2>&1 | tee "$RUNNER_TEMP/tauri-build.log"
+
+      - name: Report native build failure
+        if: failure()
+        shell: bash
+        run: |
+          if [ -f "$RUNNER_TEMP/tauri-build.log" ]; then
+            node scripts/build/report-failure.mjs < "$RUNNER_TEMP/tauri-build.log"
           fi
+
+      - name: Upload native build diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-build-log-${{ matrix.os }}-${{ matrix.arch }}
+          path: ${{ runner.temp }}/tauri-build.log
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Collect installer
         shell: bash
@@ -97,20 +127,7 @@ jobs:
           else
             BUNDLE_DIR="src-tauri/target/release/bundle"
           fi
-          if [ ! -d "$BUNDLE_DIR" ]; then
-            echo "::error::No bundle directory at $BUNDLE_DIR"
-            exit 1
-          fi
-          mkdir -p dist/test-install
-          # Files only - a macOS .app is a directory and is not an installer.
-          find "$BUNDLE_DIR" -maxdepth 2 -type f \
-            \( -name '*.exe' -o -name '*.dmg' -o -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' -o -name '*.sig' \) \
-            -exec cp {} dist/test-install/ \;
-          if [ -z "$(find dist/test-install -mindepth 1 -print -quit)" ]; then
-            echo "::error::No installer produced under $BUNDLE_DIR"
-            find "$BUNDLE_DIR" -type f | head -n 20 || true
-            exit 1
-          fi
+          node scripts/build/collect-installers.mjs "$BUNDLE_DIR" dist/test-install "${{ matrix.bundles }}"
           ls -lh dist/test-install
 
       - name: Upload installer artifact
@@ -136,6 +153,8 @@ jobs:
             echo "### Contents"
             echo ""
             find dist/test-install -type f -exec ls -lh {} \; | awk '{print "- `" $9 "` (" $5 ")"}'
+            echo ""
+            echo "Verify downloads against \`SHA256SUMS.txt\` in this artifact."
             echo ""
             echo "_Unsigned test build. Not for production use._"
           } >> "$GITHUB_STEP_SUMMARY"

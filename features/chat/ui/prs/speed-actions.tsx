@@ -80,10 +80,14 @@ export function PrRowActions({
     item,
     repo,
     speedMode,
+    sweepBusy,
+    onCloseSweepStart,
 }: {
     item: PrItem;
     repo: { owner: string; repo: string };
     speedMode: boolean;
+    sweepBusy: boolean;
+    onCloseSweepStart: (item: PrItem, event: PointerEvent) => void;
 }) {
     const [busy, setBusy] = useState<PrAction | null>(null);
     const actions = prActionsFor(item);
@@ -113,8 +117,11 @@ export function PrRowActions({
                     key={action}
                     type="button"
                     aria-label={`${PR_ACTION_LABEL[action]} #${item.number}`}
-                    title={PR_ACTION_LABEL[action]}
-                    disabled={busy !== null}
+                    title={action === "close" ? "Close, or drag across rows to close several" : PR_ACTION_LABEL[action]}
+                    disabled={busy !== null || sweepBusy}
+                    onPointerDown={(event) => {
+                        if (action === "close") { event.stopPropagation(); onCloseSweepStart(item, event.nativeEvent); }
+                    }}
                     onClick={() => void run(action)}
                     className="flex size-7 items-center justify-center rounded-md text-text-muted hover:bg-panel-hover hover:text-text-primary disabled:opacity-50"
                 >
@@ -135,7 +142,7 @@ export function PrRowActions({
                     {actions.map((action) => (
                         <DropdownMenuItem
                             key={action}
-                            disabled={busy !== null}
+                            disabled={busy !== null || sweepBusy}
                             onClick={() => void run(action)}
                         >
                             <Icon icon={ACTION_ICON[action]} />

@@ -58,7 +58,9 @@ runs:
           libayatana-appindicator3-dev \
           librsvg2-dev \
           libssl-dev \
+          libdbus-1-dev \
           libxdo-dev \
+          xdg-utils \
           build-essential \
           curl \
           wget \
@@ -78,7 +80,7 @@ runs:
       with:
         workspaces: src-tauri -> target
         key: ${{ inputs.cache-key }}
-        save-if: ${{ github.event_name != 'pull_request' || true }}
+        save-if: ${{ github.event_name != 'pull_request' }}
 
     - name: Cache Next.js
       uses: actions/cache@v4

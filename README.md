@@ -16,7 +16,7 @@
   <a href="https://discord.gg/MMCEDVZKYf">Discord</a>
 </p>
 
-BetterShape is a Windows desktop agent. You open a folder you work in. Chat sits beside the files, Git, and a terminal. You describe the change. BetterShape reads the project, answers in the thread, and edits files when you ask. BetterShape shows a diff for each edit. You commit when you want a commit.
+BetterShape is a desktop agent, with cross-platform builds in development. You open a folder you work in. Chat sits beside the files, Git, and a terminal. You describe the change. BetterShape reads the project, answers in the thread, and edits files when you ask. BetterShape shows a diff for each edit. You commit when you want a commit.
 
 It runs on your own model keys. There is no account, no plan, and no server of ours in the path.
 
@@ -56,13 +56,13 @@ A plugin is a connected account. A tool that runs on your machine is [MCP](./doc
 
 ## Install
 
-Windows 10 or 11, 64-bit. Installers are on [GitHub releases](https://github.com/Owie6789/BetterShape/releases); if none is published there, build from source below.
+Use an installer actually published for your OS and architecture on [GitHub releases](https://github.com/better-Shape/app/releases), or a successful **Build Installers (Test)** workflow artifact. This draft configures Windows x86_64/ARM64, macOS Apple Silicon/Intel, and Linux x86_64/ARM64 packages, but those targets are not claimed as shipped support until their installers are produced and tested. See the [platform build matrix and verification requirements](./docs/developing/platform-support.mdx).
 
 Stable is the tested channel. On nightly you get the newest installer, and that installer can break.
 
 ## Build from source
 
-Node.js 18+, Rust, and [Tauri 2](https://v2.tauri.app/start/prerequisites/).
+Node.js 22.13+ (or 24+), Rust, and [Tauri 2](https://v2.tauri.app/start/prerequisites/).
 
 ```bash
 npm install

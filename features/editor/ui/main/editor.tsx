@@ -1,6 +1,8 @@
 "use client";
 
-import React, { useMemo, useRef, useState, useEffect } from "react";
+import { stageDirtyBuffer, saveDirtyBuffer } from "@/lib/workspace/dirty-buffers";
+
+import React, { useMemo, useRef, useState, useLayoutEffect, useEffect } from "react";
 import { useEditorView } from "@/core/providers/editor";
 import { useProjectState, commands } from "@/lib/backend";
 import { diffLines } from "diff";
@@ -52,7 +54,6 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
     // Core Refs
     const savedContentRef = useRef<string>("");
     const bufferVersionRef = useRef(0);
-    const isFirstLoadRef = useRef(true);
     const previewRef = useRef<HTMLDivElement | null>(null);
     const containerRef = useRef<HTMLDivElement>(null);
 
@@ -70,15 +71,6 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
         markdownRedoRef.current = [];
     }, [path]);
 
-    // Handle initial path load race conditions
-    const lastPathRef = useRef(path);
-    useEffect(() => {
-        if (path !== lastPathRef.current) {
-            lastPathRef.current = path;
-            isFirstLoadRef.current = true;
-        }
-    }, [path]);
-
     const [diffState, setDiffState] = useState<{
         original: string;
         replacement: string;
@@ -92,6 +84,8 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
     const { content, setContent, originalContent, error, loading } = useFileContent(
         path, skipTextContent, isDiff, savedContentRef, bufferVersionRef
     );
+    const currentContentRef = useRef(content);
+    useLayoutEffect(() => { currentContentRef.current = content; }, [content]);
     const planTitle = isPlanFile ? parsePlanMarkdown(content || "").title : "";
 
     useEffect(() => {
@@ -287,11 +281,6 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
         const handleSave = async () => {
             try {
                 await commands.saveFile(path, content);
-                savedContentRef.current = content;
-                isDirtyRef.current = false;
-                await commands.markFileDirty(path, false);
-                const { clearDirtyBuffer } = await import("@/lib/workspace/dirty-buffers");
-                clearDirtyBuffer(path);
             } catch (e) {
                 const { notify } = await import("@/features/notifications");
                 notify.error("Save Error", `Failed to save file: ${e instanceof Error ? e.message : String(e)}`, {
@@ -306,32 +295,42 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
                 const prev = markdownUndoRef.current.pop();
                 if (prev === undefined) return;
                 markdownRedoRef.current.push(content);
+                currentContentRef.current = prev;
+                stageDirtyBuffer(path, prev, savedContentRef.current);
                 setContent(prev);
+                window.dispatchEvent(new CustomEvent("bettershape-editor-changed", { detail: { path } }));
+                window.dispatchEvent(new CustomEvent("bettershape-editor-buffer", { detail: { path, content: prev } }));
                 const dirty = prev !== savedContentRef.current;
                 isDirtyRef.current = dirty;
-                void commands.markFileDirty(path, dirty);
-                void import("@/lib/workspace/dirty-buffers").then(({ saveDirtyBuffer, clearDirtyBuffer }) => {
-                    if (dirty) saveDirtyBuffer(path, prev, savedContentRef.current);
-                    else clearDirtyBuffer(path);
-                });
+                void commands.markFileDirty(path, dirty).catch(() => undefined);
             } else if (action === "redo") {
                 const next = markdownRedoRef.current.pop();
                 if (next === undefined) return;
                 markdownUndoRef.current.push(content);
+                currentContentRef.current = next;
+                stageDirtyBuffer(path, next, savedContentRef.current);
                 setContent(next);
+                window.dispatchEvent(new CustomEvent("bettershape-editor-changed", { detail: { path } }));
+                window.dispatchEvent(new CustomEvent("bettershape-editor-buffer", { detail: { path, content: next } }));
                 const dirty = next !== savedContentRef.current;
                 isDirtyRef.current = dirty;
-                void commands.markFileDirty(path, dirty);
-                void import("@/lib/workspace/dirty-buffers").then(({ saveDirtyBuffer, clearDirtyBuffer }) => {
-                    if (dirty) saveDirtyBuffer(path, next, savedContentRef.current);
-                    else clearDirtyBuffer(path);
-                });
+                void commands.markFileDirty(path, dirty).catch(() => undefined);
             }
         };
 
+        const onFileSaved = (event: Event) => {
+            const detail = (event as CustomEvent<{ path: string; content: string }>).detail;
+            if (detail?.path !== path || typeof detail.content !== "string") return;
+            savedContentRef.current = detail.content;
+            saveDirtyBuffer(path, currentContentRef.current, detail.content);
+            isDirtyRef.current = currentContentRef.current !== detail.content;
+            if (isDirtyRef.current) void commands.markFileDirty(path, true).catch(() => undefined);
+        };
+        window.addEventListener("bettershape-file-saved", onFileSaved);
         window.addEventListener("save-request", handleSave);
         window.addEventListener("bettershape-editor-action", handleEditorAction as EventListener);
         return () => {
+            window.removeEventListener("bettershape-file-saved", onFileSaved);
             window.removeEventListener("save-request", handleSave);
             window.removeEventListener("bettershape-editor-action", handleEditorAction as EventListener);
         };
@@ -493,7 +492,6 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
                         savedContentRef={savedContentRef}
                         isDirtyRef={isDirtyRef}
                         bufferVersionRef={bufferVersionRef}
-                        isFirstLoadRef={isFirstLoadRef}
                     />
                 </div>
             </div>
@@ -508,15 +506,17 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
             if (markdownUndoRef.current.length > 100) markdownUndoRef.current.shift();
             markdownRedoRef.current = [];
         }
+        currentContentRef.current = next;
+        stageDirtyBuffer(path, next, savedContentRef.current);
         setContent(next);
-        isDirtyRef.current = true;
+        window.dispatchEvent(new CustomEvent("bettershape-editor-changed", { detail: { path } }));
+        window.dispatchEvent(new CustomEvent("bettershape-editor-buffer", { detail: { path, content: next } }));
+        isDirtyRef.current = next !== savedContentRef.current;
         try {
-            await commands.markFileDirty(path, true);
+            await commands.markFileDirty(path, isDirtyRef.current);
         } catch {
             /* ignore */
         }
-        const { saveDirtyBuffer } = await import("@/lib/workspace/dirty-buffers");
-        saveDirtyBuffer(path, next, savedContentRef.current);
     };
 
     if (isMarkdown && !isPlanFile && mode === "preview") {

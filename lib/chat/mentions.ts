@@ -1,3 +1,4 @@
+import { escapeXmlAttr } from "./xml";
 import { commands } from "@/lib/backend/commands";
 import { listDesignPreviewSessions } from "@/lib/agent-preview/store";
 import { hostnameOf } from "@/lib/ui/favicon";
@@ -342,14 +343,6 @@ export type SelectionSnapshot = {
     endLine: number;
     text: string;
 };
-
-function escapeXmlAttr(value: string): string {
-    return value
-        .replace(/&/g, "&amp;")
-        .replace(/"/g, "&quot;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;");
-}
 
 function selectionMentionBlock(selection: SelectionSnapshot): string | null {
     const text = selection.text?.trim();

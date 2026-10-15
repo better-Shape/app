@@ -1,9 +1,8 @@
 //! Search and web discovery tools.
 
 use serde_json::{json, Value};
-use tauri::Emitter;
 
-use crate::agent::commands::{logging, streaming};
+use crate::agent::commands::logging;
 use crate::agent::models::{AutoRunMode, PendingCommand};
 use crate::agent::tools::search;
 
@@ -119,14 +118,11 @@ pub(super) async fn tool_visit_url(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutco
         Ok(u) => u,
         Err(e) => return error_outcome("visit_url", &e),
     };
-    streaming::emit_chat_status(
-        ctx.app_handle,
-        json!({
-            "phase": "tool",
-            "tool": "visit_url",
-            "label": format!("Visiting {url}"),
-        }),
-    );
+    ctx.emit_status(json!({
+        "phase": "tool",
+        "tool": "visit_url",
+        "label": format!("Visiting {url}"),
+    }));
     match search::execute_visit_url(&url, ctx.api_key).await {
         Ok(res) => {
             let host = if res.host.is_empty() {
@@ -478,11 +474,8 @@ pub(super) async fn tool_plugin_run(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutc
         Some(&cmd_id),
         "Awaiting approval",
     ));
-    let _ = ctx.app_handle.emit("agent-command-pending", pending);
-    streaming::emit_chat_status(
-        ctx.app_handle,
-        json!({ "phase": "approval", "label": "Waiting for approval" }),
-    );
+    ctx.emit_scoped_event("agent-command-pending", json!(pending));
+    ctx.emit_status(json!({ "phase": "approval", "label": "Waiting for approval" }));
 
     let decision = wait_for_command_decision(&cmd_id, ctx).await;
     cleanup_pending_command(&cmd_id, ctx);

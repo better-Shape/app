@@ -1,0 +1,66 @@
+---
+title: Platform build status
+description: Installer targets, verification status, and test-install requirements.
+order: 3
+---
+
+BetterShape is being expanded from its Windows origins to Windows, macOS, and Linux. **A configured build target is not a shipped or tested platform.** Installer artifacts and runtime smoke tests are tracked separately below. The table below describes the test-build workflow, not a production support promise.
+
+## Test-build matrix
+
+| Platform | Architecture | Runner / toolchain target | Requested installer |
+| --- | --- | --- | --- |
+| Windows | x86_64 | `windows-latest`, host MSVC | NSIS `.exe` |
+| Windows | ARM64 | `windows-11-arm`, `aarch64-pc-windows-msvc` | NSIS `.exe` |
+| macOS | Apple Silicon | `macos-latest`, `aarch64-apple-darwin` | `.dmg` containing the `.app` |
+| macOS | Intel | `macos-15-intel`, `x86_64-apple-darwin` | `.dmg` containing the `.app` |
+| Linux | x86_64 | Ubuntu 22.04, `x86_64-unknown-linux-gnu` | `.deb`, `.rpm`, `.AppImage` |
+| Linux | ARM64 | Ubuntu 24.04 ARM, `aarch64-unknown-linux-gnu` | `.deb`, `.rpm`, `.AppImage` |
+
+All targets above still require **install smoke tests**. Earlier Windows x86_64 and Linux ARM64 failures have been fixed and their installer jobs now produce artifacts. Intel builds use a native Intel runner rather than cross-compiling macOS dependencies. Failures publish a diagnostic excerpt as a check annotation. A successful Linux build does not validate Windows/macOS `cfg`-gated Rust.
+
+## Artifact evidence (not an install-support claim)
+
+[Installer run 38624859970](https://github.com/better-Shape/app/actions/runs/38624859970),
+at commit `b65c6d93b276ed64cf106bd5d94eade1a650e72c`, produced these artifacts
+(verified through the GitHub artifacts API on 14 October 2026):
+
+| Artifact | Artifact ID | Archive bytes |
+| --- | --- | ---: |
+| `bettershape-linux-aarch64` | `11924735296` | 126,265,469 |
+| `bettershape-linux-x86_64` | `11925725013` | 131,655,705 |
+| `bettershape-macos-aarch64` | `11926035100` | 18,744,218 |
+| `bettershape-windows-aarch64` | `11926005289` | 13,136,893 |
+| `bettershape-windows-x86_64` | `11923614053` | 13,882,782 |
+
+The successful collector jobs validate nonempty requested formats (including
+all three Linux package formats). These archives have **not** been downloaded,
+installed, or smoke-tested here, and they do not include subsequent source
+changes. Test artifacts expire after 14 days. Windows ARM64 now has a produced installer; Intel macOS was
+still building at this checkpoint. Do not treat this as a green matrix or a
+production release.
+
+## Downloading and verifying a test build
+
+Open **Actions → Build Installers (Test)** on the pull request or branch. If a job succeeds, download its `bettershape-<os>-<arch>` artifact. The workflow also supports manual dispatch and never publishes a release or merges a branch.
+
+Feature branches build the full installer matrix through pull requests or manual dispatch, not duplicate push and PR runs. Draft-branch pushes also build it. An active installer run is allowed to finish while GitHub keeps the newest pending run; this prevents repeated review fixes from continually cancelling a cold native build. Always check the artifact's commit, because a completed run may precede the latest PR head.
+
+Each artifact includes `SHA256SUMS.txt`. Compare the downloaded installer's SHA-256 with that file (`sha256sum` on Linux, `shasum -a 256` on macOS, or `Get-FileHash -Algorithm SHA256` in PowerShell). These checksums detect accidental corruption; they are not code signatures. The collector rejects missing requested formats and empty files.
+
+These are **unsigned test builds**. Windows SmartScreen or macOS Gatekeeper may warn. Verify provenance before opening; do not disable platform security globally.
+
+## Runtime requirements and limits
+
+- Windows requires WebView2. ARM64 must be tested with the ARM64 installer, not inferred from x86 emulation.
+- The macOS bundle configuration requests macOS 11 or later. The actual minimum must be checked against the produced artifact and its dependencies.
+- Debian/Ubuntu packages require GTK 3, WebKitGTK 4.1, libsoup 3, and Ayatana AppIndicator. The x86_64 build uses Ubuntu 22.04; the ARM64 build uses Ubuntu 24.04. Neither is a promise of compatibility with older glibc versions.
+- RPM output targets distributions with compatible GTK/WebKitGTK packages. Producing an RPM on Ubuntu does **not** establish support for every Fedora/RHEL release; test the actual target release and resolve package dependencies there.
+- AppImage does not make glibc or kernel requirements disappear. `APPIMAGE_EXTRACT_AND_RUN=1` permits extraction where FUSE is unavailable.
+- Linux credential storage needs a running Secret Service implementation such as GNOME Keyring or KWallet. GUI builds are not headless-server builds.
+
+Before promoting a target, record the workflow run/commit, installer checksum, OS version, and architecture. Smoke-test install, launch, native window controls, primary keyboard shortcuts, Git, terminal, credential persistence across restart, and uninstall. Keep unverified targets marked as such.
+
+## Development checks
+
+Use Node.js 22.13+ (or 24+), Rust, and the platform's Tauri 2 prerequisites. `npm run ci` propagates lint, typecheck, JavaScript-test, and Rust-test failures. CI additionally checks static export, Rust formatting/clippy, and macOS static checks. Installer jobs compile the native platform-specific code separately.

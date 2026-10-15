@@ -1,0 +1,15 @@
+## Implementation
+- [x] Separate unavailable reads from empty snapshots and share TypeScript DTOs.
+- [x] Redact new writes independent of vault availability.
+- [x] Track versioned, session-only drafts and add retry.
+- [x] Preserve legacy copies and detect conflicts.
+- [x] Add window close warnings and stop bypassing guards on app-controlled exit paths.
+- [x] Add targeted persistence and close regressions.
+- [x] Bind vault records to credential destinations and add explicit saved-key review.
+- [x] Merge early edits with unrelated hydrated settings.
+- [x] Replace timed save waits with acknowledgements and revalidate close approval.
+- [x] Complete frontend tests, strict changed-test types, lint, runtime and renderer builds.
+- [ ] Complete the full local gate, including native tests and clippy.
+- [ ] Compile and exercise native behavior on supported platforms.
+- [ ] Verify multi-window quit cancellation and native dialogs.
+- [ ] Complete the full-diff review and sequential external review loop.

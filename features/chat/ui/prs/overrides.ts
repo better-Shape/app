@@ -56,10 +56,11 @@ function startTimer() {
     }, SWEEP_INTERVAL_MS);
 }
 
-export function applyPrOverride(id: string, patch: PrOverridePatch, now = Date.now()): void {
-    const previous = entries.get(id);
+/** Install a new immutable owner, carrying forward only still-trusted fields. */
+function writePrOverride(id: string, patch: PrOverridePatch, now: number): PrOverrideEntry {
+    const previous = freshEntry(id, now);
     const next = new Map(entries);
-    if (next.size >= MAX_PENDING && !previous) {
+    if (next.size >= MAX_PENDING && !next.has(id)) {
         let oldestKey: string | null = null;
         let oldest = Number.POSITIVE_INFINITY;
         for (const [key, entry] of next) {
@@ -70,10 +71,33 @@ export function applyPrOverride(id: string, patch: PrOverridePatch, now = Date.n
         }
         if (oldestKey !== null) next.delete(oldestKey);
     }
-    next.set(id, { ...previous, ...patch, expiresAt: now + PR_OVERRIDE_TRUST_MS });
+    const entry = { ...previous, ...patch, expiresAt: now + PR_OVERRIDE_TRUST_MS };
+    next.set(id, entry);
     entries = next;
     emit();
     startTimer();
+    return entry;
+}
+
+/** Apply a fresh trust window after an optimistic or confirmed state change. */
+export function applyPrOverride(id: string, patch: PrOverridePatch, now = Date.now()): void {
+    writePrOverride(id, patch, now);
+}
+
+/** Stage one request's patch; rollback cannot renew old trust or overwrite a newer owner. */
+export function stagePrOverride(id: string, patch: PrOverridePatch, now = Date.now()): () => void {
+    const previous = freshEntry(id, now);
+    const staged = writePrOverride(id, patch, now);
+    return () => {
+        if (entries.get(id) !== staged) return;
+        if (!previous || !isFresh(previous, Date.now())) {
+            clearPrOverride(id);
+            return;
+        }
+        entries = new Map(entries).set(id, previous);
+        emit();
+        startTimer();
+    };
 }
 
 export function clearPrOverride(id: string): void {

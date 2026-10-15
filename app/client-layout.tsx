@@ -8,7 +8,9 @@ import { LoadingProvider } from "@/features/loading/context";
 import { NotificationProvider } from "@/components/ui/notification";
 import { GlobalContextMenu } from "@/core/providers/menu";
 import { ChatStreamProvider } from "@/features/chat/lib/chat-stream-store";
-import { initSettings } from "@/lib/settings";
+import { acquireAiConfiguration } from "@/lib/ai/bootstrap";
+import { installWindowCloseGuard } from "@/lib/window/close-guard";
+import { notify } from "@/features/notifications";
 import { initGitHubAuth } from "@/lib/github/store";
 import { CheckpointRestoreDialog } from "@/features/chat/ui/shell/checkpoint-restore-dialog";
 import { installBenignErrorFilters } from "@/lib/editor/benign-errors";
@@ -33,10 +35,13 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     const isPopout = pathMatches(pathname, "/popout");
 
     useEffect(() => {
+        let cancelled = false;
+        const configuration = acquireAiConfiguration();
+        /** Wait for shared provider initialization before starting GitHub authentication and MCP synchronization. */
         const bootstrap = async () => {
-            void initSettings();
+            await configuration.ready;
+            if (cancelled) return;
             initGitHubAuth();
-            void import("@/lib/ai/sync").then(({ initAiConfigSync }) => initAiConfigSync());
 
             // MCP: sync user mcp.json so the agent sees tools without visiting Settings.
             void (async () => {
@@ -52,7 +57,10 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
             if (!isMain) return;
         };
 
-        void bootstrap();
+        bootstrap().catch(() => {
+            if (!cancelled) notify.error("Could not initialize app settings", "Reload the app to try again.");
+        });
+        return () => { cancelled = true; configuration.release(); };
     }, []);
 
     // Re-ensure benign error filters (idempotent; instrumentation-client runs earlier).
@@ -60,65 +68,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
         installBenignErrorFilters();
     }, []);
 
-    useEffect(() => {
-        if (isSettings || isBranch || isPopout) return;
-        let unlisten: (() => void) | undefined;
-        let cancelled = false;
-
-        void (async () => {
-            try {
-                const { getCurrentWindow } = await import("@tauri-apps/api/window");
-                const { confirm } = await import("@tauri-apps/plugin-dialog");
-                const win = getCurrentWindow();
-                if (win.label !== "main") return;
-
-                unlisten = await win.onCloseRequested(async (event) => {
-                    const { hasGeneratingChats } = await import("@/features/chat/lib/generating-chats");
-                    if (hasGeneratingChats()) {
-                        event.preventDefault();
-                        await win.hide();
-                        return;
-                    }
-                    const { getProjectSnapshot, commands } = await import("@/lib/backend");
-                    const dirty = getProjectSnapshot().open_files.filter((f) => f.is_dirty);
-                    if (dirty.length === 0) return;
-
-                    event.preventDefault();
-                    const save = await confirm(
-                        dirty.length === 1
-                            ? `Save changes to ${dirty[0].name || dirty[0].path} before closing?`
-                            : `Save changes to ${dirty.length} files before closing?`,
-                        {
-                            title: "Unsaved changes",
-                            kind: "warning",
-                            okLabel: "Save",
-                            cancelLabel: "Don't save",
-                        },
-                    );
-
-                    if (save) {
-                        window.dispatchEvent(new Event("save-all-request"));
-                        // Give save-all a moment; then close.
-                        await new Promise((r) => setTimeout(r, 400));
-                    } else {
-                        const { clearDirtyBuffer } = await import("@/lib/workspace/dirty-buffers");
-                        for (const f of dirty) {
-                            clearDirtyBuffer(f.path);
-                            void commands.markFileDirty(f.path, false);
-                        }
-                    }
-                    if (!cancelled) await win.destroy();
-                });
-            } catch {
-                /* browser / non-tauri */
-            }
-        })();
-
-        return () => {
-            cancelled = true;
-            unlisten?.();
-        };
-    }, [isSettings, isBranch, isPopout]);
+    useEffect(installWindowCloseGuard, []);
 
     // Block the native WebView context menu without breaking Radix menus.
     // Must be bubble phase: Radix opens on the target first; capture+preventDefault
@@ -132,21 +82,22 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     }, []);
 
     useEffect(() => {
+        let cancelled = false;
+        /** Show the main native window after settings hydration, unless this layout has already unmounted. */
         const init = async () => {
             const { getCurrentWindow } = await import("@tauri-apps/api/window");
+            if (cancelled) return;
+            const currentWindow = getCurrentWindow();
+            if (currentWindow.label !== "main") return;
 
-            try {
-                const currentWindow = getCurrentWindow();
-                if (currentWindow.label !== "main") return;
-
-                const { initSettings } = await import("@/lib/settings");
-                await initSettings();
-                await currentWindow.show();
-            } catch (e) {
-                console.error("Failed to manage window flow:", e);
-            }
+            const { initSettings } = await import("@/lib/settings");
+            await initSettings();
+            if (!cancelled) await currentWindow.show();
         };
-        void init();
+        init().catch((error) => {
+            console.error("Failed to manage window flow:", error);
+        });
+        return () => { cancelled = true; };
     }, []);
 
     if (isPopout) {

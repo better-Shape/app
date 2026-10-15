@@ -1,5 +1,6 @@
 "use client";
 
+import { parseGitHubRemote } from "@/lib/github/remote";
 import { ArrowLeft20Regular } from "@fluentui/react-icons/headless/svg/arrow-left";
 import { ArrowSync20Regular } from "@fluentui/react-icons/headless/svg/arrow-sync";
 import { Chat20Filled } from "@fluentui/react-icons/headless/svg/chat";
@@ -9,12 +10,11 @@ import { Open20Regular } from "@fluentui/react-icons/headless/svg/open";
 
 
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "@/components/ui/icon";
 
 
 import { Button } from "@/components/ui/button";
-import { FileIcon } from "@/components/ui/file-icon";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -30,37 +30,23 @@ import { notify } from "@/features/notifications";
 import { PullRequestsList, type IssueStateFilter } from "./list";
 import {
     mapPullRows,
+    formatRelative,
     mergeableFrom,
     parseJson,
     type PrCi,
     type PrItem,
 } from "./mapping";
-import { settlePrOverrides } from "./overrides";
+import { applyPrOverrides, settlePrOverrides, usePrOverridesVersion } from "./overrides";
+import { appendUnique, getGitHubPage, reconcilePageRows } from "./pagination";
+import { PrFilesTab, PrTimelineTab, PrReviewers } from "./detail-tabs";
 import { apiSortParam, type PrSortMode } from "./ranking";
-import { selectPr, usePrUi } from "./store";
-
-type PrFile = {
-    filename: string;
-    status: string;
-    additions: number;
-    deletions: number;
-};
-
-type PrReviewer = { login: string; avatar?: string };
+import { selectPr, updateSelectedPr, usePrUi } from "./store";
 
 async function resolveOwnerRepo(projectPath: string | null) {
     if (!projectPath) return null;
-    try {
-        const remote = await commands.gitRemoteUrl(projectPath);
-        if (!remote) return null;
-        const m =
-            remote.match(/github\.com[:/](.+?)\/(.+?)(?:\.git)?$/i) ||
-            remote.match(/[:/]([^/]+)\/([^/]+?)(?:\.git)?$/);
-        if (!m) return null;
-        return { owner: m[1]!, repo: m[2]!.replace(/\.git$/, "") };
-    } catch {
-        return null;
-    }
+    // A failed lookup is not evidence that the remote disappeared. Let load()
+    // preserve the last successful snapshot on a transient background failure.
+    return parseGitHubRemote(await commands.gitRemoteUrl(projectPath));
 }
 
 export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" | "full" }) {
@@ -75,18 +61,57 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
     const [error, setError] = useState<string | null>(null);
     const [repo, setRepo] = useState<{ owner: string; repo: string } | null>(null);
     const selectedId = pane === "list" ? null : prUi.selectedId;
-    const [files, setFiles] = useState<PrFile[]>([]);
-    const [filesLoading, setFilesLoading] = useState(false);
-    const [reviewers, setReviewers] = useState<PrReviewer[]>([]);
-    const [commentCount, setCommentCount] = useState(0);
+    const [detailError, setDetailError] = useState<string | null>(null);
+    const [detailLoading, setDetailLoading] = useState(false);
+    const [requestedReviewers, setRequestedReviewers] = useState<{ key: string; revision: number; names: string[] } | null>(null);
+    const [hasMore, setHasMore] = useState(false);
+    const loadedPages = useRef(1);
+    const pageIds = useRef<string[][]>([]);
+    const nextPollPage = useRef(2);
+    const overrideVersion = usePrOverridesVersion();
     const [checkingOut, setCheckingOut] = useState(false);
 
-    const load = useCallback(async () => {
+    const repoKey = useRef<string | null>(null);
+    const loadVersion = useRef(0);
+    const loadBusy = useRef(false);
+    const pendingRefresh = useRef(false);
+    const [detailRevision, setDetailRevision] = useState(0);
+    const [resourceRevision, setResourceRevision] = useState(0);
+    /** Coalesce explicit refresh intent behind current list work; automatic polls remain skippable. */
+    const load = useCallback(async function loadList(mode: "initial" | "poll" | "refresh" = "initial") {
+        const background = mode !== "initial";
+        if (background && loadBusy.current) {
+            if (mode === "refresh") pendingRefresh.current = true;
+            return;
+        }
+        const version = ++loadVersion.current;
+        loadBusy.current = true;
+        if (!background) {
+            repoKey.current = null;
+            setItems([]);
+            setRepo(null);
+            setHasMore(false);
+            loadedPages.current = 1;
+            pageIds.current = [];
+            nextPollPage.current = 2;
+        }
         setLoading(true);
         setError(null);
         try {
             const resolved = await resolveOwnerRepo(project_path);
-            setRepo(resolved);
+            if (version !== loadVersion.current) return;
+            const nextRepoKey = resolved ? `${resolved.owner}/${resolved.repo}` : null;
+            if (nextRepoKey !== repoKey.current) {
+                // A snapshot belongs to one remote. Transient errors may retain
+                // it only while that identity is unchanged.
+                setItems([]);
+                setHasMore(false);
+                loadedPages.current = 1;
+                pageIds.current = [];
+                nextPollPage.current = 2;
+                repoKey.current = nextRepoKey;
+            }
+            setRepo((previous) => previous?.owner === resolved?.owner && previous?.repo === resolved?.repo ? previous : resolved);
             if (!resolved) {
                 setItems([]);
                 setError("Connect a GitHub remote to load pull requests.");
@@ -97,108 +122,180 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
                 setError("Sign in with GitHub to load this data.");
                 return;
             }
-            const raw = await commands.githubApiGet(
-                `/repos/${resolved.owner}/${resolved.repo}/pulls?state=${state}&sort=${apiSortParam(sort)}&direction=desc&per_page=50`,
-            );
-            const mapped = mapPullRows(parseJson(raw), `${resolved.owner}/${resolved.repo}`);
+            // Automatic polling has a fixed request budget; explicit Refresh
+            // still reconciles the complete loaded window in one transaction.
+            const olderPage = Math.min(nextPollPage.current, loadedPages.current);
+            const pages = mode === "poll"
+                ? [1, ...(olderPage > 1 ? [olderPage] : [])]
+                : Array.from({ length: loadedPages.current }, (_, index) => index + 1);
+            const nextPageIds = pageIds.current.slice();
+            let pageCount = loadedPages.current;
+            let more: boolean | undefined;
+            let mapped: PrItem[] = [];
+            for (const page of pages) {
+                const result = await getGitHubPage(
+                    `/repos/${resolved.owner}/${resolved.repo}/pulls?state=${state}&sort=${apiSortParam(sort)}&direction=desc`, page,
+                );
+                if (version !== loadVersion.current) return;
+                const fresh = mapPullRows(result.rows, `${resolved.owner}/${resolved.repo}`);
+                mapped = appendUnique(mapped, fresh, (item) => item.id);
+                nextPageIds[page - 1] = fresh.map(item => item.id);
+                if (!result.hasMore) {
+                    pageCount = page;
+                    nextPageIds.length = page;
+                    more = false;
+                    break;
+                }
+                if (page === pageCount) more = result.hasMore;
+            }
+            loadedPages.current = pageCount;
+            pageIds.current = nextPageIds;
+            nextPollPage.current = mode === "poll" && olderPage < pageCount ? olderPage + 1 : 2;
+            if (more !== undefined) setHasMore(more);
             settlePrOverrides(mapped);
-            setItems(mapped);
+            setItems(previous => reconcilePageRows(previous, mapped, nextPageIds, item => item.id));
+            setDetailRevision((revision) => revision + 1);
         } catch (e) {
-            setItems([]);
+            if (version !== loadVersion.current) return;
+            if (!background) setItems([]);
             setError(e instanceof Error ? e.message : "Could not load pull requests.");
         } finally {
-            setLoading(false);
+            if (version === loadVersion.current) {
+                loadBusy.current = false;
+                setLoading(false);
+                if (pendingRefresh.current) {
+                    pendingRefresh.current = false;
+                    await loadList("refresh");
+                }
+            }
         }
     }, [auth.loggedIn, project_path, sort, state]);
 
     useEffect(() => {
         void load();
+        const refreshVisible = () => { if (!document.hidden) void load("poll"); };
+        const timer = window.setInterval(refreshVisible, 30_000);
+        document.addEventListener("visibilitychange", refreshVisible);
+        return () => {
+            loadVersion.current += 1;
+            loadBusy.current = false;
+            pendingRefresh.current = false;
+            window.clearInterval(timer);
+            document.removeEventListener("visibilitychange", refreshVisible);
+        };
     }, [load]);
+
+    const refresh = useCallback(() => {
+        setResourceRevision((revision) => revision + 1);
+        void load("refresh");
+    }, [load]);
+
+    const loadMore = async () => {
+        if (!repo || !hasMore || loadBusy.current) return;
+        const version = ++loadVersion.current;
+        loadBusy.current = true;
+        setLoading(true);
+        setError(null);
+        try {
+            const result = await getGitHubPage(
+                `/repos/${repo.owner}/${repo.repo}/pulls?state=${state}&sort=${apiSortParam(sort)}&direction=desc`, loadedPages.current + 1,
+            );
+            if (version !== loadVersion.current) return;
+            const mapped = mapPullRows(result.rows, `${repo.owner}/${repo.repo}`);
+            settlePrOverrides(mapped);
+            setItems((previous) => appendUnique(previous, mapped, (item) => item.id));
+            pageIds.current = [...pageIds.current, mapped.map(item => item.id)];
+            loadedPages.current += 1;
+            setHasMore(result.hasMore);
+        } catch (cause) {
+            if (version === loadVersion.current) setError(cause instanceof Error ? cause.message : "Could not load more pull requests.");
+        } finally {
+            if (version === loadVersion.current) {
+                loadBusy.current = false;
+                setLoading(false);
+                if (pendingRefresh.current) {
+                    pendingRefresh.current = false;
+                    await load("refresh");
+                }
+            }
+        }
+    };
 
     const onCiResolved = useCallback((id: string, ci: PrCi) => {
         setItems((prev) => prev.map((item) => (item.id === id ? { ...item, ci } : item)));
     }, []);
 
     const selected = useMemo(
-        () => items.find((item) => item.id === selectedId) ?? null,
-        [items, selectedId],
+        () => {
+            const item = items.find((item) => item.id === selectedId && item.repo === `${repo?.owner}/${repo?.repo}`)
+                ?? (prUi.selectedItem?.id === selectedId && prUi.selectedItem.repo === `${repo?.owner}/${repo?.repo}` ? prUi.selectedItem : undefined);
+            return item ? applyPrOverrides([item])[0] : null;
+        },
+        [items, selectedId, prUi.selectedItem, repo, overrideVersion],
     );
 
+    // Detail enrichment must not depend on the object it updates in setItems.
+    const selectedRef = useRef(selected);
+    useEffect(() => { selectedRef.current = selected; }, [selected]);
+    const detailId = selected?.id;
+    const detailNumber = selected?.number;
+    const detailOwner = repo?.owner;
+    const detailRepo = repo?.repo;
     useEffect(() => {
-        if (!selected || !repo) {
-            setFiles([]);
-            setReviewers([]);
-            setCommentCount(0);
+        setDetailError(null);
+        setRequestedReviewers(null);
+        if (!detailId || !detailNumber || !detailOwner || !detailRepo) {
+            setDetailLoading(false);
             return;
         }
         let cancelled = false;
-        setFilesLoading(true);
-        void Promise.all([
-            commands.githubApiGet(`/repos/${repo.owner}/${repo.repo}/pulls/${selected.number}`),
-            commands.githubApiGet(`/repos/${repo.owner}/${repo.repo}/pulls/${selected.number}/files?per_page=100`),
-            commands.githubApiGet(`/repos/${repo.owner}/${repo.repo}/pulls/${selected.number}/reviews?per_page=50`),
-        ])
-            .then(([detailRaw, filesRaw, reviewsRaw]) => {
+        setDetailLoading(true);
+        void commands.githubApiGet(`/repos/${detailOwner}/${detailRepo}/pulls/${detailNumber}`)
+            .then((raw) => {
                 if (cancelled) return;
-                const detail = parseJson(detailRaw) as Record<string, unknown>;
-                const fileList = Array.isArray(parseJson(filesRaw)) ? (parseJson(filesRaw) as Record<string, unknown>[]) : [];
-                const reviewList = Array.isArray(parseJson(reviewsRaw))
-                    ? (parseJson(reviewsRaw) as Record<string, unknown>[])
-                    : [];
-                setFiles(
-                    fileList.map((row) => ({
-                        filename: String(row.filename ?? ""),
-                        status: String(row.status ?? ""),
-                        additions: Number(row.additions ?? 0),
-                        deletions: Number(row.deletions ?? 0),
-                    })),
-                );
-                const requested = Array.isArray(detail.requested_reviewers)
-                    ? (detail.requested_reviewers as { login?: string; avatar_url?: string }[])
-                    : [];
-                const fromReviews: PrReviewer[] = [];
-                for (const row of reviewList) {
-                    const user = row.user as { login?: string; avatar_url?: string } | undefined;
-                    if (user?.login) fromReviews.push({ login: user.login, avatar: user.avatar_url });
+                const payload = parseJson(raw);
+                if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("GitHub returned invalid pull request details.");
+                const detail = payload as Record<string, unknown>;
+                const requested = Array.isArray(detail.requested_reviewers) ? detail.requested_reviewers as { login?: string }[] : [];
+                const teams = Array.isArray(detail.requested_teams) ? detail.requested_teams as { name?: string; slug?: string }[] : [];
+                if (Array.isArray(detail.requested_reviewers) && Array.isArray(detail.requested_teams)) {
+                    setRequestedReviewers({
+                        key: `${detailOwner}/${detailRepo}#${detailNumber}`,
+                        revision: detailRevision,
+                        names: [
+                            ...requested.flatMap((user) => user?.login ? [user.login] : []),
+                            ...teams.flatMap((team) => team?.name || team?.slug ? [`Team: ${team.name || team.slug}`] : []),
+                        ],
+                    });
                 }
-                const merged = [...requested.map((u) => ({ login: u.login || "", avatar: u.avatar_url })), ...fromReviews]
-                    .filter((p) => p.login)
-                    .filter((p, i, all) => all.findIndex((x) => x.login === p.login) === i);
-                setReviewers(merged);
-                setCommentCount(Number(detail.comments ?? selected.comments ?? 0));
                 const head = detail.head as { ref?: string; sha?: string } | undefined;
                 const base = detail.base as { ref?: string } | undefined;
-                setItems((prev) =>
-                    prev.map((item) =>
-                        item.id === selected.id
-                            ? {
-                                  ...item,
-                                  additions: Number(detail.additions ?? item.additions ?? 0),
-                                  deletions: Number(detail.deletions ?? item.deletions ?? 0),
-                                  comments: Number(detail.comments ?? item.comments ?? 0),
-                                  body: typeof detail.body === "string" ? detail.body : item.body,
-                                  headRef: head?.ref ?? item.headRef,
-                                  baseRef: base?.ref ?? item.baseRef,
-                                  headSha: head?.sha ?? item.headSha,
-                                  mergeable: mergeableFrom(detail),
-                              }
-                            : item,
-                    ),
-                );
+                const enrich = (item: PrItem): PrItem => ({
+                    ...item,
+                    title: typeof detail.title === "string" ? detail.title : item.title,
+                    status: detail.merged === true || detail.merged_at ? "merged" : typeof detail.state === "string" ? detail.state : item.status,
+                    draft: typeof detail.draft === "boolean" ? detail.draft : item.draft,
+                    updatedAt: typeof detail.updated_at === "string" ? detail.updated_at : item.updatedAt,
+                    updated: typeof detail.updated_at === "string" ? formatRelative(detail.updated_at) : item.updated,
+                    additions: typeof detail.additions === "number" ? detail.additions : item.additions,
+                    deletions: typeof detail.deletions === "number" ? detail.deletions : item.deletions,
+                    comments: typeof detail.comments === "number" ? detail.comments : item.comments,
+                    body: detail.body === null ? "" : typeof detail.body === "string" ? detail.body : item.body,
+                    headRef: head?.ref ?? item.headRef,
+                    baseRef: base?.ref ?? item.baseRef,
+                    headSha: head?.sha ?? item.headSha,
+                    ci: head?.sha && head.sha !== item.headSha ? undefined : item.ci,
+                    mergeable: mergeableFrom(detail),
+                });
+                setItems((prev) => prev.map((item) => item.id === detailId ? enrich(item) : item));
+                if (selectedRef.current?.id === detailId) updateSelectedPr(enrich(selectedRef.current));
             })
-            .catch(() => {
-                if (!cancelled) {
-                    setFiles([]);
-                    setReviewers([]);
-                }
+            .catch((cause: unknown) => {
+                if (!cancelled) setDetailError(cause instanceof Error ? cause.message : "Could not load pull request details.");
             })
-            .finally(() => {
-                if (!cancelled) setFilesLoading(false);
-            });
-        return () => {
-            cancelled = true;
-        };
-    }, [selected, repo]);
+            .finally(() => { if (!cancelled) setDetailLoading(false); });
+        return () => { cancelled = true; };
+    }, [detailId, detailNumber, detailOwner, detailRepo, detailRevision]);
 
     const checkout = async () => {
         if (!project_path || !selected?.headRef) {
@@ -281,7 +378,7 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
                                 </button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end" className="min-w-52">
-                                <DropdownMenuItem onClick={() => void load()}>
+                                <DropdownMenuItem onClick={refresh}>
                                     <Icon icon={ArrowSync20Regular} />
                                     Refresh
                                 </DropdownMenuItem>
@@ -325,8 +422,10 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
                                 {selected.url ? (
                                     <DropdownMenuItem
                                         onClick={() => {
-                                            void navigator.clipboard.writeText(selected.url!);
-                                            notify.success("Link copied");
+                                            void navigator.clipboard.writeText(selected.url!).then(
+                                                () => notify.success("Link copied"),
+                                                () => notify.error("Could not copy link"),
+                                            );
                                         }}
                                     >
                                         Copy link
@@ -358,12 +457,14 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
                     </div>
                 ) : null}
 
-                <Tabs defaultValue="summary" className="flex min-h-0 flex-1 flex-col">
+                {detailError ? <p role="status" className="px-3 pb-2 text-sm text-text-muted">Details refresh failed: {detailError}</p> : null}
+                {error ? <p role="status" className="px-3 pb-2 text-sm text-text-muted">Refresh failed: {error}</p> : null}
+                <Tabs key={selected.id} defaultValue="summary" className="flex min-h-0 flex-1 flex-col">
                     <div className="px-3">
                         <TabsList>
                             <TabsTrigger value="summary">Summary</TabsTrigger>
                             <TabsTrigger value="files">
-                                Files{files.length ? ` ${files.length}` : ""}
+                                Files
                             </TabsTrigger>
                             <TabsTrigger value="timeline">Timeline</TabsTrigger>
                         </TabsList>
@@ -372,11 +473,12 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
                         <div className="mb-4 grid gap-2 text-sm">
                             <div className="flex gap-2">
                                 <span className="w-20 shrink-0 text-text-muted">Reviewers</span>
-                                <span className="text-text-secondary">
-                                    {reviewers.length
-                                        ? reviewers.map((r) => r.login).join(", ")
-                                        : "None"}
-                                </span>
+                                <div className="min-w-0 text-text-secondary">
+                                    <PrReviewers item={selected} requested={
+                                        requestedReviewers?.key === `${selected.repo}#${selected.number}` && requestedReviewers.revision === detailRevision
+                                            ? requestedReviewers.names : null
+                                    } revision={resourceRevision} />
+                                </div>
                             </div>
                             <div className="flex gap-2">
                                 <span className="w-20 shrink-0 text-text-muted">Labels</span>
@@ -401,7 +503,7 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
                             </div>
                             <div className="flex gap-2">
                                 <span className="w-20 shrink-0 text-text-muted">Comments</span>
-                                <span className="text-text-secondary">{commentCount} comments</span>
+                                <span className="text-text-secondary">{detailLoading ? "Loading…" : selected.comments === undefined ? "Not loaded" : `${selected.comments} comments`}</span>
                             </div>
                         </div>
                         <p className="mb-2 text-sm font-medium text-text-primary">Description</p>
@@ -414,33 +516,10 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
                         )}
                     </TabsContent>
                     <TabsContent value="files" className="min-h-0 flex-1 overflow-y-auto px-3 pb-6 pt-3">
-                        {filesLoading ? (
-                            <p className="text-sm text-text-muted">Loading files…</p>
-                        ) : files.length === 0 ? (
-                            <p className="text-sm text-text-muted">No files listed</p>
-                        ) : (
-                            <ul className="flex flex-col gap-0.5">
-                                {files.map((file) => (
-                                    <li
-                                        key={file.filename}
-                                        className="flex items-center gap-2 rounded-md px-1.5 py-1 text-sm"
-                                    >
-                                        <FileIcon name={file.filename} className="size-4 shrink-0" />
-                                        <span className="min-w-0 flex-1 truncate text-text-primary">
-                                            {file.filename}
-                                        </span>
-                                        <span className="shrink-0 text-xs text-success">+{file.additions}</span>
-                                        <span className="shrink-0 text-xs text-error">−{file.deletions}</span>
-                                    </li>
-                                ))}
-                            </ul>
-                        )}
+                        <PrFilesTab item={selected} revision={resourceRevision} />
                     </TabsContent>
                     <TabsContent value="timeline" className="min-h-0 flex-1 overflow-y-auto px-3 pb-6 pt-3">
-                        <p className="text-sm text-text-muted">
-                            {selected.author} opened this pull request
-                            {selected.updated ? ` · ${selected.updated}` : ""}.
-                        </p>
+                        <PrTimelineTab item={selected} revision={resourceRevision} />
                     </TabsContent>
                 </Tabs>
             </div>
@@ -460,9 +539,11 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
             onSortChange={setSort}
             state={state}
             onStateChange={setState}
-            onRefresh={() => void load()}
+            onRefresh={refresh}
             onSignIn={() => void loginGitHub()}
             onCiResolved={onCiResolved}
+            hasMore={hasMore}
+            onLoadMore={() => void loadMore()}
         />
     );
 }

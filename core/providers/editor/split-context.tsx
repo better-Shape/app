@@ -8,6 +8,7 @@ import React, {
     useEffect,
     useMemo,
     useRef,
+    useSyncExternalStore,
 } from "react";
 import { useProjectState, commands } from "@/lib/backend";
 
@@ -293,6 +294,13 @@ export const EditorSplitProvider = ({ children }: { children: React.ReactNode })
         [split, active_file, openPaths]
     );
 
+    useEffect(() => {
+        publishFocusedFile(
+            split ? groupActivePath(split[split.focused]) : preferredActivePath(active_file, openPaths),
+        );
+        return () => publishFocusedFile(null);
+    }, [split, active_file, openPaths]);
+
     // Keep split groups in sync when tabs close/open (not on every focus change)
     useEffect(() => {
         if (!split) {
@@ -353,3 +361,30 @@ export const useEditorSplit = () => {
  * to the backend's active file.
  */
 export const useEditorSplitOptional = () => useContext(EditorGroupsContext) ?? null;
+
+/* ------------------------------------------------- focused file, outside the provider */
+
+// The status bar renders in `features/agent/layout.tsx`, a sibling of the
+// workspace rather than a descendant of `EditorSplitProvider`, so a context read
+// there is always null. Publishing the focused path through a module-level store
+// (the same `useSyncExternalStore` shape `lib/ui/status-progress.ts` uses) lets
+// chrome outside the editor follow the focused split group.
+const focusedListeners = new Set<() => void>();
+let focusedSnapshot: string | null = null;
+
+function publishFocusedFile(path: string | null) {
+    if (focusedSnapshot === path) return;
+    focusedSnapshot = path;
+    focusedListeners.forEach((listener) => listener());
+}
+
+/** The focused group's active file, readable from anywhere. Null until the provider mounts. */
+export const useSplitFocusedFile = () =>
+    useSyncExternalStore(
+        (listener) => {
+            focusedListeners.add(listener);
+            return () => focusedListeners.delete(listener);
+        },
+        () => focusedSnapshot,
+        () => null,
+    );

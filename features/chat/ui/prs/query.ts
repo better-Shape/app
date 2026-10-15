@@ -7,7 +7,7 @@
  */
 
 /** Qualifiers this parser understands. Everything else becomes a namespaced label. */
-export type PrClauseField = "label" | "author" | "draft" | "review" | "status";
+export type PrClauseField = "label" | "author" | "repo" | "draft" | "review" | "status";
 
 export type PrClause = {
     field: PrClauseField;
@@ -72,7 +72,18 @@ function tokenize(input: string): string[] {
     const tokens: string[] = [];
     let current = "";
     let inQuote = false;
+    let escaped = false;
     for (const char of input) {
+        if (escaped) {
+            current += char;
+            escaped = false;
+            continue;
+        }
+        if (char === "\\" && inQuote) {
+            current += char;
+            escaped = true;
+            continue;
+        }
         if (char === '"') {
             inQuote = !inQuote;
             current += char;
@@ -92,8 +103,14 @@ function tokenize(input: string): string[] {
 /** An unterminated quote means the token was never a qualifier. */
 function quotesBalanced(token: string): boolean {
     let open = false;
+    let escaped = false;
     for (const char of token) {
-        if (char === '"') open = !open;
+        if (escaped) {
+            escaped = false;
+            continue;
+        }
+        if (char === "\\" && open) escaped = true;
+        else if (char === '"') open = !open;
     }
     return !open;
 }
@@ -107,12 +124,13 @@ function unquote(raw: string): string {
 }
 
 function quoteIfNeeded(value: string): string {
-    return /^[\w.+-]+$/.test(value) ? value : `"${value.replace(/"/g, '\\"')}"`;
+    return /^(?!-)[\w.+-]+$/.test(value) ? value : JSON.stringify(value);
 }
 
 function normalizeField(key: string): PrClauseField | null {
     if (key === "label" || key === "labels") return "label";
     if (key === "author") return "author";
+    if (key === "repo") return "repo";
     if (key === "draft") return "draft";
     if (key === "review") return "review";
     if (key === "status" || key === "state") return "status";
@@ -181,7 +199,7 @@ export function parsePrQuery(input: string): PrQuery {
                 // Repos namespace labels with colons, so an unrecognised key is a
                 // label that happens to contain one, not a mistake. Quoting the
                 // whole token (`"size:XXL"`) is the way back to literal text.
-                if (normalizeField(key) === null && value) {
+                if (key !== "is" && normalizeField(key) === null && value) {
                     clauses.push({ field: "label", value: `${key}:${value}`, negated });
                     continue;
                 }
@@ -226,6 +244,8 @@ function clauseToGitHub(clause: PrClause): string | null {
             return `${sign}label:${quoteIfNeeded(clause.value)}`;
         case "author":
             return `${sign}author:${quoteIfNeeded(clause.value)}`;
+        case "repo":
+            return `${sign}repo:${quoteIfNeeded(clause.value)}`;
         case "draft":
             // `draft:false` and `-draft:true` both mean "not a draft"; the sign
             // flips when the value already encodes the opposite sense.
@@ -290,10 +310,15 @@ function clauseMatches(item: PrSearchableItem, clause: PrClause): boolean | null
             const has = (item.author ?? "").toLowerCase() === wanted;
             return clause.negated ? !has : has;
         }
+        case "repo": {
+            const has = item.repo.toLowerCase() === clause.value.toLowerCase();
+            return clause.negated ? !has : has;
+        }
         case "draft": {
             const wantsDraft = clause.value === "true";
             const has = Boolean(item.draft);
-            return clause.negated ? !has : has === wantsDraft;
+            const matches = has === wantsDraft;
+            return clause.negated ? !matches : matches;
         }
         case "status": {
             if (clause.value === "all") return true;

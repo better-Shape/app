@@ -339,13 +339,11 @@ export default function PreviewPanel({
                 {loading ? (
                     <div className="pointer-events-none absolute inset-x-0 top-0 h-0.5 animate-pulse bg-accent" />
                 ) : null}
-                {designOn && designReady ? (
-                    <DesignInspectOverlay
-                        iframeRef={iframeRef}
-                        enabled={designOn}
-                        onToggle={() => setDesignOn(false)}
-                    />
-                ) : null}
+                <DesignInspectOverlay
+                    iframeRef={iframeRef}
+                    enabled={designOn && designReady}
+                    onToggle={() => setDesignOn(false)}
+                />
             </div>
         </div>
     );

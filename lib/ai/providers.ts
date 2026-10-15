@@ -1207,6 +1207,25 @@ export function parseHeaderSecretId(secretId: string): { id: ProviderId; name: s
   return { id: rest.slice(0, separator) as ProviderId, name: rest.slice(separator + 1) };
 }
 
+/** Versioned destination identities, persisted with credentials inside the vault. */
+export function credentialScopes(settings: ProvidersSettings): Record<string, string> {
+  const scopes: Record<string, string> = {};
+  for (const preset of PROVIDER_PRESETS) {
+    const connection = settings.connections[preset.id];
+    if (!connection) continue;
+    const url = connection.baseUrl.trim() || preset.baseUrl;
+    let end = url.length;
+    while (end > 0 && url[end - 1] === "/") end -= 1;
+    const baseUrl = url.slice(0, end);
+    const scope = JSON.stringify(["provider-v1", preset.kind, baseUrl, providerAuthStyle(preset.id, connection)]);
+    scopes[preset.id] = scope;
+    for (const name of Object.keys(connection.headers)) scopes[headerSecretId(preset.id, name)] = scope;
+  }
+  scopes[SEARCH_SECRET_ID] = JSON.stringify(["search-v1", settings.services.search.provider]);
+  scopes[COMPOSIO_SECRET_ID] = JSON.stringify(["composio-v1", settings.services.composio.userId.trim() || "bettershape-local"]);
+  return scopes;
+}
+
 /** Every secret the provider settings currently hold, keyed by storage id. */
 export function providerSecrets(settings: ProvidersSettings): Record<string, string> {
   const out: Record<string, string> = {};
@@ -1285,9 +1304,22 @@ function mergeHeaderValues(
  */
 export function mergeProviderConnections(live: ProvidersSettings, loaded: ProvidersSettings): ProvidersSettings {
   const connections = {} as Record<ProviderId, ProviderConnection>;
+  const liveScopes = credentialScopes(live);
+  const loadedScopes = credentialScopes(loaded);
   for (const preset of PROVIDER_PRESETS) {
     const current = live.connections[preset.id];
     const incoming = loaded.connections[preset.id] ?? emptyConnection(preset);
+    if (current && liveScopes[preset.id] !== loadedScopes[preset.id]
+      && (current.apiKey.trim() || Object.values(current.headers).some((value) => value.trim()))) {
+      connections[preset.id] = {
+        ...incoming,
+        apiKey: current.apiKey,
+        baseUrl: current.baseUrl,
+        authStyle: current.authStyle,
+        headers: current.headers,
+      };
+      continue;
+    }
     connections[preset.id] = {
       ...incoming,
       apiKey: incoming.apiKey.trim() ? incoming.apiKey : (current?.apiKey ?? ""),
@@ -1298,13 +1330,13 @@ export function mergeProviderConnections(live: ProvidersSettings, loaded: Provid
     ...loaded,
     connections,
     services: {
-      search: {
+      search: live.services.search.apiKey && liveScopes[SEARCH_SECRET_ID] !== loadedScopes[SEARCH_SECRET_ID] ? live.services.search : {
         ...loaded.services.search,
         apiKey: loaded.services.search.apiKey.trim()
           ? loaded.services.search.apiKey
           : live.services.search.apiKey,
       },
-      composio: {
+      composio: live.services.composio.apiKey && liveScopes[COMPOSIO_SECRET_ID] !== loadedScopes[COMPOSIO_SECRET_ID] ? live.services.composio : {
         ...loaded.services.composio,
         apiKey: loaded.services.composio.apiKey.trim()
           ? loaded.services.composio.apiKey

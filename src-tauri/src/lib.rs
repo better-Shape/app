@@ -125,6 +125,13 @@ pub fn run() {
     }
 
     builder
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if crate::core::window_close::requires_close_consent(window.label()) {
+                    api.prevent_close();
+                }
+            }
+        })
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_store::Builder::default().build())

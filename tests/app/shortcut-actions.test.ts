@@ -118,6 +118,15 @@ describe("dispatchShortcutAction", () => {
         panel.off();
     });
 
+    it("routes split commands to the editor split event", () => {
+        const split = listenCustomEvent("bettershape-editor-split");
+        expect(dispatchShortcutAction("Split Editor Right", "Ctrl+\\")).toBe(true);
+        expect(split.events[0]?.detail).toMatchObject({ action: "right" });
+        expect(dispatchShortcutAction("Close Split", "Ctrl+W Ctrl+W")).toBe(true);
+        expect(split.events[1]?.detail).toMatchObject({ action: "close" });
+        split.off();
+    });
+
     it("dispatches find in files via command palette", () => {
         const palette = listenCustomEvent("bettershape-command-palette");
         expect(dispatchShortcutAction("Find in Files", "Ctrl+Shift+F")).toBe(true);
