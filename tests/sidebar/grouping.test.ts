@@ -53,3 +53,16 @@ it("groups case variants of Windows drives and UNC shares but preserves POSIX ca
     expect(groups.find(group => group.id === "//server/share/app")?.chats).toHaveLength(2);
     expect(groups.find(group => group.id === "c:/repo/app")?.label).toBe("App");
 });
+
+it.each(["project", "collection"] as const)("uses natural numeric ordering for %s labels", mode => {
+    const values = [
+        { ...chats[0], id: "ten", project_path: "/repo/Project 10" },
+        { ...chats[0], id: "two", project_path: "/repo/Project 2" },
+        { ...chats[0], id: "missing", project_path: "" },
+    ];
+    const groups = [
+        { ...collections[0], id: "ten", name: "Project 10", chatIds: ["ten"] },
+        { ...collections[0], id: "two", name: "Project 2", chatIds: ["two"] },
+    ];
+    expect(groupChats(values, mode, groups).map(group => group.chats[0].id)).toEqual(["two", "ten", "missing"]);
+});

@@ -46,7 +46,7 @@ function groupMetadata(chat: Conversation, mode: ChatGrouping, collection?: Chat
 function compareGroups(a: ChatGroup, b: ChatGroup): number {
     if (!a.id) return b.id ? 1 : 0;
     if (!b.id) return -1;
-    return a.label.localeCompare(b.label, undefined, { sensitivity: "base" }) || a.id.localeCompare(b.id);
+    return a.label.localeCompare(b.label, undefined, { sensitivity: "base", numeric: true }) || a.id.localeCompare(b.id);
 }
 
 /** Keep the chosen sort inside each group. Missing metadata is a visible final group. */

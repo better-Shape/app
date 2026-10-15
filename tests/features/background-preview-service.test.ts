@@ -175,3 +175,30 @@ it("waits for cancelled spawn cleanup before retrying the same command", async (
     expect(mocks.kill).toHaveBeenCalledTimes(1);
     expect(mocks.spawn).toHaveBeenCalledTimes(2);
 });
+
+it("replays only the selected PTY's output received before the spawn response", async () => {
+    mocks.spawn.mockImplementationOnce(async () => {
+        emit("pty-output", { id: 8, data: "unrelated ready" });
+        emit("pty-output", { id: 7, data: "starting compiler\n" });
+        emit("pty-output", { id: 7, data: "fatal: failed to compile\n" });
+        return 7;
+    });
+    await background.ensureBackgroundRun("npm run dev");
+    const { terminalSessionStore } = await import("@/features/terminal/session");
+    const { getDevRunSnapshot } = await import("@/features/preview/run-status");
+    expect(terminalSessionStore.appendPtyOutput).toHaveBeenCalledWith(7, "starting compiler\n");
+    expect(terminalSessionStore.appendPtyOutput).toHaveBeenCalledWith(7, "fatal: failed to compile\n");
+    expect(terminalSessionStore.appendPtyOutput).not.toHaveBeenCalledWith(8, expect.anything());
+    expect(getDevRunSnapshot().status).toBe("error");
+});
+it("preserves an early failed exit as an error instead of clearing it to idle", async () => {
+    mocks.spawn.mockImplementationOnce(async () => {
+        emit("pty-output", { id: 7, data: "fatal startup error\n" });
+        emit("pty-exit", { id: 7, exit_code: 1 });
+        return 7;
+    });
+    await expect(background.ensureBackgroundRun("npm run dev")).rejects.toThrow("exited during startup");
+    const { getDevRunSnapshot } = await import("@/features/preview/run-status");
+    expect(getDevRunSnapshot().status).toBe("error");
+    expect(background.getBackgroundPreviewService()).toBeNull();
+});

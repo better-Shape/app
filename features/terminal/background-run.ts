@@ -4,6 +4,7 @@
  * Rust owns spawn (`pty_spawn_run`), URL scrape, and TCP probe.
  */
 
+import { EarlyPtyOutput } from "./early-pty-output";
 import { getProjectPath } from "@/lib/backend";
 import {
     clearDevRun,
@@ -141,8 +142,10 @@ async function attachListeners() {
     let overflow = false;
     const earlyReady = new Map<number, PreviewReady>();
     const earlyExit = new Map<number, number | null>();
+    const earlyOutput = new EarlyPtyOutput();
     const dispose = () => {
         active = false;
+        earlyOutput.clear();
         for (const unlisten of cleanup.splice(0)) {
             try { void Promise.resolve(unlisten()).catch(() => undefined); } catch { /* Finish releasing the remaining listeners. */ }
         }
@@ -157,7 +160,9 @@ async function attachListeners() {
     };
     try {
         cleanup.push(await listen<{ id: number; data: string }>("pty-output", ({ payload }) => {
-            if (!active || payload.id !== ptyId || exited) return;
+            if (!active || exited) return;
+            if (ptyId === null) { earlyOutput.append(payload.id, payload.data); return; }
+            if (payload.id !== ptyId) return;
             terminalSessionStore.appendPtyOutput(payload.id, payload.data);
             noteDevRunOutput(payload.data);
         }));
@@ -180,6 +185,10 @@ async function attachListeners() {
         dispose,
         activate(id: number): boolean {
             ptyId = id;
+            for (const chunk of earlyOutput.take(id)) {
+                terminalSessionStore.appendPtyOutput(id, chunk);
+                noteDevRunOutput(chunk);
+            }
             if (overflow || earlyExit.has(id)) { exit(earlyExit.get(id) ?? null); return false; }
             const ready = earlyReady.get(id);
             earlyReady.clear(); earlyExit.clear();
@@ -250,7 +259,7 @@ export async function ensureBackgroundRun(command: string, cwdOverride?: string)
                 runtime = null;
                 lastReadyUrl = null;
                 announcedReady = null;
-                clearDevRun();
+                if (getDevRunSnapshot().status !== "error") clearDevRun();
             }
             if (ptyId !== undefined && invoke) await invoke("pty_kill", { id: ptyId }).catch(() => undefined);
             throw error;
