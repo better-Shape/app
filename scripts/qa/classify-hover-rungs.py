@@ -113,12 +113,9 @@ def main() -> None:
                 lines[i - 1] = pattern.sub(repl, lines[i - 1])
             if lines[i - 1] != before:
                 changed[path].append(i)
-        # NOSONAR, pythonsecurity:S2083: this script has no network path. It reads and
-        # writes files that `repo_file()` has already resolved inside the repository
-        # root, and the taint flow the rule reports starts from a file read it treats
-        # as an HTTP source. Reviewed 2026-10-15; the containment check above is the
-        # guard that matters here.
-        p.write_text("\n".join(lines))
+        # The rule reads this as an HTTP source because of the file read above. There is
+        # no network path here, and `repo_file()` refuses anything outside the repo.
+        p.write_text("\n".join(lines))  # NOSONAR, pythonsecurity:S2083
 
     total = sum(len(v) for v in changed.values())
     print(f"{total} button lines moved to the button rung, in {len(changed)} files\n")
