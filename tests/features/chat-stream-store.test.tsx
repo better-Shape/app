@@ -489,3 +489,33 @@ it("does not use an earlier draft's conversation as a new draft's Stop owner", a
     expect(isChatGenerating("A")).toBe(true);
     expect(api.hasLiveTurn("A")).toBe(true);
 });
+
+it("resolves a request's live owner through draft binding, without using the current view", async () => {
+    const { createChatRequestId } = await import("@/lib/chat/request-ownership");
+    await mount(null);
+    const request = createChatRequestId(null);
+    act(() => api.appendUserOptimistic("draft", null, request));
+    expect(api.getRequestOwner(request)).toEqual({ conversationId: null });
+    emit("chat_started", { conversationId: "A", turnId: "bound", requestId: request });
+    act(() => api.startDraftChat());
+    const next = createChatRequestId(null);
+    act(() => api.appendUserOptimistic("next draft", null, next));
+    expect(api.getRequestOwner(request)).toEqual({ conversationId: "A" });
+    expect(api.getRequestOwner(next)).toEqual({ conversationId: null });
+    act(() => api.stopLiveTurn("A"));
+    expect(api.getRequestOwner(request)).toBeNull();
+    expect(api.getRequestOwner(next)).toEqual({ conversationId: null });
+});
+it("does not resolve a completed or replaced request as a live failure owner", async () => {
+    const { createChatRequestId } = await import("@/lib/chat/request-ownership");
+    await mount("A"); await answerMessages("A", []);
+    const old = createChatRequestId("A");
+    act(() => api.appendUserOptimistic("old", "A", old));
+    emit("chat_started", { conversationId: "A", turnId: "old", requestId: old });
+    emit("chat_complete", { conversationId: "A", turnId: "old" });
+    expect(api.getRequestOwner(old)).toBeNull();
+    const next = createChatRequestId("A");
+    act(() => api.appendUserOptimistic("next", "A", next));
+    expect(api.getRequestOwner(old)).toBeNull();
+    expect(api.getRequestOwner(next)).toEqual({ conversationId: "A" });
+});

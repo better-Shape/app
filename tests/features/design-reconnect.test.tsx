@@ -8,16 +8,16 @@ const backend = vi.hoisted(() => ({
     ready: new Set<(url: string) => void>(), register: vi.fn(), probe: vi.fn(),
     exportSelection: null as null | ((scale: number, format: string) => Promise<void>),
     undo: vi.fn(), redo: vi.fn(),
-    panel: null as PanelProps | null, read: vi.fn(), patch: vi.fn(), save: vi.fn(), css: vi.fn(),
+    panel: null as PanelProps | null, read: vi.fn(), patch: vi.fn(), save: vi.fn(), css: vi.fn(), cssRead: vi.fn(),
 }));
 vi.mock("@/lib/backend", () => ({ commands: {
     inspectDesignProject: async (projectRoot: string) => ({ projectRoot, framework: "vite", supported: true }),
     listDesignAssets: async () => [], rememberPreviewUrl: async () => {},
     registerDesignBridge: backend.register, probePreviewUrl: backend.probe,
-    readFileFromDisk: backend.read, applyDesignSourcePatch: backend.patch, saveFile: backend.save,
+    readFile: backend.cssRead, readFileFromDisk: backend.read, applyDesignSourcePatch: backend.patch, saveFile: backend.save,
     primeFileCache: vi.fn(), invalidateFileCache: vi.fn(), undoDesignSourcePatch: backend.undo, redoDesignSourcePatch: backend.redo,
 } }));
-vi.mock("@/lib/ui/css-variables-loader", () => ({ resolveGlobalsCss: backend.css, invalidateGlobalsCssCache: vi.fn() }));
+vi.mock("@/lib/ui/css-variables-loader", async original => ({ ...await original<typeof import("@/lib/ui/css-variables-loader")>(), resolveGlobalsCss: backend.css }));
 vi.mock("@/features/detection/lib/lib", () => ({ detectDevCommand: async () => ({ command: "npm run dev", urlHint: "http://localhost:5173" }) }));
 vi.mock("@/features/preview/lib/discover-routes", () => ({ discoverDesignPages: async () => [] }));
 vi.mock("@/features/terminal/background-run", () => ({
@@ -32,6 +32,7 @@ vi.mock("@/features/preview/design/toolbar", async (original) => ({
     ...await original<typeof import("@/features/preview/design/toolbar")>(), DesignToolbar: ({ onModeChange }: { onModeChange: (mode: "select") => void }) => <button onClick={() => onModeChange("select")}>Inspect</button>,
 }));
 vi.mock("@/features/preview/design/panel", () => ({ DesignStylePanel: (props: PanelProps & { onExport: (scale: number, format: string) => Promise<void> }) => { backend.panel = props; backend.exportSelection = props.onExport; return null; } }));
+import { invalidateGlobalsCssCache } from "@/lib/ui/css-variables-loader";
 import { DesignStudio } from "@/features/preview/design/shell";
 let host: HTMLDivElement;
 let root: Root;
@@ -39,6 +40,8 @@ beforeEach(() => {
     backend.service = { projectPath: "/project", url: "http://localhost:5173", ptyId: 7 };
     backend.undo.mockReset().mockResolvedValue({ changed: false });
     backend.redo.mockReset().mockResolvedValue({ changed: false });
+    invalidateGlobalsCssCache();
+    backend.cssRead.mockReset().mockResolvedValue(":root { --seed: red; }");
     backend.panel = null;
     backend.read.mockReset().mockResolvedValue(SOURCE);
     backend.patch.mockReset().mockResolvedValue({}); backend.save.mockReset().mockResolvedValue(undefined);
@@ -285,6 +288,7 @@ it.each(frameMutations)("revalidates incoming %s after source resolution", async
     const panel = await selectForMutation();
     const frame = host.querySelector("iframe")!;
     let finish!: (source: string) => void;
+    if (kind === "commit-styles") backend.read.mockResolvedValueOnce(SOURCE);
     backend.read.mockImplementationOnce(() => new Promise<string>(resolve => { finish = resolve; }));
     await act(async () => {
         window.dispatchEvent(new MessageEvent("message", {
@@ -350,4 +354,84 @@ it("does not transplant an old preview update onto a newer selection owner", asy
     await act(async () => old.onPreview({ color: "red" }));
     expect(backend.panel!.element?.key).toBe("new-selection");
     expect(backend.panel!.element?.styles.color).toBeUndefined();
+});
+
+async function selectSource(element: PanelProps["element"]) {
+    const frame = host.querySelector("iframe")!;
+    await act(async () => window.dispatchEvent(new MessageEvent("message", {
+        source: frame.contentWindow, origin: backend.service.url,
+        data: { type: "bettershape-design-selection", element },
+    })));
+}
+
+it("keeps the newest source mapping when an older lookup finishes last", async () => {
+    const original = (await selectForMutation()).element!;
+    let finish!: (source: string) => void;
+    backend.read.mockImplementationOnce(() => new Promise<string>(resolve => { finish = resolve; }));
+    await selectSource({ ...original, key: "slow", source: { ...original.source!, fileName: "src/Slow.tsx" } });
+    await selectSource({ ...original, key: "current", source: { ...original.source!, fileName: "src/Current.tsx" } });
+    expect(backend.panel!.source?.file).toBe("src/Current.tsx");
+    await act(async () => finish(SOURCE));
+    expect(backend.panel!.source?.file).toBe("src/Current.tsx");
+});
+
+it("does not restore a source target after deselection", async () => {
+    const original = (await selectForMutation()).element!;
+    let finish!: (source: string) => void;
+    backend.read.mockImplementationOnce(() => new Promise<string>(resolve => { finish = resolve; }));
+    await selectSource({ ...original, key: "slow" });
+    await selectSource(null);
+    await act(async () => finish(SOURCE));
+    expect(backend.panel!.source).toBeNull();
+});
+
+it("does not publish a queued mutation's lookup as the current selection target", async () => {
+    const old = await selectForMutation();
+    let finish!: (source: string) => void;
+    backend.read.mockImplementationOnce(() => new Promise<string>(resolve => { finish = resolve; }));
+    await act(async () => { old.onCommit({ color: "red" }); });
+    await selectSource({ ...old.element!, key: "current", source: { ...old.element!.source!, fileName: "src/Current.tsx" } });
+    await act(async () => finish(SOURCE));
+    expect(backend.patch).toHaveBeenCalledTimes(1);
+    expect(backend.panel!.source?.file).toBe("src/Current.tsx");
+});
+
+it("creates consecutive tokens through the real CSS loader without losing its path", async () => {
+    const loader = await vi.importActual<typeof import("@/lib/ui/css-variables-loader")>("@/lib/ui/css-variables-loader");
+    backend.css.mockImplementation(loader.resolveGlobalsCss);
+    let disk = ":root { --seed: red; }";
+    backend.cssRead.mockImplementation(async () => disk);
+    backend.read.mockImplementation(async (path: string) => path.endsWith(".css") ? disk : SOURCE);
+    backend.save.mockImplementation(async (_path: string, content: string) => { disk = content; });
+    const panel = await selectForMutation();
+    await act(async () => { await panel.onCreateToken!("--first", "blue"); });
+    // A separate file edit between token operations must not be overwritten by cached content.
+    disk = disk.replace("--seed: red", "--seed: green");
+    await act(async () => { await panel.onCreateToken!("--second", "purple"); });
+    expect(backend.save).toHaveBeenCalledTimes(2);
+    expect(backend.save.mock.calls.map(([path]) => path)).toEqual(["/project/app/globals.css", "/project/app/globals.css"]);
+    expect(disk).toContain("--first: blue"); expect(disk).toContain("--second: purple"); expect(disk).toContain("--seed: green");
+});
+
+it("serializes concurrent token writes through disk acknowledgement", async () => {
+    const loader = await vi.importActual<typeof import("@/lib/ui/css-variables-loader")>("@/lib/ui/css-variables-loader");
+    backend.css.mockImplementation(loader.resolveGlobalsCss);
+    let disk = ":root {}";
+    backend.cssRead.mockImplementation(async () => disk);
+    backend.read.mockImplementation(async (path: string) => path.endsWith(".css") ? disk : SOURCE);
+    let finish!: () => void;
+    backend.save.mockImplementationOnce((_path: string, content: string) => new Promise<void>(resolve => {
+        finish = () => { disk = content; resolve(); };
+    })).mockImplementation(async (_path: string, content: string) => { disk = content; });
+    const panel = await selectForMutation();
+    let first: void | Promise<void>;
+    let second: void | Promise<void>;
+    await act(async () => {
+        first = panel.onCreateToken!("--first", "blue");
+        second = panel.onCreateToken!("--second", "green");
+    });
+    expect(backend.save).toHaveBeenCalledTimes(1);
+    await act(async () => { finish(); await Promise.all([first, second]); });
+    expect(backend.save).toHaveBeenCalledTimes(2);
+    expect(disk).toContain("--first: blue"); expect(disk).toContain("--second: green");
 });

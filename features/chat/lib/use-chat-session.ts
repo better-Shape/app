@@ -199,6 +199,7 @@ export function useChatSession(
         startDraftChat,
         hasLiveTurn,
         ownsRequest,
+        getRequestOwner,
     } = useChatStream();
     const refreshMetadataRef = React.useRef<() => Promise<void>>(async () => {});
     const [recentConvs, setRecentConvs] = React.useState<Conversation[]>([]);
@@ -960,123 +961,216 @@ export function useChatSession(
         const preparation = new AbortController();
         preparingSendsRef.current.set(preparation, target);
         try {
-            await waitForAiConfiguration(preparation.signal);
-        } catch {
-            if (!preparation.signal.aborted) setSendError("Could not load provider settings. Retry after checking Settings > Providers.");
-            return false;
-        } finally {
-            preparingSendsRef.current.delete(preparation);
-        }
-        if (preparation.signal.aborted) return false;
-        if (!fromQueue) {
-            setInputValue("");
-            editingQueueIdRef.current = null;
             try {
-                localStorage.removeItem("bettershape-chat-input");
+                await waitForAiConfiguration(preparation.signal);
             } catch {
-                /* ignore */
+                if (!preparation.signal.aborted) setSendError("Could not load provider settings. Retry after checking Settings > Providers.");
+                return false;
             }
-        }
-
-        const waitForAttachments = async () => {
-            const deadline = Date.now() + 8000;
-            while (Date.now() < deadline) {
-                const files = uploadedFilesRef.current;
-                if (!files.some((a) => a.status === "processing")) return files;
-                await new Promise((r) => setTimeout(r, 40));
-            }
-            return uploadedFilesRef.current;
-        };
-        const readyFiles = fromQueue ? [] : await waitForAttachments();
-
-        let userMsg = messageContent;
-        const attachmentBlocks: string[] = [];
-        for (const att of readyFiles) {
-            if (att.status !== "ready") continue;
-                const ext = att.name.split(".").pop()?.toLowerCase() || "";
-                const CODE_LIKE_EXT = new Set([
-                    "ts", "tsx", "js", "jsx", "rs", "py", "go", "java", "c", "cpp", "h", "hpp",
-                    "css", "scss", "less", "html", "xml", "svg", "json", "toml", "yaml", "yml",
-                    "md", "mdx", "sh", "bat", "ps1", "rb", "php", "swift", "kt", "kts", "dart",
-                    "lua", "r", "sql", "graphql", "gql", "proto", "txt", "log", "csv", "lock",
-                    "env", "ini", "cfg", "conf",
-                ]);
-                const BINARY_ASSET_EXT = new Set([
-                    "ttf", "otf", "woff", "woff2", "eot", "ico", "icns", "pdf",
-                ]);
-
-                if (att.kind === "image" && att.dataUrl) {
-                    attachmentBlocks.push(
-                        `<attached_image name="${att.name}" type="${att.mimeType}" size="${att.size}">${att.dataUrl}</attached_image>`,
-                    );
-                } else if (att.kind === "audio") {
-                    attachmentBlocks.push(
-                        `<attached_file name="${att.name}" type="${att.mimeType || "audio"}" size="${att.size}">\n[Audio file attached — playback in UI; transcription not available in this turn.]\n</attached_file>`,
-                    );
-                } else {
-                    const isTextLike =
-                        att.mimeType.startsWith("text/") ||
-                        CODE_LIKE_EXT.has(ext) ||
-                        ["svg", "json", "xml", "md", "mdx"].includes(ext);
-
-                    if (isTextLike) {
-                        const text = await new Promise<string>((resolve, reject) => {
-                            const reader = new FileReader();
-                            reader.onload = () => resolve(reader.result as string);
-                            reader.onerror = reject;
-                            reader.readAsText(att.file);
-                        });
-
-                        const maxChars = 80000;
-                        const content =
-                            text.length > maxChars
-                                ? text.slice(0, maxChars) + `\n... [truncated, ${text.length} chars total]`
-                                : text;
-
-                        attachmentBlocks.push(
-                            `<attached_file name="${att.name}" type="${att.mimeType || "text/plain"}" size="${att.size}">\n${content}\n</attached_file>`,
-                        );
-                    } else if (BINARY_ASSET_EXT.has(ext) || att.mimeType.startsWith("font/")) {
-                        // Usable binary — instruct the agent to write/use the file, not just describe it.
-                        const dataUrl = await new Promise<string>((resolve, reject) => {
-                            const reader = new FileReader();
-                            reader.onload = () => resolve(reader.result as string);
-                            reader.onerror = reject;
-                            reader.readAsDataURL(att.file);
-                        });
-                        const maxBytes = 2_500_000;
-                        if (att.size <= maxBytes) {
-                            attachmentBlocks.push(
-                                `<attached_asset name="${att.name}" type="${att.mimeType || "application/octet-stream"}" size="${att.size}" usable="true">\n` +
-                                    `When the user asks to use this file (e.g. apply a font, add an icon), write it into the project from this data URL and wire it up — do not only describe it.\n` +
-                                    `${dataUrl}\n` +
-                                    `</attached_asset>`,
-                            );
-                        } else {
-                            attachmentBlocks.push(
-                                `<attached_file name="${att.name}" type="${att.mimeType || "application/octet-stream"}" size="${att.size}">\n[Binary asset too large to inline (${att.size} bytes). Ask the user for a path in the repo, or copy it locally.]\n</attached_file>`,
-                            );
-                        }
-                    }
+            if (preparation.signal.aborted) return false;
+            if (!fromQueue) {
+                setInputValue("");
+                editingQueueIdRef.current = null;
+                try {
+                    localStorage.removeItem("bettershape-chat-input");
+                } catch {
+                    /* ignore */
                 }
             }
 
-            if (attachmentBlocks.length > 0) {
-                userMsg = `${attachmentBlocks.join("\n\n")}\n\n${userMsg}`;
-            }
+            const waitForAttachments = async () => {
+                const deadline = Date.now() + 8000;
+                while (Date.now() < deadline) {
+                    const files = uploadedFilesRef.current;
+                    if (!files.some((a) => a.status === "processing")) return files;
+                    await new Promise((r) => setTimeout(r, 40));
+                }
+                return uploadedFilesRef.current;
+            };
+            const readyFiles = fromQueue ? [] : await waitForAttachments();
 
-        setSendError(null);
-        // Lets the backend's chat_started name this send, so a draft binds only to its own turn.
-        const clientRequestId = createChatRequestId(target);
-        appendUserOptimistic(userMsg, target, clientRequestId);
-        if (!fromQueue) setUploadedFiles([]);
+            let userMsg = messageContent;
+            const attachmentBlocks: string[] = [];
+            for (const att of readyFiles) {
+                if (att.status !== "ready") continue;
+                    const ext = att.name.split(".").pop()?.toLowerCase() || "";
+                    const CODE_LIKE_EXT = new Set([
+                        "ts", "tsx", "js", "jsx", "rs", "py", "go", "java", "c", "cpp", "h", "hpp",
+                        "css", "scss", "less", "html", "xml", "svg", "json", "toml", "yaml", "yml",
+                        "md", "mdx", "sh", "bat", "ps1", "rb", "php", "swift", "kt", "kts", "dart",
+                        "lua", "r", "sql", "graphql", "gql", "proto", "txt", "log", "csv", "lock",
+                        "env", "ini", "cfg", "conf",
+                    ]);
+                    const BINARY_ASSET_EXT = new Set([
+                        "ttf", "otf", "woff", "woff2", "eot", "ico", "icns", "pdf",
+                    ]);
 
-        try {
-            if (!hasUsableProvider(getSettings().ai.providers)) {
-                setSendError("Add an API key in Settings → Providers to chat.");
-                // The optimistic turn was opened above; no backend turn will ever close it.
-                holdQueueAfterFailedSend(target);
+                    if (att.kind === "image" && att.dataUrl) {
+                        attachmentBlocks.push(
+                            `<attached_image name="${att.name}" type="${att.mimeType}" size="${att.size}">${att.dataUrl}</attached_image>`,
+                        );
+                    } else if (att.kind === "audio") {
+                        attachmentBlocks.push(
+                            `<attached_file name="${att.name}" type="${att.mimeType || "audio"}" size="${att.size}">\n[Audio file attached — playback in UI; transcription not available in this turn.]\n</attached_file>`,
+                        );
+                    } else {
+                        const isTextLike =
+                            att.mimeType.startsWith("text/") ||
+                            CODE_LIKE_EXT.has(ext) ||
+                            ["svg", "json", "xml", "md", "mdx"].includes(ext);
+
+                        if (isTextLike) {
+                            const text = await new Promise<string>((resolve, reject) => {
+                                const reader = new FileReader();
+                                reader.onload = () => resolve(reader.result as string);
+                                reader.onerror = reject;
+                                reader.readAsText(att.file);
+                            });
+
+                            const maxChars = 80000;
+                            const content =
+                                text.length > maxChars
+                                    ? text.slice(0, maxChars) + `\n... [truncated, ${text.length} chars total]`
+                                    : text;
+
+                            attachmentBlocks.push(
+                                `<attached_file name="${att.name}" type="${att.mimeType || "text/plain"}" size="${att.size}">\n${content}\n</attached_file>`,
+                            );
+                        } else if (BINARY_ASSET_EXT.has(ext) || att.mimeType.startsWith("font/")) {
+                            // Usable binary — instruct the agent to write/use the file, not just describe it.
+                            const dataUrl = await new Promise<string>((resolve, reject) => {
+                                const reader = new FileReader();
+                                reader.onload = () => resolve(reader.result as string);
+                                reader.onerror = reject;
+                                reader.readAsDataURL(att.file);
+                            });
+                            const maxBytes = 2_500_000;
+                            if (att.size <= maxBytes) {
+                                attachmentBlocks.push(
+                                    `<attached_asset name="${att.name}" type="${att.mimeType || "application/octet-stream"}" size="${att.size}" usable="true">\n` +
+                                        `When the user asks to use this file (e.g. apply a font, add an icon), write it into the project from this data URL and wire it up — do not only describe it.\n` +
+                                        `${dataUrl}\n` +
+                                        `</attached_asset>`,
+                                );
+                            } else {
+                                attachmentBlocks.push(
+                                    `<attached_file name="${att.name}" type="${att.mimeType || "application/octet-stream"}" size="${att.size}">\n[Binary asset too large to inline (${att.size} bytes). Ask the user for a path in the repo, or copy it locally.]\n</attached_file>`,
+                                );
+                            }
+                        }
+                    }
+                }
+
+                if (attachmentBlocks.length > 0) {
+                    userMsg = `${attachmentBlocks.join("\n\n")}\n\n${userMsg}`;
+                }
+
+            if (preparation.signal.aborted) return false;
+            setSendError(null);
+            // Lets the backend's chat_started name this send, so a draft binds only to its own turn.
+            const clientRequestId = createChatRequestId(target);
+            appendUserOptimistic(userMsg, target, clientRequestId);
+            if (!fromQueue) setUploadedFiles([]);
+
+            try {
+                if (!hasUsableProvider(getSettings().ai.providers)) {
+                    setSendError("Add an API key in Settings → Providers to chat.");
+                    // The optimistic turn was opened above; no backend turn will ever close it.
+                    holdQueueAfterFailedSend(target);
+                    setMessages((prev) => {
+                        const last = prev[prev.length - 1];
+                        if (last?.role === "assistant" && !last.content.trim()) {
+                            return prev.slice(0, -1);
+                        }
+                        return prev;
+                    });
+                    return false;
+                }
+
+                const settings = getSettings();
+                const expandedMessage = await buildMessageWithMentions(
+                    userMsg,
+                    project_path ?? null,
+                    selectionContextRef.current,
+                );
+                try {
+                    const { mentionRanges } = await import("@/lib/chat/mentions");
+                    const { trySelectPendingDesignConcept } = await import("@/lib/agent-preview/store");
+                    for (const range of mentionRanges(userMsg)) {
+                        if (range.mention.kind === "design") {
+                            const id = range.mention.id || range.mention.path || range.mention.label;
+                            if (id) await trySelectPendingDesignConcept(id);
+                        }
+                    }
+                } catch {
+                    /* pick already resolved or none pending */
+                }
+                const projectRules = isWorkspaceTrusted(project_path)
+                    ? await loadProjectRules(project_path ?? null)
+                    : "";
+                const mergedRules = [settings.ai.customRules, projectRules].filter(Boolean).join("\n\n") || undefined;
+                const { applyWorkflows, matchWorkflows, workflowAllowKeys } = await import("@/lib/chat/workflows");
+                const messageWithWorkflows = applyWorkflows(expandedMessage, settings.ai.workflows);
+                const pluginAutoAllow = matchWorkflows(userMsg, settings.ai.workflows).flatMap(workflowAllowKeys);
+
+                const modelToSend = selectedModelRef.current || "auto";
+                const modeToSend = selectedModeRef.current;
+                const catalogIds = getCatalogModels().map((m) => m.id);
+                const subagentSend = subagentModelsForSend(settings.ai.subagentModels, catalogIds, {
+                    defaultModel: settings.ai.subagentDefaultModel,
+                });
+
+                if (preparation.signal.aborted) {
+                    const owner = getRequestOwner(clientRequestId);
+                    if (owner) stopLiveTurn(owner.conversationId);
+                    return false;
+                }
+                if (!ownsRequest(target, clientRequestId)) return false;
+                // Preparation ends at native admission, not at provider readiness.
+                preparingSendsRef.current.delete(preparation);
+                await commands.sendChatMessage(
+                    messageWithWorkflows,
+                    modelToSend,
+                    modeToSend,
+                    mergedRules,
+                    undefined,
+                    settings.ai.reviewAdversarialEnabled,
+                    {
+                        autoRunMode: settings.ai.autoRunMode,
+                        requireEditApproval: settings.ai.requireEditApproval,
+                        protectDestructiveGit: settings.ai.protectDestructiveGit,
+                        pluginApprovalDefault: settings.ai.pluginApprovalDefault ?? "ask",
+                        pluginApprovals: settings.ai.pluginApprovals,
+                        pluginDisabledActions: settings.ai.pluginDisabledActions,
+                        pluginAutoAllow,
+                    },
+                    reasoningEffort,
+                    undefined,
+                    userMsg,
+                    undefined,
+                    undefined,
+                    subagentSend.models,
+                    subagentSend.defaultModel,
+                    settings.ai.compactInstructions || undefined,
+                    target,
+                    clientRequestId,
+                );
+                await refreshMetadata();
+                failedSendHoldRef.current = null;
+                return true;
+            } catch (err) {
+                const owner = getRequestOwner(clientRequestId);
+                if (!owner) return false;
+                holdQueueAfterFailedSend(owner.conversationId);
+                if (getViewedConversationId() !== owner.conversationId) {
+                    notify.error("Could not send message", "The failed chat's queued messages remain paused. Open that chat to retry.");
+                    return false;
+                }
+                console.error("Failed to send message:", err);
+                const errMsg = err instanceof Error ? err.message : String(err);
+                setSendError(errMsg);
                 setMessages((prev) => {
+                    if (prev.length < 1) return prev;
                     const last = prev[prev.length - 1];
                     if (last?.role === "assistant" && !last.content.trim()) {
                         return prev.slice(0, -1);
@@ -1085,87 +1179,8 @@ export function useChatSession(
                 });
                 return false;
             }
-
-            const settings = getSettings();
-            const expandedMessage = await buildMessageWithMentions(
-                userMsg,
-                project_path ?? null,
-                selectionContextRef.current,
-            );
-            try {
-                const { mentionRanges } = await import("@/lib/chat/mentions");
-                const { trySelectPendingDesignConcept } = await import("@/lib/agent-preview/store");
-                for (const range of mentionRanges(userMsg)) {
-                    if (range.mention.kind === "design") {
-                        const id = range.mention.id || range.mention.path || range.mention.label;
-                        if (id) await trySelectPendingDesignConcept(id);
-                    }
-                }
-            } catch {
-                /* pick already resolved or none pending */
-            }
-            const projectRules = isWorkspaceTrusted(project_path)
-                ? await loadProjectRules(project_path ?? null)
-                : "";
-            const mergedRules = [settings.ai.customRules, projectRules].filter(Boolean).join("\n\n") || undefined;
-            const { applyWorkflows, matchWorkflows, workflowAllowKeys } = await import("@/lib/chat/workflows");
-            const messageWithWorkflows = applyWorkflows(expandedMessage, settings.ai.workflows);
-            const pluginAutoAllow = matchWorkflows(userMsg, settings.ai.workflows).flatMap(workflowAllowKeys);
-
-            const modelToSend = selectedModelRef.current || "auto";
-            const modeToSend = selectedModeRef.current;
-            const catalogIds = getCatalogModels().map((m) => m.id);
-            const subagentSend = subagentModelsForSend(settings.ai.subagentModels, catalogIds, {
-                defaultModel: settings.ai.subagentDefaultModel,
-            });
-
-            if (!ownsRequest(target, clientRequestId)) return false;
-            await commands.sendChatMessage(
-                messageWithWorkflows,
-                modelToSend,
-                modeToSend,
-                mergedRules,
-                undefined,
-                settings.ai.reviewAdversarialEnabled,
-                {
-                    autoRunMode: settings.ai.autoRunMode,
-                    requireEditApproval: settings.ai.requireEditApproval,
-                    protectDestructiveGit: settings.ai.protectDestructiveGit,
-                    pluginApprovalDefault: settings.ai.pluginApprovalDefault ?? "ask",
-                    pluginApprovals: settings.ai.pluginApprovals,
-                    pluginDisabledActions: settings.ai.pluginDisabledActions,
-                    pluginAutoAllow,
-                },
-                reasoningEffort,
-                undefined,
-                userMsg,
-                undefined,
-                undefined,
-                subagentSend.models,
-                subagentSend.defaultModel,
-                settings.ai.compactInstructions || undefined,
-                target,
-                clientRequestId,
-            );
-            await refreshMetadata();
-            failedSendHoldRef.current = null;
-            return true;
-        } catch (err) {
-            if (!ownsRequest(target, clientRequestId)) return false;
-            console.error("Failed to send message:", err);
-            const errMsg = err instanceof Error ? err.message : String(err);
-            setSendError(errMsg);
-            // The send failed before any backend turn closed the optimistic one.
-            holdQueueAfterFailedSend(target);
-            setMessages((prev) => {
-                if (prev.length < 1) return prev;
-                const last = prev[prev.length - 1];
-                if (last?.role === "assistant" && !last.content.trim()) {
-                    return prev.slice(0, -1);
-                }
-                return prev;
-            });
-            return false;
+        } finally {
+            preparingSendsRef.current.delete(preparation);
         }
     };
 

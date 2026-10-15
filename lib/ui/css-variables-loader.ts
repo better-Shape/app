@@ -1,5 +1,5 @@
 import { commands } from "@/lib/backend";
-import { getCachedGlobalsCssContent, setCachedGlobalsCssContent } from "@/lib/ui/css-variables";
+import { setCachedGlobalsCssContent } from "@/lib/ui/css-variables";
 
 /** Common locations for the project's global CSS / design token file. */
 export const GLOBALS_CSS_CANDIDATES = [
@@ -20,63 +20,58 @@ export const GLOBALS_CSS_CANDIDATES = [
     "shape/src/app/globals.css",
 ];
 
-let loadPromise: Promise<{ content: string; path: string | null }> | null = null;
-let loadedForProject: string | null = null;
-let loadedPath: string | null = null;
+type ResolvedCss = { content: string; path: string | null };
+let cache: { projectPath: string; result: ResolvedCss } | null = null;
+let activeLoad: { projectPath: string; promise: Promise<ResolvedCss> } | null = null;
+let generation = 0;
 
-/**
- * Ensure the globals CSS cache is seeded from disk so CSS variables are
- * available (color picker variables tab, radius stops, ...) without requiring
- * the user to open the globals file first.
- */
 export async function ensureGlobalsCssLoaded(projectPath: string): Promise<string> {
-    const result = await resolveGlobalsCss(projectPath);
-    return result.content;
+    return (await resolveGlobalsCss(projectPath)).content;
 }
 
-/** Resolve globals CSS content + absolute path for token read/write. */
-export async function resolveGlobalsCss(
-    projectPath: string,
-): Promise<{ content: string; path: string | null }> {
-    const cached = getCachedGlobalsCssContent();
-    if (cached && loadedForProject === projectPath) {
-        return { content: cached, path: loadedPath };
+async function discoverGlobalsCss(projectPath: string): Promise<ResolvedCss> {
+    const root = projectPath.replace(/[\\/]+$/, "");
+    for (const relative of GLOBALS_CSS_CANDIDATES) {
+        try {
+            const path = `${root}/${relative}`.replace(/\\/g, "/");
+            const content = await commands.readFile(path);
+            return { content, path };
+        } catch { /* Try the next candidate. */ }
     }
-    if (cached && loadedForProject === null) {
-        loadedForProject = projectPath;
-        return { content: cached, path: loadedPath };
-    }
-
-    if (!loadPromise) {
-        loadPromise = (async () => {
-            const root = projectPath.replace(/[\\/]+$/, "");
-            for (const rel of GLOBALS_CSS_CANDIDATES) {
-                try {
-                    const abs = `${root}/${rel}`.replace(/\\/g, "/");
-                    const content = await commands.readFile(abs);
-                    if (content && content.includes("--")) {
-                        setCachedGlobalsCssContent(content);
-                        loadedForProject = projectPath;
-                        loadedPath = abs;
-                        return { content, path: abs };
-                    }
-                } catch {
-                    // not found — try the next candidate
-                }
-            }
-            loadedForProject = projectPath;
-            loadedPath = null;
-            return { content: getCachedGlobalsCssContent(), path: null };
-        })().finally(() => {
-            loadPromise = null;
-        });
-    }
-    return loadPromise;
+    return { content: "", path: null };
 }
 
-export function invalidateGlobalsCssCache() {
-    loadedForProject = null;
-    loadedPath = null;
-    loadPromise = null;
+/** Content, source path and project have one owner; display-only CSS grants no file authority. */
+export async function resolveGlobalsCss(projectPath: string): Promise<ResolvedCss> {
+    if (cache?.projectPath === projectPath) return { ...cache.result };
+    if (activeLoad?.projectPath === projectPath) return activeLoad.promise;
+    const owner = ++generation;
+    cache = null;
+    setCachedGlobalsCssContent("");
+    const promise = discoverGlobalsCss(projectPath).then(result => {
+        if (generation === owner) {
+            // Do not cache misses: the user can create a CSS file and retry.
+            cache = result.path ? { projectPath, result: { ...result } } : null;
+            setCachedGlobalsCssContent(result.content);
+        }
+        return result;
+    }).finally(() => {
+        if (generation === owner) activeLoad = null;
+    });
+    activeLoad = { projectPath, promise };
+    return promise;
+}
+
+export function updateGlobalsCssCache(projectPath: string, path: string, content: string): void {
+    generation += 1;
+    activeLoad = null;
+    cache = { projectPath, result: { path, content } };
+    setCachedGlobalsCssContent(content);
+}
+
+export function invalidateGlobalsCssCache(): void {
+    generation += 1;
+    cache = null;
+    activeLoad = null;
     setCachedGlobalsCssContent("");
 }

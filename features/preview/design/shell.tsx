@@ -17,8 +17,8 @@ import {
     subscribePreviewReady,
 } from "@/features/terminal/background-run";
 import { commands } from "@/lib/backend";
-import { insertCssVariableInContent, setCachedGlobalsCssContent } from "@/lib/ui/css-variables";
-import { invalidateGlobalsCssCache, resolveGlobalsCss } from "@/lib/ui/css-variables-loader";
+import { insertCssVariableInContent } from "@/lib/ui/css-variables";
+import { updateGlobalsCssCache, resolveGlobalsCss } from "@/lib/ui/css-variables-loader";
 import { cn } from "@/lib/utils";
 import { discoverDesignPages, type DesignPage } from "../lib/discover-routes";
 import {
@@ -49,6 +49,8 @@ import { DesignToolbar, createBrowserTab, faviconFromUrl, pushTabUrl, tabTitleFr
 import { DesignSelectionPrompt } from "./selection-prompt";
 import type { DesignToolMode } from "./bottom-toolbar";
 import { acceptsDesignMessage, authorizeDesignPreview, isCurrentDesignAuthorization, designMessageOrigin, scopeDesignBridge, type DesignAuthorization } from "./authorization";
+
+type AuthorizedSelection = { element: DesignElementSnapshot; assertAuthorized: () => void };
 
 type SourceTarget = {
     file: string;
@@ -164,21 +166,24 @@ export function DesignStudio({
     const [, setLayers] = useState<DesignLayerSnapshot[]>([]);
     // Keep the originating grant with its snapshot; host-side clones must not
     // adopt a new grant merely because the server has since reconnected.
-    const [selection, setSelection] = useState<{
-        element: DesignElementSnapshot;
-        assertAuthorized: () => void;
-    } | null>(null);
+    const [selection, setSelectionState] = useState<AuthorizedSelection | null>(null);
+    const selectionRevision = useRef(0);
+    const [target, setTarget] = useState<SourceTarget | null>(null);
+    const setSelection = useCallback((next: AuthorizedSelection | null) => {
+        selectionRevision.current += 1;
+        setSelectionState(next);
+        setTarget(null);
+    }, []);
     const selected = selection?.element ?? null;
     const selectedAuthorization = selection?.assertAuthorized;
     const updateSelected = useCallback((assertAuthorized: () => void, update: SetStateAction<DesignElementSnapshot | null>) => {
-        setSelection(current => {
+        setSelectionState(current => {
             if (current?.assertAuthorized !== assertAuthorized) return current;
             const element = typeof update === "function" ? update(current?.element ?? null) : update;
             return current && element ? { ...current, element } : null;
         });
     }, []);
     const documentEpoch = useRef(0);
-    const [target, setTarget] = useState<SourceTarget | null>(null);
     const [mappingError, setMappingError] = useState<string | null>(null);
     const [bootError, setBootError] = useState<string | null>(null);
     const [ready, setReady] = useState(false);
@@ -358,7 +363,6 @@ export function DesignStudio({
                         line: hit.line,
                         confidence: 80,
                     };
-                    setTarget(next);
                     return next;
                 } catch {
                     /* try the next file */
@@ -376,14 +380,24 @@ export function DesignStudio({
                     sourceColumn: element.source.columnNumber,
                 });
                 const next = matches[0] ?? null;
-                setTarget(next);
                 return next;
             }
-            setTarget(null);
             return null;
         },
         [activePage, designerRoot, pages],
     );
+
+    const selectElement = useCallback((element: DesignElementSnapshot, assertAuthorized: () => void) => {
+        setSelection({ element, assertAuthorized });
+        const revision = selectionRevision.current;
+        void resolveElement(element).then(resolved => {
+            if (selectionRevision.current !== revision) return;
+            assertAuthorized();
+            setTarget(resolved);
+        }).catch(cause => {
+            if (selectionRevision.current === revision) reportMappingError(cause);
+        });
+    }, [reportMappingError, resolveElement, setSelection]);
 
     const resolveInstance = useCallback(
         async (element: DesignElementSnapshot) => {
@@ -693,10 +707,11 @@ export function DesignStudio({
         })();
         return () => {
             cancelled = true;
+            selectionRevision.current += 1;
             authorizationRef.current = null;
             unsubscribeReady();
         };
-    }, [bootRoot]);
+    }, [bootRoot, setSelection]);
 
     useEffect(() => {
         if (!ready) return;
@@ -743,9 +758,8 @@ export function DesignStudio({
                 setLayers(data.layers);
             } else if (data.type === "bettershape-design-selection") {
                 if (data.element) {
-                    setSelection({ element: data.element, assertAuthorized });
+                    selectElement(data.element, assertAuthorized);
                     setPromptOpen(false);
-                    void resolveElement(data.element).catch(reportMappingError);
                     if (data.addToChat) {
                         const label = data.element.component?.name || data.element.component?.tag || data.element.tag;
                         window.dispatchEvent(
@@ -761,7 +775,7 @@ export function DesignStudio({
                     setPromptOpen(false);
                 }
             } else if (data.type === "bettershape-design-commit-styles" && data.element && data.styles) {
-                setSelection({ element: data.element, assertAuthorized });
+                selectElement(data.element, assertAuthorized);
                 void (async () => {
                     setSaved(false);
                     try {
@@ -847,7 +861,7 @@ export function DesignStudio({
         };
         window.addEventListener("message", onMessage);
         return () => window.removeEventListener("message", onMessage);
-    }, [captureWriteAuthorization, designerRoot, persistJsx, persistReorder, reportMappingError, resolveElement]);
+    }, [captureWriteAuthorization, designerRoot, persistJsx, persistReorder, reportMappingError, resolveElement, selectElement, setSelection]);
 
     const previewStyles = useCallback((styles: Record<string, string>) => {
         const assertAuthorized = admitSelectionWrite();
@@ -998,23 +1012,25 @@ export function DesignStudio({
         async (name: string, value: string) => {
             try {
                 const assertAuthorized = captureWriteAuthorization();
-                const resolved = await resolveGlobalsCss(designerRoot);
-                if (!resolved.path) {
-                    throw new Error("Could not find a theme CSS file to store this token.");
-                }
-                const before = resolved.content || (await commands.readFileFromDisk(resolved.path));
-                const next = insertCssVariableInContent(before, name, value);
-                assertAuthorized();
-                await commands.saveFile(resolved.path, next);
-                assertAuthorized();
-                invalidateGlobalsCssCache();
-                setCachedGlobalsCssContent(next);
-                setThemeTokens((now) => {
-                    const index = now.findIndex((token) => token.name === name);
-                    if (index >= 0) {
-                        return now.map((token, i) => (i === index ? { name, value } : token));
+                await enqueuePersist(async () => {
+                    assertAuthorized();
+                    const resolved = await resolveGlobalsCss(designerRoot);
+                    if (!resolved.path) {
+                        throw new Error("Could not find a theme CSS file to store this token.");
                     }
-                    return [...now, { name, value }];
+                    const before = await commands.readFileFromDisk(resolved.path);
+                    const next = insertCssVariableInContent(before, name, value);
+                    assertAuthorized();
+                    await commands.saveFile(resolved.path, next);
+                    assertAuthorized();
+                    updateGlobalsCssCache(designerRoot, resolved.path, next);
+                    setThemeTokens((now) => {
+                        const index = now.findIndex((token) => token.name === name);
+                        if (index >= 0) {
+                            return now.map((token, i) => (i === index ? { name, value } : token));
+                        }
+                        return [...now, { name, value }];
+                    });
                 });
             } catch (cause) { reportMappingError(cause); }
         },
@@ -1128,7 +1144,7 @@ export function DesignStudio({
                 setSaved(true);
             }
         },
-        [admitSelectionWrite, designerRoot, reportMappingError, resolveElement, selected],
+        [admitSelectionWrite, designerRoot, reportMappingError, resolveElement, selected, setSelection],
     );
 
     const exportSelection = useCallback(async (scale: number, format: string) => {

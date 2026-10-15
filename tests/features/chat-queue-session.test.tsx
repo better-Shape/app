@@ -16,10 +16,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const backend = vi.hoisted(() => ({
     initialization: vi.fn(),
+    expand: vi.fn(),
     current: null as string | null,
     sent: [] as { message: string; conversationId: string | null }[],
     compacted: [] as Array<string | undefined>,
     pendingSends: [] as Array<() => void>,
+    pendingRejects: [] as Array<(error: Error) => void>,
     failNextSend: false,
     nextId: 1,
     conversations: new Set<string>(["X", "Y"]),
@@ -57,7 +59,8 @@ vi.mock("@/lib/backend", () => ({
             backend.current = target;
             backend.sent.push({ message, conversationId: target });
             stream.liveConvId = target;
-            return new Promise<string>((resolve) => {
+            return new Promise<string>((resolve, reject) => {
+                backend.pendingRejects.push(reject);
                 backend.pendingSends.push(() => resolve("ok"));
             });
         }),
@@ -117,6 +120,8 @@ vi.mock("@/features/chat/lib/chat-stream-store", async () => {
                 // As in the store: binding a draft's turn also moves a draft view onto the new chat.
                 stream.adopter = fn
                     ? (id: string) => {
+                          const request = requests.current.get(null);
+                          if (request) { requests.current.delete(null); requests.current.set(id, request); }
                           if (viewRef.current === null) {
                               viewRef.current = id;
                               setViewed(id);
@@ -130,9 +135,18 @@ vi.mock("@/features/chat/lib/chat-stream-store", async () => {
                 requests.current.set(target, id); setIsLoading(true);
             }, []);
             const ownsRequest = ReactModule.useCallback((target: string | null, id: string) => requests.current.get(target) === id, []);
-            const stopLiveTurn = ReactModule.useCallback(() => {
-                const id = requests.current.get(viewRef.current) ?? null;
-                requests.current.delete(viewRef.current); setIsLoading(false); return id;
+            const getRequestOwner = ReactModule.useCallback((requestId: string) => {
+                for (const [conversationId, owned] of requests.current) {
+                    if (owned === requestId) return { conversationId };
+                }
+                return null;
+            }, []);
+            const stopLiveTurn = ReactModule.useCallback((target = viewRef.current) => {
+                const id = requests.current.get(target) ?? null;
+                requests.current.delete(target);
+                if (stream.liveConvId === target) stream.liveConvId = null;
+                if (viewRef.current === target) setIsLoading(false);
+                return id;
             }, []);
             const prepareStop = ReactModule.useCallback((target: string | null) => {
                 const requestId = requests.current.get(target) ?? null;
@@ -155,6 +169,7 @@ vi.mock("@/features/chat/lib/chat-stream-store", async () => {
             return {
                 hasLiveTurn,
                 ownsRequest,
+                getRequestOwner,
                 isLoading,
                 messages,
                 activityLabel: null,
@@ -238,7 +253,7 @@ vi.mock("@/lib/chat/incognito", () => ({
     syncIncognitoFromBackend: async () => {},
 }));
 vi.mock("@/lib/chat/mentions", () => ({
-    buildMessageWithMentions: async (m: string) => m,
+    buildMessageWithMentions: backend.expand,
     mentionRanges: () => [],
 }));
 vi.mock("@/lib/chat/continue-action", () => ({ buildPlanBuildMessage: (p: string) => p }));
@@ -344,6 +359,7 @@ function emitChatComplete() {
 /** Mirrors the backend's `send_chat_message` invoke resolving (the turn fully returned). */
 async function resolveOldestSend() {
     const resolve = backend.pendingSends.shift();
+    backend.pendingRejects.shift();
     if (!resolve) throw new Error("no pending send to resolve");
     await act(async () => {
         resolve();
@@ -381,10 +397,12 @@ function sentMessages() {
 beforeEach(async () => {
     vi.mocked(commands.stopChatMessage).mockReset().mockResolvedValue(undefined);
     backend.initialization.mockReset().mockResolvedValue(undefined);
+    backend.expand.mockReset().mockImplementation(async (message: string) => message);
     backend.current = "X";
     backend.sent = [];
     backend.compacted = [];
     backend.pendingSends = [];
+    backend.pendingRejects = [];
     backend.failNextSend = false;
     backend.nextId = 1;
     stream.liveConvId = null;
@@ -658,4 +676,69 @@ it("restores send-now queue entries when Stop fails instead of dispatching a rep
     await typeAndSend("still queued");
     expect(session.messageQueue.map(item => item.content)).toEqual(["queued", "still queued"]);
     await resolveOldestSend();
+});
+
+it("holds follow-ups and reports a rejected draft send after its request binds", async () => {
+    await act(async () => { await session.handleNewChat(); });
+    await settle();
+    await startTurn("first draft message");
+    const owner = backend.current;
+    expect(owner).toMatch(/^new-/);
+    await typeAndSend("queued follow-up");
+    expect(session.messageQueue[0]?.conversationId).toBe(owner);
+    await act(async () => { backend.pendingSends.shift(); backend.pendingRejects.shift()!(new Error("bound send failed")); });
+    await settle();
+    expect(session.sendError).toBe("bound send failed");
+    expect(session.isLoading).toBe(false);
+    act(() => stream.api?.setIsLoading(false));
+    await settle();
+    expect(backend.sent).toHaveLength(1);
+    expect(session.messageQueue.map(item => [item.content, item.conversationId])).toEqual([["queued follow-up", owner]]);
+});
+
+it("does not replace another chat's error or transcript when a background send rejects", async () => {
+    const { notify } = await import("@/features/notifications");
+    vi.mocked(notify.error).mockClear();
+    await startTurn("background send");
+    await act(async () => { await session.handleLoadConversation("Y"); });
+    await settle();
+    const visible = session.messages;
+    await act(async () => { backend.pendingSends.shift(); backend.pendingRejects.shift()!(new Error("background failure")); });
+    await settle();
+    expect(session.conversationId).toBe("Y");
+    expect(session.messages).toEqual(visible);
+    expect(session.sendError).toBeNull();
+    expect(notify.error).toHaveBeenCalledWith("Could not send message", expect.stringContaining("queued messages remain paused"));
+});
+
+it("does not dispatch after unmount during asynchronous mention preparation", async () => {
+    let finish!: (message: string) => void;
+    backend.expand.mockImplementationOnce(() => new Promise<string>(resolve => { finish = resolve; }));
+    await act(async () => session.setInputValue("prepare me"));
+    let pending!: Promise<boolean>;
+    act(() => { pending = session.handleSendMessage(); });
+    await settle();
+    expect(backend.expand).toHaveBeenCalledTimes(1);
+    await act(async () => root.unmount());
+    await act(async () => { finish("prepared"); await Promise.resolve(); });
+    // If the backend is wrongly reached, settle it so a failed regression cannot leak a pending send.
+    if (backend.pendingSends.length) await resolveOldestSend();
+    await act(async () => { await pending; });
+    expect(backend.sent).toEqual([]);
+});
+
+it("cancels late preparation even when native Stop fails before dispatch", async () => {
+    let finish!: (message: string) => void;
+    backend.expand.mockImplementationOnce(() => new Promise<string>(resolve => { finish = resolve; }));
+    await act(async () => session.setInputValue("prepare me"));
+    let pending!: Promise<boolean>;
+    act(() => { pending = session.handleSendMessage(); });
+    await settle();
+    vi.mocked(commands.stopChatMessage).mockRejectedValueOnce(new Error("Stop unavailable"));
+    await act(async () => session.handleStopMessage());
+    await act(async () => { finish("prepared"); await Promise.resolve(); });
+    if (backend.pendingSends.length) await resolveOldestSend();
+    await act(async () => { await pending; });
+    expect(backend.sent).toEqual([]);
+    expect(session.isLoading).toBe(false);
 });

@@ -113,6 +113,7 @@ type ChatStreamContextValue = ChatStreamState & {
     /** True while chat `id` (`null` = the draft) has a turn the frontend is tracking. */
     hasLiveTurn: (id: string | null) => boolean;
     ownsRequest: (id: string | null, requestId: string) => boolean;
+    getRequestOwner: (requestId: string) => { conversationId: string | null } | null;
 };
 
 const defaultState: ChatStreamState = {
@@ -827,6 +828,13 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
         [],
     );
 
+    const getRequestOwner = React.useCallback((requestId: string) => {
+        for (const live of liveTurnsRef.current.values()) {
+            if (live.requestId === requestId) return { conversationId: live.conversationId };
+        }
+        return null;
+    }, []);
+
     const ownsRequest = React.useCallback((id: string | null, requestId: string) =>
         liveTurnsRef.current.get(id ?? PENDING_KEY)?.requestId === requestId, []);
 
@@ -855,6 +863,7 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
         startDraftChat,
         hasLiveTurn,
         ownsRequest,
+        getRequestOwner,
     };
 
     return (
