@@ -38,14 +38,10 @@ type Props = {
     emptyText?: string;
 };
 
-/**
- * Floating command-palette / quick-pick dialog (Cursor/VS Code style).
- */
 /** Include IME boundary keydowns that can arrive after composition has ended. */
-function isCompositionKey(event: KeyboardEvent): boolean {
-    return event.isComposing || event.keyCode === 229;
-}
+const isCompositionKey = (event: KeyboardEvent): boolean => event.isComposing || event.keyCode === 229;
 
+/** Picker with wrapped keyboard selection, optional search, and explicit query submission. */
 export function QuickPick({
     open,
     onOpenChange,
