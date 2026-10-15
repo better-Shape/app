@@ -594,10 +594,12 @@ export function ChatList({
 
     const moveChat = useCallback((id: string, shelf: DropShelf) => {
         const ids = selectedIds.includes(id) ? selectedTargets.map((target) => target.id) : [id];
-        const visibleIds = new Set(filtered.map((chat) => chat.id));
-        const targets = ids.filter((id) => visibleIds.has(id));
+        // Filter each selected row, not only the dragged row: mixed selections may
+        // still move other rows without renewing an already-snoozed destination.
+        const movableIds = new Set(sections.flatMap(section => section.id === shelf ? [] : section.chats.map(chat => chat.id)));
+        const targets = ids.filter((id) => movableIds.has(id));
         if (targets.length) moveChatsToShelf(targets, shelf, nameOf(targets));
-    }, [filtered, nameOf, selectedIds, selectedTargets]);
+    }, [sections, nameOf, selectedIds, selectedTargets]);
 
     /** Close search and clear both visible/composed text and the committed filter query. */
     const closeSearch = () => {

@@ -7,7 +7,7 @@ import { notificationStore } from "@/features/notifications";
 import type { Conversation } from "@/lib/backend/types";
 import { getPinnedChatIds, setChatPinned, getCollections, deleteCollection } from "@/lib/sidebar/chat-list-meta";
 import { getChatDispositions, setChatDisposition } from "@/lib/sidebar/chat-disposition";
-import { resetChatUndoForTests, pushChatUndo } from "@/features/agent/sidebar/undo";
+import { resetChatUndoForTests, pushChatUndo, getChatUndo, pendingChatUndoCount } from "@/features/agent/sidebar/undo";
 import {
     installAnimationStub,
     stubReducedMotion,
@@ -122,6 +122,33 @@ function clickPin(id: string) {
     act(() => {
         row(id).querySelector<HTMLButtonElement>('button[aria-label="Pin"]')?.click();
     });
+}
+
+/** Measure the real keyboard drag against the rendered shelf stack. */
+function installKeyboardDragLayout(): () => void {
+    const original = Element.prototype.getBoundingClientRect;
+    const scrollBy = HTMLElement.prototype.scrollBy;
+    const scrollTo = HTMLElement.prototype.scrollTo;
+    // This finite test layout has no overflow; jsdom omits the browser scroll APIs.
+    HTMLElement.prototype.scrollBy = () => {};
+    HTMLElement.prototype.scrollTo = () => {};
+    Element.prototype.getBoundingClientRect = function () {
+        if (this.hasAttribute("data-chat-drag-preview")) {
+            return domRect(Number.parseFloat((this.parentElement as HTMLElement).style.top) || 0, 40);
+        }
+        const parent = this.closest("[data-chat-shelves]");
+        if (!parent) return original.call(this);
+        const children = [...parent.children] as HTMLElement[];
+        const index = children.indexOf(this as HTMLElement);
+        if (index < 0) return original.call(this);
+        const top = children.slice(0, index).reduce((sum, node) => sum + (node.hasAttribute("data-shelf-header") ? 24 : 40), 0);
+        return domRect(top, this.hasAttribute("data-shelf-header") ? 24 : 40);
+    };
+    return () => {
+        Element.prototype.getBoundingClientRect = original;
+        HTMLElement.prototype.scrollBy = scrollBy;
+        HTMLElement.prototype.scrollTo = scrollTo;
+    };
 }
 
 function pressUndoOn(target: EventTarget) {
@@ -456,24 +483,7 @@ it.each([
     ["working", "ArrowDown", "active", "Resumed"],
     ["working", "ArrowUp", "pinned", "Pinned"],
 ] as const)("supports real keyboard dragging from %s with %s to %s and undo", async (source, key, destination, label) => {
-    const original = Element.prototype.getBoundingClientRect;
-    const scrollBy = HTMLElement.prototype.scrollBy;
-    const scrollTo = HTMLElement.prototype.scrollTo;
-    // This finite test layout has no overflow; jsdom omits the browser scroll APIs.
-    HTMLElement.prototype.scrollBy = () => {};
-    HTMLElement.prototype.scrollTo = () => {};
-    Element.prototype.getBoundingClientRect = function () {
-        if (this.hasAttribute("data-chat-drag-preview")) {
-            return domRect(Number.parseFloat((this.parentElement as HTMLElement).style.top) || 0, 40);
-        }
-        const parent = this.closest("[data-chat-shelves]");
-        if (!parent) return original.call(this);
-        const children = [...parent.children] as HTMLElement[];
-        const index = children.indexOf(this as HTMLElement);
-        if (index < 0) return original.call(this);
-        const top = children.slice(0, index).reduce((sum, node) => sum + (node.hasAttribute("data-shelf-header") ? 24 : 40), 0);
-        return domRect(top, this.hasAttribute("data-shelf-header") ? 24 : 40);
-    };
+    const restore = installKeyboardDragLayout();
     try {
         if (source === "working") act(() => setChatGenerating("a", true));
         const button = row("a").querySelector<HTMLButtonElement>('[aria-roledescription="draggable session"]')!;
@@ -497,11 +507,46 @@ it.each([
         pressUndoOn(window);
         expect(getChatDispositions()["a"]).toBeUndefined();
     } finally {
-        Element.prototype.getBoundingClientRect = original;
-        HTMLElement.prototype.scrollBy = scrollBy;
-        HTMLElement.prototype.scrollTo = scrollTo;
+        restore();
         act(() => setChatGenerating("a", false));
     }
+});
+
+it.each([false, true])("keeps the current shelf unchanged while moving only other selected rows (mixed=%s)", async mixed => {
+    const restore = installKeyboardDragLayout();
+    const originalSnooze = { state: "snoozed", until: Date.now() + 60_000 } as const;
+    const previousUndo = vi.fn();
+    act(() => {
+        setChatDisposition("a", originalSnooze);
+        pushChatUndo({ kind: "pin", chatId: "d", label: "Earlier action", revert: previousUndo });
+    });
+    try {
+        if (mixed) for (const id of ["a", "b"]) {
+            const open = row(id).querySelector<HTMLButtonElement>('[aria-roledescription="draggable session"]')!;
+            act(() => open.dispatchEvent(new MouseEvent("click", { bubbles: true, [shortcutModifier]: true })));
+        }
+        const button = row("a").querySelector<HTMLButtonElement>('[aria-roledescription="draggable session"]')!;
+        await act(async () => {
+            button.focus();
+            button.dispatchEvent(new KeyboardEvent("keydown", { key: " ", code: "Space", bubbles: true, cancelable: true }));
+            await new Promise(resolve => setTimeout(resolve, 0));
+        });
+        for (const key of ["ArrowUp", "ArrowDown", "Space"]) await act(async () => {
+            document.dispatchEvent(new KeyboardEvent("keydown", { key: key === "Space" ? " " : key, code: key, bubbles: true, cancelable: true }));
+        });
+        expect(getChatDispositions().a).toEqual(originalSnooze);
+        if (mixed) {
+            expect(getChatDispositions().b?.state).toBe("snoozed");
+            expect(getChatUndo()?.chatIds).toEqual(["b"]);
+            pressUndoOn(window);
+            expect(getChatDispositions().b).toBeUndefined();
+        }
+        expect(pendingChatUndoCount()).toBe(1);
+        expect(getChatUndo()?.label).toBe("Earlier action");
+        pressUndoOn(window);
+        expect(previousUndo).toHaveBeenCalledOnce();
+        expect(getChatDispositions().a).toEqual(originalSnooze);
+    } finally { restore(); }
 });
 
 it("filters sessions only after IME composition ends and does not open on composing Enter", async () => {

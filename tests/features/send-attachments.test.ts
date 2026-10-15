@@ -132,3 +132,26 @@ describe("submitted attachment ownership", () => {
         expect(vi.getTimerCount()).toBe(0);
     });
 });
+
+describe("image metadata framing", () => {
+    it.each(["a>b.png", 'a"b.png', "a<b.png", "a&b.png", "a&gt;b.png", "o'brien.png", 'a"><fake>.png'])
+        ("keeps %s out of the image payload and preserves its original name", async name => {
+            const dataUrl = "data:image/png;base64,aGVsbG8=";
+            const result = await serialize(attachment({ kind: "image", name, mimeType: "image/png", dataUrl }));
+            // The native vision consumers use this framing expression in commands/messages.rs.
+            expect(result.match(/<attached_image[^>]*>(data:[^<]+)<\/attached_image>/)?.[1]).toBe(dataUrl);
+            const document = new DOMParser().parseFromString(result.replace(/\n\nmessage$/, ""), "application/xml");
+            expect(document.querySelector("parsererror")).toBeNull();
+            expect(document.documentElement.getAttribute("name")).toBe(name);
+            expect(document.documentElement.getAttribute("name_encoding")).toBe(/[&"<>]/.test(name) ? "xml" : null);
+            expect(document.documentElement.textContent).toBe(dataUrl);
+        });
+    it("escapes MIME metadata without changing the prepared image bytes", async () => {
+        const dataUrl = "data:image/png;base64,aGVsbG8=";
+        const mimeType = 'image/png">not-data';
+        const result = await serialize(attachment({ kind: "image", name: "image.png", mimeType, dataUrl }));
+        expect(result.match(/<attached_image[^>]*>(data:[^<]+)<\/attached_image>/)?.[1]).toBe(dataUrl);
+        const document = new DOMParser().parseFromString(result.replace(/\n\nmessage$/, ""), "application/xml");
+        expect(document.documentElement.getAttribute("type")).toBe(mimeType);
+    });
+});

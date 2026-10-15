@@ -310,3 +310,15 @@ describe("preprocessChatMarkdown", () => {
         expect(md).not.toContain("[edit_file]");
     });
 });
+
+it("renders the submitted image body when a filename contains a tag delimiter", async () => {
+    const { messageWithAttachments } = await import("@/features/chat/lib/send-attachments");
+    const dataUrl = "data:image/png;base64,aGVsbG8=";
+    const body = await messageWithAttachments("message", [{
+        id: "one", name: 'a>b".png', kind: "image", status: "ready", size: 5, mimeType: "image/png", dataUrl,
+        file: new File(["hello"], 'a>b".png', { type: "image/png" }),
+    }], new AbortController().signal);
+    expect(parseMessageContent(body).filter(chunk => chunk.type === "attached_image")).toEqual([
+        { type: "attached_image", content: dataUrl, command: undefined, isGenerating: false },
+    ]);
+});

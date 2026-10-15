@@ -201,7 +201,7 @@ pub fn place_page_screenshots(body: &str, extra_tags: &[String]) -> String {
 }
 
 pub fn attached_image_tag(name: &str, mime: &str, data_url: &str) -> String {
-    format!("<attached_image name=\"{name}\" type=\"{mime}\">{data_url}</attached_image>")
+    super::attachment_tags::image_tag(name, mime, data_url)
 }
 
 #[cfg(test)]

@@ -1,3 +1,4 @@
+import { escapeXmlAttr } from "@/lib/chat/xml";
 import type { ComposerAttachment } from "@/features/chat/ui/composer/attachments";
 
 const ATTACHMENT_PROCESSING_TIMEOUT_MS = 8_000;
@@ -100,7 +101,10 @@ function attachedFile(file: ComposerAttachment, content: string, fallbackType = 
 /** Require prepared image data instead of silently omitting a malformed attachment. */
 function imageBlock(file: ComposerAttachment): string {
     if (!file.dataUrl) throw new Error(`Attachment "${file.name}" has no prepared image data. Retry or remove it before sending.`);
-    return `<attached_image name="${file.name}" type="${file.mimeType}" size="${file.size}">${file.dataUrl}</attached_image>`;
+    const name = escapeXmlAttr(file.name);
+    // Distinguish new escaped names from legacy literal entity-looking filenames.
+    const encoding = name === file.name ? "" : ' name_encoding="xml"';
+    return `<attached_image name="${name}"${encoding} type="${escapeXmlAttr(file.mimeType)}" size="${file.size}">${file.dataUrl}</attached_image>`;
 }
 
 /** Disclose bytes, not an invented character count, when only a prefix was decoded. */

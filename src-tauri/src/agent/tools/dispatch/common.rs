@@ -215,12 +215,7 @@ pub(super) fn clip(text: &str, limit: usize) -> String {
     )
 }
 
-pub(super) fn escape_xml_attr(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('"', "&quot;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-}
+pub(super) use crate::agent::tools::attachment_tags::escape_xml_attr;
 
 pub(super) fn escape_xml_preview_source(s: &str) -> String {
     escape_xml_attr(s)

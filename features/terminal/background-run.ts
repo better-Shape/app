@@ -6,6 +6,7 @@
 
 import { EarlyPtyOutput } from "./early-pty-output";
 import { getProjectPath } from "@/lib/backend";
+import { isWindows } from "@/lib/platform";
 import {
     clearDevRun,
     noteDevRunExit,
@@ -59,7 +60,7 @@ function preferIpv4DevCommand(command: string): string {
 
 /** Strip Windows `\\?\` prefixes so cmd.exe and path compares see a normal drive path. */
 export function spawnCwd(path: string): string {
-    let value = path.trim();
+    let value = path;
     if (value.startsWith("\\\\?\\UNC\\")) value = `\\\\${value.slice(8)}`;
     else if (value.startsWith("\\\\?\\")) value = value.slice(4);
     else if (value.startsWith("//?/UNC/")) value = `//${value.slice(8)}`;
@@ -67,16 +68,19 @@ export function spawnCwd(path: string): string {
     return value;
 }
 
+/** Compare native project identities without treating POSIX double-slash roots as UNC. */
 export function sameProjectPath(a: string, b: string): boolean {
     if (!a || !b) return false;
+    // Drive and backslash UNC syntax is unambiguous; slash-only UNC needs Windows.
+    const windows = isWindows() || (/^(?:[a-z]:|\\\\)/i.test(a) && /^(?:[a-z]:|\\\\)/i.test(b));
     const norm = (value: string) => {
-        const path = spawnCwd(value).replace(/\\/g, "/");
-        const minimum = /^[a-z]:\//i.test(path) ? 3 : 1;
+        const path = windows ? spawnCwd(value).replace(/\\/g, "/") : value;
+        const rootLength = path.startsWith("//") && !path.startsWith("///") ? 2 : 1;
+        const minimum = windows && /^[a-z]:\//i.test(path) ? 3 : rootLength;
         let end = path.length;
         while (end > minimum && path[end - 1] === "/") end -= 1;
         return path.slice(0, end);
     };
-    const windows = /^(?:[a-z]:|\\\\|\/\/)/i.test(a) && /^(?:[a-z]:|\\\\|\/\/)/i.test(b);
     return windows ? norm(a).toLowerCase() === norm(b).toLowerCase() : norm(a) === norm(b);
 }
 

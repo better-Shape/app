@@ -20,7 +20,7 @@ beforeEach(async () => {
     mocks.release.mockReset().mockResolvedValue(undefined); mocks.kill.mockReset().mockResolvedValue(undefined); mocks.registration.mockReset().mockResolvedValue(undefined);
     background = await import("@/features/terminal/background-run");
 });
-afterEach(async () => { await background.stopBackgroundRun(); });
+afterEach(async () => { await background.stopBackgroundRun(); vi.unstubAllGlobals(); });
 it("requires the selected PTY's output, not a reachable port or another PTY", async () => {
     await background.ensureBackgroundRun("npm run dev", "/project");
     emit("preview-ready", { id: 7, url: "http://localhost:3000", source: "probe" });
@@ -201,4 +201,38 @@ it("preserves an early failed exit as an error instead of clearing it to idle", 
     const { getDevRunSnapshot } = await import("@/features/preview/run-status");
     expect(getDevRunSnapshot().status).toBe("error");
     expect(background.getBackgroundPreviewService()).toBeNull();
+});
+
+
+it.each(["Linux", "Darwin", "unknown"])("preserves POSIX double-slash case on %s", userAgent => {
+    vi.stubGlobal("navigator", { userAgent });
+    expect(background.sameProjectPath("//Work/App", "//work/app")).toBe(false);
+    expect(background.sameProjectPath("//Work/App/", "//Work/App")).toBe(true);
+    expect(background.sameProjectPath("//", "/")).toBe(false);
+    expect(background.sameProjectPath("///", "/")).toBe(true);
+});
+it("recognizes slash-form UNC paths on Windows", () => {
+    vi.stubGlobal("navigator", { userAgent: "Windows" });
+    expect(background.sameProjectPath("//Server/Share/App", "//server/share/app/")).toBe(true);
+    expect(background.sameProjectPath(String.raw`\\Server\Share\App`, "//server/share/app")).toBe(true);
+    expect(background.sameProjectPath(String.raw`\\?\C:\App`, "c:/app/")).toBe(true);
+});
+it("keeps literal POSIX backslashes and whitespace in project identity", () => {
+    vi.stubGlobal("navigator", { userAgent: "Linux" });
+    expect(background.sameProjectPath(String.raw`/project/a\b`, "/project/a/b")).toBe(false);
+    expect(background.sameProjectPath("/project/app ", "/project/app")).toBe(false);
+    expect(background.spawnCwd("/project/app ")).toBe("/project/app ");
+    expect(background.sameProjectPath(String.raw`\Project`, String.raw`\project`)).toBe(false);
+});
+it("starts a different PTY for distinct double-slash POSIX projects", async () => {
+    vi.stubGlobal("navigator", { userAgent: "Linux" });
+    mocks.spawn.mockResolvedValueOnce(7).mockResolvedValueOnce(8);
+    await background.ensureBackgroundRun("npm run dev", "//Work/App");
+    emit("preview-ready", { id: 7, url: "http://localhost:5173", source: "output" });
+    expect(await background.ensureBackgroundRun("npm run dev", "//work/app")).toBe(8);
+    expect(mocks.spawn).toHaveBeenCalledTimes(2);
+    expect(mocks.kill).toHaveBeenCalled();
+    expect(background.getBackgroundPreviewService()).toBeNull();
+    emit("preview-ready", { id: 8, url: "http://localhost:5174", source: "output" });
+    expect(background.getBackgroundPreviewService()).toEqual({ ptyId: 8, projectPath: "//work/app", url: "http://localhost:5174" });
 });
