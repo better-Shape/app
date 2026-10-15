@@ -33,7 +33,7 @@ type Props = {
     onQueryChange?: (value: string) => void;
     items: QuickPickItem[];
     onSelect: (item: QuickPickItem) => void;
-    /** Optional: submit query on Enter when no item selected / empty list */
+    /** Enter submits a nonempty query when provided; item clicks still select. */
     onSubmitQuery?: (query: string) => void;
     emptyText?: string;
 };
@@ -55,19 +55,19 @@ export function QuickPick({
 }: Props) {
     const overlayRoot = useOverlayRoot();
     const [selected, setSelected] = React.useState(0);
+    const [selectionScope, setSelectionScope] = React.useState({ open, query, count: items.length });
+    if (selectionScope.open !== open || selectionScope.query !== query || selectionScope.count !== items.length) {
+        setSelectionScope({ open, query, count: items.length });
+        setSelected(0);
+    }
     const inputRef = React.useRef<HTMLInputElement>(null);
     const showInput = query !== undefined && onQueryChange !== undefined;
 
     React.useEffect(() => {
-        if (open) {
-            setSelected(0);
-            requestAnimationFrame(() => inputRef.current?.focus());
-        }
+        if (!open) return;
+        const frame = requestAnimationFrame(() => inputRef.current?.focus());
+        return () => cancelAnimationFrame(frame);
     }, [open, items.length]);
-
-    React.useEffect(() => {
-        setSelected(0);
-    }, [query]);
 
     const move = (delta: number) => {
         if (items.length === 0) return;
@@ -96,6 +96,7 @@ export function QuickPick({
                     )}
                     aria-describedby={undefined}
                     onKeyDown={(e) => {
+                        if (e.nativeEvent.isComposing || e.keyCode === 229) return;
                         if (e.key === "ArrowDown") {
                             e.preventDefault();
                             move(1);
