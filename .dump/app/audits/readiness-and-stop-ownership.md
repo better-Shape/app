@@ -34,3 +34,13 @@ The following sources describe contracts, not proof of a native installer or run
 - Tauri 2.11.2 documents `with_webview` as executing its closure on the main thread. Its public example casts `controller()` to `WKUserContentController`, and the controller accessor returns the manager pointer. See [the upstream implementation and example](https://github.com/tauri-apps/tauri/blob/tauri-v2.11.2/crates/tauri/src/webview/mod.rs#L1608-L1675) and [the controller accessor](https://github.com/tauri-apps/tauri/blob/tauri-v2.11.2/crates/tauri/src/webview/mod.rs#L204-L211).
 - The [objc2 WebKit bindings](https://docs.rs/objc2-web-kit/0.3.1/objc2_web_kit/struct.WKUserContentController.html) expose `userScripts`, `addUserScript` and `removeAllUserScripts`. They do not expose the suggested individual `removeUserScript` method. The bridge retains the existing array and re-adds each non-bridge script object in order, rather than reconstructing scripts with different injection settings.
 - These contracts do not settle separate concerns about WebView recreation, late installation after timeout, current-document injection or platform execution. Those require their own fixes and verification.
+
+## Retry generation and export authority
+
+A cancelled PTY start retains responsibility for killing its eventual native process. A same-command retry must not reuse that cancelled promise or race its cleanup. The starting record carries its generation; a caller waits for an obsolete start to settle before admitting its replacement.
+
+Keychain availability probes also have generations. Concurrent callers share one probe, while manual retry invalidates earlier results. A delayed failure cannot overwrite a successful retry, and a delayed success cannot resurrect stale availability. Callers of an obsolete probe follow the current generation's result.
+
+The separate design-export response listener must validate the same frame, authorized origin, editing root and live service as the general bridge listener. It captures its authorization when sending the export request and revalidates on receipt. A matching request ID and WindowProxy alone do not authorize a response after cross-origin navigation or service replacement. Mounted regressions exercise the actual export callback, rather than only the shared predicate.
+
+The added-line scanner covers the legacy OpenAI `sk-` form as well as longer prefixed forms. Secret-shaped test values are assembled in the executable fixtures rather than stored as credential literals.

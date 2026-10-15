@@ -2,7 +2,7 @@ import { createInterface } from "node:readline";
 
 const patterns = [
     /-----BEGIN (?:(?:RSA|EC|DSA|OPENSSH|ENCRYPTED) )?PRIVATE KEY-----/,
-    /sk-(?:ant|proj)-[a-zA-Z0-9_-]{20,}/,
+    /sk-[a-zA-Z0-9_-]{20,}/,
     /gh[po]_[a-zA-Z0-9]{36}/,
     /AKIA[0-9A-Z]{16}/,
     /aws_secret_access_key\s*[:=]\s*["']?[A-Za-z0-9/+=]{40}/i,

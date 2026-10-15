@@ -13,6 +13,8 @@ const RECEIPT_PREFIX = "bettershape-ai-vault-receipt:";
 type InventoryState = "stored" | "write" | "delete" | "deleted";
 type Intent = { state: InventoryState; token: string };
 let supported: boolean | null = null;
+let availabilityGeneration = 0;
+let availabilityProbe: Promise<boolean> | null = null;
 
 function inventoryKey(id: string): string { return `${INVENTORY_PREFIX}${encodeURIComponent(id)}`; }
 function readIntent(key: string): Intent | null {
@@ -81,16 +83,33 @@ export function recordSecretChanges(changes: Record<string, string>): boolean {
 export function recordSecretDeletions(ids: string[]): boolean {
     return recordSecretChanges(Object.fromEntries(ids.map((id) => [id, ""])));
 }
-export function refreshVaultAvailability(): void { supported = null; }
-export async function vaultAvailable(): Promise<boolean> {
-    if (supported !== null) return supported;
-    try { supported = await commands.aiVaultSupported(); }
-    catch { supported = false; }
-    return supported;
+/** A retry revokes older probe results without claiming to cancel native work. */
+export function refreshVaultAvailability(): void {
+    availabilityGeneration += 1;
+    supported = null;
+    availabilityProbe = null;
 }
-export function __setVaultAvailableForTesting(value: boolean | null): void { supported = value; }
+/** Share one probe per retry generation; callers of a stale probe follow the current result. */
+export function vaultAvailable(): Promise<boolean> {
+    if (supported !== null) return Promise.resolve(supported);
+    if (availabilityProbe) return availabilityProbe;
+    const generation = availabilityGeneration;
+    availabilityProbe = Promise.resolve().then(() => commands.aiVaultSupported()).catch(() => false).then((available) => {
+        // A manual retry owns the new probe; older results must follow it, not overwrite it.
+        if (generation !== availabilityGeneration) return vaultAvailable();
+        supported = available;
+        availabilityProbe = null;
+        return available;
+    });
+    return availabilityProbe;
+}
+export function __setVaultAvailableForTesting(value: boolean | null): void {
+    refreshVaultAvailability();
+    supported = value;
+}
 export function __resetVaultCacheForTesting(): void {
-    written.clear(); conflicts.clear(); revisions.clear(); scopes.clear(); localIntents.clear(); supported = null;
+    written.clear(); conflicts.clear(); revisions.clear(); scopes.clear(); localIntents.clear();
+    refreshVaultAvailability();
 }
 
 interface SecretReadResult {

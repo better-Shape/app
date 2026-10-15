@@ -21,6 +21,7 @@ describe("PR added-line credential scanner", () => {
     it.each([
         ["GitHub", token],
         ["Anthropic", ["sk-", "ant-", "x".repeat(25)].join("")],
+        ["OpenAI legacy", ["sk", "-", "a".repeat(48)].join("")],
         ["OpenAI project", ["sk-", "proj-", "x".repeat(25)].join("")],
         ["AWS access ID", ["AK", "IA", "A".repeat(16)].join("")],
         ["AWS secret", `aws_secret_access_key = '${"a".repeat(40)}'`],

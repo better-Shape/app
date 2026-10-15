@@ -1067,7 +1067,11 @@ export function DesignStudio({
     const exportSelection = useCallback(async (scale: number, format: string) => {
         const previewFrame = iframeRef.current;
         const frame = previewFrame?.contentWindow;
-        if (!frame) return;
+        const authorization = authorizationRef.current;
+        if (!frame || !isCurrentDesignAuthorization(authorization, designerRootRef.current)) return;
+        const isAuthorized = () => iframeRef.current === previewFrame
+            && authorizationRef.current === authorization
+            && isCurrentDesignAuthorization(authorization, designerRootRef.current);
         const requestId = crypto.randomUUID();
         const result = await new Promise<{ dataUrl?: string; width?: number; height?: number }>((resolve) => {
             const timer = window.setTimeout(() => {
@@ -1075,7 +1079,9 @@ export function DesignStudio({
                 resolve({});
             }, 12_000);
             const onMessage = (event: MessageEvent) => {
-                if (event.source !== frame) return;
+                if (!isAuthorized() || event.source !== frame) return;
+                if (!acceptsDesignMessage(event, previewFrame, authorization, designerRootRef.current)) return;
+                if (!event.data || typeof event.data !== "object") return;
                 const data = event.data as {
                     type?: string;
                     requestId?: string;
@@ -1089,10 +1095,11 @@ export function DesignStudio({
                 resolve(data);
             };
             window.addEventListener("message", onMessage);
-            frame.postMessage({ type: "bettershape-design-export", requestId, scale }, designMessageOrigin(authorizationRef.current, designerRootRef.current));
+            frame.postMessage({ type: "bettershape-design-export", requestId, scale }, authorization.origin);
         });
-        if (!result.dataUrl) return;
+        if (!result.dataUrl || !isAuthorized()) return;
         const image = await loadImage(result.dataUrl);
+        if (!isAuthorized()) return;
         const canvas = document.createElement("canvas");
         canvas.width = result.width || image.width;
         canvas.height = result.height || image.height;
@@ -1127,12 +1134,14 @@ export function DesignStudio({
             ext = "png";
         }
         const { save } = await import("@tauri-apps/plugin-dialog");
+        if (!isAuthorized()) return;
         const path = await save({
             defaultPath: `export.${ext}`,
             filters: [{ name: ext.toUpperCase(), extensions: [ext] }],
         });
-        if (typeof path !== "string") return;
+        if (typeof path !== "string" || !isAuthorized()) return;
         await commands.grantIpcPath(path).catch(() => undefined);
+        if (!isAuthorized()) return;
         await commands.saveFileBytes(path, Array.from(bytes));
     }, []);
 

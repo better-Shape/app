@@ -159,3 +159,19 @@ it("continues releasing remaining listeners when one unlisten throws synchronous
     expect(background.getBackgroundPreviewService()).toBeNull();
     expect([...mocks.listeners.values()].every(listeners => listeners.size === 0)).toBe(true);
 });
+
+it("waits for cancelled spawn cleanup before retrying the same command", async () => {
+    let finish!: (id: number) => void;
+    mocks.spawn.mockImplementationOnce(() => new Promise<number>(resolve => { finish = resolve; })).mockResolvedValueOnce(8);
+    const first = background.ensureBackgroundRun("npm run dev");
+    const cancelled = expect(first).rejects.toThrow("Preview start cancelled");
+    await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledTimes(1));
+    await background.stopBackgroundRun();
+    const retry = background.ensureBackgroundRun("npm run dev");
+    const restarted = expect(retry).resolves.toBe(8);
+    expect(mocks.spawn).toHaveBeenCalledTimes(1);
+    finish(7);
+    await cancelled; await restarted;
+    expect(mocks.kill).toHaveBeenCalledTimes(1);
+    expect(mocks.spawn).toHaveBeenCalledTimes(2);
+});

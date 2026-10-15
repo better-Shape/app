@@ -30,7 +30,7 @@ type Runtime = {
 
 let runtime: Runtime | null = null;
 let runGeneration = 0;
-let starting: { command: string; cwd: string; promise: Promise<number> } | null = null;
+let starting: { command: string; cwd: string; generation: number; promise: Promise<number> } | null = null;
 const readyListeners = new Set<ReadyListener>();
 let lastReadyUrl: string | null = null;
 let announcedReady: { id: number; url: string } | null = null;
@@ -205,7 +205,7 @@ export async function ensureBackgroundRun(command: string, cwdOverride?: string)
     }
     if (starting) {
         const pending = starting;
-        if (sameDevCommand(pending.command, trimmed) && sameProjectPath(pending.cwd, cwd)) {
+        if (pending.generation === runGeneration && sameDevCommand(pending.command, trimmed) && sameProjectPath(pending.cwd, cwd)) {
             return pending.promise;
         }
         try {
@@ -256,7 +256,7 @@ export async function ensureBackgroundRun(command: string, cwdOverride?: string)
             throw error;
         }
     })();
-    const request = { command: trimmed, cwd, promise };
+    const request = { command: trimmed, cwd, generation, promise };
     starting = request;
 
     try {
