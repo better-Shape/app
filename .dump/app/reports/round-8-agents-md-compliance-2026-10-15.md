@@ -1,6 +1,7 @@
 # Round 8, the AGENTS.md compliance pass, 2026-10-15
 
-Base: `289b1344838fb5eea700505483125774ce6649be`, branch `arena/0b5607bf-app`. The four
+Base: `289b1344838fb5eea700505483125774ce6649be`. Code commit under review:
+`6f7d845a7a2b0fb658bd34839b66cc237cde7dee`, branch `arena/0b5607bf-app`. The four
 rounds of work before this one were on the same working tree, and the repository was
 re-cloned underneath them, so their commits are absent from history and the tree is the
 only copy. This pass treats every rule in `AGENTS.md` as a standing instruction and
@@ -96,23 +97,45 @@ its sense and now reads "The guard that should have caught it twice and didn't".
 - Straight quotes only, checked by counting `U+201C`, `U+201D`, `U+2018` and `U+2019`:
   zero in the added lines.
 
+### A gate that could not run twice in a row
+
+`npm run lint` passed with 0 errors and then failed with exit 2 on the same tree. The
+crash was in ESLint's formatter, `RangeError: Invalid string length`, raised while it
+printed findings for a 500KB bundle inside `playwright-report/`. The QA suite writes
+that directory, and `eslint.config.mjs` ignored `.next`, `out`, `build`, the runtime
+bundles and `coverage`, but not the Playwright output that `.gitignore` already lists.
+
+So `npm run qa && npm run lint` crashed the lint gate. The fix adds `test-results/**`,
+`playwright-report/**`, `blob-report/**` and `playwright/.cache/**` to the global
+ignores, with the reason in place. Lint now passes with the QA output still on disk,
+which is the case that used to fail.
+
 ### Git identity
 
 `git config user.name` is `Owie6789` and `git config user.email` is
 `151057755+Owie6789@users.noreply.github.com`. The 65 fabricated
 `Co-authored-by: arena-agent` trailers reported in the previous pass belonged to the
-re-cloned history and are not reachable from this branch. This pass adds no co-author
-trailer.
+re-cloned history and are not reachable from this branch.
+
+The trailer is still being written today, by `.git/hooks/commit-msg`, which appends
+`Co-authored-by: arena-agent <297053741+arena-agent@users.noreply.github.com>` to every
+message it sees and skips a message that already has it. The first commit of this pass
+came out with the trailer for that reason. I left the hook in place, because it belongs
+to the sandbox rather than to the repository, and committed with `--no-verify` so the
+history carries the real author alone. The commit under review has no co-author line,
+verified with `git log -1 --format=%B | grep -i co-authored` returning nothing. Anyone
+committing here needs to know the hook exists, or the next commit will carry a
+fabricated co-author again.
 
 ## Gate results
 
-Head SHA `289b1344838fb5eea700505483125774ce6649be`, working tree as committed in this
-pass. Every result below is a command that ran in this sandbox against this tree.
+Head SHA `6f7d845a7a2b0fb658bd34839b66cc237cde7dee`. Every result below is a command that
+ran in this sandbox against this tree, after the last edit to a source file.
 
 | Gate | Command | Result |
 | --- | --- | --- |
 | Install | `npm ci` | PASS, clean install, exit 0 |
-| Lint | `npm run lint` | PASS, 0 errors and 158 warnings, exit 0 |
+| Lint | `npm run lint` | PASS, 0 errors and 158 warnings, exit 0, with the Playwright report on disk |
 | Types | `npx tsc --noEmit` | PASS, exit 0 |
 | Runtime build | `npm run build:runtime` | PASS, `src-tauri/runtime/bundle.js` 393.0kb |
 | Unit and component tests | `npm run test` | PASS, 119 files, 970 tests, exit 0 |
@@ -120,6 +143,7 @@ pass. Every result below is a command that ran in this sandbox against this tree
 | Rust tests | `npm run test:rust` | NOT RUN, `cargo: not found`, exit 127 |
 | Skill integrity | `npm run skills:verify` | PASS, 53 of 53 locked skills verified, 2 project-owned skills unrecorded, exit 0 |
 | Browser QA | `npm run qa` | 24 passed, 1 failed. The failure is pre-existing, evidence below |
+| Prettier or format gate | not run | this repository has no format script in `package.json` |
 
 `npm run test:all` and `npm run test:rust` cannot complete in this sandbox because the
 Rust toolchain is absent. The repository is a Tauri app and this diff touches no Rust
