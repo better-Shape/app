@@ -1,0 +1,149 @@
+---
+title: Browser preview & QA
+description: Run, test, and deploy the full UI in a browser without Tauri.
+order: 9
+---
+
+BetterShape is a Tauri desktop app, but the entire UI can also run in a
+plain browser. A deterministic mock replaces the Rust IPC backend (fake
+project, files, Git history, chats), which makes the app launchable for
+local development, testable by Playwright, auditable by agents, and
+deployable as a static PR preview.
+
+## Run it locally
+
+```bash
+npm run dev:browser
+```
+
+Open `http://localhost:48921`. Add `?seed=project` to start with the fake
+project already open in the workbench instead of the welcome screen. Hot
+reload works as usual; no Rust toolchain is involved.
+
+## Run the tests
+
+```bash
+npx playwright install chromium   # once per machine
+npm run qa                        # full browser suite + agent summary
+```
+
+| Command | Purpose |
+|---|---|
+| `npm run test:e2e` | Playwright suite (auto-starts the dev server) |
+| `npm run qa:audit` | Route crawl only: axe a11y scan, screenshots, console/IPC inventory per route |
+| `npm run test:e2e:ui` | Interactive Playwright UI mode |
+| `npm run test:e2e:update-snapshots` | Regenerate visual baselines (review the diff) |
+
+The suite covers route boot smoke tests, the welcome screen, Settings, the
+Git manager, the seeded workbench, an accessibility crawl checked
+against `e2e/a11y-baseline.json`, and visual baselines. The operator
+runbook for agents lives in `e2e/README.md`.
+
+## How the mock works
+
+`lib/preview/tauri-mock.ts` installs the official `@tauri-apps/api/mocks`
+IPC bridge with a seeded fake backend. It activates only when both of
+these are true:
+
+1. The build set `NEXT_PUBLIC_BROWSER_PREVIEW=1` (only `dev:browser`,
+   `build:preview`, and preview CI do).
+2. No real Tauri runtime is present in the page.
+
+Desktop release builds never set the flag, and even a flagged build
+refuses to mock inside a real Tauri webview, so `npm run tauri:build` is
+unaffected. Anything the mock does not model returns a safe default; the
+audit report lists unmodelled IPC commands so fixture fidelity can grow
+where it matters.
+
+## PR previews (Vercel)
+
+Every pull request runs `.github/workflows/preview.yml`: it builds the
+static preview bundle (`npm run build:preview` → `out/`), runs Playwright
+against it, and uploads the bundle plus reports as workflow artifacts.
+That workflow is secretless by design. Deployment runs in
+`.github/workflows/preview-deploy.yml`, a `workflow_run` subscriber that
+GitHub resolves from the default branch: the deploy steps can never be
+modified by a PR, and the only PR-controlled input is the static bundle
+artifact. The deployer re-stages the Vercel Build Output tree itself with
+a fixed static-only config (no functions, no PR-supplied routes) and
+uploads that verbatim. Artifact content is never executed. Secrets
+(`VERCEL_TOKEN`, `MORPH_API_KEY`) exist only there.
+
+To also get a live URL, configure three repository secrets once:
+
+| Secret | Where to find it |
+|---|---|
+| `VERCEL_TOKEN` | Vercel → Settings → Tokens |
+| `VERCEL_ORG_ID` | `vercel link` writes `.vercel/project.json` (`orgId`) |
+| `VERCEL_PROJECT_ID` | Same file (`projectId`) |
+
+`vercel.json` at the repo root points Vercel at the preview build
+(static output, mocked backend), so Vercel's Git integration works too:
+import the repo in Vercel and every PR gets a preview deployment. Without
+the secrets the workflow still passes and the static bundle remains
+available as an artifact, and forks need no configuration.
+
+Any static host can serve the same `out/` directory (GitHub Pages,
+Netlify, Cloudflare Pages); Vercel is not required.
+
+Two connection styles. Pick one, or you will get duplicate deployments:
+
+- **Vercel GitHub App (simplest):** import the repo at
+  [vercel.com/new](https://vercel.com/new). Installing the **Vercel**
+  GitHub App connects the repo; `vercel.json` supplies the build, every
+  PR gets a preview deployment and Vercel's own PR comment, and no
+  GitHub secrets are needed. In this mode do not add the `VERCEL_*`
+  secrets below (the `preview-deploy.yml` deploy step stays skipped; the Playwright
+  gate and artifacts still run).
+- **GitHub Actions deploy:** add `VERCEL_TOKEN` (Vercel → Settings →
+  Tokens), `VERCEL_ORG_ID`, and `VERCEL_PROJECT_ID` (the last two are in
+  `.vercel/project.json` after `npx vercel link`) as repository secrets.
+  The trusted `preview-deploy.yml` then deploys the bundle built by
+  `preview.yml` and maintains a sticky comment with the URL.
+
+Do not add real model keys to Vercel Preview environment variables: the
+preview build is self-contained and fake-data only.
+
+## AI QA of previews (Morph, optional)
+
+[Morph](https://morphllm.com) is a GitHub App ("Morph Subagents") that
+watches each PR's preview deployment, clicks through the UI the diff
+touched in a real browser, and posts a video plus results on the PR.
+It complements the deterministic Playwright gate. Treat it as
+exploratory AI QA on top, never instead of it. Free to try.
+
+1. Install the app from
+   [morphllm.com/dashboard/integrations/github](https://morphllm.com/dashboard/integrations/github)
+   and select this repository.
+2. In the same dashboard, **Connect Vercel** so Morph can reach previews
+   behind Vercel Deployment Protection (Pro/Enterprise). Bypass secrets
+   are populated automatically. On Hobby plans previews are public and
+   this is a no-op.
+3. Optional: set path filters (for example only test PRs touching
+   `app/`, `features/`, or `components/`) or require its check run
+   before merge, in the integrations dashboard.
+4. No login setup is needed: the preview uses fake data with no auth.
+
+If you use the GitHub Actions deploy style instead of the Vercel GitHub
+App, also add a `MORPH_API_KEY` repository secret: `preview-deploy.yml`
+contains a gated Morph step that runs against the deployed URL and
+skips cleanly when the secret is absent.
+
+<Warning>
+Preview deployments are public URLs containing the full UI with fake
+data. Never add real model keys or secrets to a preview build, and do
+not treat a preview as evidence the desktop (Tauri/Rust) behaviour works.
+That still needs `npm run test:all` and the native build.
+</Warning>
+
+## Found by this suite
+
+The first workbench crawl immediately exposed a real crash: the Status
+bar called `useEditorSplit()` unconditionally, but its provider only
+exists inside editor file tabs, so opening a project onto a chat tab
+threw. `useEditorSplitOptional()` now covers chrome outside the editor.
+The audit also records a dev-mode hydration warning on Settings →
+Providers (the native-tooltip suppression rewrites `title` only on the
+client); it is tracked in `e2e/README.md` rather than silenced. That is
+the point of the harness: the seeded states are the states users
+actually reach.

@@ -235,6 +235,21 @@ Install skills only with `npx skills add <owner>/<repo> -s <skill> -a universal 
 - The CI jobs on every pull request are `Lint & Typecheck`, `Test JS (Vitest)`, `Static Checks (macOS)`, `Test Rust (Cargo)`, `Rust Lints (fmt, clippy)`, `Build Next.js`, `Version Sync Check`, `Security Audit` and `CI Success`. `Dependency Review`, `CodeQL` and `Zizmor` run from `security.yml`. `PR Title Lint` and `Check Large Files & Secrets` run from `pr.yml`. `PR Policy Check` runs from `pr-policy.yml` using `pull_request_target` and the default-branch workflow definition. It is a separate status, not part of `CI Success`; branch protection must require it directly for body policy failures to block merging. The workflow does not run until it is present on the default branch.
 - CodeRabbit auto-reviews non-draft PRs whose base is `main` (`auto_review.base_branches` and `drafts: false` in `.coderabbit.yaml`). Wait for that automatic review to complete, whether or not the PR is substantially critical. Draft PRs are excluded. For other bases, request a manual CodeRabbit review only when the PR is substantially critical; otherwise, keep the review loop on CodeAnt.
 
+## Browser preview & QA
+
+The full UI also runs in a plain browser with a mocked Tauri backend
+(`lib/preview/tauri-mock.ts`). Use it before reaching for the desktop build:
+
+```bash
+npm run dev:browser   # launch the app at localhost:48921 (?seed=project for a fake open project)
+npm run qa            # Playwright suite + summary (headless; routes, a11y, screenshots)
+npm run qa:audit      # route crawl only, see e2e/README.md
+```
+
+Specs live in `e2e/` (roles/text locators, seeds via fixtures). If the UI
+needs an IPC shape the mock lacks, extend the mock, do not work around it
+in a spec. Desktop behaviour still requires `npm run test:all`.
+
 ## Do not
 
 - Put debug labels, cloud URLs or environment names in shipped UI.

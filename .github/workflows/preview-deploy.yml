@@ -1,0 +1,400 @@
+name: Preview Deploy (Trusted)
+
+# Trusted deployment for Browser Previews. Runs when the secretless
+# `Preview (Browser)` workflow completes. GitHub resolves `workflow_run`
+# subscribers from this repository's DEFAULT branch, so these steps cannot
+# be modified by a PR, the only PR-controlled input is the downloaded
+# build artifact, and it is treated as untrusted data:
+#   * no step executes artifact content, and the Vercel Build Output tree
+#     is staged HERE from the static bundle with a fixed static-only
+#     config, a PR cannot smuggle Vercel Functions or routes into the
+#     deployment, and
+#   * the CLI + its lockfile are fetched from the default branch via
+#     the contents API (no checkout step in the secrets job).
+# Secrets never exist in the workflow that builds PR code.
+# Diffs to this file are security-sensitive.
+
+on:
+  workflow_run:
+    workflows: ["Preview (Browser)"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Grouped by the triggering run's repository + branch: rapid pushes to
+  # one PR serialize instead of racing the sticky comment, while
+  # same-named branches from different forks never share a group and can
+  # never cancel each other. cancel-in-progress stays false on
+  # purpose, GitHub would only cancel the *pending* run anyway, and each
+  # run deploys only its own head SHA's artifact + updates the same sticky
+  # comment with its own commit, so the last writer is the newest run to
+  # finish; the comment always names its commit for cross-checking.
+  group: preview-deploy-${{ github.event.workflow_run.head_repository.full_name }}-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+jobs:
+  resolve-pr:
+    name: Resolve PR
+    if: github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      pr-number: ${{ steps.resolve.outputs.pr-number }}
+      head-current: ${{ steps.resolve.outputs.head-current }}
+    steps:
+      - name: Resolve PR for the build commit
+        id: resolve
+        uses: actions/github-script@v7
+        env:
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const sha = process.env.HEAD_SHA;
+            let prs = [];
+            try {
+              prs = (await github.rest.repos.listPullRequestsAssociatedWithCommit({
+                owner,
+                repo,
+                commit_sha: sha,
+              })).data;
+            } catch (e) {
+              core.warning(`listPullRequestsAssociatedWithCommit failed: ${e.message}`);
+            }
+            // Only an open PR may deploy. Accepting a closed one here
+            // would deploy and comment on a PR nobody is reviewing.
+            let pr = prs.find((p) => p.state === "open" && p.head.sha === sha) ?? prs.find((p) => p.state === "open");
+            if (!pr) {
+              // Fallback: match open PRs by head SHA locally. A
+              // `head: owner:branch` query would need the *fork* owner's
+              // login, which the workflow_run payload does not carry
+              // directly.
+              const res = await github.rest.pulls.list({
+                owner,
+                repo,
+                state: "open",
+                per_page: 100,
+              });
+              pr = res.data.find((p) => p.head.sha === sha);
+            }
+            if (!pr) {
+              core.info("No PR found for this commit, skipping deploy.");
+            } else {
+              core.setOutput("pr-number", String(pr.number));
+              // An older run can resolve after the PR head has advanced.
+              // Deploying (or stale-marking) for it would overwrite the
+              // newer preview link, so this run stands down instead.
+              const headCurrent = pr.head.sha === sha;
+              core.setOutput("head-current", String(headCurrent));
+              if (!headCurrent) {
+                core.info(`PR #${pr.number} head has advanced past ${sha}; skipping this run.`);
+              }
+            }
+
+  deploy-preview:
+    name: Deploy preview to Vercel
+    needs: resolve-pr
+    if: needs.resolve-pr.outputs.pr-number != '' && needs.resolve-pr.outputs.head-current == 'true' && github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: write
+      actions: read
+    steps:
+      # These steps hold the secrets and are defined on the default branch,
+      # so a PR cannot modify them. The lockfile-pinned Vercel CLI manifest
+      # comes from the default branch through the contents API (no
+      # checkout step). The deploy itself runs the pinned CLI against the
+      # build artifact produced by the secretless `Preview (Browser)`
+      # workflow.
+      # No checkout here on purpose: static analyzers (and reviewers)
+      # treat any checkout action under workflow_run as executing fork
+      # code with this job's secrets. Fetch the two trusted manifest
+      # files from the default branch through the contents API instead;
+      # npm ci then builds the pinned CLI from the committed lockfile.
+      - name: Fetch CLI manifest from default branch (API, no checkout)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          mkdir -p .github/vercel-cli
+          for f in package.json package-lock.json; do
+            gh api "repos/${{ github.repository }}/contents/.github/vercel-cli/$f" \
+              -H "Accept: application/vnd.github.raw" > ".github/vercel-cli/$f"
+            test -s ".github/vercel-cli/$f"
+          done
+
+      - name: Check Vercel secrets
+        id: vercel-check
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          if [ -n "$VERCEL_TOKEN" ] && [ -n "$VERCEL_ORG_ID" ] && [ -n "$VERCEL_PROJECT_ID" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Vercel secrets not configured, skipping live deploy. The static bundle is in the Preview (Browser) workflow artifacts; see docs/developing/browser-preview.mdx to enable."
+          fi
+
+      - name: Re-resolve PR head before deploying
+        id: head-recheck
+        if: steps.vercel-check.outputs.enabled == 'true'
+        uses: actions/github-script@v7
+        env:
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          PR_NUMBER: ${{ needs.resolve-pr.outputs.pr-number }}
+        with:
+          script: |
+            // The resolver compared the head minutes ago. Re-check it
+            // now so the window where a newer run can still overwrite
+            // this one shrinks to the deploy itself; the concurrency
+            // group already serializes runs per branch. The verdict is
+            // a step output, not exit(0): every later step gates on it.
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: parseInt(process.env.PR_NUMBER, 10),
+            });
+            // Same check, one job earlier, in the Comment preview link
+            // script: the head can still advance while the deploy itself
+            // runs. Both gates stay; this one shrinks the window, that
+            // one closes it at the last responsible moment.
+            const standDown = pr.head.sha !== process.env.HEAD_SHA;
+            if (standDown) {
+              core.notice(`PR #${pr.number} head advanced past ${process.env.HEAD_SHA}; standing down.`);
+            }
+            core.setOutput("stand-down", String(standDown));
+
+      - name: Download static bundle
+        if: steps.vercel-check.outputs.enabled == 'true' && steps.head-recheck.outputs.stand-down != 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: browser-preview-${{ github.event.workflow_run.head_sha }}
+          path: preview-static
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+
+      - name: Stage Vercel Build Output (static-only)
+        if: steps.vercel-check.outputs.enabled == 'true' && steps.head-recheck.outputs.stand-down != 'true'
+        run: |
+          set -euo pipefail
+          # Staged here, never in the PR-controlled workflow: the only
+          # content deployed is the static bundle under a fixed config.
+          rm -rf .vercel/output
+          mkdir -p .vercel/output/static
+          cp -R preview-static/. .vercel/output/static/
+          printf '%s' '{"version":3,"routes":[{"handle":"filesystem"}]}' > .vercel/output/config.json
+          # Guard: this deployment must never carry serverless functions.
+          test ! -e .vercel/output/functions
+
+      - name: Deploy to Vercel (preview)
+        id: vercel-deploy
+        if: steps.vercel-check.outputs.enabled == 'true' && steps.head-recheck.outputs.stand-down != 'true'
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          # What `vercel pull` would write; env alone is not honored by
+          # every CLI version for --prebuilt deploys.
+          printf '{"orgId":"%s","projectId":"%s"}' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          # CLI installed from the committed lockfile (.github/vercel-cli,
+          # checked out from the default branch above): every resolved
+          # version is locked, never `npx` or a floating tag near secrets.
+          npm ci --prefix .github/vercel-cli --ignore-scripts --no-audit --no-fund
+          # Capture output to a file: CLI logs are multiline, and writing
+          # raw output into GITHUB_OUTPUT would corrupt step outputs
+          #. Extract exactly the deployment URL instead.
+          DEPLOY_LOG=$(mktemp)
+          ./.github/vercel-cli/node_modules/.bin/vercel deploy --prebuilt --token="$VERCEL_TOKEN" >"$DEPLOY_LOG" 2>&1 || { cat "$DEPLOY_LOG"; exit 1; }
+          cat "$DEPLOY_LOG"
+          URL=$(grep -Eo 'https://[a-zA-Z0-9.-]+\.vercel\.app' "$DEPLOY_LOG" | tail -1)
+          test -n "$URL"
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "Preview deployed: $URL"
+
+      # Optional AI QA of the deployed preview (Morph). Skips unless the
+      # MORPH_API_KEY secret exists; also requires the Morph GitHub App
+      # ("Morph Subagents") installed on the repo. Morph explores the UI
+      # the PR changed and posts a video + results on the PR. This is
+      # exploratory QA on top of the deterministic Playwright gate in the
+      # build workflow, never a replacement for it. Setup:
+      # docs/developing/browser-preview.mdx
+      - name: Check Morph secret
+        id: morph-check
+        env:
+          MORPH_API_KEY: ${{ secrets.MORPH_API_KEY }}
+        run: |
+          if [ -n "$MORPH_API_KEY" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Morph AI QA of preview deployment
+        # Optional exploratory QA: its failure must not fail the deploy
+        # job (which would skip the preview-link comment and trip the
+        # stale marker). It reports on the PR itself when it runs.
+        continue-on-error: true
+        if: steps.morph-check.outputs.enabled == 'true' && steps.vercel-deploy.outputs.url != ''
+        # Pinned to the v2 commit (tags v1/v2 both point here), never a
+        # floating tag for a third-party action receiving an API key.
+        uses: morphllm/preview-test-action@5db8557c25e42df64548961440a4bc2c41a3705c # v2
+        with:
+          api-key: ${{ secrets.MORPH_API_KEY }}
+          preview-url: ${{ steps.vercel-deploy.outputs.url }}
+          instructions: |
+            This is BetterShape, a desktop-agent workbench running with a
+            mocked backend and fake data (no login, no real API keys).
+            Exercise the screens the linked PR changed. Also try: the
+            welcome screen's four actions (/?seed=welcome), the workbench
+            with a project open (/?seed=project), Settings section
+            navigation (/settings), and the Git manager (/git). Flag
+            anything unclickable, overlapping, blank, or silently broken.
+
+      - name: Comment preview link on PR
+        # Never on stand-down: this run owns no current preview link,
+        # and posting its no-URL body would overwrite the newer one.
+        if: steps.head-recheck.outputs.stand-down != 'true'
+        uses: actions/github-script@v7
+        env:
+          PR_NUMBER: ${{ needs.resolve-pr.outputs.pr-number }}
+          PREVIEW_URL: ${{ steps.vercel-deploy.outputs.url }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+        with:
+          script: |
+            // The deploy above took minutes. Re-check the head at the
+            // last responsible moment: if the PR advanced since this run
+            // started, a newer run owns the sticky comment and this run
+            // must not overwrite it with its now-stale deployment URL.
+            const { data: currentPr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: parseInt(process.env.PR_NUMBER, 10),
+            });
+            if (currentPr.head.sha !== process.env.HEAD_SHA) {
+              core.notice(`PR #${currentPr.number} head advanced past ${process.env.HEAD_SHA} during deploy; skipping the preview-link comment.`);
+              return;
+            }
+            const marker = "<!-- bettershape-browser-preview -->";
+            const url = process.env.PREVIEW_URL;
+            const issue_number = parseInt(process.env.PR_NUMBER, 10);
+            const lines = [
+              marker,
+              "## Browser Preview",
+              "",
+              url
+                ? `**Live preview:** ${url}`
+                : "_No live URL from this workflow._ If the Vercel GitHub App is connected to this repo, it posts its own preview link on this PR. Otherwise download the `browser-preview-<commit>` artifact from the Preview (Browser) workflow run and serve `out/` locally, or run `npm run dev:browser`.",
+              "",
+              "The full UI runs in your browser with a mocked Tauri backend (fake project, files, Git, chats, no real data, no model keys). Seed the open-project state by adding `?seed=project` to the URL.",
+              "",
+              `- Playwright report + route audit: [Preview (Browser) run](${process.env.RUN_URL}) (the report artifacts are attached to that run)`,
+              `- Commit: \`${process.env.HEAD_SHA.slice(0, 7)}\``,
+            ];
+            const body = lines.join("\n");
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number,
+              per_page: 100,
+            });
+            const existing = comments.find((c) => c.body && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number,
+                body,
+              });
+            }
+
+      - name: Step summary
+        if: always()
+        env:
+          PREVIEW_URL: ${{ steps.vercel-deploy.outputs.url }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          {
+            echo "## Browser Preview"
+            echo ""
+            if [ -n "${PREVIEW_URL:-}" ]; then
+              echo "Live preview: $PREVIEW_URL"
+            else
+              echo "Live preview: not deployed (Vercel secrets absent or deploy skipped)."
+            fi
+            echo ""
+            echo "Static bundle + Playwright report are attached to the Preview (Browser) workflow run (\`browser-preview-${HEAD_SHA}\`, \`playwright-report-${HEAD_SHA}\`)."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  mark-stale:
+    name: Mark preview stale on failed build or deploy
+    needs: [resolve-pr, deploy-preview]
+    # Runs when the PR build failed (this workflow fires on completion, so
+    # conclusion != success is known here) or when this run's deploy job
+    # itself failed after a green build. `always()` plus the needs results
+    # keep the healthy path and the skipped-deploy path (no Vercel
+    # secrets) out of this job.
+    if: |
+      always() && needs.resolve-pr.outputs.pr-number != '' &&
+      needs.resolve-pr.outputs.head-current == 'true' &&
+      (github.event.workflow_run.conclusion != 'success' || needs.deploy-preview.result == 'failure')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write
+    steps:
+      # A failed build must not leave a previous preview URL presented as
+      # current: annotate the sticky comment instead.
+      - name: Annotate sticky comment
+        uses: actions/github-script@v7
+        env:
+          PR_NUMBER: ${{ needs.resolve-pr.outputs.pr-number }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          CONCLUSION: ${{ github.event.workflow_run.conclusion == 'success' && 'deployment failed' || github.event.workflow_run.conclusion }}
+        with:
+          script: |
+            const marker = "<!-- bettershape-browser-preview -->";
+            const issue_number = parseInt(process.env.PR_NUMBER, 10);
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number,
+              per_page: 100,
+            });
+            const existing = comments.find((c) => c.body && c.body.includes(marker));
+            const note = `\n\n> ⚠️ Latest preview build (${process.env.CONCLUSION}) for \`${process.env.HEAD_SHA.slice(0, 7)}\`, any live URL above may be stale.`;
+            if (existing) {
+              // Replace any earlier failure note so the SHA/conclusion always
+              // describe the newest failed run, not the first one.
+              const base = existing.body.split("\n\n> ⚠️ Latest preview build")[0];
+              const body = base + note;
+              if (body !== existing.body) {
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: existing.id,
+                  body,
+                });
+              }
+            }

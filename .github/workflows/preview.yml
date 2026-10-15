@@ -1,0 +1,85 @@
+name: Preview (Browser)
+
+# Builds the clickable Browser Preview of every PR: the full BetterShape UI
+# with a mocked Tauri backend (lib/preview/tauri-mock.ts), so reviewers and
+# agents can click through the change without building the desktop app.
+#
+# This workflow holds NO secrets and is safe to define from PR-controlled
+# revisions: it builds the static preview bundle, runs Playwright
+# smoke/audit against it, and uploads the bundle + reports as artifacts.
+# Artifact names carry the PR head SHA so the trusted deploy workflow
+# (which only knows the head SHA) can find them.
+#
+# Deployment lives in .github/workflows/preview-deploy.yml, a trusted
+# `workflow_run` subscriber that GitHub resolves from the default branch —
+# PR-controlled YAML can never reach VERCEL_TOKEN / MORPH_API_KEY
+#. Diffs to that file are security-sensitive.
+#
+# This workflow is deliberately NOT a required status check.
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: preview-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  preview:
+    name: Browser Preview
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The build below executes PR-controlled code (npm scripts, Next
+          # build). Never leave the GITHUB_TOKEN in .git/config for it.
+          persist-credentials: false
+
+      - name: Setup
+        uses: ./.github/actions/setup
+        with:
+          install-rust: "false"
+          install-system-deps: "false"
+
+      - run: npm ci --ignore-scripts
+
+      - name: Build Browser Preview bundle
+        run: npm run build:preview
+
+      - name: Install Chromium for Playwright
+        run: ./node_modules/.bin/playwright install --with-deps chromium
+
+      - name: Playwright against the static bundle
+        # Visual baselines are OS/font-sensitive and stay a local gate for
+        # now (see e2e/README.md); everything else runs here.
+        run: ./node_modules/.bin/playwright test --grep-invert @visual
+        env:
+          E2E_STATIC: "1"
+
+      - name: Upload preview bundle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-preview-${{ github.event.pull_request.head.sha || github.sha }}
+          path: out/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ github.event.pull_request.head.sha || github.sha }}
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: warn
+          retention-days: 14
+

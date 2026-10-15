@@ -1,0 +1,34 @@
+version = 1
+
+# Test files are analyzed as tests, not held to production rules.
+test_patterns = [
+  "tests/**",
+  "e2e/**"
+]
+
+[[analyzers]]
+name = "javascript"
+enabled = true
+
+  [analyzers.meta]
+  plugins = ["react"]
+  environment = ["nodejs", "browser", "vitest"]
+  # DeepSource parses .mjs as CommonJS by default; this repo is ESM, so
+  # parse errors on eslint.config.mjs and scripts/qa/*.mjs are false
+  # positives until this is set.
+  module_system = "es-modules"
+  # JS-D1001 demands a doc comment on every function. AGENTS.md forbids
+  # comments that restate the code and reserves them for non-obvious
+  # constraints, provenance, and workarounds. Skip the construct classes
+  # where the metric would force boilerplate: internal arrow helpers,
+  # local callbacks, method definitions, and class expressions. Exported
+  # declarations keep the requirement.
+  skip_doc_coverage = ["arrow-function-expression", "function-expression", "method-definition", "class-expression"]
+
+[[analyzers]]
+name = "rust"
+enabled = true
+
+[[analyzers]]
+name = "secrets"
+enabled = true

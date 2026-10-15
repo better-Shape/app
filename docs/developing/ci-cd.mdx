@@ -22,7 +22,7 @@ Triggers: `pull_request`, `push` to `main`, manual dispatch.
 
 Permissions: `contents: read` (least privilege).
 
-Concurrency: `ci-${workflow}-${ref}` with `cancel-in-progress: true` only for PRs — rapid pushes cancel stale runs, but `main` runs always finish.
+Concurrency: `ci-${workflow}-${ref}` with `cancel-in-progress: true` only for PRs, rapid pushes cancel stale runs, but `main` runs always finish.
 
 Jobs:
 
@@ -70,7 +70,7 @@ Triggers: tags `v*` and manual dispatch.
 
 Permissions: top-level `contents: read`, jobs elevate only where needed.
 
-Concurrency: `release-${ref}` with `cancel-in-progress: false` — releases must never be cancelled mid-flight (could corrupt artifacts).
+Concurrency: `release-${ref}` with `cancel-in-progress: false`, releases must never be cancelled mid-flight (could corrupt artifacts).
 
 Jobs:
 
@@ -88,7 +88,22 @@ Jobs:
 
 Release binaries need no baked-in server configuration: BetterShape talks to model providers with the keys the user adds.
 
-Release notes grouping: area-only (Editor, Agent, Git, Terminal, Workbench, Updater, Docs, CI) — commit subjects should be `area: short summary`.
+Release notes grouping: area-only (Editor, Agent, Git, Terminal, Workbench, Updater, Docs, CI), commit subjects should be `area: short summary`.
+
+### Browser Preview (`preview.yml`) + CI `test-e2e` job
+
+`preview.yml` runs on every PR with no secrets: it builds the static
+Browser Preview bundle (mocked Tauri backend, see
+[Browser preview & QA](/docs/developing/browser-preview)), runs Playwright
+against it, and uploads the bundle and reports as artifacts. Deployment is
+separate: the trusted `preview-deploy.yml` (`workflow_run`, resolved from
+the default branch) deploys the artifact to Vercel when `VERCEL_TOKEN` /
+`VERCEL_ORG_ID` / `VERCEL_PROJECT_ID` exist, owns the sticky PR comment,
+and annotates that comment when a build fails. Without the secrets, the
+artifact is the preview. Deploys start only after `preview-deploy.yml`
+reaches the default branch. Not a required check. The same Playwright run
+also exists as the additive `test-e2e` job in `ci.yml` (not yet in
+`ci-success` needs).
 
 ### PR Hygiene (`pr.yml`)
 
@@ -176,7 +191,7 @@ Run `npm run test:all` before pushing non-trivial changes (per CONTRIBUTING.md).
 5. Tag & push: `npm run release -- 1.0.3 --tag --push` or `git push origin v1.0.3`
 6. Watch Release workflow on GitHub Actions.
 7. Verify draft release artifacts, then publish (handled by `upload.mjs` if `--publish`).
-8. Updater: releases carry no `.sig`. `bundle.createUpdaterArtifacts` is `false` and no updater plugin or endpoint is configured, so there is nothing to sign and nothing to verify against. `Help → Check for Updates` contacts no server — point users at GitHub releases.
+8. Updater: releases carry no `.sig`. `bundle.createUpdaterArtifacts` is `false` and no updater plugin or endpoint is configured, so there is nothing to sign and nothing to verify against. `Help → Check for Updates` contacts no server, point users at GitHub releases.
 
 Nightly tags: `vX.Y.Z-nightly` or `vX.Y.Z-pre` → published as GitHub prerelease.
 

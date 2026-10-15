@@ -74,7 +74,8 @@
               "developing/language-servers",
               "developing/indexing-and-search",
               "developing/client-trust",
-              "developing/tauri-ipc"
+              "developing/tauri-ipc",
+              "developing/browser-preview"
             ]
           }
         ]

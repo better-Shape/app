@@ -39,6 +39,13 @@ yarn-error.log*
 # vercel
 .vercel
 
+# playwright / browser preview QA (reports & traces; visual baselines under
+# e2e/visual.spec.ts-snapshots/ ARE committed on purpose)
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
@@ -54,3 +61,6 @@ COMMIT.md
 src-tauri/.updater-keys/shape.key
 src-tauri/.updater-keys/*.key
 !src-tauri/.updater-keys/*.key.pub
+
+# Preview deploy job: lockfile-pinned Vercel CLI (installed in CI only)
+.github/vercel-cli/node_modules/

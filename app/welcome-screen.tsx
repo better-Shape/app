@@ -17,15 +17,17 @@ import {
 } from "@/lib/workspace/repo-history";
 import { cn } from "@/lib/utils";
 
-function parentDir(path: string): string {
+/** Parent directory portion of a path, rendered with the path's own separators. */
+const parentDir = (path: string): string => {
     const normalized = path.replace(/\\/g, "/");
     const idx = normalized.lastIndexOf("/");
     if (idx <= 0) return path;
     const parent = normalized.slice(0, idx);
     return path.includes("\\") ? parent.replace(/\//g, "\\") : parent;
-}
+};
 
-function ActionCard({
+/** Single welcome-screen action tile (icon over label, inverts on hover). */
+const ActionCard = ({
     icon,
     label,
     onClick,
@@ -35,7 +37,7 @@ function ActionCard({
     label: string;
     onClick: () => void;
     external?: boolean;
-}) {
+}) => {
     return (
         <button
             type="button"
@@ -57,9 +59,81 @@ function ActionCard({
             <span className="text-sm font-medium">{label}</span>
         </button>
     );
-}
+};
 
-export function WelcomeScreen({
+/** The four project entry actions: open, clone, SSH, and GitHub. */
+const WelcomeActions = ({
+    onPickFolder,
+    onClone,
+    onSsh,
+    onConnectGitHub,
+}: {
+    onPickFolder: () => void;
+    onClone: () => void;
+    onSsh: () => void;
+    onConnectGitHub: () => void;
+}) => (
+    <section className="grid w-full grid-cols-2 gap-2.5">
+        <ActionCard icon={Folder20Filled} label="Open project" onClick={onPickFolder} />
+        <ActionCard icon={ArrowDownload20Regular} label="Clone repo" onClick={onClone} />
+        <ActionCard icon={WindowConsole20Regular} label="Connect via SSH" onClick={onSsh} />
+        <ActionCard icon={GithubMark} label="Connect GitHub" onClick={onConnectGitHub} external />
+    </section>
+);
+
+/** Recent project list, collapsed to five entries until expanded. */
+const RecentProjects = ({
+    recentFolders,
+    visible,
+    showAll,
+    onToggleShowAll,
+    onOpenProject,
+}: {
+    recentFolders: RepoHistoryEntry[];
+    visible: RepoHistoryEntry[];
+    showAll: boolean;
+    onToggleShowAll: () => void;
+    onOpenProject: (path: string) => void;
+}) => (
+    <section className="flex w-full flex-col gap-2">
+        <div className="flex items-center justify-between gap-3">
+            <h2 className="text-sm font-medium text-text-primary">Recent projects</h2>
+            {recentFolders.length > 5 ? (
+                <button
+                    type="button"
+                    className="text-sm text-text-muted hover:text-text-secondary"
+                    onClick={onToggleShowAll}
+                >
+                    {showAll ? "Show less" : `View all (${recentFolders.length})`}
+                </button>
+            ) : null}
+        </div>
+
+        {recentFolders.length === 0 ? (
+            <p className="py-2 text-sm text-text-muted">No recent projects</p>
+        ) : (
+            <ul className="flex w-full flex-col">
+                {visible.map((entry) => (
+                    <li key={entry.path}>
+                        <button
+                            type="button"
+                            onClick={() => onOpenProject(entry.path)}
+                            className="flex w-full items-baseline justify-between gap-4 rounded-md px-1 py-1.5 text-left text-sm hover:bg-panel-hover"
+                        >
+                            <span className="shrink-0 text-text-primary">{getRepoName(entry.path)}</span>
+                            <span className="min-w-0 truncate text-right text-text-muted">
+                                {parentDir(entry.path)}
+                            </span>
+                        </button>
+                    </li>
+                ))}
+            </ul>
+        )}
+    </section>
+);
+
+/** First-run landing screen: project actions over the recent project list. */
+export const WelcomeScreen = ({
     recentFolders,
     onOpenProject,
     onPickFolder,
@@ -75,81 +149,42 @@ export function WelcomeScreen({
     onSsh: () => void;
     onConnectGitHub: () => void;
     onSelectChat?: (id: string) => void;
-}) {
+}) => {
     const [showAll, setShowAll] = React.useState(false);
     const visible = showAll ? recentFolders : recentFolders.slice(0, 5);
 
     return (
-        <div className="flex h-full min-h-0 w-full flex-col text-text-primary select-none">
+        <div data-testid="welcome-screen" className="flex h-full min-h-0 w-full flex-col text-text-primary select-none">
             <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-10 py-10 sm:px-14 md:px-16">
                 <div className="flex w-full max-w-2xl flex-col items-start gap-8">
-                    <section className="grid w-full grid-cols-2 gap-2.5">
-                        <ActionCard icon={Folder20Filled} label="Open project" onClick={onPickFolder} />
-                        <ActionCard icon={ArrowDownload20Regular} label="Clone repo" onClick={onClone} />
-                        <ActionCard icon={WindowConsole20Regular} label="Connect via SSH" onClick={onSsh} />
-                        <ActionCard
-                            icon={GithubMark}
-                            label="Connect GitHub"
-                            onClick={onConnectGitHub}
-                            external
-                        />
-                    </section>
-
-                    <section className="flex w-full flex-col gap-2">
-                        <div className="flex items-center justify-between gap-3">
-                            <h2 className="text-sm font-medium text-text-primary">
-                                Recent projects
-                            </h2>
-                            {recentFolders.length > 5 ? (
-                                <button
-                                    type="button"
-                                    className="text-sm text-text-muted hover:text-text-secondary"
-                                    onClick={() => setShowAll((v) => !v)}
-                                >
-                                    {showAll
-                                        ? "Show less"
-                                        : `View all (${recentFolders.length})`}
-                                </button>
-                            ) : null}
-                        </div>
-
-                        {recentFolders.length === 0 ? (
-                            <p className="py-2 text-sm text-text-muted">No recent projects</p>
-                        ) : (
-                            <ul className="flex w-full flex-col">
-                                {visible.map((entry) => (
-                                    <li key={entry.path}>
-                                        <button
-                                            type="button"
-                                            onClick={() => onOpenProject(entry.path)}
-                                            className="flex w-full items-baseline justify-between gap-4 rounded-md px-1 py-1.5 text-left text-sm hover:bg-panel-hover"
-                                        >
-                                            <span className="shrink-0 text-text-primary">
-                                                {getRepoName(entry.path)}
-                                            </span>
-                                            <span className="min-w-0 truncate text-right text-text-muted">
-                                                {parentDir(entry.path)}
-                                            </span>
-                                        </button>
-                                    </li>
-                                ))}
-                            </ul>
-                        )}
-                    </section>
+                    <WelcomeActions
+                        onPickFolder={onPickFolder}
+                        onClone={onClone}
+                        onSsh={onSsh}
+                        onConnectGitHub={onConnectGitHub}
+                    />
+                    <RecentProjects
+                        recentFolders={recentFolders}
+                        visible={visible}
+                        showAll={showAll}
+                        onToggleShowAll={() => setShowAll((v) => !v)}
+                        onOpenProject={onOpenProject}
+                    />
                 </div>
             </div>
         </div>
     );
-}
+};
 
 /** Load recent folders for the welcome screen (client-only). */
-export function useRecentFolders(): RepoHistoryEntry[] {
+export const useRecentFolders = (): RepoHistoryEntry[] => {
     const [entries, setEntries] = React.useState<RepoHistoryEntry[]>([]);
     React.useEffect(() => {
         setEntries(loadRepoHistory().slice(0, 15));
+        /** Reload history (max 15) whenever the window regains focus. */
         const onFocus = () => setEntries(loadRepoHistory().slice(0, 15));
         window.addEventListener("focus", onFocus);
         return () => window.removeEventListener("focus", onFocus);
     }, []);
     return entries;
-}
+};

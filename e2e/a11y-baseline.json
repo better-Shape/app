@@ -1,0 +1,12 @@
+{
+    "$comment": "Known critical/serious axe violations per route (rule id -> max affected nodes), captured when the browser QA suite was adopted. The audit spec fails only when a count INCREASES or a new rule appears. When you fix violations, lower the numbers here in the same PR; never raise them without a note in the PR explaining why. Goal: every entry reaches zero.",
+    "/": {
+        "target-size": 4
+    },
+    "/settings": {
+        "button-name": 38
+    },
+    "/git": {
+        "target-size": 1
+    }
+}

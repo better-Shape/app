@@ -21,8 +21,8 @@ const eslintConfig = defineConfig([
     },
   },
   {
-    // CommonJS build tooling, run directly by node — `require` is correct here.
-    files: ["src-tauri/scripts/**/*.js", "scripts/**/*.mjs"],
+    // CommonJS build tooling, run directly by node, `require` is correct here.
+    files: ["src-tauri/scripts/**/*.js", "scripts/**/*.cjs"],
     rules: {
       "@typescript-eslint/no-require-imports": "off",
     },
@@ -44,6 +44,14 @@ const eslintConfig = defineConfig([
           destructuredArrayIgnorePattern: "^_",
         },
       ],
+    },
+  },
+  {
+    // Playwright fixtures receive a `use()` callback that is not a React
+    // hook; the hooks rule cannot tell the difference.
+    files: ["e2e/**/*.ts", "playwright.config.ts"],
+    rules: {
+      "react-hooks/rules-of-hooks": "off",
     },
   },
   // Override default ignores of eslint-config-next.
@@ -73,7 +81,21 @@ const eslintConfig = defineConfig([
     // Coverage
     "coverage/**",
   ]),
-  { rules: { "react-hooks/set-state-in-effect": "warn", "react-hooks/refs": "warn" } },
+  {
+    // Node tooling scripts; the Next.js config never defines the React hooks
+    // plugin for .cjs files, so its hook rules must be off there rather than
+    // warn, or ESLint fails the run on a missing plugin. This block must stay
+    // after the global rules blocks above or they re-enable the rules.
+    files: ["scripts/**/*.cjs"],
+    rules: {
+      "react-hooks/set-state-in-effect": "off",
+      "react-hooks/refs": "off",
+      "react-hooks/exhaustive-deps": "off",
+      "react-hooks/purity": "off",
+      "react-hooks/preserve-manual-memoization": "off",
+      "react-hooks/immutability": "off",
+    },
+  },
 ]);
 
 export default eslintConfig;
