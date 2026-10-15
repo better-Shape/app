@@ -52,3 +52,11 @@ A pending recovery deletion is durable state, not the absence of work. If flushi
 Sidebar dispositions use a read-only legacy seed plus independent per-chat records. Only a valid legacy-seeded disposition requires a null override. Clearing a newer chat removes its own record, preventing unbounded accumulation of unnecessary tombstones. Failed reads/removals retain the window's pending intent; a clear must not guess whether a legacy seed exists when storage cannot be read. Do not passively garbage-collect tombstones with an unlocked read/remove pair, which could delete another WebView's intervening update.
 
 PR close-sweep eligibility, hit containment and candidate selection are separate predicates. Repository-owned closing state resets during guarded render, while the layout-effect generation still revokes old gesture listeners before layout-phase input. Closing mutations remain serial; a repository round-trip cannot revive an obsolete sweep.
+
+## Independent recovery records and bounded titlebar fallback
+
+Editor recovery no longer read-modify-writes one shared array. New writes target an encoded per-path v2 record. The v1 array/object remains a read-only seed; only legacy-seeded clears need tombstones. Partial flushes retain unsuccessful intents, and clears/read failures stay visible to unload protection. Interleaved WebView writes to different paths cannot delete each other's recovery. Same-path recovery is still not a versioned cross-window merge.
+
+A window retains the unsaved buffers it edits or explicitly adopts from recovery until save/discard, including during storage-read outages. This is necessary unsaved work, not a cache of every clean file visited. The titlebar can therefore retain only the latest legacy broadcast: mounted editors answer a synchronous flush, and older unsaved documents remain in recovery. Cache reduction must not discard that fallback ownership.
+
+PR action rollback holds the immutable optimistic-entry identity and the prior expiry. A failed request can restore only its own still-current entry, without extending the prior trust window or overwriting a newer owner. Canonical refresh/expiry can retire an owner before a network failure arrives; that failure must not resurrect it.

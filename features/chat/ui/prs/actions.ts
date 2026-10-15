@@ -5,7 +5,7 @@
 import { commands } from "@/lib/backend";
 import { notify } from "@/features/notifications";
 import { parseJson, type PrItem } from "./mapping";
-import { applyPrOverride, clearPrOverride, readPrOverride } from "./overrides";
+import { applyPrOverride, readPrOverride, stagePrOverride } from "./overrides";
 
 export type PrAction = "close" | "merge" | "reopen" | "ready";
 
@@ -82,15 +82,14 @@ export async function runPrAction(
     if (pending.has(key)) return false;
     pending.add(key);
     const previous = readPrOverride(item.id);
-    let applied = false;
+    let rollback: (() => void) | undefined;
     try {
         const effective = { ...item, status: previous?.status ?? item.status, draft: previous?.draft ?? item.draft };
         if (item.repo !== repo || !prActionsFor(effective).includes(action)) {
             throw new Error("This action is no longer available. Refresh the pull request.");
         }
         const request = actionRequest(action, item, repo);
-        applyPrOverride(item.id, request.optimistic);
-        applied = true;
+        rollback = stagePrOverride(item.id, request.optimistic);
         const response = parseJson(await commands.githubApiRequest(request.method, request.path, request.body)) as {
             state?: string;
             merged?: boolean;
@@ -112,10 +111,7 @@ export async function runPrAction(
         notify.success(`${PR_ACTION_LABEL[action]} ${item.title}`);
         return true;
     } catch (error) {
-        if (applied) {
-            if (previous) applyPrOverride(item.id, previous);
-            else clearPrOverride(item.id);
-        }
+        rollback?.();
         notify.error(error instanceof Error ? error.message : `${PR_ACTION_LABEL[action]} failed`);
         return false;
     } finally {

@@ -1,3 +1,4 @@
+import { resetDirtyBufferRecovery } from "../helpers/dirty-buffers";
 import { mockWindows } from "@tauri-apps/api/mocks";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -37,7 +38,7 @@ let host: HTMLDivElement;
 let root: Root | undefined;
 beforeEach(() => {
     mockWindows("settings"); nativeWindow.label = "settings";
-    localStorage.clear();
+    resetDirtyBufferRecovery();
     mocks.generating = false; mocks.files = [];
     mocks.markFileDirty.mockReset().mockResolvedValue(undefined);
     nativeWindow.destroy.mockReset().mockResolvedValue(undefined);
@@ -49,7 +50,7 @@ beforeEach(() => {
     host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
 });
 afterEach(() => {
-    act(() => root?.unmount()); host.remove(); localStorage.clear();
+    act(() => root?.unmount()); host.remove(); resetDirtyBufferRecovery();
     acknowledgeCredentialDraft("openai", credentialDraftVersion("openai", "example-key"));
 });
 async function render() { await act(async () => root?.render(<ClientLayout><div>Settings</div></ClientLayout>)); }
@@ -264,10 +265,10 @@ it("flushes a popout's last staged edit before destroying its webview", async ()
     await render();
     await vi.waitFor(() => expect(nativeWindow.onCloseRequested).toHaveBeenCalled());
     stageDirtyBuffer("/popout.txt", "last keystroke", "disk");
-    expect(localStorage.getItem("bettershape-dirty-buffers-v1")).toBeNull();
+    expect(localStorage.getItem("bettershape-dirty-buffers-v2:%2Fpopout.txt")).toBeNull();
     await nativeWindow.onCloseRequested.mock.calls[0][0]({ preventDefault: vi.fn() });
     expect(nativeWindow.destroy).toHaveBeenCalledOnce();
-    expect(localStorage.getItem("bettershape-dirty-buffers-v1")).toContain("last keystroke");
+    expect(localStorage.getItem("bettershape-dirty-buffers-v2:%2Fpopout.txt")).toContain("last keystroke");
 });
 
 it("keeps a popout open if its staged recovery cannot be persisted", async () => {
@@ -286,7 +287,7 @@ it("keeps a popout open if its staged recovery cannot be persisted", async () =>
 it("rolls back a discard if deleting its recovery copy fails", async () => {
     let write: ReturnType<typeof vi.spyOn> | undefined;
     nativeWindow.message.mockImplementationOnce(async () => {
-        write = vi.spyOn(Storage.prototype, "setItem").mockImplementationOnce(() => { throw new Error("storage unavailable"); });
+        write = vi.spyOn(Storage.prototype, "removeItem").mockImplementationOnce(() => { throw new Error("storage unavailable"); });
         return "Don't save";
     });
     try {

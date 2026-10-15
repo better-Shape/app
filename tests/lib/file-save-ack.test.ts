@@ -1,11 +1,12 @@
+import { resetDirtyBufferRecovery } from "../helpers/dirty-buffers";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 const invoke = vi.hoisted(() => vi.fn());
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 import { commands } from "@/lib/backend/commands";
 import { dirtyOpenFiles, loadDirtyBuffer, saveDirtyBuffer } from "@/lib/workspace/dirty-buffers";
 
-beforeEach(() => { localStorage.clear(); invoke.mockReset().mockResolvedValue(undefined); });
-afterEach(() => localStorage.clear());
+beforeEach(() => { resetDirtyBufferRecovery(); invoke.mockReset().mockResolvedValue(undefined); });
+afterEach(() => resetDirtyBufferRecovery());
 
 it("clears only the recovery draft that was actually saved", async () => {
     saveDirtyBuffer("/a.txt", "saved edit", "original");

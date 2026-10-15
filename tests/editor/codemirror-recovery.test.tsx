@@ -1,3 +1,4 @@
+import { resetDirtyBufferRecovery } from "../helpers/dirty-buffers";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { EditorView } from "@codemirror/view";
@@ -16,11 +17,11 @@ let version: { current: number };
 const change = vi.fn();
 
 beforeEach(() => {
-    vi.useFakeTimers(); vi.clearAllMocks(); localStorage.clear();
+    vi.useFakeTimers(); vi.clearAllMocks(); resetDirtyBufferRecovery();
     saved = { current: "disk text" }; dirty = { current: true }; version = { current: 0 };
     host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
 });
-afterEach(() => { act(() => root?.unmount()); host.remove(); localStorage.clear(); vi.useRealTimers(); });
+afterEach(() => { act(() => root?.unmount()); host.remove(); resetDirtyBufferRecovery(); vi.useRealTimers(); });
 async function mount(content = "recovered text", path = "/draft.txt") {
     await act(async () => root?.render(<CodeMirrorEditor path={path} content={content} setContent={change}
         savedContentRef={saved} isDirtyRef={dirty} bufferVersionRef={version} />));

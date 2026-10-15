@@ -95,3 +95,64 @@ it("starts a fresh trust window at confirmation, not only when the request begin
         expect(readPrOverride(item.id, 80_001)).toBeNull();
     } finally { now.mockRestore(); }
 });
+
+it("does not renew an earlier override's trust window when a later request fails", async () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(0);
+    let reject!: (reason: Error) => void;
+    request.mockImplementationOnce(() => new Promise((_resolve, fail) => { reject = fail; }));
+    try {
+        applyPrOverride(item.id, { draft: false });
+        now.mockReturnValue(50_000);
+        const pending = runPrAction(item, "close", item.repo);
+        now.mockReturnValue(70_000);
+        reject(new Error("Offline"));
+        await expect(pending).resolves.toBe(false);
+        expect(readPrOverride(item.id)).toBeNull();
+    } finally { now.mockRestore(); }
+});
+
+it("restores a fresh prior patch only until its original expiry", async () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(0);
+    let reject!: (reason: Error) => void;
+    request.mockImplementationOnce(() => new Promise((_resolve, fail) => { reject = fail; }));
+    try {
+        applyPrOverride(item.id, { draft: false });
+        now.mockReturnValue(10_000);
+        const pending = runPrAction(item, "close", item.repo);
+        now.mockReturnValue(20_000);
+        reject(new Error("Offline"));
+        await expect(pending).resolves.toBe(false);
+        expect(readPrOverride(item.id, 59_999)?.draft).toBe(false);
+        expect(readPrOverride(item.id, 60_000)).toBeNull();
+    } finally { now.mockRestore(); }
+});
+
+it("does not roll back over a newer override owner", async () => {
+    let reject!: (reason: Error) => void;
+    request.mockImplementationOnce(() => new Promise((_resolve, fail) => { reject = fail; }));
+    applyPrOverride(item.id, { draft: false });
+    const pending = runPrAction(item, "close", item.repo);
+    applyPrOverride(item.id, { status: "merged" });
+    reject(new Error("Offline"));
+    await expect(pending).resolves.toBe(false);
+    expect(readPrOverride(item.id)?.status).toBe("merged");
+});
+
+it("does not carry expired fields into a new optimistic patch", async () => {
+    applyPrOverride(item.id, { draft: false }, 0);
+    request.mockResolvedValue({ state: "closed" });
+    await expect(runPrAction(item, "close", item.repo)).resolves.toBe(true);
+    expect(readPrOverride(item.id)?.draft).toBeUndefined();
+});
+
+it("does not resurrect a patch after a canonical refresh settled the request owner", async () => {
+    const { settlePrOverrides } = await import("@/features/chat/ui/prs/overrides");
+    let reject!: (reason: Error) => void;
+    request.mockImplementationOnce(() => new Promise((_resolve, fail) => { reject = fail; }));
+    applyPrOverride(item.id, { draft: false });
+    const pending = runPrAction(item, "close", item.repo);
+    settlePrOverrides([{ ...item, status: "closed", draft: false }]);
+    reject(new Error("Lost response"));
+    await expect(pending).resolves.toBe(false);
+    expect(readPrOverride(item.id)).toBeNull();
+});

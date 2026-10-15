@@ -1,3 +1,4 @@
+import { resetDirtyBufferRecovery } from "../helpers/dirty-buffers";
 import { act, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -14,12 +15,12 @@ function Consumer() {
     return null;
 }
 beforeEach(async () => {
-    localStorage.clear(); readFile.mockClear();
+    resetDirtyBufferRecovery(); readFile.mockClear();
     host = document.createElement("div"); document.body.appendChild(host);
     root = createRoot(host);
     await act(async () => root.render(<Consumer />));
 });
-afterEach(() => { act(() => root.unmount()); host.remove(); localStorage.clear(); });
+afterEach(() => { act(() => root.unmount()); host.remove(); resetDirtyBufferRecovery(); });
 
 it("saves a restored dirty buffer instead of overwriting it with disk text", async () => {
     saveDirtyBuffer("/restored.txt", "unsaved work", "disk text");
@@ -60,4 +61,24 @@ it("prefers a newer recovery draft over a broadcast cached before the editor unm
     saveDirtyBuffer("/hidden.txt", "last keystroke", "disk text");
     expect(await readLatestContent("/hidden.txt")).toBe("last keystroke");
     expect(readFile).not.toHaveBeenCalled();
+});
+
+it("does not retain every previously visited document in the titlebar", async () => {
+    window.dispatchEvent(new CustomEvent("bettershape-editor-buffer", { detail: { path: "/old.txt", content: "obsolete broadcast" } }));
+    for (let index = 0; index < 40; index += 1) {
+        window.dispatchEvent(new CustomEvent("bettershape-editor-buffer", { detail: { path: `/visited-${index}.txt`, content: `text ${index}` } }));
+    }
+    expect(await readLatestContent("/old.txt")).toBe("disk text");
+    expect(readFile).toHaveBeenCalledWith("/old.txt");
+    expect(await readLatestContent("/visited-39.txt")).toBe("text 39");
+});
+
+it("keeps older unsaved work available after the bounded broadcast fallback moves on", async () => {
+    saveDirtyBuffer("/unsaved.txt", "unsaved work", "disk text");
+    window.dispatchEvent(new CustomEvent("bettershape-editor-buffer", { detail: { path: "/other.txt", content: "other text" } }));
+    const read = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => { throw new Error("temporarily unavailable"); });
+    try {
+        expect(await readLatestContent("/unsaved.txt")).toBe("unsaved work");
+        expect(readFile).not.toHaveBeenCalled();
+    } finally { read.mockRestore(); }
 });

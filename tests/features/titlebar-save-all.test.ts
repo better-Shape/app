@@ -1,11 +1,12 @@
+import { resetDirtyBufferRecovery } from "../helpers/dirty-buffers";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 const invoke = vi.hoisted(() => vi.fn());
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 import { createMenuActionHandler } from "@/features/agent/workbench/titlebar/menu-actions";
 import { clearDirtyBuffer, loadDirtyBuffer, saveDirtyBuffer, stageDirtyBuffer } from "@/lib/workspace/dirty-buffers";
 
-beforeEach(() => { localStorage.clear(); invoke.mockReset().mockResolvedValue(undefined); });
-afterEach(() => { clearDirtyBuffer("/a.txt"); localStorage.clear(); });
+beforeEach(() => { resetDirtyBufferRecovery(); invoke.mockReset().mockResolvedValue(undefined); });
+afterEach(() => { clearDirtyBuffer("/a.txt"); resetDirtyBufferRecovery(); });
 function handler(openFiles: Array<{ path: string; is_dirty: boolean }>, content: string) {
     return createMenuActionHandler({ projectPath: "/", activeFile: null, openFiles, closeWindow: vi.fn(), readLatestContent: async () => content });
 }

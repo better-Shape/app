@@ -4,16 +4,18 @@ import { useEffect, useRef } from "react";
 import { commands } from "@/lib/backend";
 import { loadDirtyBuffer } from "@/lib/workspace/dirty-buffers";
 
-/** Read save content from a synchronous editor flush, recovered draft, cached buffer, or disk in that order. */
+/** Read save content from a synchronous editor flush, recovered draft, latest broadcast, or disk in that order. */
 export function useEditorBuffer() {
-    const activeBufferRef = useRef(new Map<string, string>());
+    // Mounted editors answer a synchronous flush; earlier dirty documents live in recovery.
+    // Retain just the latest broadcast for legacy publishers, not every visited file.
+    const activeBufferRef = useRef<{ path: string; content: string } | null>(null);
 
     useEffect(() => {
-        /** Cache published editor content by path for files without a currently mounted editor. */
+        /** Retain the latest published document as a bounded fallback for legacy buffer publishers. */
         const handleBuffer = (event: Event) => {
             const detail = (event as CustomEvent<{ path: string; content: string }>).detail;
-            if (!detail?.path) return;
-            activeBufferRef.current.set(detail.path, detail.content);
+            if (!detail?.path || typeof detail.content !== "string") return;
+            activeBufferRef.current = { path: detail.path, content: detail.content };
         };
         window.addEventListener("bettershape-editor-buffer", handleBuffer as EventListener);
         return () => window.removeEventListener("bettershape-editor-buffer", handleBuffer as EventListener);
@@ -33,9 +35,9 @@ export function useEditorBuffer() {
         if (typeof live === "string") return live;
         const restored = loadDirtyBuffer(path);
         if (restored) return restored.content;
-        const buffer = activeBufferRef.current.get(path);
-        if (typeof buffer === "string") return buffer;
-        return commands.readFile(path);
+        const buffer = activeBufferRef.current;
+        if (buffer?.path === path) return buffer.content;
+        return await commands.readFile(path);
     };
 
     return { readLatestContent };

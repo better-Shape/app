@@ -2,12 +2,13 @@
  * Persist unsaved editor buffers across restarts so dirty markdown/text
  * survives app quit without forcing a save prompt every time.
  *
- * Storage is a JSON array of buffers, not an object keyed by path: a buffer
- * carries its own path, so a path named `__proto__` can never address a
- * property on a shared prototype.
+ * Each path has an independent record; concurrent WebViews never replace a
+ * shared recovery array. The old array/object is a read-only migration seed.
+ * Maps keep paths as data rather than properties on a shared prototype.
  */
 
 const STORAGE_KEY = "bettershape-dirty-buffers-v1";
+const ENTRY_PREFIX = "bettershape-dirty-buffers-v2:";
 
 export type DirtyBuffer = {
     path: string;
@@ -16,6 +17,8 @@ export type DirtyBuffer = {
     updatedAt: number;
 };
 
+// Retain this window's unsaved work even if storage later becomes unavailable.
+const ownedBuffers = new Map<string, DirtyBuffer>();
 const pendingBuffers = new Map<string, DirtyBuffer | null>();
 let flushTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -34,12 +37,11 @@ function isUsableBuffer(value: unknown): value is DirtyBuffer {
     );
 }
 
-/** Buffers by path. A Map also keeps a path like `__proto__` as plain data. */
-function readAll(): Map<string, DirtyBuffer> {
+/** Read legacy recovery without rewriting it; storage failures must remain distinguishable from no seed. */
+function readLegacyBuffers(): Map<string, DirtyBuffer> {
     const map = new Map<string, DirtyBuffer>();
-    if (typeof window === "undefined") return map;
+    const raw = localStorage.getItem(STORAGE_KEY);
     try {
-        const raw = localStorage.getItem(STORAGE_KEY);
         const parsed: unknown = raw ? JSON.parse(raw) : [];
         const entries = Array.isArray(parsed)
             ? parsed
@@ -47,9 +49,33 @@ function readAll(): Map<string, DirtyBuffer> {
         for (const entry of entries) {
             if (isUsableBuffer(entry)) map.set(entry.path, entry);
         }
-    } catch {
-        /* Persisted recovery is unavailable; retain session drafts below. */
-    }
+    } catch { /* Malformed legacy data must not hide valid per-path records. */ }
+    return map;
+}
+
+/** Read one path record, rejecting malformed keys and payloads that claim another path. */
+function applyStoredEntry(map: Map<string, DirtyBuffer>, key: string): void {
+    try {
+        const path = decodeURIComponent(key.slice(ENTRY_PREFIX.length));
+        if (!path || UNSAFE_KEYS.has(path)) return;
+        const raw: unknown = JSON.parse(localStorage.getItem(key) ?? "null");
+        if (raw === null) map.delete(path);
+        else if (isUsableBuffer(raw) && raw.path === path) map.set(path, raw);
+    } catch { /* One unavailable or malformed entry must not discard other drafts. */ }
+}
+
+/** Combine durable recovery with this window's unsaved work and pending removals. */
+function readAll(): Map<string, DirtyBuffer> {
+    let map = new Map<string, DirtyBuffer>();
+    if (typeof window === "undefined") return map;
+    try { map = readLegacyBuffers(); } catch { /* Session-owned recovery remains available below. */ }
+    try {
+        for (let index = 0; index < localStorage.length; index += 1) {
+            const key = localStorage.key(index);
+            if (key?.startsWith(ENTRY_PREFIX)) applyStoredEntry(map, key);
+        }
+    } catch { /* Preserve all entries already read and the session-owned drafts below. */ }
+    for (const [path, buffer] of ownedBuffers) map.set(path, { ...buffer });
     for (const [path, buffer] of pendingBuffers) {
         if (buffer) map.set(path, { ...buffer });
         else map.delete(path);
@@ -57,20 +83,28 @@ function readAll(): Map<string, DirtyBuffer> {
     return map;
 }
 
-function writeAll(map: Map<string, DirtyBuffer>): boolean {
+/** Flush independent entries, retaining only failed/newer intents for retry. */
+function writePending(): boolean {
     if (typeof window === "undefined") return false;
-    try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify([...map.values()]));
-        pendingBuffers.clear();
-        return true;
-    } catch {
-        return false;
+    let legacy: Map<string, DirtyBuffer> | undefined;
+    for (const [path, buffer] of pendingBuffers) {
+        try {
+            const key = `${ENTRY_PREFIX}${encodeURIComponent(path)}`;
+            if (buffer === null) legacy ??= readLegacyBuffers();
+            if (buffer === null && !legacy?.has(path)) localStorage.removeItem(key);
+            else localStorage.setItem(key, JSON.stringify(buffer));
+            if (pendingBuffers.get(path) === buffer) pendingBuffers.delete(path);
+        } catch { /* Failed writes and removals stay visible to the unload guard. */ }
     }
+    return pendingBuffers.size === 0;
 }
 
 export function stageDirtyBuffer(path: string, content: string, savedContent: string): void {
     if (typeof window === "undefined" || !path || UNSAFE_KEYS.has(path)) return;
-    pendingBuffers.set(path, content === savedContent ? null : { path, content, savedContent, updatedAt: Date.now() });
+    const buffer = content === savedContent ? null : { path, content, savedContent, updatedAt: Date.now() };
+    if (buffer) ownedBuffers.set(path, buffer);
+    else ownedBuffers.delete(path);
+    pendingBuffers.set(path, buffer);
     if (flushTimer !== undefined) clearTimeout(flushTimer);
     flushTimer = setTimeout(flushDirtyBuffers, 250);
 }
@@ -78,7 +112,7 @@ export function stageDirtyBuffer(path: string, content: string, savedContent: st
 export function flushDirtyBuffers(): boolean {
     if (flushTimer !== undefined) clearTimeout(flushTimer);
     flushTimer = undefined;
-    return pendingBuffers.size === 0 || writeAll(readAll());
+    return pendingBuffers.size === 0 || writePending();
 }
 
 export function preventUnpersistedEditorUnload(event: BeforeUnloadEvent): void {
@@ -94,12 +128,15 @@ export function saveDirtyBuffer(path: string, content: string, savedContent: str
 
 export function clearDirtyBuffer(path: string): boolean {
     if (!path || UNSAFE_KEYS.has(path)) return false;
+    ownedBuffers.delete(path);
     pendingBuffers.set(path, null);
     return flushDirtyBuffers();
 }
 
 export function loadDirtyBuffer(path: string): DirtyBuffer | null {
-    return readAll().get(path) ?? null;
+    const buffer = readAll().get(path);
+    if (buffer) ownedBuffers.set(path, { ...buffer });
+    return buffer ?? null;
 }
 
 export function listDirtyBuffers(): DirtyBuffer[] {

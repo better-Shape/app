@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Conversation } from "@/lib/backend/types";
 import { getPinnedChatIds, setChatPinned, getCollections, deleteCollection } from "@/lib/sidebar/chat-list-meta";
 import { getChatDispositions, setChatDisposition } from "@/lib/sidebar/chat-disposition";
-import { resetChatUndoForTests } from "@/features/agent/sidebar/undo";
+import { resetChatUndoForTests, pushChatUndo } from "@/features/agent/sidebar/undo";
 import {
     installAnimationStub,
     stubReducedMotion,
@@ -469,7 +469,7 @@ it("filters sessions only after IME composition ends and does not open on compos
     } finally { window.removeEventListener("bettershape-chat-load", opened); }
 });
 
-it("uses the same visible selection for lifecycle counts and collection assignment", async () => {
+it.each(["search", "pending removal"] as const)("uses one selection for lifecycle counts and collection assignment after %s", async (mode) => {
     const existingCollections = new Set(getCollections().map(collection => collection.id));
     try {
         for (const id of ["a", "b"]) {
@@ -477,13 +477,18 @@ it("uses the same visible selection for lifecycle counts and collection assignme
             act(() => open.dispatchEvent(new MouseEvent("click", { bubbles: true, [shortcutModifier]: true })));
         }
         expect(host.querySelectorAll('[role="checkbox"][aria-checked="true"]')).toHaveLength(2);
-        act(() => host.querySelector<HTMLButtonElement>('button[aria-label="Search"]')!.click());
-        const input = host.querySelector<HTMLInputElement>('input[aria-label="Search sessions"]')!;
-        act(() => {
-            Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "Alpha");
-            input.dispatchEvent(new Event("input", { bubbles: true }));
-        });
-        expect(rowOrder()).toEqual(["a"]);
+        if (mode === "search") {
+            act(() => host.querySelector<HTMLButtonElement>('button[aria-label="Search"]')!.click());
+            const input = host.querySelector<HTMLInputElement>('input[aria-label="Search sessions"]')!;
+            act(() => {
+                Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "Alpha");
+                input.dispatchEvent(new Event("input", { bubbles: true }));
+            });
+            expect(rowOrder()).toEqual(["a"]);
+        } else {
+            act(() => { pushChatUndo({ kind: "delete", chatId: "a", label: "Delete Alpha" }); });
+            expect(rowOrder()).not.toContain("a");
+        }
         await act(async () => {
             host.querySelector<HTMLButtonElement>('button[aria-label="Sessions actions"]')!
                 .dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
@@ -498,9 +503,12 @@ it("uses the same visible selection for lifecycle counts and collection assignme
             await act(async () => button.click());
         }
         const created = getCollections().find(collection => !existingCollections.has(collection.id));
-        expect(created?.chatIds).toEqual(["a"]);
-        act(() => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
-        expect(row("b").querySelector('[role="checkbox"]')?.getAttribute("aria-checked")).toBe("false");
+        expect(created?.chatIds).toEqual([mode === "search" ? "a" : "b"]);
+        if (mode === "search") {
+            const input = host.querySelector<HTMLInputElement>('input[aria-label="Search sessions"]')!;
+            act(() => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+        } else pressUndoOn(window);
+        expect(row(mode === "search" ? "b" : "a").querySelector('[role="checkbox"]')?.getAttribute("aria-checked")).toBe("false");
     } finally {
         act(() => { for (const collection of getCollections()) if (!existingCollections.has(collection.id)) deleteCollection(collection.id); });
     }

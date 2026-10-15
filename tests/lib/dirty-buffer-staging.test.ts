@@ -18,7 +18,7 @@ it("makes a draft available immediately without a storage write for every keystr
     expect(write).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(250);
     expect(write).toHaveBeenCalledOnce();
-    expect(localStorage.getItem("bettershape-dirty-buffers-v1")).toContain("latest");
+    expect(localStorage.getItem("bettershape-dirty-buffers-v2:%2Fa.txt")).toContain("latest");
 });
 
 it("keeps session recovery available after quota failure and persists it on retry", async () => {
@@ -26,10 +26,10 @@ it("keeps session recovery available after quota failure and persists it on retr
     stageDirtyBuffer("/a.txt", "unsaved", "disk");
     await vi.advanceTimersByTimeAsync(250);
     expect(loadDirtyBuffer("/a.txt")?.content).toBe("unsaved");
-    expect(localStorage.getItem("bettershape-dirty-buffers-v1")).toBeNull();
+    expect(localStorage.getItem("bettershape-dirty-buffers-v2:%2Fa.txt")).toBeNull();
     flushDirtyBuffers();
     expect(write).toHaveBeenCalledTimes(2);
-    expect(localStorage.getItem("bettershape-dirty-buffers-v1")).toContain("unsaved");
+    expect(localStorage.getItem("bettershape-dirty-buffers-v2:%2Fa.txt")).toContain("unsaved");
 });
 
 it("does not resurrect a discarded staged draft when its timer fires", async () => {
@@ -46,7 +46,7 @@ it("reverts a persisted draft immediately while its deletion is waiting to flush
     expect(loadDirtyBuffer("/a.txt")).toBeNull();
     expect(dirtyOpenFiles([{ path: "/a.txt", is_dirty: false }])).toEqual([]);
     flushDirtyBuffers();
-    expect(localStorage.getItem("bettershape-dirty-buffers-v1")).not.toContain("old draft");
+    expect(localStorage.getItem("bettershape-dirty-buffers-v2:%2Fa.txt")).toBeNull();
 });
 
 it("acknowledges saved content without clearing a later staged edit", () => {
@@ -76,16 +76,16 @@ it.each([false, true])("requests a reload warning only when editor recovery cann
 
 it("blocks unload until a reverted draft's failed tombstone flush succeeds", () => {
     saveDirtyBuffer("/a.txt", "discarded draft", "disk");
-    const write = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("storage unavailable"); });
+    const write = vi.spyOn(Storage.prototype, "removeItem").mockImplementation(() => { throw new Error("storage unavailable"); });
     stageDirtyBuffer("/a.txt", "disk", "disk");
     expect(loadDirtyBuffer("/a.txt")).toBeNull();
     const blocked = new Event("beforeunload", { cancelable: true });
     preventUnpersistedEditorUnload(blocked as BeforeUnloadEvent);
     expect(blocked.defaultPrevented).toBe(true);
-    expect(localStorage.getItem("bettershape-dirty-buffers-v1")).toContain("discarded draft");
+    expect(localStorage.getItem("bettershape-dirty-buffers-v2:%2Fa.txt")).toContain("discarded draft");
     write.mockRestore();
     const retry = new Event("beforeunload", { cancelable: true });
     preventUnpersistedEditorUnload(retry as BeforeUnloadEvent);
     expect(retry.defaultPrevented).toBe(false);
-    expect(localStorage.getItem("bettershape-dirty-buffers-v1")).not.toContain("discarded draft");
+    expect(localStorage.getItem("bettershape-dirty-buffers-v2:%2Fa.txt")).toBeNull();
 });
