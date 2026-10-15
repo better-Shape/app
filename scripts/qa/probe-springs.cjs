@@ -151,4 +151,7 @@ const URL = process.env.PROBE_URL ?? "http://127.0.0.1:48921/?seed=project";
     }
 
     await browser.close();
-})();
+})().catch((error) => {
+    process.stderr.write(String(error?.stack ?? error) + "\n");
+    process.exit(1);
+});

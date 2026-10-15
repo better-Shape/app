@@ -13,6 +13,7 @@
  * Needs `@sparticuz/chromium` unpacked into `/tmp/sandboxlibs/lib`.
  */
 const { execFileSync } = require("node:child_process");
+const magick = require("./imagemagick.cjs");
 const { mkdirSync, readdirSync, rmSync, writeFileSync } = require("node:fs");
 const { join, resolve } = require("node:path");
 
@@ -228,7 +229,7 @@ function buildGif(framePaths, outPath) {
     for (const p of framePaths) args.push(p);
     args.push("-delay", "120", hold);
     args.push("-loop", "0", "-layers", "Optimize", "-colors", "128", outPath);
-    execFileSync("convert", args, { stdio: "pipe" });
+    execFileSync(magick.convert(), args, { stdio: "pipe" });
 }
 
 /** Build a labelled contact sheet so the motion is also reviewable as one still. */
@@ -237,7 +238,7 @@ function buildSheet(framePaths, outPath, label) {
     const args = ["-background", "#0b0b0d", "-fill", "#e6e6e6", "-pointsize", "22"];
     for (const p of framePaths) args.push("-label", "", p);
     args.push("-tile", `${cols}x`, "-geometry", "+6+6", "-border", "8", outPath);
-    execFileSync("montage", args, { stdio: "pipe" });
+    execFileSync(magick.montage(), args, { stdio: "pipe" });
     if (label) log(`  sheet: ${outPath}`);
 }
 

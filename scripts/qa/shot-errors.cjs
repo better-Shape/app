@@ -29,4 +29,7 @@ const { default: sparticuz } = require("@sparticuz/chromium");
   }
   console.log("\npageerrors:", errors.slice(0, 4));
   await browser.close();
-})();
+})().catch((error) => {
+    process.stderr.write(String(error?.stack ?? error) + "\n");
+    process.exit(1);
+});

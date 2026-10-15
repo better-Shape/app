@@ -52,4 +52,7 @@ const PAGE = `<!doctype html><html><head><meta charset="utf-8"><style>
     await page.screenshot({ path: out, fullPage: true });
     console.log(`mark: ${path.relative(ROOT, out)}`);
     await browser.close();
-})();
+})().catch((error) => {
+    process.stderr.write(String(error?.stack ?? error) + "\n");
+    process.exit(1);
+});

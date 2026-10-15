@@ -101,4 +101,7 @@ const readTransition = (el) => {
     console.log(`\n${failures === 0 ? "PASS" : `FAIL: ${failures} control(s) not on the spring vocabulary`}`);
     await browser.close();
     process.exit(failures === 0 ? 0 : 1);
-})();
+})().catch((error) => {
+    process.stderr.write(String(error?.stack ?? error) + "\n");
+    process.exit(1);
+});

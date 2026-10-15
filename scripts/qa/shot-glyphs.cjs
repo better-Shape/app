@@ -10,8 +10,10 @@
  */
 const fs = require("node:fs");
 const path = require("node:path");
+const { execFileSync } = require("node:child_process");
 const { chromium } = require("playwright");
 const { default: sparticuz } = require("@sparticuz/chromium");
+const magick = require("./imagemagick.cjs");
 
 const ROOT = path.resolve(__dirname, "../..");
 const OUT = path.join(ROOT, ".dump/app/qa/motion/glyphs.png");
@@ -26,7 +28,7 @@ const extract = (src, start) => {
     return src.slice(svgStart, svgEnd);
 };
 
-const crashMark = extract(crashSrc, "function CrashMark", "svg");
+const crashMark = extract(crashSrc, "function CrashMark");
 
 // The panel glyph is built from a mask, so it cannot be lifted as markup. The URLs below
 // are the app itself, with the toggles in each state.
@@ -71,7 +73,7 @@ const crashMark = extract(crashSrc, "function CrashMark", "svg");
         // Nearest-neighbour upscale: a smooth one would hide exactly the aliasing this is
         // supposed to reveal.
         const big = path.join(ROOT, ".dump/app/qa/motion", `_toggle-${name}-big.png`);
-        require("node:child_process").execFileSync("convert", [raw, "-filter", "point", "-resize", `${scale * 100}%`, big]);
+        execFileSync(magick.convert(), [raw, "-filter", "point", "-resize", `${scale * 100}%`, big]);
         shots.push(big);
         console.log(`  captured ${name} toggle at ${box.width}x${box.height} → ${scale}x`);
     }
@@ -90,10 +92,13 @@ const crashMark = extract(crashSrc, "function CrashMark", "svg");
     const args = ["-background", "#1b1b1b", "-gravity", "center"];
     for (const s of shots) args.push(s, "-splice", "0x10");
     args.push(markShot, "-append", OUT);
-    require("node:child_process").execFileSync("convert", args);
+    execFileSync(magick.convert(), args);
     console.log(`\nsheet: ${path.relative(ROOT, OUT)}`);
     for (const f of fs.readdirSync(path.join(ROOT, ".dump/app/qa/motion"))) {
         if (f.startsWith("_toggle-") || f.startsWith("_crash-mark")) fs.rmSync(path.join(ROOT, ".dump/app/qa/motion", f));
     }
     await browser.close();
-})();
+})().catch((error) => {
+    process.stderr.write(String(error?.stack ?? error) + "\n");
+    process.exit(1);
+});

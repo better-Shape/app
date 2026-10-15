@@ -9,4 +9,7 @@ const { default: sparticuz } = require("@sparticuz/chromium");
   await p.screenshot({ path: "/home/user/app/.dump/app/qa/motion/spring-compare.png", fullPage: true });
   console.log("captured");
   await b.close();
-})();
+})().catch((error) => {
+    process.stderr.write(String(error?.stack ?? error) + "\n");
+    process.exit(1);
+});

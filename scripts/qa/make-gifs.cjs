@@ -19,6 +19,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
+const magick = require("./imagemagick.cjs");
 const { chromium } = require("playwright");
 const { default: sparticuz } = require("@sparticuz/chromium");
 
@@ -372,8 +373,10 @@ if (!selected.length) {
         const mid = path.join(dir, frames[Math.floor(frames.length / 2)]);
         const palette = path.join(dir, "palette.png");
         try {
-            execFileSync("convert", [mid, "-resize", `${MAX_WIDTH}x`, "-colors", "140", palette]);
-            execFileSync("convert", [
+            execFileSync(magick.convert(), [mid, "-resize", `${MAX_WIDTH}x`, "-colors", "140", palette]);
+            execFileSync(
+                magick.convert(),
+                [
                 "-limit", "memory", "1GiB",
                 "-limit", "map", "1GiB",
                 "-delay", String(Math.max(2, Math.round(FRAME_MS / 10))),
@@ -396,4 +399,7 @@ if (!selected.length) {
     fs.writeFileSync(path.join(OUT, "manifest.json"), JSON.stringify(manifest, null, 2));
     console.log(`\nmanifest: ${path.relative(ROOT, path.join(OUT, "manifest.json"))}`);
     await browser.close();
-})();
+})().catch((error) => {
+    process.stderr.write(String(error?.stack ?? error) + "\n");
+    process.exit(1);
+});

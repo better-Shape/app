@@ -62,4 +62,7 @@ const PROBE = () => {
         await page.close();
     }
     await browser.close();
-})();
+})().catch((error) => {
+    process.stderr.write(String(error?.stack ?? error) + "\n");
+    process.exit(1);
+});

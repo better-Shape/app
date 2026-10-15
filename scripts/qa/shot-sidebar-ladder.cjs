@@ -37,4 +37,7 @@ const OUT = process.env.CAPTURE_OUT ?? ".dump/app/qa/motion";
 
     console.log(`wrote ${OUT}/sidebar-ladder-{rest,hover}.png  clip=${JSON.stringify(clip)}`);
     await browser.close();
-})();
+})().catch((error) => {
+    process.stderr.write(String(error?.stack ?? error) + "\n");
+    process.exit(1);
+});

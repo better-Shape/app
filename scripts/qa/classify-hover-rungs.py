@@ -83,10 +83,21 @@ REPLACEMENTS = [
 ]
 
 
+ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
+
+
+def repo_file(relative: str) -> pathlib.Path:
+    """Resolve a repo-relative path, refusing anything outside the repository root."""
+    resolved = (ROOT / relative).resolve()
+    if resolved != ROOT and ROOT not in resolved.parents:
+        raise SystemExit(f"refusing to write outside the repository: {relative}")
+    return resolved
+
+
 def main() -> None:
     changed = defaultdict(list)
     for path, spec in BUTTON_SITES.items():
-        p = pathlib.Path(path)
+        p = repo_file(path)
         lines = p.read_text().split("\n")
         targets = range(1, len(lines) + 1) if spec == "ALL" else spec
         for i in targets:

@@ -26,7 +26,7 @@ const URL = process.env.PROBE_URL ?? "http://127.0.0.1:48921/?seed=project";
     const alphaOf = (el) => {
         const cs = getComputedStyle(el);
         const m = String(cs.backgroundColor).match(/rgba?\(([^)]+)\)/);
-        const parts = m ? m[1].split(",").map((p) => parseFloat(p)) : [];
+        const parts = m ? m[1].split(",").map((p) => Number.parseFloat(p)) : [];
         return {
             alpha: parts.length === 4 ? Math.round(parts[3] * 1000) / 1000 : 1,
             transition: cs.transitionProperty === "all" ? `${cs.transitionDuration}` : `${cs.transitionDuration} ${cs.transitionTimingFunction}`,
@@ -103,7 +103,7 @@ const URL = process.env.PROBE_URL ?? "http://127.0.0.1:48921/?seed=project";
             ]),
         );
     });
-    const pct = (hex) => Number(((parseInt(hex.slice(7, 9), 16) / 255) * 100).toFixed(1));
+    const pct = (hex) => Number(((Number.parseInt(hex.slice(7, 9), 16) / 255) * 100).toFixed(1));
     console.log("\ntokens:", tokens);
     const h = pct(tokens["--row-hover"]);
     const s = pct(tokens["--row-selected"]);
@@ -113,4 +113,7 @@ const URL = process.env.PROBE_URL ?? "http://127.0.0.1:48921/?seed=project";
     console.log(`  ordering check: rest(${rest}) < hover(${hovered}) < selected(${committed}) < selected+hover(${rehovered})`);
     console.log(`  reversibility:  selected+hover(${rehovered}) -> released(${released})`);
     await browser.close();
-})();
+})().catch((error) => {
+    process.stderr.write(String(error?.stack ?? error) + "\n");
+    process.exit(1);
+});
