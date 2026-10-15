@@ -18,7 +18,7 @@ import {
 } from "@/features/terminal/background-run";
 import { commands } from "@/lib/backend";
 import { insertCssVariableInContent } from "@/lib/ui/css-variables";
-import { updateGlobalsCssCache, resolveGlobalsCss } from "@/lib/ui/css-variables-loader";
+import { invalidateGlobalsCssCache, updateGlobalsCssCache, resolveGlobalsCss } from "@/lib/ui/css-variables-loader";
 import { cn } from "@/lib/utils";
 import { discoverDesignPages, type DesignPage } from "../lib/discover-routes";
 import {
@@ -208,6 +208,10 @@ export function DesignStudio({
 
     const reportMappingError = useCallback((cause: unknown) => {
         setMappingError(cause instanceof Error ? cause.message : String(cause));
+    }, []);
+    const reportUnsavedPreviewEdit = useCallback((cause: unknown) => {
+        const reason = cause instanceof Error ? cause.message : String(cause);
+        setMappingError(`Preview changes were not saved. ${reason}`);
     }, []);
     const captureWriteAuthorization = useCallback(() => {
         const authorization = authorizationRef.current;
@@ -612,7 +616,10 @@ export function DesignStudio({
         let openedUrl: string | null = null;
         let startupFinished = false;
         const ownerAtBoot = projectPathRef.current;
-        let opening: { authorization: DesignAuthorization; url: string; promise: Promise<boolean> } | null = null;
+        type Opening = { authorization: DesignAuthorization; url: string };
+        let opening: Promise<boolean> | null = null;
+        let openingRequest: Opening | null = null;
+        let queuedOpening: Opening | null = null;
         authorizationRef.current = null;
         selectionRevision.current += 1;
         resetPreviewState();
@@ -647,50 +654,63 @@ export function DesignStudio({
                     const authorization = authorizeDesignPreview(info.projectRoot, url);
                     if (!authorization) return Promise.resolve(false);
                     const targetUrl = new URL(url).href;
-                    if (opened && openedUrl === targetUrl && isCurrentDesignAuthorization(authorizationRef.current, info.projectRoot)) return Promise.resolve(true);
                     if (opening) {
-                        if (opening.url === targetUrl && opening.authorization.serviceId === authorization.serviceId && opening.authorization.origin === authorization.origin) return opening.promise;
-                        // A replacement service or path announcement must survive an older
-                        // registration/probe. Revalidate it after that owner finishes.
-                        return opening.promise.then(() => openWhenReachable(url));
+                        const sameRequest = openingRequest?.url === targetUrl
+                            && openingRequest.authorization.serviceId === authorization.serviceId
+                            && openingRequest.authorization.origin === authorization.origin;
+                        queuedOpening = sameRequest ? null : { authorization, url: targetUrl };
+                        return opening;
                     }
-                    opened = false;
-                    authorizationRef.current = null;
-                    setReady(false);
-                    setBooting(true);
-                    setBootError(null);
-                    setSelection(null);
-                    setTarget(null);
-                    setLayers([]);
-                    setThemeTokens([]);
-                    const promise = (async () => {
-                        await commands.registerDesignBridge(scopeDesignBridge(DESIGN_BRIDGE_SCRIPT, authorization));
-                        if (cancelled) return false;
-                        const reachable = await commands.probePreviewUrl(url);
-                        if (cancelled || projectPathRef.current !== ownerAtBoot || !reachable || !isCurrentDesignAuthorization(authorization, info.projectRoot)) return false;
-                        authorizationRef.current = authorization;
-                        setBootError(null);
-                        // The owned probe just succeeded; do not introduce a second probe
-                        // that can fail after this boot has been marked open.
-                        opened = showPreviewUrl(url);
-                        openedUrl = opened ? targetUrl : null;
-                        if (!opened) authorizationRef.current = null;
-                        return opened;
-                    })().catch((cause: unknown) => {
-                        if (!cancelled) setBootError(cause instanceof Error ? cause.message : "Could not connect to the project preview.");
-                        return false;
-                    }).finally(() => {
-                        if (opening?.promise === promise) {
+                    if (opened && openedUrl === targetUrl && isCurrentDesignAuthorization(authorizationRef.current, info.projectRoot)) return Promise.resolve(true);
+                    queuedOpening = { authorization, url: targetUrl };
+                    // One worker and one replaceable slot: readiness bursts do not retain
+                    // a promise chain or register every obsolete route in order.
+                    opening = Promise.resolve().then(async () => {
+                        try {
+                            while (queuedOpening && !cancelled) {
+                                const request: Opening = queuedOpening;
+                                queuedOpening = null;
+                                openingRequest = request;
+                                if (projectPathRef.current !== ownerAtBoot || !isCurrentDesignAuthorization(request.authorization, info.projectRoot)) continue;
+                                opened = false;
+                                authorizationRef.current = null;
+                                setReady(false);
+                                setBooting(true);
+                                setBootError(null);
+                                setSelection(null);
+                                setTarget(null);
+                                setLayers([]);
+                                setThemeTokens([]);
+                                try {
+                                    await commands.registerDesignBridge(scopeDesignBridge(DESIGN_BRIDGE_SCRIPT, request.authorization));
+                                    if (cancelled || queuedOpening) continue;
+                                    const reachable = await commands.probePreviewUrl(request.url);
+                                    if (cancelled || queuedOpening || projectPathRef.current !== ownerAtBoot || !reachable
+                                        || !isCurrentDesignAuthorization(request.authorization, info.projectRoot)) continue;
+                                    authorizationRef.current = request.authorization;
+                                    setBootError(null);
+                                    opened = showPreviewUrl(request.url);
+                                    openedUrl = opened ? request.url : null;
+                                    if (!opened) authorizationRef.current = null;
+                                } catch (cause) {
+                                    if (!cancelled) setBootError(cause instanceof Error ? cause.message : "Could not connect to the project preview.");
+                                }
+                            }
+                            return opened;
+                        } finally {
+                            // Release synchronously with the last queue check so an event
+                            // cannot enqueue between worker completion and cleanup.
                             opening = null;
                             if (!cancelled && startupFinished && !opened && projectPathRef.current === ownerAtBoot
-                                && isCurrentDesignAuthorization(authorization, info.projectRoot)) {
+                                && isCurrentDesignAuthorization(openingRequest?.authorization ?? null, info.projectRoot)) {
                                 setBooting(false);
                                 setBootError(previous => previous ?? "Could not connect to the project preview.");
                             }
+                            openingRequest = null;
+                            queuedOpening = null;
                         }
                     });
-                    opening = { authorization, url: targetUrl, promise };
-                    return promise;
+                    return opening;
                 };
 
                 unsubscribeReady = subscribePreviewReady((url) => {
@@ -1011,14 +1031,12 @@ export function DesignStudio({
                 await persistJsx(current, { styles }, assertAuthorized);
                 setMappingError(null);
             } catch (cause) {
-                setMappingError(
-                    cause instanceof Error ? cause.message : String(cause),
-                );
+                reportUnsavedPreviewEdit(cause);
             } finally {
                 setSaved(true);
             }
         },
-        [admitSelectionWrite, persistJsx, selected],
+        [admitSelectionWrite, persistJsx, reportUnsavedPreviewEdit, selected],
     );
 
     const createToken = useCallback(
@@ -1035,7 +1053,12 @@ export function DesignStudio({
                     const next = insertCssVariableInContent(before, name, value);
                     assertAuthorized();
                     await commands.saveFile(resolved.path, next);
-                    assertAuthorized();
+                    // The file is already saved. A replaced preview loses publication
+                    // rights, not the successful write acknowledgement.
+                    try { assertAuthorized(); } catch {
+                        invalidateGlobalsCssCache(designerRoot);
+                        return;
+                    }
                     updateGlobalsCssCache(designerRoot, resolved.path, next);
                     setThemeTokens((now) => {
                         const index = now.findIndex((token) => token.name === name);
@@ -1050,6 +1073,8 @@ export function DesignStudio({
         [captureWriteAuthorization, designerRoot, reportMappingError],
     );
 
+    // Preserve failed text/attribute edits for retry, explicitly marked as unsaved
+    // in the canvas banner rather than rolling back input typed by the user.
     const commitText = useCallback(
         async (text: string) => {
             const current = selected;
@@ -1065,12 +1090,12 @@ export function DesignStudio({
                 await persistJsx(current, { text }, assertAuthorized);
                 setMappingError(null);
             } catch (cause) {
-                setMappingError(cause instanceof Error ? cause.message : String(cause));
+                reportUnsavedPreviewEdit(cause);
             } finally {
                 setSaved(true);
             }
         },
-        [admitSelectionWrite, persistJsx, selected, updateSelected],
+        [admitSelectionWrite, persistJsx, reportUnsavedPreviewEdit, selected, updateSelected],
     );
 
     const commitAttr = useCallback(
@@ -1091,12 +1116,12 @@ export function DesignStudio({
                 await persistJsx(current, { attributes: { [name]: value } }, assertAuthorized);
                 setMappingError(null);
             } catch (cause) {
-                setMappingError(cause instanceof Error ? cause.message : String(cause));
+                reportUnsavedPreviewEdit(cause);
             } finally {
                 setSaved(true);
             }
         },
-        [admitSelectionWrite, persistJsx, selected, updateSelected],
+        [admitSelectionWrite, persistJsx, reportUnsavedPreviewEdit, selected, updateSelected],
     );
 
     const patchComponent = useCallback((patch: ComponentOptionPatch) => {
@@ -1121,13 +1146,15 @@ export function DesignStudio({
         });
         if (patch.field === "text") {
             frame?.postMessage({ type: "bettershape-design-set-text", key: patch.key, text: String(patch.value) }, designMessageOrigin(authorizationRef.current, designerRootRef.current));
-            void persistJsx(current, { text: String(patch.value) }, assertAuthorized, { instance: true }).catch(reportMappingError);
+            void persistJsx(current, { text: String(patch.value) }, assertAuthorized, { instance: true })
+                .then(() => setMappingError(null)).catch(reportUnsavedPreviewEdit);
             return;
         }
         if (patch.field === "attr" && patch.attr) {
-            void persistJsx(current, { attributes: { [patch.attr]: String(patch.value) } }, assertAuthorized, { instance: true }).catch(reportMappingError);
+            void persistJsx(current, { attributes: { [patch.attr]: String(patch.value) } }, assertAuthorized, { instance: true })
+                .then(() => setMappingError(null)).catch(reportUnsavedPreviewEdit);
         }
-    }, [admitSelectionWrite, persistJsx, reportMappingError, selected, updateSelected]);
+    }, [admitSelectionWrite, persistJsx, reportUnsavedPreviewEdit, selected, updateSelected]);
 
     const openSource = useCallback(() => {
         if (!target) return;

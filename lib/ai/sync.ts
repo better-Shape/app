@@ -245,7 +245,10 @@ export function initAiConfigSync(): () => void {
                 // durable reads. Do not rewrite the unchanged startup snapshot.
                 // Edits made during its awaits retain their newer revision, and
                 // drafts / pending deletions / foreign intents still force retry.
-                if (hydrated) persistedCredentialRevision = hydrationRevision;
+                if (hydrated) {
+                    persistedCredentialRevision = hydrationRevision;
+                    touched.clear();
+                }
             } finally { booting = false; }
         }
         if (getCredentialRecoveryConflicts().length) {
@@ -283,8 +286,11 @@ export function initAiConfigSync(): () => void {
             .filter((id) => observed[id] !== next[id] || removedDescriptors.includes(id) || Boolean(next[id]) && scopes[id] !== observedScopes[id]).map((id) => [id, next[id] ?? ""]));
         if (Object.keys(changes).length) credentialRevision += 1;
         if (!hydrated) {
-            for (const id of new Set([...Object.keys(observed), ...Object.keys(next), ...Object.keys(scopes), ...Object.keys(observedScopes), ...removedDescriptors])) {
-                if (observed[id] !== next[id] || scopes[id] !== observedScopes[id] || removedDescriptors.includes(id)) touched.add(id);
+            // Removed descriptors cannot receive hydrated values. A later re-add is
+            // a fresh edit below; deletion authority remains in the vault intents.
+            for (const id of touched) if (!configured.has(id)) touched.delete(id);
+            for (const id of new Set([...Object.keys(observed), ...Object.keys(next), ...Object.keys(scopes), ...Object.keys(observedScopes)])) {
+                if (configured.has(id) && (observed[id] !== next[id] || scopes[id] !== observedScopes[id])) touched.add(id);
             }
         }
         observedConfigured = configured;
@@ -305,16 +311,19 @@ export function initAiConfigSync(): () => void {
     };
 }
 
-/** Initialization owners must retain edit tracking until hydration settles, even on failure. */
+/** Await work already queued, including hydration, without extending an owner's lifetime for future edits. */
 export async function aiConfigSettled(): Promise<void> {
-    let observed: Promise<void>;
-    do {
-        observed = pendingSync;
-        await observed;
-    } while (observed !== pendingSync);
+    await pendingSync;
 }
 
+/** Sends need a current configuration, but continual edits must produce a retryable failure rather than starvation. */
 export async function aiConfigReady(): Promise<void> {
-    await aiConfigSettled();
-    if (syncFailure) throw syncFailure;
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+        const observed = pendingSync;
+        await observed;
+        if (observed !== pendingSync) continue;
+        if (syncFailure) throw syncFailure;
+        return;
+    }
+    throw new Error("Provider settings keep changing. Wait for edits to finish, then retry.");
 }

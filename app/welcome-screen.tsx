@@ -179,7 +179,7 @@ export const WelcomeScreen = ({
 };
 
 /** Load recent folders for the welcome screen (client-only). */
-export function useRecentFolders(): RepoHistoryEntry[] {
+export const useRecentFolders = (): RepoHistoryEntry[] => {
     const entries = React.useSyncExternalStore(subscribeRepoHistory, getRepoHistorySnapshot, getServerRepoHistorySnapshot);
     return React.useMemo(() => entries.slice(0, 15), [entries]);
-}
+};

@@ -69,7 +69,9 @@ export function updateGlobalsCssCache(projectPath: string, path: string, content
     setCachedGlobalsCssContent(content);
 }
 
-export function invalidateGlobalsCssCache(): void {
+/** A late write may invalidate its own project's cache, never a newer project's content or load. */
+export function invalidateGlobalsCssCache(projectPath?: string): void {
+    if (projectPath !== undefined && cache?.projectPath !== projectPath && activeLoad?.projectPath !== projectPath) return;
     generation += 1;
     cache = null;
     activeLoad = null;

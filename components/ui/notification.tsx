@@ -127,6 +127,7 @@ function ToastCard({
     );
 }
 
+/** Render the client-only active toast stack and retire dismissed cards after their exit transition. */
 export function NotificationToasts() {
     const { notifications, toastIds } = useNotifications();
     const mounted = useIsMounted();

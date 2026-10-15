@@ -260,6 +260,18 @@ afterEach(() => {
         expect(rowOrder()).toEqual(before);
     });
 
+    it("announces recovery once after a failed refresh, not on every successful refresh", async () => {
+        expect(notificationStore.getSnapshot().notifications).toHaveLength(0);
+        commands.getConversations.mockRejectedValueOnce(new Error("unavailable"));
+        await act(async () => window.dispatchEvent(new Event("bettershape-chat-refresh")));
+        expect(notificationStore.getSnapshot().notifications.some(entry => entry.type === "error")).toBe(true);
+        await act(async () => window.dispatchEvent(new Event("bettershape-chat-refresh")));
+        await act(async () => window.dispatchEvent(new Event("bettershape-chat-refresh")));
+        const recovered = notificationStore.getSnapshot().notifications.filter(entry => entry.type === "success");
+        expect(recovered).toHaveLength(1);
+        expect(recovered[0].message).toBe("Chats refreshed");
+    });
+
     it("renders every chat with a motion id and no headers when one shelf holds them all", () => {
         expect(rowOrder()).toEqual(["d", "a", "c", "b"]);
         expect(shelfHeaders()).toHaveLength(0);

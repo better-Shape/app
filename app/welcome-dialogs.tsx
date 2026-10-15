@@ -104,6 +104,7 @@ export function WelcomeCloneDialog({
 
     }
 
+    /** Retain the chosen clone URL while advancing to destination selection. */
     const goToDir = (repoUrl: string) => {
         setPendingUrl(repoUrl);
         setStep("dir");
@@ -236,6 +237,7 @@ export function WelcomeSshDialog({
 
     }
 
+    /** Validate an SSH host/optional port before opening a terminal and submitting the connection command. */
     const connect = (value: string) => {
         const trimmed = value.trim();
         if (!trimmed) {

@@ -294,6 +294,7 @@ export function ChatList({
     }, []);
 
     const chatsVersion = useRef(0);
+    const refreshFailed = useRef(false);
     const [listOwner, setListOwner] = useState(project_path);
     if (listOwner !== project_path) {
         setListOwner(project_path);
@@ -304,9 +305,16 @@ export function ChatList({
         const version = ++chatsVersion.current;
         if (!project_path) return Promise.resolve();
         return commands.getConversations(project_path).then(next => {
-            if (version === chatsVersion.current) setChats(next);
+            if (version !== chatsVersion.current) return;
+            setChats(next);
+            if (refreshFailed.current) {
+                refreshFailed.current = false;
+                notify.success("Chats refreshed");
+            }
         }).catch(() => {
-            if (version === chatsVersion.current) notify.error("Could not refresh chats", "Showing the last loaded chats. Try again.");
+            if (version !== chatsVersion.current) return;
+            refreshFailed.current = true;
+            notify.error("Could not refresh chats", "Showing the last loaded chats. Try again.");
         });
     }, [project_path]);
 
@@ -319,6 +327,7 @@ export function ChatList({
         window.addEventListener("bettershape-chat-active", onRefresh);
         return () => {
             chatsVersion.current += 1;
+            refreshFailed.current = false;
             window.removeEventListener("bettershape-chat-refresh", onRefresh);
             window.removeEventListener("bettershape-chats-changed", onRefresh);
             window.removeEventListener("bettershape-chat-active", onRefresh);

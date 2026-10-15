@@ -64,3 +64,24 @@ it.each(["", ":root {}", "body { color: red; }"])("can locate an existing styles
     read.mockResolvedValue(content);
     expect(await resolveGlobalsCss("/project")).toEqual({ path: "/project/app/globals.css", content });
 });
+
+
+it("does not invalidate another project's cached CSS after a stale write acknowledgement", async () => {
+    read.mockResolvedValue(":root { --other: green; }");
+    await resolveGlobalsCss("/other");
+    const calls = read.mock.calls.length;
+    invalidateGlobalsCssCache("/original");
+    expect(await resolveGlobalsCss("/other")).toEqual({ path: "/other/app/globals.css", content: ":root { --other: green; }" });
+    expect(read).toHaveBeenCalledTimes(calls);
+});
+
+it("does not cancel another project's pending discovery when invalidating a stale owner", async () => {
+    let finish!: (content: string) => void;
+    read.mockImplementationOnce(() => new Promise<string>(resolve => { finish = resolve; }));
+    const loading = resolveGlobalsCss("/other");
+    invalidateGlobalsCssCache("/original");
+    finish(":root { --other: green; }");
+    await loading;
+    expect((await resolveGlobalsCss("/other")).content).toBe(":root { --other: green; }");
+    expect(read).toHaveBeenCalledTimes(1);
+});

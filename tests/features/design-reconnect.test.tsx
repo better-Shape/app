@@ -658,3 +658,82 @@ it("reports the actual destination-write failure through the mounted export cont
     });
     expect(button.getAttribute("aria-busy")).not.toBe("true");
 });
+
+
+it.each([64, 1000])("coalesces a burst of %i replacement routes into the latest request", async count => {
+    await render();
+    let finish!: () => void;
+    backend.register.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; }));
+    await announcePath("/first");
+    await act(async () => {
+        for (let index = 0; index < count; index += 1) {
+            backend.service = { ...backend.service, url: `http://localhost:5173/latest/${index}` };
+            for (const callback of backend.ready) callback(backend.service.url);
+        }
+    });
+    expect(backend.register).toHaveBeenCalledTimes(2);
+    await act(async () => finish());
+    expect(backend.register).toHaveBeenCalledTimes(3);
+    expect(backend.probe.mock.calls.map(([url]) => url)).toEqual(["http://localhost:5173/", `http://localhost:5173/latest/${count - 1}`]);
+    expect(host.querySelector("iframe")?.src).toBe(`http://localhost:5173/latest/${count - 1}`);
+});
+
+it("drops queued replacement routes when the design owner unmounts", async () => {
+    await render();
+    let finish!: () => void;
+    backend.register.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; }));
+    await announcePath("/first");
+    await announcePath("/latest");
+    await act(async () => root.render(null));
+    await act(async () => finish());
+    expect(backend.register).toHaveBeenCalledTimes(2);
+    expect(backend.probe).toHaveBeenCalledTimes(1);
+    expect(backend.ready.size).toBe(0);
+});
+
+
+it("acknowledges a saved token and refreshes its cache without publishing to a replaced preview", async () => {
+    const loader = await vi.importActual<typeof import("@/lib/ui/css-variables-loader")>("@/lib/ui/css-variables-loader");
+    backend.css.mockImplementation(loader.resolveGlobalsCss);
+    let disk = ":root {}";
+    backend.read.mockImplementation(async () => disk);
+    backend.cssRead.mockImplementation(async () => disk);
+    const panel = await selectForMutation();
+    let finish!: () => void;
+    backend.save.mockImplementationOnce((_path: string, content: string) => new Promise<void>(resolve => {
+        finish = () => { disk = content; resolve(); };
+    }));
+    await act(async () => panel.onCreateToken!("--acknowledged", "blue"));
+    expect(backend.save).toHaveBeenCalledTimes(1);
+    await replaceService(8);
+    await act(async () => finish());
+    expect(host.textContent).not.toContain("The preview changed");
+    expect((await loader.resolveGlobalsCss("/project")).content).toContain("--acknowledged: blue");
+    expect(backend.panel!.element).toBeNull();
+});
+
+it.each(["text", "attribute", "component"])("labels a failed optimistic %s edit as unsaved and retains it for retry", async kind => {
+    await selectForMutation();
+    if (kind === "component") {
+        const current = backend.panel!.element!;
+        await selectSource({ ...current, component: { ...current.component!, properties: [
+            { name: "Text", kind: "text", attr: "", value: "Hello" },
+        ] } });
+    }
+    const edit = () => {
+        const panel = backend.panel!;
+        if (kind === "text") panel.onCommitText?.("Changed");
+        else if (kind === "attribute") panel.onCommitAttr?.("title", "Changed");
+        else panel.onComponentPatch?.({ key: panel.element!.key, field: "text", value: "Changed" });
+    };
+    backend.patch.mockRejectedValueOnce(new Error("Disk full"));
+    await act(async () => edit());
+    expect(host.textContent).toContain("Preview changes were not saved. Disk full");
+    const element = backend.panel!.element!;
+    if (kind === "text") expect(element.text).toBe("Changed");
+    if (kind === "attribute") expect(element.attributes.title).toBe("Changed");
+    if (kind === "component") expect(element.component!.properties.some(property => property.value === "Changed")).toBe(true);
+    await act(async () => edit());
+    expect(backend.patch).toHaveBeenCalledTimes(2);
+    expect(host.textContent).not.toContain("Preview changes were not saved");
+});

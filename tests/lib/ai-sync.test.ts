@@ -347,3 +347,61 @@ it("does not mark a newer credential edit clean when an older sync acknowledges"
     expect(state.vault.get("openai")).toBe("example-later");
     expect(state.vaulted).toBe(true);
 });
+
+
+it("settles the captured initialization work without waiting for later settings edits", async () => {
+    let finish: (() => void) | undefined;
+    state.configure.mockImplementationOnce(async () => {
+        state.config.revision = "later";
+        change({});
+    }).mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; }));
+    stop = sync.initAiConfigSync();
+    let settled = false;
+    void sync.aiConfigSettled().then(() => { settled = true; });
+    try {
+        await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+        await vi.waitFor(() => expect(settled).toBe(true));
+    } finally {
+        finish?.();
+    }
+    await sync.aiConfigReady();
+});
+
+it("fails readiness under continual configuration churn and permits a later retry", async () => {
+    let edits = 0;
+    state.configure.mockImplementation(async () => {
+        if (edits >= 32) return;
+        state.config.revision = String(++edits);
+        change({});
+    });
+    stop = sync.initAiConfigSync();
+    try {
+        await expect(sync.aiConfigReady()).rejects.toThrow("Provider settings keep changing");
+        expect(edits).toBeLessThan(32);
+    } finally {
+        state.configure.mockResolvedValue(undefined);
+    }
+    await expect(sync.aiConfigReady()).resolves.toBeUndefined();
+});
+
+it("retains only live header edits through failed hydration and descriptor removal/re-add", async () => {
+    state.supported.mockResolvedValue(false);
+    stop = sync.initAiConfigSync(); await sync.aiConfigReady();
+    for (let index = 0; index < 40; index += 1) {
+        const name = `Transient${index}`;
+        state.headers = { [name]: "" };
+        change({ [`header:custom:${name}`]: "example-unsaved" });
+    }
+    state.headers = { Authorization: "" };
+    change({ "header:custom:Authorization": "example-kept" });
+    await sync.aiConfigReady();
+    state.supported.mockResolvedValue(true);
+    await sync.retryCredentialPersistence(); await sync.aiConfigReady();
+    expect(state.secrets).toEqual({ "header:custom:Authorization": "example-kept" });
+    expect(state.vault.get("header:custom:Authorization")).toBe("example-kept");
+    expect([...state.vault.keys()].filter(id => id.includes("Transient"))).toEqual([]);
+    state.headers = { Transient0: "" };
+    change({ "header:custom:Transient0": "example-readded" });
+    await sync.aiConfigReady();
+    expect(state.vault.get("header:custom:Transient0")).toBe("example-readded");
+});
