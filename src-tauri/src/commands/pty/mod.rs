@@ -1,3 +1,5 @@
+mod exit_status;
+
 use crate::core::error::AppError;
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
 use serde::Serialize;
@@ -151,7 +153,7 @@ pub fn looks_like_input_prompt(output: &str) -> bool {
 pub struct PtySession {
     master: Box<dyn MasterPty + Send>,
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
-    child: Box<dyn portable_pty::Child + Send>,
+    child: Arc<Mutex<Box<dyn portable_pty::Child + Send + Sync>>>,
     cancellation_token: CancellationToken,
     meta: Arc<SessionMeta>,
 }
@@ -193,9 +195,11 @@ impl PtyState {
 
     pub fn kill_all_sync(&self) {
         if let Ok(mut sessions) = self.sessions.lock() {
-            for (_, mut session) in sessions.drain() {
+            for (_, session) in sessions.drain() {
                 session.cancellation_token.cancel();
-                let _ = session.child.kill();
+                if let Ok(mut child) = session.child.lock() {
+                    let _ = child.kill();
+                }
                 session.meta.mark_exited(Some(-1));
             }
         }
@@ -285,7 +289,8 @@ impl PtyState {
         // PTY sessions: confirm against the child process (reader EOF can lag).
         if let Ok(mut sessions) = self.sessions.lock() {
             if let Some(session) = sessions.get_mut(&id) {
-                return match session.child.try_wait() {
+                let status = session.child.lock().ok()?.try_wait();
+                return match status {
                     Ok(Some(status)) => {
                         session.meta.mark_exited(Some(status.exit_code() as i32));
                         Some(false)
@@ -461,6 +466,7 @@ struct PtyOutput {
 #[derive(Clone, Serialize)]
 struct PtyExit {
     id: u32,
+    exit_code: i32,
 }
 
 /// Emitted when a background `pty_spawn_run` (or TCP probe) finds a live preview URL.
@@ -1220,7 +1226,9 @@ async fn spawn_pty_with_command(
     cmd.env("TERM", "xterm-256color");
     cmd.env("CLAW_TERMINAL", "1");
 
-    let child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
+    let child = Arc::new(Mutex::new(
+        pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?,
+    ));
 
     let mut reader = pair
         .master
@@ -1270,7 +1278,7 @@ async fn spawn_pty_with_command(
             PtySession {
                 master: pair.master,
                 writer: writer.clone(),
-                child,
+                child: child.clone(),
                 cancellation_token: cancellation_token.clone(),
                 meta: meta.clone(),
             },
@@ -1287,24 +1295,10 @@ async fn spawn_pty_with_command(
         let mut buf = [0u8; 8192];
         loop {
             if token.is_cancelled() {
-                meta.mark_exited(meta.exit_code().or(Some(-1)));
-                if let Some(cb) = &callbacks {
-                    (cb.on_exit)(session_id, meta.exit_code().unwrap_or(-1));
-                }
-                let _ = app_for_thread.emit("pty-exit", PtyExit { id: session_id });
                 break;
             }
             match reader.read(&mut buf) {
-                Ok(0) => {
-                    // EOF: the child exited. Exit code is filled in lazily by
-                    // session_is_running / kill; mark finished so waiters wake.
-                    meta.mark_exited(meta.exit_code());
-                    if let Some(cb) = &callbacks {
-                        (cb.on_exit)(session_id, meta.exit_code().unwrap_or(-1));
-                    }
-                    let _ = app_for_thread.emit("pty-exit", PtyExit { id: session_id });
-                    break;
-                }
+                Ok(0) => break,
                 Ok(n) => {
                     #[cfg(windows)]
                     if buf[..n].windows(4).any(|w| w == b"\x1b[6n") {
@@ -1353,18 +1347,36 @@ async fn spawn_pty_with_command(
                         },
                     );
                 }
-                Err(_) => {
-                    meta.mark_exited(meta.exit_code());
-                    if let Some(cb) = &callbacks {
-                        (cb.on_exit)(session_id, meta.exit_code().unwrap_or(-1));
-                    }
-                    if !token.is_cancelled() {
-                        let _ = app_for_thread.emit("pty-exit", PtyExit { id: session_id });
-                    }
-                    break;
-                }
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(_) => break,
             }
         }
+        let observed = exit_status::wait_for_exit(&child, |child| {
+            child
+                .try_wait()
+                .map(|status| status.map(|status| status.exit_code() as i32))
+        });
+        if let Err(error) = &observed {
+            log::warn!("Could not collect PTY exit status for session {session_id}: {error}");
+        }
+        let observed = if token.is_cancelled() {
+            -1
+        } else {
+            observed.unwrap_or(-1)
+        };
+        meta.mark_exited(Some(observed));
+        // A concurrent explicit Stop may already have recorded cancellation.
+        let exit_code = meta.exit_code().unwrap_or(-1);
+        if let Some(cb) = &callbacks {
+            (cb.on_exit)(session_id, exit_code);
+        }
+        let _ = app_for_thread.emit(
+            "pty-exit",
+            PtyExit {
+                id: session_id,
+                exit_code,
+            },
+        );
     });
 
     Ok(id)
@@ -1563,9 +1575,11 @@ pub async fn pty_kill(state: tauri::State<'_, PtyState>, id: u32) -> Result<(), 
 pub async fn kill_session(state: &PtyState, id: u32) -> Result<(), AppError> {
     {
         let mut sessions = state.sessions.lock()?;
-        if let Some(mut session) = sessions.remove(&id) {
+        if let Some(session) = sessions.remove(&id) {
             session.cancellation_token.cancel();
-            let _ = session.child.kill();
+            if let Ok(mut child) = session.child.lock() {
+                let _ = child.kill();
+            }
             // Killed sessions report exit code -1 and wake any waiters.
             session.meta.mark_exited(Some(-1));
             return Ok(());
@@ -1590,9 +1604,11 @@ pub async fn kill_session(state: &PtyState, id: u32) -> Result<(), AppError> {
 pub async fn pty_kill_all(state: tauri::State<'_, PtyState>) -> Result<(), AppError> {
     {
         let mut sessions = state.sessions.lock()?;
-        for (_, mut session) in sessions.drain() {
+        for (_, session) in sessions.drain() {
             session.cancellation_token.cancel();
-            let _ = session.child.kill();
+            if let Ok(mut child) = session.child.lock() {
+                let _ = child.kill();
+            }
             session.meta.mark_exited(Some(-1));
         }
     }
@@ -1652,5 +1668,40 @@ mod scrape_tests {
     fn next_dev_gets_hostname_flag() {
         let out = with_ipv4_hostname("next dev --turbopack --port 3003");
         assert_eq!(out, "next dev --turbopack --port 3003 --hostname 127.0.0.1");
+    }
+}
+
+#[cfg(test)]
+mod exit_tests {
+    use super::*;
+
+    #[test]
+    fn native_exit_event_includes_the_renderer_status_field() {
+        for code in [0, 7, -1] {
+            let payload = serde_json::to_value(PtyExit {
+                id: 42,
+                exit_code: code,
+            })
+            .unwrap();
+            assert_eq!(payload, serde_json::json!({ "id": 42, "exit_code": code }));
+        }
+    }
+
+    #[test]
+    fn an_observed_zero_exit_survives_later_cleanup() {
+        let meta = SessionMeta::new(SessionKind::UserShell);
+        meta.mark_exited(Some(0));
+        meta.mark_exited(None);
+        assert_eq!(meta.exit_code(), Some(0));
+        assert!(!meta.is_running());
+    }
+
+    #[test]
+    fn an_explicit_stop_is_not_replaced_by_the_collected_child_status() {
+        let meta = SessionMeta::new(SessionKind::AgentPty);
+        meta.mark_exited(Some(-1));
+        meta.mark_exited(Some(1));
+        assert_eq!(meta.exit_code(), Some(-1));
+        assert!(!meta.is_running());
     }
 }
