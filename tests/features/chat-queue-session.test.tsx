@@ -32,7 +32,7 @@ const backend = vi.hoisted(() => ({
 const stream = vi.hoisted(() => ({
     adopter: null as null | ((id: string) => void),
     liveConvId: null as string | null,
-    api: null as null | { setIsLoading: (v: boolean) => void },
+    api: null as null | { setIsLoading: (v: boolean) => void; showConversation: (id: string | null) => void },
 }));
 
 vi.mock("@/lib/ai/bootstrap", () => ({ waitForAiConfiguration: backend.initialization }));
@@ -98,7 +98,7 @@ vi.mock("@/features/chat/lib/chat-stream-store", async () => {
             const [viewedConversationId, setViewed] = ReactModule.useState<string | null>(null);
             const viewRef = ReactModule.useRef<string | null>(null);
             const seqRef = ReactModule.useRef(0);
-            stream.api = { setIsLoading };
+
             const getViewedConversationId = ReactModule.useCallback(() => viewRef.current, []);
             const getDraftConversationId = ReactModule.useCallback(() => null, []);
             const showConversation = ReactModule.useCallback((id: string | null) => {
@@ -108,6 +108,7 @@ vi.mock("@/features/chat/lib/chat-stream-store", async () => {
                 setIsLoading(Boolean(id && stream.liveConvId === id));
                 return ++seqRef.current;
             }, []);
+            stream.api = { setIsLoading, showConversation };
             const isCurrentView = ReactModule.useCallback(
                 (seq: number) => seqRef.current === seq,
                 [],
@@ -711,6 +712,32 @@ it("sends a queued message only after the stopped turn releases the chat's lane"
     expect(sentMessages()).toEqual(["running@X", "queued@X"]);
     expect(session.messageQueue).toEqual([]);
     await resolveOldestSend();
+    await resolveOldestSend();
+});
+
+it("keeps a send-now row in its own chat when the user switches tabs during the lane wait", async () => {
+    await startTurn("running");
+    await typeAndSend("queued");
+    const queued = session.messageQueue[0];
+    // Hold the lane open so the tab switch lands while the wait is still polling.
+    let generating = true;
+    vi.mocked(commands.getChatGenerationState).mockImplementation(async () => ({ isGenerating: generating }));
+    act(() => {
+        void session.handleSendQueuedNow(queued.id);
+    });
+    await settle();
+    act(() => stream.api?.showConversation("B"));
+    generating = false;
+    await act(async () => {
+        await new Promise((r) => setTimeout(r, 80));
+    });
+    await settle();
+    // Nothing was delivered into the chat the user moved to...
+    expect(sentMessages()).toEqual(["running@X"]);
+    // ...and the row is still queued for the chat it was queued in.
+    act(() => stream.api?.showConversation("X"));
+    await settle();
+    expect(session.messageQueue.map((item) => item.content)).toEqual(["queued"]);
     await resolveOldestSend();
 });
 

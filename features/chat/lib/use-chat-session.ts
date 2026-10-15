@@ -1842,6 +1842,14 @@ export function useChatSession(
             // the send: the row goes back to a queue that drains only on some later state
             // change, so a successful Stop looks like a lost message. Wait for the lane.
             await waitForChatLaneFree(stoppedTarget);
+            // The queue's rule is that a row goes out only while the chat it was queued in
+            // is still the chat on screen. If the user switched tabs during the wait, keep
+            // the row in its own queue - it drains when that chat is on screen and idle -
+            // instead of delivering it into whichever chat is on screen now.
+            if (getViewedConversationId() !== stoppedTarget) {
+                restoreQueuedMessage(item);
+                return;
+            }
             delivered = await handleSendMessageRef.current(item.content);
             if (!delivered) restoreQueuedMessage(item);
         } catch (err) {
