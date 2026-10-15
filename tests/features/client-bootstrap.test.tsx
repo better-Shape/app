@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({ settings: vi.fn(), sync: vi.fn(), stop: vi.fn(
 vi.mock("next/navigation", () => ({ usePathname: () => "/settings" }));
 vi.mock("@/lib/settings", () => ({ initSettings: mocks.settings }));
 vi.mock("@/lib/github/store", () => ({ initGitHubAuth: vi.fn() }));
-vi.mock("@/lib/ai/sync", () => ({ initAiConfigSync: mocks.sync, aiConfigReady: async () => undefined }));
+vi.mock("@/lib/ai/sync", () => ({ initAiConfigSync: mocks.sync, aiConfigReady: async () => undefined, aiConfigSettled: async () => undefined }));
 vi.mock("@/lib/mcp/registry", () => ({ syncActiveMcpServers: vi.fn() }));
 vi.mock("@/features/notifications", () => ({ notify: { error: mocks.error } }));
 vi.mock("@/lib/window/tauri-window", () => ({ isTauriRuntime: () => true, isMainTauriWindow: async () => false }));

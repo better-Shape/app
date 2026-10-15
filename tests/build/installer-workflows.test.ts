@@ -44,10 +44,11 @@ it("scans the real PR base/head instead of main and does not hide diff errors", 
     const check = steps("pr").find((step) => step.name === "Check for accidentally committed secrets patterns")!;
     expect(check.env?.BASE_SHA).toBe("${{ github.event.pull_request.base.sha }}");
     expect(check.env?.HEAD_SHA).toBe("${{ github.event.pull_request.head.sha }}");
-    expect(check.run).toContain('DIFF=$(git diff "$BASE_SHA...$HEAD_SHA" --unified=0)');
+    expect(check.run).toContain('set -euo pipefail');
+    expect(check.run).toContain('git diff "$BASE_SHA...$HEAD_SHA" --unified=0 | node scripts/ci/check-secrets.mjs');
     expect(check.run).not.toContain("origin/main");
     expect(check.run).not.toContain("git diff HEAD~1");
-    expect(check.run?.match(/> \/dev\/null; then/g)).toHaveLength(2);
+    expect(check.run).not.toContain("grep -v");
 });
 
 it("keeps dispatch tag input out of generated shell source, including comments", () => {

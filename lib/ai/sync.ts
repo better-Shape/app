@@ -59,6 +59,7 @@ function configuredSecretIds(): string[] {
 
 let lastSynced = "";
 let pendingSync: Promise<void> = Promise.resolve();
+let syncFailure: Error | undefined;
 let retrySync: (() => Promise<void>) | undefined;
 
 export async function retryCredentialPersistence(): Promise<void> {
@@ -67,7 +68,7 @@ export async function retryCredentialPersistence(): Promise<void> {
 }
 
 export async function reviewSavedCredentials(confirm: (destinations: string[]) => Promise<boolean>): Promise<boolean> {
-    await aiConfigReady();
+    await aiConfigSettled();
     const baseline = getSettings();
     const revision = getCredentialDraftRevision();
     const ids = getCredentialRecoveryConflicts();
@@ -107,7 +108,8 @@ export async function syncAiConfig(): Promise<void> {
         await commands.setAiConfig(payload);
         lastSynced = serialized;
     } catch {
-        notify.error("Could not apply provider settings", "Saved credentials may have changed. Reload settings before retrying.");
+        lastSynced = "";
+        throw new Error("Provider settings are not applied");
     }
 }
 
@@ -225,11 +227,11 @@ export function initAiConfigSync(): () => void {
         }
         if (getCredentialRecoveryConflicts().length) {
             notify.error("Credential recovery needs review", "Reload after the other window finishes saving, or re-enter the affected credentials in Settings > Providers. Existing saved copies have not been removed.");
-            return;
+            throw new Error("Provider settings are not applied");
         }
         if (await vaultAvailable()) {
             const stored = await pushSecretsToVault(reconcile);
-            if (stored === undefined) return;
+            if (stored === undefined) throw new Error("Provider settings are not applied");
             setSecretsVaulted(stored);
             if (!stored) notify.error("Could not update saved credentials", "Credential changes are unsaved and remain only in this window. Unlock the system keychain, then retry in Settings > Providers before closing.");
         } else {
@@ -238,9 +240,14 @@ export function initAiConfigSync(): () => void {
         }
         await syncAiConfig();
     };
-    const enqueue = (retryHydration = false) => {
-        pendingSync = pendingSync.then(() => sync(retryHydration)).catch(() => {
-            notify.error("Could not synchronize provider settings");
+    const enqueue = (retryHydration = false, failureTitle = "Could not synchronize provider settings") => {
+        pendingSync = pendingSync.then(async () => {
+            await sync(retryHydration);
+            syncFailure = undefined;
+        }).catch(() => {
+            booting = false;
+            syncFailure = new Error("Provider settings are not applied");
+            notify.error(failureTitle);
         });
         return pendingSync;
     };
@@ -270,17 +277,23 @@ export function initAiConfigSync(): () => void {
     });
     // Hydration and subsequent edits share one queue: a slow write can never
     // overtake a newer deletion and put the old credential back into the vault.
-    pendingSync = pendingSync.then(() => sync()).catch(() => {
-        booting = false;
-        notify.error("Could not load provider credentials");
-    });
+    void enqueue(false, "Could not load provider credentials");
     return () => {
         unsubscribe();
         if (retrySync === retry) retrySync = undefined;
     };
 }
 
-/** Resolves once boot and all settings changes queued so far have synchronized. */
-export function aiConfigReady(): Promise<void> {
-    return pendingSync;
+/** Initialization owners must retain edit tracking until hydration settles, even on failure. */
+export async function aiConfigSettled(): Promise<void> {
+    let observed: Promise<void>;
+    do {
+        observed = pendingSync;
+        await observed;
+    } while (observed !== pendingSync);
+}
+
+export async function aiConfigReady(): Promise<void> {
+    await aiConfigSettled();
+    if (syncFailure) throw syncFailure;
 }

@@ -288,7 +288,7 @@ export function ChatList({
             const next = await commands.getConversations(project_path);
             if (version === chatsVersion.current) setChats(next);
         } catch {
-            if (version === chatsVersion.current) setChats([]);
+            if (version === chatsVersion.current) notify.error("Could not refresh chats", "Showing the last loaded chats. Try again.");
         }
     }, [project_path]);
 

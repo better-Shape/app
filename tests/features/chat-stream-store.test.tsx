@@ -436,3 +436,56 @@ it("stopping a background owner does not stop the conversation on screen", async
     expect(api.hasLiveTurn("A")).toBe(true);
     expect(api.hasLiveTurn("B")).toBe(false);
 });
+
+it("keeps accepting tokens until the captured Stop is acknowledged", async () => {
+    await mount("A"); await answerMessages("A", []);
+    emit("chat_started", { conversationId: "A", turnId: "running" });
+    const stop = api.prepareStop("A");
+    expect(stop?.conversationId).toBe("A");
+    expect(api.hasLiveTurn("A")).toBe(true);
+    emit("chat_token", { conversationId: "A", turnId: "running", chunk: "still running" });
+    expect(api.messages.some(message => message.content.includes("still running"))).toBe(true);
+    act(() => stop?.commit());
+    expect(api.isLoading).toBe(false);
+});
+it("does not retire a replacement when an earlier Stop acknowledges late", async () => {
+    await mount("A"); await answerMessages("A", []);
+    emit("chat_started", { conversationId: "A", turnId: "old" });
+    const stop = api.prepareStop("A");
+    emit("chat_complete", { conversationId: "A", turnId: "old" });
+    emit("chat_started", { conversationId: "A", turnId: "replacement" });
+    act(() => stop?.commit());
+    expect(api.isLoading).toBe(true);
+    expect(api.turnId).toBe(nativeTurnId("replacement"));
+});
+it("follows the captured draft request across binding without stopping the next draft", async () => {
+    const { createChatRequestId } = await import("@/lib/chat/request-ownership");
+    await mount(null);
+    const request = createChatRequestId(null);
+    act(() => api.appendUserOptimistic("first draft", null, request));
+    const stop = api.prepareStop(null);
+    emit("chat_started", { conversationId: "A", turnId: "first", requestId: request });
+    act(() => api.startDraftChat());
+    const next = createChatRequestId(null);
+    act(() => api.appendUserOptimistic("next draft", null, next));
+    act(() => stop?.commit());
+    expect(api.hasLiveTurn("A")).toBe(false);
+    expect(api.ownsRequest(null, next)).toBe(true);
+    expect(api.isLoading).toBe(true);
+});
+it("does not use an earlier draft's conversation as a new draft's Stop owner", async () => {
+    const { createChatRequestId } = await import("@/lib/chat/request-ownership");
+    await mount(null);
+    const first = createChatRequestId(null);
+    act(() => api.appendUserOptimistic("first", null, first));
+    emit("chat_started", { conversationId: "A", turnId: "first", requestId: first });
+    act(() => api.startDraftChat());
+    const next = createChatRequestId(null);
+    act(() => api.appendUserOptimistic("next", null, next));
+    const stop = api.prepareStop(null);
+    expect(stop?.conversationId).toBeNull();
+    expect(stop?.requestId).toBe(next);
+    act(() => stop?.commit());
+    expect(isChatGenerating("A")).toBe(true);
+    expect(api.hasLiveTurn("A")).toBe(true);
+});

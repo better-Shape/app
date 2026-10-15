@@ -151,3 +151,11 @@ it("clears startup status when loading the native bridge module fails", async ()
         vi.doMock("@tauri-apps/api/core", () => ({ invoke: (command: string) => command === "pty_spawn_run" ? mocks.spawn() : mocks.kill() }));
     }
 });
+
+it("continues releasing remaining listeners when one unlisten throws synchronously", async () => {
+    await background.ensureBackgroundRun("npm run dev");
+    mocks.release.mockImplementationOnce(() => { throw new Error("webview gone"); });
+    await background.stopBackgroundRun();
+    expect(background.getBackgroundPreviewService()).toBeNull();
+    expect([...mocks.listeners.values()].every(listeners => listeners.size === 0)).toBe(true);
+});

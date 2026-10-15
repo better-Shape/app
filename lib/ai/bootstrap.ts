@@ -1,7 +1,7 @@
 "use client";
 
 import { initSettings } from "@/lib/settings";
-import { aiConfigReady, initAiConfigSync } from "@/lib/ai/sync";
+import { aiConfigReady, aiConfigSettled, initAiConfigSync } from "@/lib/ai/sync";
 
 type Owner = { users: number; ready: Promise<void>; stop?: () => void; settled: boolean };
 let current: Owner | undefined;
@@ -12,10 +12,11 @@ export function acquireAiConfiguration(): { ready: Promise<void>; release: () =>
         const owner: Owner = { users: 0, ready: Promise.resolve(), settled: false };
         current = owner;
         owner.ready = Promise.resolve().then(async () => {
+            if (owner.users === 0) throw new Error("Provider initialization cancelled");
             await initSettings();
             if (owner.users === 0) throw new Error("Provider initialization cancelled");
             owner.stop = initAiConfigSync();
-            await aiConfigReady();
+            await aiConfigSettled();
         }).finally(() => {
             owner.settled = true;
             if (owner.users === 0) owner.stop?.();

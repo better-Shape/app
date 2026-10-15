@@ -21,6 +21,11 @@ export function useFileContent(
         let cancelled = false;
 
         if (skipTextLoad) {
+            setLoadedPath(path);
+            setContent("");
+            setOriginalContent("");
+            setError(null);
+            setLoading(false);
             return;
         }
 
@@ -255,6 +260,6 @@ export function useFileContent(
         };
     }, [path, skipTextLoad, isDiff, project_path, savedContentRef, bufferVersionRef]);
 
-    const current = loadedPath === path;
-    return { content: current ? content : "", setContent, originalContent: current ? originalContent : "", error: current ? error : null, loading: !current || loading };
+    const current = !skipTextLoad && loadedPath === path;
+    return { content: current ? content : "", setContent, originalContent: current ? originalContent : "", error: current ? error : null, loading: !skipTextLoad && (!current || loading) };
 }

@@ -14,9 +14,9 @@ vi.mock("@/lib/workspace/dirty-buffers", () => ({ clearDirtyBuffer: state.clearD
 vi.mock("@/features/notifications", () => ({ notify: { info: state.info, error: state.error } }));
 import { useFileContent } from "@/features/editor/ui/main/hooks/use-file-content";
 const commits: Array<{ path: string; content: string; loading: boolean }> = [];
-function Editor({ path }: { path: string }) {
+function Editor({ path, skip = false }: { path: string; skip?: boolean }) {
     const saved = useRef(""); const version = useRef(0);
-    const file = useFileContent(path, false, path.startsWith("diff:"), saved, version);
+    const file = useFileContent(path, skip, path.startsWith("diff:"), saved, version);
     useLayoutEffect(() => { commits.push({ path, content: file.content, loading: file.loading }); }, [path, file.content, file.loading]);
     return <div>{file.originalContent}|{file.content}|{file.error}</div>;
 }
@@ -129,4 +129,19 @@ it.each([
     expect(host.textContent).toContain(expected);
     expect(host.textContent).not.toContain("private detail");
     expect(state.error).not.toHaveBeenCalled();
+});
+
+it("settles skipped previews without showing text or errors from the previous file", async () => {
+    await render("/repo/first.txt");
+    await act(async () => root?.render(<Editor path="/repo/image.png" skip />));
+    expect(commits.at(-1)).toEqual({ path: "/repo/image.png", content: "", loading: false });
+    expect(host.textContent).toBe("||");
+});
+it("does not let an outstanding text load overwrite a skipped preview", async () => {
+    const pending = deferred<string>();
+    state.commands.readFile.mockReturnValueOnce(pending.promise);
+    await render("/repo/first.txt");
+    await act(async () => root?.render(<Editor path="/repo/image.png" skip />));
+    await act(async () => pending.resolve("old contents"));
+    expect(commits.at(-1)).toEqual({ path: "/repo/image.png", content: "", loading: false });
 });

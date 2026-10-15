@@ -281,3 +281,12 @@ it("retries a cleared key after its deletion metadata could not be recorded", as
     const { getUnsavedCredentialCount } = await import("@/lib/ai/credential-drafts");
     expect(getUnsavedCredentialCount()).toBe(0);
 });
+
+it("rejects send readiness after native configuration failure and recovers on retry", async () => {
+    state.configure.mockRejectedValueOnce(new Error("private backend details"));
+    stop = sync.initAiConfigSync();
+    await expect(sync.aiConfigReady()).rejects.toThrow("Provider settings are not applied");
+    await sync.retryCredentialPersistence();
+    await expect(sync.aiConfigReady()).resolves.toBeUndefined();
+    expect(state.configure).toHaveBeenCalledTimes(2);
+});

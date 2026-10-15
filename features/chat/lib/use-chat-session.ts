@@ -193,9 +193,9 @@ export function useChatSession(
         reloadViewedMessages,
         setDraftAdopter,
         getViewedConversationId,
-        getDraftConversationId,
         appendUserOptimistic,
         stopLiveTurn,
+        prepareStop,
         startDraftChat,
         hasLiveTurn,
         ownsRequest,
@@ -1835,35 +1835,33 @@ export function useChatSession(
         openChatHistoryMenu();
     }, []);
 
-    const stoppingRef = React.useRef(false);
+    const stoppingRef = React.useRef(new Map<string, Promise<boolean>>());
 
-    React.useEffect(() => {
-        if (!isLoading) {
-            stoppingRef.current = false;
-        }
-    }, [isLoading]);
-
-    const handleStopMessage = async () => {
-        if (stoppingRef.current) return;
-        stoppingRef.current = true;
+    const handleStopMessage = (): Promise<boolean> => {
         const target = getViewedConversationId();
         for (const [controller, owner] of preparingSendsRef.current) {
             if (owner === target) controller.abort();
         }
-        const hadLiveTurn = hasLiveTurn(target);
-        const requestId = stopLiveTurn();
-        if (!hadLiveTurn && !requestId) { stoppingRef.current = false; return; }
-        try {
-            const convId = getViewedConversationId() ?? getDraftConversationId();
-            await commands.stopChatMessage(convId, requestId);
-            if (convId) {
-                const { setChatGenerating } = await import("@/features/chat/lib/generating-chats");
-                setChatGenerating(convId, false);
+        const stop = prepareStop(target);
+        if (!stop) return Promise.resolve(true);
+        const key = stop.requestId ?? JSON.stringify([stop.conversationId, stop.turnId]);
+        const pending = stoppingRef.current.get(key);
+        if (pending) return pending;
+        const stopped = Promise.resolve().then(async () => {
+            try {
+                await commands.stopChatMessage(stop.conversationId, stop.requestId);
+                stop.commit();
+                return true;
+            } catch (error) {
+                console.error("Failed to stop:", error);
+                notify.error("Could not stop", "Stop was not confirmed. Try again.");
+                return false;
+            } finally {
+                stoppingRef.current.delete(key);
             }
-        } catch (e) {
-            console.error("Failed to stop:", e);
-            stoppingRef.current = false;
-        }
+        });
+        stoppingRef.current.set(key, stopped);
+        return stopped;
     };
 
     const handleSendQueuedNow = async (id: string) => {
@@ -1872,11 +1870,12 @@ export function useChatSession(
         setMessageQueue((prev) => prev.filter((m) => m.id !== id));
         skipQueueDrainRef.current = true;
         forceSendRef.current = true;
-        if (isLoadingRef.current) {
-            await handleStopMessage();
-        }
         let delivered = false;
         try {
+            if (isLoadingRef.current && !(await handleStopMessage())) {
+                restoreQueuedMessage(item);
+                return;
+            }
             delivered = await handleSendMessageRef.current(item.content);
             if (!delivered) restoreQueuedMessage(item);
         } catch (err) {

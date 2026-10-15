@@ -186,6 +186,13 @@ afterEach(() => {
         expect(getChatDispositions().a).toEqual(value);
     });
 
+    it("keeps loaded sessions when a background refresh fails", async () => {
+        const before = rowOrder();
+        commands.getConversations.mockRejectedValueOnce(new Error("unavailable"));
+        await act(async () => { window.dispatchEvent(new Event("bettershape-chat-refresh")); });
+        expect(rowOrder()).toEqual(before);
+    });
+
     it("renders every chat with a motion id and no headers when one shelf holds them all", () => {
         expect(rowOrder()).toEqual(["d", "a", "c", "b"]);
         expect(shelfHeaders()).toHaveLength(0);

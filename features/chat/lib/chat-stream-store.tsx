@@ -99,7 +99,14 @@ type ChatStreamContextValue = ChatStreamState & {
         conversationId: string | null,
         requestId?: string | null,
     ) => void;
-    /** Instantly drop the live-turn spinner so Stop does not wait on the stream. */
+    /** Capture ownership without retiring it. Commit only after native Stop acknowledges. */
+    prepareStop: (conversationId: string | null) => {
+        conversationId: string | null;
+        requestId: string | null;
+        turnId: string | null;
+        commit: () => void;
+    } | null;
+    /** Retire a known cancelled or failed local owner. */
     stopLiveTurn: (conversationId?: string | null) => string | null;
     /** Leave a running turn in the background and show an empty draft. */
     startDraftChat: () => void;
@@ -291,7 +298,7 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
                 ) {
                     liveTurnsRef.current.set(id, {
                         conversationId: id,
-                        turnId: gen.turnId ?? null,
+                        turnId: gen.turnId,
                         requestId: gen.requestId ?? null,
                         messages: history,
                         activityLabel: gen.activityLabel ?? "Thinking",
@@ -344,6 +351,25 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
         }
         return requestId;
     }, []);
+
+    const prepareStop = React.useCallback((conversationId: string | null) => {
+        const captured = liveTurnsRef.current.get(conversationId ?? PENDING_KEY);
+        if (!captured) return null;
+        return {
+            conversationId: captured.conversationId,
+            requestId: captured.requestId ?? null,
+            turnId: captured.turnId,
+            commit: () => {
+                // A draft may bind while Stop waits. Follow its request, never the selected tab.
+                for (const [key, live] of liveTurnsRef.current) {
+                    if (live === captured || (captured.requestId && live.requestId === captured.requestId)) {
+                        stopLiveTurn(key === PENDING_KEY ? null : key);
+                        return;
+                    }
+                }
+            },
+        };
+    }, [stopLiveTurn]);
 
     const appendUserOptimistic = React.useCallback(
         (userMsg: string, conversationId: string | null, requestId?: string | null) => {
@@ -455,7 +481,7 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
                     && pending?.requestId !== eventRequestId
                     && (!convId || liveTurnsRef.current.get(convId)?.requestId !== eventRequestId)) return;
                 if (isForeignConversation(convId) || !tid || !turnOrder.start(convId ?? PENDING_KEY, tid)) return;
-                if (convId && tid && stoppedTurnsRef.current.get(convId) === tid) return;
+                if (convId && stoppedTurnsRef.current.get(convId) === tid) return;
                 if (convId) stoppedTurnsRef.current.delete(convId);
                 setChatActivity(convId, "thinking");
                 const startedModel = event.payload?.model;
@@ -821,6 +847,7 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
         setDraftAdopter,
         appendUserOptimistic,
         stopLiveTurn,
+        prepareStop,
         startDraftChat,
         hasLiveTurn,
         ownsRequest,

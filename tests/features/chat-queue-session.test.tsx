@@ -134,6 +134,15 @@ vi.mock("@/features/chat/lib/chat-stream-store", async () => {
                 const id = requests.current.get(viewRef.current) ?? null;
                 requests.current.delete(viewRef.current); setIsLoading(false); return id;
             }, []);
+            const prepareStop = ReactModule.useCallback((target: string | null) => {
+                const requestId = requests.current.get(target) ?? null;
+                if (!requestId && stream.liveConvId !== target) return null;
+                return { conversationId: target, requestId, commit: () => {
+                    if (requests.current.get(target) !== requestId) return;
+                    requests.current.delete(target);
+                    if (viewRef.current === target) setIsLoading(false);
+                } };
+            }, []);
             const startDraftChat = ReactModule.useCallback(() => {
                 showConversation(null);
                 setMessages([]);
@@ -166,6 +175,7 @@ vi.mock("@/features/chat/lib/chat-stream-store", async () => {
                 setDraftAdopter,
                 appendUserOptimistic,
                 stopLiveTurn,
+                prepareStop,
                 startDraftChat,
             };
         },
@@ -291,6 +301,7 @@ vi.mock("@/features/chat/lib/generating-chats", () => {
     };
 });
 
+import { commands } from "@/lib/backend";
 import { useChatSession } from "@/features/chat/lib/use-chat-session";
 
 type Session = ReturnType<typeof useChatSession>;
@@ -368,6 +379,7 @@ function sentMessages() {
 }
 
 beforeEach(async () => {
+    vi.mocked(commands.stopChatMessage).mockReset().mockResolvedValue(undefined);
     backend.initialization.mockReset().mockResolvedValue(undefined);
     backend.current = "X";
     backend.sent = [];
@@ -622,4 +634,28 @@ it("does not send after Stop while provider initialization was pending", async (
     await act(async () => ready()); await settle();
     expect(backend.sent).toEqual([]);
     expect(session.inputValue).toBe("keep this draft");
+});
+
+it("retains the running owner after Stop rejects and permits retry", async () => {
+    await startTurn("running");
+    vi.mocked(commands.stopChatMessage).mockRejectedValueOnce(new Error("temporary"));
+    await act(async () => { await session.handleStopMessage(); });
+    expect(session.isLoading).toBe(true);
+    await act(async () => { await session.handleStopMessage(); });
+    expect(commands.stopChatMessage).toHaveBeenCalledTimes(2);
+    expect(session.isLoading).toBe(false);
+    await resolveOldestSend();
+});
+it("restores send-now queue entries when Stop fails instead of dispatching a replacement", async () => {
+    await startTurn("running");
+    await typeAndSend("queued");
+    const queued = session.messageQueue[0];
+    vi.mocked(commands.stopChatMessage).mockRejectedValueOnce(new Error("temporary"));
+    await act(async () => { await session.handleSendQueuedNow(queued.id); });
+    expect(session.messageQueue.map(item => item.content)).toEqual(["queued"]);
+    expect(sentMessages()).toEqual(["running@X"]);
+    expect(session.isLoading).toBe(true);
+    await typeAndSend("still queued");
+    expect(session.messageQueue.map(item => item.content)).toEqual(["queued", "still queued"]);
+    await resolveOldestSend();
 });

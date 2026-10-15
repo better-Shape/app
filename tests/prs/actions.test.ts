@@ -81,3 +81,17 @@ it("rejects a stale drag snapshot after another surface confirms a merge", async
     expect(request).not.toHaveBeenCalled();
     expect(readPrOverride(item.id)?.status).toBe("merged");
 });
+
+it("starts a fresh trust window at confirmation, not only when the request begins", async () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(0);
+    let confirm!: (value: unknown) => void;
+    request.mockImplementationOnce(() => new Promise(resolve => { confirm = resolve; }));
+    try {
+        const pending = runPrAction(item, "close", item.repo);
+        now.mockReturnValue(20_000);
+        confirm({ state: "closed" });
+        await expect(pending).resolves.toBe(true);
+        expect(readPrOverride(item.id, 70_000)?.status).toBe("closed");
+        expect(readPrOverride(item.id, 80_001)).toBeNull();
+    } finally { now.mockRestore(); }
+});

@@ -25,12 +25,14 @@ function reset() {
     bridge.remove.mockReset().mockImplementation(async (id: string, expected: string) => native.mutate(id, "", expected));
     bridge.configure.mockReset().mockResolvedValue(undefined);
 }
-async function openWindow() {
+async function openWindow(readiness: "ready" | "blocked" = "ready") {
     vi.resetModules();
     const settings = await import("@/lib/settings"); await settings.initSettings();
     const drafts = await import("@/lib/ai/credential-drafts");
     const sync = await import("@/lib/ai/sync");
-    const unsubscribe = sync.initAiConfigSync(); await sync.aiConfigReady();
+    const unsubscribe = sync.initAiConfigSync();
+    if (readiness === "blocked") await expect(sync.aiConfigReady()).rejects.toThrow("Provider settings are not applied");
+    else await sync.aiConfigReady();
     return { settings, drafts, sync, unsubscribe, edit: (apiKey: string) => {
         const providers = settings.getSettings().ai.providers;
         settings.updateSettingSection("ai", { providers: { ...providers, connections: { ...providers.connections, openai: { ...providers.connections.openai, apiKey } } } });
@@ -92,7 +94,8 @@ it("does not lose another window's unsaved in-memory draft to an unrelated setti
     const b = await openWindow(); stops.push(b.unsubscribe);
     bridge.store.mockImplementationOnce(async (id: string, value: string, expected: string, scope?: string) => native.mutate(id, value, expected, false, scope));
     b.edit("example-new"); await b.sync.aiConfigReady();
-    a.settings.updateSettingSection("editor", { fontSize: 17 }); await a.sync.aiConfigReady();
+    a.settings.updateSettingSection("editor", { fontSize: 17 });
+    await expect(a.sync.aiConfigReady()).rejects.toThrow("Provider settings are not applied");
     expect(b.settings.getSettings().ai.providers.connections.openai.apiKey).toBe("example-new");
     expect(b.drafts.getUnsavedCredentialCount()).toBe(1);
     expect(JSON.stringify(bridge.disk)).not.toContain("example-");
@@ -110,7 +113,7 @@ it("does not erase divergent legacy copies before an explicit credential edit", 
     const local = structuredClone(disk);
     local.ai.providers.connections.openai.apiKey = "example-local-copy";
     localStorage.setItem("bettershape-settings-v1", JSON.stringify(local));
-    const a = await openWindow(); stop = a.unsubscribe;
+    const a = await openWindow("blocked"); stop = a.unsubscribe;
     expect(a.settings.getCredentialRecoveryConflicts()).toEqual(["openai"]);
     expect(bridge.store).not.toHaveBeenCalled();
     expect(localStorage.getItem("bettershape-settings-v1")).toContain("example-local-copy");
@@ -162,7 +165,7 @@ it("does not attach a newly saved key to an old endpoint after a partial legacy 
     a.unsubscribe();
     native.restart();
     bridge.configure.mockClear();
-    const restarted = await openWindow(); stop = restarted.unsubscribe;
+    const restarted = await openWindow("blocked"); stop = restarted.unsubscribe;
     expect(restarted.settings.getCredentialRecoveryConflicts()).toContain("openai");
     expect(restarted.settings.getSettings().ai.providers.connections.openai.apiKey).not.toBe("example-new");
     expect(bridge.configure).not.toHaveBeenCalled();
@@ -183,7 +186,7 @@ it("does not reuse an older saved key at a new endpoint after an unsaved edit is
     a.unsubscribe();
     native.restart();
     bridge.configure.mockClear();
-    const restarted = await openWindow(); stop = restarted.unsubscribe;
+    const restarted = await openWindow("blocked"); stop = restarted.unsubscribe;
     expect(restarted.settings.getCredentialRecoveryConflicts()).toContain("openai");
     expect(restarted.settings.getSettings().ai.providers.connections.openai.apiKey).toBe("");
     expect(bridge.configure).not.toHaveBeenCalled();
@@ -285,7 +288,7 @@ it("rejects a saved key whose destination differs even when the intent ledger is
     await a.sync.aiConfigReady(); a.unsubscribe(); native.restart();
     for (const key of Object.keys(localStorage)) if (key.startsWith("bettershape-ai-vault-entry:")) localStorage.removeItem(key);
     bridge.configure.mockClear();
-    const restarted = await openWindow(); stop = restarted.unsubscribe;
+    const restarted = await openWindow("blocked"); stop = restarted.unsubscribe;
     expect(restarted.settings.getCredentialRecoveryConflicts()).toContain("openai");
     expect(restarted.settings.getSettings().ai.providers.connections.openai.apiKey).toBe("");
     expect(bridge.configure).not.toHaveBeenCalled();
@@ -306,7 +309,7 @@ it("rejects stale redacted endpoint metadata after a newer key and destination w
     bridge.readStore.mockResolvedValue(stale);
     localStorage.setItem("bettershape-settings-v1", JSON.stringify(stale));
     bridge.configure.mockClear();
-    const restarted = await openWindow(); stop = restarted.unsubscribe;
+    const restarted = await openWindow("blocked"); stop = restarted.unsubscribe;
     expect(restarted.settings.getCredentialRecoveryConflicts()).toContain("openai");
     expect(restarted.settings.getSettings().ai.providers.connections.openai.apiKey).toBe("");
     expect(bridge.configure).not.toHaveBeenCalled();
@@ -315,7 +318,7 @@ it("rejects stale redacted endpoint metadata after a newer key and destination w
 
 it("requires re-entry for an old vault key with no proven destination", async () => {
     reset(); native.values.set("openai", "example-unbound");
-    const a = await openWindow(); stop = a.unsubscribe;
+    const a = await openWindow("blocked"); stop = a.unsubscribe;
     expect(a.settings.getCredentialRecoveryConflicts()).toEqual(["openai"]);
     expect(a.settings.getSettings().ai.providers.connections.openai.apiKey).toBe("");
     expect(bridge.configure).not.toHaveBeenCalled();
@@ -359,7 +362,7 @@ it("does not infer a migration destination from legacy copies with equal keys bu
     disk.ai.providers.connections.openai.baseUrl = "https://second.invalid/v1";
     bridge.disk = disk;
     localStorage.setItem("bettershape-settings-v1", JSON.stringify(local));
-    const a = await openWindow(); stop = a.unsubscribe;
+    const a = await openWindow("blocked"); stop = a.unsubscribe;
     expect(a.settings.getCredentialRecoveryConflicts()).toContain("openai");
     expect(bridge.store).not.toHaveBeenCalled();
     expect(bridge.configure).not.toHaveBeenCalled();
@@ -384,7 +387,7 @@ it("preserves a newer draft when an earlier in-flight clear wins the native leas
     b.edit("example-new");
     await vi.waitFor(() => expect(write).toBeTypeOf("function"));
     clear(); await a.sync.aiConfigReady();
-    write(); await b.sync.aiConfigReady();
+    write(); await expect(b.sync.aiConfigReady()).rejects.toThrow("Provider settings are not applied");
     expect(native.values.has("openai")).toBe(false);
     expect(b.settings.getSettings().ai.providers.connections.openai.apiKey).toBe("example-new");
     expect(b.drafts.getUnsavedCredentialCount()).toBe(1);
@@ -392,7 +395,7 @@ it("preserves a newer draft when an earlier in-flight clear wins the native leas
 
 it("binds an existing vault key only after explicit review without exposing it in the prompt", async () => {
     reset(); native.values.set("openai", "example-existing-key");
-    const a = await openWindow(); stop = a.unsubscribe;
+    const a = await openWindow("blocked"); stop = a.unsubscribe;
     const confirm = vi.fn(async (destinations: string[]) => {
         expect(destinations.join("\n")).toContain("https://api.openai.com/v1");
         expect(destinations.join("\n")).not.toContain("example-existing-key");
@@ -408,7 +411,7 @@ it("binds an existing vault key only after explicit review without exposing it i
 
 it("leaves saved keys and recovery conflicts untouched when review is cancelled", async () => {
     reset(); native.values.set("openai", "example-existing-key");
-    const a = await openWindow(); stop = a.unsubscribe;
+    const a = await openWindow("blocked"); stop = a.unsubscribe;
     expect(await a.sync.reviewSavedCredentials(async () => false)).toBe(false);
     expect(bridge.store).not.toHaveBeenCalled();
     expect(a.settings.getCredentialRecoveryConflicts()).toEqual(["openai"]);
@@ -417,7 +420,7 @@ it("leaves saved keys and recovery conflicts untouched when review is cancelled"
 
 it("rejects a recovery approval if settings change during the dialog", async () => {
     reset(); native.values.set("openai", "example-existing-key");
-    const a = await openWindow(); stop = a.unsubscribe;
+    const a = await openWindow("blocked"); stop = a.unsubscribe;
     expect(await a.sync.reviewSavedCredentials(async () => {
         const providers = a.settings.getSettings().ai.providers;
         a.settings.updateSettingSection("ai", { providers: { ...providers, connections: { ...providers.connections,
@@ -431,7 +434,7 @@ it("rejects a recovery approval if settings change during the dialog", async () 
 
 it("does not offer unavailable or unsaved native values as saved-key recovery", async () => {
     reset(); native.values.set("openai", "example-existing-key");
-    const a = await openWindow(); stop = a.unsubscribe;
+    const a = await openWindow("blocked"); stop = a.unsubscribe;
     bridge.load.mockResolvedValueOnce([{ status: "unavailable", id: "openai" }]);
     const confirm = vi.fn(async () => true);
     expect(await a.sync.reviewSavedCredentials(confirm)).toBe(false);
@@ -441,7 +444,7 @@ it("does not offer unavailable or unsaved native values as saved-key recovery", 
 
 it("keeps recovery unsaved when another window advances the native revision during review", async () => {
     reset(); native.values.set("openai", "example-existing-key");
-    const a = await openWindow(); stop = a.unsubscribe;
+    const a = await openWindow("blocked"); stop = a.unsubscribe;
     expect(await a.sync.reviewSavedCredentials(async () => {
         native.mutate("openai", "example-newer-key", native.read("openai").revision, true, "other-destination");
         return true;
