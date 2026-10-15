@@ -69,6 +69,27 @@ function applyPending(next: Record<string, ChatDisposition>) {
     return next;
 }
 
+function sameDisposition(previous: ChatDisposition | undefined, next: ChatDisposition): boolean {
+    if (previous?.state !== next.state) return false;
+    if (previous.state === "snoozed" && next.state === "snoozed") return previous.until === next.until;
+    return true;
+}
+
+function adoptSnapshot(next: Record<string, ChatDisposition>): boolean {
+    const previous = snapshot;
+    const unchanged = previous !== null
+        && Object.keys(previous).length === Object.keys(next).length
+        && Object.entries(next).every(([id, value]) => sameDisposition(previous[id], value));
+    if (unchanged) return false;
+    snapshot = next;
+    return true;
+}
+
+function notify() {
+    schedule();
+    for (const listener of listeners) listener();
+}
+
 export function getChatDispositions(): Readonly<Record<string, ChatDisposition>> {
     if (!snapshot) snapshot = applyPending(readStored() ?? Object.create(null));
     return snapshot;
@@ -89,7 +110,7 @@ function schedule() {
 
 function publish(changes: ReadonlyMap<string, ChatDisposition | null>) {
     for (const [id, value] of changes) pending.set(id, value);
-    snapshot = applyPending(Object.assign(Object.create(null), getChatDispositions()));
+    adoptSnapshot(applyPending(Object.assign(Object.create(null), snapshot ?? readStored())));
     // Independent chats never share a read-modify-write record. Same-chat
     // updates are last-writer-wins; only legacy-seeded clears need a tombstone.
     let legacy: Record<string, ChatDisposition> | undefined;
@@ -103,8 +124,7 @@ function publish(changes: ReadonlyMap<string, ChatDisposition | null>) {
         } catch { /* Retain this window's unsaved intent, including clears. */ }
     }
     refreshFromStorage();
-    schedule();
-    for (const listener of listeners) listener();
+    notify();
 }
 
 export function setChatDisposition(id: string, value: ChatDisposition | undefined) {
@@ -113,36 +133,32 @@ export function setChatDisposition(id: string, value: ChatDisposition | undefine
 }
 
 export function wakeSnoozedChats(now = Date.now()) {
-    refreshFromStorage();
+    const refreshed = refreshFromStorage();
     const changes = new Map<string, ChatDisposition | null>();
     for (const [id, value] of Object.entries(getChatDispositions())) {
         if (value.state === "snoozed" && value.until <= now) changes.set(id, { state: "active" });
     }
     if (changes.size > 0) publish(changes);
+    else if (refreshed) notify();
 }
 
-function refreshFromStorage() {
+function refreshFromStorage(): boolean {
     const stored = readStored();
-    if (!stored) return; // Preserve session-local state when reads are unavailable.
-    const next = applyPending(stored);
-    if (JSON.stringify(next) !== JSON.stringify(snapshot)) snapshot = next;
+    if (!stored) return false; // Preserve session-local state when reads are unavailable.
+    const initialized = snapshot !== null;
+    const changed = adoptSnapshot(applyPending(stored));
+    return initialized && changed;
 }
 
 function onStorage(event: StorageEvent) {
     if (event.key !== KEY && event.key !== null && !event.key.startsWith(ENTRY_PREFIX)) return;
     if (event.storageArea && event.storageArea !== window.localStorage) return;
-    refreshFromStorage();
     wakeSnoozedChats();
-    schedule();
-    for (const listener of listeners) listener();
 }
 
 export function subscribeChatDispositions(listener: () => void) {
     listeners.add(listener);
     if (listeners.size === 1) {
-        // No storage listener exists between mounts. Reconcile before waking
-        // snoozes so stale cached state cannot overwrite another window's edits.
-        refreshFromStorage();
         window.addEventListener("focus", onWake);
         document.addEventListener("visibilitychange", onWake);
         window.addEventListener("storage", onStorage);

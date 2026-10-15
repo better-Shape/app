@@ -168,3 +168,58 @@ it("does not guess whether a clear needs a legacy tombstone when reads fail", as
     const restarted = await import("@/lib/sidebar/chat-disposition");
     expect(restarted.getChatDispositions()).toEqual({ b: { state: "active" } });
 });
+
+it("retains snapshot identity when equivalent stored entries are enumerated in another order", async () => {
+    const prefix = "bettershape-sidebar-dispositions:v2:";
+    localStorage.setItem(`${prefix}a`, JSON.stringify({ state: "settled" }));
+    localStorage.setItem(`${prefix}b`, JSON.stringify({ state: "snoozed", until: Date.now() + 5000 }));
+    const meta = await import("@/lib/sidebar/chat-disposition");
+    stop = meta.subscribeChatDispositions(vi.fn());
+    const before = meta.getChatDispositions();
+    const a = localStorage.getItem(`${prefix}a`);
+    if (a === null) throw new Error("Missing fixture entry");
+    localStorage.removeItem(`${prefix}a`);
+    localStorage.setItem(`${prefix}a`, a);
+    window.dispatchEvent(new StorageEvent("storage", { key: `${prefix}a` }));
+    expect(meta.getChatDispositions()).toBe(before);
+});
+
+it.each(["focus", "visibilitychange"])("publishes missed storage changes and schedules their deadline on %s", async event => {
+    const meta = await import("@/lib/sidebar/chat-disposition");
+    const changed = vi.fn();
+    stop = meta.subscribeChatDispositions(changed);
+    localStorage.setItem("bettershape-sidebar-dispositions:v2:a", JSON.stringify({ state: "snoozed", until: Date.now() + 1000 }));
+    (event === "focus" ? window : document).dispatchEvent(new Event(event));
+    expect(changed).toHaveBeenCalledTimes(1);
+    expect(meta.getChatDispositions().a.state).toBe("snoozed");
+    vi.advanceTimersByTime(1000);
+    expect(meta.getChatDispositions().a.state).toBe("active");
+    expect(changed).toHaveBeenCalledTimes(2);
+});
+
+it("publishes changed deadlines but ignores equal metadata storage events", async () => {
+    const key = "bettershape-sidebar-dispositions:v2:a";
+    const meta = await import("@/lib/sidebar/chat-disposition");
+    meta.setChatDisposition("a", { state: "snoozed", until: Date.now() + 5000 });
+    const changed = vi.fn();
+    stop = meta.subscribeChatDispositions(changed);
+    const before = meta.getChatDispositions();
+    window.dispatchEvent(new StorageEvent("storage", { key }));
+    expect(changed).not.toHaveBeenCalled();
+    expect(meta.getChatDispositions()).toBe(before);
+    localStorage.setItem(key, JSON.stringify({ state: "snoozed", until: Date.now() + 1000 }));
+    window.dispatchEvent(new StorageEvent("storage", { key }));
+    expect(changed).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(1000);
+    expect(meta.getChatDispositions().a.state).toBe("active");
+});
+
+it("preserves malformed encoded records without assigning them to a guessed chat", async () => {
+    const key = "bettershape-sidebar-dispositions:v2:%E0%A4%A";
+    localStorage.setItem(key, JSON.stringify({ state: "settled" }));
+    localStorage.setItem("bettershape-sidebar-dispositions:v2:valid", JSON.stringify({ state: "active" }));
+    const meta = await import("@/lib/sidebar/chat-disposition");
+    expect(meta.getChatDispositions()).toEqual({ valid: { state: "active" } });
+    meta.setChatDisposition("other", { state: "settled" });
+    expect(localStorage.getItem(key)).toBe(JSON.stringify({ state: "settled" }));
+});
