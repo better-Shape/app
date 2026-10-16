@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { submitProblemReport } from "@/lib/feedback/report";
 import { redactText } from "@/lib/diagnostics/scrub";
-import { Checkmark } from "@/components/ui/checkmark";
 
 export interface CrashScreenProps {
     /** What failed, in the user's terms: "Something went wrong", "IDE crashed". */
@@ -165,26 +164,21 @@ function ReportBlock({ title, hint, digest, message, stack }: ReportBlockProps) 
                 {reported ? null : <Icon icon={ChevronRight20Regular} />}
             </Button>
 
-            {/* The row toggles from either the box or the words, and the box stops the
-                click it handles so the two cannot cancel out. */}
-            <span
-                onClick={() => setAttachDetails((on) => !on)}
-                className="mt-2 flex cursor-pointer items-center gap-2 text-2xs text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:text-text-primary"
-            >
-                <Checkmark
+            {/*
+              * A labelled native checkbox: the words toggle it, the keyboard reaches it and
+              * no handler sits on a non-interactive element. The settings dialogs use the
+              * same control for the same kind of secondary option.
+              */}
+            <label className="mt-2 flex w-fit cursor-pointer items-center gap-2 text-2xs text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:text-text-primary">
+                <input
+                    type="checkbox"
                     checked={attachDetails}
-                    onCheckedChange={(next) => setAttachDetails(next === true)}
-                    label="Attach technical details to the report"
-                    motion="compact"
+                    onChange={(event) => setAttachDetails(event.target.checked)}
+                    aria-label="Attach technical details to the report"
+                    className="size-3.5 shrink-0 cursor-pointer rounded border border-border-subtle bg-input-bg accent-accent"
                 />
-                {/*
-                  * The checkbox carries the name and takes the keyboard, and this span
-                  * exists so the pointer can hit the words as well. The words repeat the
-                  * checkbox label, so they are hidden from assistive technology rather
-                  * than announced twice.
-                  */}
-                <span aria-hidden="true">Attach technical details</span>
-            </span>
+                Attach technical details
+            </label>
 
             <p className="mt-1 max-w-[19rem] text-2xs leading-relaxed text-text-disabled">
                 Copies a redacted report and opens a prefilled issue. Nothing is sent until you submit it.

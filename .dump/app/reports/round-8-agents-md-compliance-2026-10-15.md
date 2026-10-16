@@ -483,7 +483,7 @@ to a source file in this pass.
 | `npm run lint` | PASS, 0 errors, 157 warnings, exit 0. Three warnings this branch introduced were cleared: two hook dependencies in the swap that the rule reads as refs, and two unused reads in the ladder probe |
 | `npx tsc --noEmit` | PASS, exit 0 |
 | `npm run test` | PASS, 121 files, 992 tests, exit 0, including `build:runtime` |
-| `npm run qa` | PASS, 25 tests, 0 failed, 0 flaky, 87.5s, exit 0 |
+| `npm run qa` | PASS, 25 tests, 0 failed, 0 flaky, 90.4s, exit 0 |
 | `npm run skills:verify` | PASS, 53 of 53 locked skills verified, 2 project-owned unrecorded |
 | `npm run test:rust` | NOT RUN, no Rust toolchain in the sandbox, and no Rust file in this diff |
 | `npm run qa:audit` | NOT RUN this batch |
@@ -718,6 +718,15 @@ tree, three were already fixed or stale, fifteen were real, and two needed a sec
   rewritten rather than kept.
 - Fixed in the copy hook: a second copy left the first reset timer armed, so the older timer
   cleared the newer confirmation.
+- Fixed in the crash screen, where two analyzers agreed. The attach-details row was a
+  clickable `span` wrapping the `Checkmark`, which is the pattern the source-control rows use,
+  and SonarCloud's `typescript:S6848` flagged it as a non-native interactive element the
+  keyboard cannot reach on its own. The row is a labelled native checkbox now, the same
+  control the settings dialogs use for a secondary option, so the words toggle it, the
+  keyboard reaches it and no handler sits on a non-interactive element. The test that pinned
+  the old two-element shape was rewritten around the new contract, and the report says so
+  because the rule against editing a test to make it pass allows an edit when the markup
+  contract itself is what changed.
 - Fixed in the Git lists: a run title clamps at two lines and the skeleton reserved one, so a
   wrapped title moved the list the moment data landed. The recipe now carries the line count
   and the reserve, and both sides read it.
@@ -727,7 +736,11 @@ tree, three were already fixed or stale, fifteen were real, and two needed a sec
   to the path the notes use, and every script that launches Chromium calls it. Two scripts had
   their own copy of the same block and one, `probe-rail.cjs`, had none at all, so it could not
   launch without the caller exporting the path: that is how the gap surfaced, as a failure of
-  the probe rather than a finding about the app.
+  the probe rather than a finding about the app. SonarCloud then flagged the fallback itself,
+  `javascript:S5443` at CRITICAL, because a shared temporary directory is not safe to hand to
+  the dynamic loader. The helper requires the documented variable now, says so once when it is
+  missing, and names no directory of its own, which is also why a run that does not set it
+  fails to launch rather than quietly picking one.
 - Fixed in the QA scripts, which is where nine of the twenty sat: the rail probe read only
   the X scale, so every vertical rail measured as flat; the ladder probe parsed `rgba()`
   strings as if they were hex alpha bytes and printed its verdicts without ever failing; the

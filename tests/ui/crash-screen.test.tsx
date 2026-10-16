@@ -184,22 +184,23 @@ describe("CrashScreen", () => {
     });
 
     it("exposes one named control for the attach toggle", async () => {
-        // A click handler on the words would otherwise add a second, pointer-only control
-        // for something the checkbox already does. The words are the same name the
-        // checkbox announces, so they stay out of the accessibility tree and the checkbox
-        // is the control a keyboard reaches.
+        // The control is a native checkbox with the words as its label, so the pointer, the
+        // keyboard and the touch target all reach the same element. A handler on the words
+        // would add a second, pointer-only control for something the input already does,
+        // and it is what the analyzers flag as a non-native interactive element.
         await render({ message: "boom" });
-        const box = container.querySelector('[role="checkbox"]') as HTMLElement;
-        expect(box).not.toBeNull();
+        const box = container.querySelector('input[type="checkbox"]') as HTMLInputElement;
+        expect(box, "the attach toggle is missing").not.toBeNull();
         expect(box.getAttribute("aria-label")).toBe("Attach technical details to the report");
         expect(box.getAttribute("tabindex")).not.toBe("-1");
-        const words = [...container.querySelectorAll("span[aria-hidden='true']")].map((n) => n.textContent);
-        expect(words, "the duplicate words are announced twice").toContain("Attach technical details");
+        const label = box.closest("label");
+        expect(label, "the words are not the control's label").not.toBeNull();
+        expect(label?.textContent).toContain("Attach technical details");
     });
 
     it("sends a scrubbed stack when the user attaches it", async () => {
         await render({ message: "boom", stack: STACK });
-        const box = container.querySelector('[role="checkbox"]') as HTMLElement;
+        const box = container.querySelector('input[type="checkbox"]') as HTMLInputElement;
         expect(box, "the attach toggle is missing").not.toBeNull();
         act(() => box.click());
         await report();
