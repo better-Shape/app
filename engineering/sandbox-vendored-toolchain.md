@@ -602,7 +602,7 @@ the CI row that nothing in the sandbox depends on.
 | `engineering/sandbox-vendored-toolchain.md` | done | the specification, the fetch recipe, the verification of the delivered payload and the gap list |
 | `engineering/sandbox-vendor-handoff-prompt.md` | done | the brief for the free agent, now carrying the second-pass corrections, the corrected A1 repair loop and the NSS check in A6 |
 | `playwright.config.ts` | done | `sandboxLibsEnv()` feeds `launchOptions.env` on all three browser paths, so the NSS/NSPR directory reaches the browser and its probe but never the dev server's environment |
-| `AGENTS.md` | done | new `Blocked sandbox toolchain` section with the fetch recipe pinned to a commit and extracting into a fresh tree under `set -euo pipefail` and returning to the checkout after the manifest check, the five facts that decide whether a gate can pass, and the delegation path, plus one line under Facts about this repository |
+| `AGENTS.md` | done | new `Blocked sandbox toolchain` section with the fetch recipe pinned to a commit and one `mktemp -d` root per run under `set -euo pipefail`, and a return to the checkout after the manifest check, the five facts that decide whether a gate can pass, and the delegation path, plus one line under Facts about this repository |
 | `.agents/PREFLIGHT.md` | done | `Blocked sandbox` checklist with the exact invocations, the Rust checks carrying `--ignore-rust-version`, `CARGO_BUILD_JOBS=1` and `--all-features` to match CI, and the sysroot repair named as a prerequisite |
 | `engineering/rust-toolchain.md` | done | rewritten around two sources, the vendor branch where every gate runs and npm for format only. Corrected the `Cannot run` table, the `no sudo` claim, and a reference to a file that does not exist in this repository |
 | `.github/RELEASE_READINESS.md` | done | the `CI only` claim replaced with the offline path, the reproducing block updated, every Cargo row given `--manifest-path` and the browser row the library closure, and the table re-measured on 2026-10-16 after the sysroot repair |
@@ -671,10 +671,11 @@ The repair, and it belongs in the payload so consumers do not repeat it. Copy th
 into the sysroot, dereferenced, with relative links:
 
 ```bash
+SV="${SV:-/tmp/sandbox-vendor}"      # the root section 5 extracted into
 cd /tmp/gtk-sysroot/usr/lib/x86_64-linux-gnu
 for l in $(find . -maxdepth 1 -xtype l -name "lib*.so*"); do
   base="$(basename "$l" .so)"; real=""
-  for cand in /lib/x86_64-linux-gnu/"$base".so.* /tmp/sandbox-vendor/chrome-deps/*/"$base".so.*; do
+  for cand in /lib/x86_64-linux-gnu/"$base".so.* "$SV"/chrome-deps/*/"$base".so.*; do
     [ -e "$cand" ] && real="$(readlink -f "$cand")" && break
   done
   [ -n "$real" ] && cp -L "$real" "./$(basename "$real")" && ln -sfn "$(basename "$real")" "$l"
@@ -682,8 +683,8 @@ done
 ```
 
 `cp -L` matters. A plain `cp -a` copies the symlink itself and leaves the chain dangling again.
-`libdbus-1.so.3` also has to be copied in from `chrome-deps/cft-156/libdbus-1.so.3`, because the
-sandbox has no libdbus at all. Sixteen symlinks are broken in the extracted tree; eight are library
+`libdbus-1.so.3` also has to be copied in from `$SV/chrome-deps/cft-156/libdbus-1.so.3`, because
+the sandbox has no libdbus at all. Sixteen symlinks are broken in the extracted tree; eight are library
 `.so` links that the linker follows. Until the payload carries the fix, section 5 runs this loop as
 a consumer-side step, and `.agents/PREFLIGHT.md` names it as a prerequisite of every Rust gate.
 

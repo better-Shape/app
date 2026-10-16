@@ -115,20 +115,22 @@ development sysroot for the Tauri stack, the Chrome for Testing build that `play
 and the shared-library closures both browsers need. Extract to `/tmp`, never into the workspace,
 because the workspace is snapshotted and the extracted payload is about 4 GB; on a shared host,
 extract inside a private `mktemp -d` instead of the fixed paths in the recipe, which another user
-could pre-create as symlinks, and concurrent agents need separate extraction roots: overlapping runs
-over one `/tmp/sandbox-vendor` read half-written files. Fetch the commit you
+could pre-create as symlinks. The recipe below makes its own root with `mktemp -d`, one per run, so
+concurrent agents cannot overwrite each other's archive or read a half-extracted tree. Fetch the commit you
 reviewed and re-run `sha256sum -c` on every fetch: `MANIFEST.sha256` travels on the same branch as
 the payload, so it proves the download was intact, not that the branch head is the reviewed commit.
 
 ```bash
 set -euo pipefail
 SV_SHA=7ec94c1b353220d291924ee71c6346fcf35e66cd   # pin the commit you reviewed, not the branch head
-curl -sSL -o /tmp/sv.tar.gz "https://codeload.github.com/better-Shape/app/tar.gz/$SV_SHA"
-rm -rf /tmp/sandbox-vendor && mkdir -p /tmp/sandbox-vendor && tar xzf /tmp/sv.tar.gz -C /tmp/sandbox-vendor --strip-components=1
-cd /tmp/sandbox-vendor
+SV="$(mktemp -d)"   # private root: two runs cannot overwrite each other's archive or tree
+curl -sSL -o "$SV.tar.gz" "https://codeload.github.com/better-Shape/app/tar.gz/$SV_SHA"
+tar xzf "$SV.tar.gz" -C "$SV" --strip-components=1
+cd "$SV"
 for f in $(grep -o '^[a-f0-9]\{64\}  .*\.part-00$' MANIFEST.sha256 | sed 's/.*  //; s/\.part-00$//'); do cat "$f".part-* > "$f"; done
 sha256sum -c MANIFEST.sha256
 cd - >/dev/null   # back to the checkout: the gates below read src-tauri/Cargo.toml
+echo "payload root: $SV"   # the other recipes spell this root /tmp/sandbox-vendor
 ```
 
 `FETCH.md` in that tree wires up the toolchain, the offline cargo registry, the sysroot and the
