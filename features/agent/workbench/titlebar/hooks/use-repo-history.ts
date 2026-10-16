@@ -4,10 +4,16 @@ import { useEffect, useState } from "react";
 import { loadRepoHistory, clearRepoHistory } from "@/lib/workspace/repo-history";
 import type { RepoHistoryEntry } from "@/lib/workspace/repo-history";
 
-export function useRepoHistory(projectPath: string | null) {
+/**
+ * The recently opened projects, and the two events that change them.
+ *
+ * The list is re-read when the project changes by comparing during render instead of from an
+ * effect: React discards a render-phase `setState` and re-runs the component immediately, so
+ * the list is already right on the first frame after a switch and no effect writes it after
+ * paint.
+ */
+export const useRepoHistory = (projectPath: string | null) => {
     const [repoHistory, setRepoHistory] = useState<RepoHistoryEntry[]>(() => loadRepoHistory());
-    // Re-read when the project changes. Compared during render, so the list is right on the
-    // first frame after a switch and no effect has to write it.
     const [forPath, setForPath] = useState(projectPath);
     if (forPath !== projectPath) {
         setForPath(projectPath);
@@ -15,10 +21,12 @@ export function useRepoHistory(projectPath: string | null) {
     }
 
     useEffect(() => {
-        // Only the event subscription lives in an effect; the handler runs later, not during it.
+        /** A project opened anywhere in the app puts itself at the top of the list. */
         const refresh = () => setRepoHistory(loadRepoHistory());
         window.addEventListener("bettershape-open-project", refresh);
-        return () => window.removeEventListener("bettershape-open-project", refresh);
+        return () => {
+            window.removeEventListener("bettershape-open-project", refresh);
+        };
     }, []);
 
     return {
@@ -28,4 +36,4 @@ export function useRepoHistory(projectPath: string | null) {
             setRepoHistory([]);
         },
     };
-}
+};

@@ -2,43 +2,43 @@
 
 import { useEffect, useRef } from "react";
 import { commands } from "@/lib/backend";
-import { loadDirtyBuffer } from "@/lib/workspace/dirty-buffers";
 
-/** Read save content from a synchronous editor flush, recovered draft, latest broadcast, or disk in that order. */
-export function useEditorBuffer() {
-    // Mounted editors answer a synchronous flush; earlier dirty documents live in recovery.
-    // Retain just the latest broadcast for legacy publishers, not every visited file.
-    const activeBufferRef = useRef<{ path: string; content: string } | null>(null);
+/**
+ * The newest content of each open editor buffer, keyed by path.
+ *
+ * The editor publishes every keystroke here, so a menu command that reads a file gets what
+ * the user has typed rather than what the last write left on disk.
+ */
+export const useEditorBuffer = () => {
+    const activeBufferRef = useRef<Record<string, string>>({});
 
     useEffect(() => {
-        /** Retain the latest published document as a bounded fallback for legacy buffer publishers. */
+        /**
+         * Kept in a ref that is never reset, because a buffer outlives every path switch:
+         * closing a file does not discard what was typed in it.
+         */
         const handleBuffer = (event: Event) => {
+            /** Ignored when malformed: a throw here would escape into the event listener. */
             const detail = (event as CustomEvent<{ path: string; content: string }>).detail;
-            if (!detail?.path || typeof detail.content !== "string") return;
-            activeBufferRef.current = { path: detail.path, content: detail.content };
+            if (!detail?.path) return;
+            activeBufferRef.current[detail.path] = detail.content;
         };
         window.addEventListener("bettershape-editor-buffer", handleBuffer as EventListener);
-        return () => window.removeEventListener("bettershape-editor-buffer", handleBuffer as EventListener);
+        return () => {
+            window.removeEventListener("bettershape-editor-buffer", handleBuffer as EventListener);
+        };
     }, []);
 
-    /** Capture the live buffer synchronously before falling back to recovery, cached content, or an asynchronous disk read. */
+    /**
+     * The content to act on: the typed buffer when there is one, the file otherwise.
+     *
+     * An empty string is a real buffer, so the presence of the key decides and not the value.
+     */
     const readLatestContent = async (path: string) => {
-        let live: string | undefined;
-        /** Accept a flush response only for the requested path and only when its content is a string. */
-        const capture = (event: Event) => {
-            const detail = (event as CustomEvent<{ path: string; content: string }>).detail;
-            if (detail?.path === path && typeof detail.content === "string") live = detail.content;
-        };
-        window.addEventListener("bettershape-editor-buffer", capture);
-        try { window.dispatchEvent(new CustomEvent("bettershape-editor-flush-buffer", { detail: { path } })); }
-        finally { window.removeEventListener("bettershape-editor-buffer", capture); }
-        if (typeof live === "string") return live;
-        const restored = loadDirtyBuffer(path);
-        if (restored) return restored.content;
-        const buffer = activeBufferRef.current;
-        if (buffer?.path === path) return buffer.content;
-        return await commands.readFile(path);
+        const buffer = activeBufferRef.current[path];
+        if (typeof buffer === "string") return buffer;
+        return commands.readFile(path);
     };
 
     return { readLatestContent };
-}
+};
