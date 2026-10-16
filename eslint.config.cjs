@@ -7,10 +7,10 @@ const eslintConfig = defineConfig([
   ...nextTs,
   {
     rules: {
-      // Downgrade React 19 / Next.js 15 strict hooks rules from error to warning
-      // These are extensive (set-state-in-effect, refs during render) and need gradual fix
-      // They should still gate via warnings but not block CI immediately
-      // TODO: fix and re-enable as error after cleanup
+      // The React 19 / Next.js 15 strict hooks rules stay warnings on purpose: they are
+      // extensive (set-state-in-effect, refs during render, immutability) and the tree is
+      // being cleaned up rule by rule, so they gate as warnings while that count falls
+      // rather than blocking CI on the first pass.
       "react-hooks/set-state-in-effect": "warn",
       "react-hooks/refs": "warn",
       "react-hooks/exhaustive-deps": "warn",

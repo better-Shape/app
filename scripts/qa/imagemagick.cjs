@@ -12,13 +12,13 @@ const path = require("node:path");
 
 const SYSTEM_DIRS = ["/usr/bin", "/usr/local/bin", "/opt/homebrew/bin", "/bin"];
 
-function tool(name) {
+const tool = (name) => {
     for (const dir of SYSTEM_DIRS) {
         const candidate = path.join(dir, name);
         if (fs.existsSync(candidate)) return candidate;
     }
     throw new Error(`ImageMagick's ${name} was not found in ${SYSTEM_DIRS.join(", ")}`);
-}
+};
 
 module.exports = {
     convert: () => tool("convert"),

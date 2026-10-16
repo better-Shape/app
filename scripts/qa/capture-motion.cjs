@@ -195,7 +195,7 @@ const CASES = [
 // ── image pipeline ─────────────────────────────────────────────────────────
 
 /** Give a crop some breathing room and clamp it into the viewport. */
-function pad(box, amount) {
+const pad = (box, amount) => {
     if (!box) return undefined;
     return {
         x: Math.max(0, Math.floor(box.x - amount)),
@@ -203,10 +203,10 @@ function pad(box, amount) {
         width: Math.ceil(box.width + amount * 2),
         height: Math.ceil(box.height + amount * 2),
     };
-}
+};
 
 /** Assemble PNG frames into a GIF, looping twice with a beat at the end. */
-function buildGif(framePaths, outPath) {
+const buildGif = (framePaths, outPath) => {
     const hold = framePaths.at(-1);
     const args = ["-delay", String(FRAME_DELAY_CS)];
     for (const p of framePaths) args.push(p);
@@ -218,17 +218,17 @@ function buildGif(framePaths, outPath) {
     args.push("-delay", "120", hold);
     args.push("-loop", "0", "-layers", "Optimize", "-colors", "128", outPath);
     execFileSync(magick.convert(), args, { stdio: "pipe" });
-}
+};
 
 /** Build a labelled contact sheet so the motion is also reviewable as one still. */
-function buildSheet(framePaths, outPath, label, captions) {
+const buildSheet = (framePaths, outPath, label, captions) => {
     const cols = Math.min(framePaths.length, 6);
     const args = ["-background", "#0b0b0d", "-fill", "#e6e6e6", "-pointsize", "22"];
     framePaths.forEach((p, i) => args.push("-label", captions?.[i] ?? "", p));
     args.push("-tile", `${cols}x`, "-geometry", "+6+6", "-border", "8", outPath);
     execFileSync(magick.montage(), args, { stdio: "pipe" });
     if (label) log(`  sheet: ${outPath}`);
-}
+};
 
 // ── main ───────────────────────────────────────────────────────────────────
 
@@ -240,7 +240,7 @@ if (UNKNOWN.length) {
     process.exit(1);
 }
 
-async function main() {
+const main = async () => {
     if (LIST) {
         for (const c of CASES) log(`${c.name}\t${c.title}`);
         return;
@@ -373,7 +373,7 @@ async function main() {
     );
     await browser.close();
     log(`\nDone. ${manifest.length} GIF(s) in ${OUT}`);
-}
+};
 
 main().catch((error) => {
     process.stderr.write(String(error?.stack ?? error) + "\n");

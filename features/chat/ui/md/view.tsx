@@ -138,7 +138,7 @@ function CodeBlock({ language, code, ...rest }: { language: string; code: string
 }
 
 /** Fast catch-up typewriter over the raw markdown string (survives re-parses). */
-function useRevealText(full: string, live: boolean): string {
+const useRevealText = (full: string, live: boolean) => {
     const len = full.length;
     const [shown, setShown] = useState(() => (live ? Math.min(24, len) : len));
     const shownRef = useRef(shown);
@@ -185,7 +185,7 @@ function useRevealText(full: string, live: boolean): string {
     }, [len, live, moreToShow]);
 
     return full.slice(0, shown);
-}
+};
 
 export const ChatMarkdown = React.memo(({
     content,

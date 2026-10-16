@@ -24,7 +24,7 @@ export function Skeleton({ className }: { className?: string }) {
  * transparent glyph, so its height is whatever the real line measures, a hard-coded
  * height drifts the moment either the font scale or the type class changes.
  */
-export function SkeletonLine({
+export const SkeletonLine = ({
     text,
     width = "w-[70%]",
     className,
@@ -33,7 +33,7 @@ export function SkeletonLine({
     text: string;
     width?: string;
     className?: string;
-}) {
+}) => {
     return (
         <span
             aria-hidden
@@ -42,7 +42,7 @@ export function SkeletonLine({
             M
         </span>
     );
-}
+};
 
 /**
  * Matches Git Manager list rows.

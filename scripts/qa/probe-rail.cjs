@@ -45,7 +45,7 @@ const state = (sel) =>
         };
     });
 
-async function main() {
+const main = async () => {
     applySandboxLibs();
     const browser = await chromium.launch({
         executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH ?? (await sparticuz.executablePath()),
@@ -100,7 +100,7 @@ async function main() {
     await show("4. hovered again (preview must return)");
 
     await browser.close();
-}
+};
 
 main().catch((e) => {
     process.stderr.write(String(e?.stack ?? e) + "\n");

@@ -27,11 +27,11 @@ export interface UseCopyOptions {
  * The write is also the hook's own business: `copy` is synchronous and settles both
  * outcomes itself, so a click handler never has to return a promise it cannot await.
  */
-export function useCopyToClipboard({
+export const useCopyToClipboard = ({
     resetMs = 1400,
     successDescription,
     silent = false,
-}: UseCopyOptions = {}) {
+}: UseCopyOptions = {}) => {
     const [state, setState] = useState<CopyState>("idle");
     // The value as well as the state: a list of hashes needs to know *which* one is
     // showing its confirmation, not just that one of them is.
@@ -111,4 +111,4 @@ export function useCopyToClipboard({
         copiedText: state === "copied" ? copiedText : null,
         copy,
     };
-}
+};

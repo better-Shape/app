@@ -15,7 +15,7 @@ const fs = require("node:fs");
 
 let warned = false;
 
-function applySandboxLibs() {
+const applySandboxLibs = () => {
     const dir = process.env.PLAYWRIGHT_SANDBOX_LIBS;
     if (!dir || !fs.existsSync(dir)) {
         if (!warned) {
@@ -29,6 +29,6 @@ function applySandboxLibs() {
     const existing = process.env.LD_LIBRARY_PATH ? `:${process.env.LD_LIBRARY_PATH}` : "";
     process.env.LD_LIBRARY_PATH = `${dir}${existing}`;
     return dir;
-}
+};
 
 module.exports = { applySandboxLibs };

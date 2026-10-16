@@ -30,7 +30,7 @@ const EVERY = Number(arg("every", "1"));
 const describe = (r) => `x${r.x} y${r.y} ${r.w}x${r.h}${r.panel ? `[${r.panel}]` : ""}`;
 const fmtSide = (s) => (s ? `${s.x} ${s.w}` : "none");
 
-async function main() {
+const main = async () => {
     applySandboxLibs();
     const browser = await chromium.launch({
         executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH ?? (await sparticuz.executablePath()),
@@ -91,7 +91,7 @@ async function main() {
     }
 
     await browser.close();
-}
+};
 
 main().catch((e) => {
     process.stderr.write(String(e?.stack ?? e) + "\n");

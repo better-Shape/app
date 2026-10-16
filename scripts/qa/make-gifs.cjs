@@ -147,7 +147,7 @@ const KIT = () => {
  * Node-side facade over the injected toolkit. Every case talks to the page through
  * this, so a case never has to hold a JSHandle or remember an `evaluate` signature.
  */
-function makeKit(page) {
+const makeKit = (page) => {
     const call = (fn, arg) => page.evaluate(([f, a]) => window.__gifkit[f](a), [fn, arg]);
     return {
         install: (opts) => call("install", opts),
@@ -163,7 +163,7 @@ function makeKit(page) {
         hide: () => call("hide"),
         clear: () => call("clear"),
     };
-}
+};
 
 const CASES = {
     "panel-peek": {

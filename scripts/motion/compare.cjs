@@ -238,12 +238,12 @@ const rows = [...document.querySelectorAll(".row")];
 const boxes = rows.map((r) => r.querySelector(".box"));
 
 // Same travel for both rows, measured from the track so neither curve gets an advantage.
-function setTravel() {
+const setTravel = () => {
   const track = document.querySelector(".track");
   const travel = track.clientWidth - 24 - 24 - 26;
   for (const box of boxes) box.style.setProperty("--travel", travel + "px");
   return travel;
-}
+};
 setTravel();
 addEventListener("resize", setTravel);
 
@@ -251,17 +251,17 @@ addEventListener("resize", setTravel);
 const samples = { before: [], after: [] };
 let t0 = 0;
 let raf = 0;
-function read(box, name) {
+const read = (box, name) => {
   const m = getComputedStyle(box).translate.match(/(-?[\\d.]+)px/);
   samples[name].push([performance.now() - t0, m ? parseFloat(m[1]) : 0]);
-}
-function loop() {
+};
+const loop = () => {
   read(boxes[0], "before");
   read(boxes[1], "after");
   draw();
   if (performance.now() - t0 < Math.max(OLD_DUR, NEW_DUR) + 120) raf = requestAnimationFrame(loop);
-}
-function fire() {
+};
+const fire = () => {
   for (const box of boxes) box.classList.remove("go");
   // force a reflow so removing and re-adding the class restarts the transition
   void document.body.offsetWidth;
@@ -271,14 +271,14 @@ function fire() {
   for (const box of boxes) box.classList.add("go");
   cancelAnimationFrame(raf);
   raf = requestAnimationFrame(loop);
-}
+};
 // start over every couple of seconds, forever, so a screen recording always catches it
 setTimeout(fire, 350);
 setInterval(fire, 2200);
 
 const cv = document.getElementById("trace");
 const ctx = cv.getContext("2d");
-function draw() {
+const draw = () => {
   const dpr = devicePixelRatio || 1;
   const w = cv.clientWidth, h = cv.clientHeight;
   if (cv.width !== w * dpr) { cv.width = w * dpr; cv.height = h * dpr; }
@@ -346,7 +346,7 @@ function draw() {
   plot("after", "#f05252", false);
   plot("before", "#7d7d88", true);
   plot("after", "#b8564f", true);
-}
+};
 draw();
 </script>
 </body>

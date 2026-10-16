@@ -16,10 +16,10 @@ import { useEffect, useRef, useState } from "react";
  * never changes (the caller keeps its own `active`), so a consumer that must know
  * the moment work starts - to disable a control, for example - still can.
  */
-export function useDelayedFlag(
+export const useDelayedFlag = (
     active: boolean,
     { delayMs = 200, minVisibleMs = 300 }: { delayMs?: number; minVisibleMs?: number } = {},
-): boolean {
+) => {
     const [visible, setVisible] = useState(false);
     const showTimer = useRef<number | null>(null);
     const hideTimer = useRef<number | null>(null);
@@ -58,4 +58,4 @@ export function useDelayedFlag(
     }, [active, visible, delayMs, minVisibleMs]);
 
     return visible;
-}
+};
