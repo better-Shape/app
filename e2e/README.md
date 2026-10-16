@@ -102,7 +102,7 @@ The commands below run from the application checkout, so every payload step stay
 subshell and the `npm` commands run where `package.json` is:
 
 ```bash
-SV=/tmp/sandbox-vendor        # or the private root the fetch used
+SV="${SV:-/tmp/sandbox-vendor}"   # the root the fetch created; keep its value if you exported one
 (
   cd "$SV"
   for f in $(grep -o '^[a-f0-9]\{64\}  .*\.part-00$' MANIFEST.sha256 | sed 's/.*  //; s/\.part-00$//'); do

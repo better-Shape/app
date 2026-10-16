@@ -36,8 +36,9 @@ assets (the recipes here spell its root `/tmp/sandbox-vendor`), extract the
 browser tree to `/tmp/pw-browsers`, then:
 
 ```bash
+SV="${SV:-/tmp/sandbox-vendor}"   # the payload root the fetch created; keep its value if you exported one
 export PLAYWRIGHT_BROWSERS_PATH=/tmp/pw-browsers
-export PLAYWRIGHT_SANDBOX_LIBS=/tmp/sandbox-vendor/chrome-deps/cft-156
+export PLAYWRIGHT_SANDBOX_LIBS="$SV/chrome-deps/cft-156"
 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm ci
 npm run test:e2e
 ```
