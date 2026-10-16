@@ -30,8 +30,10 @@ npm run qa                        # full browser suite + agent summary
 On a host where the Playwright browser CDN is unreachable, the orphan branch
 `vendor/sandbox-toolchain` carries the Chrome for Testing build this suite
 pins, already in the layout Playwright expects, plus the shared-library
-closure it needs. Fetch the payload to `/tmp/sandbox-vendor`, reassemble the
-split assets, extract the browser tree to `/tmp/pw-browsers`, then:
+closure it needs. Fetch the payload as section 5 of
+`engineering/sandbox-vendored-toolchain.md` describes, reassemble the split
+assets (the recipes here spell its root `/tmp/sandbox-vendor`), extract the
+browser tree to `/tmp/pw-browsers`, then:
 
 ```bash
 export PLAYWRIGHT_BROWSERS_PATH=/tmp/pw-browsers

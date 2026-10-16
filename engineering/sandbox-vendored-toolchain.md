@@ -579,7 +579,7 @@ The Playwright path is then `npm ci` with `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` a
 `npx playwright test`. No `PLAYWRIGHT_CHROMIUM_PATH` is needed, because the vendored tree sits in
 the registry layout Playwright expects.
 
-Three housekeeping notes. The fetch recipe leaves the shell in `/tmp/sandbox-vendor`, and every
+Three housekeeping notes. The fetch recipe leaves the shell in the payload root, and every
 cargo command below takes the repository-relative `src-tauri/Cargo.toml`, so `cd -` back to the
 checkout first. Cargo defaults its build directory to `src-tauri/target` inside the workspace;
 `export CARGO_TARGET_DIR=/tmp/cargo-target` keeps the snapshotted tree small and changes no result.
