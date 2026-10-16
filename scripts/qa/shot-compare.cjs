@@ -1,7 +1,8 @@
 const { chromium } = require("playwright");
 const { default: sparticuz } = require("@sparticuz/chromium");
+const { applySandboxLibs } = require("./sandbox-libs.cjs");
 (async () => {
-  process.env.LD_LIBRARY_PATH = `/tmp/sandboxlibs/lib:${process.env.LD_LIBRARY_PATH ?? ""}`;
+  applySandboxLibs();
   const b = await chromium.launch({ executablePath: await sparticuz.executablePath(), args: ["--no-sandbox","--disable-dev-shm-usage","--enable-unsafe-swiftshader"] });
   const p = await b.newPage({ viewport: { width: 1100, height: 760 }, deviceScaleFactor: 2 });
   await p.goto("file:///home/user/app/scripts/motion/compare.html");

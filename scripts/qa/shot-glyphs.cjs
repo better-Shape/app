@@ -15,6 +15,7 @@ const { chromium } = require("playwright");
 const { default: sparticuz } = require("@sparticuz/chromium");
 const magick = require("./imagemagick.cjs");
 
+const { applySandboxLibs } = require("./sandbox-libs.cjs");
 const ROOT = path.resolve(__dirname, "../..");
 const OUT = path.join(ROOT, ".dump/app/qa/motion/glyphs.png");
 
@@ -34,7 +35,7 @@ const crashMark = extract(crashSrc, "function CrashMark");
 // are the app itself, with the toggles in each state.
 
 (async () => {
-    process.env.LD_LIBRARY_PATH = `/tmp/sandboxlibs/lib:${process.env.LD_LIBRARY_PATH ?? ""}`;
+    applySandboxLibs();
     const browser = await chromium.launch({
         executablePath: await sparticuz.executablePath(),
         args: ["--no-sandbox", "--disable-dev-shm-usage", "--enable-unsafe-swiftshader"],

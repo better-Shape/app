@@ -15,6 +15,7 @@
 const { chromium } = require("playwright");
 const { default: sparticuz } = require("@sparticuz/chromium");
 
+const { applySandboxLibs } = require("./sandbox-libs.cjs");
 const arg = (name, fallback) => {
     const hit = process.argv.find((a) => a.startsWith(`--${name}=`));
     return hit ? hit.slice(name.length + 3) : fallback;
@@ -44,11 +45,7 @@ const state = (sel) =>
     });
 
 async function main() {
-    if (process.env.PLAYWRIGHT_SANDBOX_LIBS) {
-        process.env.LD_LIBRARY_PATH = process.env.LD_LIBRARY_PATH
-            ? `${process.env.PLAYWRIGHT_SANDBOX_LIBS}:${process.env.LD_LIBRARY_PATH}`
-            : process.env.PLAYWRIGHT_SANDBOX_LIBS;
-    }
+    applySandboxLibs();
     const browser = await chromium.launch({
         executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH ?? (await sparticuz.executablePath()),
         args: ["--no-sandbox", "--disable-dev-shm-usage", "--enable-unsafe-swiftshader"],

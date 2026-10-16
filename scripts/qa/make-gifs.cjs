@@ -23,6 +23,7 @@ const magick = require("./imagemagick.cjs");
 const { chromium } = require("playwright");
 const { default: sparticuz } = require("@sparticuz/chromium");
 
+const { applySandboxLibs } = require("./sandbox-libs.cjs");
 const ROOT = path.resolve(__dirname, "../..");
 const OUT = process.env.GIF_OUT ?? path.join(ROOT, ".dump/app/qa/gifs");
 const URL = process.env.PROBE_URL ?? "http://127.0.0.1:48921/?seed=project";
@@ -324,7 +325,7 @@ if (!selected.length) {
 }
 
 (async () => {
-    process.env.LD_LIBRARY_PATH = `/tmp/sandboxlibs/lib:${process.env.LD_LIBRARY_PATH ?? ""}`;
+    applySandboxLibs();
     fs.mkdirSync(OUT, { recursive: true });
     const browser = await chromium.launch({
         executablePath: await sparticuz.executablePath(),

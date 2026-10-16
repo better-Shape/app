@@ -14,6 +14,7 @@ const path = require("node:path");
 const { chromium } = require("playwright");
 const { default: sparticuz } = require("@sparticuz/chromium");
 
+const { applySandboxLibs } = require("./sandbox-libs.cjs");
 const ROOT = path.resolve(__dirname, "../..");
 const SRC = fs.readFileSync(path.join(ROOT, "components/layout/error/crash-screen.tsx"), "utf8");
 
@@ -40,7 +41,7 @@ const PAGE = `<!doctype html><html><head><meta charset="utf-8"><style>
 </body></html>`;
 
 (async () => {
-    process.env.LD_LIBRARY_PATH = `/tmp/sandboxlibs/lib:${process.env.LD_LIBRARY_PATH ?? ""}`;
+    applySandboxLibs();
     const browser = await chromium.launch({
         executablePath: await sparticuz.executablePath(),
         args: ["--no-sandbox", "--disable-dev-shm-usage", "--enable-unsafe-swiftshader"],

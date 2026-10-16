@@ -17,6 +17,7 @@ const magick = require("./imagemagick.cjs");
 const { mkdirSync, readdirSync, rmSync, writeFileSync } = require("node:fs");
 const { join, resolve } = require("node:path");
 
+const { applySandboxLibs } = require("./sandbox-libs.cjs");
 const OUT = resolve(process.env.CAPTURE_OUT ?? ".dump/app/qa/motion");
 const ONLY = (process.argv.find((a) => a.startsWith("--only=")) ?? "").slice(7).split(",").filter(Boolean);
 const LIST = process.argv.includes("--list");
@@ -28,19 +29,6 @@ const FRAME_DELAY_CS = 4;
 const log = (...a) => process.stdout.write(a.join(" ") + "\n");
 
 // ── chromium resolution (same order as playwright.config.ts) ────────────────
-/**
- * A sandbox Chromium build needs its own copies of libnss3/libnspr4. The config
- * takes them via `PLAYWRIGHT_SANDBOX_LIBS`; this script runs outside that config, so
- * it applies the same override to the environment the browser is spawned in.
- */
-const applySandboxLibs = () => {
-    const libs = process.env.PLAYWRIGHT_SANDBOX_LIBS;
-    if (!libs) return;
-    process.env.LD_LIBRARY_PATH = process.env.LD_LIBRARY_PATH
-        ? `${libs}:${process.env.LD_LIBRARY_PATH}`
-        : libs;
-    log(`[capture] LD_LIBRARY_PATH += ${libs}`);
-};
 
 const LAUNCH_ARGS = [
     "--no-sandbox",
@@ -266,7 +254,8 @@ async function main() {
     }
     const { chromium } = playwright;
     const { default: sparticuz } = require("@sparticuz/chromium");
-    applySandboxLibs();
+    const libs = applySandboxLibs();
+    if (libs) log(`[capture] LD_LIBRARY_PATH += ${libs}`);
 
     const executablePath = process.env.PLAYWRIGHT_CHROMIUM_PATH ?? (await sparticuz.executablePath());
     const browser = await chromium.launch({
