@@ -1,7 +1,7 @@
 /**
  * The spring vocabulary's contract, in four parts:
  *
- *   1. Re-derives every token from the physics in `scripts/motion/springs.mjs` and
+ *   1. Re-derives every token from the physics in `scripts/motion/springs.js` and
  *      compares it to the committed `app/springs.css`, so a hand-edit is caught.
  *   2. Checks each curve's shape, since a token with the wrong damping is still a valid
  *      `linear()` and nothing else would notice.
@@ -15,7 +15,7 @@ import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
 // A Node ESM tool that this scope type-checks like any other module, so no
 // `@ts-expect-error` is needed here.
-import { SPRINGS, FALLBACKS, renderCss, springToLinear, peakOf } from "../../scripts/motion/springs.mjs";
+import { SPRINGS, FALLBACKS, renderCss, springToLinear, peakOf } from "../../scripts/motion/springs.js";
 import { must } from "../helpers/must";
 
 const ROOT = join(__dirname, "..", "..");

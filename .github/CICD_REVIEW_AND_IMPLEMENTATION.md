@@ -39,7 +39,7 @@ This document captures a deep codebase review and online recon spree for CI/CD b
 - No CODEOWNERS
 - No PR hygiene (title lint, large file check, secret heuristic)
 - `lefthook.yml` was example-only, no actual hooks
-- `eslint.config.mjs` didn't ignore one-off migration scripts in `src-tauri/scripts/`
+- `eslint.config.js` didn't ignore one-off migration scripts in `src-tauri/scripts/`
 - `package.json` missing `typecheck` script
 - `scripts/release/version.mjs` no `--check` mode for CI
 - TypeScript type errors hidden (2 errors in `use-chat-session.ts` + `chat.tsx` - `ReasoningEffort` with `super` not included in useState)
@@ -188,7 +188,7 @@ Comprehensive doc: overview diagram, jobs table, caching, artifacts, security ha
 - Added `lint:strict: eslint --max-warnings=0`
 - Added `ci: lint:strict && typecheck && test:all`
 
-### 13. ESLint Config (`eslint.config.mjs`)
+### 13. ESLint Config (`eslint.config.js`)
 
 - Added ignores: `src-tauri/scripts/**` (one-off migration scripts with require), `docs/generated/**`
 
@@ -308,7 +308,7 @@ npm run release -- 1.0.3 --commit --tag --push
 - `.github/CODEOWNERS` - new, maintainers for critical paths
 - `docs/developing/ci-cd.mdx` - new, comprehensive CI/CD documentation
 - `package.json` - added typecheck, lint:strict, ci scripts
-- `eslint.config.mjs` - added ignores for src-tauri/scripts, docs/generated
+- `eslint.config.js` - added ignores for src-tauri/scripts, docs/generated
 - `lefthook.yml` - from example to real hooks (pre-commit, pre-push, commit-msg)
 - `scripts/release/version.mjs` - added --check mode
 - `features/chat/lib/use-chat-session.ts` - fixed ComposerEffort type missing super

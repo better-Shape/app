@@ -5,16 +5,16 @@
  * This exists because "the animation feels cheap" is not something a report can argue
  * with. The page runs both curves on the same box, at the same time, from the same
  * trigger, and plots what actually happened, so the difference is visible rather than
- * claimed. It is generated from `springs.mjs` so the curves on the page can never drift
+ * claimed. It is generated from `springs.js` so the curves on the page can never drift
  * from the curves in the app.
  *
- * Run: node scripts/motion/compare.mjs --write   →  scripts/motion/compare.html
+ * Run: node scripts/motion/compare.js --write   →  scripts/motion/compare.html
  */
 import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
-import { SPRINGS, springToLinear, peakOf } from "./springs.mjs";
+import { SPRINGS, springToLinear, peakOf } from "./springs.js";
 
 /**
  * These scripts print their report to stdout, and the generated files are written
@@ -47,7 +47,7 @@ const NEW = (() => {
 })();
 
 /** Classify a curve by the properties that decide whether it reads as physical. */
-function describe(easing) {
+const describe = (easing) => {
     // Sample the curve the way the browser will, then measure it.
     const isLinear = easing.startsWith("linear(");
     let at;
@@ -97,7 +97,7 @@ function describe(easing) {
         peak: (peak - 1) * 100,
         peakAt: peakAt * 100,
     };
-}
+};
 
 const oldStats = describe(OLD.easing);
 const newStats = describe(NEW.easing);

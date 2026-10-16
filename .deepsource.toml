@@ -13,9 +13,10 @@ enabled = true
   [analyzers.meta]
   plugins = ["react"]
   environment = ["nodejs", "browser", "vitest"]
-  # DeepSource parses .mjs as CommonJS by default; this repo is ESM, so
-  # parse errors on eslint.config.mjs and scripts/qa/*.mjs are false
-  # positives until this is set.
+  # The repo is ESM, so a .js file is a module. This option covers .js only:
+  # a .mjs file is still parsed as a script and returns a "Parsing error" on
+  # its imports, which is why the config and the motion scripts under
+  # scripts/motion use the .js extension.
   module_system = "es-modules"
   # JS-D1001 demands a doc comment on every function. AGENTS.md forbids
   # comments that restate the code and reserves them for non-obvious
