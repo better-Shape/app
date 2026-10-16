@@ -6,9 +6,7 @@ import { useSearchParams } from "next/navigation";
 import {
     useSettings,
     updateSettingSection,
-    updateSettings,
     resetSettings,
-    DEFAULT_SETTINGS,
     type BetterShapeSettings,
 } from "@/lib/settings";
 import { commands, useProjectState } from "@/lib/backend";
