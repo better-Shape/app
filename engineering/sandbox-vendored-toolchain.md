@@ -560,6 +560,12 @@ the CI row that nothing in the sandbox depends on.
 | `docs/developing/local-development.mdx` | done | the tests section names the vendor branch and the toolchain note |
 | `docs/developing/ci-cd.mdx` | done | one paragraph after the jobs table: `test-rust` and `rust-lints` run offline through the vendor branch |
 | `CONTRIBUTING.md` | done | the run-the-app block names the vendor branch and the two flags |
+| `README.md` | done | the test block names the branch that makes the same three commands work offline |
+| `openspec/project.md` | done | the row that said a machine without cargo runs the TypeScript gates only now separates a missing toolchain from a blocked network |
+| `FULL-REVIEW.md` | done | the Rust block names the two flags and the branch |
+| `.cursor/rules/git-workflow.mdc` | done | the pre-push rule points at the branch so the gate is run rather than skipped |
+| `CLAUDE.md` | not needed | a symlink to `AGENTS.md`, so the section already reaches it |
+| `.github/CICD_REVIEW_AND_IMPLEMENTATION.md` | not needed | dated record of the pipeline as it stood on 2026-10-12, not a recipe |
 | `.github/actions/setup/action.yml` | not needed | the vendored sysroot mirrors this apt list. A comment here would be the only place the two must agree, and the gate docs already carry the pointer |
 | `.github/workflows/ci.yml` | needs decision | CI installs stable Rust, which is ahead of the 1.88.0 pin and unaffected by the `notify-rust` gap. If the pin moves to 1.89.0, this file and the vendor payload move together |
 
