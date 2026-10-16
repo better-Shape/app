@@ -13,12 +13,19 @@ import {
 } from "@/features/agent/subagents/store";
 import { NEW_CHAT_TAB_ID } from "@/features/chat/ui/shell/tabs";
 
-export function AgentTabsChip() {
+/** The chip that lists the agent tabs running beside the active one.
+ *
+ * It renders nothing while the active chat has no subagents, which is why the count is
+ * read before the markup rather than inside it.
+ */
+export const AgentTabsChip = () => {
     const [parentId, setParentId] = useState<string | null>(null);
     const [open, setOpen] = useState(false);
     const all = useSyncExternalStore(subscribeSubagents, getSubagents, getSubagents);
 
     useEffect(() => {
+        // The new-chat tab is not a parent, so it reads as no parent rather than as an id
+        // the list would filter to nothing.
         const onActive = (e: Event) => {
             const id = (e as CustomEvent<{ id?: string }>).detail?.id;
             setParentId(id && id !== NEW_CHAT_TAB_ID ? id : null);
@@ -27,6 +34,7 @@ export function AgentTabsChip() {
         return () => window.removeEventListener("bettershape-chat-active", onActive as EventListener);
     }, []);
 
+    // The store hands out every subagent; the chip only ever shows the active tab's own.
     const cards = useMemo(() => {
         if (!parentId) return all;
         return all.filter((c) => c.parentId === parentId);
@@ -44,7 +52,6 @@ export function AgentTabsChip() {
                     "inline-flex w-fit max-w-full items-center gap-1.5 rounded-lg px-2 py-1",
                     "text-sm font-normal text-text-secondary",
                     "transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--row-hover)] hover:text-text-primary",
-                    "transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
                 )}
             >
                 <Icon icon={Bot20Regular} className="text-text-muted" />
@@ -78,4 +85,4 @@ export function AgentTabsChip() {
             ) : null}
         </div>
     );
-}
+};
