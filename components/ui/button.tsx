@@ -317,6 +317,105 @@ const anchorTargetProps = (href: string, ariaDisabled: boolean) => ({
     tabIndex: ariaDisabled ? -1 : 0,
 });
 
+/**
+ * Every flag `Button` derives from its props, answered in one place.
+ *
+ * The states overlap, so a control can be busy and selected at once, and the element, its
+ * attributes and its face all need the same answers. Deriving them together is what stops
+ * the disabled attribute and the announcement from disagreeing about the same control.
+ */
+const buttonState = ({
+    status,
+    loading,
+    disabled,
+    accessibleDisabled,
+    href,
+    label,
+    variant,
+    icon,
+    children,
+}: {
+    status: ButtonStatus;
+    loading: boolean;
+    disabled?: boolean;
+    accessibleDisabled: boolean;
+    href?: string;
+    label: boolean;
+    variant: ButtonVariant;
+    icon?: IconGlyph;
+    children: React.ReactNode;
+}) => {
+    const aiBusy = isAiBusy(status);
+    const inactive = isInactive(status, loading, disabled);
+    const useNativeDisabled = usesNativeDisabled({ inactive, accessibleDisabled, href, label });
+    return {
+        aiBusy,
+        inactive,
+        spinnerLoading: isSpinnerLoading(status, loading),
+        resolvedVariant: status === "error" ? "destructive" : variant,
+        iconOnly: isIconOnly(icon, children),
+        ariaDisabled: inactive && !useNativeDisabled,
+        busy: loading || aiBusy,
+        // A control that keeps its place in the tab order carries the state instead of the
+        // attribute, so the attribute is set only where the element really is disabled.
+        disabledAttribute: useNativeDisabled ? true : undefined,
+    };
+};
+
+/**
+ * The announced pressed state, where the app's `selected` wins over a caller's value.
+ *
+ * `selected` is the committed state of a toggle in this design system, so a caller that
+ * passes `aria-pressed` as well must not be able to contradict it.
+ */
+const pressedAria = (selected: boolean, ariaPressed?: React.AriaAttributes["aria-pressed"]) =>
+    selected ? true : ariaPressed;
+
+/**
+ * The face a button wears, chosen before the element is built.
+ *
+ * The busy face has to be the last thing in the box so its dots sit over the contents
+ * rather than beside them, and `Button` renders one child either way.
+ */
+const ButtonFace = ({
+    aiBusy,
+    icon,
+    iconOnly,
+    spinnerLoading,
+    size,
+    count,
+    countSrText,
+    children,
+}: {
+    aiBusy: boolean;
+    icon?: IconGlyph;
+    iconOnly: boolean;
+    spinnerLoading: boolean;
+    size: ButtonSize;
+    count?: number;
+    countSrText?: string;
+    children?: React.ReactNode;
+}) => {
+    if (aiBusy) {
+        return (
+            <BusyFace icon={icon} size={iconOnly ? "icon" : size}>
+                {children}
+            </BusyFace>
+        );
+    }
+    return (
+        <IdleFace
+            icon={icon}
+            spinnerLoading={spinnerLoading}
+            size={size}
+            count={count}
+            countSrText={countSrText}
+        >
+            {children}
+        </IdleFace>
+    );
+};
+
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
     variant?: ButtonVariant;
     category?: ButtonCategory;
@@ -365,14 +464,16 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         },
         ref,
     ) => {
-        const aiBusy = isAiBusy(status);
-        const spinnerLoading = isSpinnerLoading(status, loading);
-        const inactive = isInactive(status, loading, disabled);
-        const resolvedVariant = status === "error" ? "destructive" : variant;
-        const iconOnly = isIconOnly(icon, children);
-        const useNativeDisabled = usesNativeDisabled({ inactive, accessibleDisabled, href, label });
-        const ariaDisabled = inactive && !useNativeDisabled;
-        const busy = loading || aiBusy;
+        const {
+            aiBusy,
+            inactive,
+            spinnerLoading,
+            resolvedVariant,
+            iconOnly,
+            ariaDisabled,
+            busy,
+            disabledAttribute,
+        } = buttonState({ status, loading, disabled, accessibleDisabled, href, label, variant, icon, children });
         const { pressed, endPress, startPress } = usePressSpring({ inactive, label });
 
         const classes = cn(
@@ -384,24 +485,19 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
             className,
         );
 
-        // The busy face renders last: the dots sit over the contents rather than beside them.
-        const face = aiBusy ? (
-            <BusyFace icon={icon} size={iconOnly ? "icon" : size}>
-                {children}
-            </BusyFace>
-        ) : (
-            <IdleFace
+        const content = (
+            <ButtonFace
+                aiBusy={aiBusy}
                 icon={icon}
+                iconOnly={iconOnly}
                 spinnerLoading={spinnerLoading}
                 size={size}
                 count={count}
                 countSrText={countSrText}
             >
                 {children}
-            </IdleFace>
+            </ButtonFace>
         );
-
-        const content = face;
 
         /**
          * Swallows a click on a button that cannot act, and says whether it did.
@@ -452,11 +548,11 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
             <button
                 ref={ref}
                 type={type}
-                disabled={useNativeDisabled || undefined}
+                disabled={disabledAttribute}
                 {...props}
                 className={classes}
                 {...stateAriaProps({ busy, pressed, blocked: inactive, ariaDisabled })}
-                aria-pressed={selected ? true : ariaPressed}
+                aria-pressed={pressedAria(selected, ariaPressed)}
                 onClick={(e) => {
                     if (guardActivation(e)) return;
                     onClick?.(e);

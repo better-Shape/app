@@ -25,7 +25,7 @@ export type MorphMenuVariant = "default" | "morph";
  *   …menu body…
  * </MorphMenu>
  */
-export function MorphMenu({
+export const MorphMenu = ({
     trigger,
     children,
     className,
@@ -49,7 +49,7 @@ export function MorphMenu({
     /** @deprecated use `variant="morph"` */
     morph?: boolean;
     "aria-label"?: string;
-}) {
+}) => {
     const useMorph = variant === "morph" || morph;
     const ref = useRef<HTMLDivElement>(null);
     const measureRef = useRef<HTMLSpanElement>(null);
@@ -61,6 +61,12 @@ export function MorphMenu({
     useLayoutEffect(() => {
         if (!useMorph || !measureRef.current) return;
         const el = measureRef.current;
+        /**
+         * The closed width, taken from the invisible sizer rather than the button.
+         *
+         * The button is the box being tweened, so measuring it would read the width it is
+         * on its way to and the closed state would drift with every open.
+         */
         const measure = () => {
             const w = Math.ceil(el.getBoundingClientRect().width);
             if (w > 0) setClosedW((prev) => (prev === w ? prev : w));
@@ -68,14 +74,18 @@ export function MorphMenu({
         measure();
         const ro = new ResizeObserver(measure);
         ro.observe(el);
-        return () => ro.disconnect();
+        return () => {
+            ro.disconnect();
+        };
     }, [useMorph, trigger]);
 
     useEffect(() => {
         if (!open) return;
+        /** Closes the menu on a press outside it, since only inside presses keep it open. */
         const onDown = (e: MouseEvent) => {
             if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
         };
+        /** Escape closes the menu, which is the keyboard's only way out of it. */
         const onKey = (e: KeyboardEvent) => {
             if (e.key === "Escape") setOpen(false);
         };
@@ -173,4 +183,4 @@ export function MorphMenu({
             </div>
         </div>
     );
-}
+};

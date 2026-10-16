@@ -318,11 +318,23 @@ const DropdownMenuSeparator = React.forwardRef<
 ));
 DropdownMenuSeparator.displayName = DropdownMenuPrimitive.Separator.displayName;
 
+/**
+ * The keystroke hint at the end of a menu item, in the app's one hint style.
+ *
+ * Both menus read `shortcutClasses`, so a hint lands in the same place at the same size
+ * whether the row belongs to a dropdown or a menubar.
+ */
 const DropdownMenuShortcut = ({ className, ...props }: React.HTMLAttributes<HTMLSpanElement>) => (
     <span className={cn(shortcutClasses, className)} {...props} />
 );
 DropdownMenuShortcut.displayName = "DropdownMenuShortcut";
 
+/**
+ * A nested row that holds its own open state, so it works with no props at all.
+ *
+ * Passing `open` hands the state to the caller; either way the children receive it, which
+ * is what keeps the trigger and the panel from disagreeing about whether it is open.
+ */
 const DropdownMenuNested = ({ children, open, onOpenChange }: { children: React.ReactNode, open?: boolean, onOpenChange?: (open: boolean) => void }) => {
     const [internalOpen, setInternalOpen] = React.useState(false);
     const isOpened = open !== undefined ? open : internalOpen;
@@ -361,6 +373,12 @@ const DropdownMenuNestedTrigger = React.forwardRef<
 ));
 DropdownMenuNestedTrigger.displayName = "DropdownMenuNestedTrigger";
 
+/**
+ * The panel a nested row reveals.
+ *
+ * The collapse animates the grid template row rather than a height, so the panel's own
+ * content keeps its layout while the row goes to zero.
+ */
 const DropdownMenuNestedContent = ({ children, isOpened }: { children: React.ReactNode, isOpened?: boolean }) => {
     return (
         <div
@@ -399,6 +417,49 @@ const MenubarTrigger = React.forwardRef<
 ));
 MenubarTrigger.displayName = MenubarPrimitive.Trigger.displayName;
 
+/**
+ * The display name a wrapper component re-exports the menubar trigger under.
+ *
+ * `ForwardRef` and friends hand back a component whose identity differs from ours, so the
+ * name is the only thing left to match on when the trigger arrives wrapped.
+ */
+const triggerDisplayName = (child: React.ReactElement): string | undefined => {
+    const type = child.type as { displayName?: string };
+    return typeof type === "object" && type !== null ? type.displayName : undefined;
+};
+
+/** Whether a menu child is the menubar trigger, or a wrapper that re-exports it. */
+const isMenubarTrigger = (child: React.ReactElement): boolean =>
+    child.type === MenubarTrigger || triggerDisplayName(child) === MenubarTrigger.displayName;
+
+/**
+ * Our ref composed with whatever ref the caller already put on the child.
+ *
+ * React 19 passes `ref` as a prop, so the child's own ref has to be kept rather than
+ * overwritten: a consumer that reads the trigger element still receives it.
+ */
+const composeTriggerRef =
+    (callerRef: React.Ref<HTMLElement> | undefined, setTriggerEl: (el: HTMLElement | null) => void) =>
+    (el: HTMLElement | null) => {
+        setTriggerEl(el);
+        if (typeof callerRef === "function") callerRef(el);
+        else if (callerRef) (callerRef as React.MutableRefObject<HTMLElement | null>).current = el;
+    };
+
+/**
+ * Gives the trigger child the ref the open-state observer watches.
+ *
+ * Every other child is returned untouched, so a menu can hold items, separators and nested
+ * rows beside its trigger.
+ */
+const withTriggerRef = (child: React.ReactNode, setTriggerEl: (el: HTMLElement | null) => void): React.ReactNode => {
+    if (!React.isValidElement(child) || !isMenubarTrigger(child as React.ReactElement)) return child;
+    const callerRef = (child.props as { ref?: React.Ref<HTMLElement> }).ref;
+    return React.cloneElement(child as React.ReactElement<{ ref?: React.Ref<HTMLElement> }>, {
+        ref: composeTriggerRef(callerRef, setTriggerEl),
+    });
+};
+
 const MenubarMenu = ({
     onOpenChange,
     children,
@@ -425,6 +486,12 @@ const MenubarMenu = ({
         const el = triggerEl;
         if (!el) return;
 
+        /**
+         * Reads the open state, which only ever exists on the primitive's element.
+         *
+         * The observer reports changes rather than current state, so the same read runs
+         * once before it starts: a menu that is already open would report closed.
+         */
         const sync = () => {
             const open = el.getAttribute("data-state") === "open";
             if (open !== prevOpenRef.current) {
@@ -436,35 +503,14 @@ const MenubarMenu = ({
         sync();
         const observer = new MutationObserver(sync);
         observer.observe(el, { attributes: true, attributeFilter: ["data-state"] });
-        return () => observer.disconnect();
+        return () => {
+            observer.disconnect();
+        };
     }, [onOpenChange, triggerEl]);
 
     return (
         <MenubarPrimitive.Menu value={value}>
-            {React.Children.map(children, (child) => {
-                if (!React.isValidElement(child)) return child;
-                // Attach ref to MenubarTrigger so we can observe data-state
-                if (
-                    child.type === MenubarTrigger ||
-                    (typeof child.type === "object" &&
-                        child.type !== null &&
-                        "displayName" in child.type &&
-                        (child.type as { displayName?: string }).displayName === MenubarTrigger.displayName)
-                ) {
-                    // React 19 passes `ref` as a prop. Keep the caller's ref and add ours, so
-                    // consumers that read the trigger element still receive it.
-                    const callerRef = (child.props as { ref?: React.Ref<HTMLElement> }).ref;
-                    const composedRef = (el: HTMLElement | null) => {
-                        setTriggerEl(el);
-                        if (typeof callerRef === "function") callerRef(el);
-                        else if (callerRef) (callerRef as React.MutableRefObject<HTMLElement | null>).current = el;
-                    };
-                    return React.cloneElement(child as React.ReactElement<{ ref?: React.Ref<HTMLElement> }>, {
-                        ref: composedRef,
-                    });
-                }
-                return child;
-            })}
+            {React.Children.map(children, (child) => withTriggerRef(child, setTriggerEl))}
         </MenubarPrimitive.Menu>
     );
 };
@@ -642,11 +688,21 @@ const MenubarSeparator = React.forwardRef<
 ));
 MenubarSeparator.displayName = MenubarPrimitive.Separator.displayName;
 
+/**
+ * The keystroke hint on a menubar row, drawn in the same style as the dropdown's.
+ *
+ * The two menus share one class list, so the same shortcut cannot drift between them.
+ */
 const MenubarShortcut = ({ className, ...props }: React.HTMLAttributes<HTMLSpanElement>) => (
     <span className={cn(shortcutClasses, className)} {...props} />
 );
 MenubarShortcut.displayName = "MenubarShortcut";
 
+/**
+ * A nested menubar row that holds its own open state, so it works with no props at all.
+ *
+ * Passing `open` hands the state to the caller, and the children are told either way.
+ */
 const MenubarNested = ({ children, open, onOpenChange }: { children: React.ReactNode, open?: boolean, onOpenChange?: (open: boolean) => void }) => {
     const [internalOpen, setInternalOpen] = React.useState(false);
     const isOpened = open !== undefined ? open : internalOpen;
@@ -685,6 +741,12 @@ const MenubarNestedTrigger = React.forwardRef<
 ));
 MenubarNestedTrigger.displayName = "MenubarNestedTrigger";
 
+/**
+ * The panel a nested menubar row reveals, collapsed through its grid row.
+ *
+ * The row animates to zero height while the panel keeps its layout, so the content is
+ * already in place when the row opens again.
+ */
 const MenubarNestedContent = ({ children, isOpened }: { children: React.ReactNode, isOpened?: boolean }) => {
     return (
         <div
