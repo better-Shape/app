@@ -89,6 +89,12 @@ npm run sync-version  → version-sync
 npm run test:all      → local aggregate (CI runs Vitest and Cargo separately)
 ```
 
+Off a network that can reach `crates.io` or the Playwright browser CDN, `test-rust`, `rust-lints`
+and the e2e suite still run here through the orphan branch `vendor/sandbox-toolchain`. See
+`engineering/rust-toolchain.md` for the cargo flags and `engineering/sandbox-vendored-toolchain.md`
+for the fetch recipe. `.github/CICD_REVIEW_AND_IMPLEMENTATION.md` records that pipeline as it stood
+on 2026-10-12 and is not a recipe.
+
 ## Adding a new workflow
 
 1. Use top-level `permissions: contents: read`

@@ -71,6 +71,9 @@ echo "clippy probe passed"
 echo
 echo "Toolchain ready. Load it in a new shell with:"
 echo "  eval \"\$($0 --env)\""
-echo "Note: crates.io and the Debian mirror are not reachable from agent sandboxes, so"
-echo "cargo cannot fetch crate dependencies. Use cargo fmt --check here; clippy and cargo test"
-echo "on src-tauri need the crate registry and the GTK and WebKit system libraries."
+echo
+echo "This source supports cargo fmt only: crates.io and the Debian mirror are unreachable,"
+echo "so cargo cannot resolve dependencies and no -sys crate can find its system libraries."
+echo "For cargo clippy, cargo test and the browser suite, fetch the vendor branch"
+echo "vendor/sandbox-toolchain and follow its FETCH.md. See engineering/sandbox-vendored-toolchain.md"
+echo "and engineering/rust-toolchain.md."

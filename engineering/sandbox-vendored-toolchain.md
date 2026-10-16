@@ -541,24 +541,27 @@ the registry layout Playwright expects.
 
 ## 6. Reference map for the branch and the docs
 
-Rows marked done landed with this document. The rest need the vendored branch to exist first,
-because they reference it as the source of toolchains and libraries.
+Every row below landed in `arena/617a353b-app`, except the two that need a maintainer decision and
+the CI row that nothing in the sandbox depends on.
 
-| File | Current state | Change | State |
-| --- | --- | --- | --- |
-| `engineering/sandbox-vendored-toolchain.md` | this file | keep as the specification and record the fetch results | done |
-| `engineering/sandbox-vendor-handoff-prompt.md` | companion brief | the brief to hand to the free agent | done |
-| `playwright.config.ts` | `applySandboxLibs()` was called inside `sandboxChromium()` only, so `PLAYWRIGHT_CHROMIUM_PATH` skipped the library directory | call it at the top of `resolveChromium()` and drop the duplicate call | done |
-| `e2e/README.md` | section `Sandboxed / CI environments without browser downloads` listed the three Chromium resolutions and did not name a source for the libraries | state that the library directory applies to all three paths, and point at this document | done |
-| `docs/developing/browser-preview.mdx` | line 26 said `npx playwright install chromium` once per machine with no alternative | name `PLAYWRIGHT_CHROMIUM_PATH`, `PLAYWRIGHT_SANDBOX_LIBS` and this document | done |
-| `engineering/rust-toolchain.md` | documents `@rustbin` from npm and says clippy and tests are CI only | add the vendored branch as source one, keep npm as fallback, and document the offline cargo build with G1 and G2 | pending |
-| `scripts/ci/install-rust-toolchain.sh` | npm `@rustbin` only, closing note says crates.io is unreachable | add a vendored-branch mode, or a sibling script that consumes `rust/toolchain/` and verifies hashes | pending |
-| `scripts/dev/rust-toolchain.sh` | npm `@rustbin` only | same, or re-point at the shared installer | pending |
-| `.github/actions/setup/action.yml` | apt list for CI | add a comment naming the vendored sysroot as the sandbox mirror of this list so the two do not drift | pending |
-| `.github/RELEASE_READINESS.md` | lines 19 and 101 to 106 say Rust is CI only | update to the offline cargo path, which now runs here end to end (section 7) | ready |
-| `.agents/PREFLIGHT.md`, `AGENTS.md` | gates list `npm run test:rust` and the cargo commands, none of which pass verbatim with the 1.88.0 pin | add the sandbox invocation with `--ignore-rust-version` and `CARGO_BUILD_JOBS=1`, or bump the pin per section 7.4 | needs decision |
-| `.github/workflows/ci.yml`, `.github/actions/setup/action.yml` | CI installs stable Rust | note that `notify-rust@4.18.0` needs 1.89.0, so the pinned toolchain is now behind the lockfile | needs decision |
-| `README.md` or `CONTRIBUTING.md` | setup instructions assume a normal network | one pointer to `engineering/sandbox-vendored-toolchain.md` | pending |
+| File | State | What changed |
+| --- | --- | --- |
+| `engineering/sandbox-vendored-toolchain.md` | done | the specification, the fetch recipe, the verification of the delivered payload and the gap list |
+| `engineering/sandbox-vendor-handoff-prompt.md` | done | the brief for the free agent, now carrying the second-pass corrections |
+| `playwright.config.ts` | done | `applySandboxLibs()` moved to the top of `resolveChromium()` so it applies to all three browser paths, and the duplicate call is gone |
+| `AGENTS.md` | done | new `Blocked sandbox toolchain` section with the measured recipe, the four facts that decide whether a gate can pass, and the delegation path, plus one line under Facts about this repository |
+| `.agents/PREFLIGHT.md` | done | `Blocked sandbox` checklist with the exact invocations, and the Rust checks now carry `--ignore-rust-version` and `CARGO_BUILD_JOBS=1` |
+| `engineering/rust-toolchain.md` | done | rewritten around two sources, the vendor branch where every gate runs and npm for format only. Corrected the `Cannot run` table, the `no sudo` claim, and a reference to a file that does not exist in this repository |
+| `.github/RELEASE_READINESS.md` | done | the `CI only` claim replaced with the offline path, the reproducing block updated, and the table re-measured on 2026-10-16 |
+| `scripts/ci/install-rust-toolchain.sh` | done | the closing note now says which tool the npm source supports and points at the vendor branch |
+| `scripts/dev/rust-toolchain.sh` | done | the header no longer claims cargo build is unusable, and points at the vendor branch |
+| `e2e/README.md` | done | the sandbox section leads with the vendored browser tree and its verified result, and the command table points at it |
+| `docs/developing/browser-preview.mdx` | done | names `PLAYWRIGHT_CHROMIUM_PATH`, `PLAYWRIGHT_SANDBOX_LIBS` and the vendored tree |
+| `docs/developing/local-development.mdx` | done | the tests section names the vendor branch and the toolchain note |
+| `docs/developing/ci-cd.mdx` | done | one paragraph after the jobs table: `test-rust` and `rust-lints` run offline through the vendor branch |
+| `CONTRIBUTING.md` | done | the run-the-app block names the vendor branch and the two flags |
+| `.github/actions/setup/action.yml` | not needed | the vendored sysroot mirrors this apt list. A comment here would be the only place the two must agree, and the gate docs already carry the pointer |
+| `.github/workflows/ci.yml` | needs decision | CI installs stable Rust, which is ahead of the 1.88.0 pin and unaffected by the `notify-rust` gap. If the pin moves to 1.89.0, this file and the vendor payload move together |
 
 Do not touch `.dump/app/browser-preview-audit-2026-10-14.md`. It is a dated record, not a recipe.
 
@@ -664,7 +667,30 @@ gates one at a time. A clippy run and a test run in parallel will fight for the 
 | `/dev/shm` | 2 GB | `--disable-dev-shm-usage` is still correct for the browser |
 | sudo | works, but no apt mirror is reachable | fixes are file-level only, never package installs |
 
-### 7.4 Upstream findings that block the Rust gates in `AGENTS.md`
+### 7.4 Payload documentation defects
+
+Two wrong numbers and one broken example in the delivered branch. None of them blocks a gate, and
+all three mislead whoever follows the recipes.
+
+1. `README.md` says `Measured total: 877 MB packed, 3775 files`. The tree holds 3777 files. The
+   manifest has 3779 entries: 3777 files plus the three split archives listed under their
+   reassembled names, which adds the three assets and the nine parts on top of the raw file count.
+2. `README.md` and `FETCH.md` both say the manifest verified `3777 of 3777`. It verifies 3779
+   entries, which is what this sandbox measured.
+3. `FETCH.md` section `Sanity checks` contains a placeholder that cannot run:
+
+   ```bash
+   unzip -q /tmp/sandbox-vendor/browsers/... 2>/dev/null || true
+   ```
+
+   The `...` is not a path. Delete that line. The two lines under it already do the work, because
+   `PLAYWRIGHT_BROWSERS_PATH` points at the staged tree and the closure check only needs `ldd`.
+
+The count that matters for a consumer is the one `sha256sum -c` prints. Have the second delivery
+state the file count, the manifest entry count and the packed size from a single measured run, and
+drop any number that was carried over rather than executed.
+
+### 7.5 Upstream findings that block the Rust gates in `AGENTS.md`
 
 `notify-rust@4.18.0`, pulled in by `tauri-plugin-notification`, declares `rust-version = "1.89.0"`.
 It is the only crate in the lockfile above 1.88.0, verified by scanning every `rust-version` key in

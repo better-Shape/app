@@ -12,12 +12,32 @@ Use this before every push. Paste the results and head SHA into the PR Verificat
 - [ ] `npm run test:rust` if you touched `src-tauri/`
 - [ ] `npm run skills:verify`
 
+## Blocked sandbox
+
+If `sh.rustup.rs`, `crates.io`, `cdn.playwright.dev` or `dl.google.com` are unreachable, fetch the
+orphan branch `vendor/sandbox-toolchain` first and follow its `FETCH.md`. It carries the toolchain,
+the crate registry, the Tauri sysroot, the browser and the shared libraries for each. Then:
+
+- [ ] I set `$CARGO_HOME/config.toml` with the vendored source replacement and `CARGO_NET_OFFLINE=true`, because `cargo --config <path>` does not reach `cargo clippy`.
+- [ ] I exported `CARGO_TARGET_DIR=/tmp/cargo-target` so a multi-gigabyte target directory stays out of the workspace.
+- [ ] I ran the Rust gates with `--ignore-rust-version`, because `notify-rust@4.18.0` declares `rust-version = "1.89.0"` while the pin is 1.88.0.
+- [ ] I ran `cargo test` with `CARGO_BUILD_JOBS=1`, because parallel linking is killed with `signal 9` on a small sandbox.
+- [ ] I ran the browser suite with `PLAYWRIGHT_BROWSERS_PATH` pointing at the extracted browser tree and `npm ci` with `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`.
+- [ ] For every gate that still cannot run, I said so in the PR body with the reason and the substitute command I ran, rather than marking it passed.
+
+Detail, measured results and the known payload defects: `engineering/sandbox-vendored-toolchain.md`,
+with the toolchain notes in `engineering/rust-toolchain.md`.
+
 ## Rust checks
 
 If you changed Rust, also run:
 
 - [ ] `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`
-- [ ] `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings`
+- [ ] `cargo clippy --ignore-rust-version --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings`
+- [ ] `CARGO_BUILD_JOBS=1 cargo test --ignore-rust-version --manifest-path src-tauri/Cargo.toml`
+
+Drop `--ignore-rust-version` on a host whose toolchain is 1.89.0 or newer. CI runs stable, so it
+runs the plain commands.
 
 ## Branch and review rules
 

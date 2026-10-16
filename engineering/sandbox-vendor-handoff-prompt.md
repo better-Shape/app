@@ -305,7 +305,29 @@ against cargo 1.88.0.
 1.88.0. If the maintainers decide to move the pin to 1.89.0, the vendor tree and the toolchain
 components have to be rebuilt together. Do not do this without a decision from them.
 
-## A5. What to verify before the second delivery
+## A5. Three wrong numbers and one broken example in the payload docs
+
+None of these blocks a gate, and all four mislead whoever follows the recipes.
+
+1. `README.md` says `Measured total: 877 MB packed, 3775 files`. The tree holds 3777 files. The
+   manifest holds 3779 entries, which is the 3777 files plus the three split archives listed under
+   their reassembled names, counting the nine parts as well.
+2. `README.md` says the manifest verified `3777 of 3777`. It verifies 3779 entries. A consumer sees
+   3779 lines and may think something is wrong.
+3. `FETCH.md` says the same 3777 figure.
+4. `FETCH.md` under `Sanity checks` has a line that cannot run:
+
+   ```bash
+   unzip -q /tmp/sandbox-vendor/browsers/... 2>/dev/null || true
+   ```
+
+   The `...` is a placeholder, not a path. Delete the line. The `ldd` check under it is enough,
+   because `PLAYWRIGHT_BROWSERS_PATH` already points at the staged tree.
+
+State the counts from one measured run, and drop any figure that was carried over rather than
+executed. Anything you cannot re-measure, remove instead of estimating.
+
+## A6. What to verify before the second delivery
 
 Run all of these from a clean `debian:12` container with the payload as the only input. Clippy alone
 is not enough, which is how A1 reached review in the first place.
@@ -314,13 +336,41 @@ is not enough, which is how A1 reached review in the first place.
 cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
 cargo clippy --ignore-rust-version --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
 CARGO_BUILD_JOBS=1 cargo test --ignore-rust-version --manifest-path src-tauri/Cargo.toml
+CARGO_BUILD_JOBS=1 cargo test --ignore-rust-version --manifest-path src-tauri/Cargo.toml --all-features
 find /tmp/gtk-sysroot -xtype l | grep -E '\.so' && echo "broken library symlinks remain"
+gcc /tmp/t.c -o /tmp/t.out -L/tmp/gtk-sysroot/usr/lib/x86_64-linux-gnu -ldbus-1 -lffi -luuid -lpcre2-8 -lzstd -lmount -lblkid -ludev
 ```
+
+The `cargo test --all-features` line is what CI runs, so it is the one that has to pass. The `gcc`
+line is a ten second check that catches A1 without a five minute cargo build. Create `/tmp/t.c` with
+`int main(){return 0;}` first.
 
 And the browser side, which already passes, so it does not regress:
 
 ```bash
 ldd "$PLAYWRIGHT_BROWSERS_PATH/chromium-1248/chrome-linux64/chrome" | grep "not found" || echo "closure complete"
+"$PLAYWRIGHT_BROWSERS_PATH/chromium-1248/chrome-linux64/chrome" --version
 ```
 
 Report the exit code and the tail of the output for each.
+
+## A7. What the consuming sandbox already verified
+
+So you know the bar, and so you do not re-litigate it. On commit `7ec94c1b`, from a restricted
+sandbox with only `github.com`, `codeload.github.com`, `api.github.com`, `npm` and `pypi` reachable:
+
+- the branch tarball downloaded in 33 seconds, 798 MB
+- `sha256sum -c MANIFEST.sha256` after inline reassembly: 3779 of 3779 OK, exit 0
+- the five Rust components installed and reported the same versions the npm `@rustbin` path produced
+- `cargo fmt --check`: clean
+- `cargo clippy --ignore-rust-version --all-targets --all-features -- -D warnings`: exit 0, 5m 19s
+- `CARGO_BUILD_JOBS=1 cargo test --ignore-rust-version --all-features`: 313 passed, 0 failed
+- `pkg-config --modversion` resolved gtk+-3.0 3.24.38, webkit2gtk-4.1 2.50.6, libsoup-3.0 3.2.3,
+  javascriptcoregtk-4.1 2.50.6, openssl 3.0.22
+- the browser tree extracted to the expected layout with its marker files, `ldd` reported no missing
+  objects, and both binaries reported Chrome for Testing 156.0.8078.4
+- `npx playwright test e2e/smoke.spec.ts` passed 6 of 6 against that tree
+
+The two failures were A1 and A2, both now fixed locally by the workaround recipes so this repository
+is unblocked. Your job is to remove the need for the A1 workaround, and to keep everything above
+green while you do it.

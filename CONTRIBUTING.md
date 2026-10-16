@@ -89,6 +89,12 @@ npm run test:rust     # Cargo
 npm run test:all      # Both
 ```
 
+If your machine cannot reach `crates.io`, `sh.rustup.rs` or the Playwright browser CDN, fetch the
+orphan branch `vendor/sandbox-toolchain` and follow its `FETCH.md`. It carries the Rust 1.88.0
+toolchain, the crate registry, a Debian 12 development sysroot for the Tauri stack, and the browser.
+`engineering/rust-toolchain.md` lists the two cargo flags the pinned toolchain needs;
+`engineering/sandbox-vendored-toolchain.md` records the measured results and the known defects.
+
 BetterShape has no account system, so there is nothing to sign in to. Run it from source with `npm run tauri:dev`, or install a published build from [GitHub releases](https://github.com/Owie6789/BetterShape/releases).
 
 ## Where things live

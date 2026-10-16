@@ -36,6 +36,11 @@ npm run test
 
 `npm run test:all` also runs the Rust tests. Run the suite that matches the files you touched.
 
+If your machine cannot reach `sh.rustup.rs`, `crates.io` or the Playwright browser CDN, the Rust
+tests and the browser suite still run. Fetch the orphan branch `vendor/sandbox-toolchain` and follow
+its `FETCH.md`, then read `engineering/rust-toolchain.md` for the flags the cargo gates need. That
+path was verified end to end on 2026-10-16.
+
 ## Sending the change
 
 Commit on a branch and open a pull request against `main`. Keep the diff focused. See [Overview](/docs/developing/overview).

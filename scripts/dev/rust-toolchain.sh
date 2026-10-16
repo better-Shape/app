@@ -9,9 +9,15 @@
 # What it gives you:
 #   rustc --version          -> 1.88.0
 #   cargo fmt --check        -> works (cargo-fmt + rustfmt installed into cargo's bin)
-#   cargo metadata / build   -> NOT usable, because that needs the crates.io index
-#                               (blocked in the sandbox). Use `cargo fmt` locally and
-#                               let CI run tests/clippy.
+#   cargo metadata / build   -> needs the vendor branch below, because dependency
+#                               resolution needs the crates.io index, which is
+#                               blocked here.
+#
+# For cargo clippy, cargo test and the Tauri build, fetch the orphan branch
+# vendor/sandbox-toolchain on better-Shape/app and follow its FETCH.md. It carries
+# the crate registry, a Debian 12 dev sysroot for the GTK and WebKit stack, and the
+# command line tools. See engineering/rust-toolchain.md and
+# engineering/sandbox-vendored-toolchain.md.
 #
 # Usage:
 #   bash scripts/dev/rust-toolchain.sh          # install

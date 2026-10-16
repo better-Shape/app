@@ -19,7 +19,7 @@ This file is the operator/agent runbook.
 | Command | What it does |
 |---|---|
 | `npm run dev:browser` | Next dev server (port 48921) with mocks on. Open `http://localhost:48921`, add `?seed=project` for the fake open project. |
-| `npm run test:e2e` | Playwright suite; auto-starts `dev:browser`. First run on a new machine: `npx playwright install chromium`. |
+| `npm run test:e2e` | Playwright suite; auto-starts `dev:browser`. First run on a new machine: `npx playwright install chromium`. Where the browser CDN is blocked, use the vendored tree instead, see the sandbox section below. |
 | `npm run qa` | Full suite + a compact pass/fail summary for agents (`scripts/qa/run-qa.cjs`). Exit code = Playwright's. |
 | `npm run qa:audit` | Only the route crawl (`e2e/audit.spec.ts`): axe scan + screenshot + console/IPC inventory per route. |
 | `npm run test:e2e:ui` | Playwright UI mode for debugging selectors/flakes interactively. |
@@ -91,18 +91,33 @@ CI-generated baselines replace them; OS font rendering differs.
 
 ## Sandboxed / CI environments without browser downloads
 
-`playwright.config.ts` resolves Chromium in this order:
+Use the vendored tree first. The orphan branch `vendor/sandbox-toolchain`
+carries the Chrome for Testing build `playwright-core` pins, 156.0.8078.4,
+already laid out the way Playwright expects, with the shared-library closure
+it needs:
+
+```bash
+mkdir -p /tmp/pw-browsers
+tar xJf browsers/browsers-playwright-1.64.1.tar.xz -C /tmp/pw-browsers
+export PLAYWRIGHT_BROWSERS_PATH=/tmp/pw-browsers
+export LD_LIBRARY_PATH=/tmp/sandbox-vendor/chrome-deps/cft-156${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm ci
+npm run test:e2e
+```
+
+That path was verified against this suite: 6 of 6 smoke specs on Chrome for
+Testing 156.0.8078.4.
+
+`playwright.config.ts` also resolves Chromium itself, in this order:
 `PLAYWRIGHT_CHROMIUM_PATH` → Playwright's downloaded browser →
-`@sparticuz/chromium` (npm-hosted build, for networks where the Playwright
-CDN is blocked). If the host lacks Chromium's system libraries
+`@sparticuz/chromium`, an npm-hosted build for networks where the Playwright
+CDN is blocked. If the host lacks Chromium's system libraries
 (libnss3/libnspr4), set `PLAYWRIGHT_SANDBOX_LIBS` to a directory containing
 them. It is prepended to `LD_LIBRARY_PATH` for the browser process on all
-three paths, so a vendored browser handed in through
-`PLAYWRIGHT_CHROMIUM_PATH` needs it exactly as much as the npm fallback does.
-
-The nine files a restricted Debian 12 host needs for the npm Chromium, the
-sources that produced them, and the vendored branch that will carry them are
-in `engineering/sandbox-vendored-toolchain.md`.
+three paths, so a browser handed in through `PLAYWRIGHT_CHROMIUM_PATH` needs
+it exactly as much as the npm fallback does. Registered npm hosts are not the
+only source: `engineering/sandbox-vendored-toolchain.md` records where the
+libraries come from, with hashes, for both the vendored and the npm build.
 
 ## CI
 
