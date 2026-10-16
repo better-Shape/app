@@ -22,6 +22,10 @@ import { DesignPreviewCaptureHost } from "@/features/chat/ui/design-capture";
 import { WebviewReconnect } from "@/components/layout/webview-reconnect";
 import { PreviewCrash } from "@/components/layout/error/preview-crash";
 
+/**
+ * A route base matches its own path and anything under it. The prod static export serves
+ * trailing slashes (`/settings/`), so both forms have to match.
+ */
 function pathMatches(pathname: string | null, base: string) {
     if (!pathname) return false;
     return pathname === base || pathname === `${base}/` || pathname.startsWith(`${base}/`);
@@ -29,7 +33,6 @@ function pathMatches(pathname: string | null, base: string) {
 
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
     const pathname = usePathname();
-    // Prod static export uses trailing slashes (`/settings/`); match both forms.
     const isSettings = pathMatches(pathname, "/settings");
     const isBranch = pathMatches(pathname, "/branch") || pathMatches(pathname, "/git");
 

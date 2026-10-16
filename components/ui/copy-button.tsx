@@ -40,13 +40,16 @@ export function CopyButton({
 }: CopyButtonProps) {
     const { copied, failed, copy } = useCopyToClipboard({ successDescription });
 
-    const face = copied ? "Copied" : label;
+    // One place decides which of the three faces the control shows, so the attribute, the
+    // spoken name and the tone cannot drift apart.
+    const state = copied ? "copied" : failed ? "failed" : "idle";
+    const face = state === "copied" ? "Copied" : label;
 
     return (
         <button
             type="button"
-            data-copy-state={copied ? "copied" : failed ? "failed" : "idle"}
-            aria-label={copied ? "Copied" : label}
+            data-copy-state={state}
+            aria-label={face}
             title={showLabel ? undefined : label}
             onClick={(e) => {
                 e.stopPropagation();
@@ -54,8 +57,8 @@ export function CopyButton({
             }}
             className={cn(
                 "press-spring inline-flex items-center gap-1.5 rounded-lg",
-                copied && "text-success",
-                failed && "text-error",
+                state === "copied" && "text-success",
+                state === "failed" && "text-error",
                 className,
                 boxClassName,
             )}

@@ -4,12 +4,15 @@ import { useLoading } from "@/features/loading/context";
 import { useDelayedFlag } from "@/lib/ui/use-delayed-flag";
 import { cn } from "@/lib/utils";
 
+/**
+ * The one indeterminate bar for work with no measurable end.
+ *
+ * Git work can finish in well under a second. Without the delay the bar blinks in and out
+ * on every fast stage or fetch, which reads as a fault rather than progress; the minimum
+ * visible time keeps it from stuttering back out once it has appeared.
+ */
 export function LoadingBar({ className }: { className?: string }) {
     const { isLoading } = useLoading();
-    // Git work can finish in well under a second. Without the delay the bar blinks
-    // in and out on every fast stage or fetch, which reads as a fault rather than
-    // progress; the minimum visible time keeps it from stuttering back out once it
-    // has appeared.
     const showBar = useDelayedFlag(isLoading, { delayMs: 200, minVisibleMs: 400 });
 
     return (
