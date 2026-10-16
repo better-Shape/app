@@ -331,12 +331,13 @@ components have to be rebuilt together. Do not do this without a decision from t
 
 None of these blocks a gate, and all four mislead whoever follows the recipes.
 
-1. `README.md` says `Measured total: 877 MB packed, 3775 files`. The tree holds 3777 files. The
-   manifest holds 3779 entries, which is the 3777 files plus the three split archives listed under
-   their reassembled names, counting the nine parts as well.
-2. `README.md` says the manifest verified `3777 of 3777`. It verifies 3779 entries. A consumer sees
-   3779 lines and may think something is wrong.
-3. `FETCH.md` says the same 3777 figure.
+1. `README.md` says `Measured total: 877 MB packed, 3775 files`. The measured count is 3777 files
+   before reassembly and 3780 after it, so 3775 matches neither.
+2. `README.md` says the manifest verified `3777 of 3777`. `MANIFEST.sha256` holds 3779 entries and
+   all 3779 verify. A consumer sees 3779 lines and may think something is wrong.
+3. `FETCH.md` says the same 3777 figure. The correct arithmetic, measured after reassembly: 3780
+   files in the tree, which is the 3779 entries plus `MANIFEST.sha256` itself, and those 3779 are
+   3767 plain files, the nine `.part-NN` files and the three reassembled archives.
 4. `FETCH.md` under `Sanity checks` has a line that cannot run:
 
    ```bash

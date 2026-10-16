@@ -1,7 +1,7 @@
 # Vendored sandbox toolchain
 
-Research date 2026-10-16. Sandbox: Debian 12 bookworm, x86_64, 2 vCPU, 3.9 GB RAM, uid 1001 with
-sudo to root, 16 GB free on `/`.
+Research date 2026-10-16. Sandbox: Debian 12 bookworm, x86_64, 2 vCPU, 3.9 GB RAM, no swap,
+uid 1001 with sudo to root, 21 GB root disk.
 
 This note records what an agent in the restricted sandbox can obtain for Rust, Playwright and
 Chrome, what it cannot, and the exact payload another agent in a free network environment must
@@ -129,11 +129,12 @@ a blocker. The delivered payload closes the gap with CfT 156, verified in sectio
    `PLAYWRIGHT_CHROMIUM_PATH` and `PLAYWRIGHT_SANDBOX_LIBS` set and no exported `LD_LIBRARY_PATH`.
 2. `docs/developing/browser-preview.mdx:26` told the reader to run
    `npx playwright install chromium`, which cannot work here and gave no alternative. Fixed here:
-   the page now names `PLAYWRIGHT_CHROMIUM_PATH`, `PLAYWRIGHT_SANDBOX_LIBS` and this document.
+   the page now leads with the vendored browser tree, and keeps `PLAYWRIGHT_CHROMIUM_PATH` and
+   `PLAYWRIGHT_SANDBOX_LIBS` as the fallback.
 3. `e2e/README.md` described the npm fallback but never named a source for the browser libraries,
    and did not say that the explicit browser path used to skip the library directory. Fixed here:
-   the section now states that the directory applies to all three paths and points at this document
-   as the source of the files.
+   the sandbox section now leads with the vendored tree and its verified result, states that the
+   library directory applies to all three paths, and points at this document for the files.
 
 ## 3. Items this box cannot obtain
 
@@ -516,10 +517,12 @@ done
 export PATH="$RUST_PREFIX/bin:$PATH" LD_LIBRARY_PATH="$RUST_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
 # Cargo dependencies, offline
-mkdir -p /tmp/cargo-vendor && tar xJf /tmp/sandbox-vendor/rust/cargo-vendor.tar.xz -C /tmp/cargo-vendor
+export CARGO_HOME=/tmp/cargo-home
+mkdir -p "$CARGO_HOME" /tmp/cargo-vendor
+tar xJf /tmp/sandbox-vendor/rust/cargo-vendor.tar.xz -C /tmp/cargo-vendor
 printf '[source.crates-io]\nreplace-with = "vendored-sources"\n\n[source.vendored-sources]\ndirectory = "/tmp/cargo-vendor"\n' \
-  > /tmp/cargo-vendor-config.toml
-export CARGO_HOME=/tmp/cargo-home CARGO_NET_OFFLINE=true
+  > "$CARGO_HOME/config.toml"
+export CARGO_NET_OFFLINE=true
 
 # Tauri system stack
 mkdir -p /tmp/gtk-sysroot && tar xJf /tmp/sandbox-vendor/system/debian12-dev-sysroot.tar.xz -C /tmp/gtk-sysroot
@@ -539,6 +542,12 @@ The Playwright path is then `npm ci` with `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` a
 `npx playwright test`. No `PLAYWRIGHT_CHROMIUM_PATH` is needed, because the vendored tree sits in
 the registry layout Playwright expects.
 
+Two things this recipe deliberately does. The source replacement goes in `$CARGO_HOME/config.toml`
+rather than through `cargo --config`, because cargo does not forward the global flag to external
+subcommands and `cargo --config <path> clippy` fails with `no matching package named base64`. And
+every cargo gate needs `--ignore-rust-version`, with `CARGO_BUILD_JOBS=1` on `cargo test`; section
+7.5 explains why and what happens without them.
+
 ## 6. Reference map for the branch and the docs
 
 Every row below landed in `arena/617a353b-app`, except the two that need a maintainer decision and
@@ -548,7 +557,7 @@ the CI row that nothing in the sandbox depends on.
 | --- | --- | --- |
 | `engineering/sandbox-vendored-toolchain.md` | done | the specification, the fetch recipe, the verification of the delivered payload and the gap list |
 | `engineering/sandbox-vendor-handoff-prompt.md` | done | the brief for the free agent, now carrying the second-pass corrections |
-| `playwright.config.ts` | done | `applySandboxLibs()` moved to the top of `resolveChromium()` so it applies to all three browser paths, and the duplicate call is gone |
+| `playwright.config.ts` | done | `applySandboxLibs()` moved to the top of `resolveChromium()` so it applies to all three browser paths, the duplicate call is gone, and both the resolve comment and the fallback error now name the vendored tree |
 | `AGENTS.md` | done | new `Blocked sandbox toolchain` section with the measured recipe, the four facts that decide whether a gate can pass, and the delegation path, plus one line under Facts about this repository |
 | `.agents/PREFLIGHT.md` | done | `Blocked sandbox` checklist with the exact invocations, and the Rust checks now carry `--ignore-rust-version` and `CARGO_BUILD_JOBS=1` |
 | `engineering/rust-toolchain.md` | done | rewritten around two sources, the vendor branch where every gate runs and npm for format only. Corrected the `Cannot run` table, the `no sudo` claim, and a reference to a file that does not exist in this repository |
@@ -669,21 +678,22 @@ gates one at a time. A clippy run and a test run in parallel will fight for the 
 | --- | --- | --- |
 | RAM and swap | 3.9 GB, no swap | parallel linking can be OOM-killed, see 7.2 |
 | vCPU | 2 | `cartesian` linking and codegen are slow |
-| Disk | 21 GB root, 16 GB free before the payload | the payload needs about 4 GB extracted on top of `node_modules`, a debug target directory and the reassembled archives, so reassemble, use, then delete |
+| Disk | 21 GB root | the payload needs about 4 GB extracted on top of `node_modules`, a debug target directory and the reassembled archives, so reassemble, use, then delete |
 | `/dev/shm` | 2 GB | `--disable-dev-shm-usage` is still correct for the browser |
 | sudo | works, but no apt mirror is reachable | fixes are file-level only, never package installs |
 
 ### 7.4 Payload documentation defects
 
-Two wrong numbers and one broken example in the delivered branch. None of them blocks a gate, and
-all three mislead whoever follows the recipes.
+Three wrong figures and one broken example in the delivered branch. None of them blocks a gate, and
+all four mislead whoever follows the recipes.
 
-1. `README.md` says `Measured total: 877 MB packed, 3775 files`. The tree holds 3777 files. The
-   manifest has 3779 entries: 3777 files plus the three split archives listed under their
-   reassembled names, which adds the three assets and the nine parts on top of the raw file count.
-2. `README.md` and `FETCH.md` both say the manifest verified `3777 of 3777`. It verifies 3779
-   entries, which is what this sandbox measured.
-3. `FETCH.md` section `Sanity checks` contains a placeholder that cannot run:
+1. `README.md` says `Measured total: 877 MB packed, 3775 files`. The measured file count is 3777
+   before reassembly and 3780 after it, so the figure matches neither.
+2. `README.md` says the manifest verified `3777 of 3777`. `MANIFEST.sha256` holds 3779 entries and
+   all 3779 verify, measured twice from this sandbox. The 3777 is the pre-reassembly file count,
+   not an entry count.
+3. `FETCH.md` repeats the same 3777 figure.
+4. `FETCH.md` section `Sanity checks` contains a placeholder that cannot run:
 
    ```bash
    unzip -q /tmp/sandbox-vendor/browsers/... 2>/dev/null || true
@@ -691,6 +701,12 @@ all three mislead whoever follows the recipes.
 
    The `...` is not a path. Delete that line. The two lines under it already do the work, because
    `PLAYWRIGHT_BROWSERS_PATH` points at the staged tree and the closure check only needs `ldd`.
+
+The entry arithmetic, measured after reassembly: the tree holds 3780 files, which is exactly the
+3779 manifest entries plus `MANIFEST.sha256` itself, since a manifest cannot list its own hash. The
+3779 entries break down as 3767 plain files, the nine `.part-NN` files and the three reassembled
+archives. Every manifest entry exists in the tree after the documented reassembly step, and nothing
+in the tree is unhashed except the manifest.
 
 The count that matters for a consumer is the one `sha256sum -c` prints. Have the second delivery
 state the file count, the manifest entry count and the packed size from a single measured run, and

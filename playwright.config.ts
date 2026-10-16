@@ -36,6 +36,12 @@ const useStatic = process.env.E2E_STATIC === "1";
  *      them. It applies to all three paths, including
  *      `PLAYWRIGHT_CHROMIUM_PATH`. Sources for those libraries are in
  *      `engineering/sandbox-vendored-toolchain.md`.
+ *
+ * A network that blocks the CDN can still get the exact build via step 2: the
+ * orphan branch `vendor/sandbox-toolchain` carries Chrome for Testing
+ * 156.0.8078.4 in Playwright's own registry layout, so pointing
+ * `PLAYWRIGHT_BROWSERS_PATH` at the extracted tree needs no override at all.
+ * See `AGENTS.md` under Blocked sandbox toolchain.
  */
 const bundledChromiumUsable = (): boolean => {
     try {
@@ -80,7 +86,8 @@ const sandboxChromium = (): { executablePath?: string; args?: string[] } => {
     if (!sparticuzNodeSupported()) {
         throw new Error(
             `Playwright's bundled Chromium is unavailable and the @sparticuz/chromium fallback requires Node ^22.17.0 || >=24.0.0 (current: ${process.versions.node}). ` +
-            "Install Node 22.17+ / 24+, run `npx playwright install chromium`, or set PLAYWRIGHT_CHROMIUM_PATH.",
+            "Install Node 22.17+ / 24+, run `npx playwright install chromium`, set PLAYWRIGHT_CHROMIUM_PATH, " +
+            "or stage the vendored browser tree from vendor/sandbox-toolchain (AGENTS.md, Blocked sandbox toolchain).",
         );
     }
     try {
