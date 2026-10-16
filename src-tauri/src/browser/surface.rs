@@ -204,16 +204,6 @@ const HOST_SCRIPT: &str = r##"
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SurfaceState {
-    id: String,
-    url: String,
-    title: String,
-    can_back: bool,
-    can_forward: bool,
-}
-
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
 struct FrameNav {
     url: String,
     ok: bool,
@@ -551,75 +541,6 @@ fn hook_main(app: &AppHandle) {
     }
 }
 
-#[tauri::command]
-pub async fn browser_surface_open(
-    _app: AppHandle,
-    url: Option<String>,
-) -> Result<SurfaceState, String> {
-    Ok(SurfaceState {
-        id: "frame".into(),
-        url: url.unwrap_or_default(),
-        title: String::new(),
-        can_back: false,
-        can_forward: false,
-    })
-}
-
-#[tauri::command]
-pub async fn browser_surface_close(_app: AppHandle, _id: String) -> Result<(), String> {
-    Ok(())
-}
-
-#[tauri::command]
-pub async fn browser_surface_activate(_app: AppHandle, _id: String) -> Result<(), String> {
-    Ok(())
-}
-
-#[tauri::command]
-pub async fn browser_surface_navigate(
-    _app: AppHandle,
-    _id: String,
-    _url: String,
-) -> Result<(), String> {
-    Ok(())
-}
-
-#[tauri::command]
-pub async fn browser_surface_back(_app: AppHandle, _id: String) -> Result<(), String> {
-    Ok(())
-}
-
-#[tauri::command]
-pub async fn browser_surface_forward(_app: AppHandle, _id: String) -> Result<(), String> {
-    Ok(())
-}
-
-#[tauri::command]
-pub async fn browser_surface_reload(
-    _app: AppHandle,
-    _id: String,
-    _hard: Option<bool>,
-) -> Result<(), String> {
-    Ok(())
-}
-
-#[tauri::command]
-pub async fn browser_surface_bounds(
-    _app: AppHandle,
-    _x: f64,
-    _y: f64,
-    _w: f64,
-    _h: f64,
-    _shown: bool,
-) -> Result<(), String> {
-    Ok(())
-}
-
-#[tauri::command]
-pub async fn browser_surface_hide(_app: AppHandle) -> Result<(), String> {
-    Ok(())
-}
-
 fn host_key(url: &str) -> Option<String> {
     let (_, rest) = url.split_once("://")?;
     let host = rest.split(['/', '?', '#']).next()?.trim();
@@ -936,11 +857,6 @@ pub async fn browser_surface_scheme(app: AppHandle, scheme: String) {
     {
         let _ = (app, mode);
     }
-}
-
-#[tauri::command]
-pub async fn browser_surface_pick(_app: AppHandle, _id: String, _on: bool) -> Result<(), String> {
-    Ok(())
 }
 
 pub fn on_menu(_app: &AppHandle, _id: &str) {}

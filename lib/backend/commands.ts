@@ -163,27 +163,10 @@ export const commands = {
             query: query ?? null,
             limit: limit ?? null,
         }),
-    browserSurfaceOpen: (url?: string) =>
-        invokeCommand<{ id: string; url: string; title: string; canBack: boolean; canForward: boolean }>(
-            "browser_surface_open",
-            { url: url ?? null },
-        ),
-    browserSurfaceClose: (id: string) => invokeCommand<void>("browser_surface_close", { id }),
-    browserSurfaceActivate: (id: string) => invokeCommand<void>("browser_surface_activate", { id }),
-    browserSurfaceNavigate: (id: string, url: string) =>
-        invokeCommand<void>("browser_surface_navigate", { id, url }),
-    browserSurfaceBack: (id: string) => invokeCommand<void>("browser_surface_back", { id }),
-    browserSurfaceForward: (id: string) => invokeCommand<void>("browser_surface_forward", { id }),
-    browserSurfaceReload: (id: string, hard = false) =>
-        invokeCommand<void>("browser_surface_reload", { id, hard }),
-    browserSurfaceBounds: (x: number, y: number, w: number, h: number, shown: boolean) =>
-        invokeCommand<void>("browser_surface_bounds", { x, y, w, h, shown }),
-    browserSurfaceHide: () => invokeCommand<void>("browser_surface_hide"),
-    browserSurfaceDevtools: (url: string) => invokeCommand<string>("browser_surface_devtools", { url }),
+    browserSurfaceDevtools: (url: string) =>
+        invokeCommand<string>("browser_surface_devtools", { url }),
     browserSurfaceScheme: (scheme: "system" | "light" | "dark") =>
         invokeCommand<void>("browser_surface_scheme", { scheme }),
-    browserSurfacePick: (id: string, on: boolean) =>
-        invokeCommand<void>("browser_surface_pick", { id, on }),
     showDesktopNotification: (title: string, body: string) =>
         invokeCommand<void>("show_desktop_notification", { title, body }),
     newWindow: () => invokeCommand("spawn_new_window"),
