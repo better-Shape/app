@@ -27,11 +27,15 @@ npx playwright install chromium   # once per machine
 npm run qa                        # full browser suite + agent summary
 ```
 
-On a host where the Playwright browser CDN is unreachable, point the suite at
-a browser you already have with `PLAYWRIGHT_CHROMIUM_PATH`, and give it the
-NSS and NSPR libraries it needs with `PLAYWRIGHT_SANDBOX_LIBS`. The
+On a host where the Playwright browser CDN is unreachable, the orphan branch
+`vendor/sandbox-toolchain` carries the Chrome for Testing build this suite
+pins, already in the layout Playwright expects. Extract it to `/tmp/pw-browsers`,
+set `PLAYWRIGHT_BROWSERS_PATH` to that path, install with
+`PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm ci`, and run the suite. Otherwise point
+the suite at a browser you already have with `PLAYWRIGHT_CHROMIUM_PATH`, and
+give it the NSS and NSPR libraries it needs with `PLAYWRIGHT_SANDBOX_LIBS`. The
 `Sandboxed / CI environments without browser downloads` section of
-`e2e/README.md` covers the order the config tries, and
+`e2e/README.md` has both recipes and the order the config tries, and
 `engineering/sandbox-vendored-toolchain.md` records the sources and hashes for
 those libraries.
 
