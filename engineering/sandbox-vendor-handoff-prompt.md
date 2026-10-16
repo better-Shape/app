@@ -29,8 +29,9 @@ hash in item 1 tells you so.
 3. No GitHub release assets. `gh release download` fails with EOF from the sandbox. Everything must
    be a plain blob in the branch tree.
 4. No `raw.githubusercontent.com` URLs anywhere in your documentation, because that host is blocked.
-5. Compress with `xz`, not `zstd` or `7z`. The sandbox has `xz`, `tar`, `unzip`, `gzip` and `bzip2`
-   and does not have `zstd`, `7z`, `cmake` or `pkg-config`.
+5. Compress with `xz`, not `zstd` or `7z`. The sandbox base image has `xz`, `tar`, `unzip`, `gzip`
+   and `bzip2`, and lacks `zstd`, `7z`, `cmake` and `pkg-config`. That is why items 5 and 2 ship
+   `cmake` and `pkg-config` themselves: a consumer has nothing else to fall back on.
 6. Hash every file. `MANIFEST.sha256` must contain entries for both the parts and the reassembled
    assets, so one `sha256sum -c` after reassembly verifies both stages.
 7. Write `README.md` and `FETCH.md` on the branch. `README.md` states what each directory is, where
@@ -215,6 +216,8 @@ If the total payload after compression exceeds about 1.5 GB, split it into two b
 4. `sha256sum -c MANIFEST.sha256` passes on a fresh clone of the branch.
 5. `git count-objects -vH` and the sum of file sizes are recorded in `README.md`.
 6. The clippy command in item 2 passes in a clean Debian 12 container with vendored inputs only.
+   After the follow-up rebuild, run the whole list in A6 instead, which adds `cargo test
+   --all-features` and the ten second link check that catches A1 without a cargo build.
 
 ## What to report back
 
@@ -223,14 +226,33 @@ with its upstream URL, upstream hash where one exists, measured size and sha256,
 shipped, and the exact output of the verification steps. If any item could not be produced, say
 which one and what it needs, rather than shipping a partial artifact without a note.
 
+For the follow-up commit, report the same things plus the exit code of each A6 command on the
+rebuilt payload, and say which count in `README.md` and `FETCH.md` you replaced and with what.
+
 ---
 
 # Appendix: corrections for the second pass
 
 The first delivery is commit `7ec94c1b353220d291924ee71c6346fcf35e66cd` on `vendor/sandbox-toolchain`.
-It was verified from a restricted sandbox and closed the browser, toolchain and sysroot gaps. Four
+It was verified from a restricted sandbox and closed the browser, toolchain and sysroot gaps. Five
 items need a follow-up commit. If you produced that delivery, this is the list that survived
 independent verification.
+
+In one list, the follow-up commit must do all of this:
+
+1. Rebuild `system/debian12-dev-sysroot.tar.xz` with no absolute symlinks and with the eight missing
+   shared libraries it points at, then re-hash it and update `MANIFEST.sha256` (A1).
+2. Re-run the gates in A6 after the rebuild, including `cargo test --all-features`, and report each
+   result with its exit code.
+3. State in `README.md` and `FETCH.md` which cargo commands need `--ignore-rust-version` and which
+   need `CARGO_BUILD_JOBS=1`, since a consumer who omits them sees a version error or a killed
+   linker (A2).
+4. State that `cargo --config <path>` does not reach `cargo clippy`, and that the replacement belongs
+   in `$CARGO_HOME/config.toml` (A3).
+5. Correct the three counts and delete the placeholder `unzip` line (A5).
+
+Item 2 of the main brief, the sysroot, is the only artifact this changes, so the rest of the tree,
+its hashes and the browser payload stay as they are unless your rebuild moves something.
 
 ## A1. `system/debian12-dev-sysroot.tar.xz` must not contain absolute symlinks
 
