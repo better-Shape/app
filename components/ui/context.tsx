@@ -164,6 +164,12 @@ const ContextMenuSeparator = React.forwardRef<
 ));
 ContextMenuSeparator.displayName = ContextMenuPrimitive.Separator.displayName;
 
+/**
+ * The key hint on the right of a menu row.
+ *
+ * `shortcutClasses` is shared with the dropdown menu rather than copied, so a shortcut
+ * cannot sit at a different size or opacity in the two menus that both show one.
+ */
 const ContextMenuShortcut = ({ className, ...props }: React.HTMLAttributes<HTMLSpanElement>) => (
     <span className={cn(shortcutClasses, className)} {...props} />
 );

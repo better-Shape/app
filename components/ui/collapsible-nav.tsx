@@ -5,8 +5,13 @@ import { Button } from "@/components/ui/button";
 import { Collapse } from "./collapse";
 import { cn } from "@/lib/utils";
 
-/** Shared animated nav group used by Git Manager, Settings, and Stats sidebars. */
-export function CollapsibleNavGroup({
+/**
+ * Shared animated nav group used by the Git Manager, Settings and Stats sidebars.
+ *
+ * The header is a plain button rather than the panel's own list item: it toggles a group and
+ * never navigates, so it carries no selected state and stays out of the row ladder.
+ */
+export const CollapsibleNavGroup = ({
     label,
     open,
     onToggle,
@@ -16,7 +21,7 @@ export function CollapsibleNavGroup({
     open: boolean;
     onToggle: () => void;
     children: ReactNode;
-}) {
+}) => {
     return (
         <div>
             <button
@@ -32,9 +37,16 @@ export function CollapsibleNavGroup({
             </Collapse>
         </div>
     );
-}
+};
 
-export function NavLeafButton({
+/**
+ * A leaf row inside a nav group.
+ *
+ * It renders through `Button` so that every nav row, in all three sidebars, takes its hover
+ * and committed fills from the row ladder rather than from values of its own, and a
+ * committed row still steps up so it never goes inert under the pointer.
+ */
+export const NavLeafButton = ({
     active,
     onClick,
     children,
@@ -46,7 +58,7 @@ export function NavLeafButton({
     children: React.ReactNode;
     className?: string;
     disabled?: boolean;
-}) {
+}) => {
     return (
         <Button
             variant="ghost"
@@ -70,4 +82,4 @@ export function NavLeafButton({
             {children}
         </Button>
     );
-}
+};

@@ -42,6 +42,12 @@ function DropdownScrollScrim({ side, visible }: { side: "up" | "down"; visible: 
     );
 }
 
+/**
+ * The scrolling list inside a menu.
+ *
+ * The max height is on this element and not on the content, so the sticky group headings
+ * have a scroll container to stick to and the menu's own shadow is not clipped by it.
+ */
 function DropdownScrollArea({
     className,
     children,

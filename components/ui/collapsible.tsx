@@ -18,6 +18,13 @@ interface CollapsibleSectionProps {
     storageKey?: string;
 }
 
+/**
+ * A section that remembers whether it is open.
+ *
+ * The first read is the lazy initial state rather than an effect, so a reopened section
+ * paints open instead of flashing shut for a frame. Storage is consulted only when a key is
+ * given: sections that are not worth remembering stay open or closed per mount.
+ */
 export function CollapsibleSection({
     title,
     children,
