@@ -63,7 +63,7 @@ const bundledChromiumUsable = (): boolean => {
         execFileSync(executablePath, ["--version"], {
             stdio: "ignore",
             timeout: 15_000,
-            env: { ...process.env, ...sandboxLibsEnv() },
+            env: sandboxLibsEnv(),
         });
         return true;
     } catch {
@@ -78,11 +78,13 @@ const bundledChromiumUsable = (): boolean => {
  * a browser-specific library directory must not shadow the server's own
  * dependencies or those of its children.
  */
-const sandboxLibsEnv = (): Record<string, string> | undefined => {
+const sandboxLibsEnv = (): NodeJS.ProcessEnv | undefined => {
     const libs = process.env.PLAYWRIGHT_SANDBOX_LIBS;
-    if (!libs) return undefined;
-    const existing = process.env.LD_LIBRARY_PATH;
-    return { LD_LIBRARY_PATH: existing ? `${libs}:${existing}` : libs };
+    if (!libs) return;
+    const env: NodeJS.ProcessEnv = Object.assign({}, process.env);
+    const existing = env.LD_LIBRARY_PATH;
+    env.LD_LIBRARY_PATH = existing ? `${libs}:${existing}` : libs;
+    return env;
 };
 
 /** Whether this Node runtime satisfies @sparticuz/chromium's range (^22.17.0 || >=24.0.0). */
@@ -136,7 +138,7 @@ const sandboxChromium = (): { executablePath?: string; args?: string[] } => {
 const resolveChromium = (): {
     executablePath?: string;
     args?: string[];
-    env?: Record<string, string>;
+    env?: NodeJS.ProcessEnv;
 } => {
     // Every path below can land on a Chromium that needs NSS/NSPR the host
     // does not have: the explicit override used to skip the prepend and the
