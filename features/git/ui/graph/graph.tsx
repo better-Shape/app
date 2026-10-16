@@ -46,6 +46,12 @@ import { GitManagerTrigger } from "@/features/git/ui/manager/git-manager-trigger
 import { GitChromeActions } from "@/features/git/ui/manager/chrome";
 
 // ── VIRTUAL SCROLL CONSTANTS ──
+/**
+ * Named placeholder lanes. A keyed row survives a re-render, so an index would tell React
+ * that the third skeleton is the same lane as whatever replaces it.
+ */
+const GRAPH_SKELETON_ROWS = ["lane-a", "lane-b", "lane-c", "lane-d", "lane-e", "lane-f", "lane-g", "lane-h"];
+
 const OVERSCAN_PX = GRAPH_OVERSCAN_PX;
 
 export default function Graph({
@@ -699,10 +705,13 @@ export default function Graph({
                 </div>
             ) : isInitialLoading ? (
                 <div className="flex flex-col gap-2 px-3 py-3" aria-hidden>
-                    {Array.from({ length: 8 }, (_, i) => (
-                        <div key={i} className="flex items-center gap-2">
+                    {GRAPH_SKELETON_ROWS.map((row) => (
+                        <div key={row} className="flex items-center gap-2">
                             <span className="size-5 shrink-0 animate-pulse rounded-full bg-panel-hover" />
-                            <span className="h-3 flex-1 animate-pulse rounded-md bg-panel-hover" style={{ maxWidth: `${70 - (i % 3) * 12}%` }} />
+                            <span
+                                className="h-3 flex-1 animate-pulse rounded-md bg-panel-hover"
+                                style={{ maxWidth: `${70 - (GRAPH_SKELETON_ROWS.indexOf(row) % 3) * 12}%` }}
+                            />
                         </div>
                     ))}
                 </div>
@@ -934,7 +943,7 @@ export default function Graph({
                         </Button>
                     </Tooltip>
                     <Tooltip content="Refresh Graph">
-                        <Button variant="ghost" size="icon" className="text-text-primary hover:bg-[var(--btn-hover)]" onClick={() => refresh()}>
+                        <Button variant="ghost" size="icon" className="text-text-primary hover:bg-[var(--btn-hover)]" onClick={async () => { await refresh(); }}>
                             <Icon icon={ArrowSync20Regular} />
                         </Button>
                     </Tooltip>

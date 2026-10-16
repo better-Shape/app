@@ -113,7 +113,7 @@ function SortableWorkspaceTab({
                                     event.stopPropagation();
                                     onClose(tab.id);
                                 }}
-                                className="absolute inset-0 flex items-center justify-center text-text-muted opacity-0 transition-opacity duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:text-text-primary group-hover:opacity-100"
+                                className="absolute inset-0 flex items-center justify-center text-text-muted opacity-0 transition-opacity duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:text-text-primary group-hover:opacity-100 focus-visible:opacity-100"
                             >
                                 <Icon icon={Dismiss20Regular} className="icon-sm" />
                             </button>

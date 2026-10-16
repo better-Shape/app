@@ -145,7 +145,7 @@ export function DesignToolbar({
                                     <button
                                         type="button"
                                         aria-label="Close tab"
-                                        className="flex size-4 shrink-0 items-center justify-center rounded-sm text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] opacity-0 hover:bg-[var(--btn-hover)] hover:text-text-primary group-hover:opacity-100"
+                                        className="flex size-4 shrink-0 items-center justify-center rounded-sm text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] opacity-0 hover:bg-[var(--btn-hover)] hover:text-text-primary group-hover:opacity-100 focus-visible:opacity-100"
                                         onClick={(event) => {
                                             event.stopPropagation();
                                             onCloseTab(tab.id);

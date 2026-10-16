@@ -16,10 +16,12 @@ import { describe, expect, it } from "vitest";
 // A Node ESM tool that this scope type-checks like any other module, so no
 // `@ts-expect-error` is needed here.
 import { SPRINGS, FALLBACKS, renderCss, springToLinear, peakOf } from "../../scripts/motion/springs.mjs";
+import { must } from "../helpers/must";
 
 const ROOT = join(__dirname, "..", "..");
 const CSS_PATH = join(ROOT, "app", "springs.css");
 const css = readFileSync(CSS_PATH, "utf8");
+
 
 /** The names and generated CSS the physics module produces right now. */
 const names = Object.keys(SPRINGS) as string[];
@@ -134,17 +136,18 @@ describe("the curves have the shape the parameters claim", () => {
         // The pairing rule only works if the duration is honest: it must outlast the last
         // visible movement, or the tail is truncated, which is the same defect reversed.
         for (const name of names) {
-            const durMs = Number(css.match(new RegExp(`--spring-${name}-dur:\\s*(\\d+)ms`))![1]);
+            const match = css.match(new RegExp(`--spring-${name}-dur:\\s*(\\d+)ms`));
+        const durMs = Number(must(match, `--spring-${name}-dur`)[1]);
             const stops = stopsFor(name);
             const tolerance = 0.002;
             let settledAt: number | null = null;
             stops.forEach((v, i) => {
                 if (settledAt === null && Math.abs(v - 1) <= tolerance) settledAt = i / (stops.length - 1);
             });
-            expect(settledAt, `${name} never settles`).not.toBeNull();
+            const settlesAt = must(settledAt, `${name} to settle`);
             // 12% of slack: the declared duration rounds to a round number by design.
-            expect(durMs, `${name} advertises ${durMs}ms but settles at ${((settledAt! * durMs) / 1).toFixed(0)}ms`).toBeGreaterThan(
-                settledAt! * durMs * 0.88,
+            expect(durMs, `${name} advertises ${durMs}ms but settles at ${(settlesAt * durMs).toFixed(0)}ms`).toBeGreaterThan(
+                settlesAt * durMs * 0.88,
             );
         }
     });
@@ -175,7 +178,8 @@ describe("every spring easing is paired with its own duration", () => {
             // Tailwind puts both in one class string, so the class attribute is the scope.
             for (const match of text.matchAll(/ease-\[var\(--spring-([a-z]+)\)\]/g)) {
                 const name = match[1];
-                const before = text.slice(Math.max(0, match.index! - 400), match.index!);
+                const at = must(match.index, "the legacy shorthand line");
+        const before = text.slice(Math.max(0, at - 400), at);
                 const line = before.split("\n").slice(-6).join("\n");
                 if (!line.includes(`--spring-${name}-dur`) && !line.includes(`var(--spring-${name}-dur)`)) {
                     offenders.push(`${path}: --spring-${name} without --spring-${name}-dur`);
@@ -213,12 +217,12 @@ describe("every spring easing is paired with its own duration", () => {
     it("never gives a spring a duration that is not its own settle time", () => {
         const decls = declarations();
         const settle = new Map<string, number>(
-            names.map((name) => [name, Number(css.match(new RegExp(`--spring-${name}-dur:\\s*(\\d+)ms`))![1])]),
+            names.map((name) => [name, Number(must(css.match(new RegExp(`--spring-${name}-dur:\\s*(\\d+)ms`)), name)[1])]),
         );
         // Which spring produced whichever easing string, so a resolved literal can be traced
         // back to a name.
         const easingToSpring = new Map<string, string>(
-            names.map((name) => [css.match(new RegExp(`--spring-${name}: (linear\\([^)]*\\))`))![1], name]),
+            names.map((name) => [must(css.match(new RegExp(`--spring-${name}: (linear\\([^)]*\\))`)), name)[1], name]),
         );
 
         const offenders: string[] = [];
@@ -233,9 +237,9 @@ describe("every spring easing is paired with its own duration", () => {
                     .map((v) => v.trim().match(/^(\d+(?:\.\d+)?)ms$/))
                     .find(Boolean);
                 const literalMs = durationUsed ? Number(durationUsed[1]) : null;
-                const springMs = settle.get(springUsed)!;
+                const springMs = must(settle.get(springUsed), `the settle curve for ${springUsed}`);
                 if (literalMs !== null && literalMs !== springMs) {
-                    const line = text.slice(0, shorthand.index!).split("\n").length;
+                    const line = text.slice(0, must(shorthand.index, "the shorthand")).split("\n").length;
                     offenders.push(
                         `${path}:${line} runs --spring-${springUsed} (settles in ${springMs}ms) for ${literalMs}ms`,
                     );
@@ -254,7 +258,8 @@ describe("no user-driven transition is left on the legacy bezier", () => {
         const offenders: string[] = [];
         for (const { path, text } of SOURCES) {
             for (const match of text.matchAll(/ease-\[var\(--ease-out\)\]/g)) {
-                const context = text.slice(Math.max(0, match.index! - 300), match.index! + 60);
+                const at = must(match.index, "the ease-out match");
+                const context = text.slice(Math.max(0, at - 300), at + 60);
                 // A tint is the pattern at issue: a state fill driven by the pointer.
                 const isTint = /hover:bg-|data-\[state=open\]:bg-|group-hover:bg-|transition-colors/.test(context);
                 if (isTint) offenders.push(`${path}: interactive fill on --ease-out`);

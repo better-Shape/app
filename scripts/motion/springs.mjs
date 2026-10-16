@@ -1,3 +1,9 @@
+
+/**
+ * These scripts print their report to stdout, and the generated files are written
+ * separately. A one-line writer keeps the output free of the console shim.
+ */
+const log = (...args) => process.stdout.write(args.join(" ") + "\n");
 /**
  * Spring physics for CSS, and the motion tokens the app is built from.
  *
@@ -207,12 +213,12 @@ if (process.argv[1] && import.meta.url.endsWith(process.argv[1].split("/").pop()
     if (args.includes("--write")) {
         const { writeFileSync } = await import("node:fs");
         writeFileSync(out, renderCss());
-        console.log(`wrote app/springs.css (${renderCss().length} bytes)`);
+        log(`wrote app/springs.css (${renderCss().length} bytes)`);
     }
     if (args.includes("--table") || args.length === 0) {
         const rows = table();
         const pad = (v, n) => String(v).padEnd(n);
-        console.log(
+        log(
             pad("token", 22) + pad("response", 10) + pad("bounce", 8) + pad("settle", 9) +
             pad("overshoot", 11) + pad("peak at", 9) + "crosses target at",
         );
@@ -222,7 +228,7 @@ if (process.argv[1] && import.meta.url.endsWith(process.argv[1].split("/").pop()
             for (let i = 1; i < stops.length; i++) {
                 if (stops[i] >= 1) { cross = Math.round((i / (stops.length - 1)) * 100); break; }
             }
-            console.log(
+            log(
                 pad("--spring-" + r.name, 22) + pad(r.response + "s", 10) + pad(r.bounce, 8) +
                 pad(r.durationMs + "ms", 9) + pad((r.peak > 0 ? "+" : "") + r.peak + "%", 11) +
                 pad(r.peakAtPct + "%", 9) + (cross === null ? "never (monotonic)" : cross + "%"),

@@ -14,6 +14,7 @@ const { chromium } = require("playwright");
 const { default: sparticuz } = require("@sparticuz/chromium");
 
 const { applySandboxLibs } = require("./sandbox-libs.cjs");
+const { log } = require("./log.cjs");
 const arg = (name, fallback) => {
     const hit = process.argv.find((a) => a.startsWith(`--${name}=`));
     return hit ? hit.slice(name.length + 3) : fallback;
@@ -70,9 +71,9 @@ async function main() {
             };
         }, WATCH);
 
-    console.log("t(ms)\t" + ["#", "x", "y", "w", "h"].join("\t") + "\tsidebar(x,w)\tlive");
+    log("t(ms)\t" + ["#", "x", "y", "w", "h"].join("\t") + "\tsidebar(x,w)\tlive");
     const before = await probe();
-    console.log(`0\t\t${before.rects.map(describe).join(" | ")}\t${fmtSide(before.sidebar)}\t${before.live.join(" | ")}`);
+    log(`0\t\t${before.rects.map(describe).join(" | ")}\t${fmtSide(before.sidebar)}\t${before.live.join(" | ")}`);
 
     if (CLICK) {
         await page.locator(CLICK).first().click();
@@ -83,7 +84,7 @@ async function main() {
         await page.waitForTimeout(INTERVAL);
         if (i % EVERY !== 0 && i !== SAMPLES) continue;
         const s = await probe();
-        console.log(`${Date.now() - t0}\t\t${s.rects.map(describe).join(" | ")}\t${fmtSide(s.sidebar)}\t${s.live.join(" | ")}`);
+        log(`${Date.now() - t0}\t\t${s.rects.map(describe).join(" | ")}\t${fmtSide(s.sidebar)}\t${s.live.join(" | ")}`);
     }
 
     await browser.close();

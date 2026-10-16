@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { must } from "../helpers/must";
 
 /**
  * The rung contract: which alpha a hover fill is allowed to resolve to.
@@ -20,6 +21,7 @@ import { describe, expect, it } from "vitest";
 
 const read = (rel: string) => fs.readFileSync(path.join(process.cwd(), rel), "utf8");
 const globalsCss = read("app/globals.css");
+
 
 /** The alpha each rung must carry. These numbers are the decision, not a sample. */
 const RUNGS: Record<string, number> = {
@@ -163,13 +165,13 @@ describe("the hover rung contract", () => {
         for (const [token, alpha] of Object.entries(RUNGS)) {
             const fill = fillOf(token);
             expect(fill, `${token} is not declared as an rgba() colour`).not.toBeNull();
-            expect(fill!.alpha, `${token} moved off its rung`).toBeCloseTo(alpha, 5);
-            expect(isWhite(fill!), `${token} is no longer a white layer`).toBe(true);
+            expect(must(fill, token).alpha, `${token} moved off its rung`).toBeCloseTo(alpha, 5);
+            expect(isWhite(must(fill, token)), `${token} is no longer a white layer`).toBe(true);
         }
     });
 
     it("keeps the button rung above the row rung, and each committed rung above its hover", () => {
-        const alpha = (t: string) => fillOf(t)!.alpha;
+        const alpha = (t: string) => must(fillOf(t), t).alpha;
         expect(alpha("--btn-hover")).toBeGreaterThan(alpha("--row-hover"));
         expect(alpha("--row-selected")).toBeGreaterThan(alpha("--row-hover"));
         expect(alpha("--row-selected-hover")).toBeGreaterThan(alpha("--row-selected"));
@@ -232,7 +234,7 @@ describe("the hover rung contract", () => {
             for (const m of text.matchAll(FILL)) {
                 const token = m[2];
                 if (!(token in STEP)) continue;
-                const element = elementAt(text, m.index!);
+                const element = elementAt(text, must(m.index, "a match index"));
                 if (!element) continue;
                 const fills = [...element.matchAll(FILL)].map(([, chain, name]) => ({ chain, name }));
                 // An element with no pointer fill cannot be hovered into a lighter fill,
@@ -285,7 +287,7 @@ describe("the hover rung contract", () => {
             }
             for (const m of text.matchAll(FADED)) {
                 if (m[1] === undefined || Number(m[1]) >= 100) continue;
-                const element = elementAt(text, m.index!);
+                const element = elementAt(text, must(m.index, "a match index"));
                 if (!element) continue;
                 if (!/(?:&&|\? |data-\[state=)/.test(element)) continue;
                 const share = Number(m[1]) / 100;
@@ -317,7 +319,7 @@ describe("the hover rung contract", () => {
                 const name = m[1] ?? (declared.has(`--color-${m[2]}`) ? `--color-${m[2]}` : `--${m[2]}`);
                 const bare = fillOf(name, m[3] ? Number(m[3]) / 100 : 1);
                 if (!bare || !isRung(bare)) continue;
-                const element = elementAt(text, m.index!);
+                const element = elementAt(text, must(m.index, "a match index"));
                 if (!element || POINTER_DRIVEN.test(element)) continue;
                 const pointer = [...element.matchAll(FILL)]
                     .filter(([, chain]) => /(?:^|:)(?:hover|focus):$/.test(chain))

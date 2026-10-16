@@ -214,6 +214,20 @@ describe("CrashScreen", () => {
         expect(body).not.toContain("odette");
     });
 
+    it("names the query parameters without shipping their values", async () => {
+        // Popout windows put the opened file and its session in the query string, and the
+        // report becomes a prefilled public issue. The route is what makes the report
+        // actionable, so the names travel and the values do not.
+        window.history.replaceState({}, "", "/popout/editor?file=%2Fhome%2Fodette%2Fnotes.md&token=ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ012345");
+        await render({});
+        await report();
+        const body = lastReport();
+        expect(body).toContain("Screen: /popout/editor?file=…&token=…");
+        expect(body).not.toContain("ghp_");
+        expect(body).not.toContain("notes.md");
+        window.history.replaceState({}, "", "/");
+    });
+
     it("offers a way to report the crash without sending anything", async () => {
         // Reporting is the action that turns a dead end into a fix. It must be present,
         // and it must be honest about what it does.

@@ -11,6 +11,7 @@ const { chromium } = require("playwright");
 const { default: sparticuz } = require("@sparticuz/chromium");
 
 const { applySandboxLibs } = require("./sandbox-libs.cjs");
+const { log } = require("./log.cjs");
 const URL = process.env.PROBE_URL ?? "http://127.0.0.1:48921/?seed=project";
 
 (async () => {
@@ -42,20 +43,20 @@ const URL = process.env.PROBE_URL ?? "http://127.0.0.1:48921/?seed=project";
         .locator('button:has-text("Preview fixture chat")')
         .locator('xpath=ancestor::*[contains(@class,"group/chat")][1]');
     const n = await rows.count();
-    console.log(`chat rows in the seeded sidebar: ${n}`);
+    log(`chat rows in the seeded sidebar: ${n}`);
     if (!n) {
-        console.log("fixture has no chat rows; nothing to measure");
+        log("fixture has no chat rows; nothing to measure");
         await browser.close();
         return;
     }
 
     const read = async (label) => {
         const v = await rows.first().evaluate(alphaOf);
-        console.log(`  ${label.padEnd(26)} alpha=${String(v.alpha).padEnd(5)} transition=${v.transition}`);
+        log(`  ${label.padEnd(26)} alpha=${String(v.alpha).padEnd(5)} transition=${v.transition}`);
         return v.alpha;
     };
 
-    console.log("\nladder on the first chat row:");
+    log("\nladder on the first chat row:");
     const rest = await read("rest (pointer away)");
 
     await rows.first().hover();
@@ -88,11 +89,11 @@ const URL = process.env.PROBE_URL ?? "http://127.0.0.1:48921/?seed=project";
         await page.waitForTimeout(300);
         const navBack = await navRow.evaluate(alphaOf);
         nav = { rest: navRest.alpha, hover: navHover.alpha, back: navBack.alpha };
-        console.log("\nunselected nav row (the midpoint, on an unselected control):");
-        console.log(
+        log("\nunselected nav row (the midpoint, on an unselected control):");
+        log(
             `  rest=${navRest.alpha}  hover=${navHover.alpha}  released=${navBack.alpha}  transition=${navHover.transition}`,
         );
-        console.log(
+        log(
             `  midpoint vs selected: hover ${navHover.alpha} x2 = ${(navHover.alpha * 2).toFixed(2)} vs committed ${committed}`,
         );
     }
@@ -120,11 +121,11 @@ const URL = process.env.PROBE_URL ?? "http://127.0.0.1:48921/?seed=project";
         const alpha = parts.length >= 4 ? Number(parts[3]) : 1;
         return Number((alpha * 100).toFixed(1));
     };
-    console.log("\ntokens:", tokens);
+    log("\ntokens:", tokens);
     const h = pct(tokens["--row-hover"]);
     const s = pct(tokens["--row-selected"]);
     const sh = pct(tokens["--row-selected-hover"]);
-    console.log(`  hover ${h}%  selected ${s}%  selected+hover ${sh}%`);
+    log(`  hover ${h}%  selected ${s}%  selected+hover ${sh}%`);
 
     // A ladder is a claim about ordering, so the probe has to be able to disagree. These
     // six checks are what a reader would check by eye, and any of them failing exits 1.
@@ -142,10 +143,10 @@ const URL = process.env.PROBE_URL ?? "http://127.0.0.1:48921/?seed=project";
         ["an unselected row fills on hover and clears on release", nav !== null && nav.hover > nav.rest && nav.back === nav.rest],
         ["the unselected midpoint is exactly half the committed tone", nav !== null && Number((nav.hover * 2).toFixed(2)) === committed],
     ];
-    console.log("\nchecks:");
-    for (const [name, ok] of checks) console.log(`  ${ok ? "ok  " : "FAIL"} ${name}`);
+    log("\nchecks:");
+    for (const [name, ok] of checks) log(`  ${ok ? "ok  " : "FAIL"} ${name}`);
     const failed = checks.filter(([, ok]) => !ok).length;
-    console.log(`\n${failed === 0 ? "PASS" : `FAIL: ${failed} check(s)`}`);
+    log(`\n${failed === 0 ? "PASS" : `FAIL: ${failed} check(s)`}`);
     await browser.close();
     process.exit(failed === 0 ? 0 : 1);
 })().catch((error) => {

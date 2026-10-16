@@ -374,6 +374,25 @@ const DropdownMenuNestedContent = ({ children, isOpened }: { children: React.Rea
  * Menubar Components (for Navigation/Titlebar)
  */
 
+const MenubarTrigger = React.forwardRef<
+    React.ElementRef<typeof MenubarPrimitive.Trigger>,
+    React.ComponentPropsWithoutRef<typeof MenubarPrimitive.Trigger>
+>(({ className, onPointerDown, ...props }, ref) => (
+    <MenubarPrimitive.Trigger
+        ref={ref}
+        onPointerDown={(e) => {
+            e.stopPropagation();
+            if (onPointerDown) onPointerDown(e);
+        }}
+        className={cn(
+            "flex cursor-default select-none items-center rounded-md px-sm py-xs text-sm font-normal leading-none outline-none focus:bg-[var(--btn-hover)] focus:text-text-primary data-[state=open]:bg-[var(--btn-open)] data-[state=open]:hover:bg-[var(--btn-open-hover)] data-[state=open]:focus:bg-[var(--btn-open-hover)] data-[state=open]:text-text-primary transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
+            className
+        )}
+        {...props}
+    />
+));
+MenubarTrigger.displayName = MenubarPrimitive.Trigger.displayName;
+
 const MenubarMenu = ({
     onOpenChange,
     children,
@@ -459,25 +478,6 @@ const Menubar = React.forwardRef<
     />
 ));
 Menubar.displayName = MenubarPrimitive.Root.displayName;
-
-const MenubarTrigger = React.forwardRef<
-    React.ElementRef<typeof MenubarPrimitive.Trigger>,
-    React.ComponentPropsWithoutRef<typeof MenubarPrimitive.Trigger>
->(({ className, onPointerDown, ...props }, ref) => (
-    <MenubarPrimitive.Trigger
-        ref={ref}
-        onPointerDown={(e) => {
-            e.stopPropagation();
-            if (onPointerDown) onPointerDown(e);
-        }}
-        className={cn(
-            "flex cursor-default select-none items-center rounded-md px-sm py-xs text-sm font-normal leading-none outline-none focus:bg-[var(--btn-hover)] focus:text-text-primary data-[state=open]:bg-[var(--btn-open)] data-[state=open]:hover:bg-[var(--btn-open-hover)] data-[state=open]:focus:bg-[var(--btn-open-hover)] data-[state=open]:text-text-primary transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
-            className
-        )}
-        {...props}
-    />
-));
-MenubarTrigger.displayName = MenubarPrimitive.Trigger.displayName;
 
 const MenubarSubTrigger = React.forwardRef<
     React.ElementRef<typeof MenubarPrimitive.SubTrigger>,

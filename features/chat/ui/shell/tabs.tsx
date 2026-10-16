@@ -152,7 +152,7 @@ function SortableChatTab({
                                 onClose(tab.id);
                             }}
                             className={cn(
-                                "absolute inset-y-0 right-0 z-[2] flex w-7 items-center justify-end pr-1 opacity-0 transition-opacity duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] group-hover:opacity-100",
+                                "absolute inset-y-0 right-0 z-[2] flex w-7 items-center justify-end pr-1 opacity-0 transition-opacity duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] group-hover:opacity-100 focus-visible:opacity-100",
                                 "bg-linear-to-l to-transparent from-50%",
                                 isActive ? "from-surface-3" : "from-panel-hover",
                             )}

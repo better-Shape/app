@@ -12,6 +12,7 @@ const { chromium } = require("playwright");
 const { default: sparticuz } = require("@sparticuz/chromium");
 
 const { applySandboxLibs } = require("./sandbox-libs.cjs");
+const { log } = require("./log.cjs");
 const URL = process.env.PROBE_URL ?? "http://127.0.0.1:48921/?seed=project";
 
 const PROBE = () => {
@@ -55,10 +56,10 @@ const PROBE = () => {
         await page.waitForLoadState("domcontentloaded", { timeout: 120_000 }).catch(() => {});
         await page.waitForTimeout(1500);
         const out = await page.evaluate(PROBE);
-        console.log(`\nprefers-reduced-motion: ${reducedMotion} (matches: ${out.media})`);
+        log(`\nprefers-reduced-motion: ${reducedMotion} (matches: ${out.media})`);
         for (const key of ["animate-spin", "animate-pulse", "git-generate-shimmer", "imsg-typing span"]) {
             const v = out[key];
-            console.log(`  ${key.padEnd(22)} name=${v.name.padEnd(24)} duration=${v.duration.padEnd(8)} count=${v.count}`);
+            log(`  ${key.padEnd(22)} name=${v.name.padEnd(24)} duration=${v.duration.padEnd(8)} count=${v.count}`);
         }
         await page.close();
     }

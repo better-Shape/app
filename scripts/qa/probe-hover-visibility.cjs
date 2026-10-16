@@ -18,6 +18,7 @@ const { chromium } = require("playwright");
 const { default: sparticuz } = require("@sparticuz/chromium");
 
 const { applySandboxLibs } = require("./sandbox-libs.cjs");
+const { log } = require("./log.cjs");
 const URL = process.env.PROBE_URL ?? "http://127.0.0.1:48921/?seed=project";
 
 const CONTROLS = [
@@ -53,21 +54,21 @@ const composite = (fg, bg) => {
         const el = document.querySelector("aside") || document.body;
         return getComputedStyle(el).backgroundColor;
     });
-    console.log(`sidebar surface, for reference: ${panel}`);
-    console.log("each control is composited over its own backdrop, printed per row\n");
-    console.log(`${"control".padEnd(20)} ${"rest".padEnd(18)} ${"hover".padEnd(18)} Δ (channel)`);
-    console.log("─".repeat(76));
+    log(`sidebar surface, for reference: ${panel}`);
+    log("each control is composited over its own backdrop, printed per row\n");
+    log(`${"control".padEnd(20)} ${"rest".padEnd(18)} ${"hover".padEnd(18)} Δ (channel)`);
+    log("─".repeat(76));
 
     const rows = [];
     for (const c of CONTROLS) {
         const loc = page.locator(c.label).first();
         if (!(await loc.count())) {
-            console.log(`${c.name.padEnd(20)} SKIP (not present)`);
+            log(`${c.name.padEnd(20)} SKIP (not present)`);
             continue;
         }
         const box = await loc.boundingBox().catch(() => null);
         if (!box) {
-            console.log(`${c.name.padEnd(20)} SKIP (no box)`);
+            log(`${c.name.padEnd(20)} SKIP (no box)`);
             continue;
         }
         // Park the pointer far away first so no neighbouring hover leaks in.
@@ -111,16 +112,16 @@ const composite = (fg, bg) => {
         const hoverPx = composite(hover, surface.backdrop);
         const delta = Math.max(...restPx.map((v, i) => Math.abs(v - hoverPx[i])));
         rows.push({ name: c.name, rest, hover, restPx, hoverPx, delta, backdrop: surface.backdrop });
-        console.log(
+        log(
             `${c.name.padEnd(20)} ${rest.replace(/\s/g, "").padEnd(18)} ${hover.replace(/\s/g, "").padEnd(18)} ${String(delta).padEnd(4)} over ${surface.backdrop}` +
                 (delta === 0 ? "   no visible change" : ""),
         );
     }
 
-    console.log("\nverdict");
+    log("\nverdict");
     for (const r of rows) {
         const verdict = r.delta === 0 ? "INVISIBLE, no hover state" : r.delta < 4 ? "BELOW THRESHOLD, present but not reliably readable" : "visible";
-        console.log(`   ${r.name.padEnd(20)} ${verdict}`);
+        log(`   ${r.name.padEnd(20)} ${verdict}`);
     }
 
     await browser.close();

@@ -31,6 +31,88 @@ const pathMatches = (pathname: string | null, base: string) => {
     return pathname === base || pathname === `${base}/` || pathname.startsWith(`${base}/`);
 };
 
+/** The shell the three route kinds share: providers, tooltip suppression, the menu host. */
+const ProviderShell = ({ children }: { children: React.ReactNode }) => (
+    <LoadingProvider>
+        <NotificationProvider>
+            <SuppressNativeTooltips />
+            <GlobalContextMenu>{children}</GlobalContextMenu>
+        </NotificationProvider>
+    </LoadingProvider>
+);
+
+/**
+ * The popout window a panel opens into.
+ *
+ * Popouts are chromeless: the titlebar is the only chrome, so the frame fills the window
+ * and the overlays host stays inside it rather than at the document root.
+ */
+const PopoutShell = ({ children }: { children: React.ReactNode }) => (
+    <ProviderShell>
+        <div
+            id="bettershape-popout"
+            className="relative flex h-screen w-full flex-col overflow-hidden bg-titlebar font-sans text-sm text-text-primary select-none"
+        >
+            <Titlebar focus />
+            <main className="min-h-0 flex-1 overflow-hidden bg-editor">{children}</main>
+            <CommandPaletteBridge />
+            <div id="bettershape-overlays" />
+        </div>
+    </ProviderShell>
+);
+
+/**
+ * Settings and the Git manager, which are the same window with a different title.
+ *
+ * The Git route is the only one that needs the Git filter provider, so it wraps the body
+ * instead of the shell keeping two copies of the frame.
+ */
+const SettingsShell = ({ kind, children }: { kind: "Git" | "Settings"; children: React.ReactNode }) => {
+    const body = (
+        <div id="bettershape-settings" className="relative flex h-screen w-full flex-col overflow-hidden bg-background font-sans text-sm text-text-primary select-none">
+            <Titlebar settings title={kind} />
+            <main className="min-h-0 flex-1 overflow-hidden bg-background">{children}</main>
+            <div id="bettershape-overlays" />
+        </div>
+    );
+    return <ProviderShell>{kind === "Git" ? <FilterProvider initialSection="branches">{body}</FilterProvider> : body}</ProviderShell>;
+};
+
+/**
+ * The workbench frame, and the last of the three shells to add anything to the window.
+ *
+ * The overlays host is the last child on purpose: menus and the command palette portal
+ * into it, so it has to paint above the panes rather than sit between them.
+ */
+const Content = ({ children }: { children: React.ReactNode }) => {
+    return (
+        <div
+            id="bettershape-workbench"
+            className="relative flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden bg-background select-none"
+        >
+            <div className="relative z-10 flex min-h-0 w-full flex-1 flex-col">
+                <Main>{children}</Main>
+                <CheckpointRestoreDialog />
+                <CommandPaletteBridge />
+                <DesignPreviewCaptureHost />
+            </div>
+            <WebviewReconnect />
+            {/* Preview-only: `?crash=global` throws above the page boundary so the root
+                error boundary can be inspected. Inert in a real build. */}
+            <PreviewCrash scope="global" />
+            <div id="bettershape-overlays" />
+        </div>
+    );
+};
+
+/**
+ * Picks the window shell from the route and bootstraps the app once per window.
+ *
+ * The three shells differ only in chrome, so the choice is made here and every shell
+ * under it is a separate component: the branches below stay one line each, and the
+ * effects are keyed to the window rather than the route so a navigation never re-inits
+ * settings or re-registers the close listener.
+ */
 const ClientLayout = ({ children }: { children: React.ReactNode }) => {
     const pathname = usePathname();
     const isSettings = pathMatches(pathname, "/settings");
@@ -119,62 +201,6 @@ const ClientLayout = ({ children }: { children: React.ReactNode }) => {
                 </GlobalContextMenu>
             </NotificationProvider>
         </LoadingProvider>
-    );
-};
-
-/** The shell the three route kinds share: providers, tooltip suppression, the menu host. */
-const ProviderShell = ({ children }: { children: React.ReactNode }) => (
-    <LoadingProvider>
-        <NotificationProvider>
-            <SuppressNativeTooltips />
-            <GlobalContextMenu>{children}</GlobalContextMenu>
-        </NotificationProvider>
-    </LoadingProvider>
-);
-
-const PopoutShell = ({ children }: { children: React.ReactNode }) => (
-    <ProviderShell>
-        <div
-            id="bettershape-popout"
-            className="relative flex h-screen w-full flex-col overflow-hidden bg-titlebar font-sans text-sm text-text-primary select-none"
-        >
-            <Titlebar focus />
-            <main className="min-h-0 flex-1 overflow-hidden bg-editor">{children}</main>
-            <CommandPaletteBridge />
-            <div id="bettershape-overlays" />
-        </div>
-    </ProviderShell>
-);
-
-const SettingsShell = ({ kind, children }: { kind: "Git" | "Settings"; children: React.ReactNode }) => {
-    const body = (
-        <div id="bettershape-settings" className="relative flex h-screen w-full flex-col overflow-hidden bg-background font-sans text-sm text-text-primary select-none">
-            <Titlebar settings title={kind} />
-            <main className="min-h-0 flex-1 overflow-hidden bg-background">{children}</main>
-            <div id="bettershape-overlays" />
-        </div>
-    );
-    return <ProviderShell>{kind === "Git" ? <FilterProvider initialSection="branches">{body}</FilterProvider> : body}</ProviderShell>;
-};
-
-const Content = ({ children }: { children: React.ReactNode }) => {
-    return (
-        <div
-            id="bettershape-workbench"
-            className="relative flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden bg-background select-none"
-        >
-            <div className="relative z-10 flex min-h-0 w-full flex-1 flex-col">
-                <Main>{children}</Main>
-                <CheckpointRestoreDialog />
-                <CommandPaletteBridge />
-                <DesignPreviewCaptureHost />
-            </div>
-            <WebviewReconnect />
-            {/* Preview-only: `?crash=global` throws above the page boundary so the root
-                error boundary can be inspected. Inert in a real build. */}
-            <PreviewCrash scope="global" />
-            <div id="bettershape-overlays" />
-        </div>
     );
 };
 

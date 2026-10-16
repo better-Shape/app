@@ -201,7 +201,7 @@ function RemoveButton({ name, onRemove }: { name: string; onRemove: () => void }
                 type="button"
                 aria-label={`Remove ${name}`}
                 onClick={onRemove}
-                className="absolute -right-1.5 -top-1.5 z-10 flex size-5 items-center justify-center rounded-full bg-surface-1 text-text-secondary opacity-0 shadow-sm hover:text-text-primary group-hover:opacity-100"
+                className="absolute -right-1.5 -top-1.5 z-10 flex size-5 items-center justify-center rounded-full bg-surface-1 text-text-secondary opacity-0 shadow-sm hover:text-text-primary group-hover:opacity-100 focus-visible:opacity-100"
             >
                 <Icon icon={Dismiss20Regular} />
             </button>

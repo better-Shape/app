@@ -870,7 +870,7 @@ export function TurnWorkflowSummary({
                                             skippedLeadThought = true;
                                             return null;
                                         }
-                                        return <StepRow key={i} block={row.block} />;
+                                        return <StepRow key={`step-${i}`} block={row.block} />;
                                     }
                                     return null;
                                 });

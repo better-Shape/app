@@ -153,6 +153,14 @@ function mergeCatalog(remote: PluginRow[]): PluginRow[] {
     ];
 }
 
+/**
+ * Named placeholder slots, so the skeleton rows have identity instead of an array index.
+ * React reuses a keyed row when the list re-renders, and an index says "the third slot" for
+ * a card that is about to become a different plugin.
+ */
+const CARD_SLOTS = ["first", "second", "third"];
+const ACTION_SLOTS = ["a", "b", "c", "d", "e", "f"];
+
 function PluginCardSkeleton() {
     return (
         <div className="flex h-full w-full items-start gap-3 rounded-xl border border-border-subtle bg-surface-2 p-4">
@@ -172,18 +180,18 @@ function PluginsCatalogSkeleton() {
             <section className="space-y-3">
                 <Skeleton className="h-4 w-20" />
                 <div className="flex gap-3 overflow-hidden">
-                    {Array.from({ length: 3 }, (_, i) => (
-                        <div key={i} className="w-72 shrink-0">
+                    {CARD_SLOTS.map((slot) => (
+                        <div key={slot} className="w-72 shrink-0">
                             <PluginCardSkeleton />
                         </div>
                     ))}
                 </div>
             </section>
             <section className="space-y-3">
-                <Skeleton className="h-4 w-24" />
+                <Skeleton className="h-4 w-20" />
                 <div className="flex gap-3 overflow-hidden">
-                    {Array.from({ length: 3 }, (_, i) => (
-                        <div key={i} className="w-72 shrink-0">
+                    {CARD_SLOTS.map((slot) => (
+                        <div key={slot} className="w-72 shrink-0">
                             <PluginCardSkeleton />
                         </div>
                     ))}
@@ -192,8 +200,8 @@ function PluginsCatalogSkeleton() {
             <section className="space-y-3">
                 <Skeleton className="h-4 w-24" />
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                    {Array.from({ length: 6 }, (_, i) => (
-                        <PluginCardSkeleton key={i} />
+                    {ACTION_SLOTS.map((slot) => (
+                        <PluginCardSkeleton key={slot} />
                     ))}
                 </div>
             </section>
@@ -204,8 +212,8 @@ function PluginsCatalogSkeleton() {
 function PluginActionsSkeleton() {
     return (
         <div aria-busy aria-label="Loading actions">
-            {Array.from({ length: 6 }, (_, i) => (
-                <div key={i} className="flex items-start justify-between gap-4 px-4 py-3.5">
+            {ACTION_SLOTS.map((slot) => (
+                <div key={slot} className="flex items-start justify-between gap-4 px-4 py-3.5">
                     <div className="min-w-0 flex-1 space-y-2">
                         <Skeleton className="h-4 w-40" />
                         <Skeleton className="h-3 w-full max-w-80" />

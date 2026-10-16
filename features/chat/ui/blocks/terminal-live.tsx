@@ -203,7 +203,7 @@ export function LiveTerminalOutput({
                 const err = /\[error\]|\berror:/i.test(line);
                 return (
                     <div
-                        key={i}
+                        key={`line-${i}`}
                         className={cn(
                             "flex gap-3 px-1 py-px whitespace-pre-wrap break-words",
                             warn && "bg-warning/15 text-warning",

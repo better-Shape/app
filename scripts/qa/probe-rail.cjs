@@ -16,6 +16,7 @@ const { chromium } = require("playwright");
 const { default: sparticuz } = require("@sparticuz/chromium");
 
 const { applySandboxLibs } = require("./sandbox-libs.cjs");
+const { log } = require("./log.cjs");
 const arg = (name, fallback) => {
     const hit = process.argv.find((a) => a.startsWith(`--${name}=`));
     return hit ? hit.slice(name.length + 3) : fallback;
@@ -56,7 +57,7 @@ async function main() {
 
     const show = async (label) => {
         const rows = await page.evaluate(state, SEL);
-        console.log(
+        log(
             label.padEnd(26),
             rows
                 .filter((r) => r.onscreen)
@@ -72,7 +73,7 @@ async function main() {
 
     // Timeline across the click: 16ms is one frame at 60fps, so a snap shows as a
     // single step and a travel shows as intermediate values.
-    console.log("\n-- 16ms timeline from the click --");
+    log("\n-- 16ms timeline from the click --");
     const samples = [];
     const clickAt = Date.now();
     await page.locator(SEL).first().click({ noWaitAfter: true });
@@ -85,7 +86,7 @@ async function main() {
                 .join("  |  ")}`,
         );
     }
-    for (const line of samples) console.log("   " + line);
+    for (const line of samples) log("   " + line);
 
     await page.waitForTimeout(400);
     await show("\n2. clicked, pointer still on");

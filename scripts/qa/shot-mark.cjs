@@ -15,6 +15,7 @@ const { chromium } = require("playwright");
 const { default: sparticuz } = require("@sparticuz/chromium");
 
 const { applySandboxLibs } = require("./sandbox-libs.cjs");
+const { log } = require("./log.cjs");
 const ROOT = path.resolve(__dirname, "../..");
 const SRC = fs.readFileSync(path.join(ROOT, "components/layout/error/crash-screen.tsx"), "utf8");
 
@@ -51,7 +52,7 @@ const PAGE = `<!doctype html><html><head><meta charset="utf-8"><style>
     await page.waitForTimeout(300);
     const out = path.join(ROOT, ".dump/app/qa/motion/crash-mark.png");
     await page.screenshot({ path: out, fullPage: true });
-    console.log(`mark: ${path.relative(ROOT, out)}`);
+    log(`mark: ${path.relative(ROOT, out)}`);
     await browser.close();
 })().catch((error) => {
     process.stderr.write(String(error?.stack ?? error) + "\n");

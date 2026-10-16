@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { must } from "../helpers/must";
 
 /**
  * The sidebar's interaction ladder: rest, hover at exactly half of selected, selected,
@@ -19,11 +20,12 @@ const sidebarFiles = fs
     .filter((f) => f.endsWith(".tsx") && f !== "collection-dialog.tsx")
     .map((f) => `features/agent/sidebar/${f}`);
 
+
 /** Alpha of a token declared as `rgba(r, g, b, a)`. */
 function tokenAlpha(name: string): number {
     const m = globals.match(new RegExp(`${name}:\\s*rgba\\([^)]*?([0-9.]+)\\s*\\)`));
     expect(m, `${name} is not declared as an rgba() token`).not.toBeNull();
-    return Number(m![1]);
+    return Number(must(m, `${name} to match`)[1]);
 }
 
 describe("the sidebar interaction ladder", () => {
@@ -88,7 +90,11 @@ describe("the sidebar interaction ladder", () => {
         expect(selected, "coloured row selected tint not found").not.toBeNull();
         expect(step, "coloured row hover step not found").not.toBeNull();
 
-        const [r, s, h] = [Number(rest![1]), Number(selected![1]), Number(step![1])];
+        const [r, s, h] = [
+        Number(must(rest, "the rest fill")[1]),
+        Number(must(selected, "the selected fill")[1]),
+        Number(must(step, "the selected hover fill")[1]),
+    ];
         expect([r, s]).toEqual([22, 30]);
         expect(r).toBeLessThan(s);
         // Hover = rest + step, and that has to be the midpoint of the ladder.

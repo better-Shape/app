@@ -1,6 +1,7 @@
 const { chromium } = require("playwright");
 const { default: sparticuz } = require("@sparticuz/chromium");
 const { applySandboxLibs } = require("./sandbox-libs.cjs");
+const { log } = require("./log.cjs");
 (async () => {
   applySandboxLibs();
   const browser = await chromium.launch({
@@ -24,11 +25,11 @@ const { applySandboxLibs } = require("./sandbox-libs.cjs");
     const text = (await page.locator("body").innerText()).replace(/\s+/g, " ").slice(0, 220);
     const out = `/home/user/app/.dump/app/qa/motion/crash-${name}.png`;
     await page.screenshot({ path: out });
-    console.log(`\n[${name}] ${url}`);
-    console.log("  visible:", text);
-    console.log("  shot:", out);
+    log(`\n[${name}] ${url}`);
+    log("  visible:", text);
+    log("  shot:", out);
   }
-  console.log("\npageerrors:", errors.slice(0, 4));
+  log("\npageerrors:", errors.slice(0, 4));
   await browser.close();
 })().catch((error) => {
     process.stderr.write(String(error?.stack ?? error) + "\n");

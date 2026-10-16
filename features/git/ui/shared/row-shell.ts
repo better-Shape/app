@@ -30,13 +30,13 @@ export type GitRowVariant = keyof typeof GIT_ROW;
  *
  * `titleLines` is what the skeleton draws, and `titleReserve` is the matching minimum on
  * the live title, so a row is the same height whether the title wraps or not. Only a
- * clamped title needs both: at the 13px root one `text-sm leading-snug` line box is
- * 19.25px, so a two-line clamp reserves 38.5px and the skeleton stacks two line boxes to
- * the same total.
+ * clamped title needs both. The reserve is written in `lh`, the element's own line box, so
+ * it follows `leading-snug` and the type scale instead of pinning a pixel height that any
+ * later change to either would quietly invalidate.
  */
 export const GIT_ROW_TEXT = {
     job: { title: "text-sm", meta: "text-xs", titleLines: 1, titleReserve: "" },
-    run: { title: "text-sm leading-snug", meta: "text-2xs", titleLines: 2, titleReserve: "min-h-[38.5px]" },
+    run: { title: "text-sm leading-snug", meta: "text-2xs", titleLines: 2, titleReserve: "min-h-[2lh]" },
     release: { title: "text-sm", meta: "text-xs", titleLines: 1, titleReserve: "" },
     dense: { title: "text-xs", meta: "text-xs", titleLines: 1, titleReserve: "" },
 } as const satisfies Record<GitRowVariant, { title: string; meta: string; titleLines: number; titleReserve: string }>;

@@ -1242,7 +1242,7 @@ export function AgentWorkflow({
                 }
                 return (
                     <ActionItem
-                        key={i}
+                        key={`action-${i}`}
                         block={row.block}
                         isFileEditResolved={isFileEditResolved}
                     />

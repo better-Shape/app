@@ -24,8 +24,8 @@ export interface UseCopyOptions {
  * failure path points at the next safe action instead of offering a retry that
  * would fail the same way.
  *
- * Awaiting the promise costs one microtask, far below the 100ms threshold where a
- * confirmation starts to feel laggy.
+ * The write is also the hook's own business: `copy` is synchronous and settles both
+ * outcomes itself, so a click handler never has to return a promise it cannot await.
  */
 export function useCopyToClipboard({
     resetMs = 1400,
@@ -37,6 +37,8 @@ export function useCopyToClipboard({
     // showing its confirmation, not just that one of them is.
     const [copiedText, setCopiedText] = useState<string | null>(null);
     const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    /** Which copy owns the confirmation. A slower earlier write must not take it back. */
+    const latest = useRef(0);
     const mounted = useRef(true);
 
     useEffect(() => {
@@ -48,46 +50,56 @@ export function useCopyToClipboard({
     }, []);
 
     const copy = useCallback(
-        async (text: string, description?: string): Promise<boolean> => {
+        (text: string, description?: string): void => {
+            // Two clicks in flight resolve in whatever order the clipboard answers, so the
+            // newer click claims the confirmation before either write starts and the older
+            // one returns without touching state or the timer.
+            const mine = ++latest.current;
             if (timer.current) {
                 clearTimeout(timer.current);
                 timer.current = null;
             }
 
-            let ok = false;
-            try {
-                if (!navigator.clipboard?.writeText) throw new Error("clipboard unavailable");
-                await navigator.clipboard.writeText(text);
-                ok = true;
-            } catch {
-                ok = false;
+            const settle = (ok: boolean) => {
+                if (!mounted.current || mine !== latest.current) return;
+
+                setState(ok ? "copied" : "failed");
+                setCopiedText(text);
+                if (!silent) {
+                    if (ok) {
+                        notify.success("Copied", description ?? successDescription ?? "Copied to clipboard");
+                    } else {
+                        // A retry would hit the same wall, so name the way out instead.
+                        notify.error("Couldn't copy", "Clipboard unavailable, select the text and copy manually");
+                    }
+                }
+
+                // Only the call holding the claim gets here, so it is the only one holding a
+                // timer: no second clear is needed, and no older timer can cut this one short.
+                timer.current = setTimeout(() => {
+                    timer.current = null;
+                    if (mounted.current) {
+                        setState("idle");
+                        setCopiedText(null);
+                    }
+                }, ok ? resetMs : Math.max(resetMs, 2200));
+            };
+
+            const clipboard = navigator.clipboard;
+            if (!clipboard?.writeText) {
+                settle(false);
+                return;
             }
 
-            if (!mounted.current) return ok;
-
-            setState(ok ? "copied" : "failed");
-            setCopiedText(text);
-            if (!silent) {
-                if (ok) {
-                    notify.success("Copied", description ?? successDescription ?? "Copied to clipboard");
-                } else {
-                    // A retry would hit the same wall, so name the way out instead.
-                    notify.error("Couldn't copy", "Clipboard unavailable, select the text and copy manually");
-                }
-            }
-
-            // Copy is clicked repeatedly, and each click used to leave its own timer armed:
-            // the older one then cleared the newer confirmation while it was still showing.
-            if (timer.current) clearTimeout(timer.current);
-            timer.current = setTimeout(() => {
-                timer.current = null;
-                if (mounted.current) {
-                    setState("idle");
-                    setCopiedText(null);
-                }
-            }, ok ? resetMs : Math.max(resetMs, 2200));
-
-            return ok;
+            // Started from inside `then` rather than called directly, so a clipboard that
+            // throws on the call itself arrives as the rejection below instead of escaping
+            // through the click handler. Both outcomes are named here; neither is dropped.
+            Promise.resolve()
+                .then(() => clipboard.writeText(text))
+                .then(
+                    () => settle(true),
+                    () => settle(false),
+                );
         },
         [resetMs, silent, successDescription],
     );

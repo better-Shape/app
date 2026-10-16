@@ -36,52 +36,6 @@ const holdsFocus = (node: Element | null): boolean =>
     node !== document.body &&
     (node.tagName === "BUTTON" || node.tagName === "INPUT" || node.tagName === "A");
 
-/**
- * The screen shown when the app has already failed.
- *
- * Names the next safe action rather than listing every possible one, and keeps the
- * exception off the surface: it is written for a developer, and a crash is the moment a
- * developer is not what the user needs.
- */
-export const CrashScreen = ({ title, hint, message, digest, onRetry, onReload, stack }: CrashScreenProps) => {
-    const retryRef = useRef<HTMLButtonElement>(null);
-
-    // `autoFocus` does not fire in a boundary that mounts mid-render, so focus is
-    // claimed explicitly and only when nothing useful already holds it.
-    useEffect(() => {
-        if (!holdsFocus(document.activeElement)) retryRef.current?.focus();
-    }, []);
-
-    return (
-        <div className="flex h-full flex-1 items-center justify-center bg-background p-8 select-none">
-            <div
-                role="alert"
-                aria-live="assertive"
-                className="flex w-full max-w-[26rem] flex-col items-center rounded-3xl border border-border-subtle bg-panel-secondary/60 px-8 py-9 text-center shadow-lg"
-            >
-                <CrashMark />
-
-                <h1 className="mt-5 text-lg font-semibold tracking-tight text-text-primary">{title}</h1>
-
-                <p className="mt-2 max-w-[22rem] text-sm leading-relaxed text-text-muted text-pretty">{hint}</p>
-
-                {/*
-                  * One primary. `Reload IDE` costs the session, so it is an outline. */}
-                <div className="mt-7 flex items-center gap-3">
-                    <Button ref={retryRef} size="lg" onClick={onRetry} className="min-w-[7.5rem]">
-                        Try again
-                    </Button>
-                    <Button size="lg" variant="outline" onClick={onReload}>
-                        Reload IDE
-                    </Button>
-                </div>
-
-                <ReportBlock title={title} hint={hint} digest={digest} message={message} stack={stack} />
-            </div>
-        </div>
-    );
-};
-
 interface ReportBlockProps {
     title: string;
     hint: string;
@@ -132,13 +86,27 @@ const reportBody = ({
 };
 
 /**
+ * The location line for the report: the route, plus the names of the query parameters.
+ *
+ * Values are dropped rather than scrubbed. Popout windows carry file paths and session
+ * tokens in the query string, and this text ends up in a prefilled public issue where
+ * the scrubber's pattern list is a guess and the URL is not.
+ */
+const describeLocation = (): string => {
+    if (typeof window === "undefined") return "unknown";
+    const names = [...new URLSearchParams(window.location.search).keys()];
+    const query = names.map((name) => `${name}=…`).join("&");
+    return query ? `${window.location.pathname}?${query}` : window.location.pathname;
+};
+
+/**
  * Copies the report and opens the prefilled issue, reporting whether it landed.
  *
  * Best-effort by design: the screen stays usable either way, and the details disclosure
  * keeps the text selectable for a manual copy.
  */
 const sendReport = async (props: ReportBlockProps & { withTechnical: boolean }): Promise<boolean> => {
-    const where = typeof window === "undefined" ? "unknown" : window.location.pathname + window.location.search;
+    const where = describeLocation();
     try {
         await submitProblemReport({ category: "Crash", message: reportBody({ ...props, where }) });
         return true;
@@ -174,6 +142,34 @@ const AttachDetails = ({ checked, onChange }: { checked: boolean; onChange: (nex
 );
 
 /**
+ * The exception, the digest and the scrubbed stack as the disclosure's body.
+ *
+ * Kept apart from the toggle so the disclosure has one branch to read: the toggle is what
+ * the keyboard reaches, and it has to stay in the tab order whether the body is open or not.
+ */
+const CrashDetailBody = ({ message, digest, stack }: { message: string; digest?: string; stack?: string }) => (
+    <div className="mt-2 w-full rounded-xl border border-border-subtle bg-background/60 p-3 text-left">
+        <p className="text-2xs text-text-muted">Error</p>
+        <pre className="mt-1 max-h-32 overflow-auto font-mono text-2xs leading-relaxed whitespace-pre-wrap text-text-secondary select-text">
+            {message || "An unexpected application error occurred."}
+        </pre>
+        {digest ? (
+            <p className="mt-2 text-2xs text-text-disabled">
+                Digest <span className="font-mono select-text">{digest}</span>
+            </p>
+        ) : null}
+        {stack ? (
+            <>
+                <p className="mt-3 text-2xs text-text-muted">Stack, scrubbed</p>
+                <pre className="mt-1 max-h-40 overflow-auto font-mono text-2xs leading-relaxed whitespace-pre-wrap text-text-disabled select-text">
+                    {redactText(stack, 3000)}
+                </pre>
+            </>
+        ) : null}
+    </div>
+);
+
+/**
  * The exception behind a disclosure, so the same information is reachable without sitting
  * between the user and the recovery.
  */
@@ -205,27 +201,7 @@ const CrashDetails = ({
             Technical details
         </button>
 
-        {open ? (
-            <div className="mt-2 w-full rounded-xl border border-border-subtle bg-background/60 p-3 text-left">
-                <p className="text-2xs text-text-muted">Error</p>
-                <pre className="mt-1 max-h-32 overflow-auto font-mono text-2xs leading-relaxed whitespace-pre-wrap text-text-secondary select-text">
-                    {message || "An unexpected application error occurred."}
-                </pre>
-                {digest ? (
-                    <p className="mt-2 text-2xs text-text-disabled">
-                        Digest <span className="font-mono select-text">{digest}</span>
-                    </p>
-                ) : null}
-                {stack ? (
-                    <>
-                        <p className="mt-3 text-2xs text-text-muted">Stack, scrubbed</p>
-                        <pre className="mt-1 max-h-40 overflow-auto font-mono text-2xs leading-relaxed whitespace-pre-wrap text-text-disabled select-text">
-                            {redactText(stack, 3000)}
-                        </pre>
-                    </>
-                ) : null}
-            </div>
-        ) : null}
+        {open ? <CrashDetailBody message={message} digest={digest} stack={stack} /> : null}
     </>
 );
 
@@ -240,6 +216,12 @@ const ReportBlock = ({ title, hint, digest, message, stack }: ReportBlockProps) 
     const [detailsOpen, setDetailsOpen] = useState(false);
     const [attachDetails, setAttachDetails] = useState(false);
 
+    /**
+     * Copies the report and opens the issue, then reflects the answer in the button.
+     *
+     * `reported` follows the write, not the click, so a refused copy leaves the button live
+     * and the user can still select the text by hand.
+     */
     const report = async () => {
         setReporting(true);
         setReported(await sendReport({ title, hint, digest, message, stack, withTechnical: attachDetails }));
@@ -295,3 +277,49 @@ const CrashMark = () => (
         <rect x="19.4" y="9.2" width="1.9" height="6.6" rx="0.95" className="text-error" fill="currentColor" />
     </svg>
 );
+
+/**
+ * The screen shown when the app has already failed.
+ *
+ * Names the next safe action rather than listing every possible one, and keeps the
+ * exception off the surface: it is written for a developer, and a crash is the moment a
+ * developer is not what the user needs.
+ */
+export const CrashScreen = ({ title, hint, message, digest, onRetry, onReload, stack }: CrashScreenProps) => {
+    const retryRef = useRef<HTMLButtonElement>(null);
+
+    // `autoFocus` does not fire in a boundary that mounts mid-render, so focus is
+    // claimed explicitly and only when nothing useful already holds it.
+    useEffect(() => {
+        if (!holdsFocus(document.activeElement)) retryRef.current?.focus();
+    }, []);
+
+    return (
+        <div className="flex h-full flex-1 items-center justify-center bg-background p-8 select-none">
+            <div
+                role="alert"
+                aria-live="assertive"
+                className="flex w-full max-w-[26rem] flex-col items-center rounded-3xl border border-border-subtle bg-panel-secondary/60 px-8 py-9 text-center shadow-lg"
+            >
+                <CrashMark />
+
+                <h1 className="mt-5 text-lg font-semibold tracking-tight text-text-primary">{title}</h1>
+
+                <p className="mt-2 max-w-[22rem] text-sm leading-relaxed text-text-muted text-pretty">{hint}</p>
+
+                {/*
+                  * One primary. `Reload IDE` costs the session, so it is an outline. */}
+                <div className="mt-7 flex items-center gap-3">
+                    <Button ref={retryRef} size="lg" onClick={onRetry} className="min-w-[7.5rem]">
+                        Try again
+                    </Button>
+                    <Button size="lg" variant="outline" onClick={onReload}>
+                        Reload IDE
+                    </Button>
+                </div>
+
+                <ReportBlock title={title} hint={hint} digest={digest} message={message} stack={stack} />
+            </div>
+        </div>
+    );
+};

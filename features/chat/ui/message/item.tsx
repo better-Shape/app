@@ -423,7 +423,7 @@ function ChatMessageItemInner({
                                 </div>
                             </div>
                         </UserMessageCard>
-                        <div className="flex w-fit items-center gap-0.5 self-end select-none opacity-0 transition-opacity group-hover:opacity-100">
+                        <div className="flex w-fit items-center gap-0.5 self-end select-none opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                             <MessageSentTime timestamp={timestamp} />
                             <Tooltip content="Copy Message" side="top">
                                 <Button variant="ghost" size="icon" onClick={handleCopy}>

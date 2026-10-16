@@ -64,10 +64,15 @@ class TerminalSessionStore {
     }
     setTabs(u: (p: TerminalTab[]) => TerminalTab[]) {
         this.tabs = u(this.tabs).map((t) => ({ ...t, group: t.group ?? "left" }));
-        // A closed tab must not keep a dot alive for an id that can never be shown.
+        // A closed tab must not keep a dot alive for an id that can never be shown, and it
+        // must not keep its xterm either: the instance holds a scrollback and a set of
+        // listeners, and nothing else ever removes it once the tab is gone.
+        const live = new Set(this.tabs.map((t) => t.id));
         if (this.unreadTabs.size > 0) {
-            const live = new Set(this.tabs.map((t) => t.id));
             for (const id of [...this.unreadTabs]) if (!live.has(id)) this.unreadTabs.delete(id);
+        }
+        if (this.instances.size > 0) {
+            for (const id of [...this.instances.keys()]) if (!live.has(id)) this.instances.delete(id);
         }
         this.notify();
     }

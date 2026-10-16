@@ -16,6 +16,12 @@ import { dirname, join } from "node:path";
 
 import { SPRINGS, springToLinear, peakOf } from "./springs.mjs";
 
+/**
+ * These scripts print their report to stdout, and the generated files are written
+ * separately. A one-line writer keeps the output free of the console shim.
+ */
+const log = (...args) => process.stdout.write(args.join(" ") + "\n");
+
 const here = dirname(fileURLToPath(import.meta.url));
 
 /**
@@ -351,9 +357,9 @@ draw();
 if (process.argv.includes("--write")) {
     const out = join(here, "compare.html");
     writeFileSync(out, html);
-    console.log(`wrote ${out} (${html.length} bytes)`);
-    console.log(`  before: half way at ${pct(oldStats.half)}, effectively done at ${pct(oldStats.almost)}, ${pct(oldStats.deadTail)} of the duration carries nothing`);
-    console.log(`  after:  half way at ${pct(newStats.half)}, effectively done at ${pct(newStats.almost)}, ${pct(newStats.deadTail)} of the duration carries nothing`);
+    log(`wrote ${out} (${html.length} bytes)`);
+    log(`  before: half way at ${pct(oldStats.half)}, effectively done at ${pct(oldStats.almost)}, ${pct(oldStats.deadTail)} of the duration carries nothing`);
+    log(`  after:  half way at ${pct(newStats.half)}, effectively done at ${pct(newStats.almost)}, ${pct(newStats.deadTail)} of the duration carries nothing`);
 } else {
-    console.log("pass --write to generate scripts/motion/compare.html");
+    log("pass --write to generate scripts/motion/compare.html");
 }

@@ -997,7 +997,12 @@ export default function Terminal({
                                 className={cn(
                                     WORKBENCH_TAB_CLOSE_BUTTON_CLASS,
                                     "absolute transition-opacity duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
-                                    isActive ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+                                    isActive
+                                        ? "opacity-100"
+                                        // An inactive tab keeps its close button in the
+                                        // tab order, so it has to become visible when the
+                                        // keyboard reaches it; pointer users get it on hover.
+                                        : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
                                 )}
                                 aria-label={`Close ${tab.title}`}
                             >

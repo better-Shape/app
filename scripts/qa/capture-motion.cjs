@@ -18,6 +18,7 @@ const { mkdirSync, readdirSync, rmSync, writeFileSync } = require("node:fs");
 const { join, resolve } = require("node:path");
 
 const { applySandboxLibs } = require("./sandbox-libs.cjs");
+const { log, warn } = require("./log.cjs");
 const OUT = resolve(process.env.CAPTURE_OUT ?? ".dump/app/qa/motion");
 const ONLY = (process.argv.find((a) => a.startsWith("--only=")) ?? "").slice(7).split(",").filter(Boolean);
 const LIST = process.argv.includes("--list");
@@ -26,7 +27,6 @@ const BASE = process.env.CAPTURE_BASE_URL ?? "http://127.0.0.1:48921";
  *  browsers clamp, and smooth enough to read a 200ms travel. */
 const FRAME_DELAY_CS = 4;
 
-const log = (...a) => process.stdout.write(a.join(" ") + "\n");
 
 // ── chromium resolution (same order as playwright.config.ts) ────────────────
 
@@ -236,7 +236,7 @@ function buildSheet(framePaths, outPath, label, captions) {
 const KNOWN = new Set(CASES.map((c) => c.name));
 const UNKNOWN = ONLY.filter((name) => !KNOWN.has(name));
 if (UNKNOWN.length) {
-    console.error(`unknown case(s): ${UNKNOWN.join(", ")}\nknown cases: ${[...KNOWN].join(", ")}`);
+    warn(`unknown case(s): ${UNKNOWN.join(", ")}\nknown cases: ${[...KNOWN].join(", ")}`);
     process.exit(1);
 }
 

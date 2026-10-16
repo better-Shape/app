@@ -49,8 +49,12 @@ export function SwapText<T extends string | number>({
     const host = React.useRef<HTMLSpanElement>(null);
     const incoming = React.useRef<HTMLSpanElement>(null);
 
-    // Set during render, not in an effect, so the outgoing layer is on screen in the same
-    // frame the new value arrives.
+    /*
+     * Set during render, not in an effect, so the outgoing layer is on screen in the same
+     * frame the new value arrives; React re-runs this render before the children mount it.
+     * This is the documented way to keep a previous value when props change, not a render
+     * side effect: https://react.dev/reference/react/useState#storing-information-from-previous-renders
+     */
     if (pair.current !== value) {
         setPair({ current: value, previous: pair.current });
     }
@@ -72,12 +76,16 @@ export function SwapText<T extends string | number>({
 
     const swapping = pair.previous !== null;
 
-    // Record where the box came to rest, so the swap that starts next has somewhere to
-    // start from.
+    /*
+     * Record where the box came to rest, so the swap that starts next has somewhere to
+     * start from. Skipped while a swap runs: the box is pinned to a length then, so its
+     * measured width is a frame of the animation rather than where it settled. Re-running
+     * when the swap ends is what keeps a second swap in a row honest.
+     */
     React.useLayoutEffect(() => {
-        if (block || !host.current) return;
+        if (block || swapping || !host.current) return;
         setSettledWidth(host.current.getBoundingClientRect().width);
-    }, [block, value]);
+    }, [block, swapping, value]);
 
     React.useLayoutEffect(() => {
         if (block || !swapping || !incoming.current) {

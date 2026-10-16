@@ -505,11 +505,11 @@ export const GraphCommitRow = React.memo(function GraphCommitRow({
                 <div className="relative">
                     <div style={{ paddingLeft: compact ? 8 : Math.max((rowMaxLane + 1) * LANE_WIDTH, 28) }} className="pr-1 py-0.5 space-y-0 relative z-10">
                         {files.length > 0 ? (
-                            files.map((file: GitFileParams, i: number) => {
+                            files.map((file: GitFileParams) => {
                                 const name = file.path.split(/[\\\/]/).pop() || "";
                                 const folder = file.path.substring(0, file.path.length - name.length - 1);
                                 return (
-                                    <ContextMenu key={i}>
+                                    <ContextMenu key={file.path}>
                                         <ContextMenuTrigger asChild>
                                             <Tooltip
                                                 content={`${file.path} • ${file.status === 'M' ? 'Modified' : file.status === 'A' ? 'Added' : file.status === 'D' ? 'Deleted' : file.status === 'R' ? 'Renamed' : 'Changed'}`}

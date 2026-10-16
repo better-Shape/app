@@ -24,6 +24,7 @@ const { chromium } = require("playwright");
 const { default: sparticuz } = require("@sparticuz/chromium");
 
 const { applySandboxLibs } = require("./sandbox-libs.cjs");
+const { log, warn } = require("./log.cjs");
 const ROOT = path.resolve(__dirname, "../..");
 const OUT = process.env.GIF_OUT ?? path.join(ROOT, ".dump/app/qa/gifs");
 const URL = process.env.PROBE_URL ?? "http://127.0.0.1:48921/?seed=project";
@@ -314,13 +315,13 @@ const CASES = {
 const args = process.argv.slice(2);
 const only = (args.find((a) => a.startsWith("--only=")) ?? "").slice(7);
 if (args.includes("--list")) {
-    for (const [name, c] of Object.entries(CASES)) console.log(`${name.padEnd(16)} ${c.caption}`);
+    for (const [name, c] of Object.entries(CASES)) log(`${name.padEnd(16)} ${c.caption}`);
     process.exit(0);
 }
 
 const selected = only ? Object.entries(CASES).filter(([n]) => n === only) : Object.entries(CASES);
 if (!selected.length) {
-    console.error(`no case named "${only}". Try --list`);
+    warn(`no case named "${only}". Try --list`);
     process.exit(1);
 }
 
@@ -358,13 +359,13 @@ if (!selected.length) {
             for (let i = 0; i < frames; i++) {
                 const value = read ? await read() : null;
                 if (value !== null && value !== undefined) await kit.show("center", 0, value);
-                if (label && i === 0) console.log(`    · ${label}`);
+                if (label && i === 0) log(`    · ${label}`);
                 await page.screenshot({ path: path.join(dir, `f${String(frameNo++).padStart(4, "0")}.png`) });
                 await page.waitForTimeout(FRAME_MS);
             }
         };
 
-        console.log(`\n${name}: ${spec.caption}`);
+        log(`\n${name}: ${spec.caption}`);
         await spec.run({ page, kit: makeKit(page), track, pageWait: (ms) => page.waitForTimeout(ms) });
         await page.screenshot({ path: path.join(dir, `f${String(frameNo++).padStart(4, "0")}.png`) });
         await page.close();
@@ -372,7 +373,7 @@ if (!selected.length) {
         const gif = path.join(OUT, `${name}.gif`);
         const frames = fs.readdirSync(dir).filter((f) => f.endsWith(".png")).sort();
         if (!frames.length) {
-            console.error(`  no frames captured for ${name}`);
+            warn(`  no frames captured for ${name}`);
             continue;
         }
         // Palette from the middle frame: dark UIs band when each frame is quantised alone.
@@ -393,17 +394,17 @@ if (!selected.length) {
                 gif,
             ], { maxBuffer: 1 << 28 });
         } catch (error) {
-            console.error(`  imagemagick failed: ${error.message}`);
+            warn(`  imagemagick failed: ${error.message}`);
             continue;
         }
         const size = fs.statSync(gif).size;
         manifest.push({ name, gif: path.relative(ROOT, gif), frames: frames.length, bytes: size, caption: spec.caption, hint: spec.hint });
-        console.log(`  → ${path.relative(ROOT, gif)}  ${frames.length} frames, ${(size / 1024).toFixed(0)} kB`);
+        log(`  → ${path.relative(ROOT, gif)}  ${frames.length} frames, ${(size / 1024).toFixed(0)} kB`);
         if (!args.includes("--keep-frames")) fs.rmSync(dir, { recursive: true, force: true });
     }
 
     fs.writeFileSync(path.join(OUT, "manifest.json"), JSON.stringify(manifest, null, 2));
-    console.log(`\nmanifest: ${path.relative(ROOT, path.join(OUT, "manifest.json"))}`);
+    log(`\nmanifest: ${path.relative(ROOT, path.join(OUT, "manifest.json"))}`);
     await browser.close();
 })().catch((error) => {
     process.stderr.write(String(error?.stack ?? error) + "\n");

@@ -16,6 +16,7 @@ const { default: sparticuz } = require("@sparticuz/chromium");
 const magick = require("./imagemagick.cjs");
 
 const { applySandboxLibs } = require("./sandbox-libs.cjs");
+const { log } = require("./log.cjs");
 const ROOT = path.resolve(__dirname, "../..");
 const OUT = path.join(ROOT, ".dump/app/qa/motion/glyphs.png");
 
@@ -57,7 +58,7 @@ const crashMark = extract(crashSrc, "function CrashMark");
     ]) {
         const el = page.locator(selector).first();
         if (!(await el.count())) {
-            console.log(`  ${name}: not present`);
+            log(`  ${name}: not present`);
             continue;
         }
         const box = await el.boundingBox();
@@ -76,7 +77,7 @@ const crashMark = extract(crashSrc, "function CrashMark");
         const big = path.join(ROOT, ".dump/app/qa/motion", `_toggle-${name}-big.png`);
         execFileSync(magick.convert(), [raw, "-filter", "point", "-resize", `${scale * 100}%`, big]);
         shots.push(big);
-        console.log(`  captured ${name} toggle at ${box.width}x${box.height} → ${scale}x`);
+        log(`  captured ${name} toggle at ${box.width}x${box.height} → ${scale}x`);
     }
 
     // The crash mark at the sizes it renders, next to the same mark large.
@@ -94,7 +95,7 @@ const crashMark = extract(crashSrc, "function CrashMark");
     for (const s of shots) args.push(s, "-splice", "0x10");
     args.push(markShot, "-append", OUT);
     execFileSync(magick.convert(), args);
-    console.log(`\nsheet: ${path.relative(ROOT, OUT)}`);
+    log(`\nsheet: ${path.relative(ROOT, OUT)}`);
     for (const f of fs.readdirSync(path.join(ROOT, ".dump/app/qa/motion"))) {
         if (f.startsWith("_toggle-") || f.startsWith("_crash-mark")) fs.rmSync(path.join(ROOT, ".dump/app/qa/motion", f));
     }

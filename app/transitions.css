@@ -739,12 +739,14 @@
 /*
  * The swap holds the outgoing width as a length while the new value is measured, and hands
  * the box back to `auto` once the swap is over. That release is a keyword to a length, so
- * it needs `interpolate-size` to interpolate; the value is the same either side of it, so
- * a browser without the keyword shows no jump. Browsers without it are the reason this is
- * a switch and not a requirement.
+ * it needs `interpolate-size` to interpolate. The value is the same either side of the
+ * release, so a browser that does not support the property shows no jump; the guard keeps
+ * an unrecognised declaration out of the cascade for the browsers that do not parse it.
  */
-:root {
-  interpolate-size: allow-keywords;
+@supports (interpolate-size: allow-keywords) {
+  :root {
+    interpolate-size: allow-keywords;
+  }
 }
 .t-swap {
   position: relative;

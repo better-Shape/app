@@ -13,6 +13,7 @@ const { chromium } = require("playwright");
 const { default: sparticuz } = require("@sparticuz/chromium");
 
 const { applySandboxLibs } = require("./sandbox-libs.cjs");
+const { log } = require("./log.cjs");
 const URL = process.env.PROBE_URL ?? "http://127.0.0.1:48921/?seed=project";
 
 /** Each target: how to find it, and what its fill should resolve to. */
@@ -61,15 +62,15 @@ const readTransition = (el) => {
         out.legacy = { fast: cs.getPropertyValue("--transition-fast").trim(), easeOut: cs.getPropertyValue("--ease-out").trim() };
         return out;
     });
-    console.log("── tokens as the browser resolves them");
+    log("── tokens as the browser resolves them");
     for (const [name, t] of Object.entries(tokens)) {
         if (name === "legacy") continue;
-        console.log(`   --spring-${name.padEnd(8)} ${t.duration.padEnd(7)} ${t.easing}…`);
+        log(`   --spring-${name.padEnd(8)} ${t.duration.padEnd(7)} ${t.easing}…`);
     }
-    console.log(`   legacy --transition-fast ${tokens.legacy.fast} on ${tokens.legacy.easeOut}`);
+    log(`   legacy --transition-fast ${tokens.legacy.fast} on ${tokens.legacy.easeOut}`);
 
     let failures = 0;
-    console.log("\n── resolved transitions on real controls");
+    log("\n── resolved transitions on real controls");
     for (const target of TARGETS) {
         const locator = page.locator(target.find).first();
         if (!(await locator.count())) {
@@ -77,7 +78,7 @@ const readTransition = (el) => {
             // control that is not on the page is a finding: skipping it let the run print
             // PASS with nothing checked.
             failures++;
-            console.log(`   FAIL ${target.name.padEnd(34)} not present on this route`);
+            log(`   FAIL ${target.name.padEnd(34)} not present on this route`);
             continue;
         }
         let box;
@@ -88,7 +89,7 @@ const readTransition = (el) => {
         }
         if (!box) {
             failures++;
-            console.log(`   FAIL ${target.name.padEnd(34)} present but not laid out`);
+            log(`   FAIL ${target.name.padEnd(34)} present but not laid out`);
             continue;
         }
         // Drive the real pointer: `hover()` cannot reach some of these chrome elements.
@@ -100,14 +101,14 @@ const readTransition = (el) => {
         const wantsSpring = Boolean(target.expect.ease);
         const ok = (!wantsSpring || isSpring) && (!target.expect.fill || hadFill);
         if (!ok) failures++;
-        console.log(
+        log(
             `   ${ok ? "ok  " : "FAIL"} ${target.name.padEnd(34)} ${t.duration.padEnd(9)} ` +
                 `${isSpring ? "spring " : "bezier "} ${hadFill ? "bg-animated" : "no-bg"}`,
         );
-        if (!ok) console.log(`        property=${t.property}\n        timing=${t.timing.slice(0, 90)}`);
+        if (!ok) log(`        property=${t.property}\n        timing=${t.timing.slice(0, 90)}`);
     }
 
-    console.log(`\n${failures === 0 ? "PASS" : `FAIL: ${failures} control(s) not on the spring vocabulary`}`);
+    log(`\n${failures === 0 ? "PASS" : `FAIL: ${failures} control(s) not on the spring vocabulary`}`);
     await browser.close();
     process.exit(failures === 0 ? 0 : 1);
 })().catch((error) => {

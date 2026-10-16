@@ -9,6 +9,7 @@
 const { chromium } = require("playwright");
 const { default: sparticuz } = require("@sparticuz/chromium");
 const { applySandboxLibs } = require("./sandbox-libs.cjs");
+const { log } = require("./log.cjs");
 const OUT = process.env.CAPTURE_OUT ?? ".dump/app/qa/motion";
 
 (async () => {
@@ -36,7 +37,7 @@ const OUT = process.env.CAPTURE_OUT ?? ".dump/app/qa/motion";
     await page.waitForTimeout(400);
     await page.screenshot({ path: `${OUT}/sidebar-ladder-hover.png`, clip });
 
-    console.log(`wrote ${OUT}/sidebar-ladder-{rest,hover}.png  clip=${JSON.stringify(clip)}`);
+    log(`wrote ${OUT}/sidebar-ladder-{rest,hover}.png  clip=${JSON.stringify(clip)}`);
     await browser.close();
 })().catch((error) => {
     process.stderr.write(String(error?.stack ?? error) + "\n");

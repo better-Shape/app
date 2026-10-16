@@ -17,6 +17,7 @@ const { chromium } = require("playwright");
 const { default: sparticuz } = require("@sparticuz/chromium");
 
 const { applySandboxLibs } = require("./sandbox-libs.cjs");
+const { log } = require("./log.cjs");
 const URL = process.env.PROBE_URL ?? "http://127.0.0.1:48921/?seed=project";
 
 (async () => {
@@ -47,9 +48,9 @@ const URL = process.env.PROBE_URL ?? "http://127.0.0.1:48921/?seed=project";
         }
         return out;
     });
-    console.log("1. SPRING TOKENS");
+    log("1. SPRING TOKENS");
     for (const [n, t] of Object.entries(tokens)) {
-        console.log(
+        log(
             `   --spring-${n.padEnd(9)} ${t.kind.padEnd(14)} ${String(t.stops).padEnd(3)} stops  ${t.dur.padEnd(7)} accepted=${t.accepted}`,
         );
     }
@@ -63,7 +64,7 @@ const URL = process.env.PROBE_URL ?? "http://127.0.0.1:48921/?seed=project";
             return m ? +(+m[1].split(",")[0]).toFixed(3) : null;
         });
     const toggle = page.locator("[data-panel-toggle]").first();
-    console.log("\n4. PANEL RAIL (midpoint preview, before anything is committed)");
+    log("\n4. PANEL RAIL (midpoint preview, before anything is committed)");
     await page.mouse.move(900, 500);
     await page.waitForTimeout(400);
     const rest = await railValue();
@@ -72,7 +73,7 @@ const URL = process.env.PROBE_URL ?? "http://127.0.0.1:48921/?seed=project";
     const hovered = await railValue();
     await page.mouse.move(900, 500);
     await page.waitForTimeout(450);
-    console.log(
+    log(
         `   rest=${rest}  hovered=${hovered}  released=${await railValue()}  midpoint-holds=${hovered === 0.5}`,
     );
 
@@ -91,18 +92,18 @@ const URL = process.env.PROBE_URL ?? "http://127.0.0.1:48921/?seed=project";
                 };
             }),
         );
-        console.log(`   ${label}`);
-        if (!running.length) console.log("      (nothing running at sample time)");
+        log(`   ${label}`);
+        if (!running.length) log("      (nothing running at sample time)");
         for (const r of running.slice(0, 8)) {
             const kind = r.easing.startsWith("linear(")
                 ? `SPRING ${r.easing.split(",").length} stops`
                 : r.easing.startsWith("cubic-bezier")
                   ? "bezier"
                   : r.easing || "(engine default)";
-            console.log(`      ${String(r.prop).padEnd(20)} ${String(r.dur + "ms").padEnd(8)} ${kind.padEnd(18)} ${r.el}`);
+            log(`      ${String(r.prop).padEnd(20)} ${String(r.dur + "ms").padEnd(8)} ${kind.padEnd(18)} ${r.el}`);
         }
     };
-    console.log("\n2. WHAT THE ENGINE ACTUALLY RUNS");
+    log("\n2. WHAT THE ENGINE ACTUALLY RUNS");
     await inspect("panel toggle:", async () => toggle.dispatchEvent("click"));
     await page.waitForTimeout(600);
     const shelf = page.locator("[data-shelf-header]").first();
@@ -133,15 +134,15 @@ const URL = process.env.PROBE_URL ?? "http://127.0.0.1:48921/?seed=project";
         const sorted = [...f].sort((a, b) => a - b);
         const q = (p) => +sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))].toFixed(1);
         const verdict = q(0.95) <= 20 ? "smooth" : "HITCHY";
-        console.log(
+        log(
             `   ${label.padEnd(24)} n=${String(f.length).padEnd(4)} median=${String(q(0.5)).padEnd(6)} p95=${String(q(0.95)).padEnd(6)} worst=${String(+Math.max(...f).toFixed(1)).padEnd(7)} >25ms: ${String(f.filter((d) => d > 25).length).padEnd(3)} ${verdict}`,
         );
     };
-    console.log("\n3. FRAME PACING (16.7ms budget; 25ms+ is a visible hitch)");
-    console.log("   -- warm-up pass, excluded from the verdict --");
+    log("\n3. FRAME PACING (16.7ms budget; 25ms+ is a visible hitch)");
+    log("   -- warm-up pass, excluded from the verdict --");
     await measureFrames("panel (cold)", async () => toggle.dispatchEvent("click"));
     await page.waitForTimeout(400);
-    console.log("   -- measured --");
+    log("   -- measured --");
     await measureFrames("panel toggle", async () => toggle.dispatchEvent("click"));
     await page.waitForTimeout(400);
     await measureFrames("panel toggle back", async () => toggle.dispatchEvent("click"));
