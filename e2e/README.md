@@ -96,7 +96,13 @@ CI-generated baselines replace them; OS font rendering differs.
 `@sparticuz/chromium` (npm-hosted build, for networks where the Playwright
 CDN is blocked). If the host lacks Chromium's system libraries
 (libnss3/libnspr4), set `PLAYWRIGHT_SANDBOX_LIBS` to a directory containing
-them; it is prepended to `LD_LIBRARY_PATH` for the browser process only.
+them. It is prepended to `LD_LIBRARY_PATH` for the browser process on all
+three paths, so a vendored browser handed in through
+`PLAYWRIGHT_CHROMIUM_PATH` needs it exactly as much as the npm fallback does.
+
+The nine files a restricted Debian 12 host needs for the npm Chromium, the
+sources that produced them, and the vendored branch that will carry them are
+in `engineering/sandbox-vendored-toolchain.md`.
 
 ## CI
 

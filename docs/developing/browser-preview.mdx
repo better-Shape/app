@@ -27,6 +27,14 @@ npx playwright install chromium   # once per machine
 npm run qa                        # full browser suite + agent summary
 ```
 
+On a host where the Playwright browser CDN is unreachable, point the suite at
+a browser you already have with `PLAYWRIGHT_CHROMIUM_PATH`, and give it the
+NSS and NSPR libraries it needs with `PLAYWRIGHT_SANDBOX_LIBS`. The
+`Sandboxed / CI environments without browser downloads` section of
+`e2e/README.md` covers the order the config tries, and
+`engineering/sandbox-vendored-toolchain.md` records the sources and hashes for
+those libraries.
+
 | Command | Purpose |
 |---|---|
 | `npm run test:e2e` | Playwright suite (auto-starts the dev server) |
