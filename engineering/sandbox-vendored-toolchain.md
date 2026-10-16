@@ -571,9 +571,9 @@ the CI row that nothing in the sandbox depends on.
 | `e2e/README.md` | done | the sandbox section leads with the vendored browser tree and its verified result, and the command table points at it |
 | `docs/developing/browser-preview.mdx` | done | names `PLAYWRIGHT_CHROMIUM_PATH`, `PLAYWRIGHT_SANDBOX_LIBS` and the vendored tree |
 | `docs/developing/local-development.mdx` | done | the tests section names the vendor branch and the toolchain note |
-| `docs/developing/ci-cd.mdx` | done | one paragraph after the jobs table: `test-rust` and `rust-lints` run offline through the vendor branch |
+| `docs/developing/ci-cd.mdx` | done | one paragraph after the jobs table: the two jobs run locally through the vendor branch, with the flags the 1.88.0 pin needs |
 | `CONTRIBUTING.md` | done | the run-the-app block names the vendor branch and the two flags |
-| `README.md` | done | the test block names the branch that makes the same three commands work offline |
+| `README.md` | done | the test block names the branch for what the network blocks, and the two cargo flags the commands need, since the npm scripts do not carry them |
 | `openspec/project.md` | done | the row that said a machine without cargo runs the TypeScript gates only now separates a missing toolchain from a blocked network |
 | `FULL-REVIEW.md` | done | the Rust block names the two flags and the branch |
 | `.cursor/rules/git-workflow.mdc` | done | the pre-push rule points at the branch so the gate is run rather than skipped |
