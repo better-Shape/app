@@ -538,7 +538,7 @@ For one or two small files, skip the download:
 
 ```bash
 gh api repos/better-Shape/app/contents/chrome-deps/npm-chromium-153/libnspr4.so \
-  --jq .content | base64 -d > /tmp/libnspr4.so
+  --jq .content | base64 -d > "$HOME/libnspr4.so"   # private, unlike a shared /tmp path
 ```
 
 Then wire it up, in the order the payloads come in:
