@@ -624,6 +624,9 @@ The run for this head is
 and a DeepSource comment on the pull request asks for whoever can open it to name the file and
 line, so the finding can be fixed rather than argued with.
 
+It also fails on two heads in a row that differ from each other only in this report file,
+which removes the code under review as the variable and leaves the analyzer itself.
+
 So the honest state is failed, cause unidentified, and reproducible on every head since
 `147f37a`. It is named in the pull request description as failed rather than passed, with the
 run URL a human can open, and no repair is claimed for it.
