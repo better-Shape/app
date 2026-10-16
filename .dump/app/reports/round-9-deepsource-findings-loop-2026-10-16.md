@@ -408,6 +408,61 @@ previous section is the one to track.
 - `npm run test:rust`, `cargo clippy`, `npm ci`: not run, the recorded sandbox boundaries.
   This diff touches no Rust file and adds no dependency.
 
+## The run over `be1d019`, where the window moved to the titlebar
+
+Run `508d1007`: Failed, 1 alert (the baseline warning), Documentation Coverage 11.2 against
+18.2 percent, Issues 1873 from 1882. Nine findings, all inside one declaration:
+
+- `features/agent/workbench/titlebar/ui/layout-controls.tsx`: JS-D1001 on
+  `TitlebarLayoutButton` (`:9`).
+- `features/agent/workbench/titlebar/ui/titlebar.tsx`: JS-D1001 on `subscribeWindowResize`
+  (`:8`) and `getWindowWidth` (`:12`); JS-C1001 three times on `../ui/` imports that sit inside
+  the folder they point at (`:23`, `:24`, `:25`); JS-R1005 at 10 and JS-0067 and JS-D1001 on
+  `Titlebar` (`:28`).
+
+The important part is why that file was in the window at all. Its hunk header names
+`Titlebar`, and the hunk's only changed line is inside that function, which makes the whole
+function the reported scope. The rule now reads: a finding is reported when it sits inside a
+declaration the diff touches, and a declaration is touched when a hunk header names it or when
+an added line falls inside it. That is the second time an added line has put a declaration in
+scope, after `HostedSidebarShell` and `toggleSidebar` in the sidebar run.
+
+The window named nine. The same rule, applied to the folder the window was standing in, names
+59 over seven files, so the batch answers the folder and `a300125` closes all of them. The
+window's own three JS-C1001 were the interesting miss: the analyzer reads `../ui/app-menu`
+from inside `ui/` as a path that doubles back on itself, and it is right, so all three imports
+are siblings now.
+
+## Gates on `a300125`
+
+Run on a tree rebuilt after the sandbox reset that wiped untracked scratch:
+
+- `npx tsc --noEmit`: passed, exit 0, no output.
+- `npx eslint . --format json`: passed, 0 errors and 150 warnings, exit 0. The baseline was
+  re-measured rather than remembered, because the tree the old one came from no longer exists:
+  a worktree of `289b134` reports 157 warnings on this toolchain, against 156 on the toolchain
+  of the two previous batches. The comparison is 0 groups added and 7 gone, which is why a
+  baseline is re-measured whenever the toolchain changes under it.
+- `npm test`: passed, 122 files and 995 tests, exit 0.
+- `npm run qa`: passed, 25 tests, 0 failed, 0 flaky, 0 skipped, 126.2s, exit 0.
+- Complexity, folder sweep: `features/agent/workbench/titlebar/` holds no function at 5 or
+  above. Before the batch, `WindowControls` read 11, `Titlebar` 10, `MacTrafficLights` 7,
+  `TitlebarUpdateButton` 7 and `MenubarMenu` 6.
+- `npm run test:rust`, `cargo clippy`, `npm ci`: not run, the recorded sandbox boundaries.
+
+### Tools lost to the reset, and rebuilt
+
+The sandbox reset removed everything untracked, which includes the scratch tooling and the
+Chromium library shims. Rebuilt this batch: the worklist tool (now modelling JS-0357, JS-0757,
+JS-C1001 and the complexity band, and able to sweep a whole folder with `--all`), the lint
+diff (which now normalises the checkout root and the rule's embedded code frame, because a
+baseline captured in a worktree broke both), and the three NSS shims. The shims are compiled
+from the undefined `PR_`, `NSS`, `PK11`, `SSL`, `CERT`, `SEC` and `PL_` symbols in the
+Chromium binary with a versioned symbol map, which is how a headless Chromium starts in an
+image that ships no NSS at all. The qa suite needs `LD_LIBRARY_PATH` as well as
+`PLAYWRIGHT_SANDBOX_LIBS`, since the loader path the shim adds is read by the process Playwright
+spawns and not by Playwright itself.
+
 ## What is still open
 
 - `features/chat/ui/md/view.tsx` keeps one forward reference that cannot be ordered both
