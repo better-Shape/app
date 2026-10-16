@@ -137,6 +137,8 @@ function TerminalInstance({ tab, isActive }: { tab: TerminalTab, isActive: boole
         // Don't give up forever, wait for a real resize if the panel was still settling.
         return await new Promise<boolean>((resolve) => {
             let done = false;
+// Settles the wait once: the observer and the timeout both reach here, and
+        // the observer has to be disconnected by whichever arrives first.
             const finish = (ok: boolean) => {
                 if (done) return;
                 done = true;
@@ -160,6 +162,8 @@ function TerminalInstance({ tab, isActive }: { tab: TerminalTab, isActive: boole
         let ptyId: number | undefined;
         let unlistenOutput: (() => void) | undefined;
 
+// Reserves the pty outside render, and re-checks `isMounted` after every await
+        // because a panel that unmounts mid-reservation would otherwise leak it.
         const init = async () => {
             if (!isMounted) return;
             const existing = globalTerminalStore.instances.get(tab.id);
@@ -230,6 +234,8 @@ function TerminalInstance({ tab, isActive }: { tab: TerminalTab, isActive: boole
                 },
             });
 
+// History only, no clipboard write: this runs on every selection change, and a
+            // drag across the terminal selects continuously.
             const publishSelection = () => {
                 const selected = term?.getSelection();
                 if (!selected) return;
@@ -239,6 +245,8 @@ function TerminalInstance({ tab, isActive }: { tab: TerminalTab, isActive: boole
                 if (!term?.hasSelection()) return;
                 publishSelection();
             });
+// The hidden textarea is the path that still works when the async clipboard is
+            // denied, and it comes out of the body whether or not the copy lands.
             const copySelected = (selected: string) => {
                 rememberBetterShapeClip({ kind: "terminal", text: selected, label: tab.title || "Terminal" });
                 const area = document.createElement("textarea");
@@ -252,6 +260,8 @@ function TerminalInstance({ tab, isActive }: { tab: TerminalTab, isActive: boole
                 area.remove();
             };
             const host = terminalRef.current;
+// Takes the event only when the terminal holds a selection, so the browser keeps
+            // its own copy behaviour for every other copy on the page.
             const onCopy = (event: ClipboardEvent) => {
                 const selected = term?.getSelection();
                 if (!selected) return;
@@ -259,6 +269,8 @@ function TerminalInstance({ tab, isActive }: { tab: TerminalTab, isActive: boole
                 event.clipboardData?.setData("text/plain", selected);
                 rememberBetterShapeClip({ kind: "terminal", text: selected, label: tab.title || "Terminal" });
             };
+// Capture phase with `stopPropagation`: without both, the key reaches the shell
+            // and Ctrl+C interrupts the running process instead of copying.
             const onCopyKey = (event: KeyboardEvent) => {
                 if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "c" || event.shiftKey) return;
                 const selected = term?.hasSelection() ? term.getSelection() : "";
@@ -349,6 +361,8 @@ function TerminalInstance({ tab, isActive }: { tab: TerminalTab, isActive: boole
                     }
                 });
                 const originalUnlistenOutput = unlistenOutput;
+// Chains onto the output listener the reuse path already installed, so teardown
+                // has to release that one first and the exit one after it.
                 const combinedUnlisten = () => {
                     originalUnlistenOutput?.();
                     unlistenExit();
@@ -402,9 +416,11 @@ function TerminalInstance({ tab, isActive }: { tab: TerminalTab, isActive: boole
                     const prev = lastPtySize.get(ptyId);
                     if (prev && prev.cols === size.cols && prev.rows === size.rows) return;
                     lastPtySize.set(ptyId, { cols: size.cols, rows: size.rows });
-                    invoke("pty_resize", { id: ptyId, rows: size.rows, cols: size.cols }).catch(() => { });
+                    invoke("pty_resize", { id: ptyId, rows: size.rows, cols: size.cols }).catch(() => undefined);
                 });
 
+// Reads the palette from the document on each call; the theme changes under
+                // `.dark` without React re-rendering this panel.
                 const updateTheme = () => {
                     if (!term) return;
                     const comp = getComputedStyle(document.documentElement);
@@ -439,8 +455,12 @@ function TerminalInstance({ tab, isActive }: { tab: TerminalTab, isActive: boole
         init();
         let detachCopy: (() => void) | undefined;
         let fitTimer: ReturnType<typeof setTimeout> | undefined;
+// Two modes on purpose: the immediate fit runs now, the delayed one collapses a
+        // splitter drag's resize burst into one fit.
         const scheduleFit = (immediate = false) => {
             if (isLayoutResizing()) return;
+// Re-checks the resize state here, because a delayed fit can land after the
+            // user has started dragging the splitter again.
             const run = () => {
                 if (isLayoutResizing()) return;
                 try {
@@ -459,6 +479,8 @@ function TerminalInstance({ tab, isActive }: { tab: TerminalTab, isActive: boole
             scheduleFit(false);
         });
         resObs.observe(terminalRef.current);
+// The window event forces the fit through, since the observer cannot see a
+        // reflow caused by a layout class change.
         const onRefit = () => scheduleFit(true);
         window.addEventListener("bettershape-terminal-refit", onRefit);
 
@@ -474,6 +496,8 @@ function TerminalInstance({ tab, isActive }: { tab: TerminalTab, isActive: boole
     }, [tab.shell, tab.cwd, tab.id, isActive, waitForVisibleSize]);
 
     useEffect(() => {
+// Applies font and scrollback in place: the pty keeps its size, so the terminal
+        // reflows rather than restarting.
         const applyTerminalSettings = () => {
             const term = xtermRef.current;
             if (!term) return;
@@ -501,6 +525,8 @@ function TerminalInstance({ tab, isActive }: { tab: TerminalTab, isActive: boole
         }
     }, [isActive]);
 
+// Button path for the same copy as the key handler; the clipboard promise is
+    // settled either way because the history entry is already written.
     const copySelection = () => {
         const term = xtermRef.current;
         const selected = term?.getSelection();
@@ -518,6 +544,8 @@ function TerminalInstance({ tab, isActive }: { tab: TerminalTab, isActive: boole
         void navigator.clipboard.writeText(selected).catch(() => undefined);
     };
 
+// A denied or empty clipboard is not an error: pasting nothing beats throwing
+    // inside a keybinding, so the read is guarded and an empty read is dropped.
     const pasteClipboard = async () => {
         const term = xtermRef.current;
         if (!term) return;
@@ -618,6 +646,8 @@ export default function Terminal({
     }, []);
 
     useEffect(() => {
+// Pulls the browser tab module in on demand; the event fires once and the
+        // terminal does not need that module to render.
         const handleOpenBrowser = () => {
             void import("@/lib/window/browser-tab").then(({ openBrowserTab }) => openBrowserTab());
         };
@@ -629,6 +659,8 @@ export default function Terminal({
 
     useEffect(() => {
         let timer: ReturnType<typeof setTimeout> | undefined;
+// Debounced to a single fit because one monitor change fires resize and focus
+        // together, and the outer guard is re-checked inside the timer.
         const refit = () => {
             if (isLayoutResizing()) return;
             if (timer) clearTimeout(timer);
@@ -636,6 +668,8 @@ export default function Terminal({
                 if (!isLayoutResizing()) void refitAllTerminals();
             }, 200);
         };
+// Refits on the visible transition only: a hidden document measures zero, so a
+        // refit there would store an empty size for the pty.
         const onVisibility = () => {
             if (document.visibilityState === "visible") refit();
         };
@@ -772,6 +806,8 @@ export default function Terminal({
 
     // Listen for titlebar menu terminal commands
     useEffect(() => {
+// One listener for the whole menu. Actions arrive as an event detail, so an
+        // action this panel does not know has to fall through untouched.
         const handleTerminalShortcut = (e: Event) => {
             const custom = e as CustomEvent<{ action: string }>;
             if (!custom.detail) return;
@@ -809,6 +845,8 @@ export default function Terminal({
         };
 
         window.addEventListener("bettershape-terminal-shortcut", handleTerminalShortcut as EventListener);
+// Accepts only the two views this panel renders; anything else leaves the
+        // active view where it was.
         const handleTerminalView = (e: Event) => {
             const view = (e as CustomEvent<string>).detail;
             if (view === "tests" || view === "terminal") {
@@ -892,6 +930,8 @@ export default function Terminal({
     const view = terminalOnly ? "terminal" : activeView;
 
     useEffect(() => {
+// The ratio is the only state this drag writes, and it is clamped at both ends so
+        // neither pane can be dragged to zero width.
         const onMove = (e: MouseEvent) => {
             if (!splitDragging.current) return;
             const root = document.getElementById("terminal-split-root");
@@ -900,6 +940,8 @@ export default function Terminal({
             const next = Math.min(0.75, Math.max(0.25, (e.clientX - rect.left) / rect.width));
             setSplitRatio(next);
         };
+// Clears the cursor and selection flags the drag set on the body, which has to
+        // happen even when the pointer is released outside the window.
         const onUp = () => {
             if (!splitDragging.current) return;
             splitDragging.current = false;

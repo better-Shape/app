@@ -19,6 +19,55 @@ interface CollapsibleSectionProps {
 }
 
 /**
+ * The first read of the stored value.
+ *
+ * Called as the lazy initial state, so a reopened section paints open instead of flashing
+ * shut for a frame. Storage is consulted only when a key is given: sections that are not
+ * worth remembering stay open or closed per mount. The guard is per call rather than per
+ * module, because this runs during the server render too, where there is no window.
+ */
+const readStoredOpen = (storageKey: string | undefined, defaultOpen: boolean) => {
+    if (!storageKey || typeof window === "undefined") return defaultOpen;
+    const raw = window.localStorage.getItem(storageKey);
+    return raw === null ? defaultOpen : raw === "true";
+};
+
+/**
+ * The section's own classes.
+ *
+ * An open row keeps its natural height unless the caller asks it to share the leftover
+ * space, and a closed one never grows: both are needed because the row is also a flex
+ * child of whatever panel it sits in.
+ */
+const sectionClass = (isOpen: boolean, isFlex: boolean, className: string | undefined) =>
+    cn(
+        "border-t border-border-subtle first:border-t-0",
+        "flex flex-col overflow-hidden transition-[flex] duration-[var(--spring-quick-dur)] ease-[var(--spring-quick)]",
+        isOpen ? (isFlex ? "flex-1 min-h-[40px]" : "shrink-0") : "shrink-0",
+        className
+    );
+
+/** The chevron turns through the flick spring, the same curve the rail glyphs use. */
+const chevronClass = (isOpen: boolean) =>
+    cn(
+        "transition-transform duration-[var(--spring-flick-dur)] ease-[var(--spring-flick)] text-text-muted",
+        isOpen && "rotate-90 text-text-primary"
+    );
+
+/**
+ * The body row's classes.
+ *
+ * The height animates as a grid track rather than a measured pixel height, which is what
+ * lets the content size itself: the row goes from `0fr` to `1fr` while the opacity carries
+ * the fade, and nothing has to know how tall the children are.
+ */
+const bodyClass = (isOpen: boolean) =>
+    cn(
+        "grid transition-[grid-template-rows,opacity] duration-[var(--spring-quick-dur)] ease-[var(--spring-quick)] flex-1 min-h-0",
+        isOpen ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
+    );
+
+/**
  * A section that remembers whether it is open.
  *
  * The first read is the lazy initial state rather than an effect, so a reopened section
@@ -34,42 +83,32 @@ export const CollapsibleSection = ({
     headerActions,
     storageKey,
 }: CollapsibleSectionProps) => {
-    const [isOpen, setIsOpen] = useState(() => {
-        if (storageKey && typeof window !== "undefined") {
-            const raw = window.localStorage.getItem(storageKey);
-            if (raw !== null) return raw === "true";
-        }
-        return defaultOpen;
-    });
+    const [isOpen, setIsOpen] = useState(() => readStoredOpen(storageKey, defaultOpen));
 
+    /** Writes inside the updater so the stored value cannot disagree with the one on
+        screen, and swallows the write failure a private-mode browser raises. */
     const toggle = useCallback(() => {
         setIsOpen((prev) => {
             const next = !prev;
             if (storageKey) {
-                try { window.localStorage.setItem(storageKey, String(next)); } catch { /* noop */ }
+                try {
+                    window.localStorage.setItem(storageKey, String(next));
+                } catch {
+                    /* The section still toggles; only the memory of it is lost. */
+                }
             }
             return next;
         });
     }, [storageKey]);
 
     return (
-        <section
-            className={cn(
-                "border-t border-border-subtle first:border-t-0",
-                "flex flex-col overflow-hidden transition-[flex] duration-[var(--spring-quick-dur)] ease-[var(--spring-quick)]",
-                isOpen ? (isFlex ? "flex-1 min-h-[40px]" : "shrink-0") : "shrink-0",
-                className
-            )}
-        >
+        <section className={sectionClass(isOpen, isFlex, className)}>
             <div
                 className="h-chrome group flex items-center px-sm hover:bg-[var(--row-hover)] cursor-pointer text-text-secondary hover:text-text-primary shrink-0 sticky top-0 z-10 transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]"
                 onClick={toggle}
             >
                 <div className="w-5 flex items-center justify-center transition-transform duration-100">
-                    <Icon icon={ChevronRight20Regular}
-                        
-                        className={cn("transition-transform duration-[var(--spring-flick-dur)] ease-[var(--spring-flick)] text-text-muted", isOpen && "rotate-90 text-text-primary")}
-                     />
+                    <Icon icon={ChevronRight20Regular} className={chevronClass(isOpen)} />
                 </div>
                 <span className="ml-1 text-sm font-normal">{title}</span>
                 {headerActions ? (
@@ -82,15 +121,9 @@ export const CollapsibleSection = ({
                 ) : null}
             </div>
 
-            <div
-                className={cn(
-                    "grid transition-[grid-template-rows,opacity] duration-[var(--spring-quick-dur)] ease-[var(--spring-quick)] flex-1 min-h-0",
-                    isOpen ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
-                )}
-            >
+            <div className={bodyClass(isOpen)}>
                 <div className="overflow-hidden min-h-0 flex flex-col flex-1 h-full">{children}</div>
             </div>
         </section>
     );
 };
-

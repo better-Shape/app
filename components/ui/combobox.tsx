@@ -31,10 +31,24 @@ export type ComboboxGroup = {
 
 export type ComboboxItem = ComboboxOption;
 
+/**
+ * Whether the item is a group heading.
+ *
+ * The caller may pass one flat list or a list that mixes groups into it, and the shape is
+ * the only thing that separates them: `options` present means a group, absent means a leaf.
+ * A leaf is allowed to carry an empty list, so the check is on the array, not its length.
+ */
 function isGroup(item: ComboboxOption | ComboboxGroup): item is ComboboxGroup {
     return Array.isArray((item as ComboboxGroup).options);
 }
 
+/**
+ * A list box behind a trigger, with an optional filter field.
+ *
+ * The value is one id or a list of them, and the mode is decided by the value's shape
+ * rather than by a second prop: `multiple` selects the same control, so a caller that
+ * switches modes has to hand over a value of the new shape, and the two can never disagree.
+ */
 export function Combobox({
     items,
     value,
