@@ -496,13 +496,16 @@ SV_SHA=7ec94c1b353220d291924ee71c6346fcf35e66cd
 # on a shared one, mktemp -d keeps another user from pre-creating the path as a symlink.
 SV="$(mktemp -d)"   # then use $SV in place of /tmp/sandbox-vendor below
 
-# Option 1, one request, no git objects
+# Option 1, one request, no git objects. Use this.
 curl -sSL -o "$SV.tar.gz" "https://codeload.github.com/better-Shape/app/tar.gz/$SV_SHA"
 tar xzf "$SV.tar.gz" -C "$SV" --strip-components=1
 
-# Option 2, git checkout of the same commit, no history
-git init -q "$SV" && git -C "$SV" remote add origin https://github.com/better-Shape/app.git
-git -C "$SV" fetch --depth 1 origin "$SV_SHA" && git -C "$SV" checkout -q FETCH_HEAD
+# Option 2, git checkout of the same commit, no history. It is an alternative to
+# Option 1, not a follow-up: a checkout over Option 1's untracked files aborts.
+# SV2="$(mktemp -d)"
+# git init -q "$SV2" && git -C "$SV2" remote add origin https://github.com/better-Shape/app.git
+# git -C "$SV2" fetch --depth 1 origin "$SV_SHA" && git -C "$SV2" checkout -q FETCH_HEAD
+# SV="$SV2"
 
 cd "$SV"
 
