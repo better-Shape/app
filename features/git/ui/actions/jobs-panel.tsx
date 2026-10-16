@@ -124,11 +124,20 @@ export function JobsPanel({
                         return (
                             <div
                                 key={job.id}
-                                className={cn(selectedJobId === job.id && "bg-[var(--row-selected)] rounded-xl")}
+                                className={cn(
+                                    selectedJobId === job.id &&
+                                        "rounded-xl bg-[var(--row-selected)] hover:bg-[var(--row-selected-hover)] transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
+                                )}
                             >
                                 <Button
                                     variant="ghost"
-                                    className={GIT_ROW.job}
+                                    className={cn(
+                                        GIT_ROW.job,
+                                        // The selected row steps up as a whole, so the header
+                                        // button inside it must not add a second white layer
+                                        // over the wrapper's fill.
+                                        selectedJobId === job.id && "hover:bg-transparent",
+                                    )}
                                     onClick={() => onToggleJob(job.id)}
                                 >
                                     <Icon
