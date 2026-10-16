@@ -192,6 +192,13 @@ pub fn write(
     {
         return Err("Settings file contains unowned data");
     }
+    // The record is replaced wholesale, so a key this build does not know about must block the
+    // write instead of disappearing with it. The check is deliberately one level deep: deleting
+    // an entry *inside* a branch this build models is a first-class action - removing a provider
+    // connection, a header or a shortcut writes a value that no longer carries that entry - and a
+    // path-level check would refuse every one of those writes. Unknown nested fields are
+    // therefore the writer's responsibility: the renderer preserves the fields it read when it
+    // rewrites the record it owns (`mergeSettingsOverlay` in `lib/settings/store.ts`).
     if matches!(file, SettingsFile::Primary)
         && current
             .as_ref()
@@ -439,6 +446,33 @@ mod tests {
             Some(original)
         );
     }
+    #[test]
+    fn allows_deleting_an_entry_inside_a_modelled_branch() {
+        // The one-level guard above exists to keep unknown *top-level* fields from being dropped
+        // silently. A nested entry is different: removing a provider connection is a normal
+        // settings edit, and a path-level check would refuse this write forever.
+        let root = Directory::new();
+        let original = json!({"settings":{"ai":{"providers":{"connections":{
+            "openai":{"model":"gpt"},"openrouter":{"model":"claude"}}}}}});
+        fs::write(
+            root.0.join("settings.json"),
+            serde_json::to_vec(&original).unwrap(),
+        )
+        .unwrap();
+        write(
+            &root.0,
+            SettingsFile::Primary,
+            json!({"ai":{"providers":{"connections":{"openai":{"model":"gpt"}}}}}),
+            Some(original),
+        )
+        .unwrap();
+        assert_eq!(
+            read(&root.0, SettingsFile::Primary).unwrap().unwrap()["settings"]["ai"]["providers"]
+                ["connections"],
+            json!({"openai":{"model":"gpt"}})
+        );
+    }
+
     #[test]
     fn grants_only_named_application_window_kinds() {
         for label in [

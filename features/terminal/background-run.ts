@@ -228,12 +228,16 @@ async function attachListeners() {
                     earlyReady.set(id, retained);
                 }
             }
-            if (snapshot.running && !earlyExit.has(id) && !earlyReady.get(id) && !(typeof snapshot.previewUrl === "string" && snapshot.previewUrl)) {
-                // A live run with no readiness record: the URL it printed is still in the
-                // buffered output, and that output is the run's own, so it grants exactly what
-                // a preview-ready event with source "output" would. Read a wider tail than the
-                // status probe — a chatty startup can push the URL out of the last 500 chars —
-                // and treat an unreadable probe as no URL rather than as a failure.
+            if (snapshot.running && !earlyExit.has(id) && earlyReady.get(id)?.source !== "output" && !(typeof snapshot.previewUrl === "string" && snapshot.previewUrl)) {
+                // A live run without an output-sourced readiness record: the URL it printed is
+                // still in the buffered output, and that output is the run's own, so it grants
+                // exactly what a preview-ready event with source "output" would. A *probe*
+                // record must not skip this: a port probe announces a URL but cannot grant
+                // design editing (`getBackgroundPreviewService`), so treating it as a readiness
+                // record would leave a run whose URL was only ever printed without one. Read a
+                // wider tail than the status probe — a chatty startup can push the URL out of
+                // the last 500 chars — and treat an unreadable probe as no URL rather than as a
+                // failure.
                 const printed = await invoke<{ sessionId: number; running: boolean; output?: string | null } | null>(
                     "pty_read_output", { id, tailChars: OUTPUT_SCAN_CHARS },
                 ).catch(() => null);

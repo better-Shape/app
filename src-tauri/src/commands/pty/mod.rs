@@ -197,7 +197,6 @@ pub struct PtySession {
     master: Box<dyn MasterPty + Send>,
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
     child: Arc<Mutex<Box<dyn portable_pty::Child + Send + Sync>>>,
-    cancellation_token: CancellationToken,
     meta: Arc<SessionMeta>,
 }
 
@@ -212,7 +211,6 @@ pub struct PipedSession {
 enum TerminationTarget {
     Pty {
         child: Arc<Mutex<Box<dyn portable_pty::Child + Send + Sync>>>,
-        cancellation_token: CancellationToken,
         meta: Arc<SessionMeta>,
     },
     Piped {
@@ -225,7 +223,6 @@ impl TerminationTarget {
     fn from_pty(session: &PtySession) -> Self {
         Self::Pty {
             child: session.child.clone(),
-            cancellation_token: session.cancellation_token.clone(),
             meta: session.meta.clone(),
         }
     }
@@ -263,11 +260,7 @@ impl TerminationTarget {
     fn terminate(&self) -> std::io::Result<()> {
         let timeout = std::time::Duration::from_secs(2);
         match self {
-            Self::Pty {
-                child,
-                cancellation_token,
-                meta,
-            } => {
+            Self::Pty { child, meta } => {
                 let observed = exit_status::terminate(
                     child,
                     |child| {
@@ -282,7 +275,6 @@ impl TerminationTarget {
                 // status is reported; one this call killed keeps the cancellation marker (-1),
                 // which `mark_exited` then protects from a later collected status.
                 meta.mark_exited(Some(if observed.killed { -1 } else { observed.code }));
-                cancellation_token.cancel();
             }
             Self::Piped { child, meta } => {
                 let observed = exit_status::terminate(
@@ -1474,7 +1466,6 @@ async fn spawn_pty_with_command(
             .map_err(|e| AppError::Message(e.to_string()))?,
     ));
 
-    let cancellation_token = CancellationToken::new();
     let meta = Arc::new(SessionMeta::new(kind));
     if let Some(ref dir) = cwd {
         if !dir.is_empty() {
@@ -1503,7 +1494,6 @@ async fn spawn_pty_with_command(
                 master: pair.master,
                 writer: writer.clone(),
                 child: child.clone(),
-                cancellation_token: cancellation_token.clone(),
                 meta: meta.clone(),
             },
         );
@@ -1531,18 +1521,23 @@ async fn spawn_pty_with_command(
     // The drain is registered here, before the thread is scheduled: a child that exits
     // immediately must not be reported as finished while the reader it needs in order to
     // publish its last output has not started yet.
+    //
+    // Nothing else may end this drain. A Stop publishes the session's own status (see
+    // `terminate`) and leaves this loop alone: ending it early - it used to check a session
+    // cancellation token at the top of every iteration - drops the bytes the process had
+    // already written but the reader had not read yet, which is the tail of a stopped
+    // command's output. The loop ends at end of file or on a read error, which is what a
+    // killed child produces once its last writer is gone; a descendant that keeps the PTY
+    // open keeps this reader blocked, and that is the documented boundary for process trees
+    // rather than a reason to discard output.
     meta.begin_reading();
     let session_id = id;
-    let token = cancellation_token;
     let app_for_thread = app.clone();
     #[allow(unused_variables)]
     let writer_for_reader = writer;
     thread::spawn(move || {
         let mut buf = [0u8; 8192];
         loop {
-            if token.is_cancelled() {
-                break;
-            }
             match reader.read(&mut buf) {
                 Ok(0) => break,
                 Ok(n) => {

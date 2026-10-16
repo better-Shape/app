@@ -116,61 +116,74 @@ function readAll(): Map<string, DirtyBuffer> {
     return map;
 }
 
+/** What this window's staged change may do to the durable record it just read. */
+type RecordDecision =
+    /** Write the staged draft over the record. */
+    | "write"
+    /** Delete the record, because the legacy seed does not need a masking entry. */
+    | "remove"
+    /** Leave the record alone and keep the change pending for a later flush. */
+    | "keep"
+    /** The record is authoritative: drop the staged change. */
+    | "settle";
+
+/** Drop a staged change once it has been resolved. */
+function settlePending(path: string, buffer: DirtyBuffer | null): void {
+    if (pendingBuffers.get(path) === buffer) {
+        pendingBuffers.delete(path);
+        pendingIntents.delete(path);
+        clearedContents.delete(path);
+    }
+}
+
+/**
+ * Whether the staged change still owns the durable record it read.
+ *
+ * Another renderer's newer record always wins. An equal stamp cannot be ordered, so a draft
+ * stays pending (it keeps showing here and stays protected by the unload guard) and a clear
+ * only removes a record whose content is exactly the draft it is discarding.
+ */
+function recordDecision(
+    path: string,
+    buffer: DirtyBuffer | null,
+    intentAt: number,
+    stored: DirtyBuffer | undefined,
+    legacy: Map<string, DirtyBuffer> | undefined,
+): RecordDecision {
+    if (stored && stored.updatedAt > intentAt) return "settle";
+    const cleared = clearedContents.get(path);
+    if (buffer === null && cleared !== undefined && stored && stored.updatedAt === intentAt && stored.content !== cleared) {
+        return "settle";
+    }
+    if (buffer && stored && stored.updatedAt === intentAt && stored.content !== buffer.content) return "keep";
+    if (buffer === null) return legacy?.has(path) ? "write" : "remove";
+    return "write";
+}
+
 /** Flush independent entries, retaining only failed/newer intents for retry. */
 function writePending(): boolean {
     if (typeof window === "undefined") return false;
     let legacy: Map<string, DirtyBuffer> | undefined;
     for (const [path, buffer] of pendingBuffers) {
         const intentAt = pendingIntents.get(path) ?? buffer?.updatedAt ?? 0;
-        const stored = storedBuffer(path);
-        if (stored && stored.updatedAt > intentAt) {
-            // Another renderer persisted newer recovery for this path while this
-            // change was staged. Its record is the recovery state to keep.
-            if (pendingBuffers.get(path) === buffer) {
-                pendingBuffers.delete(path);
-                pendingIntents.delete(path);
-                clearedContents.delete(path);
-            }
-            continue;
-        }
-        const cleared = clearedContents.get(path);
-        if (
-            buffer === null &&
-            cleared !== undefined &&
-            stored &&
-            stored.updatedAt === intentAt &&
-            stored.content !== cleared
-        ) {
-            // A clear stamped in the same millisecond as a durable record it does not hold:
-            // that record is another renderer's draft, and removing it would destroy unsaved
-            // work no one else can restore. Only a content match proves the record is ours.
-            // The clear has nothing unsaved left to protect, so the record wins and the clear
-            // settles here instead of staying pending for the rest of the session.
-            if (pendingBuffers.get(path) === buffer) {
-                pendingBuffers.delete(path);
-                pendingIntents.delete(path);
-                clearedContents.delete(path);
-            }
-            continue;
-        }
-        if (buffer && stored && stored.updatedAt === intentAt && stored.content !== buffer.content) {
-            // Two writers stamped the same millisecond, so the wall clock cannot say which
-            // one is newer. This staged copy must not replace a committed record on a guess:
-            // it stays pending instead, so this window still shows it and the unload guard
-            // keeps protecting it, while the durable record stays untouched. The next edit
-            // restamps and resolves the tie in the usual way.
-            continue;
-        }
+        const key = `${ENTRY_PREFIX}${encodeURIComponent(path)}`;
         try {
-            const key = `${ENTRY_PREFIX}${encodeURIComponent(path)}`;
+            // A removal needs the legacy seed to know whether deleting the entry would drop a
+            // legacy-only draft, so that read happens first; everything else waits.
             if (buffer === null) legacy ??= readLegacyBuffers();
-            if (buffer === null && !legacy?.has(path)) localStorage.removeItem(key);
+            const seen = recordDecision(path, buffer, intentAt, storedBuffer(path), legacy);
+            if (seen === "settle") { settlePending(path, buffer); continue; }
+            if (seen === "keep") continue;
+            // Re-read immediately before writing. A key has no compare-and-swap, so this read
+            // is the ordering the write has to answer to, and every statement between them is
+            // time another renderer can use to commit a newer record this write would clobber.
+            // The read above is only a pre-filter; this one decides.
+            const fresh = recordDecision(path, buffer, intentAt, storedBuffer(path), legacy);
+            if (fresh === "settle") { settlePending(path, buffer); continue; }
+            if (fresh === "keep") continue;
+            if (fresh === "remove") localStorage.removeItem(key);
             else localStorage.setItem(key, JSON.stringify(buffer));
-            if (pendingBuffers.get(path) === buffer) {
-                pendingBuffers.delete(path);
-                pendingIntents.delete(path);
-                clearedContents.delete(path);
-            }
+            settlePending(path, buffer);
         } catch { /* Failed writes and removals stay visible to the unload guard. */ }
     }
     return pendingBuffers.size === 0;
@@ -178,6 +191,7 @@ function writePending(): boolean {
 
 export function stageDirtyBuffer(path: string, content: string, savedContent: string): void {
     if (typeof window === "undefined" || !path || UNSAFE_KEYS.has(path)) return;
+    watchForeignWrites();
     const buffer = content === savedContent ? null : { path, content, savedContent, updatedAt: Date.now() };
     // A removal speaks for the draft this window is discarding, not for whatever
     // another renderer persisted afterwards, so it keeps that draft's timestamp.
@@ -195,6 +209,52 @@ export function stageDirtyBuffer(path: string, content: string, savedContent: st
     pendingIntents.set(path, intentAt);
     if (flushTimer !== undefined) clearTimeout(flushTimer);
     flushTimer = setTimeout(flushDirtyBuffers, 250);
+}
+
+/** The path a durable record key belongs to, or null for a key this module does not own. */
+function entryPath(key: string | null): string | null {
+    if (!key?.startsWith(ENTRY_PREFIX)) return null;
+    try {
+        const path = decodeURIComponent(key.slice(ENTRY_PREFIX.length));
+        return path && !UNSAFE_KEYS.has(path) ? path : null;
+    } catch { /* A key that cannot be decoded is not this module's record. */ }
+    return null;
+}
+
+/**
+ * Re-commit this window's draft when another renderer replaced its newer durable record.
+ *
+ * A write with no compare-and-swap can land between the read above and the write it guards, so
+ * a newer draft can be clobbered by an older one. That cannot be prevented, but it can be
+ * repaired: this window still holds the draft, so when it hears the foreign write it commits
+ * the draft again and recovery converges on the newest one. An equal stamp is left alone
+ * because the two writes cannot be ordered (see `writePending`), and a newer record is the
+ * recovery state to keep.
+ */
+export function repairClobberedDraft(path: string): boolean {
+    const owned = ownedBuffers.get(path);
+    if (!owned) return false;
+    const stored = storedBuffer(path);
+    if (stored && stored.updatedAt >= owned.updatedAt) return false;
+    stageDirtyBuffer(path, owned.content, owned.savedContent);
+    flushDirtyBuffers();
+    return true;
+}
+
+let watchingForeignWrites = false;
+
+/** Repair a clobber from another renderer, once this window has work that can be clobbered. */
+function watchForeignWrites(): void {
+    if (watchingForeignWrites || typeof window === "undefined") return;
+    if (typeof window.addEventListener !== "function") return;
+    watchingForeignWrites = true;
+    window.addEventListener("storage", (event) => {
+        if (event.storageArea && event.storageArea !== localStorage) return;
+        const path = entryPath(event.key);
+        if (path) { repairClobberedDraft(path); return; }
+        // A cleared storage area takes every record with it.
+        if (event.key === null) for (const ownedPath of [...ownedBuffers.keys()]) repairClobberedDraft(ownedPath);
+    });
 }
 
 export function flushDirtyBuffers(): boolean {

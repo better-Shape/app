@@ -147,6 +147,19 @@ Fixed:
   kill that failed but raced an exit reports that exit (nothing was killed).
 - `pty_kill_all` reported only the first failure and only the first unreadable registry; both are now
   aggregated, naming every session that still needs a stop (`aggregate_cleanup_failures`).
+- The PTY reader thread checked the session cancellation token at the top of every iteration, so a
+  Stop that landed while the reader was publishing one chunk ended the drain before the bytes the
+  process had already written - the tail of a stopped command's output, including anything it
+  printed on the way down - were read. The check is gone: a Stop publishes the session's status
+  (see `terminate` and `Terminated { code, killed }` above) and leaves the drain alone, and the loop
+  ends at end of file or on a read error, which is what a killed child produces once its last
+  writer is gone. A descendant that keeps the PTY open keeps that reader blocked, which is the
+  documented process-tree boundary rather than a reason to discard output, and nothing waits on the
+  reader to publish an exit (`mark_exited` and `exit_notify` carry that state).
+  `PtySession::cancellation_token` and `TerminationTarget::Pty::cancellation_token` were removed
+  with the check: they had no remaining reader anywhere in the crate, and a write-only cancel token
+  is what invited the discarded-tail bug in the first place. `wait_for_session_exit` keeps its own
+  owner-scoped `CancellationToken`, which is a different mechanism and unchanged.
 Refuted:
 
 - Making `TerminalOwner::native_session` a required field would break the
@@ -161,10 +174,18 @@ Refuted:
   with an explicit retry. The field's meaning is documented at its definition.
 
 Verification: `rustfmt --edition 2021 --check` is clean on all seven changed
-files, the dependency-free harness compiles the real `exit_status.rs`,
-`session_ownership.rs` and `turn_order.rs` sources and runs 29 tests, and
-`cargo clippy --offline --all-targets -- -D warnings` is clean for that crate.
+files and on all 39 changed Rust files of this branch, the dependency-free harness
+compiles the real `exit_status.rs`, `session_ownership.rs` and `turn_order.rs`
+sources and runs 36 tests (48 with the eight further dependency-free modules of
+this branch added), and `cargo clippy --all-targets -- -D warnings` is clean for
+that set on linux-gnu, linux-musl, windows-msvc (x64 and arm64) and macOS (x64 and
+arm64) - type-checks for the non-Linux targets, execution only on Linux. See
+`native-toolchain-and-cross-target-verification.md` for the toolchain and the
+controls that prove the Windows-only branch is really compiled.
 `agent/models/mod.rs`, `commands/pty/mod.rs`, `agent/commands/terminal.rs` and
 `agent/commands/conversation.rs` are Tauri-dependent and are **not** compiled by
 that harness; full Cargo compilation and Clippy of the application crate remain
-required and are still blocked by uncached dependencies in this environment.
+required and are still blocked by uncached dependencies in this environment. The
+reader and token change above is inside `commands/pty/mod.rs`, so its only machine
+check on this branch is `rustfmt --edition 2021 --check`, which parses the file
+(exit 0, no diff); its correctness argument is the one written next to the loop.

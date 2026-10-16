@@ -66,6 +66,35 @@ The stale-endpoint fixture now makes the new canonical preferences record stale 
 
 No UI layout, CSS, workflow, installer, vendored skill or generated preview contract changes in this batch.
 
+## Fields this build does not model
+
+The preferences file is replaced wholesale on every save, so a field written by a
+newer build (or by a downgrade) is only safe if the writer resolves the record it
+read against the snapshot it is about to commit. `queueDesktopPersistence` now
+passes the read record through `mergeSettingsOverlay(DEFAULT_SETTINGS, read,
+snapshot)`: the snapshot's values win, every key of the record the snapshot does
+not set is kept, and unknown entries inside maps such as `ai.providers` survive
+with them. Redaction is not weakened by the merge - the snapshot was already
+redacted, the native validator still refuses a record that carries a credential,
+and the overwrite copy of the record carries whole values for maps, so an unknown
+key is never interleaved into a value this build did write.
+
+The canonical file is deliberately *not* merged this way. It is the one file where
+an unmigrated plaintext credential can still live, and re-emitting the record
+verbatim on every save would keep writing that credential back. Unknown top-level
+keys are instead refused by `settings_file::write` ("Settings record contains
+unowned fields") rather than silently dropped, and the renderer's ownership check
+(`canReplaceStoredSettings`) keeps a file holding an unmigrated credential on the
+preferences path until the keychain has it.
+
+`settings_file::write`'s unowned-field check is now documented as deliberately one
+level deep, with the reason attached: deleting an entry *inside* a branch this
+build models - a provider connection, a header, a shortcut - is a first-class
+action whose value no longer carries that entry, so a path-level check would
+refuse every such write. A regression covers that deletion
+(`allows_deleting_an_entry_inside_a_modelled_branch`), and the harness control
+still fails exactly the swap test whose protection it reverts.
+
 ## Recovery after a rejected canonical read
 
 A rejected read of the canonical preferences file used to be swallowed. The
@@ -108,4 +137,10 @@ maps stay whole values, so deletions recorded in the overlay survive
 Limitations that remain: an explicit edit to a value that happens to equal the
 displayed default is still only detected by value, because no touched-field mask
 is tracked. Whole-snapshot compare-and-replace is not a field-wise multi-window
-merge, and Windows/macOS replacement behavior is still unverified on this host.
+merge. The settings file's Windows-only open path
+(`FILE_FLAG_OPEN_REPARSE_POINT` in `core/settings_file.rs`, which rejects a link
+swapped in between the pre-open check and the open) now type-checks and lints
+clean for `x86_64-pc-windows-msvc` and `aarch64-pc-windows-msvc`, and a change to
+that line fails those two targets while the Linux and macOS targets stay clean -
+but no Windows or macOS binary was executed, so the replacement behavior itself
+remains unverified. See `native-toolchain-and-cross-target-verification.md`.

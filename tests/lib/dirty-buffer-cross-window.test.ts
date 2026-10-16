@@ -61,6 +61,34 @@ it("keeps another WebView's draft when a clear lands in the same millisecond", a
     expect(buffers.listDirtyBuffers().map(buffer => buffer.path)).toEqual(["/tie.txt"]);
 });
 
+it("re-commits this window's draft after another WebView overwrites it with an older record", async () => {
+    vi.setSystemTime(3_000);
+    const buffers = await import("@/lib/workspace/dirty-buffers");
+    buffers.stageDirtyBuffer("/race.txt", "newer draft", "disk");
+    expect(buffers.flushDirtyBuffers()).toBe(true);
+    // Another WebView read this path before this draft landed and committed its own older copy
+    // afterwards: a key has no compare-and-swap, so the newer draft was overwritten.
+    localStorage.setItem(entryKey("/race.txt"), JSON.stringify({
+        path: "/race.txt", content: "older draft", savedContent: "disk", updatedAt: 2_000,
+    }));
+    // The write reaches this window as a storage event, and it still holds the newer draft.
+    window.dispatchEvent(new StorageEvent("storage", { key: entryKey("/race.txt"), storageArea: localStorage }));
+    expect(JSON.parse(localStorage.getItem(entryKey("/race.txt")) ?? "null").content).toBe("newer draft");
+});
+
+it("leaves another WebView's newer record untouched when it hears that write", async () => {
+    vi.setSystemTime(4_000);
+    const buffers = await import("@/lib/workspace/dirty-buffers");
+    buffers.stageDirtyBuffer("/other.txt", "my draft", "disk");
+    expect(buffers.flushDirtyBuffers()).toBe(true);
+    const newer = { path: "/other.txt", content: "their newer draft", savedContent: "disk", updatedAt: 5_000 };
+    localStorage.setItem(entryKey("/other.txt"), JSON.stringify(newer));
+    window.dispatchEvent(new StorageEvent("storage", { key: entryKey("/other.txt"), storageArea: localStorage }));
+    // Recovery state, not a clobber: the record stays, and this window's stale copy goes with it.
+    expect(JSON.parse(localStorage.getItem(entryKey("/other.txt")) ?? "null").content).toBe("their newer draft");
+    expect(buffers.listDirtyBuffers().map(buffer => buffer.content)).toEqual(["their newer draft"]);
+});
+
 it("removes the durable record a clear actually owns", async () => {
     vi.setSystemTime(2_000);
     const buffers = await import("@/lib/workspace/dirty-buffers");

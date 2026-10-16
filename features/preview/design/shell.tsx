@@ -957,8 +957,10 @@ export function DesignStudio({
             const assertAuthorized = captureWriteAuthorization();
             void enqueuePersist(async () => {
                 assertAuthorized();
+                // The step is committed once the command resolves, so a grant revoked while it
+                // ran cannot reverse it. Asserting again would mark the undo failed and skip the
+                // cache prime and preview refresh the committed history move still needs.
                 const result = await commands.undoDesignSourcePatch();
-                assertAuthorized();
                 applyHistoryResult(result);
             }).catch(reportMappingError);
         } catch (cause) { reportMappingError(cause); }
@@ -969,8 +971,9 @@ export function DesignStudio({
             const assertAuthorized = captureWriteAuthorization();
             void enqueuePersist(async () => {
                 assertAuthorized();
+                // Same committed-step rule as undo: the history move is on disk, so its cache
+                // prime and preview refresh must not be skipped by a later revocation.
                 const result = await commands.redoDesignSourcePatch();
-                assertAuthorized();
                 applyHistoryResult(result);
             }).catch(reportMappingError);
         } catch (cause) { reportMappingError(cause); }

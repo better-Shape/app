@@ -56,7 +56,8 @@ vi.mock("@/lib/backend", () => ({
 
 import { ChatStreamProvider, useChatStream } from "@/features/chat/lib/chat-stream-store";
 import { getChatActivities, resetChatActivitiesForTests } from "@/features/chat/lib/chat-activity";
-import { isChatGenerating, resetGeneratingChatsForTests } from "@/features/chat/lib/generating-chats";
+import { isChatGenerating, resetGeneratingChatsForTests, setChatGenerating } from "@/features/chat/lib/generating-chats";
+import { NEW_CHAT_TAB_ID } from "@/features/chat/ui/shell/tabs";
 
 type Api = ReturnType<typeof useChatStream>;
 
@@ -353,6 +354,16 @@ it("keeps an optimistic replacement alive when old events arrive before its chat
     expect(api.turnId).toBe(nativeTurnId("new"));
     expect(api.isLoading).toBe(true);
     expect(api.messages.some((message) => message.content.includes("new response"))).toBe(true);
+});
+
+it("clears the draft tab's generating mark when a pre-admission draft is stopped", async () => {
+    await mount(null);
+    // A draft has no conversation id, so `useSyncChatGenerating` marks the new-chat tab. Nothing
+    // was admitted natively, so no completion event will arrive to clear it on its own.
+    act(() => { setChatGenerating(NEW_CHAT_TAB_ID, true); });
+    expect(isChatGenerating(NEW_CHAT_TAB_ID)).toBe(true);
+    act(() => { api.stopLiveTurn(null); });
+    expect(isChatGenerating(NEW_CHAT_TAB_ID)).toBe(false);
 });
 
 it("reloads the persisted transcript for the exact stopped turn", async () => {

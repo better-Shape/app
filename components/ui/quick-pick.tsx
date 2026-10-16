@@ -82,14 +82,15 @@ const moveSelection = (length: number, delta: number) => (current: number) => {
     return (current + delta + length) % length;
 };
 
+/** Whether a highlight still belongs to the same picker identity. */
+const sameScope = (a: SelectionScope, b: SelectionScope) =>
+    a.open === b.open && a.query === b.query && a.count === b.count;
+
 /**
  * The highlight follows the picker's identity: it returns to the first row when the dialog
  * reopens, the query changes, or the result count changes, so the row a keypress confirms is
  * always the row the current query produced.
  */
-const sameScope = (a: SelectionScope, b: SelectionScope) =>
-    a.open === b.open && a.query === b.query && a.count === b.count;
-
 const usePickSelection = (scope: SelectionScope) => {
     const [selected, setSelected] = React.useState(0);
     const [identity, setIdentity] = React.useState(scope);

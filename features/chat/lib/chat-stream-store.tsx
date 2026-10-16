@@ -281,7 +281,12 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
             setChatGenerating(id, false);
             setChatActivity(id, "cancelled");
         } else {
+            // A draft has no conversation id yet, so the generating mark `useSyncChatGenerating`
+            // sets is keyed by the new-chat tab. Nothing was admitted natively, so no
+            // completion event will arrive to clear it: without this, the close guard keeps
+            // treating the app as generating after the user stopped the draft.
             liveTurnsRef.current.delete(PENDING_KEY);
+            setChatGenerating(NEW_CHAT_TAB_ID, false);
         }
         if (viewingIdRef.current === id) {
             turnIdRef.current = null;

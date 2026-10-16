@@ -945,9 +945,19 @@ function queueDesktopPersistence(): Promise<void> {
         if (context) context.before = applyDesktopHydration(primary, storedPreferences, context);
         const live = currentSettings;
         const snapshot = desktopPreferenceSnapshot(live, storedPreferences);
+        // The preferences file is this app's own redacted record and the write below replaces
+        // it wholesale, so a field this build does not model would be deleted just by touching a
+        // setting. `mergeSettingsOverlay` keeps every key of the record read above that the
+        // snapshot does not set and takes the snapshot's value for the ones it does, so unknown
+        // fields - and unknown entries inside maps such as `ai.providers` - survive the rewrite.
+        // Credentials are not preserved by accident: `redactProviderSecrets` already ran inside
+        // the snapshot, and the native validator still refuses a record that carries one.
+        const preserved = storedPreferences
+            ? mergeSettingsOverlay(DEFAULT_SETTINGS, storedPreferences, snapshot) as Partial<BetterShapeSettings>
+            : snapshot;
         // Reuse the hydration read's adapter/revision. A fresh read here would
         // grant authority to overwrite settings this window never hydrated.
-        await preferences.set("settings", snapshot);
+        await preferences.set("settings", preserved);
         await preferences.save();
         nativePersistenceFailed = false;
         if (context) {
@@ -962,6 +972,11 @@ function queueDesktopPersistence(): Promise<void> {
             }
         }
         if (primary?.store.replaceable && canReplaceStoredSettings(primary.settings)) {
+            // The canonical file keeps this build's model: unknown top-level keys are refused by
+            // the native guard rather than dropped, while nested fields inside the branches this
+            // build models are owned by this snapshot. Preserving them here is not an option -
+            // this file is exactly where an unmigrated plaintext credential can still live, and
+            // re-emitting it would undo the redaction this save performs.
             await primary.store.set("settings", snapshot);
             // Compatibility cleanup cannot revoke a committed preferences write.
             await primary.store.save().catch(() => undefined);

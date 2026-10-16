@@ -322,6 +322,21 @@ it("does not let a buffered-output scan replace readiness that arrived during it
     expect(background.getBackgroundPreviewService()?.url).toBe("http://localhost:9999");
 });
 
+it("recovers a printed URL when only a port probe announced readiness before the spawn reply", async () => {
+    mocks.spawn.mockImplementation(async () => {
+        // The native port probe announces a reachable URL, but a probe cannot grant design
+        // editing (`getBackgroundPreviewService`), so it must not suppress the wider scan that
+        // recovers the URL the run itself printed.
+        emit("preview-ready", { id: 7, url: "http://localhost:3000", source: "probe" });
+        return 7;
+    });
+    mocks.read.mockImplementation(async ({ id, tailChars }: { id: number; tailChars: number }) => tailChars === 500
+        ? { sessionId: id, running: true, exitCode: null, previewUrl: null }
+        : { sessionId: id, running: true, output: "  ready in 320 ms\n  Local: http://localhost:5173/\n" });
+    await background.ensureBackgroundRun("npm run dev", "/project");
+    expect(background.getBackgroundPreviewService()).toEqual({ ptyId: 7, projectPath: "/project", url: "http://localhost:5173" });
+});
+
 it("keeps the run observable when a Stop cannot kill its process, and retries", async () => {
     await background.ensureBackgroundRun("npm run dev", "/project");
     emit("preview-ready", { id: 7, url: "http://localhost:5173", source: "output" });
