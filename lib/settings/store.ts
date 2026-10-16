@@ -386,18 +386,24 @@ export const DEFAULT_SETTINGS: BetterShapeSettings = {
     },
 };
 
-const STORAGE_KEY = "bettershape-settings-v1";
+// This is the localStorage namespace the settings live under, not a credential: the page
+// reads it back with this same literal, and it can never change, because a different value
+// would orphan the stored payload of every existing install. The analyzer's SCT-A000 flags
+// any constant named for a key, and `skipcq` is its documented way to answer one finding at
+// its own line instead of switching the rule off across the repository.
+// skipcq: SCT-A000
+const SETTINGS_STORAGE_NAMESPACE = "bettershape-settings-v1";
 // Keep protected legacy bytes in their original slot. Only redacted
 // preferences may be written while credentials await migration or review.
 const REDACTED_STORAGE_KEY = "bettershape-settings-redacted-v1";
 
 function localSettingsKey(): string {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(SETTINGS_STORAGE_NAMESPACE);
     if (raw) {
         try { if (!canReplaceStoredSettings(JSON.parse(raw))) return REDACTED_STORAGE_KEY; }
         catch { return REDACTED_STORAGE_KEY; }
     }
-    return STORAGE_KEY;
+    return SETTINGS_STORAGE_NAMESPACE;
 }
 
 /**
@@ -840,7 +846,7 @@ function mergeRedactedPreferences(base: BetterShapeSettings, patch: Partial<Bett
 function loadFromLocalStorage() {
     if (typeof window === "undefined") return;
     try {
-        const raw = localStorage.getItem(STORAGE_KEY);
+        const raw = localStorage.getItem(SETTINGS_STORAGE_NAMESPACE);
         let parsed: Partial<BetterShapeSettings> | undefined;
         try { parsed = raw ? JSON.parse(raw) as Partial<BetterShapeSettings> : undefined; } catch { /* Preserve malformed legacy bytes. */ }
         if (parsed) {
@@ -870,9 +876,9 @@ function persist() {
     try {
         let key = localSettingsKey();
         const raw = localStorage.getItem(key);
-        if (key === STORAGE_KEY && raw && !canReplaceStoredSettings(JSON.parse(raw))) key = REDACTED_STORAGE_KEY;
+        if (key === SETTINGS_STORAGE_NAMESPACE && raw && !canReplaceStoredSettings(JSON.parse(raw))) key = REDACTED_STORAGE_KEY;
         localStorage.setItem(key, JSON.stringify(desktopPreferenceSnapshot(currentSettings, pendingDesktopHydration?.preferences)));
-        if (key === STORAGE_KEY) localStorage.removeItem(REDACTED_STORAGE_KEY);
+        if (key === SETTINGS_STORAGE_NAMESPACE) localStorage.removeItem(REDACTED_STORAGE_KEY);
         localPersistenceFailed = false;
     } catch { localPersistenceFailed = true; }
 }
@@ -1059,6 +1065,24 @@ export function updateSettings(patch: Partial<BetterShapeSettings>): void {
     applyAppearanceSettings(currentSettings);
     void persistToTauriStore();
     emitLocal();
+}
+
+/**
+ * Put every setting back to its default and drop the stored copy.
+ *
+ * The storage key belongs to this module. The settings screen used to repeat its literal,
+ * so renaming the namespace would have left the stored payload behind for the next start
+ * to load straight back over the reset.
+ */
+export function resetSettings(): void {
+    if (typeof window !== "undefined") {
+        try {
+            localStorage.removeItem(SETTINGS_STORAGE_NAMESPACE);
+        } catch {
+            /* a storage failure leaves the in-memory reset below untouched */
+        }
+    }
+    updateSettings(DEFAULT_SETTINGS);
 }
 
 /** `true` uses the system default. A saved device id is requested exactly. */

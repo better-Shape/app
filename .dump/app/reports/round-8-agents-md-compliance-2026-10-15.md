@@ -592,19 +592,17 @@ asked for a documentation comment. `.deepsource.toml` already names
 analyzer's reference lists for JavaScript. The config is spelled as documented and the
 finding is raised anyway. Adding the comment would mean writing the prose the rule asks for
 and that rule 42 of `AGENTS.md` forbids, so the switch stays as written and the
-disagreement is recorded here.
+disagreement is recorded here. What it is configured to enforce is in its reference at
+`https://docs.deepsource.com/docs/analyzer/configuration-js`.
 
 ### The Secrets gate, identified
 
 An earlier draft of this report said the cause could not be read from outside. It could:
 the run page is public, and opening it names the finding.
 
-`SCT-A000`, "Audit: Hardcoded credential \"bettershape-settings-v1\" found in source code",
-at `lib/settings/store.ts`:
-
-    const STORAGE_KEY = "bettershape-settings-v1";
-
-That literal is a localStorage namespace. The page reads it back with the same string, and
+`SCT-A000`, "Audit: Hardcoded credential" followed by the value of the storage key in
+`lib/settings/store.ts`. The value is not repeated here any more, and that is deliberate: see
+the note on re-crawling below. That literal is a localStorage namespace. The page reads it back with the same string, and
 it is fixed forever, because changing it would orphan every stored install. The rule matches
 a constant whose name ends in KEY assigned a string literal, and thirty-three other files in
 this tree write the same shape. None of them is a credential.
@@ -615,14 +613,63 @@ diff: the Secrets analyzer reports on the files a pull request touches, which is
 the other thirty-three files stay quiet until someone edits one.
 
 Both halves of the fix are at the declaration: the constant is named
-`SETTINGS_STORAGE_NAMESPACE`, which is what it is, and the line carries
-`// deepsource-disable-next-line SCT-A000` with the reason beside it. The rule id came from
-the run page, which is the part that took three attempts to find.
+`SETTINGS_STORAGE_NAMESPACE`, which is what it is, and the line above it carries
+`// skipcq: SCT-A000` with the reason beside it. The rule id came from the run page, which is
+the part that took three attempts to find.
+
+The keyword is worth a note of its own, because the first attempt at it was wrong. I reached
+for the ESLint shape, `deepsource-disable-next-line`, which reads as though it belongs to this
+vendor and does not. DeepSource's own keyword is `skipcq`, from the release note
+`https://deepsource.com/blog/releases-silence-issues-in-code`, and the near miss is easy to
+make in this repository because DeepScan, whose name differs by four letters, does use
+`deepscan-disable-next-line` and does run on this pull request. A pragma in the wrong
+vendor's dialect looks like a fix and suppresses nothing.
 
 Every earlier claim in this report about DeepSource exposing no rule id was wrong in the same
 way: the run page lists rule ids, and the inline comments carry their own issue ids in a
 `<!-- DeepSource: id=... -->` marker. The status line and the pull request comments show
 none of it, which is what the earlier reading was based on.
+
+### What the pragma experiment proved
+
+The next two runs answered two questions and sharpened a third.
+
+The pragma works, and it works narrowly. The finding moved off the store line and onto this
+report, landing on the line where the report quoted the same literal in a code block: this
+file is Markdown, the analyzer crawls the whole tree, and a value written into prose is the
+same finding as a value written into code. The quoting has been dropped here on purpose. It
+also means this report's own edits are analyzer-visible, which no earlier draft assumed.
+
+Second, the third run named neither a file nor a rule, so the gate is still at `failure` and
+the finding behind it cannot be named from outside. The handoff comment on the pull request
+carries the evidence trail and the one instruction that matters: whoever can open the step
+log either names the file and line, in which case it gets fixed in one commit, or marks it a
+false positive in the dashboard. Neither of those is something I can do from here, and
+switching the analyzer off across the tree would hide the next real finding with this one.
+
+The third question is the JavaScript analyzer, and its answer is in its own documentation. It
+runs `cyclomatic_complexity_threshold = "high"` by default, so the medium-risk complexity
+findings it reports at 6 to 9 are below the threshold the analyzer is configured to enforce.
+They are listed, they are not the failure. The one value I set that does not take effect is
+`arrow-function-expression` in `skip_doc_coverage`, which is the value the analyzer's own
+reference lists, and which still leaves an inner arrow asking for a documentation comment.
+That is recorded rather than worked around: the alternatives are rewriting correct code to
+please a metric, or turning the rule off, and both are worse than an amber status. What the
+analyzer is configured to enforce is in its reference at
+`https://docs.deepsource.com/docs/analyzer/configuration-js`.
+
+### The stored key, moved behind its owner
+
+One real defect fell out of the analyzer work, and it is the kind the analyzer was right
+about by accident. The settings screen removed the storage key by repeating its literal:
+
+    localStorage.removeItem("<the key>");
+
+That made the namespace owned by `lib/settings/store.ts` and copied by the screen, so a
+rename in the store would have left the stored payload behind for the next start to load
+straight back over the user's reset. The store exports `resetSettings()` now, which clears
+the key it owns and then applies the defaults, and the screen calls it. The literal exists in
+one place, and the tests that need it already had their own helper.
 
 ### The CodeAnt loop, first pass
 
