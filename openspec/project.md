@@ -14,7 +14,7 @@ This file is the OpenSpec project context for BetterShape. It was checked agains
 | Renderer | Next.js ^16.4.0 (dev uses webpack, `npm run dev:webpack`), React 19.2.3 |
 | Styling | Tailwind CSS ^4, tokens in `app/globals.css` |
 | Language | TypeScript ^6.0.3, Rust `rust-version` 1.88.0, edition 2021 |
-| Lint | ESLint ^9 (`eslint.config.js`), `--max-warnings=0` in `lint:strict` |
+| Lint | ESLint ^9 (`eslint.config.cjs`), `--max-warnings=0` in `lint:strict` |
 | Tests | Vitest ^4.1.11 (`npm run test`), `cargo test` (`npm run test:rust`) |
 | Package manager | npm, with `package-lock.json`. CI runs `npm ci`. `bun.lock` also exists in the tree |
 

@@ -1,7 +1,7 @@
 /**
  * The spring vocabulary's contract, in four parts:
  *
- *   1. Re-derives every token from the physics in `scripts/motion/springs.js` and
+ *   1. Re-derives every token from the physics in `scripts/motion/springs.cjs` and
  *      compares it to the committed `app/springs.css`, so a hand-edit is caught.
  *   2. Checks each curve's shape, since a token with the wrong damping is still a valid
  *      `linear()` and nothing else would notice.
@@ -13,15 +13,24 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
-// A Node ESM tool that this scope type-checks like any other module, so no
-// `@ts-expect-error` is needed here.
-import { SPRINGS, FALLBACKS, renderCss, springToLinear, peakOf } from "../../scripts/motion/springs.js";
-import { must } from "../helpers/must";
+// @ts-expect-error, a Node ESM tool, deliberately outside the TS project.
+import { SPRINGS, FALLBACKS, renderCss, springToLinear, peakOf } from "../../scripts/motion/springs.cjs";
 
 const ROOT = join(__dirname, "..", "..");
 const CSS_PATH = join(ROOT, "app", "springs.css");
 const css = readFileSync(CSS_PATH, "utf8");
 
+
+/**
+ * The value the line above just asserted on, without a non-null assertion in the body.
+ *
+ * A missing match should say which pattern failed rather than throw a property access on
+ * null, and the assertion above it is what carries the expectation.
+ */
+const must = <T>(value: T | null | undefined, what: string): T => {
+    if (value === null || value === undefined) throw new Error(`expected ${what}`);
+    return value;
+};
 
 /** The names and generated CSS the physics module produces right now. */
 const names = Object.keys(SPRINGS) as string[];

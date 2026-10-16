@@ -90,7 +90,7 @@ Collect these before detailed analysis:
 - Changed files and the symbols they changed.
 - The tests nearest each changed behaviour.
 - CI jobs, their status, and the exact commands they run, from `.github/workflows/`.
-- The repository instructions that bind the area: `AGENTS.md`, `REVIEW.md`, `DESIGN.md`, `engineering/design-system-baseline.md`, `engineering/design-skills.md`, `CONTRIBUTING.md`, `SECURITY.md`, `.coderabbit.yaml`, `src-tauri/tauri.conf.json`, `src-tauri/capabilities/`, and `eslint.config.js`.
+- The repository instructions that bind the area: `AGENTS.md`, `REVIEW.md`, `DESIGN.md`, `engineering/design-system-baseline.md`, `engineering/design-skills.md`, `CONTRIBUTING.md`, `SECURITY.md`, `.coderabbit.yaml`, `src-tauri/tauri.conf.json`, `src-tauri/capabilities/`, and `eslint.config.cjs`.
 - For any UI, design, motion, typography or copy change: the design set in `engineering/design-skills.md`, loaded before the diff is judged, and the antislop Delivery Gate report for the change.
 - For skill vendoring changes: `skills-lock.json` and the result of `npm run skills:verify`.
 
@@ -359,7 +359,7 @@ A string prefix check does not prove containment. A path the user chose from a f
 - Fork-triggered runs get no privileged secrets.
 - Signing keys, the updater private key, and tokens stay out of the repository. `src-tauri/.updater-keys/*.key` is ignored by git.
 - Cache keys include the inputs that change compiled output.
-- A new path filter must cover `src`, `app`, `components`, `features`, `lib`, `core`, `src-tauri`, `package-lock.json`, `Cargo.lock`, `tsconfig.json`, `eslint.config.js`, and `next.config.ts`. A filter that omits a build input is a finding.
+- A new path filter must cover `src`, `app`, `components`, `features`, `lib`, `core`, `src-tauri`, `package-lock.json`, `Cargo.lock`, `tsconfig.json`, `eslint.config.cjs`, and `next.config.ts`. A filter that omits a build input is a finding.
 - Release steps run only on the intended events and branches.
 - A workflow file is a critical change. A permission wall on a workflow file is handled by a PR comment with a handoff prompt, as `AGENTS.md` requires.
 
@@ -663,7 +663,7 @@ One line per file: path, `docs-only`, low, and the reason.
 | --- | --- | --- |
 ```
 
-The fast path never applies to changes touching `AGENTS.md`, `REVIEW.md`, this file, `eslint.config.js`, `tsconfig.json`, `src-tauri/tauri.conf.json`, `src-tauri/capabilities/`, `.github/workflows/`, `skills-lock.json`, or anything listed critical or high in section 3.2.
+The fast path never applies to changes touching `AGENTS.md`, `REVIEW.md`, this file, `eslint.config.cjs`, `tsconfig.json`, `src-tauri/tauri.conf.json`, `src-tauri/capabilities/`, `.github/workflows/`, `skills-lock.json`, or anything listed critical or high in section 3.2.
 
 ---
 
@@ -708,7 +708,7 @@ Every change that touches product UI loads the design set before it is judged.
 - Check async work in components. A request that can resolve after a newer one needs a generation counter or an abort, so an older response cannot overwrite a newer one.
 - Editable rows own stable ids. Do not key an editable input by array index or by its own content.
 - A `<label>` can name a `<button>`, because a button is a labelable element (MDN, `<label>` reference). Use `aria-label` when a control has no visible label, and use `aria-pressed` on toggle buttons.
-- Check the React hook rules. Six `react-hooks` rules are downgraded to `warn` in `eslint.config.js` with a TODO: `set-state-in-effect`, `refs`, `exhaustive-deps`, `purity`, `preserve-manual-memoization`, and `immutability`. A new warning from one of these in a changed file is a finding even though CI does not fail on it. The other `react-hooks` rules stay at error, including `rules-of-hooks`, so a violation there fails CI.
+- Check the React hook rules. Six `react-hooks` rules are downgraded to `warn` in `eslint.config.cjs` with a TODO: `set-state-in-effect`, `refs`, `exhaustive-deps`, `purity`, `preserve-manual-memoization`, and `immutability`. A new warning from one of these in a changed file is a finding even though CI does not fail on it. The other `react-hooks` rules stay at error, including `rules-of-hooks`, so a violation there fails CI.
 - Check bundle weight. A new large dependency on the renderer path needs its size recorded in the PR.
 
 ## 17. Persistence, keyring, and local data
@@ -731,7 +731,7 @@ Every change that touches product UI loads the design set before it is judged.
 
 ## 19. Suggestions, nitpicks, and what the tooling checks
 
-- ESLint runs with `eslint-config-next` and TypeScript rules. The React hook rules listed in `eslint.config.js` are warnings. The CI lint step fails only on errors.
+- ESLint runs with `eslint-config-next` and TypeScript rules. The React hook rules listed in `eslint.config.cjs` are warnings. The CI lint step fails only on errors.
 - `tsc --noEmit` is the typecheck gate, and `strict` is on.
 - `.claude/**` and `.agents/**` are excluded from ESLint and from the TypeScript project. Nothing under them is linted or typechecked.
 - Vitest runs `tests/**/*.test.ts(x)` with the jsdom environment and `tests/setup.ts`.

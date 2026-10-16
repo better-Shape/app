@@ -29,26 +29,60 @@ export const TOAST_STACK_CLASS =
  */
 const openNotificationTarget = (notification: Notification) => {
     if (notification.code != null) {
-        commands.openUrlExternal(errorDocsUrl(notification.code)).catch(() => {});
+        commands.openUrlExternal(errorDocsUrl(notification.code)).catch(() => undefined);
     }
 };
 
+/** Whether a notification leads anywhere, which is what makes its card operable. */
+const isClickable = (notification: Notification): boolean =>
+    notification.code != null || notification.type === "error" || notification.type === "warning";
+
+/** How long a toast holds before it dismisses itself, or null when it waits for a person. */
+const autoHideFor = (notification: Notification): number | null =>
+    notification.autoHide === false ? null : TOAST_AUTO_HIDE_MS;
+
+/** A state flag as the string a data attribute takes: present while true, absent when false. */
+const dataFlag = (on: boolean): "true" | undefined => (on ? "true" : undefined);
+
+/** The live-region politeness of the card, assertive only where the message is a failure. */
+const liveMode = (type: Notification["type"]): "assertive" | "polite" =>
+    type === "error" ? "assertive" : "polite";
+
+/** The entry and exit transition the card reads from its own state. */
+const cardClasses = ({ entered, leaving, clickable }: { entered: boolean; leaving: boolean; clickable: boolean }) =>
+    cn(
+        "bettershape-toast pointer-events-auto relative w-full overflow-hidden squircle-2xl border border-border-subtle bg-surface-3 p-2 text-left shadow-lg",
+        "transition-[opacity,transform,filter] duration-[var(--spring-panel-dur)] ease-[var(--spring-panel)]",
+        entered && !leaving ? "scale-100 opacity-100 blur-0" : "scale-95 opacity-0 blur-[2px]",
+        clickable && "cursor-pointer",
+    );
+
 /**
- * One toast, from entry to exit.
+ * The click, keyboard and tab-stop props of a card that leads somewhere.
  *
- * It stays mounted while it leaves so the exit transition can play, which is why the stack
- * tracks a leaving id instead of unmounting the card on dismiss.
+ * All three come from the same answer, so a card that is only a message is not a focusable
+ * control and a card that leads somewhere cannot be reached by the mouse alone.
  */
-function ToastCard({
-    notification,
-    leaving,
-    onDismiss,
-}: {
-    notification: Notification;
-    leaving: boolean;
-    onDismiss: () => void;
-}) {
-    const autoHideMs = notification.autoHide === false ? null : TOAST_AUTO_HIDE_MS;
+const cardActivation = (notification: Notification, clickable: boolean) => ({
+    onClick: clickable ? () => openNotificationTarget(notification) : undefined,
+    onKeyDown: clickable
+        ? (event: React.KeyboardEvent) => {
+              if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  openNotificationTarget(notification);
+              }
+          }
+        : undefined,
+    tabIndex: clickable ? 0 : undefined,
+});
+
+/**
+ * The entry animation: two frames, so the browser has a mounted card to transition from.
+ *
+ * The bar turns at the same time, and it is one animation either way, which is why both
+ * states belong to one hook.
+ */
+const useToastEntry = (): [boolean, boolean] => {
     const [entered, setEntered] = React.useState(false);
     const [barOn, setBarOn] = React.useState(false);
 
@@ -62,6 +96,51 @@ function ToastCard({
         return () => window.cancelAnimationFrame(frame);
     }, []);
 
+    return [entered, barOn];
+};
+
+/** The description line, which a notification either has or does not. */
+const ToastDescription = ({ text }: { text?: string }) =>
+    text ? <p className="text-sm text-text-muted">{text}</p> : null;
+
+/** The code chip, which only a notification with a catalog entry carries. */
+const ErrorCode = ({ code }: { code?: number | null }) =>
+    code == null ? null : <span className="shrink-0 text-sm text-text-muted">Error {code}</span>;
+
+/** The hairline that shows how much of the auto-hide delay is left, absent when there is none. */
+const AutoHideBar = ({ ms, running }: { ms: number | null; running: boolean }) => {
+    if (ms == null) return null;
+    return (
+        <span
+            aria-hidden
+            className={cn(
+                "absolute inset-x-0 bottom-0 h-[3px] origin-left bg-accent",
+                "transition-transform ease-linear",
+                running ? "scale-x-0" : "scale-x-100",
+            )}
+            style={{ transitionDuration: `${ms}ms` }}
+        />
+    );
+};
+
+/**
+ * One toast, from entry to exit.
+ *
+ * It stays mounted while it leaves so the exit transition can play, which is why the stack
+ * tracks a leaving id instead of unmounting the card on dismiss.
+ */
+const ToastCard = ({
+    notification,
+    leaving,
+    onDismiss,
+}: {
+    notification: Notification;
+    leaving: boolean;
+    onDismiss: () => void;
+}) => {
+    const autoHideMs = autoHideFor(notification);
+    const [entered, barOn] = useToastEntry();
+
     React.useEffect(() => {
         // `undefined` and not a bare return: the clear below is a value return.
         if (!autoHideMs) return undefined;
@@ -69,49 +148,24 @@ function ToastCard({
         return () => window.clearTimeout(timer);
     }, [autoHideMs, onDismiss]);
 
-    const clickable =
-        notification.code != null ||
-        notification.type === "error" ||
-        notification.type === "warning";
+    const clickable = isClickable(notification);
 
     return (
         <div
-            className={cn(
-                "bettershape-toast pointer-events-auto relative w-full overflow-hidden squircle-2xl border border-border-subtle bg-surface-3 p-2 text-left shadow-lg",
-                "transition-[opacity,transform,filter] duration-[var(--spring-panel-dur)] ease-[var(--spring-panel)]",
-                entered && !leaving
-                    ? "scale-100 opacity-100 blur-0"
-                    : "scale-95 opacity-0 blur-[2px]",
-                clickable && "cursor-pointer",
-            )}
-            data-mounted={entered ? "true" : undefined}
-            data-leaving={leaving ? "true" : undefined}
+            className={cardClasses({ entered, leaving, clickable })}
+            data-mounted={dataFlag(entered)}
+            data-leaving={dataFlag(leaving)}
             role="status"
-            aria-live={notification.type === "error" ? "assertive" : "polite"}
+            aria-live={liveMode(notification.type)}
             title={[notification.message, notification.description].filter(Boolean).join("\n")}
-            onClick={clickable ? () => openNotificationTarget(notification) : undefined}
-            onKeyDown={
-                clickable
-                    ? (e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                              e.preventDefault();
-                              openNotificationTarget(notification);
-                          }
-                      }
-                    : undefined
-            }
-            tabIndex={clickable ? 0 : undefined}
+            {...cardActivation(notification, clickable)}
         >
             <div className="flex items-center gap-2 pr-8">
                 <div className="min-w-0 flex-1">
                     <p className="truncate text-sm text-text-primary">{notification.message}</p>
-                    {notification.description ? (
-                        <p className="text-sm text-text-muted">{notification.description}</p>
-                    ) : null}
+                    <ToastDescription text={notification.description} />
                 </div>
-                {notification.code != null ? (
-                    <span className="shrink-0 text-sm text-text-muted">Error {notification.code}</span>
-                ) : null}
+                <ErrorCode code={notification.code} />
             </div>
             <Button
                 type="button"
@@ -126,20 +180,10 @@ function ToastCard({
             >
                 <Icon icon={Dismiss20Regular} />
             </Button>
-            {autoHideMs ? (
-                <span
-                    aria-hidden
-                    className={cn(
-                        "absolute inset-x-0 bottom-0 h-[3px] origin-left bg-accent",
-                        "transition-transform ease-linear",
-                        barOn ? "scale-x-0" : "scale-x-100",
-                    )}
-                    style={{ transitionDuration: `${autoHideMs}ms` }}
-                />
-            ) : null}
+            <AutoHideBar ms={autoHideMs} running={barOn} />
         </div>
     );
-}
+};
 
 /**
  * The toast stack, portalled to the body so no pane can clip it.
@@ -147,7 +191,7 @@ function ToastCard({
  * It renders nothing until the first client render: the store fills on the client, and a
  * server render would ship an empty stack for hydration to fill.
  */
-export function NotificationToasts() {
+export const NotificationToasts = () => {
     const { notifications, toastIds } = useNotifications();
     const mounted = useIsMounted();
     const [leavingId, setLeavingId] = React.useState<string | null>(null);
@@ -182,7 +226,7 @@ export function NotificationToasts() {
         </div>,
         document.body,
     );
-}
+};
 
 /**
  * The seam the app tree wraps its children in: children first, the stack after them.
@@ -190,11 +234,9 @@ export function NotificationToasts() {
  * The stack is last so a toast paints over the app, and the provider holds no state, which
  * is what lets any pane raise a toast without threading a context through it.
  */
-export function NotificationProvider({ children }: { children: React.ReactNode }) {
-    return (
-        <>
-            {children}
-            <NotificationToasts />
-        </>
-    );
-}
+export const NotificationProvider = ({ children }: { children: React.ReactNode }) => (
+    <>
+        {children}
+        <NotificationToasts />
+    </>
+);

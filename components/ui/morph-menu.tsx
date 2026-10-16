@@ -38,8 +38,8 @@ const useClosedWidth = (
          * reading it would return the width it is on its way to.
          */
         const measure = () => {
-            const w = Math.ceil(el.getBoundingClientRect().width);
-            if (w > 0) setClosedW((prev) => (prev === w ? prev : w));
+            const width = Math.ceil(el.getBoundingClientRect().width);
+            if (width > 0) setClosedW((prev) => (prev === width ? prev : width));
         };
         measure();
         const ro = new ResizeObserver(measure);
@@ -59,9 +59,11 @@ const useDismissOnOutside = (
     useEffect(() => {
         // `undefined` and not a bare return, for the same reason as the measure effect.
         if (!open) return undefined;
+        /** Closes the menu when the press lands outside it. */
         const onDown = (e: MouseEvent) => {
             if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
         };
+        /** Escape closes the menu: the keyboard's only way out of it. */
         const onKey = (e: KeyboardEvent) => {
             if (e.key === "Escape") setOpen(false);
         };
@@ -267,6 +269,7 @@ export const MorphMenu = ({
     useClosedWidth(useMorph, measureRef, setClosedW);
     useDismissOnOutside(open, ref, setOpen);
 
+    /** Opens and closes the menu, locking the open size on the way in. */
     const toggle = () => {
         if (!open) setLockedOpen({ w: openWidth, h: openHeight });
         setOpen((v) => !v);

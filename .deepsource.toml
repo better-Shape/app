@@ -15,11 +15,11 @@ enabled = true
   environment = ["nodejs", "browser", "vitest"]
   # The repo is ESM ("type": "module" in package.json), so a .js file is a module.
   module_system = "es-modules"
-  # Where package.json and tsconfig.json sit. The three "Parsing error ... 'sourceType:
-  # module'" alerts on the run page are that parse mode rather than code: they follow
-  # eslint.config.js and the two scripts under scripts/motion, and they survived both
-  # this option and a rename from .mjs to .js.
-  dependency_file_paths = ["."]
+  # Tooling is CommonJS on purpose. The analyzer reads a file outside the TypeScript
+  # project as a script, so a .mjs or .js tool file with top-level import/export comes
+  # back as "Parsing error ... 'sourceType: module'" on every run, and neither this
+  # option nor a rename from .mjs to .js cleared it. scripts/qa has been .cjs for the
+  # same reason; eslint.config.cjs and scripts/motion follow it now.
   # JS-D1001 demands a doc comment on every function. AGENTS.md forbids
   # comments that restate the code and reserves them for non-obvious
   # constraints, provenance, and workarounds. Skip the construct classes

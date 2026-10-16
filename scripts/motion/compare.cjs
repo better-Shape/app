@@ -5,16 +5,15 @@
  * This exists because "the animation feels cheap" is not something a report can argue
  * with. The page runs both curves on the same box, at the same time, from the same
  * trigger, and plots what actually happened, so the difference is visible rather than
- * claimed. It is generated from `springs.js` so the curves on the page can never drift
+ * claimed. It is generated from `springs.cjs` so the curves on the page can never drift
  * from the curves in the app.
  *
- * Run: node scripts/motion/compare.js --write   →  scripts/motion/compare.html
+ * Run: node scripts/motion/compare.cjs --write   →  scripts/motion/compare.html
  */
-import { writeFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+const { writeFileSync } = require("node:fs");
+const { join } = require("node:path");
 
-import { SPRINGS, springToLinear, peakOf } from "./springs.js";
+const { SPRINGS, springToLinear, peakOf } = require("./springs.cjs");
 
 /**
  * These scripts print their report to stdout, and the generated files are written
@@ -22,7 +21,7 @@ import { SPRINGS, springToLinear, peakOf } from "./springs.js";
  */
 const log = (...args) => process.stdout.write(args.join(" ") + "\n");
 
-const here = dirname(fileURLToPath(import.meta.url));
+const here = __dirname;
 
 /**
  * The two things being compared.
