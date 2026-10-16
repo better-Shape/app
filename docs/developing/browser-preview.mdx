@@ -38,6 +38,7 @@ suite:
 
 ```bash
 set -euo pipefail                 # a failed extraction stops the block, so a fallback browser cannot pass for the vendored one
+cd - >/dev/null                   # section 5's fetch block ends in $SV; npm ci needs the application checkout
 SV="${SV:?export SV to the payload root printed by the fetch recipe}"
 PB="$(mktemp -d)"                 # private tree: a fixed /tmp path can be pre-created as a symlink
 trap 'rm -rf "$PB"' EXIT          # removed on exit whether the suite passes or fails; drop this line to keep it

@@ -99,13 +99,14 @@ export CARGO_HOME=/tmp/cargo-home CARGO_NET_OFFLINE=true
 mkdir -p "$CARGO_HOME"
 cp rust/cargo-config.toml "$CARGO_HOME/config.toml"
 
-mkdir -p /tmp/gtk-sysroot && tar xJf system/debian12-dev-sysroot.tar.xz -C /tmp/gtk-sysroot
+GTK_SYSROOT="$(mktemp -d)"        # private root, matching the consumer recipe
+tar xJf system/debian12-dev-sysroot.tar.xz -C "$GTK_SYSROOT"
 export PATH="$PWD/system/tools/bin:$PATH"
-export PKG_CONFIG_SYSROOT_DIR=/tmp/gtk-sysroot
-export PKG_CONFIG_PATH=/tmp/gtk-sysroot/usr/lib/x86_64-linux-gnu/pkgconfig:/tmp/gtk-sysroot/usr/share/pkgconfig
-export PKG_CONFIG=/tmp/gtk-sysroot/usr/bin/pkg-config
-export CPATH=/tmp/gtk-sysroot/usr/include:/tmp/gtk-sysroot/usr/include/x86_64-linux-gnu
-export LIBRARY_PATH=/tmp/gtk-sysroot/usr/lib/x86_64-linux-gnu
+export PKG_CONFIG_SYSROOT_DIR="$GTK_SYSROOT"
+export PKG_CONFIG_PATH="$GTK_SYSROOT/usr/lib/x86_64-linux-gnu/pkgconfig:$GTK_SYSROOT/usr/share/pkgconfig"
+export PKG_CONFIG="$GTK_SYSROOT/usr/bin/pkg-config"
+export CPATH="$GTK_SYSROOT/usr/include:$GTK_SYSROOT/usr/include/x86_64-linux-gnu"
+export LIBRARY_PATH="$GTK_SYSROOT/usr/lib/x86_64-linux-gnu"
 
 cargo clippy --ignore-rust-version \
   --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
@@ -116,6 +117,10 @@ substitute `cargo --offline --config <path>` for the two lines that write `$CARG
 cargo does not forward the global flag to external subcommands, so clippy ignores the replacement and
 fails with `no matching package named base64` (A3). `--ignore-rust-version` is required for the
 reason in A2. The same environment is the starting point for every command in A6.
+
+The proof extracts into a private root so it matches the consumer recipe, which keeps every path
+private because that host may have other users. The build and repair steps in this brief stage under
+fixed `/tmp` paths; that is safe inside your own container and only there.
 If the gate does not pass, say exactly what failed in `README.md` instead of implying the sysroot is
 complete.
 
@@ -391,8 +396,8 @@ cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
 cargo clippy --ignore-rust-version --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
 CARGO_BUILD_JOBS=1 cargo test --ignore-rust-version --manifest-path src-tauri/Cargo.toml
 CARGO_BUILD_JOBS=1 cargo test --ignore-rust-version --manifest-path src-tauri/Cargo.toml --all-features
-if find /tmp/gtk-sysroot -xtype l | grep -qE '\.so'; then echo "broken library symlinks remain"; else echo "no broken library symlinks"; fi
-gcc /tmp/t.c -o /tmp/t.out -L/tmp/gtk-sysroot/usr/lib/x86_64-linux-gnu -ldbus-1 -lffi -luuid -lpcre2-8 -lzstd -lmount -lblkid -ludev
+if find "$GTK_SYSROOT" -xtype l | grep -qE '\.so'; then echo "broken library symlinks remain"; else echo "no broken library symlinks"; fi
+gcc /tmp/t.c -o /tmp/t.out -L"$GTK_SYSROOT/usr/lib/x86_64-linux-gnu" -ldbus-1 -lffi -luuid -lpcre2-8 -lzstd -lmount -lblkid -ludev
 ```
 
 The `cargo test --all-features` line is what CI runs, so it is the one that has to pass. The `gcc`

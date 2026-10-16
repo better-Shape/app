@@ -19,10 +19,10 @@ orphan branch `vendor/sandbox-toolchain` first and follow its `FETCH.md`. It car
 the crate registry, the Tauri sysroot, the browser, and the shared libraries each needs. Then:
 
 - [ ] I set `$CARGO_HOME/config.toml` with the vendored source replacement and `CARGO_NET_OFFLINE=true`, because `cargo --config <path>` does not reach `cargo clippy`.
-- [ ] I exported `CARGO_TARGET_DIR=/tmp/cargo-target` so a multi-gigabyte target directory stays out of the workspace.
+- [ ] I exported a `CARGO_TARGET_DIR` outside the workspace and outside shared `/tmp` (the section 5 recipe puts it under the private payload root), so a multi-gigabyte target directory stays out of the workspace.
 - [ ] I ran the Rust gates with `--ignore-rust-version`, because `notify-rust@4.18.0` declares `rust-version = "1.89.0"` while the pin is 1.88.0.
 - [ ] I ran `cargo test` with `CARGO_BUILD_JOBS=1`, because parallel linking is killed with `signal 9` on a small sandbox.
-- [ ] I ran the browser suite with `PLAYWRIGHT_BROWSERS_PATH` pointing at the extracted browser tree and `npm ci` with `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`.
+- [ ] I ran the browser suite with `PLAYWRIGHT_BROWSERS_PATH` pointing at the extracted browser tree, `PLAYWRIGHT_SANDBOX_LIBS` pointing at the payload's `chrome-deps/cft-156` for NSS and NSPR, and `npm ci` with `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`. Without the library directory the browser dies on `libnspr4.so` before the first spec.
 - [ ] For every gate that still cannot run, I said so in the PR body with the reason and the substitute command I ran, rather than marking it passed.
 
 Detail, measured results and the known payload defects: `engineering/sandbox-vendored-toolchain.md`,

@@ -59,7 +59,7 @@ the tools are simply not found. Pick one source per shell and do not mix them.
 SV="${SV:?export SV to the payload root printed by the section 5 fetch recipe}"
 export CARGO_HOME="$SV/cargo-home"       # section 5 writes config.toml here, pointing at $SV/cargo-vendor
 export CARGO_NET_OFFLINE=true
-export CARGO_TARGET_DIR=/tmp/cargo-target # keeps a multi-gigabyte target directory out of the workspace
+export CARGO_TARGET_DIR="$SV/cargo-target" # keeps a multi-gigabyte target directory out of the workspace and out of shared /tmp
 cargo clippy --ignore-rust-version --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
 CARGO_BUILD_JOBS=1 cargo test --ignore-rust-version --manifest-path src-tauri/Cargo.toml
 ```

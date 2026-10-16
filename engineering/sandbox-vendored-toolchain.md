@@ -226,7 +226,9 @@ Crates in the lockfile that drive that need: `gtk-sys 0.18.2`, `webkit2gtk-sys 2
 
 Method for the free agent, on Debian 12 amd64 so the glibc matches this box's 2.36. Run it in a
 clean `debian:12` container. On a host that already has these packages installed, `--download-only`
-skips what is present and the archive directory comes out incomplete.
+skips what is present and the archive directory comes out incomplete. This block and the acceptance
+test below stage under fixed `/tmp` paths, which is safe in that single-user container; the consumer
+recipe in section 5 keeps every path private because the consuming host may have other users.
 
 ```bash
 apt-get update
@@ -542,10 +544,15 @@ gh api repos/better-Shape/app/contents/chrome-deps/npm-chromium-153/libnspr4.so 
 Then wire it up, in the order the payloads come in:
 
 ```bash
-# Rust toolchain
-RUST_PREFIX=/tmp/rust-tools; mkdir -p "$RUST_PREFIX"
+set -euo pipefail                  # a failed extraction or install stops the block here
+SV="${SV:?export SV to the payload root printed by the fetch recipe}"
+# Rust toolchain. The prefix is private for the same reason as $SV: a fixed /tmp/rust-tools
+# can be pre-created by another user as a symlink or as a directory they can write to.
+RUST_PREFIX="$SV/rust-tools"; mkdir -p "$RUST_PREFIX"
 for t in "$SV"/rust/toolchain/*.tar.xz; do
+  [ -e "$t" ] || continue          # skip the literal glob when the payload ships no components
   d=$(mktemp -d); tar xJf "$t" -C "$d"; "$d"/*/install.sh --prefix="$RUST_PREFIX" --disable-ldconfig
+  rm -rf "$d"                      # the installer leaves nothing behind that the next step needs
 done
 export PATH="$RUST_PREFIX/bin:$SV/system/tools/bin:$PATH"
 export LD_LIBRARY_PATH="$RUST_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
@@ -559,30 +566,34 @@ tar xJf "$SV"/rust/cargo-vendor.tar.xz -C "$CARGO_VENDOR"
 printf '[source.crates-io]\nreplace-with = "vendored-sources"\n\n[source.vendored-sources]\ndirectory = "%s"\n' "$CARGO_VENDOR" \
   > "$CARGO_HOME/config.toml"
 export CARGO_NET_OFFLINE=true
+export CARGO_TARGET_DIR="$SV/cargo-target"   # the build directory stays out of the workspace and out of shared /tmp
 
-# Tauri system stack
-mkdir -p /tmp/gtk-sysroot && tar xJf "$SV"/system/debian12-dev-sysroot.tar.xz -C /tmp/gtk-sysroot
-export PKG_CONFIG_SYSROOT_DIR=/tmp/gtk-sysroot
-export PKG_CONFIG_PATH=/tmp/gtk-sysroot/usr/lib/x86_64-linux-gnu/pkgconfig:/tmp/gtk-sysroot/usr/share/pkgconfig
-export PKG_CONFIG=/tmp/gtk-sysroot/usr/bin/pkg-config
-export CPATH=/tmp/gtk-sysroot/usr/include:/tmp/gtk-sysroot/usr/include/x86_64-linux-gnu
-export LIBRARY_PATH=/tmp/gtk-sysroot/usr/lib/x86_64-linux-gnu
+# Tauri system stack. Private like the rest: the linker reads its libraries from here, and
+# on a shared host a fixed /tmp/gtk-sysroot can be pre-created as a symlink that tar follows.
+export GTK_SYSROOT="$SV/gtk-sysroot"
+mkdir -p "$GTK_SYSROOT"
+tar xJf "$SV"/system/debian12-dev-sysroot.tar.xz -C "$GTK_SYSROOT"
+export PKG_CONFIG_SYSROOT_DIR="$GTK_SYSROOT"
+export PKG_CONFIG_PATH="$GTK_SYSROOT/usr/lib/x86_64-linux-gnu/pkgconfig:$GTK_SYSROOT/usr/share/pkgconfig"
+export PKG_CONFIG="$GTK_SYSROOT/usr/bin/pkg-config"
+export CPATH="$GTK_SYSROOT/usr/include:$GTK_SYSROOT/usr/include/x86_64-linux-gnu"
+export LIBRARY_PATH="$GTK_SYSROOT/usr/lib/x86_64-linux-gnu"
 
 # Playwright browsers and the library closure. mktemp -d for the same reason as $SV:
 # on a shared host a fixed /tmp/pw-browsers can be pre-created as a symlink that tar would follow.
 export PLAYWRIGHT_BROWSERS_PATH="$(mktemp -d)"
 tar xJf "$SV"/browsers/browsers-playwright-1.64.1.tar.xz -C "$PLAYWRIGHT_BROWSERS_PATH"
-export LD_LIBRARY_PATH=/tmp/gtk-sysroot/usr/lib/x86_64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+export LD_LIBRARY_PATH="$GTK_SYSROOT/usr/lib/x86_64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export PLAYWRIGHT_SANDBOX_LIBS=$SV/chrome-deps/cft-156
 ```
 
-`/tmp/gtk-sysroot` is the one shared path in the block, and it stays shared on purpose: every run
-extracts the same tarball, so extract it once per host and run the section 7.1 repair once, before
-starting a gate. Everything else the block writes lives under `$SV` or a `mktemp -d`.
+Every path the block writes lives under `$SV` or a `mktemp -d`, so two runs on one host share no
+directory another user could pre-create as a symlink, and no gate reads a file the other run is
+still writing.
 
 Nothing here is precious, either. `rm -rf "$SV" "$SV.tar.gz" "$PLAYWRIGHT_BROWSERS_PATH"` reclaims the
-payload, the archive next to it and the browser tree, and the same recipe rebuilds all three from the
-pinned commit.
+payload (toolchain, sysroot and cargo state included), the archive next to it and the browser tree, and
+the same recipe rebuilds all of it from the pinned commit.
 
 The exported directory is the sysroot's, and it is exported because a Rust test binary links GTK and
 WebKit and the loader resolves those at run time, not only at link time. The browser closure stays
@@ -608,7 +619,8 @@ the registry layout Playwright expects.
 Three housekeeping notes. The fetch recipe leaves the shell in the payload root, and every
 cargo command below takes the repository-relative `src-tauri/Cargo.toml`, so `cd -` back to the
 checkout first. Cargo defaults its build directory to `src-tauri/target` inside the workspace;
-`export CARGO_TARGET_DIR=/tmp/cargo-target` keeps the snapshotted tree small and changes no result.
+`export CARGO_TARGET_DIR="$SV/cargo-target"` keeps the snapshotted tree small, stays private, and
+changes no result.
 And `sha256sum -c` is the only step that proves the tree in `/tmp` is the one the manifest
 describes, so re-run it after any re-extraction.
 
@@ -698,7 +710,8 @@ into the sysroot, dereferenced, with relative links:
 
 ```bash
 SV="${SV:?export SV to the payload root printed by the section 5 fetch recipe}"
-cd /tmp/gtk-sysroot/usr/lib/x86_64-linux-gnu
+GTK_SYSROOT="$SV/gtk-sysroot"        # the private sysroot section 5 extracted
+cd "$GTK_SYSROOT/usr/lib/x86_64-linux-gnu"
 for l in $(find . -maxdepth 1 -xtype l -name "lib*.so*"); do
   base="$(basename "$l" .so)"; real=""
   for cand in /lib/x86_64-linux-gnu/"$base".so.* "$SV"/chrome-deps/*/"$base".so.*; do
