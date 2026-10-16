@@ -540,7 +540,7 @@ export function BranchWindow({ active = true }: { active?: boolean }) {
     // one awaited write, so a denied clipboard no longer reports success.
     const { copiedText: copiedName, copy: copyText } = useCopyToClipboard();
     const handleCopy = (name: string) => {
-        void copyText(name, name);
+        copyText(name, name);
     };
 
     const handleOpenRemote = async () => {

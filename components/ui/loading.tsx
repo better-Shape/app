@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
  * on every fast stage or fetch, which reads as a fault rather than progress; the minimum
  * visible time keeps it from stuttering back out once it has appeared.
  */
-export function LoadingBar({ className }: { className?: string }) {
+export const LoadingBar = ({ className }: { className?: string }) => {
     const { isLoading } = useLoading();
     const showBar = useDelayedFlag(isLoading, { delayMs: 200, minVisibleMs: 400 });
 
@@ -36,4 +36,4 @@ export function LoadingBar({ className }: { className?: string }) {
             `}</style>
         </div>
     );
-}
+};

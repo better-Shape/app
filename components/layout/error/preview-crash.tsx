@@ -9,7 +9,7 @@
  * at build time, so a packaged release never reaches this code and a stray query parameter
  * cannot crash a real install.
  */
-export function PreviewCrash({ scope }: { scope: "route" | "global" }) {
+export const PreviewCrash = ({ scope }: { scope: "route" | "global" }) => {
     if (process.env.NEXT_PUBLIC_BROWSER_PREVIEW !== "1") return null;
     if (typeof window === "undefined") return null;
 
@@ -21,4 +21,4 @@ export function PreviewCrash({ scope }: { scope: "route" | "global" }) {
     throw new Error(
         `Preview crash (${scope}): thrown on purpose so the ${scope} error boundary can be inspected.`,
     );
-}
+};

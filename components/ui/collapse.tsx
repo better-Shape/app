@@ -27,7 +27,7 @@ export interface CollapseProps {
  * 3. Children stay mounted either way, so opening again does not refetch or reset
  *    what is inside.
  */
-export function Collapse({ open, children, className, innerClassName }: CollapseProps) {
+export const Collapse = ({ open, children, className, innerClassName }: CollapseProps) => {
     return (
         <div
             className={cn(
@@ -41,4 +41,4 @@ export function Collapse({ open, children, className, innerClassName }: Collapse
             </div>
         </div>
     );
-}
+};

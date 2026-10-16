@@ -310,7 +310,7 @@ export const GraphCommitRow = React.memo(function GraphCommitRow({
                                                     "flex items-center gap-1.5 cursor-pointer transition-colors py-0.5 press-spring",
                                                     hashCopied ? "text-success" : "hover:text-text-primary",
                                                 )}
-                                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); void copyHash(log.hash, "Commit hash copied to clipboard"); }}
+                                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); copyHash(log.hash, "Commit hash copied to clipboard"); }}
                                             >
                                                 <Icon icon={Clipboard20Regular} />
                                                 <span className="text-sm font-medium select-text">{log.hash.slice(0, 7)}</span>
@@ -352,7 +352,7 @@ export const GraphCommitRow = React.memo(function GraphCommitRow({
                                     )}
                                     onClick={(e) => {
                                         e.stopPropagation();
-                                        void copyHash(log.hash, "Commit hash copied");
+                                        copyHash(log.hash, "Commit hash copied");
                                     }}
                                 >
                                     {log.hash.slice(0, 7)}

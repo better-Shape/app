@@ -934,7 +934,7 @@ export default function Graph({
                         </Button>
                     </Tooltip>
                     <Tooltip content="Refresh Graph">
-                        <Button variant="ghost" size="icon" className="text-text-primary hover:bg-[var(--btn-hover)]" onClick={() => void refresh()}>
+                        <Button variant="ghost" size="icon" className="text-text-primary hover:bg-[var(--btn-hover)]" onClick={() => refresh()}>
                             <Icon icon={ArrowSync20Regular} />
                         </Button>
                     </Tooltip>

@@ -1730,7 +1730,7 @@ const RemoteRow = ({
                         content={copied ? "Copied" : "Copy URL"}
                         label={copied ? "Copied" : "Copy URL"}
                         icon={Clipboard20Regular}
-                        onClick={() => void copy(remote.url, "Remote URL copied")}
+                        onClick={() => copy(remote.url, "Remote URL copied")}
                         className={cn("h-6 w-6", copied && "text-success")}
                     />
                     <RemoteActionButton content="Remove" label="Remove remote" icon={Delete20Filled} onClick={() => handleRemoveRemote(remote.name)} className="h-6 w-6 text-error" />

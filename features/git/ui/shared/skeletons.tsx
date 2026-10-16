@@ -50,12 +50,15 @@ export function SkeletonLine({
  * `variant` selects the row recipe in `row-shell.ts` that the loaded list will use,
  * so the placeholder and the rows it precedes share one geometry.
  */
-export function GitListSkeleton({ rows = 8, variant = "run" }: { rows?: number; variant?: GitRowVariant }) {
+export const GitListSkeleton = ({ rows = 8, variant = "run" }: { rows?: number; variant?: GitRowVariant }) => {
     const text = GIT_ROW_TEXT[variant];
+    // Stable ids: the placeholders never reorder, and an index key would tell React to
+    // reuse a row for a different one the moment the list does.
+    const placeholders = Array.from({ length: rows }, (_, i) => `${variant}-placeholder-${i}`);
     return (
         <ul className="flex flex-col gap-0.5 p-1" aria-busy aria-label="Loading">
-            {Array.from({ length: rows }, (_, i) => (
-                <li key={i} className={cn(GIT_ROW[variant], "pointer-events-none")}>
+            {placeholders.map((id, index) => (
+                <li key={id} className={cn(GIT_ROW[variant], "pointer-events-none")}>
                     {variant === "dense" ? (
                         <SkeletonLine text={text.title} width="w-[70%]" />
                     ) : (
@@ -67,7 +70,7 @@ export function GitListSkeleton({ rows = 8, variant = "run" }: { rows?: number; 
                                 <SkeletonLine
                                     key={line}
                                     text={text.title}
-                                    width={line > 0 ? "w-[55%]" : i % 3 === 0 ? "w-[85%]" : "w-[65%]"}
+                                    width={line > 0 ? "w-[55%]" : index % 3 === 0 ? "w-[85%]" : "w-[65%]"}
                                 />
                             ))}
                             <SkeletonLine text={text.meta} width="w-[40%]" className="ml-4" />
@@ -136,4 +139,4 @@ export function GitManagerShellSkeleton() {
             </section>
         </div>
     );
-}
+};

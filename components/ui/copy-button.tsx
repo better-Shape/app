@@ -22,6 +22,25 @@ export interface CopyButtonProps {
     boxClassName?: string;
 }
 
+/** The three faces the control can show, in the order the state resolves. */
+const copyState = (copied: boolean, failed: boolean): "copied" | "failed" | "idle" => {
+    if (copied) return "copied";
+    return failed ? "failed" : "idle";
+};
+
+/**
+ * The incoming layer: a drawn mark once copied, the clipboard glyph otherwise.
+ *
+ * The word is fixed to "Copy"/"Copied" rather than the `label` prop, which carries longer
+ * text ("Copy path") for the tooltip and the spoken name; that would be too wide here.
+ */
+const CopyFace = ({ face, showLabel }: { face: string; showLabel: boolean }) => (
+    <>
+        {face === "Copied" ? <DrawnCheck /> : <Icon icon={Clipboard20Regular} />}
+        {showLabel ? <span>{face === "Copied" ? "Copied" : "Copy"}</span> : null}
+    </>
+);
+
 /**
  * The copy affordance, in one place.
  *
@@ -30,19 +49,19 @@ export interface CopyButtonProps {
  * The glyph and word now cross through `SwapText`, so the control answers in one
  * beat whether it is icon-only or labelled.
  */
-export function CopyButton({
+export const CopyButton = ({
     text,
     label = "Copy",
     showLabel = false,
     successDescription,
     className,
     boxClassName,
-}: CopyButtonProps) {
+}: CopyButtonProps) => {
     const { copied, failed, copy } = useCopyToClipboard({ successDescription });
 
     // One place decides which of the three faces the control shows, so the attribute, the
     // spoken name and the tone cannot drift apart.
-    const state = copied ? "copied" : failed ? "failed" : "idle";
+    const state = copyState(copied, failed);
     const face = state === "copied" ? "Copied" : label;
 
     return (
@@ -53,7 +72,7 @@ export function CopyButton({
             title={showLabel ? undefined : label}
             onClick={(e) => {
                 e.stopPropagation();
-                void copy(text);
+                copy(text);
             }}
             className={cn(
                 "press-spring inline-flex items-center gap-1.5 rounded-lg",
@@ -66,16 +85,8 @@ export function CopyButton({
             <SwapText
                 value={face}
                 live
-                render={(face) => (
-                    <>
-                        {/* The incoming layer is keyed by value, so the drawn mark
-                            mounts exactly when the value flips to "Copied" and its
-                            one-shot draw plays then, never on first paint. */}
-                        {face === "Copied" ? <DrawnCheck /> : <Icon icon={Clipboard20Regular} />}
-                        {showLabel ? <span>{face === "Copied" ? "Copied" : "Copy"}</span> : null}
-                    </>
-                )}
+                render={(face) => <CopyFace face={face} showLabel={showLabel} />}
             />
         </button>
     );
-}
+};

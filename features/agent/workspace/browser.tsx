@@ -468,7 +468,6 @@ export function BrowserView({
     const [toolsError, setToolsError] = useState<string | null>(null);
     const [savingShot, setSavingShot] = useState(false);
     const [frameSrc, setFrameSrc] = useState("about:blank");
-    const reloadKey = 0;
     const [pageMenu, setPageMenu] = useState<{ x: number; y: number } | null>(null);
     const [openedOnce, setOpenedOnce] = useState(false);
     const frameRef = useRef<HTMLIFrameElement>(null);
@@ -685,7 +684,7 @@ export function BrowserView({
         send();
         frame.addEventListener("load", send);
         return () => frame.removeEventListener("load", send);
-    }, [picking, frameSrc, reloadKey, showPage]);
+    }, [picking, frameSrc, showPage]);
 
     useEffect(() => {
         const onMessage = (event: MessageEvent) => {

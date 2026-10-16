@@ -20,13 +20,7 @@ import { CrashScreen } from "@/components/layout/error/crash-screen";
  * are mandatory, and the stylesheet import is what gives the screen the app's tokens
  * instead of the browser defaults.
  */
-export default function GlobalError({
-    error,
-    reset,
-}: {
-    error: Error & { digest?: string };
-    reset: () => void;
-}) {
+const GlobalError = ({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) => {
     useEffect(() => {
         console.error("Global Layout Error Caught:", error);
     }, [error]);
@@ -46,4 +40,6 @@ export default function GlobalError({
             </body>
         </html>
     );
-}
+};
+
+export default GlobalError;

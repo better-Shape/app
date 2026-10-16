@@ -44,7 +44,7 @@ afterEach(() => {
 function Probe({ text, silent }: { text: string; silent?: boolean }) {
     const { copied, failed, copy } = useCopyToClipboard({ silent });
     return (
-        <button data-testid="probe" data-state={copied ? "copied" : failed ? "failed" : "idle"} onClick={() => void copy(text)}>
+        <button data-testid="probe" data-state={copied ? "copied" : failed ? "failed" : "idle"} onClick={() => copy(text)}>
             go
         </button>
     );

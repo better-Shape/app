@@ -2,16 +2,15 @@
 
 import { CrashScreen } from "@/components/layout/error/crash-screen";
 
-export default function RouteError({
-    error,
-    reset,
-}: {
-    error: Error & { digest?: string };
-    reset: () => void;
-}) {
-    // The route boundary used to say only "Can't reach this page" and throw the error
-    // away. It now renders the same screen as the other two boundaries, so the three
-    // cannot drift apart.
+/**
+ * The route-level boundary.
+ *
+ * It renders the same screen the other two boundaries use, so the three cannot drift
+ * apart. The comment that used to sit here said the route used to say only "Can't reach
+ * this page"; that history is in the commit, and this file only has to say why the screen
+ * is shared.
+ */
+const RouteError = ({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) => {
     return (
         <CrashScreen
             title="This page hit an error"
@@ -23,4 +22,6 @@ export default function RouteError({
             onReload={() => window.location.reload()}
         />
     );
-}
+};
+
+export default RouteError;

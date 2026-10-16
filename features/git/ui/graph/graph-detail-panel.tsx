@@ -261,7 +261,7 @@ export function GraphDetailPanel({
                                 "font-mono transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] press-spring",
                                 copiedParent === p ? "text-success" : "text-text-secondary hover:text-accent",
                             )}
-                            onClick={() => void copyParent(p)}
+                            onClick={() => copyParent(p)}
                         >
                             {p.slice(0, 7)}
                         </button>

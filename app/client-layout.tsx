@@ -26,12 +26,12 @@ import { PreviewCrash } from "@/components/layout/error/preview-crash";
  * A route base matches its own path and anything under it. The prod static export serves
  * trailing slashes (`/settings/`), so both forms have to match.
  */
-function pathMatches(pathname: string | null, base: string) {
+const pathMatches = (pathname: string | null, base: string) => {
     if (!pathname) return false;
     return pathname === base || pathname === `${base}/` || pathname.startsWith(`${base}/`);
-}
+};
 
-export default function ClientLayout({ children }: { children: React.ReactNode }) {
+const ClientLayout = ({ children }: { children: React.ReactNode }) => {
     const pathname = usePathname();
     const isSettings = pathMatches(pathname, "/settings");
     const isBranch = pathMatches(pathname, "/branch") || pathMatches(pathname, "/git");
@@ -104,51 +104,9 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
         return () => { cancelled = true; };
     }, []);
 
-    if (isPopout) {
-        return (
-            <LoadingProvider>
-                <NotificationProvider>
-                    <SuppressNativeTooltips />
-                    <GlobalContextMenu>
-                        <div
-                            id="bettershape-popout"
-                            className="relative flex h-screen w-full flex-col overflow-hidden bg-titlebar font-sans text-sm text-text-primary select-none"
-                        >
-                            <Titlebar focus />
-                            <main className="min-h-0 flex-1 overflow-hidden bg-editor">
-                                {children}
-                            </main>
-                            <CommandPaletteBridge />
-                            <div id="bettershape-overlays" />
-                        </div>
-                    </GlobalContextMenu>
-                </NotificationProvider>
-            </LoadingProvider>
-        );
-    }
-
-    if (isSettings || isBranch) {
-        const windowTitle = isBranch ? "Git" : "Settings";
-        const body = (
-            <div id="bettershape-settings" className="relative flex h-screen w-full flex-col overflow-hidden bg-background font-sans text-sm text-text-primary select-none">
-                <Titlebar settings title={windowTitle} />
-                <main className="min-h-0 flex-1 overflow-hidden bg-background">
-                    {children}
-                </main>
-                <div id="bettershape-overlays" />
-            </div>
-        );
-        return (
-            <LoadingProvider>
-                <NotificationProvider>
-                    <SuppressNativeTooltips />
-                    <GlobalContextMenu>
-                        {isBranch ? <FilterProvider initialSection="branches">{body}</FilterProvider> : body}
-                    </GlobalContextMenu>
-                </NotificationProvider>
-            </LoadingProvider>
-        );
-    }
+    if (isPopout) return <PopoutShell>{children}</PopoutShell>;
+    if (isBranch) return <SettingsShell kind="Git">{children}</SettingsShell>;
+    if (isSettings) return <SettingsShell kind="Settings">{children}</SettingsShell>;
 
     return (
         <LoadingProvider>
@@ -162,9 +120,44 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
             </NotificationProvider>
         </LoadingProvider>
     );
-}
+};
 
-function Content({ children }: { children: React.ReactNode }) {
+/** The shell the three route kinds share: providers, tooltip suppression, the menu host. */
+const ProviderShell = ({ children }: { children: React.ReactNode }) => (
+    <LoadingProvider>
+        <NotificationProvider>
+            <SuppressNativeTooltips />
+            <GlobalContextMenu>{children}</GlobalContextMenu>
+        </NotificationProvider>
+    </LoadingProvider>
+);
+
+const PopoutShell = ({ children }: { children: React.ReactNode }) => (
+    <ProviderShell>
+        <div
+            id="bettershape-popout"
+            className="relative flex h-screen w-full flex-col overflow-hidden bg-titlebar font-sans text-sm text-text-primary select-none"
+        >
+            <Titlebar focus />
+            <main className="min-h-0 flex-1 overflow-hidden bg-editor">{children}</main>
+            <CommandPaletteBridge />
+            <div id="bettershape-overlays" />
+        </div>
+    </ProviderShell>
+);
+
+const SettingsShell = ({ kind, children }: { kind: "Git" | "Settings"; children: React.ReactNode }) => {
+    const body = (
+        <div id="bettershape-settings" className="relative flex h-screen w-full flex-col overflow-hidden bg-background font-sans text-sm text-text-primary select-none">
+            <Titlebar settings title={kind} />
+            <main className="min-h-0 flex-1 overflow-hidden bg-background">{children}</main>
+            <div id="bettershape-overlays" />
+        </div>
+    );
+    return <ProviderShell>{kind === "Git" ? <FilterProvider initialSection="branches">{body}</FilterProvider> : body}</ProviderShell>;
+};
+
+const Content = ({ children }: { children: React.ReactNode }) => {
     return (
         <div
             id="bettershape-workbench"
@@ -183,4 +176,6 @@ function Content({ children }: { children: React.ReactNode }) {
             <div id="bettershape-overlays" />
         </div>
     );
-}
+};
+
+export default ClientLayout;
