@@ -52,7 +52,8 @@ const composite = (fg, bg) => {
         const el = document.querySelector("aside") || document.body;
         return getComputedStyle(el).backgroundColor;
     });
-    console.log(`panel behind the controls: ${panel}\n`);
+    console.log(`sidebar surface, for reference: ${panel}`);
+    console.log("each control is composited over its own backdrop, printed per row\n");
     console.log(`${"control".padEnd(20)} ${"rest".padEnd(18)} ${"hover".padEnd(18)} Δ (channel)`);
     console.log("─".repeat(76));
 
@@ -71,18 +72,47 @@ const composite = (fg, bg) => {
         // Park the pointer far away first so no neighbouring hover leaks in.
         await page.mouse.move(660, 660);
         await page.waitForTimeout(260);
-        const rest = await loc.evaluate((el) => getComputedStyle(el).backgroundColor);
+        // What this control is painted over, walked from its own ancestors rather than
+        // assumed from one surface: a titlebar toggle does not sit on the sidebar, and
+        // compositing it against the wrong base reports the wrong delta and the wrong
+        // verdict on whether its hover is visible at all.
+        const surface = await loc.evaluate((el) => {
+            const parse = (text) => {
+                const m = String(text).match(/[\d.]+/g);
+                if (!m) return null;
+                const v = m.map(Number);
+                return { r: v[0], g: v[1], b: v[2], a: v.length > 3 ? v[3] : 1 };
+            };
+            const over = (node, depth) => {
+                if (!node || depth > 10) return { r: 0, g: 0, b: 0, a: 1 };
+                const under = over(node.parentElement, depth + 1);
+                const c = parse(getComputedStyle(node).backgroundColor);
+                if (!c || c.a === 0) return under;
+                return {
+                    r: c.r * c.a + under.r * (1 - c.a),
+                    g: c.g * c.a + under.g * (1 - c.a),
+                    b: c.b * c.a + under.b * (1 - c.a),
+                    a: c.a + under.a * (1 - c.a),
+                };
+            };
+            const b = over(el.parentElement, 0);
+            return {
+                fill: getComputedStyle(el).backgroundColor,
+                backdrop: `rgb(${Math.round(b.r)}, ${Math.round(b.g)}, ${Math.round(b.b)})`,
+            };
+        });
+        const rest = surface.fill;
         await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
         await page.waitForTimeout(320);
         const hover = await loc.evaluate((el) => getComputedStyle(el).backgroundColor);
 
-        const restPx = composite(rest, panel);
-        const hoverPx = composite(hover, panel);
+        const restPx = composite(rest, surface.backdrop);
+        const hoverPx = composite(hover, surface.backdrop);
         const delta = Math.max(...restPx.map((v, i) => Math.abs(v - hoverPx[i])));
-        rows.push({ name: c.name, rest, hover, restPx, hoverPx, delta });
+        rows.push({ name: c.name, rest, hover, restPx, hoverPx, delta, backdrop: surface.backdrop });
         console.log(
-            `${c.name.padEnd(20)} ${rest.replace(/\s/g, "").padEnd(18)} ${hover.replace(/\s/g, "").padEnd(18)} ${delta}` +
-                (delta === 0 ? "   ← no visible change" : ""),
+            `${c.name.padEnd(20)} ${rest.replace(/\s/g, "").padEnd(18)} ${hover.replace(/\s/g, "").padEnd(18)} ${String(delta).padEnd(4)} over ${surface.backdrop}` +
+                (delta === 0 ? "   no visible change" : ""),
         );
     }
 

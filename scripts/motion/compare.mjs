@@ -217,8 +217,10 @@ const html = `<!doctype html>
     gradual arrival rather than a stop.
     <br><br>
     That is the whole difference the eye reads as weight, and it is not something
-    <code>cubic-bezier</code> can be talked out of: a bézier has to reach its endpoint with
-    zero velocity, so it either gets there early and waits, or crawls the whole way.
+    <code>cubic-bezier</code> can be talked out of: a bezier that decelerates into the target
+    has to start decelerating early and crawl the last stretch, and one that keeps its speed
+    to the end stops dead on the target. A spring's tail is a decay with no endpoint to hit,
+    so it arrives still moving and keeps easing the rest of the way in.
     A spring's deceleration is a decay, not an asymptote, which is why the red trace stays
     steep into the target. The faint lines are the same two runs' measured velocities on one
     shared scale, so the grey one collapses to nothing while the red one is still moving.
@@ -307,9 +309,11 @@ function draw() {
       if (velocity) {
         // Real measured velocity: pixels moved per millisecond, scaled so the peak
         // reaches the top of the plot. Drawn from the sampled positions only.
-        const [pt, pv] = s[i - 1];
-        const dt = t - pt;
-        const speed = dt > 0 ? (v - pv) / dt : 0;
+        // The first sample has nothing behind it to difference against, so it
+        // anchors the trace at zero instead of reading a sample that is not there.
+        const prev = i > 0 ? s[i - 1] : null;
+        const dt = prev ? t - prev[0] : 0;
+        const speed = prev && dt > 0 ? (v - prev[1]) / dt : 0;
         const scaled = Math.max(0, Math.min(1, speed / PEAK_SPEED)) * travel;
         i ? ctx.lineTo(X(t), Y(scaled)) : ctx.moveTo(X(t), Y(scaled));
       } else {

@@ -6,8 +6,9 @@
  * `cubic-bezier(0.16, 1, 0.3, 1)`, covered 95% of its distance in the first 42.6% of the
  * duration, which left 57.4% of every transition as an invisible crawl.
  *
- * The parameters are Apple's: a response in seconds and a bounce, where 1.0 bounce is
- * critically damped. Stiffness, damping and mass are derived from them.
+ * The parameters are Apple's: a response in seconds and a bounce, where a bounce of zero
+ * is critically damped and a positive bounce overshoots. Stiffness, damping and mass are
+ * derived from them.
  *
  *     w = 2pi / response    k = w^2    zeta = 1 - bounce    c = 2*zeta*w
  *

@@ -29,7 +29,9 @@ const URL = process.env.PROBE_URL ?? "http://127.0.0.1:48921/?seed=project";
         const parts = m ? m[1].split(",").map((p) => Number.parseFloat(p)) : [];
         return {
             alpha: parts.length === 4 ? Math.round(parts[3] * 1000) / 1000 : 1,
-            transition: cs.transitionProperty === "all" ? `${cs.transitionDuration}` : `${cs.transitionDuration} ${cs.transitionTimingFunction}`,
+            // The timing function is a spring, spelled as a long `linear()` stop list.
+            // Printing it whole buried every other number, so it is reported by kind.
+            transition: `${cs.transitionDuration} ${cs.transitionTimingFunction.includes("linear(") ? "spring" : cs.transitionTimingFunction}`,
         };
     };
 
@@ -76,15 +78,17 @@ const URL = process.env.PROBE_URL ?? "http://127.0.0.1:48921/?seed=project";
     const released = await read("released again");
 
     // An unselected control on the same ladder: the nav row above the list.
-    const nav = page.locator('button:has-text("New Chat")').first();
-    if (await nav.count()) {
-        const navRest = await nav.evaluate(alphaOf);
-        await nav.hover();
+    let nav = null;
+    const navRow = page.locator('button:has-text("New Chat")').first();
+    if (await navRow.count()) {
+        const navRest = await navRow.evaluate(alphaOf);
+        await navRow.hover();
         await page.waitForTimeout(300);
-        const navHover = await nav.evaluate(alphaOf);
+        const navHover = await navRow.evaluate(alphaOf);
         await page.mouse.move(900, 400);
         await page.waitForTimeout(300);
-        const navBack = await nav.evaluate(alphaOf);
+        const navBack = await navRow.evaluate(alphaOf);
+        nav = { rest: navRest.alpha, hover: navHover.alpha, back: navBack.alpha };
         console.log("\nunselected nav row (the midpoint, on an unselected control):");
         console.log(
             `  rest=${navRest.alpha}  hover=${navHover.alpha}  released=${navBack.alpha}  transition=${navHover.transition}`,
@@ -103,16 +107,48 @@ const URL = process.env.PROBE_URL ?? "http://127.0.0.1:48921/?seed=project";
             ]),
         );
     });
-    const pct = (hex) => Number(((Number.parseInt(hex.slice(7, 9), 16) / 255) * 100).toFixed(1));
+    /**
+     * Alpha of a token as a percentage, from either form the stylesheet may use:
+     * `rgba(255, 255, 255, 0.04)` or `#ffffff0a`. Reading a fixed slice of the string
+     * assumed the second form and reported a percentage made of hex digits that are
+     * not there.
+     */
+    const pct = (value) => {
+        const text = String(value).trim();
+        const eight = text.match(/^#([0-9a-f]{8})$/i);
+        if (eight) return Number(((Number.parseInt(eight[1].slice(6, 8), 16) / 255) * 100).toFixed(1));
+        const parts = text.match(/[\d.]+/g) ?? [];
+        const alpha = parts.length >= 4 ? Number(parts[3]) : 1;
+        return Number((alpha * 100).toFixed(1));
+    };
     console.log("\ntokens:", tokens);
     const h = pct(tokens["--row-hover"]);
     const s = pct(tokens["--row-selected"]);
     const sh = pct(tokens["--row-selected-hover"]);
     console.log(`  hover ${h}%  selected ${s}%  selected+hover ${sh}%`);
-    console.log(`  midpoint check: hover is ${h === s / 2 ? "exactly" : "NOT"} half of selected`);
-    console.log(`  ordering check: rest(${rest}) < hover(${hovered}) < selected(${committed}) < selected+hover(${rehovered})`);
-    console.log(`  reversibility:  selected+hover(${rehovered}) -> released(${released})`);
+
+    // A ladder is a claim about ordering, so the probe has to be able to disagree. These
+    // six checks are what a reader would check by eye, and any of them failing exits 1.
+    // The probed row is the committed one, so its ladder runs committed to committed+hover
+    // and back; the unselected control above it carries the midpoint step. An earlier
+    // version of these checks asserted the unselected order against the committed row and
+    // failed against a correct app.
+    const checks = [
+        ["declared hover is exactly half of declared selected", h === s / 2],
+        ["declared hover survives the 8-bit alpha round trip", h >= 3],
+        ["declared selected is above declared hover", s > h],
+        ["declared selected+hover is above declared selected", sh > s],
+        ["the committed row steps up on hover", hovered > rest],
+        ["releasing the pointer returns the committed row to its committed tone", released === committed],
+        ["an unselected row fills on hover and clears on release", nav !== null && nav.hover > nav.rest && nav.back === nav.rest],
+        ["the unselected midpoint is exactly half the committed tone", nav !== null && Number((nav.hover * 2).toFixed(2)) === committed],
+    ];
+    console.log("\nchecks:");
+    for (const [name, ok] of checks) console.log(`  ${ok ? "ok  " : "FAIL"} ${name}`);
+    const failed = checks.filter(([, ok]) => !ok).length;
+    console.log(`\n${failed === 0 ? "PASS" : `FAIL: ${failed} check(s)`}`);
     await browser.close();
+    process.exit(failed === 0 ? 0 : 1);
 })().catch((error) => {
     process.stderr.write(String(error?.stack ?? error) + "\n");
     process.exit(1);

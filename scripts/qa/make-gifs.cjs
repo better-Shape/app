@@ -149,7 +149,13 @@ function makeKit(page) {
     const call = (fn, arg) => page.evaluate(([f, a]) => window.__gifkit[f](a), [fn, arg]);
     return {
         install: (opts) => call("install", opts),
-        move: (x, y, pressed) => call("move", { x, y, pressed }),
+        // A drawn cursor does not raise `:hover`, so a case that only moved the picture
+        // recorded a UI that never reacted. Moving the pointer is part of this call now,
+        // and no case has to remember the real half.
+        move: async (x, y, pressed) => {
+            await page.mouse.move(x, y, { steps: 6 });
+            await call("move", { x, y, pressed });
+        },
         arrow: (opts) => call("arrow", opts),
         show: (x, y, text) => call("show", { x, y, t: text }),
         hide: () => call("hide"),
@@ -207,9 +213,9 @@ const CASES = {
             await page.waitForTimeout(320);
             await track({ frames: 8, label: "hovering: rail at the midpoint", read: async () => `rail ${(await railVal()).toFixed(2)}` });
 
-            await page.locator('[data-panel-toggle="sidebar"]').first().dispatchEvent("click");
+            await page.mouse.click(cx, cy);
             await track({ frames: 26, label: "clicked: the rail finishes the travel", read: async () => `rail ${(await railVal()).toFixed(2)}   panel ${await width()}px` });
-            await track({ frames: 14, label: "committed: it holds, pointer still down", read: async () => `rail ${(await railVal()).toFixed(2)}   panel ${await width()}px` });
+            await track({ frames: 14, label: "committed: it holds, pointer still on the button", read: async () => `rail ${(await railVal()).toFixed(2)}   panel ${await width()}px` });
 
             box = await toggle.boundingBox();
             await kit.move(640, 520);
@@ -260,7 +266,6 @@ const CASES = {
             await track({ frames: 8, label: "at rest", read: async () => `Search ${await fill("Search")}   Filter ${await fill("Filter")}` });
             for (const n of names) {
                 const box = await page.locator(`button[aria-label="${n}"]`).first().boundingBox();
-                await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
                 await kit.move(box.x + box.width / 2, box.y + box.height / 2);
                 await track({ frames: 11, label: `hovering ${n}`, read: async () => `${n} fill ${await fill(n)}  (row tone)   others ${await fill(names.find((x) => x !== n))}` });
             }

@@ -19,8 +19,11 @@ const TARGETS = [
     { name: "sidebar nav row (New Chat)", find: 'button:has-text("New Chat")', expect: { ease: "spring-tap", fill: true } },
     { name: "sessions icon button (search)", find: 'button[aria-label*="Search" i]', expect: { ease: "spring-tap", fill: true } },
     { name: "shelf header", find: "button[aria-expanded]", expect: { ease: "spring-tap", fill: true } },
-    { name: "workspace tab close", find: '[role="tab"] button', expect: { fill: false } },
-    { name: "copy button", find: 'button:has-text("Copy")', expect: { fill: false } },
+    // Both selectors were wrong in the way a print-only probe hides: the workspace tab
+    // close is labelled by the tab it closes, and the copy affordance is marked by the
+    // state attribute it writes rather than by a label only some of its call sites show.
+    { name: "workspace tab close", find: 'button[aria-label^="Close"]', expect: { fill: false } },
+    { name: "copy button", find: "[data-copy-state]", expect: { fill: false } },
 ];
 
 const readTransition = (el) => {
@@ -69,7 +72,11 @@ const readTransition = (el) => {
     for (const target of TARGETS) {
         const locator = page.locator(target.find).first();
         if (!(await locator.count())) {
-            console.log(`   ${target.name.padEnd(34)} SKIP (not present)`);
+            // The probe exists to confirm these controls carry the spring vocabulary, so a
+            // control that is not on the page is a finding: skipping it let the run print
+            // PASS with nothing checked.
+            failures++;
+            console.log(`   FAIL ${target.name.padEnd(34)} not present on this route`);
             continue;
         }
         let box;
@@ -79,7 +86,8 @@ const readTransition = (el) => {
             box = null;
         }
         if (!box) {
-            console.log(`   ${target.name.padEnd(34)} SKIP (no box)`);
+            failures++;
+            console.log(`   FAIL ${target.name.padEnd(34)} present but not laid out`);
             continue;
         }
         // Drive the real pointer: `hover()` cannot reach some of these chrome elements.

@@ -55,15 +55,27 @@ async function main() {
             });
             const sidebar = document.querySelector("aside");
             const sr = sidebar?.getBoundingClientRect();
+            // What is animating on each watched node right now. A rect that moves with an
+            // empty list here moved because the layout changed, not because a transition
+            // is running, which is the distinction this probe exists to make.
+            const live = nodes.map(
+                (n) =>
+                    n
+                        .getAnimations()
+                        .filter((a) => a.playState === "running")
+                        .map((a) => a.transitionProperty ?? a.animationName ?? "?")
+                        .join("+") || "-",
+            );
             return {
                 rects,
+                live,
                 sidebar: sr ? { x: +sr.x.toFixed(2), w: +sr.width.toFixed(2), cls: sidebar.className.slice(0, 60) } : null,
             };
         }, WATCH);
 
-    console.log("t(ms)\t" + ["#", "x", "y", "w", "h"].join("\t") + "\tsidebar(x,w)");
+    console.log("t(ms)\t" + ["#", "x", "y", "w", "h"].join("\t") + "\tsidebar(x,w)\tlive");
     const before = await probe();
-    console.log(`0\t\t${before.rects.map(describe).join(" | ")}\t${fmtSide(before.sidebar)}`);
+    console.log(`0\t\t${before.rects.map(describe).join(" | ")}\t${fmtSide(before.sidebar)}\t${before.live.join(" | ")}`);
 
     if (CLICK) {
         await page.locator(CLICK).first().click();
@@ -74,7 +86,7 @@ async function main() {
         await page.waitForTimeout(INTERVAL);
         if (i % EVERY !== 0 && i !== SAMPLES) continue;
         const s = await probe();
-        console.log(`${Date.now() - t0}\t\t${s.rects.map(describe).join(" | ")}\t${fmtSide(s.sidebar)}`);
+        console.log(`${Date.now() - t0}\t\t${s.rects.map(describe).join(" | ")}\t${fmtSide(s.sidebar)}\t${s.live.join(" | ")}`);
     }
 
     await browser.close();

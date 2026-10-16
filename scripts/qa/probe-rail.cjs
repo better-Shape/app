@@ -5,7 +5,8 @@
  * The rail's position is `--panel-rail-hide` on `.panel-glyph`, consumed by
  * `.panel-glyph__hide { transform: scaleX(...) }`. Reading that custom property tells
  * us the *target* the transition is heading for; reading the resolved `transform`
- * matrix tells us where the rail actually is. Both are printed, so a target that
+ * matrix tells us where the rail actually is, on both axes so the bottom strip's
+ * vertical rail is measured on the axis it uses. Both are printed, so a target that
  * never changes (a rule winning on specificity) is distinguishable from a transition
  * that is merely slow.
  *
@@ -28,7 +29,10 @@ const state = (sel) =>
         return {
             open: glyph?.getAttribute("data-open"),
             target: glyph ? getComputedStyle(glyph).getPropertyValue("--panel-rail-hide").trim() : null,
+            // Both axes: side rails scale on X, the bottom strip scales on Y, and reading
+            // only `a` reports a flat 1 for every vertical rail and calls it no movement.
             scaleX: hide ? new DOMMatrixReadOnly(getComputedStyle(hide).transform).a.toFixed(3) : null,
+            scaleY: hide ? new DOMMatrixReadOnly(getComputedStyle(hide).transform).d.toFixed(3) : null,
             aria: btn.getAttribute("aria-label"),
             x: +r.x.toFixed(1),
             // Who claimed what: a committed button must not be previewing, and a
@@ -59,7 +63,7 @@ async function main() {
             label.padEnd(26),
             rows
                 .filter((r) => r.onscreen)
-                .map((r) => `x${r.x} open=${r.open} target=${r.target} scaleX=${r.scaleX} commit=${r.commit} mount=${r.mount} [${r.aria}]`)
+                .map((r) => `x${r.x} open=${r.open} target=${r.target} scaleX=${r.scaleX} scaleY=${r.scaleY} commit=${r.commit} mount=${r.mount} [${r.aria}]`)
                 .join("\n" + " ".repeat(26)),
         );
     };
@@ -80,7 +84,7 @@ async function main() {
         const rows = await page.evaluate(state, SEL);
         samples.push(
             `${String(Date.now() - clickAt).padStart(3)}ms  ${rows
-                .map((r) => `x${r.x} scaleX=${r.scaleX} t=${r.target}`)
+                .map((r) => `x${r.x} scaleX=${r.scaleX} scaleY=${r.scaleY} t=${r.target}`)
                 .join("  |  ")}`,
         );
     }

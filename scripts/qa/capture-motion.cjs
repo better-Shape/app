@@ -233,10 +233,10 @@ function buildGif(framePaths, outPath) {
 }
 
 /** Build a labelled contact sheet so the motion is also reviewable as one still. */
-function buildSheet(framePaths, outPath, label) {
+function buildSheet(framePaths, outPath, label, captions) {
     const cols = Math.min(framePaths.length, 6);
     const args = ["-background", "#0b0b0d", "-fill", "#e6e6e6", "-pointsize", "22"];
-    for (const p of framePaths) args.push("-label", "", p);
+    framePaths.forEach((p, i) => args.push("-label", captions?.[i] ?? "", p));
     args.push("-tile", `${cols}x`, "-geometry", "+6+6", "-border", "8", outPath);
     execFileSync(magick.montage(), args, { stdio: "pipe" });
     if (label) log(`  sheet: ${outPath}`);
@@ -356,15 +356,22 @@ async function main() {
                 const flat = readings.map((r) => `[${r.join(",")}]`).join(" ");
                 log(`  measure(${measure}): ${flat}`);
             }
-            groups.set(label, frames);
+            groups.set(label, { frames, readings, measure });
         };
 
         await spec.run(page, shot);
 
-        for (const [label, frames] of groups) {
+        for (const [label, group] of groups) {
+            const { frames, readings, measure } = group;
             const gif = join(OUT, `${spec.name}--${label}.gif`);
             buildGif(frames, gif);
-            buildSheet(frames, join(OUT, `${spec.name}--${label}-sheet.png`), label);
+            // A contact sheet is only reviewable if a frame says what it is: the phase, the
+            // frame's position in it, and the value the case reads out at that frame.
+            const captions = frames.map((_, i) => {
+                const read = readings[i];
+                return read ? `${label} ${i}\n${measure} ${read.join(",")}` : `${label} ${i}`;
+            });
+            buildSheet(frames, join(OUT, `${spec.name}--${label}-sheet.png`), label, captions);
             manifest.push({ case: spec.name, group: label, gif, frames: frames.length });
             log(`  gif:  ${gif} (${(readdirSync(dir).length)} frames on disk)`);
         }
