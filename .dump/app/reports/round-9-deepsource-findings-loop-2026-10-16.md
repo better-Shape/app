@@ -365,6 +365,49 @@ set for the browser suite.
 - `npm run test:rust`, `cargo clippy`, `npm ci`: not run, the same three boundaries the
   section above records. This diff touches no file under `src-tauri` and adds no dependency.
 
+## The run over `ebea985`, where the arrow const bit back
+
+Run `96ab7810`: Failed, 1 alert (the baseline warning), Documentation Coverage 11.2 against
+18.2 percent, External Dependencies 3 of 90, Issues 1882. Nine findings across the four
+sidebar files and two files of the workbench status bar.
+
+- `features/agent/sidebar/index.tsx`: JS-0357 four times, Major: `NavItem` read above its
+  declaration at `:234` and `:235`, `SidebarNav` at `:265`, `NavItem` again at `:306`.
+- `features/agent/sidebar/collection-dialog.tsx`: JS-0757 twice, the `autoFocus` prop at
+  `:177` and `:214`.
+- `features/agent/sidebar/hosted-nav.tsx`: JS-W1044 at `:26`, an optional chain in
+  `readBackSlot`.
+- `features/agent/workbench/status/ui/copy-button.tsx`: JS-0067 at `:10`.
+- `features/agent/workbench/status/ui/status-item.tsx`: JS-D1001 at `:6`.
+
+Two things this round settled.
+
+An arrow const does not hoist, so a batch that writes a component beside the components it
+renders can order them either way and only the analyzer sees it. JS-0357 is Major and it is
+right: `CollapsedNavRows` and `StandaloneSidebar` read `NavItem` and `SidebarNav` above their
+declarations. The file is ordered so nothing is read above its own definition, the sidebar
+itself last, and the worklist tool models the rule now (a reference to a module-scope
+declaration that appears above that declaration), which is how the last two of the four were
+found rather than waited for.
+
+The analyzer reads the folder, not the file. The two workbench status files came into the
+window because the branch already had them open, and their findings are the same two shapes
+the sidebar batch was already fixing: a module-scope `function` declaration and a missing doc
+comment. That is the loop working as intended, and it is why the backlog number in the
+previous section is the one to track.
+
+## Gates on `685d316`
+
+- `npx tsc --noEmit`: passed, exit 0, no output.
+- `npx eslint . --format json`: passed, 0 errors and 150 warnings, exit 0, against the 156
+  baseline, 0 groups added and 6 gone by file, rule and message.
+- `npm test`: passed, 122 files and 995 tests, exit 0.
+- `npm run qa`: passed, 25 tests, 0 failed, 0 flaky, 0 skipped, 81.4s, exit 0.
+- Complexity: `features/agent/sidebar/`, `features/agent/workbench/status/ui/` and
+  `components/ui/panel-glyph.tsx` hold no function at 5 or above.
+- `npm run test:rust`, `cargo clippy`, `npm ci`: not run, the recorded sandbox boundaries.
+  This diff touches no Rust file and adds no dependency.
+
 ## What is still open
 
 - `features/chat/ui/md/view.tsx` keeps one forward reference that cannot be ordered both
