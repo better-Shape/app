@@ -221,11 +221,97 @@ twenty-one restates the line below it.
 - `cargo fmt --all -- --check`: not run, no Rust file touched and the toolchain is scratch
   state a sandbox reset removes
 
+
+## The run over `ded79b4`
+
+Nine findings, all of them in four files this branch had already rewritten, and eight of them
+are the same two rules read again after the rewrite moved their lines: `SwapText` at 13 with
+JS-0067 and JS-C1003 beside it, three mixed returns in the swap, `CollapsibleSection` at 6,
+`QuickPick` at 12, and JS-0067 on `isGroup` and `Combobox` in `components/ui/combobox.tsx`.
+They are fixed in `9d9892f`, and the fixes are the ones the report's own complexity section
+describes: a decision is moved out of the function, not restated inside it. Documentation
+Coverage read 8.6% against 15.7% on the branch side of the metric, Issues 2014, Alerts 1.
+
+`QuickPick` is worth recording for a second reason. It had never been read by any earlier run,
+and the two shapes the run named were a nested arrow at each end of the component: the key
+map and the list. Splitting them moved the count to 5 and 5, and the four helpers that came
+out (`cycleIndex`, `submitPaletteQuery`, `paletteTitle`, `paletteDescription`) are module
+scope, which keeps their own counts at 1 or 2 rather than adding to the component's.
+
+## The run over `ddc7072`
+
+Fifteen findings across the two files that hold the sidebar toggle and the layout around it.
+Nine were in `features/agent/chrome.tsx`: the four module-scope declarations, their missing
+comments, and two complexity readings, `AgentChrome` at 11 and `SidebarToggleBtn` at 8. Six
+were in `features/agent/layout.tsx`: `layoutMinWidth` and `isFlyoutUiTarget` with JS-0067 and
+JS-D1001 each, plus one more declaration. Three were single lines elsewhere: the callback in
+`components/ui/tabs.tsx` that serves the observer, the resize listener and the window resize
+without saying why one callback is enough; the deliberate two-step height measure in
+`components/ui/textarea.tsx`, which the analyzer reads as assigning twice; and the `TODO`
+marker in `eslint.config.cjs`, which is a finding in its own right.
+
+All three single-line findings are fixed by saying the thing rather than reshaping the code.
+The textarea keeps its two-step measure, because a shrinking edit has to lower the box and
+the height has to be cleared before the content height can be read, and the clear is now
+`removeProperty("height")` so the file writes one height instead of two. The tabs callback
+carries the reason the three signals share it. The config comment keeps its meaning without
+the marker.
+
+## The run over `8dfb02a`, where the layout was read for the first time
+
+Alerts 1, Documentation Coverage 9.7% and 16.8%, Issues 1939, and fifteen findings. Four of
+them are complexity readings inside `features/agent/layout.tsx` (`SidebarPeek` 7,
+`AgentLayout` 25, and the two nested handlers `onTab` 6 and `onToggle` 11), six are `void`
+operators in the same file, three are effects that return a cleanup on one path and nothing
+on another, and one is JSX nested five levels.
+
+The mechanism behind that jump is worth writing down, because it is the trap of this whole
+round. The analyzer reports an issue when its location is inside a declaration whose
+declaration line is part of the diff, not only when the location itself is an added line.
+`AgentLayout` had stood in that file since before the branch and no run had ever looked
+inside it; writing it as a documented arrow const (`8dfb02a`) put its declaration line in the
+diff, and 25 complexity, six `void` operators, three mixed returns and a five-level JSX tree
+came out at once. The rule is what makes the arrow-const fix double-edged: it satisfies
+JS-0067 and it opens the body to every other rule.
+
+The answer here is to fix what came out rather than re-hide it, and the shape is the same
+one the rest of the round used. `AgentLayout` composes six hooks now (stored preferences,
+workspace width and drag, window minimum, nav slot, splash sequence, sidebar flyout), six
+event subscriptions that share one action bag, three helpers for the columns' derived
+visibility, and three components for the `<div>` layers, the platform window strip and the
+splash. `SidebarPeek`'s mount-through-exit rule is `useExitDelay`. The six `void` operators
+are ordinary imports with a `.catch`, plus two window-control callbacks handed straight
+through. No wrapper element moved and no class string changed, and that is checked rather
+than asserted: `npm run qa` compares the workbench route against a pixel baseline.
+
+| Function | Run number | Local before | Local after |
+| --- | --- | --- | --- |
+| `AgentLayout` | 25 | 25 | 5 |
+| `SidebarPeek` | 7 | 7 | 4 |
+| `onToggle` | 11 | 14 | 3 |
+| `onTab` | 6 | 7 | 2 |
+| the layout file | not named | 9 functions above 4 | one function at 5 |
+
+## Gates on `3bec047`
+
+- `npx tsc --noEmit`: exit 0
+- `npx eslint .`: 150 warnings, 0 errors, exit 0. Zero warning groups added against the
+  pre-branch baseline (156), six gone, compared as a multiset of file, rule and message so a
+  moved line cannot read as new. The layout file itself carries the same two
+  `react-hooks/set-state-in-effect` warnings it carried before the refactor, one for the
+  storage read on mount and one for the nav slot.
+- `npm test`: 122 files, 995 tests, exit 0
+- `npm run qa`: 25 passed, 0 failed, 0 flaky, 0 skipped (92.3 s), exit 0
+- `node scripts/motion/springs.cjs --write`: regenerates `app/springs.css` byte for byte
+- `cargo fmt --all -- --check`: not run, no Rust file touched and the toolchain is scratch
+  state a sandbox reset removes
+
 ## What is still open
 
 - `features/chat/ui/md/view.tsx` keeps one forward reference that cannot be ordered both
   ways: the components map renders `ChatMarkdown` and `ChatMarkdown` builds the map. It is a
   recursion, and the rule has no ordering that satisfies it.
-- The analyzer reports a growing window of findings per run rather than the whole set, in
-  path order. Every run so far has moved the window forward by fixing what it named, and the
-  loop continues the same way.
+- The analyzer reads a growing window of findings per run rather than the whole set. The
+  window is not arbitrary and this round finally named it: a finding is reported when it sits
+  inside a declaration whose declaration line is in the diff. Fixing the window's findings
+  opens the next window, and every run so far has moved it forward.
