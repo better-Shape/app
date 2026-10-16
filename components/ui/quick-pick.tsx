@@ -55,6 +55,24 @@ const PICK_ACTIONS: Record<string, PickAction | undefined> = {
 const pickAction = (event: KeyboardEvent): PickAction | null =>
     isCompositionKey(event) ? null : PICK_ACTIONS[event.key] ?? null;
 
+/** What the picker can do in response to a key: wrapped moves and row confirmation. */
+type PickKeyEffects = { move: (delta: number) => void; submit: () => void };
+
+/** The effect of each action: Enter confirms the highlight, the arrows step through the list. */
+const PICK_KEY_EFFECTS: Record<PickAction, (keys: PickKeyEffects) => void> = {
+    next: ({ move }) => move(1),
+    previous: ({ move }) => move(-1),
+    confirm: ({ submit }) => submit(),
+};
+
+/**
+ * A focused row button owns its own Enter activation. Confirming here instead would select the
+ * *highlighted* row and swallow the click the focused button produces, so a keyboard user could
+ * not activate the row they tabbed to.
+ */
+const rowOwnsKey = (action: PickAction, target: EventTarget | null) =>
+    action === "confirm" && target instanceof Element && target.closest("button") !== null;
+
 /** The picker identity a highlight belongs to: reopening, retyping or a new result set. */
 type SelectionScope = { open: boolean; query?: string; count: number };
 
@@ -69,10 +87,13 @@ const moveSelection = (length: number, delta: number) => (current: number) => {
  * reopens, the query changes, or the result count changes, so the row a keypress confirms is
  * always the row the current query produced.
  */
+const sameScope = (a: SelectionScope, b: SelectionScope) =>
+    a.open === b.open && a.query === b.query && a.count === b.count;
+
 const usePickSelection = (scope: SelectionScope) => {
     const [selected, setSelected] = React.useState(0);
     const [identity, setIdentity] = React.useState(scope);
-    if (identity.open !== scope.open || identity.query !== scope.query || identity.count !== scope.count) {
+    if (!sameScope(identity, scope)) {
         setIdentity(scope);
         setSelected(0);
     }
@@ -203,11 +224,18 @@ const PickRow = ({
     </button>
 );
 
+/** First nonempty candidate, so a caller that passes "" gets the documented default. */
+const firstNonEmpty = (...values: (string | undefined)[]) => values.find(value => value) ?? "";
+
 /** Accessible names for the dialog: the caller's title first, then the placeholder. */
 const pickerLabels = (title?: string, placeholder?: string) => ({
-    title: title || placeholder || "Quick pick",
-    description: placeholder || "Select an option",
+    title: firstNonEmpty(title, placeholder, "Quick pick"),
+    description: firstNonEmpty(placeholder, "Select an option"),
 });
+
+/** The field is filterable only when the caller owns both the query value and its updates. */
+const ownsFilterField = (query?: string, onQueryChange?: (value: string) => void) =>
+    query !== undefined && onQueryChange !== undefined;
 
 /** Keyboard ownership for the picker: wrapping moves, row confirmation and query submission. */
 const usePickKeys = ({
@@ -236,22 +264,17 @@ const usePickKeys = ({
 
     /** Enter prefers an explicit nonempty query; otherwise confirm the highlighted result. */
     const submit = () => {
-        const value = query?.trim();
-        if (onSubmitQuery && value) onSubmitQuery(value);
+        const typed = query?.trim();
+        if (onSubmitQuery && typed) onSubmitQuery(typed);
         else confirm();
     };
 
     /** Route a keypress: moves and confirmation only, so the field keeps the typing keys. */
     const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
         const action = pickAction(event.nativeEvent);
-        if (!action) return;
-        // A focused row button owns its own Enter activation. Confirming here instead would
-        // select the *highlighted* row and swallow the click the focused button produces, so
-        // keyboard users could not activate the row they tabbed to.
-        if (action === "confirm" && (event.target as HTMLElement).closest("button")) return;
+        if (!action || rowOwnsKey(action, event.target)) return;
         event.preventDefault();
-        if (action === "confirm") submit();
-        else move(action === "next" ? 1 : -1);
+        PICK_KEY_EFFECTS[action]({ move, submit });
     };
 
     return { confirm, handleKeyDown };
@@ -311,7 +334,7 @@ export function QuickPick({
     const [selected, setSelected] = usePickSelection({ open, query, count: items.length });
     const inputRef = React.useRef<HTMLInputElement>(null);
     const labels = pickerLabels(title, placeholder);
-    const showInput = query !== undefined && onQueryChange !== undefined;
+    const showInput = ownsFilterField(query, onQueryChange);
 
     useFilterFocus(open, showInput, inputRef);
     const { confirm, handleKeyDown } = usePickKeys({
