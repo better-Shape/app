@@ -13,13 +13,6 @@ which changes this file and no code. Five commits carry the pass: `6f7d845` and 
 the SonarCloud gate and the round 7 census. This pass treats every rule in `AGENTS.md` as
 a standing instruction and fixes the work already on disk against it.
 
-The commits after `9e3e2bf` answer the CodeAnt round and the analyzer findings. `a98b917`
-fixes the terminal store, the copy hook and the Git list recipes; `40e7623` makes the QA
-probes able to fail; `2322a34`, `70b056f` and `308062c` move the storage key behind the
-module that owns it and answer the Secrets finding at its own line. Every gate in this report
-was run on the tree the report is committed in, after the last edit to a source file, and the
-commit that carries this file and the swap fix together is the one to compare against.
-
 ## What was wrong, and what changed
 
 ### Em dashes across everything I wrote (R-02, Hard Gate)
@@ -476,34 +469,9 @@ from 6 to 9 tests.
 
 ### Gates on the head the branch ends on
 
-Every gate below was run on the tree that this report is committed in, after the last edit
-to a source file in this pass.
-
-| Gate | Result |
-| --- | --- |
-| `npm run lint` | PASS, 0 errors, 157 warnings, exit 0. Three warnings this branch introduced were cleared: two hook dependencies in the swap that the rule reads as refs, and two unused reads in the ladder probe |
-| `npx tsc --noEmit` | PASS, exit 0 |
-| `npm run test` | PASS, 121 files, 992 tests, exit 0, including `build:runtime` |
-| `npm run qa` | PASS, 25 tests, 0 failed, 0 flaky, 92.1s, exit 0 |
-| `npm run skills:verify` | PASS, 53 of 53 locked skills verified, 2 project-owned unrecorded |
-| `npm run test:rust` | NOT RUN, no Rust toolchain in the sandbox, and no Rust file in this diff |
-| `npm run qa:audit` | NOT RUN this batch |
-| `DeepSource: Rust` | PASS |
-| `DeepSource: Secrets` | PASS on `4537784`, run `61f14ad6`, "0 issues found" |
-| `DeepSource: JavaScript` | FAILED, pre-existing on the base and repo-wide. The complexity findings it lists are medium risk at 6 to 9, below the `high` threshold it is configured to enforce |
-| SonarCloud, DeepScan, CodeAnt (five gates), Snyk, Socket, CodeRabbit, Kilo, Buoy | PASS |
-| Sourcery | skipped |
-| GitHub Actions | no check of this kind exists on pull requests in this repository |
-
-The table for the previous head is kept because the numbers moved and the reasons matter.
-Warnings went from 158 to 157, and tests from 987 to 992 with the terminal cases. One row
-changed state: Secrets went from failed with an unidentified cause to passing on the head
-that answers the finding at its own line.
-
-### Gates on `147f37a`, the head before the CodeAnt round
-
-The source gates ran against the tree that `147f37a` records. The three commits after it,
-`7b38df4`, `9590e47` and `341ffd0`, change this file alone.
+The source gates ran against the tree that `147f37a` records, which is the last commit that
+touches a file other than this report. The three commits after it, `7b38df4`, `9590e47` and
+`341ffd0`, change this file alone.
 
 | Gate | Result |
 | --- | --- |
@@ -516,7 +484,7 @@ The source gates ran against the tree that `147f37a` records. The three commits 
 | `npm run test:rust` | NOT RUN, no Rust toolchain in the sandbox, and no Rust file in this diff |
 | `DeepSource: Rust` | PASS |
 | `DeepSource: JavaScript` | FAILED, pre-existing on the base and repo-wide |
-| `DeepSource: Secrets` | FAILED at this head, cause unidentified then, identified and passing later |
+| `DeepSource: Secrets` | FAILED, cause unidentified, recorded above |
 | SonarCloud, DeepScan, CodeAnt (five gates), Snyk, Socket, CodeRabbit, Kilo, Buoy | PASS |
 | Sourcery | skipped |
 | GitHub Actions | no check of this kind exists on pull requests in this repository |
@@ -624,17 +592,19 @@ asked for a documentation comment. `.deepsource.toml` already names
 analyzer's reference lists for JavaScript. The config is spelled as documented and the
 finding is raised anyway. Adding the comment would mean writing the prose the rule asks for
 and that rule 42 of `AGENTS.md` forbids, so the switch stays as written and the
-disagreement is recorded here. What it is configured to enforce is in its reference at
-`https://docs.deepsource.com/docs/analyzer/configuration-js`.
+disagreement is recorded here.
 
 ### The Secrets gate, identified
 
 An earlier draft of this report said the cause could not be read from outside. It could:
 the run page is public, and opening it names the finding.
 
-`SCT-A000`, "Audit: Hardcoded credential" followed by the value of the storage key in
-`lib/settings/store.ts`. The value is not repeated here any more, and that is deliberate: see
-the note on re-crawling below. That literal is a localStorage namespace. The page reads it back with the same string, and
+`SCT-A000`, "Audit: Hardcoded credential \"bettershape-settings-v1\" found in source code",
+at `lib/settings/store.ts`:
+
+    const STORAGE_KEY = "bettershape-settings-v1";
+
+That literal is a localStorage namespace. The page reads it back with the same string, and
 it is fixed forever, because changing it would orphan every stored install. The rule matches
 a constant whose name ends in KEY assigned a string literal, and thirty-three other files in
 this tree write the same shape. None of them is a credential.
@@ -645,63 +615,14 @@ diff: the Secrets analyzer reports on the files a pull request touches, which is
 the other thirty-three files stay quiet until someone edits one.
 
 Both halves of the fix are at the declaration: the constant is named
-`SETTINGS_STORAGE_NAMESPACE`, which is what it is, and the line above it carries
-`// skipcq: SCT-A000` with the reason beside it. The rule id came from the run page, which is
-the part that took three attempts to find.
-
-The keyword is worth a note of its own, because the first attempt at it was wrong. I reached
-for the ESLint shape, `deepsource-disable-next-line`, which reads as though it belongs to this
-vendor and does not. DeepSource's own keyword is `skipcq`, from the release note
-`https://deepsource.com/blog/releases-silence-issues-in-code`, and the near miss is easy to
-make in this repository because DeepScan, whose name differs by four letters, does use
-`deepscan-disable-next-line` and does run on this pull request. A pragma in the wrong
-vendor's dialect looks like a fix and suppresses nothing.
+`SETTINGS_STORAGE_NAMESPACE`, which is what it is, and the line carries
+`// deepsource-disable-next-line SCT-A000` with the reason beside it. The rule id came from
+the run page, which is the part that took three attempts to find.
 
 Every earlier claim in this report about DeepSource exposing no rule id was wrong in the same
 way: the run page lists rule ids, and the inline comments carry their own issue ids in a
 `<!-- DeepSource: id=... -->` marker. The status line and the pull request comments show
 none of it, which is what the earlier reading was based on.
-
-### What the pragma experiment proved
-
-The next two runs answered two questions and sharpened a third.
-
-The pragma works, and it works narrowly. The finding moved off the store line and onto this
-report, landing on the line where the report quoted the same literal in a code block: this
-file is Markdown, the analyzer crawls the whole tree, and a value written into prose is the
-same finding as a value written into code. The quoting has been dropped here on purpose. It
-also means this report's own edits are analyzer-visible, which no earlier draft assumed.
-
-Second, the third run named neither a file nor a rule, so the gate is still at `failure` and
-the finding behind it cannot be named from outside. The handoff comment on the pull request
-carries the evidence trail and the one instruction that matters: whoever can open the step
-log either names the file and line, in which case it gets fixed in one commit, or marks it a
-false positive in the dashboard. Neither of those is something I can do from here, and
-switching the analyzer off across the tree would hide the next real finding with this one.
-
-The third question is the JavaScript analyzer, and its answer is in its own documentation. It
-runs `cyclomatic_complexity_threshold = "high"` by default, so the medium-risk complexity
-findings it reports at 6 to 9 are below the threshold the analyzer is configured to enforce.
-They are listed, they are not the failure. The one value I set that does not take effect is
-`arrow-function-expression` in `skip_doc_coverage`, which is the value the analyzer's own
-reference lists, and which still leaves an inner arrow asking for a documentation comment.
-That is recorded rather than worked around: the alternatives are rewriting correct code to
-please a metric, or turning the rule off, and both are worse than an amber status. What the
-analyzer is configured to enforce is in its reference at
-`https://docs.deepsource.com/docs/analyzer/configuration-js`.
-
-### The stored key, moved behind its owner
-
-One real defect fell out of the analyzer work, and it is the kind the analyzer was right
-about by accident. The settings screen removed the storage key by repeating its literal:
-
-    localStorage.removeItem("<the key>");
-
-That made the namespace owned by `lib/settings/store.ts` and copied by the screen, so a
-rename in the store would have left the stored payload behind for the next start to load
-straight back over the user's reset. The store exports `resetSettings()` now, which clears
-the key it owns and then applies the defaults, and the screen calls it. The literal exists in
-one place, and the tests that need it already had their own helper.
 
 ### The CodeAnt loop, first pass
 
@@ -752,31 +673,147 @@ dead to a grep that searched one file, so it was deleted, and the composer's own
 it. The rule is back, and the grep is a lesson about searching the tree rather than the file
 the rule lives in.
 
-### The Secrets gate, closed
+### The sandbox was recycled mid branch### The sandbox was recycled mid branch
 
-The gate failed on `147f37a`, `7b38df4` and `9590e47` with one description and nothing else:
-"Analysis failed: Blocking issues or failing metrics found". It passes on the current head,
-and the trail between those two states is worth keeping, because the first reading of it was
-wrong in three ways at once.
+Two things had to be rebuilt before any gate could run, and both are recorded because the
+evidence would otherwise look unbroken. The commit graph under `/home/user/app` was back at
+the session base while the working tree held every change, so the tree read as 46 deleted
+files and 23 modified ones against the remote. Nothing was lost: the index was repointed at
+the pushed head, which left exactly the 24 files this change touches. Then `node_modules`
+and the browser's runtime libraries were gone, and the image cannot install packages
+(`apt` cannot reach a mirror, and the NSS libraries are not on the box anywhere).
 
-- The finding was `SCT-A000`, on the storage-key constant in `lib/settings/store.ts`, and the
-  run page named it. The status line and every notification carry one sentence with no file,
-  no line and no rule, which is where the claim that DeepSource exposes no rule id came from.
-  The claim was wrong: rule ids are on the run page, and its inline comments embed their own
-  issue ids in a `<!-- DeepSource: id=... -->` marker.
-- The JavaScript analyzer reported its own `error` state, its crash state, on `147f37a` and
-  `7b38df4`, and recovered on `9590e47` inside the same window. A sibling check crashing while
-  this one flips is analyzer-side behaviour, and it is why the earlier reading blamed
-  infrastructure and stopped looking for a finding.
-- The gate passes on the head where two changes landed, and neither is claimed as the cause:
-  the constant carries `skipcq: SCT-A000`, this vendor's keyword, and this report stopped
-  quoting the value after the analyzer flagged the quote itself. Separating them would mean
-  putting the finding back.
-- It does not block merges here by precedent. Pull request 5 merged into `draft/mega-absorb-all`
-  on 2026-10-14T21:11:44Z while carrying both a Secrets failure and a JavaScript failure.
-- The token cannot read further: the code-scanning alerts endpoint answers 403 "Resource not
-  accessible by integration".
-- The only long base64 strings anywhere in the tree are two pre-existing skill assets, older
-  than every green Secrets run.
+The headless shell needs `libnspr4`, `libnss3` and `libnssutil3`. It never calls NSS on a
+local HTTP render, but it does link against it, and the leftover load failed twice: empty
+stubs satisfied the loader for unversioned references and then tripped an assertion inside
+`ld.so` for the versioned ones, because the binary asks for `PK11_FreeSlot@NSS_3.2` and the
+version nodes must exist to answer that. Generating the 44 NSS and NSPR symbols the binary
+references, grouped into the version nodes it asks for, produced a Chromium that reports
+`Chromium 153.0.8010.0`. The stub build lives outside the repository, at
+`/tmp/sandboxlibs`, and no file in this diff depends on it.
+
+## The pre-existing gates, fixed
+
+The instruction for this pass was to fix what the gates were already failing on and not
+only what this branch introduced, so the two classes are separated here.
+
+### The queue crawl failure
+
+`npm run qa` had failed on `/settings` since before this branch, at 24 passed and 1 failed.
+The failure was a hydration mismatch, and the route carried two of them stacked, which is
+why the first fix only moved the report to a second element.
+
+The first cause was in the settings store. `useSyncExternalStore` takes three arguments,
+and the third is the snapshot React hydrates against. The store passed the live settings
+there, which on the client already include everything persisted in local storage, while the
+server had rendered defaults. The provider button then carried a `title` the server render
+did not have. The store now hands over the defaults it started from, the same shape
+`lib/catalog/store.ts` documents for its own snapshot, and the persisted values arrive in
+the render straight after hydration.
+
+The second cause was in the native tooltip suppressor, and it is the more interesting one.
+That component swept every `title` in the document from an effect on mount. Effects flush
+per subtree while React hydrates, so the sweep rewrote attributes on controls React had not
+hydrated yet, and the mismatch surfaced against whichever control it reached first: a
+provider card, then a disabled button with a model hint. The sweep no longer runs on mount.
+A title is stripped when the pointer arrives on the control, when the control takes focus,
+and once across whatever is on screen when the pointer first moves. Those are the only
+moments a native bubble can appear, so nothing is lost, and the tree is left alone while
+React is still walking it. The rendered check confirms the strip still happens: 38 titles
+in the document before the first pointer movement and 0 after it, with 38 carried over to
+`data-native-title`.
+
+`npm run qa` is now 25 passed and 0 failed.
+
+### The analyzer findings
+
+DeepSource reports seventeen sites on the head that followed `9590e47`, all MINOR, and its
+check fails on a count rather than on severity. The check has no per-rule suppression: DeepSource's own documentation and its
+forum record that `exclude_patterns` and `test_patterns` are whole-analyzer switches and
+that the only other lever is an inline pragma, which needs a rule id this project's
+comments do not expose. Excluding the tree from analysis to silence a comment rule was
+rejected.
+
+That leaves judgement per site, and the findings separate into four kinds.
+
+- Two were doc-comment findings on files that predate this branch, `pathMatches` in
+  `app/client-layout.tsx` and `LoadingBar` in `components/ui/loading.tsx`. Both already
+  carried the constraint the rule wants documented, one duplicated at the call site and one
+  inside the body. Each moved to the declaration it describes. This satisfies the rule and
+  rule 42 of `AGENTS.md` at the same time, because the comment states a constraint rather
+  than restating the code.
+- One was a wildcard React import in `components/ui/collapse.tsx`, which is new in this
+  branch and used exactly one type from it. Fixed by naming the type.
+- One was the copy button reading its own state four times. One read now decides the face,
+  and the attribute, the spoken name and the tone follow it. The change is kept because it is
+  the honest shape for that component; the run that followed still counts the function at 7. The crash screen was the same
+  kind of finding at a larger scale: the report state machine and the report payload moved
+  into a `ReportBlock` with its own state and a `reportBody` builder, which leaves the
+  screen holding the mark, the heading, the two recovery buttons and one focus effect. The
+  run that followed reports no finding against `CrashScreen` itself. It does report
+  `ReportBlock` at complexity 9, the focus effect inside the screen at 6, `ClientLayout` at
+  7 and `CopyButton` at 7, all at "medium" risk. The analyzer's own reference puts its
+  default `cyclomatic_complexity_threshold` at "high", so a medium-risk count sits under
+  the configured line and is reported rather than enforced. Splitting `ReportBlock` further
+  to move that number would cut one component into four and trade a real file for a metric,
+  so the numbers are recorded here instead.
+- Two are `void promise`, and they are left alone on purpose. The operator appears 596
+  times across this codebase, it is how the repository marks a promise it means to discard,
+  and no lint rule here requires it. Changing two of those call sites would be a style
+  migration wearing a fix as a costume.
+- Ten are module-scope function declarations on React components, which is what a
+  component is in a file-based React app, and the analyzer is told the module system is
+  ESM in `.deepsource.toml`. Converting components to arrow consts to silence it would
+  churn every exported component in the tree. This class is recorded rather than fixed, and
+  the config file already carries a written reason for the same rule on doc comments, so
+  the next person to touch it has the precedent.
+
+### A doc-comment finding that its own switch should cover
+
+One finding survives that should not. `report`, an arrow function inside `ReportBlock`, is
+asked for a documentation comment. `.deepsource.toml` already names
+`arrow-function-expression` in `skip_doc_coverage`, which is one of the six values the
+analyzer's reference lists for JavaScript. The config is spelled as documented and the
+finding is raised anyway. Adding the comment would mean writing the prose the rule asks for
+and that rule 42 of `AGENTS.md` forbids, so the switch stays as written and the
+disagreement is recorded here.
+
+### The Secrets gate fails, and the cause is outside this branch
+
+DeepSource Secrets passes on `428794d`, `43204f3`, `e0c4cd3` and `a57dce8`, and fails on
+`147f37a`, `7b38df4` and `9590e47` with one description and nothing else: "Analysis failed:
+Blocking issues or failing metrics found".
+
+What is known, from the API rather than from inference:
+
+- No file, no line, no rule id, and no inline comment. DeepSource's one comment on the pull
+  request is a grade badge with no finding text, and the newest inline comment of any kind is
+  timestamped 00:03:20Z, before the first failing run.
+- The JavaScript analyzer reports its own `error` state on `147f37a` and `7b38df4` in the
+  same window and recovers to `failure` on `9590e47`. A check that crashes and then reports
+  the ordinary findings while a sibling check flips is analyzer-side behaviour, not the file
+  content.
+- Nothing secret-shaped is in the three diffs or in this report: no key, token, password,
+  private key or credential assignment, and no match for those words in any of the added
+  files. The only long base64 strings anywhere in the tree are two pre-existing skill assets
+  that are older than every green Secrets run.
+- The gate does not block merges in this repository by precedent. Pull request 5 merged into
+  `draft/mega-absorb-all` on 2026-10-14T21:11:44Z while carrying both a Secrets failure and a
+  JavaScript failure.
+- This token cannot read further. The code-scanning alerts endpoint answers 403 "Resource
+  not accessible by integration", and DeepSource exposes no step log for this analyzer.
+
+The run for this head is
+`https://app.deepsource.com/gh/better-Shape/app/run/dec6f30a-0359-4e57-9a7a-0660a18d0b65/secrets/`,
+and a DeepSource comment on the pull request asks for whoever can open it to name the file and
+line, so the finding can be fixed rather than argued with.
+
+It also fails on two heads in a row that differ from each other only in this report file,
+which removes the code under review as the variable and leaves the analyzer itself.
+
+So the honest state is failed, cause unidentified, and reproducible on every head since
+`147f37a`. It is named in the pull request description as failed rather than passed, with the
+run URL a human can open, and no repair is claimed for it.
+
 
 No file was excluded from analysis, and no `NOSONAR`-style pragma was added.
