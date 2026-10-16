@@ -9,21 +9,22 @@ export const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
     ({ className, ...props }, ref) => {
         const localRef = React.useRef<HTMLTextAreaElement>(null);
 
+        /** Two-step measure: `auto` first, then the content height, so a shrinking edit
+            can lower the box instead of holding the taller height it already had. */
+        const autosize = (el: HTMLTextAreaElement | null) => {
+            if (!el) return;
+            el.style.height = "auto";
+            el.style.height = `${el.scrollHeight}px`;
+        };
+
+        /** Grows the box on the keystroke itself, then hands the event on unchanged. */
         const handleInput = (e: React.InputEvent<HTMLTextAreaElement>) => {
-            if (localRef.current) {
-                localRef.current.style.height = "auto";
-                localRef.current.style.height = `${localRef.current.scrollHeight}px`;
-            }
-            if (props.onInput) {
-                props.onInput(e);
-            }
+            autosize(localRef.current);
+            props.onInput?.(e);
         };
 
         React.useEffect(() => {
-            if (localRef.current) {
-                localRef.current.style.height = "auto";
-                localRef.current.style.height = `${localRef.current.scrollHeight}px`;
-            }
+            autosize(localRef.current);
         }, [props.value]);
 
         return (

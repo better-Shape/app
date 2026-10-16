@@ -89,14 +89,14 @@ export interface BreadcrumbItemProps {
  * still renders a label rather than a link back to where the user already is. The link and
  * the button share one class list so their hover and focus ring cannot drift apart.
  */
-export function BreadcrumbItem({
+export const BreadcrumbItem = ({
   children,
   icon: Icon,
   href,
   onClick,
   current = false,
   className,
-}: BreadcrumbItemProps) {
+}: BreadcrumbItemProps) => {
   const content = (
     <>
       {Icon && <Icon className="size-4 shrink-0" aria-hidden />}
@@ -139,4 +139,4 @@ export function BreadcrumbItem({
       )}
     </li>
   );
-}
+};

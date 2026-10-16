@@ -73,13 +73,13 @@ const spinnerClass: Record<ButtonSize, string> = {
  * sits on every variant from accent to ghost, and the status role is the whole accessible
  * output: the dots themselves are decoration.
  */
-export function ButtonSpinner({
+export const ButtonSpinner = ({
     className,
     size = "md",
 }: {
     className?: string;
     size?: ButtonSize;
-}) {
+}) => {
     return (
         <span
             className={cn(spinnerClass[size], "[&_span]:bg-current", className)}
@@ -91,7 +91,7 @@ export function ButtonSpinner({
             <span />
         </span>
     );
-}
+};
 
 /**
  * The inline progress arc a button shows in place of its icon while it is loading.
@@ -100,9 +100,9 @@ export function ButtonSpinner({
  * a glyph at the same box, and it keeps the button's width: the glyph it stands in for has
  * already been laid out.
  */
-function LoadingGlyph({ size }: { size: ButtonSize }) {
+const LoadingGlyph = ({ size }: { size: ButtonSize }) => {
     return <Arc size={size === "lg" ? 18 : 14} />;
-}
+};
 
 /**
  * The class list every face starts from.

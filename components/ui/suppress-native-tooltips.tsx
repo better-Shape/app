@@ -12,8 +12,11 @@ import { useEffect } from "react";
  * attributes React had not hydrated yet, and the hydration mismatch was then reported
  * against whichever control the sweep happened to touch.
  */
-export function SuppressNativeTooltips() {
+export const SuppressNativeTooltips = () => {
     useEffect(() => {
+        // The text moves to `data-native-title` instead of going away, because a
+        // second sweep over an element this already touched finds no `title` to read
+        // and would otherwise drop the wording the app wrote.
         const stripEl = (el: Element) => {
             const value = el.getAttribute("title");
             if (value == null) return;
@@ -21,17 +24,21 @@ export function SuppressNativeTooltips() {
             el.removeAttribute("title");
         };
 
+        // Takes the subtree it is handed rather than the document, so the sweep below
+        // can start at `body` while a future caller can narrow it to one panel.
         const stripTree = (root: ParentNode) => {
             if (root instanceof Element) stripEl(root);
             root.querySelectorAll?.("[title]").forEach(stripEl);
         };
 
+        // A `mouseover` targets the deepest element, which for a title set on a
+        // wrapper is a text node's parent, so both cases resolve to an element.
         const onEnter = (e: Event) => {
-            const t = e.target;
-            if (t instanceof Element) stripEl(t);
-            else if (t instanceof Text) {
-                const p = t.parentElement;
-                if (p) stripEl(p);
+            const target = e.target;
+            if (target instanceof Element) stripEl(target);
+            else if (target instanceof Text) {
+                const parent = target.parentElement;
+                if (parent) stripEl(parent);
             }
         };
         document.addEventListener("mouseover", onEnter, true);
@@ -53,4 +60,4 @@ export function SuppressNativeTooltips() {
     }, []);
 
     return null;
-}
+};

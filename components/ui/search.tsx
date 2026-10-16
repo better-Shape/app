@@ -58,6 +58,9 @@ export const SearchInput = React.forwardRef<HTMLInputElement, SearchInputProps>(
             [ref],
         );
 
+        // Writes through the prototype's value setter: assigning `el.value` directly
+        // leaves React's value tracker holding the old text, so a later keystroke
+        // that reproduces it is dropped instead of firing `onChange`.
         const changeTo = (next: string) => {
             if (!isControlled) setUncontrolled(next);
             const el = innerRef.current;

@@ -29,7 +29,7 @@ const menuInsetClasses = "p-1.5";
 const menuCollisionPadding = 8;
 
 /** Overflow scrim, GitLab-style fade when the panel can scroll. */
-function DropdownScrollScrim({ side, visible }: { side: "up" | "down"; visible: boolean }) {
+const DropdownScrollScrim = ({ side, visible }: { side: "up" | "down"; visible: boolean }) => {
     return (
         <div
             className={cn(
@@ -40,7 +40,7 @@ function DropdownScrollScrim({ side, visible }: { side: "up" | "down"; visible: 
             aria-hidden
         />
     );
-}
+};
 
 /**
  * The scrolling list inside a menu.

@@ -80,11 +80,11 @@ export function Combobox({
     const groups: ComboboxGroup[] = useMemo(() => {
         const src = grouped ? (items as ComboboxGroup[]) : [{ text: "", options: items as ComboboxOption[] }];
         if (!query.trim()) return src;
-        const q = query.toLowerCase();
+        const needle = query.toLowerCase();
         return src
             .map((g) => ({
                 ...g,
-                options: g.options.filter((o) => o.text.toLowerCase().includes(q)),
+                options: g.options.filter((o) => o.text.toLowerCase().includes(needle)),
             }))
             .filter((g) => g.options.length > 0);
     }, [grouped, items, query]);

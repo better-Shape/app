@@ -109,7 +109,7 @@ const HIDDEN = {
  * mask instead leaves the open state pixel-identical while `--panel-rail-hide` can retract
  * the rail. The host button drives the preview through `data-panel-toggle`.
  */
-export function PanelGlyph({
+export const PanelGlyph = ({
     side,
     open,
     className,
@@ -119,7 +119,7 @@ export function PanelGlyph({
     /** Panel state the glyph describes: the rail is full when open, a hairline when closed. */
     open: boolean;
     className?: string;
-}) {
+}) => {
     // Unique per instance: several toggles can be on screen at once and each carries
     // its own `--panel-rail-hide`, so they cannot share a mask.
     const maskId = `bettershape-panel-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}-${side}`;
@@ -150,4 +150,4 @@ export function PanelGlyph({
             <path d={PANEL[side].silhouette} mask={`url(#${maskId})`} />
         </svg>
     );
-}
+};

@@ -25,7 +25,7 @@ interface CollapsibleSectionProps {
  * paints open instead of flashing shut for a frame. Storage is consulted only when a key is
  * given: sections that are not worth remembering stay open or closed per mount.
  */
-export function CollapsibleSection({
+export const CollapsibleSection = ({
     title,
     children,
     defaultOpen = false,
@@ -33,7 +33,7 @@ export function CollapsibleSection({
     className,
     headerActions,
     storageKey,
-}: CollapsibleSectionProps) {
+}: CollapsibleSectionProps) => {
     const [isOpen, setIsOpen] = useState(() => {
         if (storageKey && typeof window !== "undefined") {
             const raw = window.localStorage.getItem(storageKey);
@@ -92,5 +92,5 @@ export function CollapsibleSection({
             </div>
         </section>
     );
-}
+};
 
