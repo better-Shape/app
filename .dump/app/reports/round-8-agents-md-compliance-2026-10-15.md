@@ -212,13 +212,15 @@ Rust toolchain is absent. The repository is a Tauri app and this diff touches no
 file, so the missing half does not bear on the change, but the gate is not run and I am
 not reporting it green.
 
-### The one failing QA test is pre-existing
+### The QA crawl failure, and where it came from
 
-`@audit route crawl › audit settings (/settings)` fails on the assertion
-`settings: console errors`. The console error is React's hydration mismatch, raised in
-`ProvidersSettingsView` under `SettingSection`. The added client attribute is
-`data-native-title`, which `components/ui/suppress-native-tooltips.tsx` writes from a
-`useEffect` when it moves `title` off an element.
+`@audit route crawl › audit settings (/settings)` failed on the assertion
+`settings: console errors`. The console error was React's hydration mismatch, raised in
+`ProvidersSettingsView` under `SettingSection`. The attribute it named was
+`data-native-title`, which `components/ui/suppress-native-tooltips.tsx` wrote from a
+`useEffect` when it moved `title` off an element. That section is kept because it records
+how the cause was separated from this branch's work, at a clean worktree on `289b134`, and
+the fix itself is described above.
 
 Evidence that my work did not cause it. I created a clean worktree at
 `289b134` in `/tmp/headcheck`, ran `npm run dev:browser` on port 48931, and ran the same
