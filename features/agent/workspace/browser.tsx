@@ -1,443 +1,127 @@
 "use client";
 
-import { useIsMounted } from "@/lib/ui/use-mounted";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { ArrowLeft20Regular } from "@fluentui/react-icons/headless/svg/arrow-left";
-import { ArrowRight20Regular } from "@fluentui/react-icons/headless/svg/arrow-right";
-import { ArrowSync20Regular } from "@fluentui/react-icons/headless/svg/arrow-sync";
-import { Camera20Filled } from "@fluentui/react-icons/headless/svg/camera";
-import { Code20Regular } from "@fluentui/react-icons/headless/svg/code";
-import { Database20Regular } from "@fluentui/react-icons/headless/svg/database";
-import { Globe20Regular } from "@fluentui/react-icons/headless/svg/globe";
-import { History20Regular } from "@fluentui/react-icons/headless/svg/history";
-import { Link20Regular } from "@fluentui/react-icons/headless/svg/link";
-import { Open20Regular } from "@fluentui/react-icons/headless/svg/open";
-import { Play20Filled } from "@fluentui/react-icons/headless/svg/play";
-import { Search20Regular } from "@fluentui/react-icons/headless/svg/search";
-import { Shield20Regular } from "@fluentui/react-icons/headless/svg/shield";
-import { Star20Regular } from "@fluentui/react-icons/headless/svg/star";
-import { Target20Regular } from "@fluentui/react-icons/headless/svg/target";
-import { WeatherMoon20Regular } from "@fluentui/react-icons/headless/svg/weather-moon";
-import { WeatherSunny20Regular } from "@fluentui/react-icons/headless/svg/weather-sunny";
-
-
-import { useCallback, useLayoutEffect, useEffect, useMemo, useRef, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Favicon } from "@/components/ui/favicon";
-import { Icon } from "@/components/ui/icon";
-
-import { Tooltip } from "@/components/ui/tooltip";
-import {
-    DropdownMenu,
-    DropdownMenuCheckboxItem,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuSeparator,
-    DropdownMenuTrigger,
-} from "@/components/ui/dropdown";
-import { commands } from "@/lib/backend";
-import { notificationStore } from "@/features/notifications";
-import type { BrowserHistoryEntry, BrowserPickedElement } from "@/lib/backend/types";
-import { isWindows } from "@/lib/platform";
-import { hostnameOf } from "@/lib/ui/favicon";
-import { cn } from "@/lib/utils";
-import { AgentControlBar, BrowseStage } from "@/features/chat/ui/blocks/browse-frame";
-import { useBrowseFrame } from "@/features/agent/browser/session";
-import { resolveBrowserInput } from "@/features/agent/browser/store";
-import { MAJOR_SITES } from "@/features/agent/browser/sites";
+import type { BrowserPickedElement } from "@/lib/backend/types";
+import { AgentControlBar } from "@/features/chat/ui/blocks/browse-frame";
+import { useBrowseFrame, type BrowseFrame } from "@/features/agent/browser/session";
 import { getLastDevUrl } from "@/features/preview/store";
-import { iconFor } from "./model";
-import { ToolBtn } from "./tool";
+import { createBrowserActions } from "./browser-actions";
+import { BrowserToolbar, BookmarkBar, PageContextMenu, type BrowserState } from "./browser-chrome";
+import {
+    useBookmarks,
+    useBrowserFrameEvents,
+    useColorScheme,
+    useFrameMessages,
+    useFrameSrcSync,
+    usePickingBroadcast,
+    useSchemeBroadcast,
+    type HoverTarget,
+    type MenuPoint,
+    type ToolsState,
+} from "./browser-hooks";
+import { PageArea } from "./browser-page";
+import { steerFrame } from "./browser-frame";
+import { AGENT_TAB, blankTab, type PageTab } from "./browser-storage";
+import { displayUrl } from "./browser-suggest";
+import { isNavigable, navigateTabs, syncTabs, tabsMatch } from "./browser-tabs";
 
-const AGENT_TAB = "agent";
-const BOOKMARKS_KEY = "bettershape-browser-bookmarks";
-const BOOKMARK_BAR_KEY = "bettershape-browser-bookmark-bar";
+/** The tab list a controlled window shows, keeping the state of every tab that survives. */
+const tabsFromIds = (tabs: readonly PageTab[], ids: readonly string[]) => syncTabs(tabs, ids);
 
-type Bookmark = { url: string; title: string };
+/** The tab fields the window reports upwards, read as one value so the report has one dep. */
+const activeMeta = (active: PageTab | null) => ({
+    id: active?.id,
+    title: active?.title,
+    url: active?.url,
+    favicon: active?.favicon,
+});
 
-function loadJson<T>(key: string, fallback: T): T {
-    try {
-        const raw = window.localStorage.getItem(key);
-        return raw ? (JSON.parse(raw) as T) : fallback;
-    } catch {
-        return fallback;
-    }
-}
+/** The URL the agent's own browser is on, which is where the frame cannot be read instead. */
+const agentAddress = (frame: BrowseFrame | null) => frame?.url ?? "";
 
-function saveJson(key: string, value: unknown) {
-    try {
-        window.localStorage.setItem(key, JSON.stringify(value));
-    } catch {
-        /* ignore */
-    }
-}
+/** The URL the active tab is on, before the address field's hollow state is applied to it. */
+const pageAddress = (active: PageTab | null) => active?.url || "";
 
-function looksLikeUrl(raw: string) {
-    const s = raw.trim();
-    return /^(https?:\/\/|localhost|127\.0\.0\.1)/i.test(s) || (/^[\w-]+(\.[\w-]+)+/i.test(s) && !/\s/.test(s));
-}
+/** The URL the address field falls back to when the user has not typed anything. */
+const addressOf = ({ showAgent, agentFrame, active }: { showAgent: boolean; agentFrame: BrowseFrame | null; active: PageTab | null }) =>
+    showAgent ? agentAddress(agentFrame) : displayUrl(pageAddress(active));
 
+/** Whether the frame has a page on screen, which is what every page-level control reads. */
+const isPageVisible = (active: PageTab | null, showAgent: boolean) =>
+    !showAgent && !!active && !active.pending && !!active.url;
 
+/** The developer tools for the page that is on screen, if they were opened for that page. */
+const toolsForPage = (tools: ToolsState | null, active: PageTab | null) =>
+    tools && tools.url === active?.url ? tools : null;
 
-function displayUrl(url: string) {
-    if (!url || url === "about:blank") return "";
-    return url;
-}
+/** Whether the agent has a browser of its own on screen. */
+const agentIsDriving = (frame: BrowseFrame | null) => !!frame && frame.status !== "stopped";
 
-/**
- * The page frame browses arbitrary origins with its real origin intact
- * (`allow-same-origin`), so host messages are pinned to the origin the frame is
- * on right now, read live, so redirects and in-page navigation stay in sync.
- */
-function frameOrigin(frame: HTMLIFrameElement | null | undefined): string {
-    try {
-        const live = frame?.contentWindow?.origin;
-        if (live && live !== "null") return live;
-    } catch {
-        /* cross-origin handle without `origin` */
-    }
-    try {
-        return new URL(frame?.src || "").origin;
-    } catch {
-        return "*";
-    }
-}
+/** The URL the window is on, before the address field's own draft is taken into account. */
+const rawUrlOf = (showAgent: boolean, agentFrame: BrowseFrame | null, active: PageTab | null) =>
+    showAgent ? agentAddress(agentFrame) : pageAddress(active);
 
-/**
- * The framed page only answers `bettershape-browser-host` where the host can
- * inject into it. Windows does that through the WebView2 API; on macOS and
- * Linux nothing reaches the page, so the frame is driven from here instead:
- * `Location.reload` is callable cross-origin and the element is ours either way.
- */
-export function steerFrame(
-    frame: HTMLIFrameElement | null | undefined,
-    action: "reload" | "goto",
-    url = "",
-): boolean {
-    if (isWindows() || !frame) return false;
-    try {
-        if (action === "goto") {
-            frame.src = url;
-            return true;
-        }
-        const target = frame.contentWindow;
-        if (!target) return false;
-        target.location.reload();
-        return true;
-    } catch {
-        return false;
-    }
-}
+/** The view the address field belongs to, which is what a typed draft is keyed by. */
+const viewKey = (showAgent: boolean, activeId: string | null) =>
+    showAgent ? AGENT_TAB : (activeId ?? "");
 
-// Tab strip
+/** Whether the tab's history has a step behind it, which is what enables Back. */
+const canGoBack = (active: PageTab | null, showAgent: boolean) =>
+    !showAgent && !!active && active.index > 0;
 
+/** Whether the tab's history has a step ahead of it, which is what enables Forward. */
+const canGoForward = (active: PageTab | null, showAgent: boolean) =>
+    !showAgent && !!active && active.index < active.entries.length - 1;
 
-// URL bar with suggestions
+/** The address the field shows: what the user typed, or where the view actually is. */
+const shownAddress = (draft: { key: string; value: string } | null, key: string, address: string) =>
+    draft?.key === key ? draft.value : address;
 
-type Suggestion =
-    | { kind: "history"; url: string; title: string }
-    | { kind: "search"; query: string; url: string }
-    | { kind: "go"; url: string };
-
-function siteMatches(query: string, host: string, title: string) {
-    const q = query.toLowerCase();
-    if (!q) return false;
-    const name = host.toLowerCase().replace(/^www\./, "");
-    if (name.startsWith(q)) return true;
-    const label = name.split(".")[0] ?? "";
-    if (label.startsWith(q)) return true;
-    const heading = title.toLowerCase();
-    if (heading.startsWith(q)) return true;
-    if (q.length >= 3 && heading.split(/[^a-z0-9]+/).some((word) => word.startsWith(q))) return true;
-    return false;
-}
-
-function UrlBar({
-    value,
-    onChange,
-    onSubmit,
-    disabled,
-}: {
-    value: string;
-    onChange: (next: string) => void;
-    onSubmit: (raw: string) => void;
-    disabled?: boolean;
-}) {
-    const inputRef = useRef<HTMLInputElement>(null);
-    const [open, setOpen] = useState(false);
-    const [items, setItems] = useState<Suggestion[]>([]);
-    const [selected, setSelected] = useState(0);
-    const debounce = useRef<number | null>(null);
-
-    const buildSuggestions = useCallback(async (q: string) => {
-        const trimmed = q.trim();
-        const query = trimmed.toLowerCase();
-        let history: BrowserHistoryEntry[] = [];
-        try {
-            history = await commands.browserHistory("", 40);
-        } catch {
-            history = [];
-        }
-        const out: Suggestion[] = [];
-        const seen = new Set<string>();
-        const addSite = (url: string, title: string) => {
-            const host = hostnameOf(url);
-            if (!host || seen.has(host)) return;
-            if (query && !siteMatches(query, host, title)) return;
-            seen.add(host);
-            out.push({ kind: "history", url, title });
-        };
-        if (trimmed && looksLikeUrl(trimmed)) {
-            out.push({ kind: "go", url: resolveBrowserInput(trimmed) });
-        }
-        if (!query) {
-            for (const entry of history) {
-                addSite(entry.url, entry.title);
-                if (out.length >= 6) break;
-            }
-        } else {
-            for (const entry of history) addSite(entry.url, entry.title);
-            for (const host of MAJOR_SITES) {
-                if (out.filter((item) => item.kind === "history").length >= 6) break;
-                addSite(`https://${host}`, host.split(".")[0] ?? host);
-            }
-        }
-        if (trimmed && !looksLikeUrl(trimmed)) {
-            out.push({ kind: "search", query: trimmed, url: resolveBrowserInput(trimmed) });
-        }
-        setItems(out.slice(0, 8));
-        setSelected(0);
-    }, []);
-
-    useEffect(() => {
-        if (!open) return;
-        if (debounce.current) window.clearTimeout(debounce.current);
-        debounce.current = window.setTimeout(() => void buildSuggestions(value), 70);
-        return () => {
-            if (debounce.current) window.clearTimeout(debounce.current);
-        };
-    }, [value, open, buildSuggestions]);
-
-    useEffect(() => {
-        const focusBar = () => {
-            inputRef.current?.focus();
-            inputRef.current?.select();
-        };
-        window.addEventListener("bettershape-browser-focus-url", focusBar);
-        return () => window.removeEventListener("bettershape-browser-focus-url", focusBar);
-    }, []);
-
-    const commit = (raw: string) => {
-        setOpen(false);
-        inputRef.current?.blur();
-        onSubmit(raw);
-    };
-
-    return (
-        <div className="relative mx-1 min-w-0 flex-1">
-            <form
-                onSubmit={(e) => {
-                    e.preventDefault();
-                    const pick = open ? items[selected] : undefined;
-                    if (pick) commit(pick.url);
-                    else commit(value);
-                }}
-            >
-                <input
-                    ref={inputRef}
-                    type="text"
-                    value={value}
-                    disabled={disabled}
-                    onChange={(e) => {
-                        onChange(e.target.value);
-                        setOpen(true);
-                    }}
-                    onFocus={(e) => {
-                        e.currentTarget.select();
-                        setOpen(true);
-                    }}
-                    onBlur={() => window.setTimeout(() => setOpen(false), 120)}
-                    onKeyDown={(e) => {
-                        if (e.key === "Escape") {
-                            e.preventDefault();
-                            setOpen(false);
-                            inputRef.current?.blur();
-                            return;
-                        }
-                        if (!open || items.length === 0) return;
-                        if (e.key === "ArrowDown") {
-                            e.preventDefault();
-                            setSelected((i) => (i + 1) % items.length);
-                        } else if (e.key === "ArrowUp") {
-                            e.preventDefault();
-                            setSelected((i) => (i - 1 + items.length) % items.length);
-                        }
-                    }}
-                    placeholder="Search or enter URL"
-                    spellCheck={false}
-                    autoComplete="off"
-                    className={cn(
-                        "h-6 w-full rounded-md bg-surface-1 px-2 text-xs text-text-primary",
-                        "outline-none placeholder:text-text-muted focus:ring-1 focus:ring-border-focus",
-                        "disabled:opacity-50",
-                    )}
-                />
-            </form>
-            {open && items.length > 0 ? (
-                <div data-bettershape-float="" className="absolute top-full left-0 right-0 z-30 mt-1 flex max-h-64 flex-col gap-0.5 overflow-auto rounded-xl border border-border-subtle bg-surface-3 p-1 shadow-sm">
-                    {items.map((item, index) => {
-                        const active = index === selected;
-                        return (
-                            <button
-                                key={`${item.kind}-${item.url}`}
-                                type="button"
-                                onMouseDown={(e) => e.preventDefault()}
-                                onMouseEnter={() => setSelected(index)}
-                                onClick={() => commit(item.url)}
-                                className={cn(
-                                    "flex h-7 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left text-xs",
-                                    "transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
-                                    active ? "bg-panel-hover text-text-primary" : "text-text-secondary",
-                                )}
-                            >
-                                {item.kind === "search" ? (
-                                    <Icon icon={Search20Regular} className="shrink-0 text-text-muted" />
-                                ) : item.kind === "go" ? (
-                                    <Icon icon={Globe20Regular} className="shrink-0 text-text-muted" />
-                                ) : (
-                                    <Favicon url={item.url} size={14} />
-                                )}
-                                {item.kind === "search" ? (
-                                    <span className="min-w-0 truncate">
-                                        Search Google for <span className="text-text-primary">{item.query}</span>
-                                    </span>
-                                ) : item.kind === "go" ? (
-                                    <span className="min-w-0 truncate text-text-primary">{item.url}</span>
-                                ) : (
-                                    <>
-                                        <span className="min-w-0 shrink truncate text-text-primary">
-                                            {item.title || hostnameOf(item.url)}
-                                        </span>
-                                        <span className="min-w-0 flex-1 truncate text-text-muted">{item.url}</span>
-                                    </>
-                                )}
-                            </button>
-                        );
-                    })}
-                </div>
-            ) : null}
-        </div>
-    );
-}
-
-// Page stage: the streamed frame plus input forwarding
-
-
-// Error and new-tab pages
-
-
-
-function NewTabPage({
-    onOpen,
-    onUseTool,
-}: {
-    onOpen: (url: string) => void;
-    onUseTool?: (kind: "files" | "graph" | "prs") => void;
-}) {
-    const [recent, setRecent] = useState<BrowserHistoryEntry[]>([]);
-    useEffect(() => {
-        void commands.browserHistory("", 8).then(setRecent).catch(() => setRecent([]));
-    }, []);
-    const devUrl = getLastDevUrl();
-    const tools: { kind: "files" | "graph" | "prs"; label: string; shortcut?: string }[] = [
-        { kind: "files", label: "Files", shortcut: "Ctrl+G" },
-        { kind: "graph", label: "Graph" },
-        { kind: "prs", label: "Pull requests" },
-    ];
-    return (
-        <div className="flex h-full flex-col items-center justify-center gap-6 px-6">
-            {onUseTool ? (
-                <div className="flex w-full max-w-xl flex-col gap-2">
-                    <span className="text-sm text-text-primary">Tools</span>
-                    <div className="grid grid-cols-2 gap-2">
-                        {tools.map((tool) => (
-                            <button
-                                key={tool.kind}
-                                type="button"
-                                onClick={() => onUseTool(tool.kind)}
-                                className={cn(
-                                    "flex h-10 min-w-0 items-center gap-2 rounded-lg bg-surface-1 px-2.5 text-left",
-                                    "transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--row-hover)]",
-                                )}
-                            >
-                                <Icon icon={iconFor(tool.kind)} className="text-text-muted" />
-                                <span className="min-w-0 flex-1 truncate text-xs text-text-primary">{tool.label}</span>
-                                {tool.shortcut ? <span className="text-2xs text-text-muted">{tool.shortcut}</span> : null}
-                            </button>
-                        ))}
-                    </div>
-                </div>
-            ) : null}
-            {devUrl ? (
-                <Button variant="secondary" size="sm" onClick={() => onOpen(devUrl)} className="gap-2 font-normal">
-                    <Icon icon={Play20Filled} className="text-text-muted" />
-                    <span className="truncate">{devUrl}</span>
-                </Button>
-            ) : null}
-            {recent.length > 0 ? (
-                <div className="grid w-full max-w-xl grid-cols-2 gap-1.5 sm:grid-cols-4">
-                    {recent.map((entry) => (
-                        <button
-                            key={entry.url}
-                            type="button"
-                            onClick={() => onOpen(entry.url)}
-                            className={cn(
-                                "flex min-w-0 flex-col items-start gap-1 rounded-lg bg-surface-1 px-2.5 py-2 text-left",
-                                "transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--row-hover)]",
-                            )}
-                        >
-                            <Favicon url={entry.url} size={14} />
-                            <span className="w-full truncate text-xs text-text-primary">{entry.title || hostnameOf(entry.url)}</span>
-                            <span className="w-full truncate text-2xs text-text-muted">{hostnameOf(entry.url)}</span>
-                        </button>
-                    ))}
-                </div>
-            ) : !onUseTool ? (
-                <span className="text-xs text-text-muted">Type a URL or search above.</span>
-            ) : null}
-        </div>
-    );
-}
-
-// Browser view
-
-type PageTab = {
-    id: string;
-    pending: boolean;
-    url: string;
-    title: string;
-    favicon: string;
-    entries: string[];
-    index: number;
-    error: string | null;
+/** What the toolbar and the page menu read to render their own state. */
+type ChromeInput = {
+    draft: { key: string; value: string } | null;
+    tabKey: string;
+    showAgent: boolean;
+    address: string;
+    active: PageTab | null;
+    currentUrl: string;
+    bookmarks: readonly { url: string }[];
+    picking: boolean;
+    pageTools: ToolsState | null;
+    scheme: ReturnType<typeof useColorScheme>["scheme"];
+    bookmarkBar: boolean;
 };
 
-function blankTab(id: string): PageTab {
-    return { id, pending: true, url: "", title: "", favicon: "", entries: [], index: 0, error: null };
-}
+/**
+ * The toolbar's view of the window.
+ *
+ * Derived in one place so a control cannot disagree with its neighbour about whether there is
+ * a page on screen: the star, the reload and the picker all read the same three fields.
+ */
+const chromeState = (input: ChromeInput): BrowserState => ({
+    url: shownAddress(input.draft, input.tabKey, input.address),
+    canBack: canGoBack(input.active, input.showAgent),
+    canForward: canGoForward(input.active, input.showAgent),
+    reloadable: isPageVisible(input.active, input.showAgent),
+    bookmarkable: Boolean(input.currentUrl),
+    bookmarked: input.bookmarks.some((saved) => saved.url === input.currentUrl),
+    picking: input.picking,
+    agentDriving: input.showAgent,
+    toolsOpen: Boolean(input.pageTools?.src),
+    toolsError: Boolean(input.pageTools?.error),
+    scheme: input.scheme,
+    bookmarkBar: input.bookmarkBar,
+});
 
-const SCHEME_KEY = "bettershape-browser-scheme";
-type ColorScheme = "system" | "light" | "dark";
-
-/** The backend returns a bare string, an `Error`, or a rejected invoke payload.
- *  A rejected capture must never surface as an empty failure message. */
-export function screenshotFailureMessage(err: unknown): string {
-    const message =
-        typeof err === "string" ? err : err instanceof Error ? err.message : "";
-    return message || "The page could not be captured.";
-}
-
-export function BrowserView({
+/**
+ * The browser: tabs of pages in a frame, with an address field, bookmarks and developer tools.
+ *
+ * The window can be uncontrolled, where it owns its tab list, or controlled, where the caller
+ * passes the tab ids and the window only keeps what it knows about each of them. The controlled
+ * shape is what lets the workbench's tab strip own the list while the frame stays mounted.
+ */
+export const BrowserView = ({
     tabId = null,
     tabIds,
     onMeta,
@@ -447,602 +131,185 @@ export function BrowserView({
     tabIds?: string[];
     onMeta?: (id: string, title: string, url: string, favicon?: string) => void;
     onUseTool?: (kind: "files" | "graph" | "prs") => void;
-} = {}) {
+} = {}) => {
     const controlled = Array.isArray(tabIds);
-    const [tabs, setTabs] = useState<PageTab[]>([]);
-    const [activeId, setActiveId] = useState<string | null>(null);
     const agentFrame = useBrowseFrame();
-    const agentActive = !!agentFrame && agentFrame.status !== "stopped";
+    const agentActive = agentIsDriving(agentFrame);
+
+    const [tabs, setTabs] = useState<PageTab[]>(() => (controlled ? [] : [blankTab("new-1")]));
+    const [activeId, setActiveId] = useState<string | null>(() => (controlled ? null : "new-1"));
     const [localActive, setLocalActive] = useState<string | null>(null);
-    const [urlDraft, setUrlDraft] = useState<string | null>(null);
-    const [picking, setPicking] = useState(false);
-    const [hover, setHover] = useState<{ label: string; rect: { x: number; y: number; w: number; h: number } } | null>(null);
-    const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
-    const [bookmarkBar, setBookmarkBar] = useState(false);
-    const [scheme, setScheme] = useState<ColorScheme>(() => {
-        if (typeof window === "undefined") return "system";
-        const saved = loadJson<ColorScheme>(SCHEME_KEY, "system");
-        return saved === "light" || saved === "dark" ? saved : "system";
-    });
-    const [toolsUrl, setToolsUrl] = useState<string | null>(null);
-    const [toolsError, setToolsError] = useState<string | null>(null);
-    const [savingShot, setSavingShot] = useState(false);
-    const [frameSrc, setFrameSrc] = useState("about:blank");
-    const [pageMenu, setPageMenu] = useState<{ x: number; y: number } | null>(null);
-    const [openedOnce, setOpenedOnce] = useState(false);
-    const frameRef = useRef<HTMLIFrameElement>(null);
-    const activeIdRef = useRef<string | null>(null);
-    const rustNav = useRef(false);
-    const travelUntil = useRef(0);
-    const frameTab = useRef<string | null>(null);
-    const currentUrlRef = useRef("");
-
-    const hydrated = useIsMounted();
-    const [restoredPreferences, setRestoredPreferences] = useState(false);
-    if (hydrated && !restoredPreferences) {
-        setRestoredPreferences(true);
-        setBookmarks(loadJson<Bookmark[]>(BOOKMARKS_KEY, []));
-        setBookmarkBar(loadJson<boolean>(BOOKMARK_BAR_KEY, false));
-
-    }
-
-    // Jump to the agent's tab when it starts driving; leave it when it stops.
-    const [wasAgentActive, setWasAgentActive] = useState(false);
-    if (wasAgentActive !== agentActive) {
-        setWasAgentActive(agentActive);
-        if (agentActive) setLocalActive(AGENT_TAB);
-        else setLocalActive(current => current === AGENT_TAB ? null : current);
-    }
-
-    if (hydrated && !controlled && !openedOnce) {
-        setOpenedOnce(true);
+    const [draft, setDraft] = useState<{ key: string; value: string } | null>(() => {
+        if (controlled) return null;
         const last = getLastDevUrl();
-        if (last) setUrlDraft(last);
-        setTabs([blankTab("new-1")]);
-        setActiveId("new-1");
-    }
+        return last ? { key: "new-1", value: last } : null;
+    });
+    const [picking, setPicking] = useState(false);
+    const [hover, setHover] = useState<HoverTarget | null>(null);
+    const [tools, setTools] = useState<ToolsState | null>(null);
+    const [frameSrc, setFrameSrc] = useState("about:blank");
+    const [pageMenu, setPageMenu] = useState<MenuPoint | null>(null);
 
-    const [tabScope, setTabScope] = useState({ controlled, tabIds: undefined as string[] | undefined, tabId: null as string | null });
-    if (tabScope.controlled !== controlled || tabScope.tabIds !== tabIds || tabScope.tabId !== tabId) {
-        setTabScope({ controlled, tabIds, tabId });
-        if (controlled && tabIds) {
-            setTabs(previous => tabIds.map(id => previous.find(tab => tab.id === id) ?? blankTab(id)));
-            if (tabId) setActiveId(tabId);
-        }
-    }
+    const frameRef = useRef<HTMLIFrameElement>(null);
+    const frameTab = useRef<string | null>(null);
+    const activeIdRef = useRef<string | null>(null);
+    const currentUrlRef = useRef("");
+    const travelUntil = useRef(0);
+    const seenScheme = useRef<ReturnType<typeof useColorScheme>["scheme"] | null>(null);
 
-    const noteNavigation = useCallback((url: string, title: string | undefined, error: string | null, travel = false, favicon?: string) => {
-        if (!url || url === "about:blank") return;
-        const id = activeIdRef.current;
-        if (!id) return;
-        const traveling = travel || Date.now() < travelUntil.current;
-        setTabs((prev) => prev.map((tab) => {
-            if (tab.id !== id || tab.pending) return tab;
-            const nextTitle = title?.trim() && !/^https?:\/\//i.test(title.trim()) ? title.trim() : tab.title;
-            const nextIcon = favicon || tab.favicon;
-            if (traveling) {
-                const found = tab.entries.lastIndexOf(url);
-                return {
-                    ...tab,
-                    url,
-                    title: nextTitle,
-                    favicon: nextIcon,
-                    index: found >= 0 ? found : tab.index,
-                    error,
-                };
-            }
-            let entries = tab.entries;
-            let index = tab.index;
-            if (entries[index] !== url) {
-                entries = [...entries.slice(0, index + 1), url];
-                index = entries.length - 1;
-            }
-            return {
-                ...tab,
-                url,
-                title: nextTitle,
-                favicon: nextIcon,
-                entries,
-                index,
-                error,
-            };
-        }));
-    }, []);
-
-    useEffect(() => {
-        let unlisten: (() => void) | undefined;
-        void import("@tauri-apps/api/event").then(({ listen }) => {
-            void listen<{ url: string; ok: boolean; error: string }>("browser-frame", (event) => {
-                const next = event.payload;
-                if (!next?.url) return;
-                rustNav.current = true;
-                noteNavigation(next.url, undefined, next.ok ? null : next.error || "This page can't be shown in the app.", Date.now() < travelUntil.current);
-            }).then((fn) => { unlisten = fn; });
-        });
-        return () => unlisten?.();
-    }, [noteNavigation]);
+    const { bookmarks, bar: bookmarkBar, showBar, toggle: toggleSaved } = useBookmarks();
+    const { scheme, choose: chooseScheme } = useColorScheme();
 
     const showAgent = localActive === AGENT_TAB && agentActive;
-    const active = useMemo(() => tabs.find((t) => t.id === activeId) ?? null, [tabs, activeId]);
-    const pageUrlRef = useRef("");
-    useLayoutEffect(() => { pageUrlRef.current = active?.url ?? ""; }, [active?.url]);
-    const [toolsScope, setToolsScope] = useState(active?.url);
-    if (toolsScope !== active?.url) {
-        setToolsScope(active?.url);
-        setToolsUrl(null);
-        setToolsError(null);
-    }
-    const urlValue = urlDraft ?? (showAgent ? agentFrame?.url || "" : displayUrl(active?.url || ""));
+    const active = useMemo(() => tabs.find((tab) => tab.id === activeId) ?? null, [tabs, activeId]);
+    const currentUrl = rawUrlOf(showAgent, agentFrame, active);
+    const showPage = isPageVisible(active, showAgent);
+    const meta = useMemo(() => activeMeta(active), [active]);
+    const pageTools = toolsForPage(tools, active);
+    /**
+     * Which view the address field is showing.
+     *
+     * A draft is what the user has typed and not yet submitted, and it belongs to the view it
+     * was typed in: switching tabs drops it rather than carrying the text across, which is what
+     * makes the field show the page it is actually on again.
+     */
+    const tabKey = viewKey(showAgent, activeId);
 
-    const [selectionScope, setSelectionScope] = useState<{ activeId: string | null; showAgent: boolean } | null>(null);
-    if (selectionScope === null || selectionScope.activeId !== activeId || selectionScope.showAgent !== showAgent) {
-        setSelectionScope({ activeId, showAgent });
-        setUrlDraft(null);
+    /** Records a navigation for the tab it belongs to, once the report is worth keeping. */
+    const noteNavigation = useCallback(
+        (url: string, title: string | undefined, error: string | null, travel: boolean, favicon?: string) => {
+            if (!isNavigable(url)) return;
+            const id = activeIdRef.current;
+            if (!id) return;
+            const traveling = travel || Date.now() < travelUntil.current;
+            setTabs((previous) => navigateTabs(previous, id, { url, title, error, travel: traveling, favicon }));
+        },
+        [],
+    );
+
+    /** Hands the picked element to the chat, which the mention flow already understands. */
+    const onPick = useCallback((element: BrowserPickedElement) => {
+        setPicking(false);
+        window.dispatchEvent(new CustomEvent("bettershape-chat-attach-element", { detail: element }));
+        window.dispatchEvent(new Event("bettershape-chat-focus-input"));
+    }, []);
+
+    useFrameMessages({
+        frameRef,
+        urlRef: currentUrlRef,
+        onNavigation: noteNavigation,
+        onHover: setHover,
+        onMenu: setPageMenu,
+        onPick,
+    });
+    useBrowserFrameEvents({ travelUntil, onNavigation: noteNavigation });
+    useSchemeBroadcast({ frameRef, scheme, seenSchemeRef: seenScheme });
+    useFrameSrcSync({ frameRef, frameTabRef: frameTab, active });
+    usePickingBroadcast({ frameRef, picking, frameSrc, showPage });
+
+    // Jump to the agent's tab when it starts driving, and leave it when it stops.
+    const wasAgentActive = useRef(false);
+    useEffect(() => {
+        if (agentActive && !wasAgentActive.current) setLocalActive(AGENT_TAB);
+        if (!agentActive) setLocalActive((current) => (current === AGENT_TAB ? null : current));
+        wasAgentActive.current = agentActive;
+    }, [agentActive]);
+
+    useEffect(() => {
+        if (!controlled || !tabIds) return;
+        setTabs((previous) => (tabsMatch(previous, tabIds) ? previous : tabsFromIds(previous, tabIds)));
+        if (tabId) setActiveId(tabId);
+        // A draft belongs to the view it was typed in, so a change of active tab drops it
+        // rather than leaving the previous page's half-typed address over the new one.
+        setDraft(null);
+    }, [controlled, tabIds, tabId]);
+
+    /**
+     * A new tab clears what belonged to the old one.
+     *
+     * The picker and the outline are about the page that was on screen, so both drop when the
+     * user moves to another tab rather than following them there.
+     */
+    useEffect(() => {
         setPicking(false);
         setHover(null);
-    }
+    }, [activeId, showAgent]);
 
-    useLayoutEffect(() => { activeIdRef.current = activeId; }, [activeId]);
-
-    const submitUrl = (raw: string) => {
-        setUrlDraft(null);
-        const resolved = resolveBrowserInput(raw);
-        if (!resolved) return;
-        setLocalActive(null);
-        setPageMenu(null);
-        const current = active;
-        if (current && !showAgent) {
-            const entries = current.entries.slice(0, current.index + 1);
-            if (entries[entries.length - 1] !== resolved) entries.push(resolved);
-            setTabs((prev) => prev.map((tab) => (tab.id === current.id
-                ? { ...tab, pending: false, url: resolved, title: "", favicon: "", error: null, entries, index: entries.length - 1 }
-                : tab)));
-            setFrameSrc(resolved);
-            frameTab.current = current.id;
-            if (frameRef.current) frameRef.current.src = resolved;
-            return;
-        }
-        const id = `tab-${Date.now()}`;
-        setTabs((prev) => [...prev, {
-            id,
-            pending: false,
-            url: resolved,
-            title: "",
-            favicon: "",
-            entries: [resolved],
-            index: 0,
-            error: null,
-        }]);
-        setActiveId(id);
-        setFrameSrc(resolved);
-    };
-
-    const currentUrl = showAgent ? agentFrame?.url || "" : active?.url || "";
-    useLayoutEffect(() => { currentUrlRef.current = currentUrl; }, [currentUrl]);
-    useEffect(() => {
-        if (!active?.url || !onMeta) return;
-        onMeta(active.id, active.title, active.url, active.favicon);
-    }, [active?.id, active?.title, active?.url, active?.favicon, onMeta]);
-    const showPage = !showAgent && !!active && !active.pending && !!active.url;
-
-    const goHistory = (delta: number) => {
-        if (!active || active.pending || showAgent) return;
-        const index = active.index + delta;
-        const url = active.entries[index];
-        if (!url) return;
-        travelUntil.current = Date.now() + 800;
-        setTabs((prev) => prev.map((tab) => (tab.id === active.id ? { ...tab, index, url, error: null } : tab)));
-        frameRef.current?.contentWindow?.postMessage({
-            type: "bettershape-browser-host",
-            history: delta < 0 ? "back" : "forward",
-            goto: url,
-        }, frameOrigin(frameRef.current));
-        steerFrame(frameRef.current, "goto", url);
-    };
-
-    const reloadPage = () => {
-        if (!active?.url || showAgent) return;
-        setTabs((prev) => prev.map((tab) => (tab.id === active.id ? { ...tab, error: null } : tab)));
-        frameRef.current?.contentWindow?.postMessage({ type: "bettershape-browser-host", reload: true }, frameOrigin(frameRef.current));
-        steerFrame(frameRef.current, "reload");
-    };
-
-    const chooseScheme = (next: ColorScheme) => {
-        setScheme(next);
-        saveJson(SCHEME_KEY, next);
-    };
-
-    const seenScheme = useRef<ColorScheme | null>(null);
-    useEffect(() => {
-        let cancel = false;
-        const changed = seenScheme.current !== null && seenScheme.current !== scheme;
-        seenScheme.current = scheme;
-        void commands.browserSurfaceScheme(scheme).then(() => {
-            if (cancel) return;
-            const target = frameOrigin(frameRef.current);
-            const frame = frameRef.current?.contentWindow;
-            frame?.postMessage({ type: "bettershape-browser-host", scheme }, target);
-            if (changed) frame?.postMessage({ type: "bettershape-browser-host", reload: true }, target);
-        });
-        return () => {
-            cancel = true;
-        };
-    }, [scheme]);
+    activeIdRef.current = activeId;
+    currentUrlRef.current = currentUrl;
 
     useEffect(() => {
-        const frame = frameRef.current;
-        if (!frame || !active?.id) return;
-        if (frameTab.current === active.id) return;
-        frameTab.current = active.id;
-        frame.src = /^https?:\/\//i.test(active.url) ? active.url : "about:blank";
-    }, [active?.id, active?.url]);
+        if (!meta.id || !meta.url || !onMeta) return;
+        onMeta(meta.id, meta.title ?? "", meta.url, meta.favicon);
+    }, [meta, onMeta]);
 
-    useEffect(() => {
-        const frame = frameRef.current;
-        if (!frame) return;
-        const send = () => frame.contentWindow?.postMessage({ type: "bettershape-browser-host", pick: picking }, frameOrigin(frame));
-        send();
-        frame.addEventListener("load", send);
-        return () => frame.removeEventListener("load", send);
-    }, [picking, frameSrc, showPage]);
+    const actions = createBrowserActions({
+        active,
+        showAgent,
+        currentUrl,
+        agentFrame,
+        frameRef,
+        frameTabRef: frameTab,
+        travelUntilRef: travelUntil,
+        setTabs,
+        setActiveId,
+        clearDraft: () => setDraft(null),
+        closePageMenu: () => setPageMenu(null),
+        leaveAgentTab: () => setLocalActive(null),
+        setFrameSrc,
+        setPicking,
+        setTools,
+        saveBookmark: toggleSaved,
+        chooseScheme,
+        showBookmarkBar: showBar,
+    });
 
-    useEffect(() => {
-        const onMessage = (event: MessageEvent) => {
-            const frame = frameRef.current;
-            if (!frame || event.source !== frame.contentWindow) return;
-            try {
-                const expected = new URL(currentUrlRef.current).origin;
-                if (event.origin && expected !== "null" && event.origin !== expected) return;
-            } catch { /* ignore */ }
-            const data = event.data as {
-                type?: string;
-                url?: string;
-                title?: string;
-                favicon?: string;
-                x?: number;
-                y?: number;
-                tag?: string;
-                label?: string;
-                travel?: boolean;
-                rect?: { x: number; y: number; w: number; h: number };
-            } | null;
-            if (!data || typeof data.type !== "string") return;
-            if (data.type === "bettershape-browser-page" && data.url) {
-                noteNavigation(data.url, data.title, null, !!data.travel, data.favicon);
-                return;
-            }
-            if (data.type === "bettershape-browser-hover") {
-                if (!data.rect || !data.label) setHover(null);
-                else setHover({ label: data.label, rect: data.rect });
-                return;
-            }
-            if (data.type === "bettershape-browser-menu") {
-                const rect = frame.getBoundingClientRect();
-                setPageMenu({ x: rect.left + (data.x || 0), y: rect.top + (data.y || 0) });
-                return;
-            }
-            if (data.type === "bettershape-browser-pick" && data.tag) {
-                setPicking(false);
-                const el = data as BrowserPickedElement;
-                window.dispatchEvent(new CustomEvent("bettershape-chat-attach-element", { detail: el }));
-                window.dispatchEvent(new Event("bettershape-chat-focus-input"));
-            }
-        };
-        window.addEventListener("message", onMessage);
-        return () => window.removeEventListener("message", onMessage);
-    }, [noteNavigation]);
-    const bookmarked = bookmarks.some((b) => b.url === currentUrl);
-    const toggleBookmark = () => {
-        if (!currentUrl || currentUrl === "about:blank") return;
-        const next = bookmarked
-            ? bookmarks.filter((b) => b.url !== currentUrl)
-            : [...bookmarks, { url: currentUrl, title: (showAgent ? agentFrame?.title : active?.title) || hostnameOf(currentUrl) }];
-        setBookmarks(next);
-        saveJson(BOOKMARKS_KEY, next);
-    };
-
-    const closeTools = () => {
-        setToolsUrl(null);
-        setToolsError(null);
-    };
-    const openTools = () => {
-        if (!active?.url) return;
-        const pageUrl = active.url;
-        void commands.browserSurfaceDevtools(pageUrl).then((next) => {
-            if (!next || pageUrlRef.current !== pageUrl) return;
-            setToolsError(null);
-            setToolsUrl(next);
-        }).catch((err: unknown) => {
-            setToolsUrl(null);
-            const message = typeof err === "string" ? err : err instanceof Error ? err.message : "";
-            setToolsError(message || "This page doesn't have developer tools yet.");
-        });
-    };
-
-    const takeScreenshot = () => {
-        if (!active || savingShot) return;
-        setSavingShot(true);
-        void commands
-            .browserScreenshot(active.id)
-            .then((savedTo) => {
-                notificationStore.add(
-                    "Screenshot saved",
-                    "success",
-                    savedTo ? `Saved to ${savedTo}` : undefined,
-                );
-            })
-            .catch((err: unknown) => {
-                notificationStore.add(
-                    "Screenshot failed",
-                    "error",
-                    screenshotFailureMessage(err),
-                );
-            })
-            .finally(() => setSavingShot(false));
-    };
-
-    const canBack = !showAgent && !!active && active.index > 0;
-    const canForward = !showAgent && !!active && active.index < active.entries.length - 1;
+    const state = chromeState({
+        draft,
+        tabKey,
+        showAgent,
+        address: addressOf({ showAgent, agentFrame, active }),
+        active,
+        currentUrl,
+        bookmarks,
+        picking,
+        pageTools,
+        scheme,
+        bookmarkBar,
+    });
 
     return (
         <div className="flex h-full min-h-0 flex-col">
             <AgentControlBar />
-            <div className="flex h-8 shrink-0 items-center gap-0.5 border-b border-border-subtle px-1">
-                <ToolBtn label="Back" disabled={!canBack} onClick={() => goHistory(-1)}>
-                    <Icon icon={ArrowLeft20Regular} />
-                </ToolBtn>
-                <ToolBtn label="Forward" disabled={!canForward} onClick={() => goHistory(1)}>
-                    <Icon icon={ArrowRight20Regular} />
-                </ToolBtn>
-                <ToolBtn
-                    label="Reload"
-                    disabled={showAgent || !active || active.pending || !active.url}
-                    onClick={reloadPage}
-                >
-                    <Icon icon={ArrowSync20Regular} />
-                </ToolBtn>
-                <ToolBtn label={bookmarked ? "Remove bookmark" : "Bookmark"} onClick={toggleBookmark} active={bookmarked} disabled={!currentUrl}>
-                    <Icon icon={Star20Regular} className={bookmarked ? "text-accent" : undefined} />
-                </ToolBtn>
-                <UrlBar value={urlValue} onChange={setUrlDraft} onSubmit={submitUrl} />
-                <Tooltip content={picking ? "Stop selecting" : "Select an element to mention it in chat"} side="bottom" delayDuration={80}>
-                    <button
-                        type="button"
-                        aria-label="Select element"
-                        aria-pressed={picking}
-                        disabled={showAgent || !active || !active.url}
-                        onClick={() => setPicking((v) => !v)}
-                        className={cn(
-                            "flex size-7 shrink-0 items-center justify-center rounded text-text-muted",
-                            "hover:bg-[var(--btn-hover)] hover:text-text-primary disabled:pointer-events-none disabled:opacity-30",
-                            picking && "bg-[var(--btn-open)] hover:bg-[var(--btn-open-hover)] text-accent",
-                        )}
-                    >
-                        <Icon icon={Target20Regular} />
-                    </button>
-                </Tooltip>
-                <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                        <button
-                            type="button"
-                            className="flex size-7 shrink-0 items-center justify-center rounded text-text-muted hover:bg-[var(--btn-hover)] hover:text-text-primary data-[state=open]:bg-[var(--btn-open)] data-[state=open]:focus:bg-[var(--btn-open-hover)] data-[state=open]:hover:bg-[var(--btn-open-hover)] data-[state=open]:text-text-primary"
-                            aria-label="Developer tools"
-                        >
-                            <Icon icon={Code20Regular} />
-                        </button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" side="bottom" className="w-56">
-                        <DropdownMenuCheckboxItem
-                            checked={!!toolsUrl || !!toolsError}
-                            disabled={!active || active.pending || showAgent || !active.url}
-                            onCheckedChange={(checked) => {
-                                if (!checked) closeTools();
-                                else if (!toolsUrl) openTools();
-                            }}
-                        >
-                            <Icon icon={Code20Regular} />
-                            Developer tools
-                        </DropdownMenuCheckboxItem>
-                        <DropdownMenuItem
-                            disabled={!active || active.pending || showAgent || savingShot}
-                            onClick={takeScreenshot}
-                        >
-                            <Icon icon={Camera20Filled} />
-                            {savingShot ? "Saving screenshot" : "Take screenshot"}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                            disabled={!active || showAgent}
-                            onClick={() => active && !active.pending && reloadPage()}
-                        >
-                            <Icon icon={ArrowSync20Regular} />
-                            Hard Reload
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                            disabled={!currentUrl}
-                            onClick={() => {
-                                if (currentUrl) void navigator.clipboard.writeText(currentUrl);
-                            }}
-                        >
-                            <Icon icon={Link20Regular} />
-                            Copy Current URL
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                            disabled={!currentUrl}
-                            onClick={() => {
-                                if (currentUrl) void commands.openUrlExternal(currentUrl);
-                            }}
-                        >
-                            <Icon icon={Open20Regular} />
-                            Open Externally
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuCheckboxItem checked={scheme === "system"} onCheckedChange={() => chooseScheme("system")}>
-                            System theme
-                        </DropdownMenuCheckboxItem>
-                        <DropdownMenuCheckboxItem checked={scheme === "light"} onCheckedChange={() => chooseScheme("light")}>
-                            <Icon icon={WeatherSunny20Regular} />
-                            Light
-                        </DropdownMenuCheckboxItem>
-                        <DropdownMenuCheckboxItem checked={scheme === "dark"} onCheckedChange={() => chooseScheme("dark")}>
-                            <Icon icon={WeatherMoon20Regular} />
-                            Dark
-                        </DropdownMenuCheckboxItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuCheckboxItem
-                            checked={bookmarkBar}
-                            onCheckedChange={(checked) => {
-                                setBookmarkBar(checked);
-                                saveJson(BOOKMARK_BAR_KEY, checked);
-                            }}
-                        >
-                            Show Bookmark Bar
-                        </DropdownMenuCheckboxItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem onClick={() => void commands.browserClear("history")}>
-                            <Icon icon={History20Regular} />
-                            Clear Browsing History
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => void commands.browserClear("cookies")}>
-                            <Icon icon={Shield20Regular} />
-                            Clear Cookies
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => void commands.browserClear("cache")}>
-                            <Icon icon={Database20Regular} />
-                            Clear Cache
-                        </DropdownMenuItem>
-                    </DropdownMenuContent>
-                </DropdownMenu>
-            </div>
-
-            {bookmarkBar ? (
-                <div className="flex h-7 shrink-0 items-center gap-0.5 overflow-x-auto border-b border-border-subtle px-1">
-                    {bookmarks.length === 0 ? (
-                        <span className="px-2 text-xs text-text-muted">Star a page to keep it here.</span>
-                    ) : (
-                        bookmarks.map((b) => (
-                            <button
-                                key={b.url}
-                                type="button"
-                                onClick={() => submitUrl(b.url)}
-                                className="flex h-6 max-w-40 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs text-text-secondary hover:bg-[var(--btn-hover)] hover:text-text-primary"
-                            >
-                                <Favicon url={b.url} size={12} />
-                                <span className="truncate">{b.title || hostnameOf(b.url)}</span>
-                            </button>
-                        ))
-                    )}
-                </div>
-            ) : null}
-
-            <div className="flex min-h-0 flex-1 bg-panel">
-                <div className="relative min-h-0 min-w-0 flex-1">
-                <iframe
-                    ref={frameRef}
-                    name="bettershape-browser"
-                    title={active?.title || "Browser"}
-                    sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals"
-                    className={cn(
-                        "absolute inset-0 h-full w-full border-0 bg-panel",
-                        showPage ? "block" : "hidden",
-                    )}
-                />
-                {showAgent && agentFrame ? (
-                    <div className="relative z-[1] flex h-full min-h-0 flex-col bg-panel">
-                        {agentFrame.image ? (
-                        <BrowseStage frame={agentFrame} interactive className="min-h-0 flex-1" />
-                        ) : (
-                            <div className="flex flex-1 items-center justify-center text-xs text-text-muted">
-                                {agentFrame.status === "error" ? agentFrame.error : "Opening…"}
-                            </div>
-                        )}
-                        {agentFrame.console.length ? (
-                            <pre className="max-h-28 shrink-0 overflow-auto border-t border-border-subtle bg-surface-1 p-2 font-mono text-2xs text-text-secondary">
-                                {agentFrame.console.join("\n")}
-                            </pre>
-                        ) : null}
-                    </div>
-                ) : !showPage ? (
-                    <NewTabPage onOpen={submitUrl} onUseTool={onUseTool} />
-                ) : null}
-                {showPage && picking && hover ? (
-                    <div className="pointer-events-none absolute z-10" style={{ left: `${hover.rect.x}%`, top: `${hover.rect.y}%`, width: `${hover.rect.w}%`, height: `${hover.rect.h}%` }}>
-                        <div className="h-full w-full rounded-sm border border-accent bg-accent/15" />
-                        <span className="absolute left-0 top-0 -translate-y-full rounded-md bg-accent px-1.5 py-0.5 font-mono text-2xs text-white">
-                            {hover.label}
-                        </span>
-                    </div>
-                ) : null}
-                {showPage && active?.error ? (
-                    <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-panel px-6 text-center">
-                        <Icon icon={Globe20Regular} className="text-text-muted" />
-                        <div className="flex flex-col gap-1">
-                            <span className="text-sm font-medium text-text-primary">This page can&apos;t be shown</span>
-                            <span className="max-w-md text-xs text-text-secondary">{active.error}</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <Button variant="secondary" size="sm" onClick={reloadPage}>Try again</Button>
-                            <Button variant="secondary" size="sm" onClick={() => void commands.openUrlExternal(active.url)}>Open externally</Button>
-                        </div>
-                    </div>
-                ) : null}
-                </div>
-                {toolsUrl && showPage ? (
-                    <iframe
-                        name="bettershape-devtools"
-                        title="Developer tools"
-                        src={toolsUrl}
-                        className="h-full w-[min(440px,46%)] shrink-0 border-l border-border-subtle bg-panel"
-                    />
-                ) : toolsError && showPage ? (
-                    <div className="flex h-full w-[min(440px,46%)] shrink-0 items-center border-l border-border-subtle bg-panel px-4">
-                        <p className="text-xs text-text-secondary">{toolsError}</p>
-                    </div>
-                ) : null}
-            </div>
-                {pageMenu ? (
-                    <DropdownMenu open onOpenChange={(open) => { if (!open) setPageMenu(null); }}>
-                        <DropdownMenuTrigger asChild>
-                            <span className="fixed z-20 size-px" style={{ left: pageMenu.x, top: pageMenu.y }} />
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent>
-                            <DropdownMenuItem disabled={!canBack} onClick={() => goHistory(-1)}>
-                                <Icon icon={ArrowLeft20Regular} />
-                                Back
-                            </DropdownMenuItem>
-                            <DropdownMenuItem disabled={!canForward} onClick={() => goHistory(1)}>
-                                <Icon icon={ArrowRight20Regular} />
-                                Forward
-                            </DropdownMenuItem>
-                            <DropdownMenuItem disabled={!active?.url} onClick={reloadPage}>
-                                <Icon icon={ArrowSync20Regular} />
-                                Reload
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem disabled={!active?.url} onClick={() => setPicking(true)}>
-                                <Icon icon={Target20Regular} />
-                                Select Element
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                                disabled={!currentUrl}
-                                onClick={() => {
-                                    if (currentUrl) void navigator.clipboard.writeText(currentUrl);
-                                }}
-                            >
-                                <Icon icon={Link20Regular} />
-                                Copy Current URL
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                                disabled={!currentUrl}
-                                onClick={() => {
-                                    if (currentUrl) void commands.openUrlExternal(currentUrl);
-                                }}
-                            >
-                                <Icon icon={Open20Regular} />
-                                Open Externally
-                            </DropdownMenuItem>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
-                ) : null}
+            <BrowserToolbar
+                state={state}
+                actions={actions}
+                onUrlDraft={(value) => setDraft({ key: tabKey, value })}
+            />
+            <BookmarkBar show={bookmarkBar} bookmarks={bookmarks} onOpen={actions.submitUrl} />
+            <PageArea
+                frameRef={frameRef}
+                showPage={showPage}
+                showAgent={showAgent}
+                agentFrame={agentFrame}
+                active={active}
+                picking={picking}
+                hover={hover}
+                tools={pageTools}
+                onReload={actions.reload}
+                onOpenExternally={actions.openExternally}
+                onOpen={actions.submitUrl}
+                onUseTool={onUseTool}
+            />
+            <PageContextMenu
+                point={pageMenu}
+                state={state}
+                actions={actions}
+                onClose={() => setPageMenu(null)}
+            />
         </div>
     );
-}
+};
+
+/** The frame driver is used by tests directly, so it stays on this module's surface. */
+export { steerFrame };
