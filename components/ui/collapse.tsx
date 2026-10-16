@@ -1,11 +1,11 @@
 "use client";
 
-import * as React from "react";
+import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 export interface CollapseProps {
     open: boolean;
-    children: React.ReactNode;
+    children: ReactNode;
     className?: string;
     /** Classes on the clipping wrapper, when a surface needs its own layout. */
     innerClassName?: string;
