@@ -44,6 +44,10 @@ Delivery paths that do work for a vendored branch, all verified:
 
 ## 2. What already works in this box
 
+Nothing in this section uses the vendor branch. It records what the open network alone supports, so
+that the gap list in section 3 is honest. With the branch, the Rust gates run as well, which is what
+section 7 measures and describes.
+
 ### 2.1 Rust 1.88.0 from npm
 
 `scripts/ci/install-rust-toolchain.sh` assembles a sysroot from the `@rustbin/*` npm packages and

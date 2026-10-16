@@ -249,7 +249,7 @@ In one list, the follow-up commit must do all of this:
    linker (A2).
 4. State that `cargo --config <path>` does not reach `cargo clippy`, and that the replacement belongs
    in `$CARGO_HOME/config.toml` (A3).
-5. Correct the three counts and delete the placeholder `unzip` line (A5).
+5. Correct the three wrong figures and delete the placeholder `unzip` line (A5).
 
 Item 2 of the main brief, the sysroot, is the only artifact this changes, so the rest of the tree,
 its hashes and the browser payload stay as they are unless your rebuild moves something.
