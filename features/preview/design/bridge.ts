@@ -1541,7 +1541,7 @@ export const DESIGN_BRIDGE_SCRIPT = String.raw`
         };
         image.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
       };
-      if (document.fonts && document.fonts.ready) {
+      if (document.fonts) {
         document.fonts.ready.then(finish).catch(finish);
       } else {
         finish();

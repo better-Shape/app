@@ -1,6 +1,7 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { transform } from "sucrase";
+import { waitForFonts } from "@/lib/ui/wait-for-fonts";
 
 const TAURI_GLOBALS = ["__TAURI__", "__TAURI_INTERNALS__", "__TAURI_IPC__"];
 
@@ -139,6 +140,12 @@ function compileUserCode(source: string): string {
     return `${code}\n;return App;`;
 }
 
+/**
+ * `FontFaceSet.ready` is a promise, so it has to be awaited and never branched
+ * on. Some engines expose no `FontFaceSet`, and a rejected one must not stop
+ * the preview from signalling ready.
+ */
+
 async function waitForTailwindPaint(root: HTMLElement) {
     const deadline = Date.now() + 10_000;
     while (Date.now() < deadline) {
@@ -185,11 +192,7 @@ export async function mountPreview(userCode: string, projectCss = "") {
     if (!root) throw new Error("Missing #root");
     createRoot(root).render(React.createElement(App));
     await waitForTailwindPaint(root);
-    try {
-        if (document.fonts?.ready) await document.fonts.ready;
-    } catch {
-        // ignore
-    }
+    await waitForFonts(document);
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
     await signalPreviewReady();
 }

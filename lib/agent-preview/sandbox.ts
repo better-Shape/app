@@ -58,7 +58,7 @@ export function buildPreviewReadyScript(): string {
     return `(async () => {
   ${TWEAK_LISTENER_JS}
   try {
-    if (document.fonts && document.fonts.ready) await document.fonts.ready;
+    if (document.fonts) await document.fonts.ready;
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
   } catch (_) {}
   try {

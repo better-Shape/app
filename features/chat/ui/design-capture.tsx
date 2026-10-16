@@ -3,6 +3,7 @@
 import * as React from "react";
 import { listen, emit } from "@tauri-apps/api/event";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { waitForFonts } from "@/lib/ui/wait-for-fonts";
 
 type CaptureRequestPayload = {
     requestId: string;
@@ -69,9 +70,7 @@ async function rasterizeIframe(iframe: HTMLIFrameElement, width: number, height:
     if (!doc?.documentElement) {
         throw new Error("Preview document is not accessible for capture");
     }
-    if (doc.fonts?.ready) {
-        await doc.fonts.ready.catch(() => undefined);
-    }
+    await waitForFonts(doc);
 
     const clone = doc.documentElement.cloneNode(true) as HTMLElement;
     await copyComputedTree(doc.documentElement, clone);
