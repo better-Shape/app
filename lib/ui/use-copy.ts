@@ -76,6 +76,9 @@ export function useCopyToClipboard({
                 }
             }
 
+            // Copy is clicked repeatedly, and each click used to leave its own timer armed:
+            // the older one then cleared the newer confirmation while it was still showing.
+            if (timer.current) clearTimeout(timer.current);
             timer.current = setTimeout(() => {
                 timer.current = null;
                 if (mounted.current) {

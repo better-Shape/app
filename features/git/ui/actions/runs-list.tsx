@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 import type { WorkflowRun } from "./types";
 import { actorAvatarUrl, formatRelative, statusIcon, statusTone } from "./utils";
 import { GitListSkeleton } from "@/features/git/ui/shared/skeletons";
-import { GIT_ROW } from "@/features/git/ui/shared/row-shell";
+import { GIT_ROW, GIT_ROW_TEXT } from "@/features/git/ui/shared/row-shell";
 
 function RunStatusIcon({
     status,
@@ -78,7 +78,13 @@ export function RunsList({
                                             status={run.status}
                                             conclusion={run.conclusion}
                                         />
-                                        <span className="min-w-0 flex-1 line-clamp-2 text-sm leading-snug text-text-primary">
+                                        <span
+                                            className={cn(
+                                                "min-w-0 flex-1 line-clamp-2 text-text-primary",
+                                                GIT_ROW_TEXT.run.title,
+                                                GIT_ROW_TEXT.run.titleReserve,
+                                            )}
+                                        >
                                             {run.display_title || run.name}
                                         </span>
                                     </div>

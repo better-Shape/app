@@ -105,4 +105,45 @@ describe("swap text", () => {
         render(<SwapText value="Copy" live />);
         expect(container.querySelector(".t-swap")?.getAttribute("aria-live")).toBe("polite");
     });
+
+    it("hands the width transition two lengths instead of leaving it on auto", () => {
+        // A grid sizes to its widest layer, so without this a longer value moves its
+        // neighbours in the first frame. jsdom lays nothing out, so the widths are
+        // stubbed from the text length to give the pin and the hand-over real numbers.
+        const real = Element.prototype.getBoundingClientRect;
+        // 8px per character, with the host as wide as its widest layer, which is the rule
+        // the real grid follows.
+        const widthOf = (el: Element) => {
+            // A pinned width wins, which is what the browser reports while the box is held.
+            const pinned = (el as HTMLElement).style?.width;
+            if (pinned?.endsWith("px")) return Number.parseFloat(pinned);
+            const layers = [...el.querySelectorAll(".t-swap__layer")];
+            const chars = layers.length
+                ? Math.max(...layers.map((l) => (l.textContent ?? "").length))
+                : (el.textContent ?? "").length;
+            return chars * 8;
+        };
+        Element.prototype.getBoundingClientRect = function () {
+            return { width: widthOf(this), x: 0, y: 0, height: 0, top: 0, left: 0, right: 0, bottom: 0, toJSON: () => ({}) } as DOMRect;
+        };
+        try {
+            const host = () => container.querySelector(".t-swap") as HTMLElement;
+            render(<SwapText value="Copy" />);
+            act(() => vi.advanceTimersByTime(20));
+
+            render(<SwapText value="Copied" />);
+            // Pinned to the width it is leaving, in the commit the new value arrives in.
+            expect(host().style.width).toBe("32px");
+
+            // Then released to the measured width of the value coming in.
+            act(() => vi.advanceTimersByTime(20));
+            expect(host().style.width).toBe("48px");
+
+            // And handed back to the layout once the swap is over.
+            act(() => vi.advanceTimersByTime(140));
+            expect(host().style.width).toBe("");
+        } finally {
+            Element.prototype.getBoundingClientRect = real;
+        }
+    });
 });

@@ -23,9 +23,64 @@ beforeEach(() => {
     terminalSessionStore.activeProjectTabs = {};
     terminalSessionStore.activeSecondaryTabs = {};
     terminalSessionStore.focusedGroup = {};
+    terminalSessionStore.instances.clear();
+    // Most cases below assume the panel is open on the project under test. The cases
+    // about what happens while it is closed set this themselves.
+    terminalSessionStore.panel = { visible: true, cwd: "/repo" };
 });
 
 describe("terminal tab activity", () => {
+    it("marks the active tab when the panel is closed", () => {
+        terminalSessionStore.setTabs(() => [tab("a", 1)]);
+        terminalSessionStore.setActive("/repo", "a");
+        terminalSessionStore.setPanel({ visible: false, cwd: "/repo" });
+
+        terminalSessionStore.noteOutput(1);
+        expect([...terminalSessionStore.unreadTabs]).toEqual(["a"]);
+    });
+
+    it("marks the active tab of a project that is not on screen", () => {
+        terminalSessionStore.setTabs(() => [tab("a", 1), tab("b", 2)]);
+        terminalSessionStore.setActive("/other", "b");
+        terminalSessionStore.setActive("/repo", "a");
+
+        terminalSessionStore.noteOutput(2);
+        expect([...terminalSessionStore.unreadTabs]).toEqual(["b"]);
+    });
+
+    it("marks a shell tab through the pty its instance holds", () => {
+        // A shell tab is created with no bound pty; the instance is what remembers it.
+        terminalSessionStore.setTabs(() => [tab("shell")]);
+        terminalSessionStore.setActive("/repo", "shell");
+        terminalSessionStore.instances.set("shell", {
+            term: null,
+            fitAddon: null,
+            ptyId: 7,
+            unlistenOutput: () => {},
+        });
+        // Shell tabs are always active in their own group in this case, so the dot has to
+        // come from the panel being closed; what this asserts is that the pty was matched
+        // at all, which the boundPtyId-only lookup could not do.
+        terminalSessionStore.setPanel({ visible: false, cwd: "/repo" });
+
+        terminalSessionStore.noteOutput(7);
+        expect([...terminalSessionStore.unreadTabs]).toEqual(["shell"]);
+    });
+
+    it("ignores output on an instance whose tab is being read", () => {
+        terminalSessionStore.setTabs(() => [tab("shell")]);
+        terminalSessionStore.setActive("/repo", "shell");
+        terminalSessionStore.instances.set("shell", {
+            term: null,
+            fitAddon: null,
+            ptyId: 7,
+            unlistenOutput: () => {},
+        });
+
+        terminalSessionStore.noteOutput(7);
+        expect(terminalSessionStore.unreadTabs.size).toBe(0);
+    });
+
     it("marks a background tab that produced output", () => {
         terminalSessionStore.setTabs(() => [tab("a", 1), tab("b", 2)]);
         terminalSessionStore.setActive("/repo", "a");

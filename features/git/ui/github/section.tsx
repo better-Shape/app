@@ -29,6 +29,7 @@ import { notify } from "@/features/notifications";
 import { Tooltip } from "@/components/ui/tooltip";
 import { GitHubDetailPane } from "./detail";
 import { GitListSkeleton } from "@/features/git/ui/shared/skeletons";
+import { GIT_ROW_TEXT } from "@/features/git/ui/shared/row-shell";
 import { GitChromeActions } from "@/features/git/ui/manager/chrome";
 import { CreatePullRequestDialog } from "./create-pr-dialog";
 import { Panel } from "@/features/panels";
@@ -317,7 +318,9 @@ export function GitHubSection({ section }: { section: GitHubListSection }) {
                                     <div className="flex items-start justify-between gap-2">
                                         <span className="flex min-w-0 items-start gap-2 text-sm leading-snug text-text-primary">
                                             <ItemStatusIcon status={item.status} />
-                                            <span className="line-clamp-2">{item.title}</span>
+                                            <span className={cn("line-clamp-2", GIT_ROW_TEXT.run.titleReserve)}>
+                                                {item.title}
+                                            </span>
                                         </span>
                                         {item.meta ? (
                                             <span className="shrink-0 text-2xs text-text-muted">

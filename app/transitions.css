@@ -736,6 +736,16 @@
   color: rgba(255, 255, 255, 0.82);
 }
 
+/*
+ * The swap holds the outgoing width as a length while the new value is measured, and hands
+ * the box back to `auto` once the swap is over. That release is a keyword to a length, so
+ * it needs `interpolate-size` to interpolate; the value is the same either side of it, so
+ * a browser without the keyword shows no jump. Browsers without it are the reason this is
+ * a switch and not a requirement.
+ */
+:root {
+  interpolate-size: allow-keywords;
+}
 .t-swap {
   position: relative;
   display: inline-grid;

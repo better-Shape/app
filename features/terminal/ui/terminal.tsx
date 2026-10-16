@@ -585,6 +585,13 @@ export default function Terminal({
     const [splitRatio, setSplitRatio] = useState(0.5);
     const splitDragging = useRef(false);
 
+    // What counts as seen depends on this panel being on screen and on which project it
+    // is showing, and only this component knows either. A docked-but-closed panel keeps
+    // its tabs mounted, so without this its active tab would swallow every dot.
+    useEffect(() => {
+        globalTerminalStore.setPanel({ visible: Boolean(isOpen), cwd: project_path || null });
+    }, [isOpen, project_path]);
+
     useEffect(() => {
         if (!project_path) return;
         globalTerminalStore.setTabs((tabs) => {

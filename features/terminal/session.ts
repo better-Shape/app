@@ -46,6 +46,13 @@ class TerminalSessionStore {
      * have not seen yet", which is true of a running build and of a finished one.
      */
     unreadTabs = new Set<string>();
+    /**
+     * Whether the surface showing these tabs is on screen, and which project it shows.
+     * The store cannot read the panel's props, so the view reports them. A tab counts as
+     * seen only while that panel is open on the project that owns it, which is what lets
+     * a background run's output raise a dot while the user is elsewhere.
+     */
+    panel: { visible: boolean; cwd: string | null } = { visible: false, cwd: null };
     listeners = new Set<() => void>();
 
     subscribe(l: () => void): () => void {
@@ -75,11 +82,25 @@ class TerminalSessionStore {
         this.notify();
     }
 
-    /** The tab the user is currently looking at in either split group. */
+    setPanel(next: { visible: boolean; cwd: string | null }) {
+        if (this.panel.visible === next.visible && this.panel.cwd === next.cwd) return;
+        this.panel = next;
+        this.notify();
+    }
+
+    /**
+     * The tabs the user is currently looking at: the active tab of each split group of
+     * the project on screen, and nothing while the panel is closed. Output on any other
+     * tab is output the user has not seen.
+     */
     visibleTabIds(): Set<string> {
         const ids = new Set<string>();
-        for (const id of Object.values(this.activeProjectTabs)) if (id) ids.add(id);
-        for (const id of Object.values(this.activeSecondaryTabs)) if (id) ids.add(id);
+        const cwd = this.panel.cwd;
+        if (!this.panel.visible || !cwd) return ids;
+        const project = this.activeProjectTabs[cwd];
+        const secondary = this.activeSecondaryTabs[cwd];
+        if (project) ids.add(project);
+        if (secondary) ids.add(secondary);
         return ids;
     }
 
@@ -90,7 +111,13 @@ class TerminalSessionStore {
      * budget out of the output path.
      */
     noteOutput(ptyId: number) {
-        const tab = this.tabs.find((t) => t.boundPtyId === ptyId);
+        // A shell tab is created without a bound pty: the pty is made when the tab first
+        // attaches, and only the live instance remembers it. Reading `boundPtyId` alone
+        // therefore found nothing for every shell tab, so their output could never raise
+        // a dot. The instance map is the second place that knows.
+        const tab =
+            this.tabs.find((t) => t.boundPtyId === ptyId) ??
+            this.tabs.find((t) => this.instances.get(t.id)?.ptyId === ptyId);
         if (!tab) return;
         if (this.visibleTabIds().has(tab.id)) return;
         if (this.unreadTabs.has(tab.id)) return;

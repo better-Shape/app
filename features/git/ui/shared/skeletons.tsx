@@ -60,7 +60,16 @@ export function GitListSkeleton({ rows = 8, variant = "run" }: { rows?: number; 
                         <SkeletonLine text={text.title} width="w-[70%]" />
                     ) : (
                         <div className="flex w-full flex-col gap-0.5">
-                            <SkeletonLine text={text.title} width={i % 3 === 0 ? "w-[85%]" : "w-[65%]"} />
+                            {/* One line box per line the live title can occupy: a wrapped
+                                title that lands on two lines must not make the row taller
+                                than the placeholder that stood in for it. */}
+                            {Array.from({ length: text.titleLines }, (_, line) => (
+                                <SkeletonLine
+                                    key={line}
+                                    text={text.title}
+                                    width={line > 0 ? "w-[55%]" : i % 3 === 0 ? "w-[85%]" : "w-[65%]"}
+                                />
+                            ))}
                             <SkeletonLine text={text.meta} width="w-[40%]" className="ml-4" />
                         </div>
                     )}
