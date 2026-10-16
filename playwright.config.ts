@@ -32,7 +32,10 @@ const useStatic = process.env.E2E_STATIC === "1";
  *   3. `@sparticuz/chromium`, an npm-registry-hosted Chromium build, for
  *      sandboxes/CI images where the Playwright browser CDN is unreachable.
  *      Set `PLAYWRIGHT_SANDBOX_LIBS` to a directory of shared libraries
- *      (libnss3/libnspr4) to prepend to LD_LIBRARY_PATH if the host lacks them.
+ *      (libnss3/libnspr4) to prepend to LD_LIBRARY_PATH if the host lacks
+ *      them. It applies to all three paths, including
+ *      `PLAYWRIGHT_CHROMIUM_PATH`. Sources for those libraries are in
+ *      `engineering/sandbox-vendored-toolchain.md`.
  */
 const bundledChromiumUsable = (): boolean => {
     try {
@@ -93,7 +96,6 @@ const sandboxChromium = (): { executablePath?: string; args?: string[] } => {
             ],
             { encoding: "utf8", cwd: __dirname },
         ).trim();
-        applySandboxLibs();
         // Deliberately NOT sparticuz's full Lambda arg set: `--single-process`
         // makes the browser process unresponsive under a heavy dev bundle.
         // Playwright supplies sane defaults; add only sandbox essentials.
@@ -108,6 +110,11 @@ const sandboxChromium = (): { executablePath?: string; args?: string[] } => {
 
 /** Pick the Chromium executable and args for this environment, honouring the explicit override first. */
 const resolveChromium = (): { executablePath?: string; args?: string[] } => {
+    // Every path below can land on a Chromium that needs NSS/NSPR the host
+    // does not have. Applying the directory here, once, covers the explicit
+    // path too: it used to skip the prepend and the browser died with
+    // "error while loading shared libraries: libnspr4.so".
+    applySandboxLibs();
     if (process.env.PLAYWRIGHT_CHROMIUM_PATH) {
         return { executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH };
     }
