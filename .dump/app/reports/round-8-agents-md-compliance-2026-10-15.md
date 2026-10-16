@@ -7,11 +7,17 @@ is https://github.com/better-Shape/app/pull/7 against `draft/mega-absorb-all`.
 The four rounds of work before this one were on the same working tree, and the repository
 was re-cloned underneath them, so their commits are absent from history and the tree is
 the only copy. The gates described under "The pre-existing gates, fixed" landed in `330f5ba`,
-`a0ef880` and `147f37a`, and the branch head when this report was last edited is `9590e47`,
-which changes this file and no code. Five commits carry the pass: `6f7d845` and `f695e3b` are the repair itself,
+`a0ef880` and `147f37a`. Five commits carry the pass: `6f7d845` and `f695e3b` are the repair itself,
 `0bbed49` and `b7a57d1` and `748e168` answer the first review round, and `9e3e2bf` answers
 the SonarCloud gate and the round 7 census. This pass treats every rule in `AGENTS.md` as
 a standing instruction and fixes the work already on disk against it.
+
+The commits after `9e3e2bf` answer the CodeAnt round and the analyzer findings. `a98b917`
+fixes the terminal store, the copy hook and the Git list recipes; `40e7623` makes the QA
+probes able to fail; `2322a34`, `70b056f` and `308062c` move the storage key behind the
+module that owns it and answer the Secrets finding at its own line. `308062c` is the last
+commit that touches code, and every gate in this report was run on the tree it records; the
+commits after it carry this file and nothing else, so they cannot invalidate a gate result.
 
 ## What was wrong, and what changed
 
