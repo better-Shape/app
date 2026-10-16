@@ -211,21 +211,25 @@ const CrashDetails = ({
  * whether the user asked for the exception, and whether the details are open.
  */
 const ReportBlock = ({ title, hint, digest, message, stack }: ReportBlockProps) => {
-    const [reporting, setReporting] = useState(false);
-    const [reported, setReported] = useState(false);
+    const [reportState, setReportState] = useState<"idle" | "sending" | "sent" | "failed">("idle");
     const [detailsOpen, setDetailsOpen] = useState(false);
     const [attachDetails, setAttachDetails] = useState(false);
+    const sent = reportState === "sent";
 
     /**
      * Copies the report and opens the issue, then reflects the answer in the button.
      *
-     * `reported` follows the write, not the click, so a refused copy leaves the button live
-     * and the user can still select the text by hand.
+     * Synchronous by design, the same way the clipboard hook is: the handler returns
+     * nothing, the write's promise ends here in a pair of handlers, and the state machine
+     * has no way to be both sending and sent. `sent` follows the write rather than the
+     * click, so a refused copy leaves the button live for a hand copy.
      */
-    const report = async () => {
-        setReporting(true);
-        setReported(await sendReport({ title, hint, digest, message, stack, withTechnical: attachDetails }));
-        setReporting(false);
+    const report = () => {
+        setReportState("sending");
+        sendReport({ title, hint, digest, message, stack, withTechnical: attachDetails }).then(
+            (ok) => setReportState(ok ? "sent" : "failed"),
+            () => setReportState("failed"),
+        );
     };
 
     return (
@@ -233,13 +237,13 @@ const ReportBlock = ({ title, hint, digest, message, stack }: ReportBlockProps) 
             <Button
                 size="sm"
                 variant="ghost"
-                loading={reporting}
-                disabled={reported}
-                onClick={() => report()}
+                loading={reportState === "sending"}
+                disabled={sent}
+                onClick={report}
                 className="mt-4 text-text-muted"
             >
-                {reported ? "Report copied" : "Report this crash"}
-                {reported ? null : <Icon icon={ChevronRight20Regular} />}
+                {sent ? "Report copied" : "Report this crash"}
+                {sent ? null : <Icon icon={ChevronRight20Regular} />}
             </Button>
 
             <AttachDetails checked={attachDetails} onChange={setAttachDetails} />
