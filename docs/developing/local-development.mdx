@@ -38,8 +38,9 @@ npm run test
 
 If your machine cannot reach `sh.rustup.rs`, `crates.io` or the Playwright browser CDN, the Rust
 tests and the browser suite still run. Fetch the orphan branch `vendor/sandbox-toolchain` and follow
-its `FETCH.md`, then read `engineering/rust-toolchain.md` for the flags the cargo gates need. That
-path was verified end to end on 2026-10-16.
+its `FETCH.md`. The cargo commands then need the two flags `engineering/rust-toolchain.md` documents;
+`npm run test:rust` and `npm run test:all` do not pass them themselves. That path was verified end to
+end on 2026-10-16.
 
 ## Sending the change
 

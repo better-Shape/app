@@ -16,7 +16,7 @@ Use this before every push. Paste the results and head SHA into the PR Verificat
 
 If `sh.rustup.rs`, `crates.io`, `cdn.playwright.dev` or `dl.google.com` are unreachable, fetch the
 orphan branch `vendor/sandbox-toolchain` first and follow its `FETCH.md`. It carries the toolchain,
-the crate registry, the Tauri sysroot, the browser and the shared libraries for each. Then:
+the crate registry, the Tauri sysroot, the browser, and the shared libraries each needs. Then:
 
 - [ ] I set `$CARGO_HOME/config.toml` with the vendored source replacement and `CARGO_NET_OFFLINE=true`, because `cargo --config <path>` does not reach `cargo clippy`.
 - [ ] I exported `CARGO_TARGET_DIR=/tmp/cargo-target` so a multi-gigabyte target directory stays out of the workspace.

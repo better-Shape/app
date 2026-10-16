@@ -40,10 +40,11 @@ Jobs:
 All jobs use the composite action `.github/actions/setup` for consistent Node 22 + Rust + caching.
 
 The `test-rust` and `rust-lints` jobs need crates.io and the Tauri system libraries. A machine that
-can reach neither still runs both locally through the orphan branch `vendor/sandbox-toolchain`,
-which carries the crate registry and a Debian 12 development sysroot. See
-`engineering/sandbox-vendored-toolchain.md` for the fetch recipe and `engineering/rust-toolchain.md`
-for the two cargo flags the pinned 1.88.0 toolchain needs.
+can reach neither still runs the same commands locally through the orphan branch
+`vendor/sandbox-toolchain`, which carries the crate registry and a Debian 12 development sysroot.
+That needs the two cargo flags in `engineering/rust-toolchain.md`, because the pinned 1.88.0
+toolchain is behind one crate's `rust-version`. `engineering/sandbox-vendored-toolchain.md` has the
+fetch recipe.
 
 Caching:
 
