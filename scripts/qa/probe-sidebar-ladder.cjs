@@ -63,7 +63,6 @@ const URL = process.env.PROBE_URL ?? "http://127.0.0.1:48921/?seed=project";
 
     await page.locator('button:has-text("Preview fixture chat")').first().click();
     await page.waitForTimeout(350);
-    const clickedWhileHovered = await read("clicked, still hovered");
 
     await page.mouse.move(900, 400); // pointer off the sidebar
     await page.waitForTimeout(350);
@@ -71,7 +70,6 @@ const URL = process.env.PROBE_URL ?? "http://127.0.0.1:48921/?seed=project";
 
     await rows.first().hover();
     await page.waitForTimeout(350);
-    const rehovered = await read("re-hovered");
 
     await page.mouse.move(900, 400);
     await page.waitForTimeout(350);

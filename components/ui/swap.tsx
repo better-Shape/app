@@ -77,7 +77,7 @@ export function SwapText<T extends string | number>({
     React.useLayoutEffect(() => {
         if (block || !host.current) return;
         setSettledWidth(host.current.getBoundingClientRect().width);
-    }, [block, pair.current]);
+    }, [block, value]);
 
     React.useLayoutEffect(() => {
         if (block || !swapping || !incoming.current) {
@@ -89,7 +89,7 @@ export function SwapText<T extends string | number>({
         const next = incoming.current.getBoundingClientRect().width;
         const frame = window.requestAnimationFrame(() => setTargetWidth(next));
         return () => window.cancelAnimationFrame(frame);
-    }, [block, swapping, pair.current]);
+    }, [block, swapping, value]);
 
     const draw = render ?? ((current: T) => current as React.ReactNode);
 
