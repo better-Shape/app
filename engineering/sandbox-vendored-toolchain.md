@@ -115,8 +115,8 @@ Result with `LD_LIBRARY_PATH=/tmp/chrome-deps` and `PLAYWRIGHT_CHROMIUM_PATH=/tm
 | `npx playwright test --grep-invert "@visual\|@audit"` | 17 of 17 passed, 2.2 min |
 
 Version skew to keep in mind: `playwright-core@1.64.1` pins Chrome for Testing 156.0.8078.4, and the
-npm browser is Chromium 153. The suite passes anyway. The mismatch is a risk, not a blocker, and it
-is the reason G3 wants the CfT 156 build in the branch.
+npm browser is Chromium 153. The suite passes anyway, which is why G3 is a fidelity item rather than
+a blocker. The delivered payload closes the gap with CfT 156, verified in section 7.
 
 ### 2.3 Recipe defects found, and what this branch did
 
@@ -257,14 +257,32 @@ and never lay it out inside the repository.
 Acceptance test, and this matters: this item is the most fragile of the set. Before the branch is
 declared done, the free agent must run
 
+inside a clean Debian 12 container that has only the vendored cargo tree and the vendored sysroot
+on the environment:
+
 ```bash
-cargo --offline --config /tmp/cargo-vendor-config.toml clippy \
+export CARGO_HOME=/tmp/cargo-home
+mkdir -p "$CARGO_HOME"
+printf '[source.crates-io]\nreplace-with = "vendored-sources"\n\n[source.vendored-sources]\ndirectory = "/tmp/cargo-vendor"\n' \
+  > "$CARGO_HOME/config.toml"
+export CARGO_NET_OFFLINE=true
+cargo clippy --ignore-rust-version \
   --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
+cargo test --ignore-rust-version --manifest-path src-tauri/Cargo.toml
 ```
 
-inside a clean Debian 12 container with only the vendored cargo tree and the vendored sysroot on
-the environment. If that fails, say so in `README.md` on the branch and keep the Rust gates on CI
-rather than shipping a sysroot that looks complete and is not.
+Do not reach for `cargo --config <path> clippy`. Cargo does not forward the global `--config` flag
+to external subcommands, so clippy falls back to the crates.io index and fails with
+`no matching package named base64`. Built-in commands such as `metadata` and `check` do honour the
+flag. Both behaviours were verified against cargo 1.88.0 with a probe crate. Put the replacement in
+`$CARGO_HOME/config.toml` and use `CARGO_NET_OFFLINE=true`, which every subprocess inherits.
+
+Clippy stops at type checking. `cargo test` also links, which is a heavier requirement on the
+sysroot. Run both, or the sysroot ships with defects that only appear at link time. That is exactly
+what happened to the first delivery, see section 7.
+
+If the gates fail, say so in `README.md` on the branch and keep them on CI rather than shipping a
+toolchain that looks complete and is not.
 
 ### G3 Browser matched to Playwright
 
@@ -537,13 +555,147 @@ because they reference it as the source of toolchains and libraries.
 | `scripts/ci/install-rust-toolchain.sh` | npm `@rustbin` only, closing note says crates.io is unreachable | add a vendored-branch mode, or a sibling script that consumes `rust/toolchain/` and verifies hashes | pending |
 | `scripts/dev/rust-toolchain.sh` | npm `@rustbin` only | same, or re-point at the shared installer | pending |
 | `.github/actions/setup/action.yml` | apt list for CI | add a comment naming the vendored sysroot as the sandbox mirror of this list so the two do not drift | pending |
-| `.github/RELEASE_READINESS.md` | lines 19 and 101 to 106 say Rust is CI only | update to the offline cargo path once G1 and G2 are proven | pending |
-| `.agents/PREFLIGHT.md`, `AGENTS.md` | gates list `npm run test:rust` and the cargo commands | add the sandbox invocation with the vendored toolchain and vendored crates | pending |
+| `.github/RELEASE_READINESS.md` | lines 19 and 101 to 106 say Rust is CI only | update to the offline cargo path, which now runs here end to end (section 7) | ready |
+| `.agents/PREFLIGHT.md`, `AGENTS.md` | gates list `npm run test:rust` and the cargo commands, none of which pass verbatim with the 1.88.0 pin | add the sandbox invocation with `--ignore-rust-version` and `CARGO_BUILD_JOBS=1`, or bump the pin per section 7.4 | needs decision |
+| `.github/workflows/ci.yml`, `.github/actions/setup/action.yml` | CI installs stable Rust | note that `notify-rust@4.18.0` needs 1.89.0, so the pinned toolchain is now behind the lockfile | needs decision |
 | `README.md` or `CONTRIBUTING.md` | setup instructions assume a normal network | one pointer to `engineering/sandbox-vendored-toolchain.md` | pending |
 
 Do not touch `.dump/app/browser-preview-audit-2026-10-14.md`. It is a dated record, not a recipe.
 
-## 7. Evidence log
+## 7. Verification of the delivered payload
+
+Branch `vendor/sandbox-toolchain` at commit `7ec94c1b353220d291924ee71c6346fcf35e66cd`, orphan,
+0 parents. It was delivered on 2026-10-16 and verified from this sandbox on the same day, over the
+restricted network only. Fetch was `curl` from codeload, 798 MB in 33 seconds, extract to `/tmp`.
+The workspace was never written to.
+
+What passed here:
+
+| Check | Command | Result |
+| --- | --- | --- |
+| Download and extract | `curl .../tar.gz/refs/heads/vendor/sandbox-toolchain` | 798 MB, 33 s, 846 MB on disk |
+| Manifest | `sha256sum -c MANIFEST.sha256` after inline reassembly | 3779 of 3779 OK, exit 0 |
+| Toolchain | the five components through `install.sh` | rustc, cargo, rustfmt and clippy all 1.88.0, the same versions the `@rustbin` path produced |
+| Sysroot resolves | `pkg-config --modversion` for the Tauri stack | gtk+-3.0 3.24.38, webkit2gtk-4.1 2.50.6, libsoup-3.0 3.2.3, javascriptcoregtk-4.1 2.50.6, openssl 3.0.22 |
+| Format gate | `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check` | clean, vendored rustfmt |
+| Clippy gate | `cargo clippy --ignore-rust-version --all-targets --all-features -- -D warnings` | exit 0, `Finished` in 5m 19s, offline |
+| Test gate | `cargo test --ignore-rust-version --manifest-path src-tauri/Cargo.toml` | 313 passed, 0 failed |
+| Browser layout | `PLAYWRIGHT_BROWSERS_PATH` on the extracted tree | `chromium-1248`, `chromium_headless_shell-1248`, `ffmpeg-1013`, marker files present |
+| Browser version | `chrome-linux64/chrome --version` | Google Chrome for Testing 156.0.8078.4, the build Playwright 1.64.1 pins |
+| Browser closure | `ldd chrome-linux64/chrome \| grep "not found"` | empty |
+| Playwright suite | `npx playwright test e2e/smoke.spec.ts` against the vendored tree | 6 of 6 passed, primary path, no `PLAYWRIGHT_CHROMIUM_PATH` and no `PLAYWRIGHT_SANDBOX_LIBS` |
+
+That closes G1 through G5. Two things the payload's own report did not cover, both found here.
+
+### 7.1 `cargo test` fails out of the box at link time
+
+`cargo clippy` passed on the delivered payload, so the acceptance test as written in the first
+version of this document went green. `cargo test` does not. It failed with
+
+```text
+/usr/bin/ld: /tmp/gtk-sysroot/usr/lib/x86_64-linux-gnu/libdbus-1.a(libdbus_1_la-dbus-sysdeps-unix.o):
+undefined reference to symbol 'sd_is_socket@@LIBSYSTEMD_209'
+```
+
+Root cause: the sysroot was extracted with `dpkg-deb -x` on the free box, and Debian's development
+symlinks are absolute. `libdbus-1.so`, `libffi.so`, `libuuid.so`, `libpcre2-8.so`, `libzstd.so`,
+`libmount.so`, `libblkid.so`, `libudev.so` and `libstdc++.so` each point at
+`/lib/x86_64-linux-gnu/<soname>` or a path under `/usr/lib/gcc`. Those targets exist on the free box
+and not in the sandbox, so the links dangle. The linker then skips the shared object and falls back
+to the static `libdbus-1.a` sitting next to it, which needs libsystemd, which is not on the link
+line. The failure reads like a missing dependency when the real problem is a broken symlink.
+
+The repair, and it belongs in the payload so consumers do not repeat it. Copy the shared objects
+into the sysroot, dereferenced, with relative links:
+
+```bash
+cd /tmp/gtk-sysroot/usr/lib/x86_64-linux-gnu
+for l in $(find . -maxdepth 1 -xtype l -name "lib*.so*"); do
+  base="$(basename "$l" .so)"; real=""
+  for cand in /lib/x86_64-linux-gnu/"$base".so.* /tmp/sandbox-vendor/chrome-deps/*/"$base".so.*; do
+    [ -e "$cand" ] && real="$(readlink -f "$cand")" && break
+  done
+  [ -n "$real" ] && cp -L "$real" "./$(basename "$real")" && ln -sfn "$(basename "$real")" "$l"
+done
+```
+
+`cp -L` matters. A plain `cp -a` copies the symlink itself and leaves the chain dangling again.
+`libdbus-1.so.3` also has to be copied in from `chrome-deps/cft-156/libdbus-1.so.3`, because the
+sandbox has no libdbus at all. Sixteen symlinks are broken in the extracted tree; eight are library
+`.so` links that the linker follows.
+
+The packaging fix is one of these, in order of preference:
+
+1. Replace every absolute symlink in the payload with a relative one and ensure the target is in the
+   payload as a real file. `cp -L` from the free box before packing.
+2. Or extract with `dpkg-deb --fsys-tarfile` and repack, rewriting absolute symlink targets.
+3. Or drop the static `.a` files from the sysroot as well. They are the trap: they turn a symlink
+   problem into a link error, and nothing in this build wants a static GTK, dbus or ffi.
+
+After the repair, `cargo test` passed 313 of 313. `cargo fmt --check`, `cargo clippy` and the
+Playwright suite had all been passing before the repair, which is why a clippy-only acceptance test
+did not catch it.
+
+### 7.2 `cargo test` needs memory headroom for the linker
+
+With the sysroot repaired, the first `cargo test` run still died with
+`collect2: fatal error: ld terminated with signal 9 [Killed]`. That is the OOM killer, not a cargo
+error. Linking the test binary for `app_lib` peaks above the 3.9 GB this sandbox has, and cargo
+builds two test binaries in parallel by default. `CARGO_BUILD_JOBS=1` drops the peak below the
+limit and the gate completes in about 36 seconds on a warm target directory.
+
+Record it in the recipe, because the same run succeeds or fails depending on the machine:
+
+```bash
+CARGO_BUILD_JOBS=1 cargo test --ignore-rust-version --manifest-path src-tauri/Cargo.toml
+```
+
+Two related cautions for this box. Keep `CARGO_TARGET_DIR` outside the workspace, as section 5 does,
+because the debug target directory runs to gigabytes and would be snapshotted. And run the Rust
+gates one at a time. A clippy run and a test run in parallel will fight for the same memory.
+
+### 7.3 Environment limits worth recording
+
+| Limit | Value | Consequence |
+| --- | --- | --- |
+| RAM and swap | 3.9 GB, no swap | parallel linking can be OOM-killed, see 7.2 |
+| vCPU | 2 | `cartesian` linking and codegen are slow |
+| Disk | 21 GB root, 16 GB free before the payload | the payload needs about 4 GB extracted on top of `node_modules`, a debug target directory and the reassembled archives, so reassemble, use, then delete |
+| `/dev/shm` | 2 GB | `--disable-dev-shm-usage` is still correct for the browser |
+| sudo | works, but no apt mirror is reachable | fixes are file-level only, never package installs |
+
+### 7.4 Upstream findings that block the Rust gates in `AGENTS.md`
+
+`notify-rust@4.18.0`, pulled in by `tauri-plugin-notification`, declares `rust-version = "1.89.0"`.
+It is the only crate in the lockfile above 1.88.0, verified by scanning every `rust-version` key in
+the vendored tree. The toolchain pin is 1.88.0, from `src-tauri/Cargo.toml` and from the vendored
+components. Cargo refuses before it compiles anything:
+
+```text
+error: rustc 1.88.0 is not supported by the following package:
+  notify-rust@4.18.0 requires rustc 1.89.0
+```
+
+`--ignore-rust-version` clears it, and the crate compiles and its tests pass on 1.88.0. That flag is
+a workaround, so the durable fixes are one of:
+
+1. Bump the pinned toolchain to 1.89.0 or newer, in `src-tauri/Cargo.toml`, in
+   `scripts/ci/install-rust-toolchain.sh` and in the vendored payload, and let CI's stable toolchain
+   follow.
+2. Pin `notify-rust` down to a version that declares 1.88.0, with
+   `cargo update notify-rust --precise <version>`, and rebuild the vendor tree.
+
+Until one of those lands, `.agents/PREFLIGHT.md` and `AGENTS.md` name gates that cannot pass
+verbatim in a sandbox with this payload:
+
+| Gate name | Status with the payload |
+| --- | --- |
+| `npm run test:rust` | fails, no `--ignore-rust-version` |
+| `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check` | passes |
+| `cargo clippy ... -- -D warnings` | passes with `--ignore-rust-version`, fails without |
+| `cargo test ... --all-features` | passes with `--ignore-rust-version` and `CARGO_BUILD_JOBS=1` |
+
+## 8. Evidence log
 
 Every claim above was produced in this sandbox on 2026-10-16. The commands worth repeating:
 

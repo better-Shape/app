@@ -222,3 +222,105 @@ The branch name and URL, the single commit SHA, the measured total size, a table
 with its upstream URL, upstream hash where one exists, measured size and sha256, the licences
 shipped, and the exact output of the verification steps. If any item could not be produced, say
 which one and what it needs, rather than shipping a partial artifact without a note.
+
+---
+
+# Appendix: corrections for the second pass
+
+The first delivery is commit `7ec94c1b353220d291924ee71c6346fcf35e66cd` on `vendor/sandbox-toolchain`.
+It was verified from a restricted sandbox and closed the browser, toolchain and sysroot gaps. Four
+items need a follow-up commit. If you produced that delivery, this is the list that survived
+independent verification.
+
+## A1. `system/debian12-dev-sysroot.tar.xz` must not contain absolute symlinks
+
+The sysroot works for `cargo clippy` but breaks `cargo test` at link time:
+
+```text
+/usr/bin/ld: /tmp/gtk-sysroot/usr/lib/x86_64-linux-gnu/libdbus-1.a(libdbus_1_la-dbus-sysdeps-unix.o):
+undefined reference to symbol 'sd_is_socket@@LIBSYSTEMD_209'
+```
+
+The extraction ran on your box, so Debian's absolute development symlinks resolved there. In the
+sandbox they dangle, the linker skips the shared object, and it falls back to the static
+`libdbus-1.a` next to it, which needs libsystemd. Sixteen symlinks are broken; the library ones
+that matter are `libdbus-1.so`, `libffi.so`, `libuuid.so`, `libpcre2-8.so`, `libzstd.so`,
+`libmount.so`, `libblkid.so`, `libudev.so`, plus `libstdc++.so` under `usr/lib/gcc`.
+
+Fix before packing, and remember `cp -L`. A plain `cp -a` copies the symlink, not the file, and
+leaves the chain dangling:
+
+```bash
+mkdir -p /tmp/sysroot-fixed
+cd /tmp/sysroot-fixed
+# copy the tree, dereferencing nothing yet
+cp -a /tmp/gtk-sysroot/. .
+
+# for every absolute symlink under usr/lib, drop in the real file and relink relatively
+find . -type l -lname '/*' | while read -r l; do
+  target="$(readlink -f "$(dirname "$l")/$(readlink "$l")" 2>/dev/null)"
+  if [ -f "$target" ]; then
+    soname="$(basename "$target")"
+    cp -L "$target" "./$(dirname "$l")/$soname"
+    ln -sfn "$soname" "$l"
+  else
+    echo "UNRESOLVED $l -> $(readlink "$l")"
+  fi
+done
+
+# the sandbox has no libdbus at all, so take the shared object from the browser closure
+cp -L /tmp/sandbox-vendor/chrome-deps/cft-156/libdbus-1.so.3 \
+      ./usr/lib/x86_64-linux-gnu/libdbus-1.so.3
+ln -sfn libdbus-1.so.3 ./usr/lib/x86_64-linux-gnu/libdbus-1.so
+```
+
+Then repack and re-verify that `find . -xtype l` reports no library targets and that
+`gcc -L<sysroot>/usr/lib/x86_64-linux-gnu -ldbus-1 -lffi -luuid -lpcre2-8 -lzstd -lmount -lblkid
+-ludev` links a trivial C file. Consider also dropping every static `.a` for these libraries. They
+are the trap that converts a symlink problem into a link error, and nothing in this build wants a
+static dbus, GTK or ffi.
+
+## A2. `cargo test` needs the flag and memory headroom
+
+Two separate things, both worth recording in `README.md` and `FETCH.md`:
+
+```bash
+CARGO_BUILD_JOBS=1 cargo test --ignore-rust-version --manifest-path src-tauri/Cargo.toml
+```
+
+`--ignore-rust-version` is required for the reason already documented. `CARGO_BUILD_JOBS=1` is new:
+linking the two test binaries in parallel peaks above the 3.9 GB a sandbox has, and the linker is
+killed with `signal 9`. Serial linking completes the gate in about 36 seconds on a warm target.
+
+## A3. `cargo --config` does not reach external subcommands
+
+Already found and already fixed in your `FETCH.md`, confirmed independently. Keep it. Add the one
+line that makes it diagnosable: built-in commands such as `metadata` and `check` do honour
+`cargo --config <path>`, only external subcommands such as `clippy` and `nextest` do not. Verified
+against cargo 1.88.0.
+
+## A4. Optional, the durable fix for the version pin
+
+`notify-rust@4.18.0` declares `rust-version = "1.89.0"`. It is the only crate in the lockfile above
+1.88.0. If the maintainers decide to move the pin to 1.89.0, the vendor tree and the toolchain
+components have to be rebuilt together. Do not do this without a decision from them.
+
+## A5. What to verify before the second delivery
+
+Run all of these from a clean `debian:12` container with the payload as the only input. Clippy alone
+is not enough, which is how A1 reached review in the first place.
+
+```bash
+cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
+cargo clippy --ignore-rust-version --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
+CARGO_BUILD_JOBS=1 cargo test --ignore-rust-version --manifest-path src-tauri/Cargo.toml
+find /tmp/gtk-sysroot -xtype l | grep -E '\.so' && echo "broken library symlinks remain"
+```
+
+And the browser side, which already passes, so it does not regress:
+
+```bash
+ldd "$PLAYWRIGHT_BROWSERS_PATH/chromium-1248/chrome-linux64/chrome" | grep "not found" || echo "closure complete"
+```
+
+Report the exit code and the tail of the output for each.
