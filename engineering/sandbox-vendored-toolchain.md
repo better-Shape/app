@@ -182,12 +182,15 @@ Requirements on the artifact:
 - Keep the consume side on Rust 1.88.0, because `src-tauri/Cargo.toml` sets
   `rust-version = "1.88.0"` and the sandbox toolchain is 1.88.0.
 - Ship the lockfile hash next to the tarball so a consumer can refuse a mismatched lockfile.
-- Keep `CARGO_HOME` out of the workspace when consuming. Point it at a directory under `/tmp`.
+- Keep `CARGO_HOME` out of the workspace when consuming, and private to the run: section 5 puts it
+  under the extracted payload root, so two runs on one host never share a registry or a config.
 - `src-tauri/Cargo.toml` has no `.cargo/config.toml` today and CI expects crates.io, so the consume
-  step should copy `rust/cargo-config.toml` to `$CARGO_HOME/config.toml` and set
-  `CARGO_NET_OFFLINE=true`, rather than committing a source-replacement file into the repo. Do not
-  route it through `cargo --config <path>`: cargo does not forward that global flag to external
-  subcommands, and `cargo --config <path> clippy` fails with `no matching package named base64`.
+  step writes the `rust/cargo-config.toml` block to `$CARGO_HOME/config.toml` with the extracted
+  vendor path substituted, and sets `CARGO_NET_OFFLINE=true`, rather than committing a
+  source-replacement file into the repo. Section 5 has the exact line; a file copied as-is would
+  point at whatever directory the producer extracted into. Do not route it through
+  `cargo --config <path>`: cargo does not forward that global flag to external subcommands, and
+  `cargo --config <path> clippy` fails with `no matching package named base64`.
 
 Size: unknown until vendor runs. Expect roughly 300 to 900 MB extracted and 60 to 150 MB as a
 `.tar.xz`. Split it if a single file would exceed 90 MB. Use xz, not zstd, because `zstd` and `7z`
@@ -547,11 +550,13 @@ done
 export PATH="$RUST_PREFIX/bin:$SV/system/tools/bin:$PATH"
 export LD_LIBRARY_PATH="$RUST_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
-# Cargo dependencies, offline
-export CARGO_HOME=/tmp/cargo-home
-mkdir -p "$CARGO_HOME" /tmp/cargo-vendor
-tar xJf "$SV"/rust/cargo-vendor.tar.xz -C /tmp/cargo-vendor
-printf '[source.crates-io]\nreplace-with = "vendored-sources"\n\n[source.vendored-sources]\ndirectory = "/tmp/cargo-vendor"\n' \
+# Cargo dependencies, offline. Both paths sit under the private $SV root: a shared registry
+# or config.toml would let two runs on one host read each other's half-written files.
+export CARGO_HOME="$SV/cargo-home"
+export CARGO_VENDOR="$SV/cargo-vendor"
+mkdir -p "$CARGO_HOME" "$CARGO_VENDOR"
+tar xJf "$SV"/rust/cargo-vendor.tar.xz -C "$CARGO_VENDOR"
+printf '[source.crates-io]\nreplace-with = "vendored-sources"\n\n[source.vendored-sources]\ndirectory = "%s"\n' "$CARGO_VENDOR" \
   > "$CARGO_HOME/config.toml"
 export CARGO_NET_OFFLINE=true
 
@@ -570,6 +575,14 @@ tar xJf "$SV"/browsers/browsers-playwright-1.64.1.tar.xz -C "$PLAYWRIGHT_BROWSER
 export LD_LIBRARY_PATH=/tmp/gtk-sysroot/usr/lib/x86_64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
 export PLAYWRIGHT_SANDBOX_LIBS=$SV/chrome-deps/cft-156
 ```
+
+`/tmp/gtk-sysroot` is the one shared path in the block, and it stays shared on purpose: every run
+extracts the same tarball, so extract it once per host and run the section 7.1 repair once, before
+starting a gate. Everything else the block writes lives under `$SV` or a `mktemp -d`.
+
+Nothing here is precious, either. `rm -rf "$SV" "$SV.tar.gz" "$PLAYWRIGHT_BROWSERS_PATH"` reclaims the
+payload, the archive next to it and the browser tree, and the same recipe rebuilds all three from the
+pinned commit.
 
 The exported directory is the sysroot's, and it is exported because a Rust test binary links GTK and
 WebKit and the loader resolves those at run time, not only at link time. The browser closure stays

@@ -117,6 +117,7 @@ SV="${SV:?export SV to the payload root printed by the fetch recipe}"
 )
 
 PB="$(mktemp -d)"                     # private tree: a fixed /tmp path can be pre-created as a symlink
+trap 'rm -rf "$PB"' EXIT              # removed on exit whether the suite passes or fails; drop this line to keep it
 tar xJf "$SV/browsers/browsers-playwright-1.64.1.tar.xz" -C "$PB"
 export PLAYWRIGHT_BROWSERS_PATH="$PB"
 export PLAYWRIGHT_SANDBOX_LIBS="$SV/chrome-deps/cft-156"
