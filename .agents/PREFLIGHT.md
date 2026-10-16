@@ -34,7 +34,7 @@ If you changed Rust, also run:
 
 - [ ] `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`
 - [ ] `cargo clippy --ignore-rust-version --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings`
-- [ ] `CARGO_BUILD_JOBS=1 cargo test --ignore-rust-version --manifest-path src-tauri/Cargo.toml`
+- [ ] `CARGO_BUILD_JOBS=1 cargo test --ignore-rust-version --all-features --manifest-path src-tauri/Cargo.toml`
 
 Drop `--ignore-rust-version` on a host whose toolchain is 1.89.0 or newer. CI runs stable, so it
 runs the plain commands. On a blocked host, repair the vendored sysroot before any link step: the

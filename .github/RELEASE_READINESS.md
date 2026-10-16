@@ -11,21 +11,24 @@ cargo rows are explained below the table.
 
 | Check | Command | Result |
 | --- | --- | --- |
-| Rust unit tests | `CARGO_BUILD_JOBS=1 cargo test --ignore-rust-version --all-features` | **313 passed, 0 failed** |
-| Rust formatting | `cargo fmt --all -- --check` | clean |
-| Rust lints | `cargo clippy --ignore-rust-version --all-targets --all-features -- -D warnings` | clean, 0 errors |
+| Rust unit tests | `CARGO_BUILD_JOBS=1 cargo test --ignore-rust-version --all-features --manifest-path src-tauri/Cargo.toml` | **313 passed, 0 failed** |
+| Rust formatting | `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check` | clean |
+| Rust lints | `cargo clippy --ignore-rust-version --all-targets --all-features --manifest-path src-tauri/Cargo.toml -- -D warnings` | clean, 0 errors |
 | TypeScript | `npx tsc --noEmit` | clean |
 | ESLint | `npx eslint --quiet` | clean, 0 errors |
 | JS/TS tests | `npx vitest run` | 106 files, 864 tests, all passing |
 | Skill lock | `npm run skills:verify` | 53 of 53 locked skills verified |
-| Browser suite | `PLAYWRIGHT_BROWSERS_PATH=<vendored> npx playwright test e2e/smoke.spec.ts` | 6 of 6 passed |
+| Browser suite | `PLAYWRIGHT_BROWSERS_PATH=<vendored> PLAYWRIGHT_SANDBOX_LIBS=<vendored closure> npx playwright test e2e/smoke.spec.ts` | 6 of 6 passed |
 
 `--ignore-rust-version` is needed because `notify-rust@4.18.0` declares `rust-version = "1.89.0"`
 while `src-tauri/Cargo.toml` pins 1.88.0. `CARGO_BUILD_JOBS=1` keeps parallel test linking inside a
 small sandbox's memory. Run without the first flag, `cargo test` and `cargo clippy` exit 101 before
 compiling anything. The Rust rows were measured after the sysroot repair recorded in section 7.1 of
 `engineering/sandbox-vendored-toolchain.md`; the delivered payload needs that repair once, before
-any link step.
+any link step. Every Cargo row runs from the repository root and carries
+`--manifest-path src-tauri/Cargo.toml`, because the repository has no root manifest. The rows are
+the measured results with the flags spelled out; the plain commands exit 101 and are never reported
+as passing.
 
 Rust runs in the sandbox as well, against the vendor branch: the orphan branch
 `vendor/sandbox-toolchain` carries the 1.88.0 components, the crate registry and a Debian 12 dev

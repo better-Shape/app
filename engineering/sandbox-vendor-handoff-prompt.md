@@ -376,7 +376,7 @@ cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
 cargo clippy --ignore-rust-version --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
 CARGO_BUILD_JOBS=1 cargo test --ignore-rust-version --manifest-path src-tauri/Cargo.toml
 CARGO_BUILD_JOBS=1 cargo test --ignore-rust-version --manifest-path src-tauri/Cargo.toml --all-features
-find /tmp/gtk-sysroot -xtype l | grep -E '\.so' && echo "broken library symlinks remain"
+if find /tmp/gtk-sysroot -xtype l | grep -qE '\.so'; then echo "broken library symlinks remain"; else echo "no broken library symlinks"; fi
 gcc /tmp/t.c -o /tmp/t.out -L/tmp/gtk-sysroot/usr/lib/x86_64-linux-gnu -ldbus-1 -lffi -luuid -lpcre2-8 -lzstd -lmount -lblkid -ludev
 ```
 

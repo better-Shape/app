@@ -526,7 +526,8 @@ RUST_PREFIX=/tmp/rust-tools; mkdir -p "$RUST_PREFIX"
 for t in /tmp/sandbox-vendor/rust/toolchain/*.tar.xz; do
   d=$(mktemp -d); tar xJf "$t" -C "$d"; "$d"/*/install.sh --prefix="$RUST_PREFIX" --disable-ldconfig
 done
-export PATH="$RUST_PREFIX/bin:$PATH" LD_LIBRARY_PATH="$RUST_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+export PATH="$RUST_PREFIX/bin:/tmp/sandbox-vendor/system/tools/bin:$PATH"
+export LD_LIBRARY_PATH="$RUST_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
 # Cargo dependencies, offline
 export CARGO_HOME=/tmp/cargo-home
@@ -562,9 +563,21 @@ development symlinks, so run the loop in section 7.1 once after extracting and r
 `find . -xtype l`. With the dangling links in place the linker falls back to the static
 `libdbus-1.a` and `cargo test` dies with `undefined reference to symbol 'sd_is_socket@@LIBSYSTEMD_209'`.
 
+`system/tools/bin` holds `cmake`, `file`, `patchelf`, `pkg-config` and `pkgconf`; the tree is
+self-contained with an `$ORIGIN/../lib` rpath, so the one `PATH` line is all it needs. The test gates
+above did not need them, but a build script or a bundle step that shells out to `cmake` or
+`patchelf` will.
+
 The Playwright path is then `npm ci` with `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` and a plain
 `npx playwright test`. No `PLAYWRIGHT_CHROMIUM_PATH` is needed, because the vendored tree sits in
 the registry layout Playwright expects.
+
+Three housekeeping notes. The fetch recipe leaves the shell in `/tmp/sandbox-vendor`, and every
+cargo command below takes the repository-relative `src-tauri/Cargo.toml`, so `cd -` back to the
+checkout first. Cargo defaults its build directory to `src-tauri/target` inside the workspace;
+`export CARGO_TARGET_DIR=/tmp/cargo-target` keeps the snapshotted tree small and changes no result.
+And `sha256sum -c` is the only step that proves the tree in `/tmp` is the one the manifest
+describes, so re-run it after any re-extraction.
 
 Two things this recipe deliberately does. The source replacement goes in `$CARGO_HOME/config.toml`
 rather than through `cargo --config`, because cargo does not forward the global flag to external
@@ -582,10 +595,10 @@ the CI row that nothing in the sandbox depends on.
 | `engineering/sandbox-vendored-toolchain.md` | done | the specification, the fetch recipe, the verification of the delivered payload and the gap list |
 | `engineering/sandbox-vendor-handoff-prompt.md` | done | the brief for the free agent, now carrying the second-pass corrections, the corrected A1 repair loop and the NSS check in A6 |
 | `playwright.config.ts` | done | `sandboxLibsEnv()` feeds `launchOptions.env` on all three browser paths, so the NSS/NSPR directory reaches the browser and its probe but never the dev server's environment |
-| `AGENTS.md` | done | new `Blocked sandbox toolchain` section with the fetch recipe pinned to a commit, the five facts that decide whether a gate can pass, and the delegation path, plus one line under Facts about this repository |
-| `.agents/PREFLIGHT.md` | done | `Blocked sandbox` checklist with the exact invocations, the Rust checks carrying `--ignore-rust-version` and `CARGO_BUILD_JOBS=1`, and the sysroot repair named as a prerequisite |
+| `AGENTS.md` | done | new `Blocked sandbox toolchain` section with the fetch recipe pinned to a commit and extracting into a fresh tree under `set -euo pipefail`, the five facts that decide whether a gate can pass, and the delegation path, plus one line under Facts about this repository |
+| `.agents/PREFLIGHT.md` | done | `Blocked sandbox` checklist with the exact invocations, the Rust checks carrying `--ignore-rust-version`, `CARGO_BUILD_JOBS=1` and `--all-features` to match CI, and the sysroot repair named as a prerequisite |
 | `engineering/rust-toolchain.md` | done | rewritten around two sources, the vendor branch where every gate runs and npm for format only. Corrected the `Cannot run` table, the `no sudo` claim, and a reference to a file that does not exist in this repository |
-| `.github/RELEASE_READINESS.md` | done | the `CI only` claim replaced with the offline path, the reproducing block updated, and the table re-measured on 2026-10-16 after the sysroot repair |
+| `.github/RELEASE_READINESS.md` | done | the `CI only` claim replaced with the offline path, the reproducing block updated, every Cargo row given `--manifest-path` and the browser row the library closure, and the table re-measured on 2026-10-16 after the sysroot repair |
 | `scripts/ci/install-rust-toolchain.sh` | done | the closing note now says which tool the npm source supports and points at the vendor branch |
 | `scripts/dev/rust-toolchain.sh` | done | the header no longer claims cargo build is unusable, and points at the vendor branch |
 | `e2e/README.md` | done | the sandbox section leads with the vendored browser tree, its reassembly step and the library-closure exports, names the headless shell for explicit overrides, and the command table points at it |

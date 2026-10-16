@@ -115,14 +115,16 @@ development sysroot for the Tauri stack, the Chrome for Testing build that `play
 and the shared-library closures both browsers need. Extract to `/tmp`, never into the workspace,
 because the workspace is snapshotted and the extracted payload is about 4 GB; on a shared host,
 extract inside a private `mktemp -d` instead of the fixed paths in the recipe, which another user
-could pre-create as symlinks. Fetch the commit you
+could pre-create as symlinks, and concurrent agents need separate extraction roots: overlapping runs
+over one `/tmp/sandbox-vendor` read half-written files. Fetch the commit you
 reviewed and re-run `sha256sum -c` on every fetch: `MANIFEST.sha256` travels on the same branch as
 the payload, so it proves the download was intact, not that the branch head is the reviewed commit.
 
 ```bash
+set -euo pipefail
 SV_SHA=7ec94c1b353220d291924ee71c6346fcf35e66cd   # pin the commit you reviewed, not the branch head
 curl -sSL -o /tmp/sv.tar.gz "https://codeload.github.com/better-Shape/app/tar.gz/$SV_SHA"
-mkdir -p /tmp/sandbox-vendor && tar xzf /tmp/sv.tar.gz -C /tmp/sandbox-vendor --strip-components=1
+rm -rf /tmp/sandbox-vendor && mkdir -p /tmp/sandbox-vendor && tar xzf /tmp/sv.tar.gz -C /tmp/sandbox-vendor --strip-components=1
 cd /tmp/sandbox-vendor
 for f in $(grep -o '^[a-f0-9]\{64\}  .*\.part-00$' MANIFEST.sha256 | sed 's/.*  //; s/\.part-00$//'); do cat "$f".part-* > "$f"; done
 sha256sum -c MANIFEST.sha256
@@ -142,8 +144,10 @@ Five facts decide whether a Rust or browser gate can pass:
 - The delivered sysroot keeps Debian's absolute development symlinks, so run the section 7.1 repair loop in `engineering/sandbox-vendored-toolchain.md` once after extracting and re-check with `find . -xtype l`. Without it the linker falls back to the static `libdbus-1.a` and `cargo test` fails with `undefined reference to symbol 'sd_is_socket@@LIBSYSTEMD_209'`.
 
 The flags are a workaround for a dependency that is ahead of the toolchain pin. Report the affected
-gate in the PR body as failed with that reason and the flag you used, never as passed. The durable
-fix is a maintainer decision, not something to paper over.
+gate as passed only with the flag named and the cause recorded next to it, and never report the
+unmodified command as passing: without the flag it exits 101 before compiling anything.
+`.github/RELEASE_READINESS.md` lists the measured results with the same flags spelled out, so the two
+documents agree. The durable fix is a maintainer decision, not something to paper over.
 
 When a host you need is still unreachable after this, delegate through the Kilocode bot under
 Review bots above and record its answer in the PR as evidence you verified. A gate you cannot run is
