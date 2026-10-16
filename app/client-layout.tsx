@@ -106,6 +106,21 @@ const Content = ({ children }: { children: React.ReactNode }) => {
 };
 
 /**
+ * Syncs the user's `mcp.json` so the agent sees its tools without a visit to Settings.
+ *
+ * The only bootstrap step allowed to fail, because a malformed registry must not take the
+ * window down with it. It owns its own rejection, so no caller has to discard a promise.
+ */
+async function syncMcpServers(): Promise<void> {
+    try {
+        const { syncActiveMcpServers } = await import("@/lib/mcp/registry");
+        await syncActiveMcpServers();
+    } catch {
+        /* registry unavailable: the agent runs without MCP tools */
+    }
+}
+
+/**
  * Picks the window shell from the route and bootstraps the app once per window.
  *
  * The three shells differ only in chrome, so the choice is made here and every shell
@@ -130,14 +145,7 @@ const ClientLayout = ({ children }: { children: React.ReactNode }) => {
             initGitHubAuth();
 
             // MCP: sync user mcp.json so the agent sees tools without visiting Settings.
-            void (async () => {
-                try {
-                    const { syncActiveMcpServers } = await import("@/lib/mcp/registry");
-                    await syncActiveMcpServers();
-                } catch {
-                    /* ignore */
-                }
-            })();
+            await syncMcpServers();
 
             const isMain = !isTauriRuntime() || await isMainTauriWindow();
             if (!isMain) return;

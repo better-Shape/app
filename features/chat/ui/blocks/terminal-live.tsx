@@ -198,12 +198,16 @@ export function LiveTerminalOutput({
             style={{ maxHeight }}
             className="my-1 overflow-y-auto custom-scrollbar font-mono text-sm leading-[1.55] text-text-secondary"
         >
-            {lines.map((line, i) => {
+            {/*
+              The buffer only appends and the gutter prints the number it renders, so a line's
+              position is its identity: a content key would collide on repeated log lines.
+            */}
+            {lines.map((line, lineNo) => {
                 const warn = /\[warn\]|\bwarn(ing)?:/i.test(line);
                 const err = /\[error\]|\berror:/i.test(line);
                 return (
                     <div
-                        key={`line-${i}`}
+                        key={lineNo}
                         className={cn(
                             "flex gap-3 px-1 py-px whitespace-pre-wrap break-words",
                             warn && "bg-warning/15 text-warning",
@@ -211,7 +215,7 @@ export function LiveTerminalOutput({
                         )}
                     >
                         <span className="shrink-0 select-none tabular-nums text-text-disabled">
-                            {String(i + 1).padStart(2, " ")}
+                            {String(lineNo + 1).padStart(2, " ")}
                         </span>
                         <span>{line || " "}</span>
                     </div>

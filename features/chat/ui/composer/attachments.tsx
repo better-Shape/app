@@ -141,9 +141,13 @@ export function Waveform({
     const bars = peaks.length ? peaks : [0.35, 0.6, 0.4, 0.8, 0.5, 0.7, 0.45, 0.3, 0.55];
     return (
         <span className={cn("flex h-6 items-center gap-0.5", className)} aria-hidden>
-            {bars.map((peak, index) => (
+            {/*
+              Bars are positional slots rather than items: the array is regenerated whole when
+              the audio changes, and two bars can carry the same amplitude.
+            */}
+            {bars.map((peak, slot) => (
                 <span
-                    key={`bar-${peak}-${index}`}
+                    key={slot}
                     className="w-0.5 rounded-full bg-text-secondary"
                     style={{ height: `${Math.max(15, Math.round(peak * 100))}%` }}
                 />

@@ -1139,9 +1139,13 @@ export function AgentWorkflow({
 
     const rows = (
         <div className="flex flex-col gap-0.5">
-            {groupWorkflowRows(visibleBlocks).map((row, i) => {
+            {/*
+              The rows are a projection of the parsed message and only ever append, so a row
+              keeps its position: a content key would collide when the same file is read twice.
+            */}
+            {groupWorkflowRows(visibleBlocks).map((row, slot) => {
                 if (row.kind === "git_stage_group") {
-                    return <GitStageGroup key={`stage-${i}`} paths={row.paths} />;
+                    return <GitStageGroup key={`stage-${slot}`} paths={row.paths} />;
                 }
                 if (row.kind === "read_group") {
                     const names = [
@@ -1159,7 +1163,7 @@ export function AgentWorkflow({
                               : `${names[0]} and more`;
                     return (
                         <ActionLine
-                            key={`reads-${i}`}
+                            key={`reads-${slot}`}
                             action="Explored"
                             detail={detail}
                         />
@@ -1168,7 +1172,7 @@ export function AgentWorkflow({
                 if (row.kind === "search_group") {
                     return (
                         <ActionLine
-                            key={`searches-${i}`}
+                            key={`searches-${slot}`}
                             action="Searched"
                             detail={row.count > 1 ? `${row.count} times` : undefined}
                         />
@@ -1197,7 +1201,7 @@ export function AgentWorkflow({
                     });
                     return (
                         <WebSearchBlock
-                            key={`web-${i}`}
+                            key={`web-${slot}`}
                             query={queries[queries.length - 1]}
                             searches={queries.length}
                             results={unique}
@@ -1215,7 +1219,7 @@ export function AgentWorkflow({
                               : `${names[0]} and more`;
                     return (
                         <ActionLine
-                            key={`writes-${i}`}
+                            key={`writes-${slot}`}
                             action="Edited"
                             detail={detail}
                         />
@@ -1224,7 +1228,7 @@ export function AgentWorkflow({
                 if (row.kind === "list_group") {
                     return (
                         <ActionLine
-                            key={`lists-${i}`}
+                            key={`lists-${slot}`}
                             action="Listed"
                             detail={row.count > 1 ? `${row.count} folders` : "folders"}
                         />
@@ -1232,7 +1236,7 @@ export function AgentWorkflow({
                 }
                 if (row.kind === "subagent_group") {
                     return (
-                        <div key={`subs-${i}`} className="flex flex-col">
+                        <div key={`subs-${slot}`} className="flex flex-col">
                             <ActionLine action="Spawning" detail="subagents" />
                             {row.blocks.map((block, index) => (
                                 <ActionItem key={block.file || index} block={block} isFileEditResolved={isFileEditResolved} />
@@ -1242,7 +1246,7 @@ export function AgentWorkflow({
                 }
                 return (
                     <ActionItem
-                        key={`action-${i}`}
+                        key={`action-${slot}`}
                         block={row.block}
                         isFileEditResolved={isFileEditResolved}
                     />

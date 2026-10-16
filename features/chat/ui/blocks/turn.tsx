@@ -807,17 +807,20 @@ export function TurnWorkflowSummary({
                     ) : null}
                             {(() => {
                                 let skippedLeadThought = false;
-                                return rows.map((row, i) => {
+                                // The rows are a projection of the parsed message and only ever
+                                // append, so a row keeps its position: a content key would collide
+                                // the moment the agent reads the same file twice.
+                                return rows.map((row, slot) => {
                                     if (row.kind === "subagent_group") {
-                                        return <SubagentSpawnGroup key={`subs-${i}`} blocks={row.blocks} />;
+                                        return <SubagentSpawnGroup key={`subs-${slot}`} blocks={row.blocks} />;
                                     }
                                     if (row.kind === "git_stage_group") {
-                                        return <GitStageGroup key={`stage-${i}`} paths={row.paths} />;
+                                        return <GitStageGroup key={`stage-${slot}`} paths={row.paths} />;
                                     }
                                     if (row.kind === "read_group") {
                                         return (
                                             <GroupActionLabel
-                                                key={`reads-${i}`}
+                                                key={`reads-${slot}`}
                                                 action="Explored"
                                                 detail={groupDetail(row.files.map((f) => f.path))}
                                             />
@@ -826,7 +829,7 @@ export function TurnWorkflowSummary({
                                     if (row.kind === "search_group") {
                                         return (
                                             <GroupActionLabel
-                                                key={`searches-${i}`}
+                                                key={`searches-${slot}`}
                                                 action="Searched"
                                                 detail={row.count > 1 ? `${row.count} times` : groupDetail(row.queries)}
                                             />
@@ -835,7 +838,7 @@ export function TurnWorkflowSummary({
                                     if (row.kind === "write_group") {
                                         return (
                                             <GroupActionLabel
-                                                key={`writes-${i}`}
+                                                key={`writes-${slot}`}
                                                 action="Edited"
                                                 detail={groupDetail(row.paths)}
                                             />
@@ -844,7 +847,7 @@ export function TurnWorkflowSummary({
                                     if (row.kind === "list_group") {
                                         return (
                                             <GroupActionLabel
-                                                key={`lists-${i}`}
+                                                key={`lists-${slot}`}
                                                 action="Listed"
                                                 detail={row.count > 1 ? `${row.count} folders` : "folders"}
                                             />
@@ -853,7 +856,7 @@ export function TurnWorkflowSummary({
                                     if (row.kind === "web_trail") {
                                         return (
                                             <WebSearchTrail
-                                                key={`web-${i}`}
+                                                key={`web-${slot}`}
                                                 blocks={row.blocks}
                                                 isActive={row.blocks.some((b) => b.isGenerating)}
                                             />
@@ -871,7 +874,7 @@ export function TurnWorkflowSummary({
                                             skippedLeadThought = true;
                                             return null;
                                         }
-                                        return <StepRow key={`step-${i}`} block={row.block} />;
+                                        return <StepRow key={`step-${slot}`} block={row.block} />;
                                     }
                                     return null;
                                 });
