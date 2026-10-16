@@ -569,6 +569,17 @@ let currentSettings: BetterShapeSettings = {
     updates: { ...DEFAULT_SETTINGS.updates },
     appearance: { ...DEFAULT_SETTINGS.appearance },
 };
+/**
+ * The snapshot React hydrates against.
+ *
+ * The store reads persisted settings on the first client read, while the server rendered
+ * the defaults. Handing that live object over as the server snapshot made the two disagree
+ * on the first paint, which React reports as a hydration mismatch: the settings route
+ * carried a `title` that the server render did not have. Hydration starts from the
+ * defaults here, and the persisted values arrive in the render straight after, which is
+ * the shape `lib/catalog/store.ts` documents for its own snapshot.
+ */
+const hydrationSnapshot: BetterShapeSettings = currentSettings;
 let hydrated = false;
 let settingsBridgeInitialized = false;
 const listeners = new Set<() => void>();
@@ -1113,7 +1124,11 @@ export function useSettings(): BetterShapeSettings {
             return () => listeners.delete(listener);
         },
         () => getSettings(),
+<<<<<<< HEAD
         () => DEFAULT_SETTINGS,
+=======
+        () => DEFAULT_SETTINGS,
+>>>>>>> a0ef8804 (fix(app): hydrate the settings route without a mismatch)
     );
 }
 

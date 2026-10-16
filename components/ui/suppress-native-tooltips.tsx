@@ -3,17 +3,18 @@
 import { useEffect } from "react";
 
 /**
- * Strip native `title` tooltips app-wide. Custom BetterShape tooltips stay;
- * bare `title=` attributes otherwise show the browser bubble.
- * Original text is kept on `data-native-title` if something needs it later.
+ * Strip native `title` tooltips app-wide. Custom BetterShape tooltips stay; bare `title=`
+ * attributes otherwise show the browser bubble. The original text is kept on
+ * `data-native-title` in case something needs it later.
  *
- * Also clears `title` on mouseenter as a fallback for elements that re-set
- * it after our observer runs (third-party widgets, Monaco, etc.).
+ * The strip runs when the pointer or the focus arrives, which is the moment the bubble
+ * could appear, and not ahead of time. Sweeping the whole tree from an effect rewrote
+ * attributes React had not hydrated yet, and the hydration mismatch was then reported
+ * against whichever control the sweep happened to touch.
  */
 export function SuppressNativeTooltips() {
     useEffect(() => {
         const stripEl = (el: Element) => {
-            if (!el.hasAttribute("title")) return;
             const value = el.getAttribute("title");
             if (value == null) return;
             el.setAttribute("data-native-title", value);
@@ -24,30 +25,6 @@ export function SuppressNativeTooltips() {
             if (root instanceof Element) stripEl(root);
             root.querySelectorAll?.("[title]").forEach(stripEl);
         };
-
-        stripTree(document.body);
-
-        const mo = new MutationObserver((mutations) => {
-            for (const m of mutations) {
-                if (m.type === "attributes" && m.attributeName === "title") {
-                    const t = m.target;
-                    if (t instanceof Element) stripEl(t);
-                    continue;
-                }
-                m.addedNodes.forEach((node) => {
-                    if (node instanceof Element || node instanceof DocumentFragment) {
-                        stripTree(node);
-                    }
-                });
-            }
-        });
-
-        mo.observe(document.body, {
-            subtree: true,
-            childList: true,
-            attributes: true,
-            attributeFilter: ["title"],
-        });
 
         const onEnter = (e: Event) => {
             const t = e.target;
@@ -60,10 +37,18 @@ export function SuppressNativeTooltips() {
         document.addEventListener("mouseover", onEnter, true);
         document.addEventListener("focusin", onEnter, true);
 
+        // A pointer that came to rest before the page loaded never fires a boundary event,
+        // so the first movement sweeps what is on screen, once. This waits for the user
+        // rather than running on mount, which is what rewrote un-hydrated attributes.
+        const onFirstMove = () => stripTree(document.body);
+        document.addEventListener("pointermove", onFirstMove, { capture: true, once: true });
+        document.addEventListener("pointerdown", onFirstMove, { capture: true, once: true });
+
         return () => {
-            mo.disconnect();
             document.removeEventListener("mouseover", onEnter, true);
             document.removeEventListener("focusin", onEnter, true);
+            document.removeEventListener("pointermove", onFirstMove, true);
+            document.removeEventListener("pointerdown", onFirstMove, true);
         };
     }, []);
 
