@@ -23,7 +23,9 @@ cargo rows are explained below the table.
 `--ignore-rust-version` is needed because `notify-rust@4.18.0` declares `rust-version = "1.89.0"`
 while `src-tauri/Cargo.toml` pins 1.88.0. `CARGO_BUILD_JOBS=1` keeps parallel test linking inside a
 small sandbox's memory. Run without the first flag, `cargo test` and `cargo clippy` exit 101 before
-compiling anything.
+compiling anything. The Rust rows were measured after the sysroot repair recorded in section 7.1 of
+`engineering/sandbox-vendored-toolchain.md`; the delivered payload needs that repair once, before
+any link step.
 
 Rust runs in the sandbox as well, against the vendor branch: the orphan branch
 `vendor/sandbox-toolchain` carries the 1.88.0 components, the crate registry and a Debian 12 dev

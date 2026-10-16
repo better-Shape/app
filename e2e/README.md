@@ -94,19 +94,42 @@ CI-generated baselines replace them; OS font rendering differs.
 Use the vendored tree first. The orphan branch `vendor/sandbox-toolchain`
 carries the Chrome for Testing build `playwright-core` pins, 156.0.8078.4,
 already laid out the way Playwright expects, with the shared-library closure
-it needs:
+it needs. Fetch the payload as `engineering/sandbox-vendored-toolchain.md`
+describes, reassemble the split assets (the browser tarball ships in three
+parts), verify the manifest, and extract the browser tree:
 
 ```bash
+cd /tmp/sandbox-vendor
+for f in $(grep -o '^[a-f0-9]\{64\}  .*\.part-00$' MANIFEST.sha256 | sed 's/.*  //; s/\.part-00$//'); do
+  cat "$f".part-* > "$f"
+done
+sha256sum -c MANIFEST.sha256
+
 mkdir -p /tmp/pw-browsers
 tar xJf browsers/browsers-playwright-1.64.1.tar.xz -C /tmp/pw-browsers
 export PLAYWRIGHT_BROWSERS_PATH=/tmp/pw-browsers
-export LD_LIBRARY_PATH=/tmp/sandbox-vendor/chrome-deps/cft-156${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+export PLAYWRIGHT_SANDBOX_LIBS=/tmp/sandbox-vendor/chrome-deps/cft-156
 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm ci
 npm run test:e2e
 ```
 
+`PLAYWRIGHT_SANDBOX_LIBS` points at the NSS/NSPR closure from the same
+payload and is applied to the browser launch only, so the dev server never
+inherits it. An exported `LD_LIBRARY_PATH` over that directory works the same
+way, and is what the combined recipe in
+`engineering/sandbox-vendored-toolchain.md` uses.
+
 That path was verified against this suite: 6 of 6 smoke specs on Chrome for
-Testing 156.0.8078.4.
+Testing 156.0.8078.4, with `PLAYWRIGHT_SANDBOX_LIBS` set and no exported
+`LD_LIBRARY_PATH`.
+
+When you hand in a browser instead, give `PLAYWRIGHT_CHROMIUM_PATH` the
+headless shell from the same tree,
+`chromium_headless_shell-1248/chrome-headless-shell-linux64/chrome-headless-shell`.
+That is the binary Playwright's own layout resolves to in headless runs, and
+it passed the same 6 of 6 here. The full `chromium-1248/chrome-linux64/chrome`
+build starts and answers `--version` but exits mid-run on this host, so it is
+not the one to point the suite at.
 
 `playwright.config.ts` also resolves Chromium itself, in this order:
 `PLAYWRIGHT_CHROMIUM_PATH` → Playwright's downloaded browser →

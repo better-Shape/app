@@ -184,8 +184,10 @@ Requirements on the artifact:
 - Ship the lockfile hash next to the tarball so a consumer can refuse a mismatched lockfile.
 - Keep `CARGO_HOME` out of the workspace when consuming. Point it at a directory under `/tmp`.
 - `src-tauri/Cargo.toml` has no `.cargo/config.toml` today and CI expects crates.io, so the consume
-  step should pass the config on the command line with `cargo --config /tmp/cargo-vendor-config.toml`
-  and set `CARGO_NET_OFFLINE=true`, rather than committing a source-replacement file into the repo.
+  step should copy `rust/cargo-config.toml` to `$CARGO_HOME/config.toml` and set
+  `CARGO_NET_OFFLINE=true`, rather than committing a source-replacement file into the repo. Do not
+  route it through `cargo --config <path>`: cargo does not forward that global flag to external
+  subcommands, and `cargo --config <path> clippy` fails with `no matching package named base64`.
 
 Size: unknown until vendor runs. Expect roughly 300 to 900 MB extracted and 60 to 150 MB as a
 `.tar.xz`. Split it if a single file would exceed 90 MB. Use xz, not zstd, because `zstd` and `7z`
@@ -472,6 +474,12 @@ Rules the free agent must follow:
    layout after applying the vendored library directory.
 9. State the measured total branch size in `README.md`, plus the size each directory needs on disk
    after extraction. Consumers extract to `/tmp`, never into the workspace.
+10. Tell consumers to pin the commit they reviewed rather than the branch head, with
+   `curl …/tar.gz/<sha>` or `git fetch --depth 1 origin <sha>`. `MANIFEST.sha256` travels on the same
+   branch as the payload, so it proves the transfer was intact, not that the head is the commit that
+   was reviewed.
+11. Assume the consumer's `/tmp` is shared with other users: the documented paths are predictable, so
+   `README.md` should say that on a multi-user host the extraction belongs in a private `mktemp -d`.
 
 ## 5. Fetch recipe that works here
 
@@ -539,8 +547,20 @@ export LIBRARY_PATH=/tmp/gtk-sysroot/usr/lib/x86_64-linux-gnu
 # Playwright browsers and the library closure
 export PLAYWRIGHT_BROWSERS_PATH=/tmp/pw-browsers
 mkdir -p "$PLAYWRIGHT_BROWSERS_PATH" && tar xJf /tmp/sandbox-vendor/browsers/browsers-playwright-1.64.1.tar.xz -C "$PLAYWRIGHT_BROWSERS_PATH"
-export LD_LIBRARY_PATH=/tmp/sandbox-vendor/chrome-deps/cft-156:${LD_LIBRARY_PATH:-}
+export LD_LIBRARY_PATH=/tmp/sandbox-vendor/chrome-deps/cft-156:/tmp/gtk-sysroot/usr/lib/x86_64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+export PLAYWRIGHT_SANDBOX_LIBS=/tmp/sandbox-vendor/chrome-deps/cft-156
 ```
+
+Both directories belong on `LD_LIBRARY_PATH`. The browser loads the NSS/NSPR closure in
+`chrome-deps/cft-156`; a Rust test binary links the sysroot's GTK and WebKit shared objects, and the
+loader resolves them at run time, not only at link time, so a shell that runs `cargo test` needs the
+sysroot directory too. `PLAYWRIGHT_SANDBOX_LIBS` names the same browser closure for the config,
+which scopes it to the browser process and leaves the dev server alone.
+
+One repair comes before any Rust gate. The delivered sysroot still carries Debian's absolute
+development symlinks, so run the loop in section 7.1 once after extracting and re-check with
+`find . -xtype l`. With the dangling links in place the linker falls back to the static
+`libdbus-1.a` and `cargo test` dies with `undefined reference to symbol 'sd_is_socket@@LIBSYSTEMD_209'`.
 
 The Playwright path is then `npm ci` with `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` and a plain
 `npx playwright test`. No `PLAYWRIGHT_CHROMIUM_PATH` is needed, because the vendored tree sits in
@@ -560,16 +580,16 @@ the CI row that nothing in the sandbox depends on.
 | File | State | What changed |
 | --- | --- | --- |
 | `engineering/sandbox-vendored-toolchain.md` | done | the specification, the fetch recipe, the verification of the delivered payload and the gap list |
-| `engineering/sandbox-vendor-handoff-prompt.md` | done | the brief for the free agent, now carrying the second-pass corrections |
-| `playwright.config.ts` | done | `applySandboxLibs()` moved to the top of `resolveChromium()` so it applies to all three browser paths, the duplicate call is gone, and both the resolve comment and the fallback error now name the vendored tree |
-| `AGENTS.md` | done | new `Blocked sandbox toolchain` section with the measured recipe, the four facts that decide whether a gate can pass, and the delegation path, plus one line under Facts about this repository |
-| `.agents/PREFLIGHT.md` | done | `Blocked sandbox` checklist with the exact invocations, and the Rust checks now carry `--ignore-rust-version` and `CARGO_BUILD_JOBS=1` |
+| `engineering/sandbox-vendor-handoff-prompt.md` | done | the brief for the free agent, now carrying the second-pass corrections, the corrected A1 repair loop and the NSS check in A6 |
+| `playwright.config.ts` | done | `sandboxLibsEnv()` feeds `launchOptions.env` on all three browser paths, so the NSS/NSPR directory reaches the browser and its probe but never the dev server's environment |
+| `AGENTS.md` | done | new `Blocked sandbox toolchain` section with the fetch recipe pinned to a commit, the five facts that decide whether a gate can pass, and the delegation path, plus one line under Facts about this repository |
+| `.agents/PREFLIGHT.md` | done | `Blocked sandbox` checklist with the exact invocations, the Rust checks carrying `--ignore-rust-version` and `CARGO_BUILD_JOBS=1`, and the sysroot repair named as a prerequisite |
 | `engineering/rust-toolchain.md` | done | rewritten around two sources, the vendor branch where every gate runs and npm for format only. Corrected the `Cannot run` table, the `no sudo` claim, and a reference to a file that does not exist in this repository |
-| `.github/RELEASE_READINESS.md` | done | the `CI only` claim replaced with the offline path, the reproducing block updated, and the table re-measured on 2026-10-16 |
+| `.github/RELEASE_READINESS.md` | done | the `CI only` claim replaced with the offline path, the reproducing block updated, and the table re-measured on 2026-10-16 after the sysroot repair |
 | `scripts/ci/install-rust-toolchain.sh` | done | the closing note now says which tool the npm source supports and points at the vendor branch |
 | `scripts/dev/rust-toolchain.sh` | done | the header no longer claims cargo build is unusable, and points at the vendor branch |
-| `e2e/README.md` | done | the sandbox section leads with the vendored browser tree and its verified result, and the command table points at it |
-| `docs/developing/browser-preview.mdx` | done | names `PLAYWRIGHT_CHROMIUM_PATH`, `PLAYWRIGHT_SANDBOX_LIBS` and the vendored tree |
+| `e2e/README.md` | done | the sandbox section leads with the vendored browser tree, its reassembly step and the library-closure exports, names the headless shell for explicit overrides, and the command table points at it |
+| `docs/developing/browser-preview.mdx` | done | the vendored recipe exports `PLAYWRIGHT_BROWSERS_PATH` and `PLAYWRIGHT_SANDBOX_LIBS`, and names the headless shell for a browser handed in through `PLAYWRIGHT_CHROMIUM_PATH` |
 | `docs/developing/local-development.mdx` | done | the tests section names the vendor branch and the toolchain note |
 | `docs/developing/ci-cd.mdx` | done | one paragraph after the jobs table: the two jobs run locally through the vendor branch, with the flags the 1.88.0 pin needs |
 | `CONTRIBUTING.md` | done | the run-the-app block names the vendor branch and the two flags |
@@ -644,7 +664,8 @@ done
 `cp -L` matters. A plain `cp -a` copies the symlink itself and leaves the chain dangling again.
 `libdbus-1.so.3` also has to be copied in from `chrome-deps/cft-156/libdbus-1.so.3`, because the
 sandbox has no libdbus at all. Sixteen symlinks are broken in the extracted tree; eight are library
-`.so` links that the linker follows.
+`.so` links that the linker follows. Until the payload carries the fix, section 5 runs this loop as
+a consumer-side step, and `.agents/PREFLIGHT.md` names it as a prerequisite of every Rust gate.
 
 The packaging fix is one of these, in order of preference:
 
@@ -746,6 +767,23 @@ verbatim in a sandbox with this payload:
 | `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check` | passes |
 | `cargo clippy ... -- -D warnings` | passes with `--ignore-rust-version`, fails without |
 | `cargo test ... --all-features` | passes with `--ignore-rust-version` and `CARGO_BUILD_JOBS=1` |
+
+### 7.6 A browser handed in through `PLAYWRIGHT_CHROMIUM_PATH`
+
+The primary route, `PLAYWRIGHT_BROWSERS_PATH` on the extracted tree, resolves to Playwright's own
+layout and passed 6 of 6. The explicit override needs the same library directory and, on this host,
+the right binary:
+
+| Handed in | Result |
+| --- | --- |
+| `chromium-1248/chrome-linux64/chrome` | 2 of 6, the browser exits mid-run on the heavier routes |
+| `chromium_headless_shell-1248/chrome-headless-shell-linux64/chrome-headless-shell` | 6 of 6, 1.1 min |
+
+Both runs used `PLAYWRIGHT_SANDBOX_LIBS=/tmp/sandbox-vendor/chrome-deps/cft-156` with no exported
+`LD_LIBRARY_PATH`, which is also what proves the config scopes the library directory to the browser
+process: the full Chrome binary answers `--version` with that directory and dies without it
+(`error while loading shared libraries: libnspr4.so`). `e2e/README.md` and
+`docs/developing/browser-preview.mdx` name the headless shell for this reason.
 
 ## 8. Evidence log
 

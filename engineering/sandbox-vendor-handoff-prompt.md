@@ -89,14 +89,21 @@ paths inside the `.pc` files do not need rewriting. Also write `system/PKGS.txt`
 `Package` and `Version` of every `.deb` you extracted.
 
 This item is the fragile one. Before you call the branch done, prove it: in a clean Debian 12
-container with only this sysroot and the cargo vendor tree, run
+container with only this sysroot and the cargo vendor tree, put the source replacement in
+`$CARGO_HOME/config.toml` and run
 
 ```bash
-cargo --offline --config /tmp/cargo-vendor-config.toml clippy \
+export CARGO_HOME=/tmp/cargo-home CARGO_NET_OFFLINE=true
+mkdir -p "$CARGO_HOME"
+cp rust/cargo-config.toml "$CARGO_HOME/config.toml"
+cargo clippy --ignore-rust-version \
   --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
 ```
 
-If it does not pass, say exactly what failed in `README.md` instead of implying the sysroot is
+Do not substitute `cargo --offline --config <path>` for the first three lines: cargo does not forward
+the global flag to external subcommands, so clippy ignores the replacement and fails with
+`no matching package named base64` (A3). `--ignore-rust-version` is required for the reason in A2.
+If the gate does not pass, say exactly what failed in `README.md` instead of implying the sysroot is
 complete.
 
 ### 3. Playwright browsers matched to 1.64.1, required for browser fidelity
@@ -279,14 +286,23 @@ cd /tmp/sysroot-fixed
 cp -a /tmp/gtk-sysroot/. .
 
 # for every absolute symlink under usr/lib, drop in the real file and relink relatively
+# each link is absolute, e.g. libffi.so -> /lib/x86_64-linux-gnu/libffi.so.8.
+# Never prefix that target with the link's own directory: readlink -f would then
+# look for <linkdir>/lib/x86_64-linux-gnu/... inside this tree and resolve
+# nothing. Look the real file up where it can live instead: the absolute target
+# as given, the host's library directory, or the browser closure on this box.
 find . -type l -lname '/*' | while read -r l; do
-  target="$(readlink -f "$(dirname "$l")/$(readlink "$l")" 2>/dev/null)"
-  if [ -f "$target" ]; then
-    soname="$(basename "$target")"
-    cp -L "$target" "./$(dirname "$l")/$soname"
-    ln -sfn "$soname" "$l"
+  src="$(readlink "$l")"
+  base="$(basename "$src")"
+  real=""
+  for cand in "$src" "/lib/x86_64-linux-gnu/$base" "/usr/lib/x86_64-linux-gnu/$base" /tmp/sandbox-vendor/chrome-deps/*/"$base"; do
+    [ -e "$cand" ] && real="$(readlink -f "$cand")" && break
+  done
+  if [ -n "$real" ]; then
+    cp -L "$real" "./$(dirname "$l")/$base"
+    ln -sfn "$base" "$l"
   else
-    echo "UNRESOLVED $l -> $(readlink "$l")"
+    echo "UNRESOLVED $l -> $src"
   fi
 done
 
@@ -373,7 +389,13 @@ And the browser side, which already passes, so it does not regress:
 ```bash
 ldd "$PLAYWRIGHT_BROWSERS_PATH/chromium-1248/chrome-linux64/chrome" | grep "not found" || echo "closure complete"
 "$PLAYWRIGHT_BROWSERS_PATH/chromium-1248/chrome-linux64/chrome" --version
+PLAYWRIGHT_SANDBOX_LIBS=/tmp/sandbox-vendor/chrome-deps/cft-156 \
+  "$PLAYWRIGHT_BROWSERS_PATH/chromium-1248/chrome-linux64/chrome" --version
 ```
+
+The last line is the one that matters on the consuming host: it has no system NSS or NSPR, so the
+browser starts only through the closure the payload ships. A browser tree that needs a library path
+nobody documents is what sent the first delivery back.
 
 Report the exit code and the tail of the output for each.
 

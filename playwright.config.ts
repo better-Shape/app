@@ -27,15 +27,19 @@ const useStatic = process.env.E2E_STATIC === "1";
 
 /**
  * Resolve a Chromium executable. Order:
- *   1. `PLAYWRIGHT_CHROMIUM_PATH`, explicit override (any environment).
+ *   1. `PLAYWRIGHT_CHROMIUM_PATH`, explicit override (any environment). When
+ *      the browser comes from the vendored tree, point this at
+ *      `chromium_headless_shell-1248/chrome-headless-shell-linux64/chrome-headless-shell`:
+ *      the full Chrome build starts but exits mid-run in this sandbox.
  *   2. Playwright's own downloaded browser (`npx playwright install chromium`).
  *   3. `@sparticuz/chromium`, an npm-registry-hosted Chromium build, for
  *      sandboxes/CI images where the Playwright browser CDN is unreachable.
  *      Set `PLAYWRIGHT_SANDBOX_LIBS` to a directory of shared libraries
- *      (libnss3/libnspr4) to prepend to LD_LIBRARY_PATH if the host lacks
- *      them. It applies to all three paths, including
- *      `PLAYWRIGHT_CHROMIUM_PATH`. Sources for those libraries are in
- *      `engineering/sandbox-vendored-toolchain.md`.
+ *      (libnss3/libnspr4) to prepend to LD_LIBRARY_PATH for the browser
+ *      process if the host lacks them. It applies to all three paths,
+ *      including `PLAYWRIGHT_CHROMIUM_PATH`, and never to this process's
+ *      own environment, so the dev server does not inherit it. Sources for
+ *      those libraries are in `engineering/sandbox-vendored-toolchain.md`.
  *
  * A network that blocks the CDN can still get the exact build via step 2: the
  * orphan branch `vendor/sandbox-toolchain` carries Chrome for Testing
@@ -53,19 +57,32 @@ const bundledChromiumUsable = (): boolean => {
         // Existence is not usability: a CDN-downloaded browser on a host
         // without libnss3/libnspr4 cannot start. Probe it the way the
         // sandboxChromium path resolves its binary, a child Node process.
-        execFileSync(executablePath, ["--version"], { stdio: "ignore", timeout: 15_000 });
+        // Give the probe the same environment the launch gets: on a host
+        // without NSS/NSPR, --version fails for the same reason a launch
+        // would, and the fallback would be skipped for the wrong reason.
+        execFileSync(executablePath, ["--version"], {
+            stdio: "ignore",
+            timeout: 15_000,
+            env: { ...process.env, ...sandboxLibsEnv() },
+        });
         return true;
     } catch {
         return false;
     }
 };
 
-/** Prepend the sandbox shared-lib dir (libnss3/libnspr4) when provided. */
-const applySandboxLibs = () => {
+/**
+ * Environment for browser processes: the sandbox shared-lib dir
+ * (libnss3/libnspr4) prepended to the inherited LD_LIBRARY_PATH. Returned,
+ * never written to `process.env`: this config also starts the dev server, and
+ * a browser-specific library directory must not shadow the server's own
+ * dependencies or those of its children.
+ */
+const sandboxLibsEnv = (): Record<string, string> | undefined => {
     const libs = process.env.PLAYWRIGHT_SANDBOX_LIBS;
-    if (!libs) return;
+    if (!libs) return undefined;
     const existing = process.env.LD_LIBRARY_PATH;
-    process.env.LD_LIBRARY_PATH = existing ? `${libs}:${existing}` : libs;
+    return { LD_LIBRARY_PATH: existing ? `${libs}:${existing}` : libs };
 };
 
 /** Whether this Node runtime satisfies @sparticuz/chromium's range (^22.17.0 || >=24.0.0). */
@@ -116,16 +133,21 @@ const sandboxChromium = (): { executablePath?: string; args?: string[] } => {
 };
 
 /** Pick the Chromium executable and args for this environment, honouring the explicit override first. */
-const resolveChromium = (): { executablePath?: string; args?: string[] } => {
+const resolveChromium = (): {
+    executablePath?: string;
+    args?: string[];
+    env?: Record<string, string>;
+} => {
     // Every path below can land on a Chromium that needs NSS/NSPR the host
-    // does not have. Applying the directory here, once, covers the explicit
-    // path too: it used to skip the prepend and the browser died with
-    // "error while loading shared libraries: libnspr4.so".
-    applySandboxLibs();
+    // does not have: the explicit override used to skip the prepend and the
+    // browser died with "error while loading shared libraries: libnspr4.so".
+    // The directory rides in `launchOptions.env` only, so it reaches the
+    // browser process and not the Next dev server started alongside it.
+    const env = sandboxLibsEnv();
     if (process.env.PLAYWRIGHT_CHROMIUM_PATH) {
-        return { executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH };
+        return { executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH, env };
     }
-    return bundledChromiumUsable() ? {} : sandboxChromium();
+    return { ...(bundledChromiumUsable() ? {} : sandboxChromium()), env };
 };
 
 const chromiumResolution = resolveChromium();

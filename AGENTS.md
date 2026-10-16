@@ -113,11 +113,15 @@ Fetch it before you report a gate as unrunnable. The orphan branch `vendor/sandb
 `better-Shape/app` holds the Rust 1.88.0 components, the cargo dependency tree, a Debian 12
 development sysroot for the Tauri stack, the Chrome for Testing build that `playwright-core` pins,
 and the shared-library closures both browsers need. Extract to `/tmp`, never into the workspace,
-because the workspace is snapshotted and the extracted payload is about 4 GB.
+because the workspace is snapshotted and the extracted payload is about 4 GB; on a shared host,
+extract inside a private `mktemp -d` instead of the fixed paths in the recipe, which another user
+could pre-create as symlinks. Fetch the commit you
+reviewed and re-run `sha256sum -c` on every fetch: `MANIFEST.sha256` travels on the same branch as
+the payload, so it proves the download was intact, not that the branch head is the reviewed commit.
 
 ```bash
-BRANCH=vendor/sandbox-toolchain
-curl -sSL -o /tmp/sv.tar.gz "https://codeload.github.com/better-Shape/app/tar.gz/refs/heads/$BRANCH"
+SV_SHA=7ec94c1b353220d291924ee71c6346fcf35e66cd   # pin the commit you reviewed, not the branch head
+curl -sSL -o /tmp/sv.tar.gz "https://codeload.github.com/better-Shape/app/tar.gz/$SV_SHA"
 mkdir -p /tmp/sandbox-vendor && tar xzf /tmp/sv.tar.gz -C /tmp/sandbox-vendor --strip-components=1
 cd /tmp/sandbox-vendor
 for f in $(grep -o '^[a-f0-9]\{64\}  .*\.part-00$' MANIFEST.sha256 | sed 's/.*  //; s/\.part-00$//'); do cat "$f".part-* > "$f"; done
@@ -129,12 +133,13 @@ browser tree. `engineering/sandbox-vendored-toolchain.md` records every measured
 payload defects with their workarounds, and the sandbox limits. Read both before running the
 verification gate, then run it for real.
 
-Four facts decide whether a Rust or browser gate can pass:
+Five facts decide whether a Rust or browser gate can pass:
 
 - `cargo clippy` and `cargo test` read the vendor tree through `$CARGO_HOME/config.toml` with `CARGO_NET_OFFLINE=true`. `cargo --config <path>` does not reach external subcommands, so `cargo --config <path> clippy` fails with `no matching package named base64`.
 - `notify-rust@4.18.0` declares `rust-version = "1.89.0"` while the pin is 1.88.0, so cargo refuses every Rust gate without `--ignore-rust-version`. The crate compiles and its tests pass on 1.88.0.
 - Link with `CARGO_BUILD_JOBS=1`. Linking two test binaries in parallel peaks above a sandbox's memory and the linker is killed with `signal 9`.
-- The browser suite needs `PLAYWRIGHT_BROWSERS_PATH` pointing at the extracted browser tree and `npm ci` run with `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`. Do not set `PLAYWRIGHT_CHROMIUM_PATH` when the vendored tree is available, because the tree already sits in the registry layout Playwright expects.
+- The browser suite needs `PLAYWRIGHT_BROWSERS_PATH` pointing at the extracted browser tree, `PLAYWRIGHT_SANDBOX_LIBS` pointing at `chrome-deps/cft-156` for NSS/NSPR, and `npm ci` run with `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`. Do not set `PLAYWRIGHT_CHROMIUM_PATH` when the vendored tree is available, because the tree already sits in the registry layout Playwright expects. If you do hand in a browser, hand in the tree's headless shell (`chromium_headless_shell-1248`): the full Chrome build starts but exits mid-run here.
+- The delivered sysroot keeps Debian's absolute development symlinks, so run the section 7.1 repair loop in `engineering/sandbox-vendored-toolchain.md` once after extracting and re-check with `find . -xtype l`. Without it the linker falls back to the static `libdbus-1.a` and `cargo test` fails with `undefined reference to symbol 'sd_is_socket@@LIBSYSTEMD_209'`.
 
 The flags are a workaround for a dependency that is ahead of the toolchain pin. Report the affected
 gate in the PR body as failed with that reason and the flag you used, never as passed. The durable
