@@ -306,6 +306,65 @@ than asserted: `npm run qa` compares the workbench route against a pixel baselin
 - `cargo fmt --all -- --check`: not run, no Rust file touched and the toolchain is scratch
   state a sandbox reset removes
 
+## The run over `83c03a0`, where the sidebar was read
+
+Run `9583da9b`: Failed, 1 alert (the parent-branch baseline warning, which no commit clears),
+Documentation Coverage 10.6 against 17.6 percent, External Dependencies 3 of 90, Issues 1891.
+The window moved to `features/agent/sidebar/` and read four files at once:
+
+- `chats.tsx`: JS-0415 at `:704`, the shelf's return, seven JSX levels.
+- `collection-dialog.tsx`: JS-D1001 on `CollectionDialog` (`:90`) and on `finish` (`:109`).
+- `hosted-nav.tsx`: JS-D1001 on `find` (`:35`) and on `HostedSidebarShell` (`:100`).
+- `index.tsx`: JS-0067, JS-D1001 and JS-R1005 at 6 on `NavItem` (`:23`); JS-0067, JS-D1001 and
+  JS-R1005 at 22 on `AgentSidebar` (`:88`); JS-D1001 on `toggleSidebar` (`:109`) and `newChat`
+  (`:129`); JS-0098 on the three `void` calls (`:125`, `:272`, `:291`).
+
+Every one is answered on `cbf55dc`. The sidebar's own file is the informative case: it was one
+function holding the toggle, the account name, the avatar, the settings window, the connect
+call, the two new-chat events, the width classes, the footer spacing and both header shapes,
+which is where a complexity of 22 comes from. Each decision is its own documented arrow now,
+the two headers and the footer are components, and the file's own reader is a ternary and a
+footer. `collection-dialog.tsx` at 15 and `hosted-nav.tsx` at 7 split the same way: the write,
+the two label rules and the draft left the dialog, and the question of which of three controls
+to show left the component that owns the slot poll. In `chats.tsx` the seven-level chain was
+two menus standing inline in the shelf's return; they are `ShelfViewMenu` and `SelectionMenu`
+now, and the return is four deep.
+
+One of the sixteen findings needed the other direction. Moving the row fill into `navRowFill`
+to take a branch out of `NavItem` first failed `tests/ui/sidebar-state-ladder.test.ts`, which
+holds that a fill and the transition it travels on are stated within reach of each other. The
+helper carries the spring itself now, and the constraint is written above it.
+
+### The scope rule, confirmed twice
+
+The same run reported `HostedSidebarShell` (`:100`) and `finish` (`:109`) and `toggleSidebar`
+(`:109`), and no hunk header names any of the three. Together with the declarations the headers
+do name, the rule reads: a finding is reported when it sits inside a declaration the diff
+touches, and the diff touches a declaration when a hunk header names it or when an added line
+falls inside it. `.dump/app/qa/ds-worklist.tmp.py` models both cases over the 124 changed
+files and predicts 812 findings across 100 of them: 305 JS-D1001, 144 JS-0067, 133 JS-0098, 125
+JS-0415, 60 JS-0045, 36 JS-C1002 and 9 JS-0321, before the complexity band is counted. That is
+the size of the backlog this loop is working through, and it is why each round fixes the
+window's findings and reads the same shapes one file ahead rather than guessing.
+
+## Gates on `cbf55dc`
+
+Every gate below ran on this head, with `node_modules` installed and `PLAYWRIGHT_SANDBOX_LIBS`
+set for the browser suite.
+
+- `npx tsc --noEmit`: passed, exit 0, no output.
+- `npx eslint . --format json`: passed, 0 errors and 150 warnings, exit 0, against the
+  repository baseline of 156. `lint-diff.tmp.mjs` compares file, rule and message as a
+  multiset, so a warning that only moved line does not read as new: 0 groups added, 6 gone.
+- `npm test`: passed, 122 files and 995 tests, 138.2s, exit 0.
+- `npm run qa`: passed, 25 tests, 0 failed, 0 flaky, 0 skipped, 77.5s, exit 0, on a real
+  Chromium against the dev server on port 48921.
+- Complexity after this batch, from the repository's own reader: `features/agent/sidebar/`
+  has no function at 5 or above. Before it, `AgentSidebar` read 22, `CollectionDialog` 15,
+  `NavItem` 6 and `HostedSidebarBack` 7.
+- `npm run test:rust`, `cargo clippy`, `npm ci`: not run, the same three boundaries the
+  section above records. This diff touches no file under `src-tauri` and adds no dependency.
+
 ## What is still open
 
 - `features/chat/ui/md/view.tsx` keeps one forward reference that cannot be ordered both
