@@ -21,7 +21,7 @@ import { BlameTab } from "@/features/agent/workspace/blame-tab";
 import type { BlameLine } from "@/lib/backend";
 
 function raw(overrides: Partial<BlameLine> & { line: number; commit: string }): BlameLine {
-    return { author: "Ada", date: "1700000000", summary: "Add the parser", ...overrides };
+    return { line_count: 1, author: "Ada", date: "1700000000", summary: "Add the parser", ...overrides };
 }
 
 const LINES: BlameLine[] = [

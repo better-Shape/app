@@ -7,13 +7,13 @@ import { blameState, type BlameState } from "@/features/git/ui/blame/model";
 import type { BlameLine } from "@/lib/backend";
 
 function raw(overrides: Partial<BlameLine> & { line: number; commit: string }): BlameLine {
-    return { author: "Ada", date: "1700000000", summary: "Add the parser", ...overrides };
+    return { line_count: 1, author: "Ada", date: "1700000000", summary: "Add the parser", ...overrides };
 }
 
 const LINES: BlameLine[] = [
-    raw({ line: 1, commit: "aaa1111", summary: "Add the parser" }),
-    raw({ line: 2, commit: "aaa1111", summary: "Add the parser" }),
-    raw({ line: 3, commit: "bbb2222", author: "Grace", summary: "Fix the off-by-one", date: "1700086400" }),
+    raw({ line: 1, line_count: 1, commit: "aaa1111", summary: "Add the parser" }),
+    raw({ line: 2, line_count: 3, commit: "aaa1111", summary: "Add the parser" }),
+    raw({ line: 5, line_count: 1, commit: "bbb2222", author: "Grace", summary: "Fix the off-by-one", date: "1700086400" }),
 ];
 
 const NOW_SECONDS = Math.floor(Date.now() / 1000);
@@ -65,7 +65,7 @@ describe("blame panel", () => {
             expect(text).toContain("3 regions");
             expect(text).toContain("2 commits");
             expect(text).toContain("2 authors");
-            expect(text).toContain("regions, not file lines");
+            expect(text).toContain("file lines");
             expect(text).toContain("Ada");
             expect(text).toContain("Grace");
             expect(text).toContain("Add the parser");
@@ -75,12 +75,26 @@ describe("blame panel", () => {
         }
     });
 
-    it("shows the region span a group covers", () => {
+    it("shows the file-line span a group covers, ending on the last line", () => {
         const { host, root } = mount(panel());
         try {
             const text = host.textContent ?? "";
-            expect(text).toContain("1-2");
-            expect(text).toContain("3");
+            // Lines 1 and 2-4 are one commit, so the row must read 1-4. A span
+            // built from start lines alone would read 1-2 and lose two lines.
+            expect(text).toContain("1-4");
+            expect(text).toContain("5");
+        } finally {
+            unmount(root, host);
+        }
+    });
+
+    it("renders a one-line group without a dash", () => {
+        const { host, root } = mount(panel());
+        try {
+            const spans = Array.from(host.querySelectorAll("span[title='File lines this commit is responsible for']")).map(
+                (el) => el.textContent,
+            );
+            expect(spans).toEqual(["1-4", "5"]);
         } finally {
             unmount(root, host);
         }
@@ -113,7 +127,7 @@ describe("blame panel", () => {
             expect(commitLabels[0]).toContain("Ada");
             expect(commitLabels[0]).toContain("Add the parser");
             expect(commitLabels[0]).toContain("aaa1111");
-            expect(commitLabels[0]).toContain("regions 1-2");
+            expect(commitLabels[0]).toContain("lines 1-4");
         } finally {
             unmount(root, host);
         }
@@ -133,8 +147,8 @@ describe("blame panel", () => {
                     commit: "bbb2222",
                     author: "Grace",
                     summary: "Fix the off-by-one",
-                    from: 3,
-                    to: 3,
+                    from: 5,
+                    to: 5,
                 },
             ]);
         } finally {

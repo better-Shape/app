@@ -7,6 +7,7 @@ import {
     isOutsideProject,
     orderBlameEntries,
     parseBlameDate,
+    regionEndLine,
     pluralAuthors,
     pluralCommits,
     pluralRegions,
@@ -21,27 +22,28 @@ import {
 import type { BlameLine } from "@/lib/backend";
 
 /**
- * `git_blame_file` in src-tauri/src/commands/git/mod.rs walks `blame.len()`,
- * which git2 defines as the hunk count, and labels each hunk with its ordinal.
- * These fixtures use the shape that produces: one record per region, `line`
- * counting from 1.
+ * `git_blame_file` walks `blame.len()`, which git2 defines as the hunk count, so
+ * the payload carries one record per region. `line` is the hunk's
+ * `final_start_line` and `line_count` is `lines_in_hunk`, both one-based and
+ * counted in the file being blamed.
  */
 function raw(overrides: Partial<BlameLine> & { line: number; commit: string }): BlameLine {
-    return { author: "Ada", date: "1700000000", summary: "Do the thing", ...overrides };
+    return { line_count: 1, author: "Ada", date: "1700000000", summary: "Do the thing", ...overrides };
 }
 
 const LINES: BlameLine[] = [
-    raw({ line: 1, commit: "aaa1111", summary: "Add the parser" }),
-    raw({ line: 2, commit: "aaa1111", summary: "Add the parser" }),
-    raw({ line: 3, commit: "bbb2222", author: "Grace", summary: "Fix the off-by-one", date: "1700086400" }),
-    raw({ line: 4, commit: "ccc3333", author: "Alan", summary: "Rename the flag" }),
+    raw({ line: 1, line_count: 1, commit: "aaa1111", summary: "Add the parser" }),
+    raw({ line: 2, line_count: 4, commit: "aaa1111", summary: "Add the parser" }),
+    raw({ line: 6, line_count: 2, commit: "bbb2222", author: "Grace", summary: "Fix the off-by-one", date: "1700086400" }),
+    raw({ line: 8, line_count: 1, commit: "ccc3333", author: "Alan", summary: "Rename the flag" }),
 ];
 
 describe("blame entry normalisation", () => {
     it("keeps the fields the payload carries", () => {
         const entry = toBlameEntry(LINES[2]);
         expect(entry).toEqual({
-            region: 3,
+            line: 6,
+            lineCount: 2,
             commit: "bbb2222",
             author: "Grace",
             at: 1700086400,
@@ -65,25 +67,41 @@ describe("blame entry normalisation", () => {
         expect(toBlameEntry(raw({ line: 1, commit: "a", summary: "" })).summary).toBe("No commit message.");
     });
 
-    it("keeps a region ordinal at or above one even when the payload is malformed", () => {
-        expect(toBlameEntry(raw({ line: 0, commit: "a" })).region).toBe(1);
-        expect(toBlameEntry({ line: Number.NaN } as unknown as BlameLine).region).toBe(1);
-        expect(toBlameEntry(null).region).toBe(1);
+    it("keeps a file line at or above one even when the payload is malformed", () => {
+        expect(toBlameEntry(raw({ line: 0, commit: "a" })).line).toBe(1);
+        expect(toBlameEntry({ line: Number.NaN } as unknown as BlameLine).line).toBe(1);
+        expect(toBlameEntry(null).line).toBe(1);
+    });
+
+    it("treats a missing or nonsensical line_count as a single line, never an inverted span", () => {
+        expect(toBlameEntry({ line: 10 } as unknown as BlameLine).lineCount).toBe(1);
+        expect(toBlameEntry(raw({ line: 10, line_count: 0, commit: "a" })).lineCount).toBe(1);
+        expect(toBlameEntry(raw({ line: 10, line_count: -3, commit: "a" })).lineCount).toBe(1);
+        // The span must never end before it starts, which is what the panel renders.
+        expect(regionEndLine(toBlameEntry(raw({ line: 10, line_count: -3, commit: "a" })))).toBe(10);
     });
 });
 
 describe("blame ordering and grouping", () => {
-    it("restores file order from the region ordinal when the payload arrives shuffled", () => {
+    it("restores file order from the start line when the payload arrives shuffled", () => {
         const entries = [toBlameEntry(LINES[2]), toBlameEntry(LINES[0]), toBlameEntry(LINES[1])];
-        expect(orderBlameEntries(entries).map((entry) => entry.region)).toEqual([1, 2, 3]);
+        expect(orderBlameEntries(entries).map((entry) => entry.line)).toEqual([1, 2, 6]);
     });
 
     it("merges neighbouring regions that name the same commit", () => {
         const groups = groupBlame(LINES.map(toBlameEntry));
         expect(groups).toHaveLength(3);
-        expect(groups[0]).toMatchObject({ commit: "aaa1111", from: 1, to: 2, count: 2, author: "Ada" });
-        expect(groups[1]).toMatchObject({ commit: "bbb2222", from: 3, to: 3, count: 1, author: "Grace" });
-        expect(groups[2]).toMatchObject({ commit: "ccc3333", from: 4, to: 4, count: 1, author: "Alan" });
+        // Lines 1 and 2,5,6 are the same commit, so the span ends at the END of the
+        // last region, not at its start line.
+        expect(groups[0]).toMatchObject({ commit: "aaa1111", from: 1, to: 5, count: 2, author: "Ada" });
+        expect(groups[1]).toMatchObject({ commit: "bbb2222", from: 6, to: 7, count: 1, author: "Grace" });
+        expect(groups[2]).toMatchObject({ commit: "ccc3333", from: 8, to: 8, count: 1, author: "Alan" });
+    });
+
+    it("ends a single multi-line region on its last line, not its first", () => {
+        // A group of ONE region is the case a start-line-only span gets wrong.
+        const groups = groupBlame([toBlameEntry(raw({ line: 40, line_count: 12, commit: "solo" }))]);
+        expect(groups[0]).toMatchObject({ from: 40, to: 51, count: 1 });
     });
 
     it("does not merge the same commit across another one", () => {
@@ -98,7 +116,7 @@ describe("blame ordering and grouping", () => {
     it("takes the author and summary from the first region of the run", () => {
         const groups = groupBlame([
             toBlameEntry(raw({ line: 1, commit: "aaa", author: "First", summary: "One" })),
-            toBlameEntry(raw({ line: 2, commit: "aaa", author: "Second", summary: "Two" })),
+            toBlameEntry(raw({ line: 5, commit: "aaa", author: "Second", summary: "Two" })),
         ]);
         expect(groups[0].author).toBe("First");
         expect(groups[0].summary).toBe("One");
@@ -239,6 +257,16 @@ describe("blame region cap", () => {
         expect(rows).toHaveLength(DEFAULT_GROUP_LIMIT);
         expect(rows[0].from).toBe(1);
         expect(rows[rows.length - 1].to).toBe(DEFAULT_GROUP_LIMIT);
+    });
+
+    it("counts a long file's regions rather than its lines", () => {
+        // Every fixture is one line, so 500 regions is 500 lines. A payload of
+        // multi-line regions must report the same region count, not a line count.
+        const wide = Array.from({ length: 500 }, (_, index) =>
+            toBlameEntry(raw({ line: index * 3 + 1, line_count: 3, commit: `c${index}` })),
+        );
+        expect(groupBlame(wide)).toHaveLength(500);
+        expect(groupBlame(wide)[499]).toMatchObject({ from: 1498, to: 1500 });
     });
 
     it("shows everything once the cap is lifted", () => {

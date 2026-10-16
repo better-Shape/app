@@ -5,14 +5,15 @@ import type { BlameLine } from "@/lib/backend";
  * One record as `git_blame_file` returns it.
  *
  * The Rust loop walks `blame.len()`, which git2 defines as the hunk count, so the
- * payload carries one record per blame region and `line` is that region's ordinal,
- * not a line in the file. The real start line lives in the hunk's
- * `final_start_line_number`, which src-tauri/src/commands/git/mod.rs never reads.
- * Nothing here may present `line` as a file line number.
+ * payload carries one record per blame REGION rather than one per file line.
+ * `line` is the one-based first line of the region in the file being blamed and
+ * `line_count` is how many consecutive lines it covers, both read from the hunk.
  */
 export type BlameEntry = {
-    /** 1-based position of this region in the returned sequence. */
-    region: number;
+    /** One-based first line of this region in the file. */
+    line: number;
+    /** How many consecutive lines the region covers. At least 1. */
+    lineCount: number;
     commit: string;
     author: string;
     /** Unix epoch seconds, parsed from the backend's string. Null when unparseable. */
@@ -25,7 +26,7 @@ export type BlameGroup = {
     author: string;
     summary: string;
     at: number | null;
-    /** First and last region ordinal covered by the group. */
+    /** First and last file line covered by the group. */
     from: number;
     to: number;
     /** How many returned records the group merged. */
@@ -70,9 +71,19 @@ export function parseBlameDate(raw: unknown): number | null {
     return Math.floor(value);
 }
 
+/**
+ * The last file line a region covers. A hunk always covers at least one line, so
+ * a missing or nonsensical `line_count` collapses to a single line rather than
+ * producing an inverted span.
+ */
+export function regionEndLine(entry: BlameEntry): number {
+    return entry.line + Math.max(1, entry.lineCount) - 1;
+}
+
 export function toBlameEntry(raw: BlameLine | null | undefined): BlameEntry {
     return {
-        region: Math.max(1, Math.floor(Number(raw?.line)) || 1),
+        line: Math.max(1, Math.floor(Number(raw?.line)) || 1),
+        lineCount: Math.max(1, Math.floor(Number(raw?.line_count)) || 1),
         commit: typeof raw?.commit === "string" ? raw.commit.trim() : "",
         author: safeAuthor(raw?.author),
         at: parseBlameDate(raw?.date),
@@ -81,21 +92,25 @@ export function toBlameEntry(raw: BlameLine | null | undefined): BlameEntry {
 }
 
 /**
- * The region ordinal is the only position information the payload carries, and it
- * counts up through the file. Sorting on it therefore restores file order for a
+ * `line` counts up through the file, so sorting on it restores file order for a
  * payload that arrived shuffled, and leaves an in-order payload untouched.
  */
 export function orderBlameEntries(entries: BlameEntry[]): BlameEntry[] {
-    return [...entries].sort((a, b) => a.region - b.region);
+    return [...entries].sort((a, b) => a.line - b.line);
 }
 
-/** Merge regions that name the same commit and sit next to each other. */
+/**
+ * Merge regions that name the same commit and sit next to each other. A group's
+ * span runs from the first region's start line to the last region's end line, so
+ * a group of three one-line regions reads `4-6` rather than `4-6` by accident of
+ * counting regions.
+ */
 export function groupBlame(entries: BlameEntry[]): BlameGroup[] {
     const groups: BlameGroup[] = [];
     for (const entry of orderBlameEntries(entries)) {
         const last = groups[groups.length - 1];
         if (last && last.commit === entry.commit) {
-            last.to = entry.region;
+            last.to = regionEndLine(entry);
             last.count += 1;
             continue;
         }
@@ -104,8 +119,8 @@ export function groupBlame(entries: BlameEntry[]): BlameGroup[] {
             author: entry.author,
             summary: entry.summary,
             at: entry.at,
-            from: entry.region,
-            to: entry.region,
+            from: entry.line,
+            to: regionEndLine(entry),
             count: 1,
         });
     }

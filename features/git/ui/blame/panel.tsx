@@ -21,7 +21,7 @@ export type BlameCommitTarget = {
     commit: string;
     author: string;
     summary: string;
-    /** First and last region ordinal the group covers. */
+    /** First and last file line the group covers. */
     from: number;
     to: number;
 };
@@ -47,12 +47,12 @@ function BlameGroupRow({
     const span = group.from === group.to ? `${group.from}` : `${group.from}-${group.to}`;
     const shortHash = group.commit.slice(0, 7) || "unknown";
     const date = formatBlameDate(group.at, nowSeconds);
-    const label = `${group.author}, ${group.summary}, commit ${shortHash}, regions ${span}`;
+    const label = `${group.author}, ${group.summary}, commit ${shortHash}, lines ${span}`;
     return (
         <li className="flex items-start gap-2 rounded-md px-2 py-1.5 hover:bg-panel-hover">
             <span
                 className="w-16 shrink-0 pt-0.5 text-right font-mono text-2xs tabular-nums text-text-muted"
-                title="Position in git's blame list. The backend returns one record per blame region and does not report the file line each region starts on."
+                title="File lines this commit is responsible for"
             >
                 {span}
             </span>
@@ -171,8 +171,7 @@ export function BlamePanel({
             {ready ? (
                 <div className="flex shrink-0 items-center gap-2 border-t border-border-subtle px-3 py-1.5 text-xs text-text-muted">
                     <span className="min-w-0 flex-1 truncate">
-                        {pluralCommits(ready.commits)} · {pluralAuthors(ready.authors)} · regions, not
-                        file lines
+                        {pluralCommits(ready.commits)} · {pluralAuthors(ready.authors)} · file lines
                     </span>
                     {capped ? (
                         <Button size="xs" variant="ghost" onClick={onShowAll} aria-label="Show every blame region">

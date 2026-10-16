@@ -178,7 +178,10 @@ export interface GitStashEntry {
 }
 
 export interface BlameLine {
+    /** One-based first line of this blame region in the file. */
     line: number;
+    /** How many consecutive lines the region covers. */
+    line_count: number;
     commit: string;
     author: string;
     date: string;
