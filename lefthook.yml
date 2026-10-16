@@ -15,7 +15,8 @@ pre-commit:
     - name: typecheck (fast)
       # Run tsc on whole project - fast enough for pre-commit, catches type errors early
       # Don't skip on main - type errors on main should still be caught
-      run: npx tsc --noEmit --pretty
+      # `npm run typecheck` covers app AND tests; the root tsconfig excludes tests.
+      run: npm run typecheck
 
     - name: rust fmt check
       glob: "*.rs"

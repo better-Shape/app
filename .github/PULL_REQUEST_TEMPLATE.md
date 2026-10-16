@@ -20,7 +20,7 @@ Replace the zero placeholder with the current 40-character hexadecimal PR head S
 
 - `npm ci`: <passed, failed, or not run with reason>
 - `npm run lint`: <passed, failed, or not run with reason>
-- `npx tsc --noEmit`: <passed, failed, or not run with reason>
+- `npm run typecheck`: <passed, failed, or not run with reason>
 - `npm run build:runtime`: <passed, failed, or not run with reason>
 - `npm run test:all`: <passed, failed, or not run with reason>
 - `npm run test:rust`: <passed, failed, or not applicable>

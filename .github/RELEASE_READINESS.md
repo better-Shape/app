@@ -11,7 +11,7 @@ was produced by one of them, not by reading code and hoping.
 | Rust unit tests | `cargo test --all-features` | **313 passed, 0 failed** |
 | Rust formatting | `cargo fmt --all -- --check` | clean |
 | Rust lints | `cargo clippy --all-targets --all-features` | clean |
-| TypeScript | `npx tsc --noEmit` | clean |
+| TypeScript | `npm run typecheck` | clean |
 | ESLint | `npx eslint --quiet` | clean |
 | JS/TS tests | `npx vitest run` | 89 files, all passing |
 
@@ -97,7 +97,7 @@ Two more known items, not yet re-verified on this branch:
 
 ```bash
 npm ci
-npx tsc --noEmit
+npm run typecheck
 npx eslint --quiet
 npx vitest run
 

@@ -47,7 +47,7 @@ jobs:
             const verificationFields = [
               ['npm ci', /^-\s*`npm ci`:\s*(.*)$/gim],
               ['npm run lint', /^-\s*`npm run lint`:\s*(.*)$/gim],
-              ['npx tsc --noEmit', /^-\s*`npx tsc --noEmit`:\s*(.*)$/gim],
+              ['npm run typecheck', /^-\s*`npm run typecheck`:\s*(.*)$/gim],
               ['npm run build:runtime', /^-\s*`npm run build:runtime`:\s*(.*)$/gim],
               ['npm run test:all', /^-\s*`npm run test:all`:\s*(.*)$/gim],
               ['npm run test:rust', /^-\s*`npm run test:rust`:\s*(.*)$/gim],

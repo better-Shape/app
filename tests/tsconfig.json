@@ -1,0 +1,9 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "types": ["node", "styled-jsx", "vitest/globals"],
+    "incremental": false
+  },
+  "include": ["**/*.ts", "**/*.tsx", "../global.d.ts"],
+  "exclude": []
+}

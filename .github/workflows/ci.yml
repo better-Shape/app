@@ -54,7 +54,7 @@ jobs:
           echo "✓ ESLint passed with $WARNINGS warnings (allowed, but should be reduced)"
 
       - name: Typecheck
-        run: npx tsc --noEmit
+        run: npm run typecheck
 
       - name: Build preview script (Next.js config is validated by build)
         run: |
@@ -175,7 +175,7 @@ jobs:
         run: npm run build:runtime
 
       - name: Typecheck
-        run: npx tsc --noEmit
+        run: npm run typecheck
 
       - name: ESLint
         # Same errors-only gate as the Ubuntu `lint` job: the react-hooks rules are

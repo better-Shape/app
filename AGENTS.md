@@ -75,7 +75,7 @@ Run every gate that applies to your diff, then report each one as passed, failed
 ```bash
 npm ci                            # the install CI runs
 npm run lint                      # ESLint, the CI lint gate
-npx tsc --noEmit                  # TypeScript, zero errors
+npm run typecheck                # TypeScript, app and tests, zero errors
 npm run test                      # Vitest, after build:runtime
 npm run test:rust                 # Cargo tests for src-tauri
 npm run skills:verify             # every vendored skill matches skills-lock.json
@@ -91,7 +91,7 @@ Preflight checklist (required before any push)
 - Run these locally and paste the head SHA plus results in the PR verification block:
   - npm ci
   - npm run lint
-  - npx tsc --noEmit
+  - npm run typecheck
   - npm run build:runtime
   - npm run test:all
   - npm run test:rust (if touched src-tauri)
@@ -283,7 +283,7 @@ These preferences come from the user's standing instructions across many session
 - Port concepts, not architecture, from upstream projects whose stack differs from ours. Read the upstream implementation before you port anything, and write the port against this repository's stack.
 - Do not claim a platform is supported until an installer for it is produced by CI. Record the real support matrix in the docs, and name each platform's verification source.
 - On Linux, `cargo clippy` does not compile code behind `#[cfg(windows)]` or `#[cfg(target_os = "macos")]`. Say that a platform-gated Rust change was checked only by CI for that platform.
-- Vitest does not typecheck. Run `npx tsc --noEmit` after your last edit, and report the result from that run.
+- Vitest does not typecheck. Run `npm run typecheck` after your last edit, and report the result from that run.
 - Keep telemetry removed. Before you add any outbound call, follow the network rule above and confirm that the user asked for it.
 - Finish the work the task scopes. When a blocker stops you, name the blocker, the evidence and the next step in your report. Do not silently defer work, and do not invent follow-up tasks that the user did not ask for.
 - Record a mistake's root cause, the corrected understanding, and the change in behaviour in `.dump/`, not in the chat or the pull request. Never write secrets or raw provider output there.

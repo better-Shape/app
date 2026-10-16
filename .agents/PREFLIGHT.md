@@ -6,7 +6,7 @@ Use this before every push. Paste the results and head SHA into the PR Verificat
 
 - [ ] `npm ci`
 - [ ] `npm run lint`
-- [ ] `npx tsc --noEmit`
+- [ ] `npm run typecheck`
 - [ ] `npm run build:runtime`
 - [ ] `npm run test:all`
 - [ ] `npm run test:rust` if you touched `src-tauri/`

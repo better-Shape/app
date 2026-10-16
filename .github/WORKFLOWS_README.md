@@ -79,7 +79,7 @@ Grouping for dev deps and next ecosystem to reduce noise.
 
 ```text
 npm run lint          → lint job
-npx tsc --noEmit      → lint job
+npm run typecheck    → lint job
 npm run test          → test-js
 npm run test:rust     → test-rust
 cargo fmt --check     → rust-lints

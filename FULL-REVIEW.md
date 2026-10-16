@@ -480,7 +480,7 @@ Use the repository's own commands, the ones CI runs.
 ```sh
 npm ci
 npm run lint
-npx tsc --noEmit
+npm run typecheck
 npm run skills:verify
 ```
 
