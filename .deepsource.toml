@@ -13,11 +13,13 @@ enabled = true
   [analyzers.meta]
   plugins = ["react"]
   environment = ["nodejs", "browser", "vitest"]
-  # The repo is ESM, so a .js file is a module. This option covers .js only:
-  # a .mjs file is still parsed as a script and returns a "Parsing error" on
-  # its imports, which is why the config and the motion scripts under
-  # scripts/motion use the .js extension.
+  # The repo is ESM ("type": "module" in package.json), so a .js file is a module.
   module_system = "es-modules"
+  # Where package.json and tsconfig.json sit. The three "Parsing error ... 'sourceType:
+  # module'" alerts on the run page are that parse mode rather than code: they follow
+  # eslint.config.js and the two scripts under scripts/motion, and they survived both
+  # this option and a rename from .mjs to .js.
+  dependency_file_paths = ["."]
   # JS-D1001 demands a doc comment on every function. AGENTS.md forbids
   # comments that restate the code and reserves them for non-obvious
   # constraints, provenance, and workarounds. Skip the construct classes

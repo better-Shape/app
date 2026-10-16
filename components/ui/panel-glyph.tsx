@@ -64,30 +64,39 @@ const PANEL: Record<PanelEdge, PanelSpec> = {
 };
 
 /**
- * The mask that hides the rail's excess. Scaling this rect about the free edge keeps the
- * animation on `transform` and leaves the rail's docked corners untouched, which scaling
- * the rail itself would distort.
+ * One extent of the rail expressed along and across the panel's own axis.
+ *
+ * Every value in the mask is axis-relative, so the swap between x and y happens once here
+ * instead of in five ternaries below it.
  */
-function hiddenRail(edge: PanelEdge) {
+const onAxis = (axis: "x" | "y", along: number, across: number): [number, number] =>
+    axis === "x" ? [along, across] : [across, along];
+
+/**
+ * The mask that hides the rail's excess.
+ *
+ * Scaling this rect about the free edge keeps the animation on `transform` and leaves the
+ * rail's docked corners untouched, which scaling the rail itself would distort.
+ */
+const hiddenRail = (edge: PanelEdge) => {
     const { axis, free, docked, span } = PANEL[edge];
-    // The band edge nearest the free edge: the rail's landing place when hidden,
-    // reached by stepping from the docked edge toward the free one.
+    // The band edge nearest the free edge: the rail's landing place when hidden, reached
+    // by stepping from the docked edge toward the free one.
     const band = docked + BAND * Math.sign(free - docked);
-    // The rail's own extent along its axis, between the free edge and that band.
-    const along = Math.min(free, band);
-    const alongSize = Math.abs(free - docked) - BAND;
     const [across, acrossEnd] = span;
-    const acrossSize = acrossEnd - across;
     const acrossMid = (across + acrossEnd) / 2;
+    const [x, y] = onAxis(axis, Math.min(free, band), across);
+    const [width, height] = onAxis(axis, Math.abs(free - docked) - BAND, acrossEnd - across);
+    const [originX, originY] = onAxis(axis, free, acrossMid);
     return {
-        x: axis === "x" ? along : across,
-        y: axis === "x" ? across : along,
-        width: axis === "x" ? alongSize : acrossSize,
-        height: axis === "x" ? acrossSize : alongSize,
+        x,
+        y,
+        width,
+        height,
         /** Absolute viewBox units: a percentage would resolve against `transform-box`. */
-        origin: axis === "x" ? `${free}px ${acrossMid}px` : `${acrossMid}px ${free}px`,
+        origin: `${originX}px ${originY}px`,
     };
-}
+};
 
 const HIDDEN = {
     left: hiddenRail("left"),

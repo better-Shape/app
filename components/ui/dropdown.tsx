@@ -482,9 +482,9 @@ const MenubarMenu = ({
     const prevOpenRef = React.useRef(false);
 
     React.useEffect(() => {
-        if (!onOpenChange) return;
+        if (!onOpenChange) return undefined;
         const el = triggerEl;
-        if (!el) return;
+        if (!el) return undefined;
 
         /**
          * Reads the open state, which only ever exists on the primitive's element.

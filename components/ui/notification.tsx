@@ -20,12 +20,25 @@ const TOAST_EXIT_MS = 220;
 export const TOAST_STACK_CLASS =
     "pointer-events-none fixed top-3 left-1/2 z-notification w-[min(420px,calc(100vw-24px))] -translate-x-1/2 outline-none";
 
-function openNotificationTarget(notification: Notification) {
+/**
+ * Opens the catalog entry for a notification that carries an error code.
+ *
+ * The code is the catalog's key, so a notification without one is a plain message and has
+ * nowhere to link. Opening the browser is best effort, and there is no second surface to
+ * report a refusal on, so the outcome is not awaited anywhere.
+ */
+const openNotificationTarget = (notification: Notification) => {
     if (notification.code != null) {
-        void commands.openUrlExternal(errorDocsUrl(notification.code));
+        commands.openUrlExternal(errorDocsUrl(notification.code)).catch(() => {});
     }
-}
+};
 
+/**
+ * One toast, from entry to exit.
+ *
+ * It stays mounted while it leaves so the exit transition can play, which is why the stack
+ * tracks a leaving id instead of unmounting the card on dismiss.
+ */
 function ToastCard({
     notification,
     leaving,
@@ -50,7 +63,8 @@ function ToastCard({
     }, []);
 
     React.useEffect(() => {
-        if (!autoHideMs) return;
+        // `undefined` and not a bare return: the clear below is a value return.
+        if (!autoHideMs) return undefined;
         const timer = window.setTimeout(onDismiss, autoHideMs);
         return () => window.clearTimeout(timer);
     }, [autoHideMs, onDismiss]);
@@ -127,7 +141,12 @@ function ToastCard({
     );
 }
 
-/** Render the client-only active toast stack and retire dismissed cards after their exit transition. */
+/**
+ * The toast stack, portalled to the body so no pane can clip it.
+ *
+ * It renders nothing until the first client render: the store fills on the client, and a
+ * server render would ship an empty stack for hydration to fill.
+ */
 export function NotificationToasts() {
     const { notifications, toastIds } = useNotifications();
     const mounted = useIsMounted();
@@ -165,6 +184,12 @@ export function NotificationToasts() {
     );
 }
 
+/**
+ * The seam the app tree wraps its children in: children first, the stack after them.
+ *
+ * The stack is last so a toast paints over the app, and the provider holds no state, which
+ * is what lets any pane raise a toast without threading a context through it.
+ */
 export function NotificationProvider({ children }: { children: React.ReactNode }) {
     return (
         <>
