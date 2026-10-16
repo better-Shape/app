@@ -354,6 +354,127 @@ const ChatListBody = ({
 );
 
 /**
+ * The filter and sort menu.
+ *
+ * Both live in one menu because they answer the same question, which sessions and in what
+ * order, and two more triggers in a 24px header row would crowd out search.
+ */
+const ShelfViewMenu = ({
+    filter,
+    sort,
+    onFilter,
+    onSort,
+}: {
+    filter: ChatFilter;
+    sort: ChatSort;
+    onFilter: (value: ChatFilter) => void;
+    onSort: (value: ChatSort) => void;
+}) => (
+    <DropdownMenu modal={false}>
+        <Tooltip content="Filter" side="bottom" delayDuration={80}>
+            <DropdownMenuTrigger asChild>
+                <button
+                    type="button"
+                    aria-label="Filter"
+                    className="flex size-7 items-center justify-center rounded-md text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary data-[state=open]:bg-[var(--btn-open)] data-[state=open]:hover:bg-[var(--btn-open-hover)] data-[state=open]:text-text-primary"
+                >
+                    <Icon icon={Filter20Regular} />
+                </button>
+            </DropdownMenuTrigger>
+        </Tooltip>
+        <DropdownMenuContent align="end" className="min-w-40">
+            <DropdownMenuLabel>Show</DropdownMenuLabel>
+            <DropdownMenuRadioGroup
+                value={filter}
+                onValueChange={(value) => onFilter(value as ChatFilter)}
+            >
+                {FILTER_OPTIONS.map((opt) => (
+                    <DropdownMenuRadioItem key={opt.value} value={opt.value}>
+                        {opt.label}
+                    </DropdownMenuRadioItem>
+                ))}
+            </DropdownMenuRadioGroup>
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel>Sort</DropdownMenuLabel>
+            <DropdownMenuRadioGroup
+                value={sort}
+                onValueChange={(value) => onSort(value as ChatSort)}
+            >
+                {SORT_OPTIONS.map((opt) => (
+                    <DropdownMenuRadioItem key={opt.value} value={opt.value}>
+                        {opt.label}
+                    </DropdownMenuRadioItem>
+                ))}
+            </DropdownMenuRadioGroup>
+        </DropdownMenuContent>
+    </DropdownMenu>
+);
+
+/**
+ * The sessions menu: the selection read back, then the actions that apply to it.
+ *
+ * It stays open across a selection change, because picking a chat and reaching for an action
+ * in the same gesture is the point of the menu; the destructive rows come from
+ * `renderLifecycleActions`, which states its own confirmation.
+ */
+const SelectionMenu = ({
+    selectedCount,
+    targets,
+    handlers,
+    onAddToCollection,
+    onClearSelection,
+    sections,
+    allCollapsed,
+    onToggleAll,
+    onNewChat,
+}: {
+    selectedCount: number;
+    targets: ChatLifecycleTarget[];
+    handlers: ChatLifecycleHandlers;
+    onAddToCollection: () => void;
+    onClearSelection: () => void;
+    sections: readonly ChatShelfSection[];
+    allCollapsed: boolean;
+    onToggleAll: () => void;
+    onNewChat: () => void;
+}) => (
+    <DropdownMenu modal={false}>
+        <Tooltip content="Sessions actions" side="bottom" delayDuration={80}>
+            <DropdownMenuTrigger asChild>
+                <button
+                    type="button"
+                    aria-label="Sessions actions"
+                    className="flex size-7 items-center justify-center rounded-md text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary data-[state=open]:bg-[var(--btn-open)] data-[state=open]:hover:bg-[var(--btn-open-hover)] data-[state=open]:text-text-primary"
+                >
+                    <Icon icon={MoreHorizontal20Regular} />
+                </button>
+            </DropdownMenuTrigger>
+        </Tooltip>
+        <DropdownMenuContent align="end" className="min-w-48">
+            <DropdownMenuLabel>{selectionLabel(selectedCount)}</DropdownMenuLabel>
+            <SelectionActions
+                targets={targets}
+                handlers={handlers}
+                onAddToCollection={onAddToCollection}
+            />
+            <DropdownMenuItem disabled={selectedCount === 0} onClick={onClearSelection}>
+                Clear selection
+            </DropdownMenuItem>
+            <CollapseAllItem
+                sections={sections}
+                allCollapsed={allCollapsed}
+                onToggle={onToggleAll}
+            />
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={onNewChat}>
+                <Icon icon={Compose20Regular} />
+                New chat
+            </DropdownMenuItem>
+        </DropdownMenuContent>
+    </DropdownMenu>
+);
+
+/**
  * The chat shelf: the sessions list with its filter, sort, selection and undo affordances.
  *
  * It reads the chat stores directly rather than taking them as props, because the shelf is
@@ -708,83 +829,18 @@ export const ChatList = ({
                     <HeaderIconBtn label="Search" onClick={openCommandPalette}>
                         <Icon icon={Search20Regular} />
                     </HeaderIconBtn>
-                    <DropdownMenu modal={false}>
-                        <Tooltip content="Filter" side="bottom" delayDuration={80}>
-                            <DropdownMenuTrigger asChild>
-                                <button
-                                    type="button"
-                                    aria-label="Filter"
-                                    className="flex size-7 items-center justify-center rounded-md text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary data-[state=open]:bg-[var(--btn-open)] data-[state=open]:hover:bg-[var(--btn-open-hover)] data-[state=open]:text-text-primary"
-                                >
-                                    <Icon icon={Filter20Regular} />
-                                </button>
-                            </DropdownMenuTrigger>
-                        </Tooltip>
-                        <DropdownMenuContent align="end" className="min-w-40">
-                            <DropdownMenuLabel>Show</DropdownMenuLabel>
-                            <DropdownMenuRadioGroup
-                                value={filter}
-                                onValueChange={(value) => setFilter(value as ChatFilter)}
-                            >
-                                {FILTER_OPTIONS.map((opt) => (
-                                    <DropdownMenuRadioItem key={opt.value} value={opt.value}>
-                                        {opt.label}
-                                    </DropdownMenuRadioItem>
-                                ))}
-                            </DropdownMenuRadioGroup>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuLabel>Sort</DropdownMenuLabel>
-                            <DropdownMenuRadioGroup
-                                value={sort}
-                                onValueChange={(value) => persistSort(value as ChatSort)}
-                            >
-                                {SORT_OPTIONS.map((opt) => (
-                                    <DropdownMenuRadioItem key={opt.value} value={opt.value}>
-                                        {opt.label}
-                                    </DropdownMenuRadioItem>
-                                ))}
-                            </DropdownMenuRadioGroup>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
-                    <DropdownMenu modal={false}>
-                        <Tooltip content="Sessions actions" side="bottom" delayDuration={80}>
-                            <DropdownMenuTrigger asChild>
-                                <button
-                                    type="button"
-                                    aria-label="Sessions actions"
-                                    className="flex size-7 items-center justify-center rounded-md text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary data-[state=open]:bg-[var(--btn-open)] data-[state=open]:hover:bg-[var(--btn-open-hover)] data-[state=open]:text-text-primary"
-                                >
-                                    <Icon icon={MoreHorizontal20Regular} />
-                                </button>
-                            </DropdownMenuTrigger>
-                        </Tooltip>
-                        <DropdownMenuContent align="end" className="min-w-48">
-                            <DropdownMenuLabel>
-                                {selectionLabel(selectedIds.length)}
-                            </DropdownMenuLabel>
-                            <SelectionActions
-                                targets={selectedTargets}
-                                handlers={handlers}
-                                onAddToCollection={() => setCollectionDraft([...selectedIds])}
-                            />
-                            <DropdownMenuItem
-                                disabled={selectedIds.length === 0}
-                                onClick={() => setSelectedIds([])}
-                            >
-                                Clear selection
-                            </DropdownMenuItem>
-                            <CollapseAllItem
-                                sections={sections}
-                                allCollapsed={allCollapsed}
-                                onToggle={() => setAllCollapsed(!allCollapsed)}
-                            />
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem onClick={onNewChat}>
-                                <Icon icon={Compose20Regular} />
-                                New chat
-                            </DropdownMenuItem>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
+<ShelfViewMenu filter={filter} sort={sort} onFilter={setFilter} onSort={persistSort} />
+                    <SelectionMenu
+                        selectedCount={selectedIds.length}
+                        targets={selectedTargets}
+                        handlers={handlers}
+                        onAddToCollection={() => setCollectionDraft([...selectedIds])}
+                        onClearSelection={() => setSelectedIds([])}
+                        sections={sections}
+                        allCollapsed={allCollapsed}
+                        onToggleAll={() => setAllCollapsed(!allCollapsed)}
+                        onNewChat={onNewChat}
+                    />
                     <HeaderIconBtn label="New chat" onClick={onNewChat}>
                         <Icon icon={Compose20Regular} />
                     </HeaderIconBtn>
