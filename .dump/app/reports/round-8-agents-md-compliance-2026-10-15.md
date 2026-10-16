@@ -467,6 +467,28 @@ from 6 to 9 tests.
 | `npm run qa` | PASS on `147f37a`, 25 tests, 0 failed, 91.1s, after the settings hydration fix |
 | `npm run skills:verify` | not run on this head, last passed on `b9a2305`, 53 of 53 |
 
+### Gates on the head the branch ends on
+
+The source gates ran against the tree that `147f37a` records, which is the last commit that
+touches a file other than this report. The three commits after it, `7b38df4`, `9590e47` and
+`341ffd0`, change this file alone.
+
+| Gate | Result |
+| --- | --- |
+| `npm ci` | PASS, clean install, exit 0 |
+| `npm run lint` | PASS, 0 errors, 158 warnings, exit 0 |
+| `npx tsc --noEmit` | PASS, exit 0 |
+| `npm run test` | PASS, 121 files, 987 tests, exit 0, including `build:runtime` at 393.0kb |
+| `npm run qa` | PASS, 25 tests, 0 failed, 0 flaky, 91.1s, exit 0. The first green crawl on this branch |
+| `npm run skills:verify` | PASS, 53 of 53 locked skills verified, 2 project-owned unrecorded |
+| `npm run test:rust` | NOT RUN, no Rust toolchain in the sandbox, and no Rust file in this diff |
+| `DeepSource: Rust` | PASS |
+| `DeepSource: JavaScript` | FAILED, pre-existing on the base and repo-wide |
+| `DeepSource: Secrets` | FAILED, cause unidentified, recorded above |
+| SonarCloud, DeepScan, CodeAnt (five gates), Snyk, Socket, CodeRabbit, Kilo, Buoy | PASS |
+| Sourcery | skipped |
+| GitHub Actions | no check of this kind exists on pull requests in this repository |
+
 ### The sandbox was recycled mid branch
 
 Two things had to be rebuilt before any gate could run, and both are recorded because the
@@ -521,8 +543,8 @@ in the document before the first pointer movement and 0 after it, with 38 carrie
 
 ### The analyzer findings
 
-DeepSource reports sixteen sites, all MINOR, and its check fails on a count rather than on
-severity. The check has no per-rule suppression: DeepSource's own documentation and its
+DeepSource reports seventeen sites on the head that followed `9590e47`, all MINOR, and its
+check fails on a count rather than on severity. The check has no per-rule suppression: DeepSource's own documentation and its
 forum record that `exclude_patterns` and `test_patterns` are whole-analyzer switches and
 that the only other lever is an inline pragma, which needs a rule id this project's
 comments do not expose. Excluding the tree from analysis to silence a comment rule was
@@ -539,7 +561,8 @@ That leaves judgement per site, and the findings separate into four kinds.
 - One was a wildcard React import in `components/ui/collapse.tsx`, which is new in this
   branch and used exactly one type from it. Fixed by naming the type.
 - One was the copy button reading its own state four times. One read now decides the face,
-  and the attribute, the spoken name and the tone follow it. The crash screen was the same
+  and the attribute, the spoken name and the tone follow it. The change is kept because it is
+  the honest shape for that component; the run that followed still counts the function at 7. The crash screen was the same
   kind of finding at a larger scale: the report state machine and the report payload moved
   into a `ReportBlock` with its own state and a `reportBody` builder, which leaves the
   screen holding the mark, the heading, the two recovery buttons and one focus effect. The
@@ -554,7 +577,7 @@ That leaves judgement per site, and the findings separate into four kinds.
   times across this codebase, it is how the repository marks a promise it means to discard,
   and no lint rule here requires it. Changing two of those call sites would be a style
   migration wearing a fix as a costume.
-- Eight are module-scope function declarations on React components, which is what a
+- Ten are module-scope function declarations on React components, which is what a
   component is in a file-based React app, and the analyzer is told the module system is
   ESM in `.deepsource.toml`. Converting components to arrow consts to silence it would
   churn every exported component in the tree. This class is recorded rather than fixed, and
