@@ -500,6 +500,11 @@ cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
 ```
 
+On a host that cannot reach `crates.io` or the Tauri system libraries, fetch the orphan branch
+`vendor/sandbox-toolchain` first, then add `--ignore-rust-version` and `CARGO_BUILD_JOBS=1` to the
+cargo commands. `AGENTS.md` under Blocked sandbox toolchain has the recipe, and
+`engineering/rust-toolchain.md` has the measured results.
+
 ### Full local gate
 
 ```sh

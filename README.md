@@ -77,6 +77,10 @@ npm run test:rust     # Cargo
 npm run test:all      # Both
 ```
 
+If your network blocks `crates.io`, `sh.rustup.rs` or the Playwright browser CDN, `CONTRIBUTING.md`
+names the vendor branch that carries the Rust toolchain, the crate registry and the browser, so the
+same three commands work offline.
+
 TypeScript, React, Next.js App Router, Tauri 2, Rust.
 
 ## License

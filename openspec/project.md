@@ -42,7 +42,7 @@ This file is the OpenSpec project context for BetterShape. It was checked agains
 | cargo | `npm run test:rust` | Rust unit tests under `src-tauri` |
 | Both | `npm run test:all` | `npm run test` followed by `npm run test:rust` |
 
-`test:all` needs a Rust toolchain. A machine without cargo can run the TypeScript gates only, and the PR must say that the Rust gate did not run.
+`test:all` needs a Rust toolchain. A machine without cargo can run the TypeScript gates only, and the PR must say that the Rust gate did not run. A machine whose network blocks `crates.io` is a different case: the orphan branch `vendor/sandbox-toolchain` carries the toolchain, the crate registry and the Tauri sysroot, so the Rust gate does run offline. See `engineering/rust-toolchain.md` for the two flags it needs there.
 
 ### Git workflow
 
