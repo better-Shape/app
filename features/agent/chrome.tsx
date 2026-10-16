@@ -73,6 +73,7 @@ const togglePlacement = (collapsed?: boolean) =>
         ? { side: "right" as const, className: "size-9" }
         : { side: "bottom" as const, className: "size-7" };
 
+/** The sidebar toggle names the state its click moves to, like the panel toggle does. */
 const sidebarToggleLabel = (open: boolean) => (open ? "Hide sidebar" : "Show sidebar");
 
 /**
