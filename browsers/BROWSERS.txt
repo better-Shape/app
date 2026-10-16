@@ -1,0 +1,36 @@
+Playwright browsers for playwright-core 1.64.1
+==============================================
+
+Archive: browsers/browsers-playwright-1.64.1.tar.xz
+Layout:  chromium-1248/, chromium_headless_shell-1248/, ffmpeg-1013/
+         (extract with PLAWRIGHT_BROWSERS_PATH pointing at the parent)
+
+Upstream sources, all unreachable from the restricted sandbox:
+
+  chromium-1248
+    url    https://cdn.playwright.dev/builds/cft/156.0.8078.4/linux64/chrome-linux64.zip
+    mirror https://storage.googleapis.com/chrome-for-testing-public/156.0.8078.4/linux64/chrome-linux64.zip
+    zip sha256 43fd31766c7533a02dda2ded5ad50c2f861cd5400be7509c0abad71129f79d79
+    version    156.0.8078.4 (Chrome for Testing)
+    revision   1248
+    bytes on disk 420921737
+
+  chromium_headless_shell-1248
+    url    https://cdn.playwright.dev/builds/cft/156.0.8078.4/linux64/chrome-headless-shell-linux64.zip
+    zip sha256 c3e50596aef52c58f8fda3c6b3411c33d34c88b177b3ed1c2243359fd3b8ba20
+    version    156.0.8078.4
+    revision   1248
+    bytes on disk 285084594
+
+  ffmpeg-1013
+    url    https://cdn.playwright.dev/builds/ffmpeg/1013/ffmpeg-linux.zip
+    zip sha256 ee986434d158f74fb5d9c5ff1092026ceedb63f324fe90b5be89460926b7b679
+    revision   1013
+    bytes on disk 5296998
+
+Note: this repository sets video to "off", so the ffmpeg build is optional for
+the app. It is shipped for layout parity with the Playwright downloader.
+
+Playwright publishes no .sha256 sidecar for these zips (the request 404s or
+307s to the object store), so only the measured sha256 of the downloaded zip is
+recorded above. The archive sha256 is in MANIFEST.sha256.
