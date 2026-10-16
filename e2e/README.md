@@ -98,26 +98,33 @@ it needs. Fetch the payload as `engineering/sandbox-vendored-toolchain.md`
 describes, reassemble the split assets (the browser tarball ships in three
 parts), verify the manifest, and extract the browser tree:
 
+The commands below run from the application checkout, so every payload step stays inside a
+subshell and the `npm` commands run where `package.json` is:
+
 ```bash
-cd /tmp/sandbox-vendor
-for f in $(grep -o '^[a-f0-9]\{64\}  .*\.part-00$' MANIFEST.sha256 | sed 's/.*  //; s/\.part-00$//'); do
-  cat "$f".part-* > "$f"
-done
-sha256sum -c MANIFEST.sha256
+SV=/tmp/sandbox-vendor        # or the private root the fetch used
+(
+  cd "$SV"
+  for f in $(grep -o '^[a-f0-9]\{64\}  .*\.part-00$' MANIFEST.sha256 | sed 's/.*  //; s/\.part-00$//'); do
+    cat "$f".part-* > "$f"
+  done
+  sha256sum -c MANIFEST.sha256
+)
 
 mkdir -p /tmp/pw-browsers
-tar xJf browsers/browsers-playwright-1.64.1.tar.xz -C /tmp/pw-browsers
+tar xJf "$SV/browsers/browsers-playwright-1.64.1.tar.xz" -C /tmp/pw-browsers
 export PLAYWRIGHT_BROWSERS_PATH=/tmp/pw-browsers
-export PLAYWRIGHT_SANDBOX_LIBS=/tmp/sandbox-vendor/chrome-deps/cft-156
+export PLAYWRIGHT_SANDBOX_LIBS="$SV/chrome-deps/cft-156"
 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm ci
 npm run test:e2e
 ```
 
 `PLAYWRIGHT_SANDBOX_LIBS` points at the NSS/NSPR closure from the same
 payload and is applied to the browser launch only, so the dev server never
-inherits it. An exported `LD_LIBRARY_PATH` over that directory works the same
-way, and is what the combined recipe in
-`engineering/sandbox-vendored-toolchain.md` uses.
+inherits it. Keep it that way: an exported `LD_LIBRARY_PATH` over that
+directory reaches every child process, which is not the same thing. A browser
+launched directly, outside Playwright, needs `LD_LIBRARY_PATH` on that one
+command instead, because no config is involved.
 
 That path was verified against this suite: 6 of 6 smoke specs on Chrome for
 Testing 156.0.8078.4, with `PLAYWRIGHT_SANDBOX_LIBS` set and no exported

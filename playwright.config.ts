@@ -76,9 +76,12 @@ const bundledChromiumUsable = (): boolean => {
         // Give the probe the same environment the launch gets: on a host
         // without NSS/NSPR, --version fails for the same reason a launch
         // would, and the fallback would be skipped for the wrong reason.
+        // The timeout is generous on purpose: a slow first start is not an
+        // unusable browser, and a false negative sends a supported host down
+        // the @sparticuz path, which throws on Node below 22.17.
         execFileSync(executablePath, ["--version"], {
             stdio: "ignore",
-            timeout: 15_000,
+            timeout: 60_000,
             env: sandboxLibsEnv(),
         });
         return true;

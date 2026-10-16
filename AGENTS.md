@@ -128,6 +128,7 @@ rm -rf /tmp/sandbox-vendor && mkdir -p /tmp/sandbox-vendor && tar xzf /tmp/sv.ta
 cd /tmp/sandbox-vendor
 for f in $(grep -o '^[a-f0-9]\{64\}  .*\.part-00$' MANIFEST.sha256 | sed 's/.*  //; s/\.part-00$//'); do cat "$f".part-* > "$f"; done
 sha256sum -c MANIFEST.sha256
+cd - >/dev/null   # back to the checkout: the gates below read src-tauri/Cargo.toml
 ```
 
 `FETCH.md` in that tree wires up the toolchain, the offline cargo registry, the sysroot and the

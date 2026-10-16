@@ -389,12 +389,14 @@ And the browser side, which already passes, so it does not regress:
 ```bash
 ldd "$PLAYWRIGHT_BROWSERS_PATH/chromium-1248/chrome-linux64/chrome" | grep "not found" || echo "closure complete"
 "$PLAYWRIGHT_BROWSERS_PATH/chromium-1248/chrome-linux64/chrome" --version
-PLAYWRIGHT_SANDBOX_LIBS=/tmp/sandbox-vendor/chrome-deps/cft-156 \
+LD_LIBRARY_PATH=/tmp/sandbox-vendor/chrome-deps/cft-156 \
   "$PLAYWRIGHT_BROWSERS_PATH/chromium-1248/chrome-linux64/chrome" --version
 ```
 
 The last line is the one that matters on the consuming host: it has no system NSS or NSPR, so the
-browser starts only through the closure the payload ships. A browser tree that needs a library path
+browser starts only through the closure the payload ships. `PLAYWRIGHT_SANDBOX_LIBS` would do
+nothing here: only `playwright.config.ts` reads it, and this line launches the browser itself, so
+the loader needs the directory in `LD_LIBRARY_PATH`. A browser tree that needs a library path
 nobody documents is what sent the first delivery back.
 
 Report the exit code and the tail of the output for each.
