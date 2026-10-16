@@ -47,6 +47,22 @@ const useStatic = process.env.E2E_STATIC === "1";
  * `PLAYWRIGHT_BROWSERS_PATH` at the extracted tree needs no override at all.
  * See `AGENTS.md` under Blocked sandbox toolchain.
  */
+/**
+ * Environment for browser children: a copy of this process's environment with
+ * the sandbox shared-lib dir (libnss3/libnspr4) prepended to LD_LIBRARY_PATH.
+ * A copy on purpose, so the dev server this config starts never inherits
+ * browser-only libraries. Without the variable set, it is a plain copy.
+ */
+const sandboxLibsEnv = (): NodeJS.ProcessEnv => {
+    const env: NodeJS.ProcessEnv = Object.assign({}, process.env);
+    const libs = process.env.PLAYWRIGHT_SANDBOX_LIBS;
+    const existing = process.env.LD_LIBRARY_PATH;
+    if (libs) {
+        env.LD_LIBRARY_PATH = existing ? `${libs}:${existing}` : libs;
+    }
+    return env;
+};
+
 const bundledChromiumUsable = (): boolean => {
     try {
         // playwright-core is a dependency of @playwright/test; use it only
@@ -69,22 +85,6 @@ const bundledChromiumUsable = (): boolean => {
     } catch {
         return false;
     }
-};
-
-/**
- * Environment for browser children: a copy of this process's environment with
- * the sandbox shared-lib dir (libnss3/libnspr4) prepended to LD_LIBRARY_PATH.
- * A copy on purpose, so the dev server this config starts never inherits
- * browser-only libraries. Without the variable set, it is a plain copy.
- */
-const sandboxLibsEnv = (): NodeJS.ProcessEnv => {
-    const env: NodeJS.ProcessEnv = Object.assign({}, process.env);
-    const libs = process.env.PLAYWRIGHT_SANDBOX_LIBS;
-    const existing = process.env.LD_LIBRARY_PATH;
-    if (libs) {
-        env.LD_LIBRARY_PATH = existing ? `${libs}:${existing}` : libs;
-    }
-    return env;
 };
 
 /** Whether this Node runtime satisfies @sparticuz/chromium's range (^22.17.0 || >=24.0.0). */
