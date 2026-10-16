@@ -10,6 +10,8 @@ import { SingleFileDiffEditor, type FileDiffTabInfo } from "./file-diff";
 import Graph from "@/features/git/ui/graph/graph";
 import { PullRequestsPanel } from "@/features/chat/ui/prs/view";
 import { ProblemsTab } from "./problems-tab";
+import { BlameTab } from "./blame-tab";
+import { PackagesTab } from "./packages-tab";
 import { SearchTab } from "./search-tab";
 import { subscribePrUi, getPrUi } from "@/features/chat/ui/prs/store";
 import { isBrowserTab } from "@/lib/window/browser-tab";
@@ -184,6 +186,12 @@ export function AgentWorkspace({
             if (tabId === "search" || tabId === "find") {
                 addTab("search", { expand: true });
             }
+            if (tabId === "packages" || tabId === "dependencies") {
+                addTab("packages", { expand: true });
+            }
+            if (tabId === "blame" || tabId === "annotations") {
+                addTab("blame", { expand: true });
+            }
         };
         const onOpenPlan = (e: Event) => {
             const detail = (e as CustomEvent<{ path?: string; title?: string; markdown?: string }>).detail;
@@ -305,6 +313,10 @@ export function AgentWorkspace({
                         <SearchTab />
                     ) : active?.kind === "problems" ? (
                         <ProblemsTab />
+                    ) : active?.kind === "packages" ? (
+                        <PackagesTab />
+                    ) : active?.kind === "blame" ? (
+                        <BlameTab />
                     ) : active?.kind === "plan" && (active.path || active.markdown) ? (
                         <div className="h-full min-h-0 bg-sidebar" style={SIDEBAR_SURFACE}>
                             <PlanTabView path={active.path || ""} markdown={active.markdown} />

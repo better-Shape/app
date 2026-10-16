@@ -3,6 +3,8 @@ export { GitManagerTrigger } from "./manager/git-manager-trigger";
 export { default as Source } from "./source/source";
 export { default as Graph } from "./graph/graph";
 export { BranchWindow } from "./branches/panel";
+export { StashPanel } from "./stash/panel";
+export type { StashAction, StashRow, StashState } from "./stash/model";
 export { GitHubSection } from "./github/section";
 export type { GitHubListSection } from "./github/section";
 export { ActionsConsole, isActionsSection } from "./actions/console";

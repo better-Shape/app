@@ -2532,7 +2532,10 @@ pub fn git_get_item_content(
 
 #[derive(Serialize, Clone)]
 pub struct BlameLine {
+    /// One-based first line of this blame region in the file being blamed.
     pub line: u32,
+    /// How many consecutive lines the region covers.
+    pub line_count: u32,
     pub commit: String,
     pub author: String,
     pub date: String,
@@ -2544,6 +2547,27 @@ pub struct GitStashEntry {
     pub index: usize,
     pub message: String,
     pub date: String,
+}
+
+/// Resolve a path to one inside the repository, or `None` when it escapes.
+///
+/// `resolve_repo_relative_path` ends in a basename fallback, so an absolute path
+/// from another checkout resolves to a bare name and blames as this repo's own
+/// file. Re-deriving the containment check structurally keeps that escape closed
+/// without also closing the repository root: a file sitting directly in the root
+/// resolves to a name with no separator and is perfectly legitimate.
+///
+/// An escaping name that also exists inside the repository is not an escape. It
+/// resolves to a real file in this repository, so blaming it is correct.
+fn resolve_repo_relative_path_checked(repo_path: &str, file_path: &str) -> Option<String> {
+    let resolved = resolve_repo_relative_path(repo_path, file_path);
+    if resolved.is_empty() {
+        return None;
+    }
+    let repo_canon = std::fs::canonicalize(repo_path).ok()?;
+    let candidate = std::fs::canonicalize(repo_canon.join(&resolved)).ok()?;
+    candidate.strip_prefix(&repo_canon).ok()?;
+    Some(resolved)
 }
 
 pub(super) fn resolve_repo_relative_path(repo_path: &str, file_path: &str) -> String {
@@ -2586,23 +2610,29 @@ pub(super) fn resolve_repo_relative_path(repo_path: &str, file_path: &str) -> St
 
 pub fn git_blame_file(repo_path: String, file_path: String) -> Result<Vec<BlameLine>, AppError> {
     let repo = Repository::open(&repo_path).map_err(|e| AppError::Git(e))?;
-    let rel_path = resolve_repo_relative_path(&repo_path, &file_path);
+    let rel_path = resolve_repo_relative_path_checked(&repo_path, &file_path)
+        .ok_or_else(|| AppError::Git(git2::Error::from_str("file is outside the repository")))?;
 
     let mut opts = git2::BlameOptions::new();
     let blame = repo
         .blame_file(Path::new(&rel_path), Some(&mut opts))
         .map_err(|e| AppError::Git(e))?;
 
+    // `Blame::len` is `git_blame_get_hunk_count` and `get_index` walks hunks, so
+    // iterating this way yields one record per blame REGION, not one per file
+    // line. The region's real position is `final_start_line` (one-based, in the
+    // file being blamed); the loop ordinal was never a line number.
     let mut results = Vec::new();
-    for line_idx in 0..blame.len() {
-        if let Some(hunk) = blame.get_index(line_idx) {
+    for hunk_idx in 0..blame.len() {
+        if let Some(hunk) = blame.get_index(hunk_idx) {
             let commit_id = hunk.final_commit_id();
             let commit = repo.find_commit(commit_id).map_err(|e| AppError::Git(e))?;
             let author = commit.author().name().unwrap_or("Unknown").to_string();
             let date = commit.time().seconds().to_string();
             let summary = commit.summary().unwrap_or("").to_string();
             results.push(BlameLine {
-                line: line_idx as u32 + 1,
+                line: hunk.final_start_line() as u32,
+                line_count: hunk.lines_in_hunk() as u32,
                 commit: commit_id.to_string(),
                 author,
                 date,
@@ -3164,4 +3194,108 @@ pub fn git_in_progress(repo_path: String) -> Result<serde_json::Value, AppError>
         "merge": merge,
         "rebase": rebase,
     }))
+}
+
+#[cfg(test)]
+mod blame_region_tests {
+    use super::resolve_repo_relative_path_checked;
+    use std::path::{Path, PathBuf};
+
+    /// The containment check canonicalizes, so these tests need a real tree on
+    /// disk. Each case gets its own directory under the temp dir, created with a
+    /// name unique to the case so a leftover directory cannot mask a failure.
+    struct Fixture {
+        root: PathBuf,
+    }
+
+    impl Fixture {
+        fn new(name: &str) -> Self {
+            let root = std::env::temp_dir().join(format!("bs-blame-{name}"));
+            let _ = std::fs::remove_dir_all(&root);
+            std::fs::create_dir_all(root.join("src")).expect("create repo root");
+            std::fs::write(root.join("src/lib.rs"), "fn main() {}\n").expect("write nested file");
+            std::fs::write(root.join("README.md"), "# root readme\n").expect("write root file");
+            Self { root }
+        }
+
+        /// A directory outside the repository, holding a file the repository
+        /// does not contain.
+        fn outside(&self) -> PathBuf {
+            let dir = self.root.with_extension("outside");
+            std::fs::create_dir_all(&dir).expect("create outside dir");
+            std::fs::write(dir.join("elsewhere.md"), "outside\n").expect("write outside file");
+            dir
+        }
+
+        fn path(&self) -> &Path {
+            &self.root
+        }
+    }
+
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.root);
+            let _ = std::fs::remove_dir_all(self.root.with_extension("outside"));
+        }
+    }
+
+    fn checked(repo: &Path, file: &str) -> Option<String> {
+        resolve_repo_relative_path_checked(&repo.to_string_lossy(), file)
+    }
+
+    /// A nested path inside the repo resolves, so blame can use it.
+    #[test]
+    fn accepts_a_nested_path_inside_the_repository() {
+        let fx = Fixture::new("nested");
+        assert_eq!(
+            checked(fx.path(), "src/lib.rs").as_deref(),
+            Some("src/lib.rs")
+        );
+    }
+
+    /// A file sitting directly in the repository root resolves to a name with no
+    /// separator in it. Rejecting every separator-less name would refuse to
+    /// blame the repository's own README.
+    #[test]
+    fn accepts_a_file_in_the_repository_root() {
+        let fx = Fixture::new("root-file");
+        assert_eq!(
+            checked(fx.path(), "README.md").as_deref(),
+            Some("README.md")
+        );
+    }
+
+    /// The same root file reached through an absolute path still resolves.
+    #[test]
+    fn accepts_an_absolute_path_to_a_repository_file() {
+        let fx = Fixture::new("absolute-inside");
+        let absolute = fx.path().join("src/lib.rs").to_string_lossy().to_string();
+        assert_eq!(checked(fx.path(), &absolute).as_deref(), Some("src/lib.rs"));
+    }
+
+    /// The basename fallback made any absolute path look like a repo file, so a
+    /// file in another checkout was blamed as this repo's own.
+    #[test]
+    fn rejects_an_absolute_path_outside_the_repository() {
+        let fx = Fixture::new("escape");
+        let outside = fx
+            .outside()
+            .join("elsewhere.md")
+            .to_string_lossy()
+            .to_string();
+        assert_eq!(checked(fx.path(), &outside), None);
+    }
+
+    /// A name that does not exist anywhere is not blameable either.
+    #[test]
+    fn rejects_a_name_that_does_not_exist_in_the_repository() {
+        let fx = Fixture::new("missing");
+        assert_eq!(checked(fx.path(), "src/does-not-exist.rs"), None);
+    }
+
+    #[test]
+    fn rejects_an_empty_path() {
+        let fx = Fixture::new("empty");
+        assert_eq!(checked(fx.path(), ""), None);
+    }
 }

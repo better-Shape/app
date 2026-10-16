@@ -6,6 +6,7 @@ export type GitSectionId =
     | "graph"
     | "branches"
     | "tags"
+    | "stash"
     | "pull-requests"
     | "issues"
     | "releases"

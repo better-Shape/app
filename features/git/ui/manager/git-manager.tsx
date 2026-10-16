@@ -17,6 +17,7 @@ import { GitHubSection } from "@/features/git/ui/github/section";
 import { ReleasesPage } from "@/features/git/ui/github/releases-page";
 import { ActionsConsole } from "@/features/git/ui/actions/console";
 import { LocalTags } from "@/features/git/ui/tags/panel";
+import { StashPanel } from "@/features/git/ui/stash/panel";
 import { useFilter, coerceGitSection, persistGitSection, readStoredGitSection } from "./filter-context";
 import { GitPageChrome } from "./chrome";
 import { useGitRepos } from "@/lib/git/repos";
@@ -50,6 +51,7 @@ const NAV: NavGroup[] = [
             { id: "graph", label: "Git Graph", keywords: ["history", "commits"] },
             { id: "branches", label: "Branches" },
             { id: "tags", label: "Tags" },
+            { id: "stash", label: "Stash" },
         ],
     },
     {
@@ -485,6 +487,7 @@ function ManagerShell() {
                     )}
                     {pane("branches", <BranchWindow active={section === "branches"} />)}
                     {pane("tags", <LocalTags />)}
+                    {pane("stash", <StashPanel />)}
                     {pane(
                         "pull-requests",
                         <GitHubSection section="pull-requests" />,
