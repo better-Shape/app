@@ -136,3 +136,96 @@ the finding names, which they do for every finding this round touched.
   test in `tests/ui/spring-tokens.test.ts` fails if the committed file is stale
 - `cargo fmt --all -- --check`: not run in this batch, no Rust file touched and the toolchain
   is scratch state that a sandbox reset removes
+
+## Correction: the rename that did not clear the parsing alerts
+
+The section above says the extension is the whole of it and that `.js` is a module for Node
+as well, so the rename to `.js` was the fix. The runs since then say otherwise. The run over
+`fac333d` reported the same three alerts against the new names:
+
+```
+Parsing error: 'import' and 'export' may appear only with 'sourceType: module' in eslint.config.js
+Parsing error: 'import' and 'export' may appear only with 'sourceType: module' in scripts/motion/compare.js
+Parsing error: 'import' and 'export' may appear only with 'sourceType: module' in scripts/motion/springs.js
+```
+
+So the analyzer reads these files as scripts and a top-level `import` is what it cannot
+accept, whatever the extension says out loud. What works is the extension this repository
+already used for tooling: `scripts/qa` has held CommonJS files since before this branch, and
+none of its twenty-eight files has ever produced the alert, because a CommonJS file has no
+`import` statement to misread. `eslint.config.cjs`, `scripts/motion/springs.cjs` and
+`scripts/motion/compare.cjs` follow it (`6928672`), the config file sits inside its own
+CommonJS override in that config so `require` is not an error there, and the next run
+(`36ae327f`, over `6928672`) reads **Alerts 1**: the baseline warning and nothing else. The
+three parsing alerts are gone after being reported against four different commit ranges.
+
+`node scripts/motion/springs.cjs --write` regenerates `app/springs.css` byte for byte, and
+the token test that compares the committed file against a fresh render passes.
+
+## What JS-0067 is actually firing on
+
+The rule reads "unexpected function declaration in the global scope", and it fires on
+module-scope `function` declarations in the files this pull request changes. Exported or
+not, top-level or not: `MorphMenu`, `ToastCard`, the six workers in `app/client-layout.tsx`,
+`PanelGlyph`, `SuppressNativeTooltips`, `BreadcrumbItem`, `ButtonSpinner`, `LoadingGlyph`,
+`CollapsibleSection`, `DropdownScrollScrim`, `QuickPick` and `SwapText` all came back with
+it. `module_system = "es-modules"` is set and does not reach it, so the fix is the shape
+rather than the config: an arrow const, which is also the form the neighbours already use.
+The template the rule prints suggests an IIFE, which would only trade a named declaration
+for an anonymous one.
+
+The rule is also what answers the question the first pass left open about `ToastCard`, and
+it explains the trap in that pattern: adding a doc comment above a module-scope declaration
+puts the declaration in the diff, and the declaration then inherits every rule that reads it.
+
+## Complexity, measured before and after
+
+Each split was checked with the local reader for JS-R1005, and the three functions the run
+named were also checked against the number the run itself printed.
+
+| Function | Run number before | Local before | Local after |
+| --- | --- | --- | --- |
+| `SwapText` | 13 | 14 | 5, at `useSwapLayers` |
+| `QuickPick` | 12 | 14 | 5, at the key map and the list |
+| `CollapsibleSection` | 6 | 8 | nothing above 4 |
+
+The splits are extractions of decisions, not of lines. `SwapText` is the pair of values, the
+settled first frame, the width pin and one layer; `QuickPick` is the key map, the row, the
+heading, the list and four named decisions; `CollapsibleSection` is the stored read and the
+class list of the section, the chevron and the body row. The swap also moved the pinned width
+out of React state and onto the node, because a length only the compositor reads should not
+cost a second render, and the eight swap tests walk that pin through the leaving width, the
+incoming width and back to the layout unchanged.
+
+## Documentation inside one declaration
+
+`features/terminal/ui/terminal.tsx` holds twenty-one arrows inside the effect that owns the
+panel, and the analyzer wants a comment on each of them. Every one now states the constraint
+it enforces: the copy handler needs the capture phase or Ctrl+C interrupts the running
+process, the visibility handler refits only on the visible transition because a hidden
+document measures zero, the split ratio is clamped so neither pane reaches zero width, the
+refit is debounced because one monitor change fires resize and focus together. None of the
+twenty-one restates the line below it.
+
+## Gates on `9d9892f`
+
+- `npx tsc --noEmit`: exit 0
+- `npx eslint .`: 150 warnings, 0 errors, exit 0. Zero warning groups added against the
+  pre-branch baseline, six gone, on a comparison that groups a warning by file, rule and
+  message so a moved line does not read as new.
+- `npm test`: 122 files, 995 tests, exit 0
+- `npm run qa`: 25 passed, 0 failed, 0 flaky, 0 skipped (84.3 s), exit 0
+- `node scripts/motion/springs.cjs --write`: regenerates `app/springs.css`, byte for byte
+- `npm run skills:verify`: 53 of 53 locked skills verified, 2 project-owned skills have no
+  lock entry
+- `cargo fmt --all -- --check`: not run, no Rust file touched and the toolchain is scratch
+  state a sandbox reset removes
+
+## What is still open
+
+- `features/chat/ui/md/view.tsx` keeps one forward reference that cannot be ordered both
+  ways: the components map renders `ChatMarkdown` and `ChatMarkdown` builds the map. It is a
+  recursion, and the rule has no ordering that satisfies it.
+- The analyzer reports a growing window of findings per run rather than the whole set, in
+  path order. Every run so far has moved the window forward by fixing what it named, and the
+  loop continues the same way.
