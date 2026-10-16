@@ -1124,11 +1124,7 @@ export function useSettings(): BetterShapeSettings {
             return () => listeners.delete(listener);
         },
         () => getSettings(),
-<<<<<<< HEAD
         () => DEFAULT_SETTINGS,
-=======
-        () => DEFAULT_SETTINGS,
->>>>>>> a0ef8804 (fix(app): hydrate the settings route without a mismatch)
     );
 }
 
