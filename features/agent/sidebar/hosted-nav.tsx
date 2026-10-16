@@ -23,7 +23,7 @@ import { AGENT_SIDEBAR_BACK_SLOT } from "../chrome";
 const readBackSlot = () => {
     if (typeof document === "undefined") return null;
     const el = document.getElementById(AGENT_SIDEBAR_BACK_SLOT);
-    return el && el.isConnected ? el : null;
+    return el?.isConnected ? el : null;
 };
 
 /** Close reads as leaving the hosted section, so its icon carries the same meaning. */

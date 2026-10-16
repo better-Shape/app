@@ -3,7 +3,13 @@
 import { Tooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
-export function StatusItem({
+/**
+ * One entry in the status bar: a tooltip, a label and whatever the caller renders inside.
+ *
+ * A status entry without a handler is disabled rather than interactive, so a read-only
+ * reading never looks clickable.
+ */
+export const StatusItem = ({
     label,
     children,
     onClick,
@@ -13,7 +19,7 @@ export function StatusItem({
     children: React.ReactNode;
     onClick?: () => void;
     className?: string;
-}) {
+}) => {
     return (
         <Tooltip content={label}>
             <button
@@ -30,4 +36,4 @@ export function StatusItem({
             </button>
         </Tooltip>
     );
-}
+};
