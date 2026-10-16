@@ -392,9 +392,10 @@ re-recorded with `scripts/qa/make-gifs.cjs`. The documents in this directory are
 
 - `npm run test:rust` and the Cargo half of `npm run test:all` did not run. No Rust
   toolchain is installed in this sandbox.
-- The QA crawl failure on `/settings` is pre-existing and is not fixed here. It is a
-  hydration mismatch in the providers settings view, raised by the native-tooltip
-  suppressor, and it needs its own change.
+- The QA crawl failure on `/settings` was pre-existing and is fixed in `a0ef880`, so the
+  crawl is green on this branch for the first time. The route tree is still audited by a
+  browser crawl and not by a unit test, because the failure only exists with a server
+  render and a client hydration in the same page.
 - The GIFs were re-recorded on `43204f3` with `scripts/qa/make-gifs.cjs`, five recordings
   and a manifest, because the sandbox that held the earlier ones was recycled. They were
   not re-recorded for the crash screenshots, which still stand from `428794d`.
@@ -459,7 +460,7 @@ from 6 to 9 tests.
 | Served stylesheet check | PASS, E3, the four new utility forms compile with the composed selector |
 | `npm run build:runtime` | not run on this head, last passed on `6f7d845` at 393.0kb |
 | `npm run test:rust` | NOT RUN, no Rust toolchain, and no Rust file in the diff |
-| `npm run qa` | not run on this head, last ran on `b9a2305`, 24 passed and 1 pre-existing failure |
+| `npm run qa` | PASS on `147f37a`, 25 tests, 0 failed, 91.1s, after the settings hydration fix |
 | `npm run skills:verify` | not run on this head, last passed on `b9a2305`, 53 of 53 |
 
 ### The sandbox was recycled mid branch
@@ -480,3 +481,75 @@ version nodes must exist to answer that. Generating the 44 NSS and NSPR symbols 
 references, grouped into the version nodes it asks for, produced a Chromium that reports
 `Chromium 153.0.8010.0`. The stub build lives outside the repository, at
 `/tmp/sandboxlibs`, and no file in this diff depends on it.
+
+## The pre-existing gates, fixed
+
+The instruction for this pass was to fix what the gates were already failing on and not
+only what this branch introduced, so the two classes are separated here.
+
+### The queue crawl failure
+
+`npm run qa` had failed on `/settings` since before this branch, at 24 passed and 1 failed.
+The failure was a hydration mismatch, and the route carried two of them stacked, which is
+why the first fix only moved the report to a second element.
+
+The first cause was in the settings store. `useSyncExternalStore` takes three arguments,
+and the third is the snapshot React hydrates against. The store passed the live settings
+there, which on the client already include everything persisted in local storage, while the
+server had rendered defaults. The provider button then carried a `title` the server render
+did not have. The store now hands over the defaults it started from, the same shape
+`lib/catalog/store.ts` documents for its own snapshot, and the persisted values arrive in
+the render straight after hydration.
+
+The second cause was in the native tooltip suppressor, and it is the more interesting one.
+That component swept every `title` in the document from an effect on mount. Effects flush
+per subtree while React hydrates, so the sweep rewrote attributes on controls React had not
+hydrated yet, and the mismatch surfaced against whichever control it reached first: a
+provider card, then a disabled button with a model hint. The sweep no longer runs on mount.
+A title is stripped when the pointer arrives on the control, when the control takes focus,
+and once across whatever is on screen when the pointer first moves. Those are the only
+moments a native bubble can appear, so nothing is lost, and the tree is left alone while
+React is still walking it. The rendered check confirms the strip still happens: 38 titles
+in the document before the first pointer movement and 0 after it, with 38 carried over to
+`data-native-title`.
+
+`npm run qa` is now 25 passed and 0 failed.
+
+### The analyzer findings
+
+DeepSource reports sixteen sites, all MINOR, and its check fails on a count rather than on
+severity. The check has no per-rule suppression: DeepSource's own documentation and its
+forum record that `exclude_patterns` and `test_patterns` are whole-analyzer switches and
+that the only other lever is an inline pragma, which needs a rule id this project's
+comments do not expose. Excluding the tree from analysis to silence a comment rule was
+rejected.
+
+That leaves judgement per site, and the findings separate into four kinds.
+
+- Two were doc-comment findings on files that predate this branch, `pathMatches` in
+  `app/client-layout.tsx` and `LoadingBar` in `components/ui/loading.tsx`. Both already
+  carried the constraint the rule wants documented, one duplicated at the call site and one
+  inside the body. Each moved to the declaration it describes. This satisfies the rule and
+  rule 42 of `AGENTS.md` at the same time, because the comment states a constraint rather
+  than restating the code.
+- One was a wildcard React import in `components/ui/collapse.tsx`, which is new in this
+  branch and used exactly one type from it. Fixed by naming the type.
+- One was the copy button reading its own state four times. One read now decides the face,
+  and the attribute, the spoken name and the tone follow it. The crash screen was the same
+  kind of finding at a larger scale: the report state machine and the report payload moved
+  into a `ReportBlock` with its own state and a `reportBody` builder, which leaves the
+  screen holding the mark, the heading, the two recovery buttons and one focus effect. The
+  complexity number itself is not claimed here, because only the analyzer's next run has
+  it, and a count taken by eye is not evidence.
+- Two are `void promise`, and they are left alone on purpose. The operator appears 596
+  times across this codebase, it is how the repository marks a promise it means to discard,
+  and no lint rule here requires it. Changing two of those call sites would be a style
+  migration wearing a fix as a costume.
+- Eight are module-scope function declarations on React components, which is what a
+  component is in a file-based React app, and the analyzer is told the module system is
+  ESM in `.deepsource.toml`. Converting components to arrow consts to silence it would
+  churn every exported component in the tree. This class is recorded rather than fixed, and
+  the config file already carries a written reason for the same rule on doc comments, so
+  the next person to touch it has the precedent.
+
+No file was excluded from analysis, and no `NOSONAR`-style pragma was added.
