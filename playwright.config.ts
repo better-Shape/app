@@ -72,18 +72,18 @@ const bundledChromiumUsable = (): boolean => {
 };
 
 /**
- * Environment for browser processes: the sandbox shared-lib dir
- * (libnss3/libnspr4) prepended to the inherited LD_LIBRARY_PATH. Returned,
- * never written to `process.env`: this config also starts the dev server, and
- * a browser-specific library directory must not shadow the server's own
- * dependencies or those of its children.
+ * Environment for browser children: a copy of this process's environment with
+ * the sandbox shared-lib dir (libnss3/libnspr4) prepended to LD_LIBRARY_PATH.
+ * A copy on purpose, so the dev server this config starts never inherits
+ * browser-only libraries. Without the variable set, it is a plain copy.
  */
-const sandboxLibsEnv = (): NodeJS.ProcessEnv | undefined => {
-    const libs = process.env.PLAYWRIGHT_SANDBOX_LIBS;
-    if (!libs) return;
+const sandboxLibsEnv = (): NodeJS.ProcessEnv => {
     const env: NodeJS.ProcessEnv = Object.assign({}, process.env);
-    const existing = env.LD_LIBRARY_PATH;
-    env.LD_LIBRARY_PATH = existing ? `${libs}:${existing}` : libs;
+    const libs = process.env.PLAYWRIGHT_SANDBOX_LIBS;
+    const existing = process.env.LD_LIBRARY_PATH;
+    if (libs) {
+        env.LD_LIBRARY_PATH = existing ? `${libs}:${existing}` : libs;
+    }
     return env;
 };
 
