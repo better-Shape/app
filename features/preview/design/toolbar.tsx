@@ -58,7 +58,8 @@ export function createBrowserTab(url: string, id = `tab-${crypto.randomUUID()}`)
 
 export function pushTabUrl(tab: BrowserTab, url: string): BrowserTab {
     if (!url) return tab;
-    if (tab.index >= 0 && tab.history[tab.index] && previewUrlsEqual(tab.history[tab.index]!, url)) {
+    const current = tab.history[tab.index];
+    if (tab.index >= 0 && current && previewUrlsEqual(current, url)) {
         return { ...tab, url };
     }
     const history = tab.history.slice(0, tab.index + 1);

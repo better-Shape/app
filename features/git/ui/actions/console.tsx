@@ -687,6 +687,16 @@ export function ActionsConsole({ focus }: { focus: ActionsFocus }) {
         />
     );
 
+    /**
+     * The selected run, narrowed once for the whole panel.
+     *
+     * The empty branch below is the only state in which this is null, so the details read
+     * from one value that cannot be null there instead of asserting it thirty times.
+     */
+    const activeRun = selectedRun;
+    // Resolved once for the header: the avatar is drawn from the same value the guard reads.
+    const actorAvatar = activeRun ? actorAvatarUrl(activeRun.actor) : null;
+
     return (
         <div className="flex h-full min-h-0 flex-col">
             <Header
@@ -734,7 +744,7 @@ export function ActionsConsole({ focus }: { focus: ActionsFocus }) {
                         children: (
                             <GitOverlayEnter key={selectedRunId ?? "empty"}>
                             <div className="workbench-panel flex h-full min-h-0 flex-col overflow-hidden">
-                                {!selectedRun ? (
+                                {!activeRun ? (
                                     <div className="flex h-full items-center justify-center p-6 text-sm text-text-muted">
                                         Select a workflow run
                                     </div>
@@ -744,8 +754,8 @@ export function ActionsConsole({ focus }: { focus: ActionsFocus }) {
                                             <div className="flex min-w-0 flex-1 basis-[min(100%,18rem)] items-center gap-2">
                                                 {(() => {
                                                     const runIcon = statusIcon(
-                                                        selectedRun!.status,
-                                                        selectedRun!.conclusion,
+                                                        activeRun.status,
+                                                        activeRun.conclusion,
                                                     );
                                                     return (
                                                         <Icon
@@ -753,8 +763,8 @@ export function ActionsConsole({ focus }: { focus: ActionsFocus }) {
                                                             className={cn(
                                                                 "shrink-0",
                                                                 statusTone(
-                                                                    selectedRun!.status,
-                                                                    selectedRun!.conclusion,
+                                                                    activeRun.status,
+                                                                    activeRun.conclusion,
                                                                 ),
                                                                 runIcon.spin && "animate-spin",
                                                             )}
@@ -762,34 +772,30 @@ export function ActionsConsole({ focus }: { focus: ActionsFocus }) {
                                                     );
                                                 })()}
                                                 <div className="min-w-0 flex-1 truncate text-sm font-medium">
-                                                    {selectedRun!.display_title ||
-                                                        selectedRun!.name}
+                                                    {activeRun.display_title ||
+                                                        activeRun.name}
                                                     <span className="font-normal text-text-muted">
                                                         {" "}
                                                         · #
-                                                        {selectedRun!.run_number ??
-                                                            selectedRun!.id}
-                                                        {selectedRun!.head_branch
-                                                            ? ` · ${selectedRun!.head_branch}`
+                                                        {activeRun.run_number ??
+                                                            activeRun.id}
+                                                        {activeRun.head_branch
+                                                            ? ` · ${activeRun.head_branch}`
                                                             : ""}
                                                     </span>
                                                 </div>
-                                                {selectedRun!.actor?.login ? (
+                                                {activeRun.actor?.login ? (
                                                     <span className="flex shrink-0 items-center gap-1.5 text-xs text-text-muted">
-                                                        {actorAvatarUrl(selectedRun!.actor) ? (
+                                                        {actorAvatar ? (
                                                             // eslint-disable-next-line @next/next/no-img-element -- plain <img> is intentional: dynamic or data-URL sources in a static export, where next/image needs fixed dimensions
                                                             <img
-                                                                src={
-                                                                    actorAvatarUrl(
-                                                                        selectedRun!.actor,
-                                                                    )!
-                                                                }
+                                                                src={actorAvatar}
                                                                 alt=""
                                                                 className="size-5 rounded-full"
                                                                 loading="lazy"
                                                             />
                                                         ) : null}
-                                                        {selectedRun!.actor.login}
+                                                        {activeRun.actor.login}
                                                     </span>
                                                 ) : null}
                                             </div>
@@ -798,14 +804,14 @@ export function ActionsConsole({ focus }: { focus: ActionsFocus }) {
                                                     className={cn(
                                                         "shrink-0 text-sm capitalize",
                                                         statusTone(
-                                                            selectedRun!.status,
-                                                            selectedRun!.conclusion,
+                                                            activeRun.status,
+                                                            activeRun.conclusion,
                                                         ),
                                                     )}
                                                 >
                                                     {statusLabel(
-                                                        selectedRun!.status,
-                                                        selectedRun!.conclusion,
+                                                        activeRun.status,
+                                                        activeRun.conclusion,
                                                     )}
                                                 </span>
                                                 <Button
@@ -833,9 +839,9 @@ export function ActionsConsole({ focus }: { focus: ActionsFocus }) {
                                                             workflows.find(
                                                                 (w) =>
                                                                     w.id ===
-                                                                        selectedRun!.workflow_id ||
-                                                                    w.path === selectedRun!.path ||
-                                                                    w.name === selectedRun!.name,
+                                                                        activeRun.workflow_id ||
+                                                                    w.path === activeRun.path ||
+                                                                    w.name === activeRun.name,
                                                             ) ??
                                                             (selectedWorkflowId != null
                                                                 ? workflows.find(
@@ -853,7 +859,7 @@ export function ActionsConsole({ focus }: { focus: ActionsFocus }) {
                                                         }
                                                         void openDispatch(
                                                             wf,
-                                                            selectedRun!.head_branch,
+                                                            activeRun.head_branch,
                                                         );
                                                     }}
                                                 >
@@ -864,8 +870,8 @@ export function ActionsConsole({ focus }: { focus: ActionsFocus }) {
                                                     size="sm"
                                                     disabled={
                                                         !!busyAction ||
-                                                        selectedRun!.status === "completed" ||
-                                                        selectedRun!.status === "cancelled"
+                                                        activeRun.status === "completed" ||
+                                                        activeRun.status === "cancelled"
                                                     }
                                                     onClick={() => void runAction("cancel")}
                                                 >
@@ -874,7 +880,7 @@ export function ActionsConsole({ focus }: { focus: ActionsFocus }) {
                                                 <Button
                                                     variant="secondary"
                                                     size="sm"
-                                                    onClick={() => openUrl(selectedRun!.html_url)}
+                                                    onClick={() => openUrl(activeRun.html_url)}
                                                 >
                                                     Open on GitHub
                                                 </Button>

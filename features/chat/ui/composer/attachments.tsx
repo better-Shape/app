@@ -41,7 +41,7 @@ export type ComposerAttachment = {
 
 function getFileExtension(name: string): string {
     const parts = name.split(".");
-    return parts.length > 1 ? parts.pop()!.toLowerCase() : "";
+    return parts.length > 1 ? (parts.pop() ?? "").toLowerCase() : "";
 }
 
 export function isImageFile(file: File): boolean {
@@ -143,7 +143,7 @@ export function Waveform({
         <span className={cn("flex h-6 items-center gap-0.5", className)} aria-hidden>
             {bars.map((peak, index) => (
                 <span
-                    key={index}
+                    key={`bar-${peak}-${index}`}
                     className="w-0.5 rounded-full bg-text-secondary"
                     style={{ height: `${Math.max(15, Math.round(peak * 100))}%` }}
                 />

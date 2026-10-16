@@ -159,6 +159,7 @@ export function ReleasesPage() {
         () => filtered.find((r) => r.id === selectedId) ?? null,
         [filtered, selectedId],
     );
+    const selectedUrl = selected?.htmlUrl;
 
     const latestId = useMemo(() => {
         const firstStable = releases.find((r) => !r.prerelease && !r.draft);
@@ -316,13 +317,13 @@ export function ReleasesPage() {
                             </p>
                         </div>
                         <div className="flex shrink-0 items-center gap-1.5">
-                            {selected.htmlUrl ? (
+                            {selectedUrl ? (
                                 <Button
                                     variant="outline"
                                     size="sm"
                                     className="h-chrome gap-1 px-md"
                                     onClick={() =>
-                                        void commands.openUrlExternal(selected.htmlUrl!)
+                                        void commands.openUrlExternal(selectedUrl)
                                     }
                                 >
                                     <Icon icon={Open20Regular} />
@@ -377,7 +378,7 @@ export function ReleasesPage() {
                                                         className="h-7 shrink-0 px-2"
                                                         onClick={() =>
                                                             void commands.openUrlExternal(
-                                                                a.browser_download_url!,
+                                                                a.browser_download_url ?? "",
                                                             )
                                                         }
                                                     >

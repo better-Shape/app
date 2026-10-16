@@ -155,9 +155,9 @@ export function SingleFileDiffEditor({ tab }: { tab: FileDiffTabInfo }) {
                         {badge}
                     </span>
                 ) : null}
-                {isCommit ? (
+                {isCommit && tab.commit ? (
                     <span className="shrink-0 font-mono text-2xs text-text-muted">
-                        {tab.commit!.slice(0, 7)}
+                        {tab.commit.slice(0, 7)}
                     </span>
                 ) : null}
                 <span className="flex-1" />

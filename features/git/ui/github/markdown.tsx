@@ -284,7 +284,7 @@ function createComponents(ctx?: GitMarkdownCtx): Components {
                 </code>
             );
         },
-        pre: ({ children }) => <>{children}</>,
+        pre: ({ children }) => children,
         script: () => null,
         style: () => null,
         iframe: () => null,

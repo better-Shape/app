@@ -59,7 +59,7 @@ function fileName(path: string) {
 
 function parentFolder(path: string) {
     const parts = path.replace(/\\/g, "/").split("/").filter(Boolean);
-    return parts.length > 1 ? parts[parts.length - 2]! : "";
+    return parts.length > 1 ? (parts[parts.length - 2] ?? "") : "";
 }
 
 async function pickDirectory(title: string): Promise<string | null> {
@@ -462,6 +462,17 @@ export function CommitMenu({ projectPath }: { projectPath: string }) {
         }
     };
 
+    /**
+     * Binds the open repository into a menu action.
+     *
+     * The menu items that need a repository are already disabled without one; this is what
+     * keeps the handler honest about it. The path arrives as an argument, so no command is
+     * ever called with a null repository and none of these handlers needs an assertion.
+     */
+    const withRepo = (run: (path: string) => void) => () => {
+        if (repo) run(repo);
+    };
+
     const runGit = async (label: string, task: () => Promise<unknown>) => {
         if (!repo) return;
         setBusy(true);
@@ -624,30 +635,30 @@ export function CommitMenu({ projectPath }: { projectPath: string }) {
                                 <DropdownMenuItem disabled={files.length === 0 || busy} onSelect={() => void stageAll()}>
                                     Stage all
                                 </DropdownMenuItem>
-                                <DropdownMenuItem disabled={!repo || busy} onSelect={() => void runGit("Unstaged", () => commands.gitUnstageAll(repo!))}>
+                                <DropdownMenuItem disabled={!repo || busy} onSelect={withRepo((path) => void runGit("Unstaged", () => commands.gitUnstageAll(path)))}>
                                     Unstage all
                                 </DropdownMenuItem>
                                 <DropdownMenuItem disabled={files.length === 0 || busy} onSelect={() => void discardAll()}>
                                     Discard all changes
                                 </DropdownMenuItem>
                                 <DropdownMenuSeparator />
-                                <DropdownMenuItem disabled={!hasRemote || busy} onSelect={() => void runGit("Fetched", () => commands.gitFetch(repo!))}>
+                                <DropdownMenuItem disabled={!hasRemote || busy} onSelect={withRepo((path) => void runGit("Fetched", () => commands.gitFetch(path)))}>
                                     Fetch
                                 </DropdownMenuItem>
-                                <DropdownMenuItem disabled={!hasRemote || busy} onSelect={() => void runGit("Pulled", () => commands.gitPull(repo!))}>
+                                <DropdownMenuItem disabled={!hasRemote || busy} onSelect={withRepo((path) => void runGit("Pulled", () => commands.gitPull(path)))}>
                                     Pull{behind > 0 ? ` (${behind})` : ""}
                                 </DropdownMenuItem>
                                 <DropdownMenuItem disabled={!hasRemote || busy} onSelect={() => void push()}>
                                     Push{ahead > 0 ? ` (${ahead})` : ""}
                                 </DropdownMenuItem>
-                                <DropdownMenuItem disabled={!hasRemote || busy} onSelect={() => void runGit("Synced", () => commands.gitSync(repo!))}>
+                                <DropdownMenuItem disabled={!hasRemote || busy} onSelect={withRepo((path) => void runGit("Synced", () => commands.gitSync(path)))}>
                                     Sync
                                 </DropdownMenuItem>
                                 <DropdownMenuSeparator />
-                                <DropdownMenuItem disabled={files.length === 0 || busy} onSelect={() => void runGit("Stashed", () => commands.gitStashSave(repo!, title.trim() || "WIP", true))}>
+                                <DropdownMenuItem disabled={files.length === 0 || busy} onSelect={withRepo((path) => void runGit("Stashed", () => commands.gitStashSave(path, title.trim() || "WIP", true)))}>
                                     Stash changes
                                 </DropdownMenuItem>
-                                <DropdownMenuItem disabled={!repo || busy} onSelect={() => void runGit("Stash applied", () => commands.gitStashPop(repo!, 0))}>
+                                <DropdownMenuItem disabled={!repo || busy} onSelect={withRepo((path) => void runGit("Stash applied", () => commands.gitStashPop(path, 0)))}>
                                     Pop stash
                                 </DropdownMenuItem>
                                 <DropdownMenuItem disabled={!repo || busy} onSelect={() => void createBranch()}>

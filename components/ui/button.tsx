@@ -183,7 +183,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         ) : (
             <>
                 {spinnerLoading ? <LoadingGlyph size={size} /> : icon && !iconOnly ? <Icon icon={icon} /> : null}
-                {spinnerLoading && iconOnly ? null : iconOnly ? <Icon icon={icon!} /> : null}
+                {spinnerLoading && iconOnly ? null : iconOnly && icon ? <Icon icon={icon} /> : null}
                 {children}
                 {count != null ? (
                     <span className="ml-0.5 tabular-nums text-xs text-current/80">

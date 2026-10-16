@@ -158,8 +158,8 @@ export function JobsPanel({
                                         </div>
                                         <div className="text-xs text-text-muted">
                                             {durationLabel(job.started_at, job.completed_at)}
-                                            {(job.steps?.length ?? 0) > 0
-                                                ? ` · ${job.steps!.length} steps`
+                                            {job.steps?.length
+                                                ? ` · ${job.steps.length} steps`
                                                 : ""}
                                         </div>
                                     </div>

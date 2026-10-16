@@ -53,6 +53,8 @@ function SortableWorkspaceTab({
     onCloseOthers: (id: string) => void;
     onCloseToRight: (id: string) => void;
 }) {
+    /** The path this tab points at, absent for browser and terminal tabs. */
+    const tabPath = tab.path;
     const {
         attributes,
         listeners,
@@ -125,11 +127,11 @@ function SortableWorkspaceTab({
             </ContextMenuTrigger>
             <ContextMenuContent className="min-w-44">
                 <ContextMenuItem onClick={() => onSelect(tab.id)}>Open</ContextMenuItem>
-                {tab.path ? (
+                {tabPath ? (
                     <>
                         <ContextMenuItem
                             onClick={() => {
-                                void navigator.clipboard.writeText(tab.path!);
+                                void navigator.clipboard.writeText(tabPath);
                             }}
                         >
                             Copy Path
@@ -137,7 +139,7 @@ function SortableWorkspaceTab({
                         <ContextMenuItem
                             onClick={() => {
                                 void import("@/lib/backend").then(({ commands }) =>
-                                    commands.revealPath(tab.path!).catch(() => {}),
+                                    commands.revealPath(tabPath).catch(() => {}),
                                 );
                             }}
                         >

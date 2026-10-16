@@ -63,7 +63,7 @@ function GroupActionLabel({
 function groupDetail(names: string[]): string | null {
     const unique = [...new Set(names.map(fileName).filter(Boolean))];
     if (unique.length === 0) return null;
-    if (unique.length === 1) return unique[0]!;
+    if (unique.length === 1) return unique[0] ?? null;
     return `${unique[0]} and more`;
 }
 
@@ -576,13 +576,14 @@ function StepRow({ block }: { block: Chunk }) {
     if (block.type === "web_visit") {
         const host = block.visitHost || block.visitTitle || block.content || "";
         const url = block.visitUrl || block.visitHost || "";
+        const visitUrl = block.visitUrl;
         return (
             <ActionLine
                 action={block.isGenerating ? "Visiting" : "Visited"}
                 detail={host}
                 favicons={url ? [url] : undefined}
                 shimmer={Boolean(block.isGenerating)}
-                onClick={block.visitUrl ? () => void commands.openUrlExternal(block.visitUrl!) : undefined}
+                onClick={visitUrl ? () => void commands.openUrlExternal(visitUrl) : undefined}
             />
         );
     }
@@ -737,7 +738,7 @@ export function TurnWorkflowSummary({
         setOpen(!!isActive);
     }
 
-    if (visible.length === 0) return <>{children}</>;
+    if (visible.length === 0) return children;
 
     const coalesced = coalesceConsecutiveSameTasks(coalesceConsecutiveSameFileEdits(visible));
     const stats = computeTurnStats(coalesced);

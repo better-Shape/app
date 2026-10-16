@@ -144,7 +144,7 @@ src="/logos/logo.png"
         );
     }
 
-    return <>{children}</>;
+    return children;
 }
 
 function GitManagerEmpty({ reason }: { reason: GitEmptyReason }) {

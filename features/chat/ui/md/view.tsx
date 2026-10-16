@@ -55,7 +55,7 @@ function ProjectPathLink({ path }: { path: string }) {
         };
     }, [path]);
 
-    if (!exists) return <>{path}</>;
+    if (!exists) return path;
     return (
         <button
             type="button"
@@ -137,11 +137,106 @@ function CodeBlock({ language, code, ...rest }: { language: string; code: string
     );
 }
 
+/** Fast catch-up typewriter over the raw markdown string (survives re-parses). */
+function useRevealText(full: string, live: boolean): string {
+    const len = full.length;
+    const [shown, setShown] = useState(() => (live ? Math.min(24, len) : len));
+    const shownRef = useRef(shown);
+    const wasLive = useRef(live);
+    useLayoutEffect(() => {
+        shownRef.current = shown;
+        if (live) wasLive.current = true;
+    }, [shown, live]);
+    const moreToShow = shown < len;
+
+    useEffect(() => {
+        // Finished message that never streamed in this mount, show fully.
+        if (!live && !wasLive.current) {
+            setShown(len);
+            return;
+        }
+        if (shownRef.current > len) {
+            setShown(len);
+            return;
+        }
+        if (shownRef.current >= len) return;
+
+        let raf = 0;
+        let last = performance.now();
+        const tick = (now: number) => {
+            const cur = shownRef.current;
+            if (cur >= len) return;
+            const dt = Math.min(32, now - last);
+            last = now;
+            const behind = len - cur;
+            // Sprint on dumps; cruise near the tip. Stay under ~0.5s for big chunks.
+            let cps: number;
+            if (behind > 800) cps = 1400;
+            else if (behind > 300) cps = 900;
+            else if (behind > 80) cps = 480;
+            else cps = live ? 180 : 320;
+            const step = Math.max(1, Math.ceil((cps * dt) / 1000));
+            const next = Math.min(len, cur + step);
+            setShown(next);
+            if (next < len) raf = requestAnimationFrame(tick);
+        };
+        raf = requestAnimationFrame(tick);
+        return () => cancelAnimationFrame(raf);
+    }, [len, live, moreToShow]);
+
+    return full.slice(0, shown);
+}
+
+export const ChatMarkdown = React.memo(({
+    content,
+    nested,
+    isGenerating,
+    isLast,
+}: {
+    content: string;
+    nested?: boolean;
+    isGenerating?: boolean;
+    isLast?: boolean;
+}) => {
+    // Keep revealing briefly after generation ends so a late dump still types in.
+    const [hold, setHold] = useState(false);
+    useEffect(() => {
+        if (isGenerating && isLast) {
+            setHold(true);
+            return;
+        }
+        if (!hold) return;
+        const t = window.setTimeout(() => setHold(false), 700);
+        return () => window.clearTimeout(t);
+    }, [isGenerating, isLast, hold]);
+
+    const live = !nested && !!isLast && (!!isGenerating || hold);
+    const visible = useRevealText(content, live);
+
+    const components = React.useMemo(
+        () => createMarkdownComponents({ nested }),
+        [nested],
+    );
+
+    const processed = React.useMemo(
+        () => preprocessChatMarkdown(visible, { streaming: live, trim: !live }),
+        [visible, live],
+    );
+
+    return (
+        <div className="font-sans chat-markdown-body">
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+                {processed}
+            </ReactMarkdown>
+        </div>
+    );
+});
+
 function createMarkdownComponents(options?: { nested?: boolean }) {
     const nested = options?.nested;
 
     return {
-        pre: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
+        pre: ({ children }: { children?: React.ReactNode }) => children,
         code(props: { className?: string; children?: React.ReactNode }) {
             const { className, children, ...rest } = props;
             const match = /language-([a-z0-9-]+)/i.exec(className || "");
@@ -149,7 +244,7 @@ function createMarkdownComponents(options?: { nested?: boolean }) {
             if (codeContent === "undefined") return null;
 
             if (match) {
-                const language = match[1]!.toLowerCase();
+                const language = (match[1] ?? "").toLowerCase();
                 if (language === "mermaid") {
                     return <ChatMermaid source={codeContent} />;
                 }
@@ -289,98 +384,6 @@ function createMarkdownComponents(options?: { nested?: boolean }) {
     };
 }
 
-/** Fast catch-up typewriter over the raw markdown string (survives re-parses). */
-function useRevealText(full: string, live: boolean): string {
-    const len = full.length;
-    const [shown, setShown] = useState(() => (live ? Math.min(24, len) : len));
-    const shownRef = useRef(shown);
-    const wasLive = useRef(live);
-    useLayoutEffect(() => {
-        shownRef.current = shown;
-        if (live) wasLive.current = true;
-    }, [shown, live]);
-    const moreToShow = shown < len;
-
-    useEffect(() => {
-        // Finished message that never streamed in this mount, show fully.
-        if (!live && !wasLive.current) {
-            setShown(len);
-            return;
-        }
-        if (shownRef.current > len) {
-            setShown(len);
-            return;
-        }
-        if (shownRef.current >= len) return;
-
-        let raf = 0;
-        let last = performance.now();
-        const tick = (now: number) => {
-            const cur = shownRef.current;
-            if (cur >= len) return;
-            const dt = Math.min(32, now - last);
-            last = now;
-            const behind = len - cur;
-            // Sprint on dumps; cruise near the tip. Stay under ~0.5s for big chunks.
-            let cps: number;
-            if (behind > 800) cps = 1400;
-            else if (behind > 300) cps = 900;
-            else if (behind > 80) cps = 480;
-            else cps = live ? 180 : 320;
-            const step = Math.max(1, Math.ceil((cps * dt) / 1000));
-            const next = Math.min(len, cur + step);
-            setShown(next);
-            if (next < len) raf = requestAnimationFrame(tick);
-        };
-        raf = requestAnimationFrame(tick);
-        return () => cancelAnimationFrame(raf);
-    }, [len, live, moreToShow]);
-
-    return full.slice(0, shown);
-}
-
-export const ChatMarkdown = React.memo(({
-    content,
-    nested,
-    isGenerating,
-    isLast,
-}: {
-    content: string;
-    nested?: boolean;
-    isGenerating?: boolean;
-    isLast?: boolean;
-}) => {
-    // Keep revealing briefly after generation ends so a late dump still types in.
-    const [hold, setHold] = useState(false);
-    if (isGenerating && isLast && !hold) setHold(true);
-    useEffect(() => {
-        if (isGenerating && isLast) return;
-        if (!hold) return;
-        const t = window.setTimeout(() => setHold(false), 700);
-        return () => window.clearTimeout(t);
-    }, [isGenerating, isLast, hold]);
-
-    const live = !nested && !!isLast && (!!isGenerating || hold);
-    const visible = useRevealText(content, live);
-
-    const components = React.useMemo(
-        () => createMarkdownComponents({ nested }),
-        [nested],
-    );
-
-    const processed = React.useMemo(
-        () => preprocessChatMarkdown(visible, { streaming: live, trim: !live }),
-        [visible, live],
-    );
-
-    return (
-        <div className="font-sans chat-markdown-body">
-            <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
-                {processed}
-            </ReactMarkdown>
-        </div>
-    );
-});
 ChatMarkdown.displayName = "ChatMarkdown";
 
 /** @deprecated Use ChatMarkdown */

@@ -194,10 +194,11 @@ function MentionRichText({ text }: { text: string }) {
                     onClick={
                         openable
                             ? () => {
+                                  const base = mention.path ?? "";
                                   const path =
-                                      mention.kind === "folder" && !mention.path!.endsWith("/")
-                                          ? `${mention.path}/`
-                                          : mention.path!;
+                                      mention.kind === "folder" && !base.endsWith("/")
+                                          ? `${base}/`
+                                          : base;
                                   void openProjectFile(path, label);
                               }
                             : undefined
@@ -325,7 +326,7 @@ function ChatMessageItemInner({
         }
         return parseMessageContent(content)
             .filter(c => c.type === "text" && c.content?.trim())
-            .map(c => c.content!.trim())
+            .map(c => (c.content ?? "").trim())
             .join("\n\n");
     };
 

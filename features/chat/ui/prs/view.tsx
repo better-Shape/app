@@ -247,6 +247,7 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
         },
         [items, selectedId, prUi.selectedItem, repo, overrides],
     );
+    const selectedUrl = selected?.url;
 
     // Detail enrichment must not depend on the object it updates in setItems.
     const selectedRef = useRef(selected);
@@ -435,18 +436,18 @@ export function PullRequestsPanel({ pane = "full" }: { pane?: "list" | "detail" 
                                     Fix findings in a thread
                                 </DropdownMenuItem>
                                 <DropdownMenuSeparator />
-                                {selected.url ? (
+                                {selectedUrl ? (
                                     <DropdownMenuItem
-                                        onClick={() => void commands.openUrlExternal(selected.url!)}
+                                        onClick={() => void commands.openUrlExternal(selectedUrl)}
                                     >
                                         <Icon icon={Open20Regular} />
                                         Open on GitHub
                                     </DropdownMenuItem>
                                 ) : null}
-                                {selected.url ? (
+                                {selectedUrl ? (
                                     <DropdownMenuItem
                                         onClick={() => {
-                                            void navigator.clipboard.writeText(selected.url!).then(
+                                            void navigator.clipboard.writeText(selectedUrl).then(
                                                 () => notify.success("Link copied"),
                                                 () => notify.error("Could not copy link"),
                                             );

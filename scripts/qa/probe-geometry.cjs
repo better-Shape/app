@@ -27,6 +27,9 @@ const SAMPLES = Number(arg("samples", "40"));
 const INTERVAL = Number(arg("interval", "16"));
 const EVERY = Number(arg("every", "1"));
 
+const describe = (r) => `x${r.x} y${r.y} ${r.w}x${r.h}${r.panel ? `[${r.panel}]` : ""}`;
+const fmtSide = (s) => (s ? `${s.x} ${s.w}` : "none");
+
 async function main() {
     applySandboxLibs();
     const browser = await chromium.launch({
@@ -89,9 +92,6 @@ async function main() {
 
     await browser.close();
 }
-
-const describe = (r) => `x${r.x} y${r.y} ${r.w}x${r.h}${r.panel ? `[${r.panel}]` : ""}`;
-const fmtSide = (s) => (s ? `${s.x} ${s.w}` : "none");
 
 main().catch((e) => {
     process.stderr.write(String(e?.stack ?? e) + "\n");

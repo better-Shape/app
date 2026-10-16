@@ -280,7 +280,8 @@ function TerminalInstance({ tab, isActive }: { tab: TerminalTab, isActive: boole
 
             fitAddon = new FitAddon();
             term.loadAddon(fitAddon);
-            term.open(terminalRef.current!);
+            // The effect resolved the host element into `host` above, after the ref check.
+            if (host) term.open(host);
             try { term.loadAddon(new WebglAddon()); } catch { }
 
             fitAddon.fit();

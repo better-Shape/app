@@ -350,16 +350,14 @@ function DeveloperSettings({ settings }: { settings: BetterShapeSettings }) {
     const dev = settings.developer;
 
     return (
-        <>
-            <SettingSection id="settings-developer" title="Developer">
-                <SettingRow title="Developer Tools in context menu" description="Inspect BetterShape itself from the right-click menu.">
-                    <SettingSwitch
-                        checked={dev.enableDevTools}
-                        onChange={(v) => updateSettingSection("developer", { enableDevTools: v })}
-                    />
-                </SettingRow>
-            </SettingSection>
-        </>
+        <SettingSection id="settings-developer" title="Developer">
+            <SettingRow title="Developer Tools in context menu" description="Inspect BetterShape itself from the right-click menu.">
+                <SettingSwitch
+                    checked={dev.enableDevTools}
+                    onChange={(v) => updateSettingSection("developer", { enableDevTools: v })}
+                />
+            </SettingRow>
+        </SettingSection>
     );
 }
 
