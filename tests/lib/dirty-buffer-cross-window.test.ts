@@ -89,6 +89,19 @@ it("leaves another WebView's newer record untouched when it hears that write", a
     expect(buffers.listDirtyBuffers().map(buffer => buffer.content)).toEqual(["their newer draft"]);
 });
 
+it("does not re-add a record another WebView removed, which is also how a save reads", async () => {
+    vi.setSystemTime(6_000);
+    const buffers = await import("@/lib/workspace/dirty-buffers");
+    buffers.stageDirtyBuffer("/saved.txt", "draft", "disk");
+    expect(buffers.flushDirtyBuffers()).toBe(true);
+    // Another WebView saved the file: `acknowledgeDirtyBuffer` writes the removal when the
+    // saved content is the draft's own. There is no record left to order this draft against,
+    // so the removal stands and this window does not persist its copy again.
+    localStorage.removeItem(entryKey("/saved.txt"));
+    window.dispatchEvent(new StorageEvent("storage", { key: null, storageArea: localStorage }));
+    expect(localStorage.getItem(entryKey("/saved.txt"))).toBeNull();
+});
+
 it("removes the durable record a clear actually owns", async () => {
     vi.setSystemTime(2_000);
     const buffers = await import("@/lib/workspace/dirty-buffers");

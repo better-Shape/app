@@ -227,15 +227,20 @@ function entryPath(key: string | null): string | null {
  * A write with no compare-and-swap can land between the read above and the write it guards, so
  * a newer draft can be clobbered by an older one. That cannot be prevented, but it can be
  * repaired: this window still holds the draft, so when it hears the foreign write it commits
- * the draft again and recovery converges on the newest one. An equal stamp is left alone
- * because the two writes cannot be ordered (see `writePending`), and a newer record is the
- * recovery state to keep.
+ * the draft again and recovery converges on the newest record. An equal stamp is left alone
+ * because the two writes cannot be ordered (see `writePending`).
+ *
+ * Only a record that exists and is older than this window's draft is repaired. A removed record
+ * carries no stamp to order against this draft, and the same event fires for a deliberate clear
+ * and for a successful save (`acknowledgeDirtyBuffer` writes the removal when the saved content
+ * is the draft's own), so re-adding one could resurrect recovery for a file that is already
+ * saved. This window still shows its own copy either way; it just does not persist it again.
  */
 export function repairClobberedDraft(path: string): boolean {
     const owned = ownedBuffers.get(path);
     if (!owned) return false;
     const stored = storedBuffer(path);
-    if (stored && stored.updatedAt >= owned.updatedAt) return false;
+    if (!stored || stored.updatedAt >= owned.updatedAt) return false;
     stageDirtyBuffer(path, owned.content, owned.savedContent);
     flushDirtyBuffers();
     return true;
@@ -250,10 +255,10 @@ function watchForeignWrites(): void {
     watchingForeignWrites = true;
     window.addEventListener("storage", (event) => {
         if (event.storageArea && event.storageArea !== localStorage) return;
+        // A removal (`event.key === null` for a cleared area) is not repaired: see
+        // `repairClobberedDraft` for why an unanswered removal is left alone.
         const path = entryPath(event.key);
-        if (path) { repairClobberedDraft(path); return; }
-        // A cleared storage area takes every record with it.
-        if (event.key === null) for (const ownedPath of [...ownedBuffers.keys()]) repairClobberedDraft(ownedPath);
+        if (path) repairClobberedDraft(path);
     });
 }
 
