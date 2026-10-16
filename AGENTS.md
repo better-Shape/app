@@ -130,7 +130,7 @@ cd "$SV"
 for f in $(grep -o '^[a-f0-9]\{64\}  .*\.part-00$' MANIFEST.sha256 | sed 's/.*  //; s/\.part-00$//'); do cat "$f".part-* > "$f"; done
 sha256sum -c MANIFEST.sha256
 cd - >/dev/null   # back to the checkout: the gates below read src-tauri/Cargo.toml
-echo "payload root: $SV"   # the other recipes spell this root /tmp/sandbox-vendor
+echo "payload root: $SV"   # export this value in any other shell that runs the recipes in the docs
 ```
 
 `FETCH.md` in that tree wires up the toolchain, the offline cargo registry, the sysroot and the

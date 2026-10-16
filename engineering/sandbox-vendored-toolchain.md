@@ -492,9 +492,12 @@ set -euo pipefail
 # Pin the commit you reviewed. The branch head can move, and MANIFEST.sha256
 # travels with the payload, so a moving head would verify either way.
 SV_SHA=7ec94c1b353220d291924ee71c6346fcf35e66cd
-# Private extraction root. On a single-user host the literal /tmp/sandbox-vendor works;
-# on a shared one, mktemp -d keeps another user from pre-creating the path as a symlink.
-SV="$(mktemp -d)"   # then use $SV in place of /tmp/sandbox-vendor below
+# Private extraction root, one per run. mktemp -d keeps another user on a shared host from
+# pre-creating the path as a symlink. Export SV before this line to pick the root yourself,
+# for example /tmp/sandbox-vendor on a single-user host.
+SV="${SV:-$(mktemp -d)}"
+mkdir -p "$SV"
+printf 'payload root: %s\n' "$SV"   # export this value in every new shell that runs the recipes below
 
 # Option 1, one request, no git objects. Use this.
 curl -sSL -o "$SV.tar.gz" "https://codeload.github.com/better-Shape/app/tar.gz/$SV_SHA"
@@ -519,6 +522,12 @@ sha256sum -c MANIFEST.sha256
 Expect zero failures. If the manifest lists both the parts and the assembled assets, this single
 check covers both stages. The block ends in `$SV`, so `cd -` before any command that reads the
 repository, then come back with `cd "$SV"` when you need another payload file.
+
+The root is per-run and private, and the block prints it. Every other recipe on this page, and the
+ones in `e2e/README.md` and `docs/developing/browser-preview.mdx`, opens with
+`SV="${SV:?export SV to the payload root printed by the fetch recipe}"`, so a new shell exports the
+printed root first. That is deliberate: a guessed default such as `/tmp/sandbox-vendor` would point
+at a directory this recipe never created.
 
 For one or two small files, skip the download:
 
@@ -554,9 +563,10 @@ export PKG_CONFIG=/tmp/gtk-sysroot/usr/bin/pkg-config
 export CPATH=/tmp/gtk-sysroot/usr/include:/tmp/gtk-sysroot/usr/include/x86_64-linux-gnu
 export LIBRARY_PATH=/tmp/gtk-sysroot/usr/lib/x86_64-linux-gnu
 
-# Playwright browsers and the library closure
-export PLAYWRIGHT_BROWSERS_PATH=/tmp/pw-browsers
-mkdir -p "$PLAYWRIGHT_BROWSERS_PATH" && tar xJf "$SV"/browsers/browsers-playwright-1.64.1.tar.xz -C "$PLAYWRIGHT_BROWSERS_PATH"
+# Playwright browsers and the library closure. mktemp -d for the same reason as $SV:
+# on a shared host a fixed /tmp/pw-browsers can be pre-created as a symlink that tar would follow.
+export PLAYWRIGHT_BROWSERS_PATH="$(mktemp -d)"
+tar xJf "$SV"/browsers/browsers-playwright-1.64.1.tar.xz -C "$PLAYWRIGHT_BROWSERS_PATH"
 export LD_LIBRARY_PATH=/tmp/gtk-sysroot/usr/lib/x86_64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
 export PLAYWRIGHT_SANDBOX_LIBS=$SV/chrome-deps/cft-156
 ```
@@ -674,7 +684,7 @@ The repair, and it belongs in the payload so consumers do not repeat it. Copy th
 into the sysroot, dereferenced, with relative links:
 
 ```bash
-SV="${SV:-/tmp/sandbox-vendor}"      # the root section 5 extracted into
+SV="${SV:?export SV to the payload root printed by the section 5 fetch recipe}"
 cd /tmp/gtk-sysroot/usr/lib/x86_64-linux-gnu
 for l in $(find . -maxdepth 1 -xtype l -name "lib*.so*"); do
   base="$(basename "$l" .so)"; real=""
@@ -803,7 +813,8 @@ the right binary:
 | `chromium-1248/chrome-linux64/chrome` | 2 of 6, the browser exits mid-run on the heavier routes |
 | `chromium_headless_shell-1248/chrome-headless-shell-linux64/chrome-headless-shell` | 6 of 6, 1.1 min |
 
-Both runs used `PLAYWRIGHT_SANDBOX_LIBS=/tmp/sandbox-vendor/chrome-deps/cft-156` with no exported
+Both runs used the session's fixed root, `PLAYWRIGHT_SANDBOX_LIBS=/tmp/sandbox-vendor/chrome-deps/cft-156`,
+with no exported
 `LD_LIBRARY_PATH`, which is also what proves the config scopes the library directory to the browser
 process. Launched directly with the directory in `LD_LIBRARY_PATH`, the full Chrome binary answers
 `--version`; launched without it, the same binary dies with

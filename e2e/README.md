@@ -96,14 +96,18 @@ carries the Chrome for Testing build `playwright-core` pins, 156.0.8078.4,
 already laid out the way Playwright expects, with the shared-library closure
 it needs. Fetch the payload as `engineering/sandbox-vendored-toolchain.md`
 describes, reassemble the split assets (the browser tarball ships in three
-parts), verify the manifest, and extract the browser tree:
+parts), and verify the manifest. That recipe prints the private root it
+created; export the printed path as `SV` in this shell, because the block
+refuses to guess a root and a fixed default would name a directory the recipe
+never created. The block then extracts the browser tree into a private
+directory of its own and runs the suite:
 
 The commands below run from the application checkout, so every payload step stays inside a
 subshell and the `npm` commands run where `package.json` is:
 
 ```bash
 set -euo pipefail                     # a failed checksum stops the block here
-SV="${SV:-/tmp/sandbox-vendor}"       # the root the fetch created; keep its value if you exported one
+SV="${SV:?export SV to the payload root printed by the fetch recipe}"
 (
   cd "$SV"
   for f in $(grep -o '^[a-f0-9]\{64\}  .*\.part-00$' MANIFEST.sha256 | sed 's/.*  //; s/\.part-00$//'); do
@@ -112,9 +116,9 @@ SV="${SV:-/tmp/sandbox-vendor}"       # the root the fetch created; keep its val
   sha256sum -c MANIFEST.sha256
 )
 
-mkdir -p /tmp/pw-browsers
-tar xJf "$SV/browsers/browsers-playwright-1.64.1.tar.xz" -C /tmp/pw-browsers
-export PLAYWRIGHT_BROWSERS_PATH=/tmp/pw-browsers
+PB="$(mktemp -d)"                     # private tree: a fixed /tmp path can be pre-created as a symlink
+tar xJf "$SV/browsers/browsers-playwright-1.64.1.tar.xz" -C "$PB"
+export PLAYWRIGHT_BROWSERS_PATH="$PB"
 export PLAYWRIGHT_SANDBOX_LIBS="$SV/chrome-deps/cft-156"
 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm ci
 npm run test:e2e

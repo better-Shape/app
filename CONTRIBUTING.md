@@ -90,8 +90,10 @@ npm run test:all      # Both
 ```
 
 If your machine cannot reach `crates.io`, `sh.rustup.rs` or the Playwright browser CDN, fetch the
-orphan branch `vendor/sandbox-toolchain` and follow its `FETCH.md`. It carries the Rust 1.88.0
-toolchain, the crate registry, a Debian 12 development sysroot for the Tauri stack, and the browser.
+orphan branch `vendor/sandbox-toolchain` and follow its `FETCH.md`. The payload is Linux x86_64
+only, the same target as the offline container these instructions describe, so macOS, Windows and
+ARM hosts still need their own network access. It carries the Rust 1.88.0 toolchain, the crate
+registry, a Debian 12 development sysroot for the Tauri stack, and the browser.
 `engineering/rust-toolchain.md` lists the two cargo flags the pinned toolchain needs;
 `engineering/sandbox-vendored-toolchain.md` records the measured results and the known defects.
 

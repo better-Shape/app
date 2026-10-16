@@ -89,20 +89,33 @@ paths inside the `.pc` files do not need rewriting. Also write `system/PKGS.txt`
 `Package` and `Version` of every `.deb` you extracted.
 
 This item is the fragile one. Before you call the branch done, prove it: in a clean Debian 12
-container with only this sysroot and the cargo vendor tree, put the source replacement in
-`$CARGO_HOME/config.toml` and run
+container with only this sysroot and the cargo vendor tree, run the whole block below. The sysroot
+only takes effect through pkg-config, so the exports are part of the proof, not decoration: without
+them GTK and WebKit discovery fails before clippy compiles anything, and without the payload's
+`system/tools/bin` on `PATH` the container has no `pkg-config` at all (hard constraint 5).
 
 ```bash
 export CARGO_HOME=/tmp/cargo-home CARGO_NET_OFFLINE=true
 mkdir -p "$CARGO_HOME"
 cp rust/cargo-config.toml "$CARGO_HOME/config.toml"
+
+mkdir -p /tmp/gtk-sysroot && tar xJf system/debian12-dev-sysroot.tar.xz -C /tmp/gtk-sysroot
+export PATH="$PWD/system/tools/bin:$PATH"
+export PKG_CONFIG_SYSROOT_DIR=/tmp/gtk-sysroot
+export PKG_CONFIG_PATH=/tmp/gtk-sysroot/usr/lib/x86_64-linux-gnu/pkgconfig:/tmp/gtk-sysroot/usr/share/pkgconfig
+export PKG_CONFIG=/tmp/gtk-sysroot/usr/bin/pkg-config
+export CPATH=/tmp/gtk-sysroot/usr/include:/tmp/gtk-sysroot/usr/include/x86_64-linux-gnu
+export LIBRARY_PATH=/tmp/gtk-sysroot/usr/lib/x86_64-linux-gnu
+
 cargo clippy --ignore-rust-version \
   --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
 ```
 
-Do not substitute `cargo --offline --config <path>` for the first three lines: cargo does not forward
-the global flag to external subcommands, so clippy ignores the replacement and fails with
-`no matching package named base64` (A3). `--ignore-rust-version` is required for the reason in A2.
+Run the block from the branch root, which is where `rust/`, `system/` and `src-tauri/` live. Do not
+substitute `cargo --offline --config <path>` for the two lines that write `$CARGO_HOME/config.toml`:
+cargo does not forward the global flag to external subcommands, so clippy ignores the replacement and
+fails with `no matching package named base64` (A3). `--ignore-rust-version` is required for the
+reason in A2. The same environment is the starting point for every command in A6.
 If the gate does not pass, say exactly what failed in `README.md` instead of implying the sysroot is
 complete.
 
@@ -222,7 +235,7 @@ If the total payload after compression exceeds about 1.5 GB, split it into two b
    `MANIFEST.sha256`.
 4. `sha256sum -c MANIFEST.sha256` passes on a fresh clone of the branch.
 5. `git count-objects -vH` and the sum of file sizes are recorded in `README.md`.
-6. The clippy command in item 2 passes in a clean Debian 12 container with vendored inputs only.
+6. The whole block in item 2 passes in a clean Debian 12 container with vendored inputs only.
    After the follow-up rebuild, run the whole list in A6 instead, which adds `cargo test
    --all-features` and the ten second link check that catches A1 without a cargo build.
 
@@ -368,8 +381,10 @@ executed. Anything you cannot re-measure, remove instead of estimating.
 
 ## A6. What to verify before the second delivery
 
-Run all of these from a clean `debian:12` container with the payload as the only input. Clippy alone
-is not enough, which is how A1 reached review in the first place.
+Run all of these from a clean `debian:12` container with the payload as the only input, with the
+item 2 environment in place: the extracted sysroot, `system/tools/bin` on `PATH`, and the
+`PKG_CONFIG*`, `CPATH` and `LIBRARY_PATH` exports. Clippy alone is not enough, which is how A1
+reached review in the first place, and a run without those exports fails at GTK discovery instead.
 
 ```bash
 cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
