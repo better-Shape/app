@@ -732,15 +732,16 @@ tree, three were already fixed or stale, fifteen were real, and two needed a sec
   and the reserve, and both sides read it.
 - Fixed in the QA scripts' shared bootstrap: eleven of them hardcoded `/tmp/sandboxlibs/lib`
   for `LD_LIBRARY_PATH` while the run command in their own header told the reader to set
-  `PLAYWRIGHT_SANDBOX_LIBS`, so the variable did nothing. One helper reads it and falls back
-  to the path the notes use, and every script that launches Chromium calls it. Two scripts had
+  `PLAYWRIGHT_SANDBOX_LIBS`, so the variable did nothing. One helper read it and fell back to
+  the path the notes use, and every script that launches Chromium called it. Two scripts had
   their own copy of the same block and one, `probe-rail.cjs`, had none at all, so it could not
   launch without the caller exporting the path: that is how the gap surfaced, as a failure of
   the probe rather than a finding about the app. SonarCloud then flagged the fallback itself,
   `javascript:S5443` at CRITICAL, because a shared temporary directory is not safe to hand to
-  the dynamic loader. The helper requires the documented variable now, says so once when it is
-  missing, and names no directory of its own, which is also why a run that does not set it
-  fails to launch rather than quietly picking one.
+  the dynamic loader. The helper requires the documented variable, says so once when it is
+  missing, and names no directory of its own: the fallback described in the sentence above is
+  gone, which is why a run that does not set the variable fails to launch rather than quietly
+  picking a shared directory.
 - Fixed in the QA scripts, which is where nine of the twenty sat: the rail probe read only
   the X scale, so every vertical rail measured as flat; the ladder probe parsed `rgba()`
   strings as if they were hex alpha bytes and printed its verdicts without ever failing; the
