@@ -122,6 +122,108 @@ const sidebarFooterClass = (expanded: boolean) =>
     cn("mt-auto shrink-0", expanded ? "px-1 pb-1" : "flex flex-col items-center gap-1 px-1 pb-2");
 
 /**
+ * One nav row, in the two shapes the sidebar has.
+ *
+ * Collapsed it is a 36px icon button under a tooltip; expanded it is a full-width row. Both
+ * carry the same ladder (`--btn-hover` for the icon, `--row-hover` for the row), the
+ * committed fill marks the current page, and a committed row still steps up on hover so a
+ * current page never reads as disabled.
+ */
+const NavItem = ({
+    label,
+    icon,
+    onClick,
+    collapsed,
+    active,
+}: {
+    label: string;
+    icon: IconGlyph;
+    onClick: () => void;
+    collapsed?: boolean;
+    active?: boolean;
+}) => {
+    const current = active ? ("page" as const) : undefined;
+
+    if (collapsed) {
+        return (
+            <Tooltip content={label} side="right" delayDuration={80}>
+                <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={onClick}
+                    aria-label={label}
+                    aria-current={current}
+                    className={cn(
+                        "size-9 shrink-0 text-text-secondary transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary",
+                        active &&
+                            "bg-[var(--btn-open)] text-text-primary hover:bg-[var(--btn-open-hover)]",
+                    )}
+                >
+                    <Icon icon={icon} />
+                </Button>
+            </Tooltip>
+        );
+    }
+
+    return (
+        <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onClick}
+            aria-current={current}
+            className={cn(
+                "flex h-9 w-full items-center justify-start gap-2 px-1.5! text-left transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
+                navRowFill(active),
+            )}
+        >
+            <Icon icon={icon} className="shrink-0 text-text-muted" />
+            <span className="min-w-0 flex-1 truncate">{label}</span>
+        </Button>
+    );
+};
+
+/**
+ * The New Chat row in the expanded column.
+ *
+ * Row ladder, stated here as `NavItem` states it. This row used to inherit whatever hover
+ * `variant="ghost"` happened to carry, which meant it silently followed the button rung the
+ * moment the two were separated.
+ */
+const NewChatRow = ({ onClick }: { onClick: () => void }) => (
+    <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        onClick={onClick}
+        className="flex h-9 w-full items-center justify-start gap-2 px-1.5! text-left transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--row-hover)]"
+    >
+        <Icon icon={Compose20Regular} className="shrink-0 text-text-muted" />
+        <span className="min-w-0 flex-1 truncate">New Chat</span>
+    </Button>
+);
+
+/**
+ * The two icons a collapsed rail keeps: composing, and the palette.
+ *
+ * Without them the rail would hold only Settings, and the two things a sidebar is for would
+ * need the sidebar to be open before they could be reached.
+ */
+const CollapsedNavRows = ({
+    onNewChat,
+    onSearch,
+}: {
+    onNewChat: () => void;
+    onSearch: () => void;
+}) => (
+    <>
+        <NavItem label="New Chat" icon={Compose20Regular} onClick={onNewChat} collapsed />
+        <NavItem label="Command Palette" icon={Search20Regular} onClick={onSearch} collapsed />
+    </>
+);
+
+/**
  * The header a hosted app gets: its toggle, plus the two slots the host fills.
  *
  * `AGENT_SIDEBAR_BACK_SLOT` only exists while expanded, because the host mounts its own
@@ -198,42 +300,41 @@ const SidebarHeader = ({
 );
 
 /**
- * The New Chat row in the expanded column.
+ * The nav column: the compose row, then the Settings row.
  *
- * Row ladder, stated here as `NavItem` states it. This row used to inherit whatever hover
- * `variant="ghost"` happened to carry, which meant it silently followed the button rung the
- * moment the two were separated.
+ * The column's padding is part of the row ladder: a row that reaches the sidebar's edge has
+ * no gutter to show its fill against, so the padding moves with the rows and not with the
+ * section.
  */
-const NewChatRow = ({ onClick }: { onClick: () => void }) => (
-    <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        onClick={onClick}
-        className="flex h-9 w-full items-center justify-start gap-2 px-1.5! text-left transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--row-hover)]"
-    >
-        <Icon icon={Compose20Regular} className="shrink-0 text-text-muted" />
-        <span className="min-w-0 flex-1 truncate">New Chat</span>
-    </Button>
-);
-
-/**
- * The two icons a collapsed rail keeps: composing, and the palette.
- *
- * Without them the rail would hold only Settings, and the two things a sidebar is for would
- * need the sidebar to be open before they could be reached.
- */
-const CollapsedNavRows = ({
+const SidebarNav = ({
+    expanded,
     onNewChat,
     onSearch,
+    onOpenSettings,
 }: {
+    expanded: boolean;
     onNewChat: () => void;
     onSearch: () => void;
+    onOpenSettings: () => void;
 }) => (
-    <>
-        <NavItem label="New Chat" icon={Compose20Regular} onClick={onNewChat} collapsed />
-        <NavItem label="Command Palette" icon={Search20Regular} onClick={onSearch} collapsed />
-    </>
+    <nav
+        className={cn(
+            "flex shrink-0 gap-0.5",
+            expanded ? "flex-col px-2" : "flex-col items-center px-1.5",
+        )}
+    >
+        {expanded ? (
+            <NewChatRow onClick={onNewChat} />
+        ) : (
+            <CollapsedNavRows onNewChat={onNewChat} onSearch={onSearch} />
+        )}
+        <NavItem
+            label="Settings"
+            icon={Settings20Regular}
+            onClick={onOpenSettings}
+            collapsed={!expanded}
+        />
+    </nav>
 );
 
 /**
@@ -272,44 +373,6 @@ const StandaloneSidebar = ({
             with no titles is not a list. */}
         {expanded ? <ChatList onNewChat={startNewChat} /> : <div className="min-h-0 flex-1" />}
     </>
-);
-
-/**
- * The nav column: the compose row, then the Settings row.
- *
- * The column's padding is part of the row ladder: a row that reaches the sidebar's edge has
- * no gutter to show its fill against, so the padding moves with the rows and not with the
- * section.
- */
-const SidebarNav = ({
-    expanded,
-    onNewChat,
-    onSearch,
-    onOpenSettings,
-}: {
-    expanded: boolean;
-    onNewChat: () => void;
-    onSearch: () => void;
-    onOpenSettings: () => void;
-}) => (
-    <nav
-        className={cn(
-            "flex shrink-0 gap-0.5",
-            expanded ? "flex-col px-2" : "flex-col items-center px-1.5",
-        )}
-    >
-        {expanded ? (
-            <NewChatRow onClick={onNewChat} />
-        ) : (
-            <CollapsedNavRows onNewChat={onNewChat} onSearch={onSearch} />
-        )}
-        <NavItem
-            label="Settings"
-            icon={Settings20Regular}
-            onClick={onOpenSettings}
-            collapsed={!expanded}
-        />
-    </nav>
 );
 
 /** The rail's footer: the usage chip keeps its own row, so the settings icon stays reachable. */
@@ -367,69 +430,6 @@ const SidebarFooter = ({
         {expanded ? <ExpandedSidebarFooter showConnect={showConnect} /> : <CollapsedSidebarFooter />}
     </div>
 );
-
-/**
- * One nav row, in the two shapes the sidebar has.
- *
- * Collapsed it is a 36px icon button under a tooltip; expanded it is a full-width row. Both
- * carry the same ladder (`--btn-hover` for the icon, `--row-hover` for the row), the
- * committed fill marks the current page, and a committed row still steps up on hover so a
- * current page never reads as disabled.
- */
-const NavItem = ({
-    label,
-    icon,
-    onClick,
-    collapsed,
-    active,
-}: {
-    label: string;
-    icon: IconGlyph;
-    onClick: () => void;
-    collapsed?: boolean;
-    active?: boolean;
-}) => {
-    const current = active ? ("page" as const) : undefined;
-
-    if (collapsed) {
-        return (
-            <Tooltip content={label} side="right" delayDuration={80}>
-                <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    onClick={onClick}
-                    aria-label={label}
-                    aria-current={current}
-                    className={cn(
-                        "size-9 shrink-0 text-text-secondary transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary",
-                        active &&
-                            "bg-[var(--btn-open)] text-text-primary hover:bg-[var(--btn-open-hover)]",
-                    )}
-                >
-                    <Icon icon={icon} />
-                </Button>
-            </Tooltip>
-        );
-    }
-
-    return (
-        <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={onClick}
-            aria-current={current}
-            className={cn(
-                "flex h-9 w-full items-center justify-start gap-2 px-1.5! text-left transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
-                navRowFill(active),
-            )}
-        >
-            <Icon icon={icon} className="shrink-0 text-text-muted" />
-            <span className="min-w-0 flex-1 truncate">{label}</span>
-        </Button>
-    );
-};
 
 /**
  * The primary sidebar: header, nav column and footer, in the app's own shape or the hosted

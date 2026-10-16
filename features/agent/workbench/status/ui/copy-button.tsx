@@ -7,7 +7,7 @@ import { CopyButton as CopyAffordance } from "@/components/ui/copy-button";
  * timing and the drawn mark come from the shared `CopyButton`, so this stays a
  * styling shell rather than a second copy implementation.
  */
-export function CopyButton({ text }: { text: string }) {
+export const CopyButton = ({ text }: { text: string }) => {
     return (
         <CopyAffordance
             text={text}
@@ -24,4 +24,4 @@ export function CopyButton({ text }: { text: string }) {
             ].join(" ")}
         />
     );
-}
+};
