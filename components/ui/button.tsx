@@ -66,6 +66,13 @@ const spinnerClass: Record<ButtonSize, string> = {
     icon: "imsg-typing imsg-typing-sm",
 };
 
+/**
+ * The three-dot indicator a button shows while its action is in flight.
+ *
+ * The dots take the button's own text color instead of a fixed one, because the loading face
+ * sits on every variant from accent to ghost, and the status role is the whole accessible
+ * output: the dots themselves are decoration.
+ */
 export function ButtonSpinner({
     className,
     size = "md",

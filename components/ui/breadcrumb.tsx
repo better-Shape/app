@@ -33,6 +33,13 @@ export interface BreadcrumbProps {
   ref?: Ref<HTMLElement>;
 }
 
+/**
+ * The trail container.
+ *
+ * Only element children are rendered: the chevrons are inserted here, so a stray string
+ * between items would otherwise be followed by a separator with nothing after it. The label
+ * is a prop because a window can show two trails at once and each one has to be nameable.
+ */
 export function Breadcrumb({
   children,
   "aria-label": ariaLabel = "Breadcrumb",
@@ -75,6 +82,13 @@ export interface BreadcrumbItemProps {
   className?: string;
 }
 
+/**
+ * One step in the trail.
+ *
+ * `current` short-circuits the interactive branches, so an `href` handed to the active page
+ * still renders a label rather than a link back to where the user already is. The link and
+ * the button share one class list so their hover and focus ring cannot drift apart.
+ */
 export function BreadcrumbItem({
   children,
   icon: Icon,

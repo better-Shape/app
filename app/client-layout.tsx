@@ -111,14 +111,14 @@ const Content = ({ children }: { children: React.ReactNode }) => {
  * The only bootstrap step allowed to fail, because a malformed registry must not take the
  * window down with it. It owns its own rejection, so no caller has to discard a promise.
  */
-async function syncMcpServers(): Promise<void> {
+const syncMcpServers = async (): Promise<void> => {
     try {
         const { syncActiveMcpServers } = await import("@/lib/mcp/registry");
         await syncActiveMcpServers();
     } catch {
         /* registry unavailable: the agent runs without MCP tools */
     }
-}
+};
 
 /**
  * Picks the window shell from the route and bootstraps the app once per window.
@@ -168,8 +168,9 @@ const ClientLayout = ({ children }: { children: React.ReactNode }) => {
     // Must be bubble phase: Radix opens on the target first; capture+preventDefault
     // made Radix skip open (it ignores events that are already defaultPrevented).
     useEffect(() => {
-        const blockNative = (e: Event) => {
-            e.preventDefault();
+        /** Stops the WebView's own menu without touching the events Radix already handled. */
+        const blockNative = (event: Event) => {
+            event.preventDefault();
         };
         window.addEventListener("contextmenu", blockNative, false);
         return () => window.removeEventListener("contextmenu", blockNative, false);
@@ -199,16 +200,11 @@ const ClientLayout = ({ children }: { children: React.ReactNode }) => {
     if (isSettings) return <SettingsShell kind="Settings">{children}</SettingsShell>;
 
     return (
-        <LoadingProvider>
-            <NotificationProvider>
-                <SuppressNativeTooltips />
-                <GlobalContextMenu>
-                    <ChatStreamProvider>
-                        <Content>{children}</Content>
-                    </ChatStreamProvider>
-                </GlobalContextMenu>
-            </NotificationProvider>
-        </LoadingProvider>
+        <ProviderShell>
+            <ChatStreamProvider>
+                <Content>{children}</Content>
+            </ChatStreamProvider>
+        </ProviderShell>
     );
 };
 

@@ -16,7 +16,7 @@ import { PreviewCrash } from "@/components/layout/error/preview-crash";
  * Agent window home, welcome when idle.
  * Project open is owned by Main's ProjectOpenHost (always mounted).
  */
-export default function Home() {
+const Home = () => {
     const { project_path } = useProjectState();
     const [cloneOpen, setCloneOpen] = useState(false);
     const [sshOpen, setSshOpen] = useState(false);
@@ -28,12 +28,14 @@ export default function Home() {
 
     useEffect(() => {
         // Brief wait for Main's restore; then show welcome if still empty.
-        const t = window.setTimeout(() => setRestoreTimedOut(true), 800);
-        return () => window.clearTimeout(t);
+        const timer = window.setTimeout(() => setRestoreTimedOut(true), 800);
+        return () => window.clearTimeout(timer);
     }, []);
 
     const handleOpen = useCallback((path: string) => {
-        void openProject(path);
+        // The welcome dialog closes on its own and the workspace appears when the store
+        // updates, so the promise is ended here instead of returned to the caller.
+        openProject(path).catch(() => undefined);
     }, []);
 
     const dialogs = (
@@ -72,9 +74,13 @@ export default function Home() {
                 onPickFolder={() => window.dispatchEvent(new Event("bettershape-open-project-pick"))}
                 onClone={() => setCloneOpen(true)}
                 onSsh={() => setSshOpen(true)}
-                onConnectGitHub={() => void loginGitHub()}
+                onConnectGitHub={() => {
+                    loginGitHub().catch(() => undefined);
+                }}
             />
             {dialogs}
         </>
     );
 }
+
+export default Home;
