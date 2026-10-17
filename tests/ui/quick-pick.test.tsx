@@ -60,6 +60,35 @@ it("resets selection before committing a changed result count", async () => {
     expect(select).toHaveBeenCalledExactlyOnceWith(items[0]);
 });
 
+it("resets selection when results are replaced without changing the count", async () => {
+    // The count is identical and the query never changed, so a scope built from
+    // the length alone matches. The highlight would stay on index 1 and Enter
+    // would confirm the row that took its place.
+    await act(async () => root.render(<Harness />));
+    act(() => { press("ArrowDown"); });
+    const replaced: QuickPickItem[] = [{ id: "alpha", label: "Alpha" }, { id: "beta", label: "Beta" }];
+    await act(async () => root.render(<Harness rows={replaced} confirm />));
+    expect(select).toHaveBeenCalledExactlyOnceWith(replaced[0]);
+});
+
+it("resets selection when results are reordered without changing the count", async () => {
+    await act(async () => root.render(<Harness />));
+    act(() => { press("ArrowDown"); });
+    const reordered = [items[1], items[0]];
+    await act(async () => root.render(<Harness rows={reordered} confirm />));
+    expect(select).toHaveBeenCalledExactlyOnceWith(reordered[0]);
+});
+
+it("keeps the highlight when the same results are handed over as a new array", async () => {
+    // A parent that rebuilds `items` on every render must not reset the
+    // highlight, or the arrow keys never move.
+    await act(async () => root.render(<Harness />));
+    act(() => { press("ArrowDown"); });
+    await act(async () => root.render(<Harness rows={[{ id: "one", label: "One" }, { id: "two", label: "Two" }]} />));
+    act(() => { press("Enter"); });
+    expect(select).toHaveBeenCalledExactlyOnceWith(items[1]);
+});
+
 it.each(["Enter", "ArrowDown", "ArrowUp"])("leaves composing %s to the input method", async key => {
     await act(async () => root.render(<Harness query="draft" allowSubmit />));
     let event: KeyboardEvent | undefined;

@@ -74,7 +74,7 @@ const rowOwnsKey = (action: PickAction, target: EventTarget | null) =>
     action === "confirm" && target instanceof Element && target.closest("button") !== null;
 
 /** The picker identity a highlight belongs to: reopening, retyping or a new result set. */
-type SelectionScope = { open: boolean; query?: string; count: number };
+type SelectionScope = { open: boolean; query?: string; ids: readonly string[] };
 
 /** Wrap through results, keeping an empty list out of modulo-zero arithmetic. */
 const moveSelection = (length: number, delta: number) => (current: number) => {
@@ -82,13 +82,23 @@ const moveSelection = (length: number, delta: number) => (current: number) => {
     return (current + delta + length) % length;
 };
 
-/** Whether a highlight still belongs to the same picker identity. */
+/**
+ * Whether a highlight still belongs to the same picker identity.
+ *
+ * The result set is identified by its item ids, not by its length. An
+ * asynchronous list that replaces or reorders results while the count stays the
+ * same produced the same scope, so the highlight stayed on index 2 while the row
+ * under it changed, and Enter confirmed the wrong item.
+ */
 const sameScope = (a: SelectionScope, b: SelectionScope) =>
-    a.open === b.open && a.query === b.query && a.count === b.count;
+    a.open === b.open &&
+    a.query === b.query &&
+    a.ids.length === b.ids.length &&
+    a.ids.every((id, index) => id === b.ids[index]);
 
 /**
  * The highlight follows the picker's identity: it returns to the first row when the dialog
- * reopens, the query changes, or the result count changes, so the row a keypress confirms is
+ * reopens, the query changes, or the result set changes, so the row a keypress confirms is
  * always the row the current query produced.
  */
 const usePickSelection = (scope: SelectionScope) => {
@@ -332,7 +342,8 @@ export function QuickPick({
     emptyText = "No results",
 }: Props) {
     const overlayRoot = useOverlayRoot();
-    const [selected, setSelected] = usePickSelection({ open, query, count: items.length });
+    const itemIds = React.useMemo(() => items.map((item) => item.id), [items]);
+    const [selected, setSelected] = usePickSelection({ open, query, ids: itemIds });
     const inputRef = React.useRef<HTMLInputElement>(null);
     const labels = pickerLabels(title, placeholder);
     const showInput = ownsFilterField(query, onQueryChange);
