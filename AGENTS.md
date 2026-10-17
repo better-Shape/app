@@ -337,3 +337,13 @@ For UI, copy, people, mobile layout, or code comments work, load the antislop sk
 - Code comments: `antislop-code`
 Run mode 1, `During`, as the project answer. Do not stop to ask which mode applies. Load `DESIGN.md` and `engineering/design-system-baseline.md` as the direction the core asks for, so a UI change never ships without direction.
 <!-- antislop:end -->
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+## This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->
