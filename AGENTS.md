@@ -122,7 +122,7 @@ the payload, so it proves the download was intact, not that the branch head is t
 
 ```bash
 set -euo pipefail
-SV_SHA=7ec94c1b353220d291924ee71c6346fcf35e66cd   # pin the commit you reviewed, not the branch head
+SV_SHA=58094f1cb906451f7baf1f8e26261f4bf46c9651   # pin the commit you reviewed, not the branch head
 SV="$(mktemp -d)"   # private root: two runs cannot overwrite each other's archive or tree
 curl -sSL -o "$SV.tar.gz" "https://codeload.github.com/better-Shape/app/tar.gz/$SV_SHA"
 tar xzf "$SV.tar.gz" -C "$SV" --strip-components=1
@@ -144,7 +144,7 @@ Five facts decide whether a Rust or browser gate can pass:
 - `notify-rust@4.18.0` declares `rust-version = "1.89.0"` while the pin is 1.88.0, so cargo refuses every Rust gate without `--ignore-rust-version`. The crate compiles and its tests pass on 1.88.0.
 - Link with `CARGO_BUILD_JOBS=1`. Linking two test binaries in parallel peaks above a sandbox's memory and the linker is killed with `signal 9`.
 - The browser suite needs `PLAYWRIGHT_BROWSERS_PATH` pointing at the extracted browser tree, `PLAYWRIGHT_SANDBOX_LIBS` pointing at `chrome-deps/cft-156` for NSS/NSPR, and `npm ci` run with `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`. Do not set `PLAYWRIGHT_CHROMIUM_PATH` when the vendored tree is available, because the tree already sits in the registry layout Playwright expects. If you do hand in a browser, hand in the tree's headless shell (`chromium_headless_shell-1248`): the full Chrome build starts but exits mid-run here.
-- The delivered sysroot keeps Debian's absolute development symlinks, so run the section 7.1 repair loop in `engineering/sandbox-vendored-toolchain.md` once after extracting and re-check with `find . -xtype l`. Without it the linker falls back to the static `libdbus-1.a` and `cargo test` fails with `undefined reference to symbol 'sd_is_socket@@LIBSYSTEMD_209'`.
+- The current payload (`58094f1c`) rebuilt the sysroot usr-merged, so no repair is needed before a Rust gate: `find "$GTK_SYSROOT" -xtype l -name "lib*.so*"` prints nothing and `libdbus-1.so` resolves inside the sysroot. The first delivery (`7ec94c1b`) did keep Debian's absolute development symlinks, and on that pin the section 7.1 loop in `engineering/sandbox-vendored-toolchain.md` is still required, otherwise `cargo test` falls back to the static `libdbus-1.a` and fails with `undefined reference to symbol 'sd_is_socket@@LIBSYSTEMD_209'`.
 
 The flags are a workaround for a dependency that is ahead of the toolchain pin. Report the affected
 gate as passed only with the flag named and the cause recorded next to it, and never report the

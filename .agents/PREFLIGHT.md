@@ -37,9 +37,11 @@ If you changed Rust, also run:
 - [ ] `CARGO_BUILD_JOBS=1 cargo test --ignore-rust-version --all-features --manifest-path src-tauri/Cargo.toml`
 
 Drop `--ignore-rust-version` on a host whose toolchain is 1.89.0 or newer. CI runs stable, so it
-runs the plain commands. On a blocked host, repair the vendored sysroot before any link step: the
-delivered tarball keeps Debian's absolute development symlinks, and without the section 7.1 repair
-in `engineering/sandbox-vendored-toolchain.md`, `cargo test` fails to link.
+runs the plain commands. On a blocked host, verify the vendored sysroot before any link step:
+`find "$GTK_SYSROOT" -xtype l -name "lib*.so*"` must print nothing and `libdbus-1.so` must resolve
+inside the sysroot. The current payload (`58094f1c`) passes both; the first delivery (`7ec94c1b`)
+needs the section 7.1 repair in `engineering/sandbox-vendored-toolchain.md`, without which
+`cargo test` fails to link.
 
 ## Branch and review rules
 

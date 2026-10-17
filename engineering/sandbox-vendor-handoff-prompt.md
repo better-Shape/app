@@ -89,22 +89,31 @@ paths inside the `.pc` files do not need rewriting. Also write `system/PKGS.txt`
 `Package` and `Version` of every `.deb` you extracted.
 
 This item is the fragile one. Before you call the branch done, prove it: in a clean Debian 12
-container with only this sysroot and the cargo vendor tree, run the whole block below. The sysroot
+container with this sysroot, the cargo vendor tree and the repository source as the only inputs, run
+the whole block below. The sysroot
 only takes effect through pkg-config, so the exports are part of the proof, not decoration: without
 them GTK and WebKit discovery fails before clippy compiles anything, and without the payload's
 `system/tools/bin` on `PATH` the container has no `pkg-config` at all (hard constraint 5).
 
 ```bash
-export CARGO_HOME=/tmp/cargo-home CARGO_NET_OFFLINE=true
-mkdir -p "$CARGO_HOME"
-cp rust/cargo-config.toml "$CARGO_HOME/config.toml"
+set -euo pipefail                 # a failed extract or install must stop the proof, not fall through
+RUST_PREFIX="$(mktemp -d)"
+for t in rust/toolchain/*.tar.xz; do
+  d="$(mktemp -d)"; tar xJf "$t" -C "$d"; "$d"/*/install.sh --prefix="$RUST_PREFIX" --disable-ldconfig
+  rm -rf "$d"
+done
+export PATH="$RUST_PREFIX/bin:$PWD/system/tools/bin:$PATH"
+CARGO_HOME="$(mktemp -d)"; export CARGO_HOME CARGO_NET_OFFLINE=true
+VENDOR="$(mktemp -d)"
+tar xJf rust/cargo-vendor.tar.xz -C "$VENDOR"
+printf '[source.crates-io]\nreplace-with = "vendored-sources"\n\n[source.vendored-sources]\ndirectory = "%s"\n' "$VENDOR" \
+  > "$CARGO_HOME/config.toml"
 
 GTK_SYSROOT="$(mktemp -d)"        # private root, matching the consumer recipe
 tar xJf system/debian12-dev-sysroot.tar.xz -C "$GTK_SYSROOT"
-export PATH="$PWD/system/tools/bin:$PATH"
 export PKG_CONFIG_SYSROOT_DIR="$GTK_SYSROOT"
 export PKG_CONFIG_PATH="$GTK_SYSROOT/usr/lib/x86_64-linux-gnu/pkgconfig:$GTK_SYSROOT/usr/share/pkgconfig"
-export PKG_CONFIG="$GTK_SYSROOT/usr/bin/pkg-config"
+export PKG_CONFIG="$PWD/system/tools/bin/pkg-config"   # self-contained; the sysroot binary needs libpkgconf at run time
 export CPATH="$GTK_SYSROOT/usr/include:$GTK_SYSROOT/usr/include/x86_64-linux-gnu"
 export LIBRARY_PATH="$GTK_SYSROOT/usr/lib/x86_64-linux-gnu"
 
@@ -112,10 +121,13 @@ cargo clippy --ignore-rust-version \
   --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
 ```
 
-Run the block from the branch root, which is where `rust/`, `system/` and `src-tauri/` live. Do not
-substitute `cargo --offline --config <path>` for the two lines that write `$CARGO_HOME/config.toml`:
-cargo does not forward the global flag to external subcommands, so clippy ignores the replacement and
-fails with `no matching package named base64` (A3). `--ignore-rust-version` is required for the
+Run the block from a directory that holds both this branch's `rust/` and `system/` and the
+repository's `src-tauri/`; on the free box that is the app checkout with the payload staged beside
+it. It extracts the vendor tree into a private directory and writes the source replacement against
+that path, because `rust/cargo-config.toml` records the directory it was packaged in. Do not substitute
+`cargo --offline --config <path>` for the line that writes `$CARGO_HOME/config.toml`: cargo does not
+forward the global flag to external subcommands, so clippy ignores the replacement and fails with
+`no matching package named base64` (A3). `--ignore-rust-version` is required for the
 reason in A2. The same environment is the starting point for every command in A6.
 
 The proof extracts into a private root so it matches the consumer recipe, which keeps every path
@@ -258,12 +270,12 @@ rebuilt payload, and say which count in `README.md` and `FETCH.md` you replaced 
 
 # Appendix: corrections for the second pass
 
-The first delivery is commit `7ec94c1b353220d291924ee71c6346fcf35e66cd` on `vendor/sandbox-toolchain`.
-It was verified from a restricted sandbox and closed the browser, toolchain and sysroot gaps. Five
-items need a follow-up commit. If you produced that delivery, this is the list that survived
-independent verification.
+The first delivery was commit `7ec94c1b353220d291924ee71c6346fcf35e66cd` on `vendor/sandbox-toolchain`;
+the current one is `58094f1cb906451f7baf1f8e26261f4bf46c9651`, which closes the five items below.
+Both were verified from a restricted sandbox. If you produced either delivery, this is what survived
+independent verification, and what a third pass must not reintroduce.
 
-In one list, the follow-up commit must do all of this:
+In one list, the follow-up commit had to do all of this:
 
 1. Rebuild `system/debian12-dev-sysroot.tar.xz` with no absolute symlinks and with the eight missing
    shared libraries it points at, then re-hash it and update `MANIFEST.sha256` (A1).
@@ -279,9 +291,12 @@ In one list, the follow-up commit must do all of this:
 Item 2 of the main brief, the sysroot, is the only artifact this changes, so the rest of the tree,
 its hashes and the browser payload stay as they are unless your rebuild moves something.
 
-## A1. `system/debian12-dev-sysroot.tar.xz` must not contain absolute symlinks
+## A1. `system/debian12-dev-sysroot.tar.xz` must be usr-merged and free of absolute symlinks
 
-The sysroot works for `cargo clippy` but breaks `cargo test` at link time:
+Fixed in `58094f1c`, which folds `lib`, `lib64`, `bin` and `sbin` into `usr/` and re-creates the
+base-image symlinks before rewriting links. The record stays so a rebuild does not bring it back.
+
+On the first delivery the sysroot worked for `cargo clippy` but broke `cargo test` at link time:
 
 ```text
 /usr/bin/ld: /tmp/gtk-sysroot/usr/lib/x86_64-linux-gnu/libdbus-1.a(libdbus_1_la-dbus-sysdeps-unix.o):
@@ -293,6 +308,14 @@ sandbox they dangle, the linker skips the shared object, and it falls back to th
 `libdbus-1.a` next to it, which needs libsystemd. Sixteen symlinks are broken; the library ones
 that matter are `libdbus-1.so`, `libffi.so`, `libuuid.so`, `libpcre2-8.so`, `libzstd.so`,
 `libmount.so`, `libblkid.so`, `libudev.so`, plus `libstdc++.so` under `usr/lib/gcc`.
+
+There is a second layer, and it is the one that survived the first repair: Debian 12 is usr-merged,
+so `/lib`, `/bin`, `/sbin` and `/lib64` are symlinks into `/usr`, but `dpkg-deb -x` re-creates them
+as real directories. A runtime SONAME such as `libexpat.so.1` then lands under
+`lib/x86_64-linux-gnu/`, while the dev symlink `libexpat.so` and `LIBRARY_PATH` point at
+`usr/lib/x86_64-linux-gnu/`. The linker finds the dev symlink and not its target, and the failure
+surfaces as `undefined reference to XML_Parse`. Fold the four directories into `usr/` and re-create
+the base-image symlinks before rewriting individual links, or the rebuild reintroduces it.
 
 Fix before packing, and remember `cp -L`. A plain `cp -a` copies the symlink, not the file, and
 leaves the chain dangling:
@@ -330,11 +353,19 @@ cp -L /tmp/sandbox-vendor/chrome-deps/cft-156/libdbus-1.so.3 \
 ln -sfn libdbus-1.so.3 ./usr/lib/x86_64-linux-gnu/libdbus-1.so
 ```
 
-Then repack and re-verify that `find . -xtype l` reports no library targets and that
-`gcc -L<sysroot>/usr/lib/x86_64-linux-gnu -ldbus-1 -lffi -luuid -lpcre2-8 -lzstd -lmount -lblkid
--ludev` links a trivial C file. Consider also dropping every static `.a` for these libraries. They
-are the trap that converts a symlink problem into a link error, and nothing in this build wants a
-static dbus, GTK or ffi.
+Then repack and re-verify. `find . -xtype l -name "lib*.so*"` must print nothing, and this must
+link, with `/tmp/t.c` holding `extern void *dbus_bus_get(int, void *); int main(void){return
+dbus_bus_get(0,0)!=0;}`:
+
+```bash
+gcc /tmp/t.c -o /tmp/t.out ./usr/lib/x86_64-linux-gnu/libdbus-1.so \
+  -L./usr/lib/x86_64-linux-gnu -lffi -luuid -lpcre2-8 -lzstd -lmount -lblkid -ludev
+```
+
+Name `libdbus-1.so` by path rather than through `-ldbus-1`, because `-l` is free to select the
+static `libdbus-1.a` that sits next to it. Consider dropping every static `.a` for these libraries:
+they are the trap that converts a symlink problem into a link error, and nothing in this build wants
+a static dbus, GTK or ffi.
 
 ## A2. `cargo test` needs the flag and memory headroom
 
@@ -361,7 +392,7 @@ against cargo 1.88.0.
 1.88.0. If the maintainers decide to move the pin to 1.89.0, the vendor tree and the toolchain
 components have to be rebuilt together. Do not do this without a decision from them.
 
-## A5. Three wrong numbers and one broken example in the payload docs
+## A5. Three wrong numbers and one broken example in the first payload's docs (fixed in `58094f1c`)
 
 None of these blocks a gate, and all four mislead whoever follows the recipes.
 
@@ -392,17 +423,21 @@ item 2 environment in place: the extracted sysroot, `system/tools/bin` on `PATH`
 reached review in the first place, and a run without those exports fails at GTK discovery instead.
 
 ```bash
+set -euo pipefail
 cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
 cargo clippy --ignore-rust-version --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
 CARGO_BUILD_JOBS=1 cargo test --ignore-rust-version --manifest-path src-tauri/Cargo.toml
 CARGO_BUILD_JOBS=1 cargo test --ignore-rust-version --manifest-path src-tauri/Cargo.toml --all-features
-if find "$GTK_SYSROOT" -xtype l | grep -qE '\.so'; then echo "broken library symlinks remain"; else echo "no broken library symlinks"; fi
-gcc /tmp/t.c -o /tmp/t.out -L"$GTK_SYSROOT/usr/lib/x86_64-linux-gnu" -ldbus-1 -lffi -luuid -lpcre2-8 -lzstd -lmount -lblkid -ludev
+if find "$GTK_SYSROOT" -xtype l -name "lib*.so*" | grep -q .; then echo "broken library symlinks remain" >&2; exit 1; fi
+gcc /tmp/t.c -o /tmp/t.out "$GTK_SYSROOT/usr/lib/x86_64-linux-gnu/libdbus-1.so" \
+  -L"$GTK_SYSROOT/usr/lib/x86_64-linux-gnu" -lffi -luuid -lpcre2-8 -lzstd -lmount -lblkid -ludev
 ```
 
 The `cargo test --all-features` line is what CI runs, so it is the one that has to pass. The `gcc`
-line is a ten second check that catches A1 without a five minute cargo build. Create `/tmp/t.c` with
-`int main(){return 0;}` first.
+line is a ten second check that catches A1 without a five minute cargo build. Write `/tmp/t.c` as
+`extern void *dbus_bus_get(int, void *); int main(void){return dbus_bus_get(0,0)!=0;}`, and name
+`libdbus-1.so` by path rather than with `-ldbus-1`: `-l` may pick the static archive sitting beside
+it, and that would pass while proving nothing about the shared object.
 
 And the browser side, which already passes, so it does not regress:
 
@@ -439,5 +474,18 @@ sandbox with only `github.com`, `codeload.github.com`, `api.github.com`, `npm` a
 - `npx playwright test e2e/smoke.spec.ts` passed 6 of 6 against that tree
 
 The two failures were A1 and A2, both now fixed locally by the workaround recipes so this repository
-is unblocked. Your job is to remove the need for the A1 workaround, and to keep everything above
-green while you do it.
+is unblocked. The second delivery removed the need for the A1 workaround; keep everything above green
+while you do it.
+
+On the current delivery, `58094f1c`, this sandbox measured on 2026-10-17:
+
+- the branch tarball is 802 MB and extracts to 1.5 GB, because the assembled archives and their split
+  parts are both in the tree until reassembly
+- `sha256sum -c MANIFEST.sha256` after inline reassembly: 3779 of 3779 OK, exit 0
+- 3777 files before reassembly, 3780 after it, 9 `.part-NN` files and 3 reassembled archives
+- the sysroot extracts to 31,388 entries: 0 absolute symlinks, 0 dangling `lib*.so*` links
+- `libexpat.so`, `libdbus-1.so` and their siblings resolve to real files inside `usr/lib`
+- the direct `libdbus-1.so` link above passes, so the linker no longer falls back to the static
+  archive
+- `npx playwright test e2e/smoke.spec.ts` passes 6 of 6 against the payload's browser tree with
+  `PLAYWRIGHT_SANDBOX_LIBS` pointing at its closure

@@ -256,7 +256,7 @@ rewriting paths in the `.pc` files:
 ```bash
 export PKG_CONFIG_SYSROOT_DIR=/tmp/gtk-sysroot
 export PKG_CONFIG_PATH=/tmp/gtk-sysroot/usr/lib/x86_64-linux-gnu/pkgconfig:/tmp/gtk-sysroot/usr/share/pkgconfig
-export PKG_CONFIG=/tmp/gtk-sysroot/usr/bin/pkg-config
+export PKG_CONFIG=/tmp/gtk-sysroot/usr/bin/pkg-config   # works here because the next line exports its libraries
 export CPATH=/tmp/gtk-sysroot/usr/include:/tmp/gtk-sysroot/usr/include/x86_64-linux-gnu
 export LIBRARY_PATH=/tmp/gtk-sysroot/usr/lib/x86_64-linux-gnu
 export LD_LIBRARY_PATH=/tmp/gtk-sysroot/usr/lib/x86_64-linux-gnu
@@ -496,7 +496,7 @@ set -euo pipefail
 
 # Pin the commit you reviewed. The branch head can move, and MANIFEST.sha256
 # travels with the payload, so a moving head would verify either way.
-SV_SHA=7ec94c1b353220d291924ee71c6346fcf35e66cd
+SV_SHA=58094f1cb906451f7baf1f8e26261f4bf46c9651
 # Private extraction root, one per run. mktemp -d keeps another user on a shared host from
 # pre-creating the path as a symlink. Export SV before this line to pick the root yourself,
 # for example /tmp/sandbox-vendor on a single-user host.
@@ -522,11 +522,13 @@ for f in $(grep -o '^[a-f0-9]\{64\}  .*\.part-00$' MANIFEST.sha256 | sed 's/.*  
   cat "$f".part-* > "$f"
 done
 sha256sum -c MANIFEST.sha256
+cd - >/dev/null   # back to the checkout; this block changed directory into the payload
 ```
 
 Expect zero failures. If the manifest lists both the parts and the assembled assets, this single
-check covers both stages. The block ends in `$SV`, so `cd -` before any command that reads the
-repository, then come back with `cd "$SV"` when you need another payload file.
+check covers both stages. The block ends in the checkout on purpose, because the blocks that read
+`src-tauri/` or run `npm ci` start there; a recipe that needs another payload file returns with
+`cd "$SV"`.
 
 The root is per-run and private, and the block prints it. Every other recipe on this page, and the
 ones in `e2e/README.md` and `docs/developing/browser-preview.mdx`, opens with
@@ -537,8 +539,12 @@ at a directory this recipe never created.
 For one or two small files, skip the download:
 
 ```bash
+set -euo pipefail   # without this a failed gh call decodes empty input into a zero-byte file
+# Write to a scratch name first: a failed fetch must not leave a truncated file under the real name.
 gh api repos/better-Shape/app/contents/chrome-deps/npm-chromium-153/libnspr4.so \
-  --jq .content | base64 -d > "$HOME/libnspr4.so"   # private, unlike a shared /tmp path
+  --jq .content | base64 -d > "$HOME/libnspr4.so.tmp"
+test -s "$HOME/libnspr4.so.tmp"
+mv "$HOME/libnspr4.so.tmp" "$HOME/libnspr4.so"   # $HOME is private, unlike a shared /tmp path
 ```
 
 Then wire it up, in the order the payloads come in:
@@ -575,7 +581,7 @@ mkdir -p "$GTK_SYSROOT"
 tar xJf "$SV"/system/debian12-dev-sysroot.tar.xz -C "$GTK_SYSROOT"
 export PKG_CONFIG_SYSROOT_DIR="$GTK_SYSROOT"
 export PKG_CONFIG_PATH="$GTK_SYSROOT/usr/lib/x86_64-linux-gnu/pkgconfig:$GTK_SYSROOT/usr/share/pkgconfig"
-export PKG_CONFIG="$GTK_SYSROOT/usr/bin/pkg-config"
+export PKG_CONFIG="$SV/system/tools/bin/pkg-config"   # self-contained: the sysroot's own pkg-config needs libpkgconf from LD_LIBRARY_PATH
 export CPATH="$GTK_SYSROOT/usr/include:$GTK_SYSROOT/usr/include/x86_64-linux-gnu"
 export LIBRARY_PATH="$GTK_SYSROOT/usr/lib/x86_64-linux-gnu"
 
@@ -602,10 +608,16 @@ the dev server and every other child of this shell never see browser-only librar
 launched by hand, outside Playwright, is the one case that needs the closure in `LD_LIBRARY_PATH`,
 on that single command.
 
-One repair comes before any Rust gate. The delivered sysroot still carries Debian's absolute
-development symlinks, so run the loop in section 7.1 once after extracting and re-check with
-`find . -xtype l`. With the dangling links in place the linker falls back to the static
-`libdbus-1.a` and `cargo test` dies with `undefined reference to symbol 'sd_is_socket@@LIBSYSTEMD_209'`.
+No repair comes before a Rust gate on this pin. The second delivery rebuilt the sysroot usr-merged:
+it has no absolute symlinks and no dangling library links, and `libdbus-1.so` resolves to the shared
+object inside the sysroot. Check that in two commands before the first link step:
+
+```bash
+find "$GTK_SYSROOT" -xtype l -name "lib*.so*"   # expect no output
+test -e "$GTK_SYSROOT/usr/lib/x86_64-linux-gnu/libdbus-1.so.3"
+```
+
+If you pinned the first delivery (`7ec94c1b`) instead, section 7.1 carries the repair it needs.
 
 `system/tools/bin` holds `cmake`, `file`, `patchelf`, `pkg-config` and `pkgconf`; the tree is
 self-contained with an `$ORIGIN/../lib` rpath, so the one `PATH` line is all it needs. The test gates
@@ -637,13 +649,13 @@ the CI row that nothing in the sandbox depends on.
 
 | File | State | What changed |
 | --- | --- | --- |
-| `engineering/sandbox-vendored-toolchain.md` | done | the specification, the fetch recipe, the verification of the delivered payload and the gap list |
-| `engineering/sandbox-vendor-handoff-prompt.md` | done | the brief for the free agent, now carrying the second-pass corrections, the corrected A1 repair loop and the NSS check in A6 |
+| `engineering/sandbox-vendored-toolchain.md` | done | the specification, the fetch recipe, the verification of both deliveries and the gap list |
+| `engineering/sandbox-vendor-handoff-prompt.md` | done | the brief for the free agent, now carrying the second-pass corrections, the A1 record and the NSS and shared-object checks in A6 |
 | `playwright.config.ts` | done | `sandboxLibsEnv()` feeds `launchOptions.env` on all three browser paths, so the NSS/NSPR directory reaches the browser and its probe but never the dev server's environment |
 | `AGENTS.md` | done | new `Blocked sandbox toolchain` section with the fetch recipe pinned to a commit and one `mktemp -d` root per run under `set -euo pipefail`, and a return to the checkout after the manifest check, the five facts that decide whether a gate can pass, and the delegation path, plus one line under Facts about this repository |
-| `.agents/PREFLIGHT.md` | done | `Blocked sandbox` checklist with the exact invocations, the Rust checks carrying `--ignore-rust-version`, `CARGO_BUILD_JOBS=1` and `--all-features` to match CI, and the sysroot repair named as a prerequisite |
+| `.agents/PREFLIGHT.md` | done | `Blocked sandbox` checklist with the exact invocations, the Rust checks carrying `--ignore-rust-version`, `CARGO_BUILD_JOBS=1` and `--all-features` to match CI, and the sysroot verification named as a prerequisite |
 | `engineering/rust-toolchain.md` | done | rewritten around two sources, the vendor branch where every gate runs and npm for format only. Corrected the `Cannot run` table, the `no sudo` claim, and a reference to a file that does not exist in this repository |
-| `.github/RELEASE_READINESS.md` | done | the `CI only` claim replaced with the offline path, the reproducing block updated, every Cargo row given `--manifest-path` and the browser row the library closure, and the table re-measured on 2026-10-16 after the sysroot repair |
+| `.github/RELEASE_READINESS.md` | done | the `CI only` claim replaced with the offline path, the reproducing block updated, every Cargo row given `--manifest-path`, the browser smoke and CI-mode rows measured, and the sysroot note pointed at the second delivery |
 | `scripts/ci/install-rust-toolchain.sh` | done | the closing note now says which tool the npm source supports and points at the vendor branch |
 | `scripts/dev/rust-toolchain.sh` | done | the header no longer claims cargo build is unusable, and points at the vendor branch |
 | `e2e/README.md` | done | the sandbox section leads with the vendored browser tree, reassembles and verifies the manifest inside a subshell so the `npm` commands stay in the checkout, names the headless shell for explicit overrides, and the command table points at it |
@@ -664,17 +676,21 @@ Do not touch `.dump/app/browser-preview-audit-2026-10-14.md`. It is a dated reco
 
 ## 7. Verification of the delivered payload
 
-Branch `vendor/sandbox-toolchain` at commit `7ec94c1b353220d291924ee71c6346fcf35e66cd`, orphan,
-0 parents. It was delivered on 2026-10-16 and verified from this sandbox on the same day, over the
-restricted network only. Fetch was `curl` from codeload, 798 MB in 33 seconds, extract to `/tmp`.
-The workspace was never written to.
+Branch `vendor/sandbox-toolchain`, orphan, 0 parents, one commit.
+The first delivery was `7ec94c1b353220d291924ee71c6346fcf35e66cd`; the current one is
+`58094f1cb906451f7baf1f8e26261f4bf46c9651`, which rebuilds the sysroot usr-merged and regenerates
+the manifest. Both were verified from this sandbox over the restricted network only. The current
+fetch is `curl` from codeload: an 802 MB archive that extracts to 1.5 GB on disk, because the
+assembled archives and their split parts are both present until reassembly. The workspace was never
+written to.
 
 What passed here:
 
 | Check | Command | Result |
 | --- | --- | --- |
-| Download and extract | `curl .../tar.gz/7ec94c1b353220d291924ee71c6346fcf35e66cd` | 798 MB, 33 s, 846 MB on disk |
+| Download and extract | `curl .../tar.gz/58094f1cb906451f7baf1f8e26261f4bf46c9651` | 802 MB archive, 1.5 GB on disk as delivered |
 | Manifest | `sha256sum -c MANIFEST.sha256` after inline reassembly | 3779 of 3779 OK, exit 0 |
+| Sysroot rebuild | `find` for absolute and dangling library symlinks, then a direct `libdbus-1.so` link | 0 absolute symlinks, 0 dangling `.so` links, `gcc` link passes |
 | Toolchain | the five components through `install.sh` | rustc, cargo, rustfmt and clippy all 1.88.0, the same versions the `@rustbin` path produced |
 | Sysroot resolves | `pkg-config --modversion` for the Tauri stack | gtk+-3.0 3.24.38, webkit2gtk-4.1 2.50.6, libsoup-3.0 3.2.3, javascriptcoregtk-4.1 2.50.6, openssl 3.0.22 |
 | Format gate | `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check` | clean, vendored rustfmt |
@@ -682,31 +698,43 @@ What passed here:
 | Test gate | `cargo test --ignore-rust-version --manifest-path src-tauri/Cargo.toml` | 313 passed, 0 failed |
 | Browser layout | `PLAYWRIGHT_BROWSERS_PATH` on the extracted tree | `chromium-1248`, `chromium_headless_shell-1248`, `ffmpeg-1013`, marker files present |
 | Browser version | `chrome-linux64/chrome --version` | Google Chrome for Testing 156.0.8078.4, the build Playwright 1.64.1 pins |
-| Browser closure | `ldd chrome-linux64/chrome \| grep "not found"` | empty |
-| Playwright suite | `npx playwright test e2e/smoke.spec.ts` against the vendored tree | 6 of 6 passed, primary path, no `PLAYWRIGHT_CHROMIUM_PATH` and no `PLAYWRIGHT_SANDBOX_LIBS` |
+| Browser closure | `ldd chrome-linux64/chrome \| grep "not found"` with `chrome-deps/cft-156` on `LD_LIBRARY_PATH` | empty |
+| Playwright suite | `npx playwright test e2e/smoke.spec.ts` against the vendored tree with `PLAYWRIGHT_SANDBOX_LIBS` set | 6 of 6 passed, primary path, no `PLAYWRIGHT_CHROMIUM_PATH` |
 
-That closes G1 through G5. Two things the payload's own report did not cover, both found here.
+That closes G1 through G5. The download, manifest, sysroot and browser rows above were re-measured
+on `58094f1c`; the Rust rows are from `7ec94c1b`, and the second delivery re-ran A6 on the rebuilt
+sysroot with all six gates green, reported by its producer. The browser suite needs
+`PLAYWRIGHT_SANDBOX_LIBS` on this host: without it the browser dies on `libnspr4.so`, which is the
+product defect `playwright.config.ts` fixes and the reason the recipe carries the variable.
 
-### 7.1 `cargo test` fails out of the box at link time
+Two things the first payload's own report did not cover, both found here.
 
-`cargo clippy` passed on the delivered payload, so the acceptance test as written in the first
-version of this document went green. `cargo test` does not. It failed with
+### 7.1 `cargo test` failed at link time on the first delivery, and why
+
+The first delivery cleared clippy, so the acceptance test as written in the first version of this
+document went green. `cargo test` did not. Fixed in `58094f1c`; this section keeps the diagnosis and
+the repair for anyone pinned to `7ec94c1b`. It failed with
 
 ```text
 /usr/bin/ld: /tmp/gtk-sysroot/usr/lib/x86_64-linux-gnu/libdbus-1.a(libdbus_1_la-dbus-sysdeps-unix.o):
 undefined reference to symbol 'sd_is_socket@@LIBSYSTEMD_209'
 ```
 
-Root cause: the sysroot was extracted with `dpkg-deb -x` on the free box, and Debian's development
-symlinks are absolute. `libdbus-1.so`, `libffi.so`, `libuuid.so`, `libpcre2-8.so`, `libzstd.so`,
-`libmount.so`, `libblkid.so`, `libudev.so` and `libstdc++.so` each point at
-`/lib/x86_64-linux-gnu/<soname>` or a path under `/usr/lib/gcc`. Those targets exist on the free box
-and not in the sandbox, so the links dangle. The linker then skips the shared object and falls back
+Root cause, in two layers. The sysroot was extracted with `dpkg-deb -x` on the free box, and
+Debian's development symlinks are absolute: `libdbus-1.so`, `libffi.so`, `libuuid.so`,
+`libpcre2-8.so`, `libzstd.so`, `libmount.so`, `libblkid.so`, `libudev.so` and `libstdc++.so` each
+point at `/lib/x86_64-linux-gnu/<soname>` or a path under `/usr/lib/gcc`, targets that exist on the
+free box and not in the sandbox. The deeper layer is usr-merge: on Debian 12, `/lib`, `/bin`, `/sbin`
+and `/lib64` are symlinks into `/usr`, but `dpkg-deb -x` re-creates them as real directories, so a
+runtime SONAME such as `libexpat.so.1` lands under `lib/x86_64-linux-gnu/` while the dev symlink and
+`LIBRARY_PATH` point at `usr/lib/x86_64-linux-gnu/`. The linker then finds the dev symlink but not
+its target. The second delivery folds those four directories into `usr/` and re-creates the
+base-image symlinks before rewriting the links, so both layers are gone. The linker then skips the shared object and falls back
 to the static `libdbus-1.a` sitting next to it, which needs libsystemd, which is not on the link
 line. The failure reads like a missing dependency when the real problem is a broken symlink.
 
-The repair, and it belongs in the payload so consumers do not repeat it. Copy the shared objects
-into the sysroot, dereferenced, with relative links:
+The consumer-side repair for `7ec94c1b`, kept for that pin. Copy the shared objects into the
+sysroot, dereferenced, with relative links:
 
 ```bash
 SV="${SV:?export SV to the payload root printed by the section 5 fetch recipe}"
@@ -722,10 +750,10 @@ done
 ```
 
 `cp -L` matters. A plain `cp -a` copies the symlink itself and leaves the chain dangling again.
-`libdbus-1.so.3` also has to be copied in from `$SV/chrome-deps/cft-156/libdbus-1.so.3`, because
-the sandbox has no libdbus at all. Sixteen symlinks are broken in the extracted tree; eight are library
-`.so` links that the linker follows. Until the payload carries the fix, section 5 runs this loop as
-a consumer-side step, and `.agents/PREFLIGHT.md` names it as a prerequisite of every Rust gate.
+`libdbus-1.so.3` also has to be copied in from `$SV/chrome-deps/cft-156/libdbus-1.so.3` on that pin,
+because the first delivery's sysroot had no libdbus at all. Sixteen symlinks were broken in its
+extracted tree; eight were library `.so` links that the linker follows. None of this applies to
+`58094f1c`, where the sysroot ships the real `libdbus-1.so.3.32.4` and every sibling target.
 
 The packaging fix is one of these, in order of preference:
 
@@ -735,9 +763,10 @@ The packaging fix is one of these, in order of preference:
 3. Or drop the static `.a` files from the sysroot as well. They are the trap: they turn a symlink
    problem into a link error, and nothing in this build wants a static GTK, dbus or ffi.
 
-After the repair, `cargo test` passed 313 of 313. `cargo fmt --check`, `cargo clippy` and the
-Playwright suite had all been passing before the repair, which is why a clippy-only acceptance test
-did not catch it.
+After that repair on the first delivery, `cargo test` passed 313 of 313. `cargo fmt --check`,
+`cargo clippy` and the Playwright suite had all been passing before it, which is why a clippy-only
+acceptance test did not catch the defect; the second delivery's A6 runs both test commands and a
+direct shared-object link check instead.
 
 ### 7.2 `cargo test` needs memory headroom for the linker
 
@@ -767,10 +796,11 @@ gates one at a time. A clippy run and a test run in parallel will fight for the 
 | `/dev/shm` | 2 GB | `--disable-dev-shm-usage` is still correct for the browser |
 | sudo | works, but no apt mirror is reachable | fixes are file-level only, never package installs |
 
-### 7.4 Payload documentation defects
+### 7.4 Payload documentation defects found on the first delivery
 
-Three wrong figures and one broken example in the delivered branch. None of them blocks a gate, and
-all four mislead whoever follows the recipes.
+Fixed in `58094f1c`, whose `README.md` states the measured figures and drops the placeholder. The
+record stays because a pinned older commit still carries them. Three wrong figures and one broken
+example; none blocks a gate, and all four misled whoever followed the recipes.
 
 1. `README.md` says `Measured total: 877 MB packed, 3775 files`. The measured file count is 3777
    before reassembly and 3780 after it, so the figure matches neither.
@@ -793,9 +823,10 @@ The entry arithmetic, measured after reassembly: the tree holds 3780 files, whic
 archives. Every manifest entry exists in the tree after the documented reassembly step, and nothing
 in the tree is unhashed except the manifest.
 
-The count that matters for a consumer is the one `sha256sum -c` prints. Have the second delivery
-state the file count, the manifest entry count and the packed size from a single measured run, and
-drop any number that was carried over rather than executed.
+The count that matters for a consumer is the one `sha256sum -c` prints. The second delivery states
+the file count, the manifest entry count and the packed size from a single measured run. Measured
+here on `58094f1c`: 3779 of 3779 OK, 3777 files before reassembly and 3780 after it, and 1.5 GB on
+disk as delivered because each split asset ships both assembled and in parts.
 
 ### 7.5 Upstream findings that block the Rust gates in `AGENTS.md`
 
