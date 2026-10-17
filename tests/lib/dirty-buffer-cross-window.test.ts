@@ -97,8 +97,12 @@ it("does not re-add a record another WebView removed, which is also how a save r
     // Another WebView saved the file: `acknowledgeDirtyBuffer` writes the removal when the
     // saved content is the draft's own. There is no record left to order this draft against,
     // so the removal stands and this window does not persist its copy again.
+    //
+    // The event names the removed KEY. A `key: null` event is what `localStorage.clear()`
+    // fires, and the listener returns early on it, so it never reached the repair and this
+    // assertion passed whatever the repair did.
     localStorage.removeItem(entryKey("/saved.txt"));
-    window.dispatchEvent(new StorageEvent("storage", { key: null, storageArea: localStorage }));
+    window.dispatchEvent(new StorageEvent("storage", { key: entryKey("/saved.txt"), storageArea: localStorage }));
     expect(localStorage.getItem(entryKey("/saved.txt"))).toBeNull();
 });
 

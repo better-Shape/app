@@ -1082,6 +1082,20 @@ export function updateSettingSection<K extends keyof BetterShapeSettings>(
     updateSettings({ [section]: { ...currentSettings[section], ...patch } } as Partial<BetterShapeSettings>);
 }
 
+/**
+ * Read the settings through a store so every consumer re-renders on a change.
+ *
+ * The server snapshot is `DEFAULT_SETTINGS`, never `getSettings()`. This app is a
+ * static export, so every settings route is prerendered with the defaults and
+ * hydrated on the client. `getSettings()` reads `localStorage` on its first call,
+ * so passing it as the server snapshot made the first client render return the
+ * stored settings, React compared that against the prerendered defaults and
+ * reported a hydration mismatch on every attribute that settings feed. The QA
+ * crawl caught it on `/settings` as a button whose `title` differed.
+ *
+ * React then re-renders with the client snapshot once hydration finishes, so the
+ * stored settings still appear, and the first paint agrees with the HTML.
+ */
 export function useSettings(): BetterShapeSettings {
     return useSyncExternalStore(
         (listener) => {
@@ -1089,7 +1103,7 @@ export function useSettings(): BetterShapeSettings {
             return () => listeners.delete(listener);
         },
         () => getSettings(),
-        () => getSettings(),
+        () => DEFAULT_SETTINGS,
     );
 }
 

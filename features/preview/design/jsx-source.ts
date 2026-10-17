@@ -266,10 +266,25 @@ function collect(source: string, query: JsxLocateQuery): Candidate[] {
     return collectFromAst(babelTs.parse(source), query);
 }
 
+const UTF8 = new TextEncoder();
+
 /** Babel positions count UTF-16 code units; native source patches require UTF-8 byte offsets. */
 function byteOffset(source: string, offset: unknown): number | null {
     if (typeof offset !== "number" || !Number.isInteger(offset) || offset < 0 || offset > source.length) return null;
-    return new TextEncoder().encode(source.slice(0, offset)).length;
+    return UTF8.encode(source.slice(0, offset)).length;
+}
+
+/** Every range the native side hands back is UTF-8 bytes, so a JavaScript slice has to translate it. */
+function byteOffsetToIndex(source: string, byteOffsetAt: unknown): number | null {
+    if (typeof byteOffsetAt !== "number" || !Number.isInteger(byteOffsetAt) || byteOffsetAt < 0) return null;
+    let bytes = 0;
+    for (let index = 0; index < source.length;) {
+        if (bytes === byteOffsetAt) return index;
+        const units = (source.codePointAt(index) as number) > 0xffff ? 2 : 1;
+        bytes += UTF8.encode(source.slice(index, index + units)).length;
+        index += units;
+    }
+    return bytes === byteOffsetAt ? source.length : null;
 }
 
 function jsxByteRange(source: string, node: unknown) {
@@ -381,9 +396,12 @@ function setOpeningUtilities(
     throw new Error("This element uses a dynamic className. BetterShape will not overwrite it.");
 }
 
-export function patchHtmlOpening(source: string, start: number, end: number, styles: Record<string, string>) {
+export function patchHtmlOpening(source: string, byteStart: number, byteEnd: number, styles: Record<string, string>) {
     const add = stylesToTailwind(styles);
-    if (!add || start < 0 || end > source.length || start >= end) return source;
+    if (!add) return source;
+    const start = byteOffsetToIndex(source, byteStart);
+    const end = byteOffsetToIndex(source, byteEnd);
+    if (start === null || end === null || start >= end) return source;
     const opening = source.slice(start, end);
     const match = opening.match(/\s(className|class)\s*=\s*(["'])([^"']*)\2/);
     let next = opening;
