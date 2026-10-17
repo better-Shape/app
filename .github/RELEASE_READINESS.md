@@ -24,10 +24,11 @@ cargo rows are explained below the table.
 `--ignore-rust-version` is needed because `notify-rust@4.18.0` declares `rust-version = "1.89.0"`
 while `src-tauri/Cargo.toml` pins 1.88.0. `CARGO_BUILD_JOBS=1` keeps parallel test linking inside a
 small sandbox's memory. Run without the first flag, `cargo test` and `cargo clippy` exit 101 before
-compiling anything. The Rust rows were measured against the vendored sysroot and do not depend on a
-consumer-side repair: the current payload (`58094f1c`) was rebuilt usr-merged with no absolute or
-dangling library symlinks. Only a pin to the first delivery (`7ec94c1b`) needs the repair recorded in
-section 7.1 of `engineering/sandbox-vendored-toolchain.md`, before any link step. Every Cargo row runs from the repository root and carries
+compiling anything. The Rust rows in this table were measured on the first delivery (`7ec94c1b`)
+after the consumer-side repair recorded in section 7.1 of
+`engineering/sandbox-vendored-toolchain.md`. The current payload (`58094f1c`) was rebuilt usr-merged
+with no absolute or dangling library symlinks, and its producer re-ran A6 with all six gates green.
+A pin to the first delivery still needs that repair before any link step; the current one does not. Every Cargo row runs from the repository root and carries
 `--manifest-path src-tauri/Cargo.toml`, because the repository has no root manifest. The rows are
 the measured results with the flags spelled out; the plain commands exit 101 and are never reported
 as passing.

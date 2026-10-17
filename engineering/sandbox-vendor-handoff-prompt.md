@@ -99,6 +99,7 @@ them GTK and WebKit discovery fails before clippy compiles anything, and without
 set -euo pipefail                 # a failed extract or install must stop the proof, not fall through
 RUST_PREFIX="$(mktemp -d)"
 for t in rust/toolchain/*.tar.xz; do
+  [ -e "$t" ] || continue          # skip the literal glob when no component archives are shipped
   d="$(mktemp -d)"; tar xJf "$t" -C "$d"; "$d"/*/install.sh --prefix="$RUST_PREFIX" --disable-ldconfig
   rm -rf "$d"
 done
@@ -417,9 +418,9 @@ executed. Anything you cannot re-measure, remove instead of estimating.
 
 ## A6. What to verify before the second delivery
 
-Run all of these from a clean `debian:12` container with the payload as the only input, with the
-item 2 environment in place: the extracted sysroot, `system/tools/bin` on `PATH`, and the
-`PKG_CONFIG*`, `CPATH` and `LIBRARY_PATH` exports. Clippy alone is not enough, which is how A1
+Run all of these from a clean `debian:12` container with the payload and the repository source as
+the only inputs, with the item 2 environment in place: the extracted sysroot, `system/tools/bin` on
+`PATH`, and the `PKG_CONFIG*`, `CPATH` and `LIBRARY_PATH` exports. Clippy alone is not enough, which is how A1
 reached review in the first place, and a run without those exports fails at GTK discovery instead.
 
 ```bash
@@ -428,7 +429,10 @@ cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
 cargo clippy --ignore-rust-version --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
 CARGO_BUILD_JOBS=1 cargo test --ignore-rust-version --manifest-path src-tauri/Cargo.toml
 CARGO_BUILD_JOBS=1 cargo test --ignore-rust-version --manifest-path src-tauri/Cargo.toml --all-features
-if find "$GTK_SYSROOT" -xtype l -name "lib*.so*" | grep -q .; then echo "broken library symlinks remain" >&2; exit 1; fi
+if [ -n "$(find "$GTK_SYSROOT" -type l -lname '/*' -print -quit)" ] \
+   || [ -n "$(find "$GTK_SYSROOT" -xtype l -name "lib*.so*" -print -quit)" ]; then
+  echo "absolute or broken library symlinks remain" >&2; exit 1
+fi
 gcc /tmp/t.c -o /tmp/t.out "$GTK_SYSROOT/usr/lib/x86_64-linux-gnu/libdbus-1.so" \
   -L"$GTK_SYSROOT/usr/lib/x86_64-linux-gnu" -lffi -luuid -lpcre2-8 -lzstd -lmount -lblkid -ludev
 ```
@@ -442,14 +446,16 @@ it, and that would pass while proving nothing about the shared object.
 And the browser side, which already passes, so it does not regress:
 
 ```bash
-ldd "$PLAYWRIGHT_BROWSERS_PATH/chromium-1248/chrome-linux64/chrome" | grep "not found" || echo "closure complete"
-"$PLAYWRIGHT_BROWSERS_PATH/chromium-1248/chrome-linux64/chrome" --version
-LD_LIBRARY_PATH=/tmp/sandbox-vendor/chrome-deps/cft-156 \
-  "$PLAYWRIGHT_BROWSERS_PATH/chromium-1248/chrome-linux64/chrome" --version
+CHROME="$PLAYWRIGHT_BROWSERS_PATH/chromium-1248/chrome-linux64/chrome"
+CLOSURE="$PWD/chrome-deps/cft-156"
+ldd "$CHROME" | grep "not found" || echo "closure complete"
+LD_LIBRARY_PATH="$CLOSURE" "$CHROME" --version            # must print the version
+if "$CHROME" --version >/dev/null 2>&1; then echo "starts without the closure"; else echo "fails without the closure, as expected"; fi
 ```
 
-The last line is the one that matters on the consuming host: it has no system NSS or NSPR, so the
-browser starts only through the closure the payload ships. `PLAYWRIGHT_SANDBOX_LIBS` would do
+The `LD_LIBRARY_PATH` line is the one that matters on the consuming host: it has no system NSS or
+NSPR, so the browser starts only through the closure the payload ships. The bare launch is an
+expected failure on such a host, so it is reported rather than run as a gate under `set -e`. `PLAYWRIGHT_SANDBOX_LIBS` would do
 nothing here: only `playwright.config.ts` reads it, and this line launches the browser itself, so
 the loader needs the directory in `LD_LIBRARY_PATH`. A browser tree that needs a library path
 nobody documents is what sent the first delivery back.

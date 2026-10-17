@@ -256,7 +256,7 @@ rewriting paths in the `.pc` files:
 ```bash
 export PKG_CONFIG_SYSROOT_DIR=/tmp/gtk-sysroot
 export PKG_CONFIG_PATH=/tmp/gtk-sysroot/usr/lib/x86_64-linux-gnu/pkgconfig:/tmp/gtk-sysroot/usr/share/pkgconfig
-export PKG_CONFIG=/tmp/gtk-sysroot/usr/bin/pkg-config   # works here because the next line exports its libraries
+export PKG_CONFIG=/tmp/gtk-sysroot/usr/bin/pkg-config   # works here because LD_LIBRARY_PATH is exported below
 export CPATH=/tmp/gtk-sysroot/usr/include:/tmp/gtk-sysroot/usr/include/x86_64-linux-gnu
 export LIBRARY_PATH=/tmp/gtk-sysroot/usr/lib/x86_64-linux-gnu
 export LD_LIBRARY_PATH=/tmp/gtk-sysroot/usr/lib/x86_64-linux-gnu
@@ -541,7 +541,7 @@ For one or two small files, skip the download:
 ```bash
 set -euo pipefail   # without this a failed gh call decodes empty input into a zero-byte file
 # Write to a scratch name first: a failed fetch must not leave a truncated file under the real name.
-gh api repos/better-Shape/app/contents/chrome-deps/npm-chromium-153/libnspr4.so \
+gh api "repos/better-Shape/app/contents/chrome-deps/npm-chromium-153/libnspr4.so?ref=$SV_SHA" \
   --jq .content | base64 -d > "$HOME/libnspr4.so.tmp"
 test -s "$HOME/libnspr4.so.tmp"
 mv "$HOME/libnspr4.so.tmp" "$HOME/libnspr4.so"   # $HOME is private, unlike a shared /tmp path
@@ -613,16 +613,22 @@ it has no absolute symlinks and no dangling library links, and `libdbus-1.so` re
 object inside the sysroot. Check that in two commands before the first link step:
 
 ```bash
-find "$GTK_SYSROOT" -xtype l -name "lib*.so*"   # expect no output
+find "$GTK_SYSROOT" -xtype l -name "lib*.so*"    # expect no output: no dangling library link
+find "$GTK_SYSROOT" -type l -lname '/*'          # expect no output: no absolute target
 test -e "$GTK_SYSROOT/usr/lib/x86_64-linux-gnu/libdbus-1.so.3"
 ```
+
+The second check is not redundant: `-xtype l` only reports a link whose target is missing, and an
+absolute link can still resolve on the machine that built the sysroot while failing on a consumer.
 
 If you pinned the first delivery (`7ec94c1b`) instead, section 7.1 carries the repair it needs.
 
 `system/tools/bin` holds `cmake`, `file`, `patchelf`, `pkg-config` and `pkgconf`; the tree is
-self-contained with an `$ORIGIN/../lib` rpath, so the one `PATH` line is all it needs. The test gates
-above did not need them, but a build script or a bundle step that shells out to `cmake` or
-`patchelf` will.
+self-contained with an `$ORIGIN/../lib` rpath, so the one `PATH` line is all it needs. The wiring
+block points `PKG_CONFIG` at that binary rather than the sysroot's own `usr/bin/pkg-config`: the
+sysroot binary needs `libpkgconf` at run time, while the self-contained one does not, and a cold
+`cargo check` proved it. The test gates above did not need any of these tools, but a build script or
+a bundle step that shells out to `cmake` or `patchelf` will.
 
 The Playwright path is then `npm ci` with `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` and a plain
 `npx playwright test`. No `PLAYWRIGHT_CHROMIUM_PATH` is needed, because the vendored tree sits in

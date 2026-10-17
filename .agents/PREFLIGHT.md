@@ -38,8 +38,9 @@ If you changed Rust, also run:
 
 Drop `--ignore-rust-version` on a host whose toolchain is 1.89.0 or newer. CI runs stable, so it
 runs the plain commands. On a blocked host, verify the vendored sysroot before any link step:
-`find "$GTK_SYSROOT" -xtype l -name "lib*.so*"` must print nothing and `libdbus-1.so` must resolve
-inside the sysroot. The current payload (`58094f1c`) passes both; the first delivery (`7ec94c1b`)
+`find "$GTK_SYSROOT" -xtype l -name "lib*.so*"` and `find "$GTK_SYSROOT" -type l -lname '/*'`
+must both print nothing, and `libdbus-1.so` must resolve inside the sysroot. The second check
+matters because a dangling test cannot see an absolute link that still resolves on this host. The current payload (`58094f1c`) passes both; the first delivery (`7ec94c1b`)
 needs the section 7.1 repair in `engineering/sandbox-vendored-toolchain.md`, without which
 `cargo test` fails to link.
 
