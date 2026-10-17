@@ -184,7 +184,7 @@ async function hydrateSecrets(touched: Set<string>, reconcile: Reconcile): Promi
     registerCredentialRecoveryConflicts(Object.keys(loaded).filter((id) => expectedScopes[id] !== undefined && !touched.has(id)
         && savedScopes[id] !== expectedScopes[id]
         && !(savedScopes[id] === undefined && loaded[id] === liveSecrets[id])));
-    registerLegacyVaultConflicts(loaded);
+    registerLegacyVaultConflicts(loaded, touched);
     registerCredentialRecoveryConflicts([...pending].filter((id) => expectedScopes[id] !== undefined && !touched.has(id) && !hasLocalSecretIntent(id)));
     if (getCredentialRecoveryConflicts().length) {
         stageCredentialDrafts(providerSecretsForVault(), credentialScopes(getSettings().ai.providers));
@@ -268,10 +268,14 @@ export function initAiConfigSync(): () => void {
             const known = new Set([...Object.keys(live), ...writtenSecretIds(), ...deletedSecretIds()]);
             const candidates = foreignIds.filter((id) => !known.has(id) && !hasLocalSecretIntent(id));
             const expectedScopes = credentialScopes(getSettings().ai.providers);
-            const { values, scopes: savedScopes, unavailable } = await readSecretsDetailed(candidates);
+            // A key whose keychain write failed is session-only, not saved, so `persisted`
+            // gates adoption. The read result carries one flag for the batch, so a single
+            // unreadable or unpersisted candidate defers the whole batch to a later pass
+            // rather than adopting a value the vault never stored.
+            const { values, scopes: savedScopes, unavailable, persisted } = await readSecretsDetailed(candidates);
             const adopted = Object.fromEntries(
                 candidates
-                    .filter((id) => !unavailable.has(id) && values[id] !== undefined
+                    .filter((id) => persisted && !unavailable.has(id) && values[id] !== undefined
                         && expectedScopes[id] !== undefined && savedScopes[id] === expectedScopes[id])
                     .map((id) => [id, values[id]]),
             );

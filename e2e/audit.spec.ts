@@ -71,6 +71,11 @@ test.describe("@audit route crawl", () => {
                 id: v.id,
                 impact: v.impact ?? null,
                 nodes: v.nodes.length,
+                // The baseline records counts, which is enough to catch a
+                // regression but not enough to fix one. Naming the failing
+                // nodes turns "38 unnamed buttons" into a list to work through.
+                targets: v.nodes.map((node) => node.target.join(" ")),
+                help: v.help,
             })),
             consoleErrors: [...consoleErrors],
             pageErrors: [...pageErrors],

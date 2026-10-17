@@ -128,6 +128,12 @@ export const PLUGIN_RESULTS: Record<string, unknown> = {
     "plugin:dialog|ask": false,
     "plugin:notification|is_permission_granted": false,
     "plugin:deep-link|get_current": null,
+    // A browser window is neither fullscreen nor maximized, and asking it to
+    // show itself is a no-op. Returning `undefined` instead left the window
+    // chrome reading `undefined` as "state unknown" on every mount.
+    "plugin:window|is_fullscreen": false,
+    "plugin:window|is_maximized": false,
+    "plugin:window|show": null,
 };
 
 /**
@@ -462,6 +468,23 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
     };
 
     const handlers: Record<string, (args: Record<string, unknown>) => unknown> = {
+        // ── settings files ───────────────────────────────────────────────
+        // Mirrors src-tauri/src/commands/settings.rs: a file that is not on
+        // disk reads as `{ record: null, revision: "missing" }`, which is what
+        // `revision()` returns for `None`. The preview holds no settings files,
+        // so every read reports that and every write is accepted against the
+        // revision it was given. Returning nothing left the app unable to tell
+        // "never saved" from "the backend failed", and the QA crawl listed the
+        // command as unmodelled.
+        read_settings_file: () => ({ record: null, revision: "missing" }),
+        write_settings_file: (args) => (typeof args.expected === "string" ? args.expected : "missing"),
+
+        // ── indexing toggles ─────────────────────────────────────────────
+        // Both return `Result<(), AppError>` natively, so the preview accepts
+        // the toggle and reports success without changing anything.
+        set_chat_memory_enabled: () => null,
+        set_index_embeddings: () => null,
+
         // ── project / files ──────────────────────────────────────────────
         get_project_state: () => projectState(),
         set_project_path: (args) => {

@@ -424,11 +424,21 @@ export function registerCredentialRecoveryConflicts(ids: string[]): void {
     }
 }
 
-export function registerLegacyVaultConflicts(values: Record<string, string>): void {
+/**
+ * Register a native vault value that disagrees with this window's live credential.
+ *
+ * Legacy-copy replacement consent is consent to overwrite a plaintext copy, which is what
+ * `canReplaceStoredSettings` and `applyDesktopHydration` use it for. It is not authority to
+ * accept a newer vault value here, so the only exemption is an edit this window still owns
+ * and hydration has not absorbed: that is what keeps a key re-entered while the keychain was
+ * locked saveable by a later retry, which re-hydrates once the reads succeed.
+ */
+export function registerLegacyVaultConflicts(values: Record<string, string>, touched?: ReadonlySet<string>): void {
     if (!legacyCredentialsPresent) return;
     const live = providerSecretsForVault();
     const scopes = credentialScopes(currentSettings.ai.providers);
-    registerCredentialRecoveryConflicts(Object.entries(values).filter(([id, value]) => scopes[id] !== undefined && value !== live[id] && !explicitLegacyReplacements.has(id)).map(([id]) => id));
+    registerCredentialRecoveryConflicts(Object.entries(values).filter(([id, value]) => scopes[id] !== undefined && value !== live[id]
+        && !touched?.has(id)).map(([id]) => id));
 }
 
 export function acceptCredentialRecovery(values: Record<string, string>): void {

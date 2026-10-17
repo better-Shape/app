@@ -8,10 +8,19 @@ import { expect, type Page, type TestInfo } from "@playwright/test";
  * route without opening it by hand.
  */
 
+export interface A11yViolationReport {
+    id: string;
+    impact: string | null;
+    nodes: number;
+    /** axe `target` selector for each failing node, plus the rule's help text. */
+    targets: string[];
+    help: string;
+}
+
 export interface RouteAudit {
     route: string;
     title: string;
-    axeViolations: Array<{ id: string; impact: string | null; nodes: number }>;
+    axeViolations: A11yViolationReport[];
     consoleErrors: string[];
     pageErrors: string[];
     unknownIpcCommands: string[];

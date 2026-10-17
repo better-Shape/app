@@ -136,6 +136,23 @@ async function waitForChatLaneFree(conversationId: string | null) {
     }
 }
 
+/**
+ * Put the attachments a rejected send consumed back into the composer, but only into the
+ * chat they were submitted for. One composer is shared by every open chat, so an unscoped
+ * restore hands chat A's files to whichever chat the user switched to mid-send.
+ */
+export function restoreRejectedAttachments(
+    consumed: ComposerAttachment[],
+    current: ComposerAttachment[],
+    sendTarget: string | null,
+    viewedConversationId: string | null,
+): ComposerAttachment[] {
+    if (viewedConversationId !== sendTarget) return current;
+    const present = new Set(current.map((file) => file.id));
+    const missing = consumed.filter((file) => !present.has(file.id));
+    return missing.length > 0 ? [...missing, ...current] : current;
+}
+
 const COMPOSER_PREFS_KEY = "bettershape-composer";
 
 type ComposerPrefs = { model?: string; effort?: ReasoningEffort; fast?: boolean };
@@ -1062,16 +1079,13 @@ export function useChatSession(
                         // Native admission can still reject the send. Give the submitted
                         // draft back instead of making the user retype it, without
                         // clobbering text or files added after the rejection.
+                        const viewed = getViewedConversationId();
                         if (consumedFiles.length > 0) {
-                            setUploadedFiles(files => {
-                                const present = new Set(files.map(file => file.id));
-                                const missing = consumedFiles.filter(file => !present.has(file.id));
-                                return missing.length > 0 ? [...missing, ...files] : files;
-                            });
+                            setUploadedFiles(files => restoreRejectedAttachments(consumedFiles, files, target, viewed));
                         }
                         // The composer was cleared at admission, which bumps the revision, so
                         // an empty composer is the guard: text typed since the failure stays.
-                        if (consumedComposer && getViewedConversationId() === target && !inputValueRef.current) {
+                        if (consumedComposer && viewed === target && !inputValueRef.current) {
                             inputValueRef.current = messageContent;
                             setInputValue(messageContent);
                             editingQueueIdRef.current = previousEditingQueueId;
