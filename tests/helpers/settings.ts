@@ -1,12 +1,25 @@
 import { DEFAULT_SETTINGS, getSettings, updateSettingSection, type BetterShapeSettings } from "@/lib/settings";
 
+/**
+ * A settings patch, partial at the section level and inside each section.
+ *
+ * `withSettings` merges every section it is given against the stored settings,
+ * so `withSettings({ node: { packageManager: "pnpm" } })` is a valid call. A bare
+ * `Partial<BetterShapeSettings>` only made the top level optional and forced
+ * every test to restate a whole section, which is why five call sites could not
+ * typecheck.
+ */
+export type SettingsPatch = {
+    [K in keyof BetterShapeSettings]?: Partial<BetterShapeSettings[K]>;
+};
+
 export function resetSettings() {
     localStorage.setItem("bettershape-settings-v1", JSON.stringify(DEFAULT_SETTINGS));
     updateSettingSection("editor", { ...DEFAULT_SETTINGS.editor });
     updateSettingSection("skills", { ...DEFAULT_SETTINGS.skills });
 }
 
-export function withSettings(patch: Partial<BetterShapeSettings>) {
+export function withSettings(patch: SettingsPatch) {
     const current = getSettings();
     localStorage.setItem(
         "bettershape-settings-v1",

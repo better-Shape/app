@@ -333,6 +333,9 @@ describe("reconcileImportedRow", () => {
         body,
         fileName: relPath.split("/")[1],
         folder: `${PROJECT}/${relPath.split("/")[0]}`,
+        // `rootPath` bounds later reads to the root that advertised the file, so
+        // a discovered row is never complete without it.
+        rootPath: PROJECT,
         relPath,
         projectPath: PROJECT,
         scope: "project" as const,

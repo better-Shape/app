@@ -1,10 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import { mockIPC } from "@tauri-apps/api/mocks";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, type InvokeArgs } from "@tauri-apps/api/core";
 
 describe("init", () => {
     it("invoke", async () => {
-        const spy = vi.fn(() => undefined);
+        // The mock records the arguments the renderer passed, so it declares the
+        // parameter it is called with. A zero-argument `vi.fn()` compiles as a
+        // call with one argument only because the mock's type came from the
+        // inferred signature.
+        const spy = vi.fn((_args?: InvokeArgs) => undefined);
         mockIPC((cmd, args) => {
             if (cmd === "git_init") {
                 spy(args);

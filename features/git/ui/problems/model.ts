@@ -86,7 +86,15 @@ export function safeMessage(raw: unknown): string {
     return trimmed ? trimmed : "No message from ESLint.";
 }
 
-export function formatPosition(line: number, column: number): string {
+/**
+ * `line:column` for a problem entry.
+ *
+ * Diagnostics arrive from several parsers and a missing coordinate is `undefined`
+ * rather than a number, so both arguments are accepted as `unknown` and run
+ * through `safePosition`. Typing them as `number` meant a caller holding a real
+ * diagnostic could not pass it without a cast.
+ */
+export function formatPosition(line: unknown, column: unknown): string {
     return `${safePosition(line)}:${safePosition(column)}`;
 }
 

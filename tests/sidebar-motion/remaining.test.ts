@@ -32,7 +32,7 @@ function row(): HTMLElement {
 /** Creates an animation the way the animators do, so it is claimed. */
 function claimed(
     element: HTMLElement,
-    keyframes: object[],
+    keyframes: Keyframe[],
     progress: number | null,
 ): RecordedAnimation {
     const record = element.animate(keyframes, { duration: 200 }) as unknown as RecordedAnimation;

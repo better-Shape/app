@@ -49,10 +49,6 @@ export function modelsFromProviders(settings: ProvidersSettings, usable: string[
     return out;
 }
 
-export function isApiModel(_model: { id: string; viaApi?: boolean }): boolean {
-    return false;
-}
-
 export function resolveChatModels(models: ModelInfo[]): ModelInfo[] {
     const byId = new Map<string, ModelInfo>();
     byId.set(AUTO_MODEL.id, models.find((m) => m.id === AUTO_MODEL.id) ?? AUTO_MODEL);

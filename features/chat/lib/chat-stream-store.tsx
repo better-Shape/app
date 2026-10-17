@@ -5,7 +5,7 @@ import { TurnOrder } from "@/lib/chat/turn-order";
 import { isLocalChatRequest } from "@/lib/chat/request-ownership";
 import { listen } from "@tauri-apps/api/event";
 import { commands } from "@/lib/backend";
-import type { ChatMessage } from "@/lib/backend/types";
+import type { ChatMessage, MessageUsageStatsPayload } from "@/lib/backend/types";
 import { setChatActivity } from "./chat-activity";
 import { setChatGenerating } from "./generating-chats";
 import { NEW_CHAT_TAB_ID } from "../ui/shell/tabs";
@@ -532,19 +532,7 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
 
         register(
             listen<{
-                stats?: {
-                    timeMs?: number;
-                    cost?: number;
-                    tokens?: number;
-                    inputTokens?: number;
-                    outputTokens?: number;
-                    usedAuto?: boolean;
-                    autoPercent?: number;
-                    reasoningEffort?: string;
-                    mode?: string;
-                    latencyMs?: number;
-                    contextBreakdown?: Record<string, number> | null;
-                };
+                stats?: MessageUsageStatsPayload;
                 model?: string;
                 error?: string;
                 conversationId?: string;

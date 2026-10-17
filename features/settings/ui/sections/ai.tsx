@@ -1,6 +1,5 @@
 "use client";
 
-import { Link20Regular } from "@fluentui/react-icons/headless/svg/link";
 import React from "react";
 import { Icon } from "@/components/ui/icon";
 import { listen } from "@tauri-apps/api/event";
@@ -15,7 +14,7 @@ import {
     useBetterShapeCatalog,
 } from "@/lib/catalog/store";
 
-import { getVisibleModels, isApiModel, isModelEnabled, isSubagentModelEnabled, resolveChatModels, resolveSubagentDefaultModel, sanitizeEnabledModels, sanitizeSubagentModels, type ModelInfo } from "@/lib/settings/models";
+import { getVisibleModels, isModelEnabled, isSubagentModelEnabled, resolveChatModels, resolveSubagentDefaultModel, sanitizeEnabledModels, sanitizeSubagentModels, type ModelInfo } from "@/lib/settings/models";
 import {
     type AutoRunModeSetting,
     type BetterShapeSettings,
@@ -271,9 +270,6 @@ function ModelRow({
             <div className="min-w-0 space-y-0.5">
                 <div className="flex items-center gap-1.5 text-sm font-medium text-text-primary">
                     <span className="min-w-0 truncate">{model.name}</span>
-                    {isApiModel(model) ? (
-                        <Icon icon={Link20Regular} className="shrink-0 text-text-muted" />
-                    ) : null}
                 </div>
                 <div className="text-sm text-text-muted">
                     {unavailableReason ?? model.description}

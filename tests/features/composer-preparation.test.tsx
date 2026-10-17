@@ -6,7 +6,7 @@ const state = vi.hoisted(() => ({ usable: true, stop: vi.fn(), send: vi.fn(), se
 vi.mock("@/lib/settings", () => ({ useSettings: () => state.settings }));
 vi.mock("@/lib/ai/providers", () => ({ hasAnyUsableProvider: () => state.usable }));
 vi.mock("@/lib/catalog/store", () => ({ useBetterShapeCatalog: () => ({ catalog: null }), getCatalogModels: () => [], getCatalogProviderOrder: () => [], getCatalogDefaultEnabledIds: () => [] }));
-vi.mock("@/lib/settings/models", () => ({ resolveChatModels: () => [], getVisibleModels: () => [], sanitizeEnabledModels: () => [], isApiModel: () => false }));
+vi.mock("@/lib/settings/models", () => ({ resolveChatModels: () => [], getVisibleModels: () => [], sanitizeEnabledModels: () => [] }));
 vi.mock("@/lib/plugins/api", () => ({ peekPluginsCache: () => ({ plugins: [] }), fetchPlugins: async () => ({ plugins: [] }) }));
 vi.mock("@/lib/chat/skills", () => ({ listSkills: () => [], subscribeSkills: () => () => {} }));
 vi.mock("@/lib/chat/workflows", () => ({ slashCommandRanges: () => [] }));

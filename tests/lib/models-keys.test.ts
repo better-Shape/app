@@ -15,13 +15,13 @@ function model(partial: Partial<ModelInfo> & Pick<ModelInfo, "id" | "name" | "pr
 
 const list: ModelInfo[] = [
     model({ id: "auto", name: "Auto", provider: "Auto" }),
-    model({ id: "openai/gpt-4o", name: "GPT-4o", provider: "OpenAI", viaApi: true }),
-    model({ id: "anthropic/claude-sonnet-4.6", name: "Claude", provider: "Anthropic", viaApi: true }),
+    model({ id: "openai/gpt-4o", name: "GPT-4o", provider: "OpenAI" }),
+    model({ id: "anthropic/claude-sonnet-4.6", name: "Claude", provider: "Anthropic" }),
     model({ id: "anthropic/claude-opus-5", name: "Opus", provider: "Anthropic" }),
 ];
 
 describe("resolveChatModels", () => {
-    it("lists the catalog, including API rows, without adding models that are not in it", () => {
+    it("lists the catalog in order, Auto first, without adding models that are not in it", () => {
         const ids = resolveChatModels(list).map((m) => m.id);
         expect(ids).toEqual(["auto", "openai/gpt-4o", "anthropic/claude-sonnet-4.6", "anthropic/claude-opus-5"]);
     });

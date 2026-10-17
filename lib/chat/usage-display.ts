@@ -1,18 +1,16 @@
 import type { LastTurnUsage } from "@/lib/chat/last-turn-usage";
+import type { MessageUsageStatsPayload } from "@/lib/backend/types";
 import { modelOption } from "@/lib/ai/providers";
 
-export type MessageUsageStats = {
-    timeMs?: number;
-    cost?: number;
-    tokens?: number;
-    inputTokens?: number;
-    outputTokens?: number;
-    usedAuto?: boolean;
-    reasoningEffort?: string;
-    mode?: string;
-    latencyMs?: number;
-    contextBreakdown?: Record<string, number> | null;
-};
+/**
+ * Per-message usage reported by the native turn event.
+ *
+ * `lib/backend/types.ts` owns the shape because the same payload arrives on the
+ * IPC event, on a persisted conversation and on the renderer message. It used to
+ * be written out three times and `autoPercent` was dropped from this copy, so a
+ * caller holding a real event object failed to typecheck here.
+ */
+export type MessageUsageStats = MessageUsageStatsPayload;
 
 export function isAutoModelId(model?: string | null): boolean {
     if (!model) return false;

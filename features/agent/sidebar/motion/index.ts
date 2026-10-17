@@ -67,6 +67,7 @@ export {
     createAnimatedSize,
     type AnimatedSize,
     type AnimatedSizeController,
+    type AnimatedSizeObserver,
     type AnimatedSizeOptions,
     type AnimatedSizeProps,
 } from "./animated-size";

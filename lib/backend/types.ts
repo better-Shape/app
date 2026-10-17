@@ -264,24 +264,31 @@ export interface ReplaceResult {
     errors: string[];
 }
 
+/**
+ * Per-message usage reported by the native turn event. This is the single owner
+ * of the shape: it arrives on the IPC event, on a persisted conversation and on
+ * the renderer message, and `lib/chat/usage-display.ts` re-exports it.
+ */
+export interface MessageUsageStatsPayload {
+    timeMs?: number;
+    cost?: number;
+    tokens?: number;
+    inputTokens?: number;
+    outputTokens?: number;
+    usedAuto?: boolean;
+    autoPercent?: number;
+    reasoningEffort?: string;
+    mode?: string;
+    latencyMs?: number;
+    contextBreakdown?: Record<string, number> | null;
+}
+
 export interface ChatMessage {
     role: string;
     content: string;
     timestamp: number;
     model?: string;
-    stats?: {
-        timeMs?: number;
-        cost?: number;
-        tokens?: number;
-        inputTokens?: number;
-        outputTokens?: number;
-        usedAuto?: boolean;
-        autoPercent?: number;
-        reasoningEffort?: string;
-        mode?: string;
-        latencyMs?: number;
-        contextBreakdown?: Record<string, number> | null;
-    };
+    stats?: MessageUsageStatsPayload;
     feedback?: "up" | "down" | null;
     hidden?: boolean;
 }

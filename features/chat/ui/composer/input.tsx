@@ -74,7 +74,7 @@ import { revealComposerCaret, syncComposerOverlayScroll } from "@/lib/chat/compo
 import { listSkills, subscribeSkills, type Skill } from "@/lib/chat/skills";
 import { fetchPlugins, peekPluginsCache, type PluginRow } from "@/lib/plugins/api";
 import { PluginLogo } from "@/components/ui/plugin-logo";
-import { getVisibleModels, isApiModel, resolveChatModels, sanitizeEnabledModels, type ModelInfo } from "@/lib/settings/models";
+import { getVisibleModels, resolveChatModels, sanitizeEnabledModels, type ModelInfo } from "@/lib/settings/models";
 import { hasAnyUsableProvider } from "@/lib/ai/providers";
 import {
     getCatalogDefaultEnabledIds,
@@ -224,9 +224,6 @@ const ModelItem = ({
                     <span className="flex-1 font-regular text-sm text-text-primary group-hover:text-text-primary transition-colors">
                         {model.name}
                     </span>
-                    {isApiModel(model) ? (
-                        <span className="shrink-0 text-sm font-normal text-text-muted">API</span>
-                    ) : null}
                     {isSelected && <Icon icon={Checkmark20Regular} className="text-text-primary font-bold" />}
                 </div>
             </DropdownMenuItem>
@@ -1399,9 +1396,6 @@ export function ChatInput({
                                     <div className="flex min-w-0 items-center gap-1.5 text-sm">
                                         {providerIcon(selectedModel === "auto" ? "auto" : modelInfo.id, 14)}
                                         <span className="min-w-0 truncate">{modelName}</span>
-                                        {isApiModel(modelInfo) ? (
-                                            <span className="shrink-0 text-sm font-normal text-text-muted">API</span>
-                                        ) : null}
                                     </div>
                                 </Button>
                             </DropdownMenuTrigger>
