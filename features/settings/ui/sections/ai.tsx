@@ -1,7 +1,6 @@
 "use client";
 
 import React from "react";
-import { Icon } from "@/components/ui/icon";
 import { listen } from "@tauri-apps/api/event";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";

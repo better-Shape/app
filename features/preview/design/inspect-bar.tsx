@@ -18,7 +18,6 @@ import {
 } from "./bridge";
 import { patchJsx } from "./jsx-source";
 import { isUserSourcePath } from "./library";
-import { isLocalPreviewUrl } from "../store";
 
 type InspectionSelection = {
     element: DesignElementSnapshot;
@@ -29,33 +28,6 @@ type InspectionSelection = {
 type PendingStyles = { selection: InspectionSelection; styles: Record<string, string> };
 
 type Tab = "radius" | "padding" | "gap";
-
-/** Matches no real page, so a canvas that is not a loopback preview gets no message. */
-const OFF_PREVIEW_ORIGIN = "https://preview.bettershape.invalid";
-
-/**
- * The canvas keeps its real origin (`allow-same-origin`), so host messages are
- * pinned to a loopback preview origin, the only place the design bridge is ever
- * injected (design_bridge.rs `wrap_iframe_only`). A canvas that has navigated
- * anywhere else matches nothing and receives no project path, and a loopback
- * canvas that moved port still works because the live origin wins.
- */
-function frameOrigin(frame: HTMLIFrameElement | null | undefined): string {
-    let live = "";
-    try {
-        live = frame?.contentWindow?.origin || "";
-    } catch {
-        /* cross-origin handle without `origin` */
-    }
-    if (live && isLocalPreviewUrl(live)) return live;
-    try {
-        const fromSrc = new URL(frame?.src || "").origin;
-        if (fromSrc !== "null" && isLocalPreviewUrl(fromSrc)) return fromSrc;
-    } catch {
-        /* no usable src */
-    }
-    return OFF_PREVIEW_ORIGIN;
-}
 
 function parsePx(value: string | undefined): number {
     if (!value) return 0;

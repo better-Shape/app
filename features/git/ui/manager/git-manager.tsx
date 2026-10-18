@@ -18,7 +18,7 @@ import { ReleasesPage } from "@/features/git/ui/github/releases-page";
 import { ActionsConsole } from "@/features/git/ui/actions/console";
 import { LocalTags } from "@/features/git/ui/tags/panel";
 import { StashPanel } from "@/features/git/ui/stash/panel";
-import { useFilter, coerceGitSection, persistGitSection, readStoredGitSection } from "./filter-context";
+import { useFilter, coerceGitSection, persistGitSection } from "./filter-context";
 import { GitPageChrome } from "./chrome";
 import { useGitRepos } from "@/lib/git/repos";
 import { LoadingBar } from "@/components/ui/loading";

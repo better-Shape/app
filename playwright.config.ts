@@ -38,7 +38,6 @@ const bundledChromiumUsable = (): boolean => {
     try {
         // playwright-core is a dependency of @playwright/test; use it only
         // to ask where its bundled Chromium would live.
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { chromium } = require("playwright-core") as typeof import("playwright-core");
         const executablePath = chromium.executablePath();
         if (!existsSync(executablePath)) return false;
@@ -82,7 +81,6 @@ const sandboxChromium = (): { executablePath?: string; args?: string[] } => {
         );
     }
     try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
         const sparticuzModule = require("@sparticuz/chromium") as {
             default?: { args: string[] };
         };
