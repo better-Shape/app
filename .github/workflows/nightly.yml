@@ -1,8 +1,13 @@
 name: Nightly
 
-# Manual only: no schedule, and dispatch accepts no user-defined inputs.
+# Manual only: no schedule, so a nightly build never runs unattended.
 on:
   workflow_dispatch:
+    inputs:
+      prerelease:
+        description: "Publish as prerelease?"
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -30,12 +35,13 @@ jobs:
             arch: aarch64
             target: aarch64-pc-windows-msvc
             bundles: nsis
+          # Use native runners for both architectures; SDK slices alone do not
+          # cross-compile native dependencies such as OpenSSL.
           - runner: macos-latest
             os: macos
             arch: aarch64
             target: aarch64-apple-darwin
             bundles: dmg
-          # Build Intel natively so OpenSSL's x86_64 pkg-config/sysroot is available.
           - runner: macos-26-intel
             os: macos
             arch: x86_64
@@ -45,6 +51,11 @@ jobs:
             os: linux
             arch: x86_64
             target: x86_64-unknown-linux-gnu
+            bundles: deb,appimage,rpm
+          - runner: ubuntu-24.04-arm
+            os: linux
+            arch: aarch64
+            target: aarch64-unknown-linux-gnu
             bundles: deb,appimage,rpm
     env:
       # AppImage bundling runs the downloaded linuxdeploy AppImages, which need FUSE2.
@@ -134,36 +145,24 @@ jobs:
           else
             BUNDLE_DIR="src-tauri/target/release/bundle"
           fi
-          # Check for the expected installer for this platform
-          if ! find "$BUNDLE_DIR" -maxdepth 2 -type f \
-                \( -name '*.exe' -o -name '*.dmg' -o -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' \) \
-                -print -quit 2>/dev/null | grep -q .; then
-            echo "::error::No installer found after build under $BUNDLE_DIR"
-            find "$BUNDLE_DIR" -type f 2>/dev/null | head -n 20 || true
-            exit 1
-          fi
-          echo "✓ Installer found"
+          node scripts/build/collect-installers.mjs "$BUNDLE_DIR" dist/nightly-install "${{ matrix.bundles }}"
 
       - name: Upload nightly artifact
         uses: actions/upload-artifact@v4
         with:
           name: nightly-${{ matrix.os }}-${{ matrix.arch }}
           path: |
-            src-tauri/target/**/bundle/nsis/*.exe
-            src-tauri/target/**/bundle/dmg/*.dmg
-            src-tauri/target/**/bundle/deb/*.deb
-            src-tauri/target/**/bundle/rpm/*.rpm
-            src-tauri/target/**/bundle/appimage/*.AppImage
+            dist/nightly-install/*
             dist/nightly-placeholder/
             dist/version.txt
             dist/nightly-version.txt
           if-no-files-found: error
           retention-days: 3
 
-  # A manual run always publishes the nightly prerelease; dispatch inputs stay empty.
+  # Optional: Create nightly prerelease if manually triggered
   publish-nightly:
     name: Publish Nightly Prerelease
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && inputs.prerelease
     needs: build-check
     runs-on: ubuntu-latest
     timeout-minutes: 15
