@@ -335,9 +335,9 @@ function SwapText({
         let maxInner = Number.POSITIVE_INFINITY;
         while (constraint) {
             const cs = getComputedStyle(constraint);
-            const maxW = parseFloat(cs.maxWidth);
+            const maxW = Number.parseFloat(cs.maxWidth);
             if (!Number.isNaN(maxW) && cs.maxWidth !== "none") {
-                const pad = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
+                const pad = Number.parseFloat(cs.paddingLeft) + Number.parseFloat(cs.paddingRight);
                 maxInner = Math.max(0, maxW - pad);
                 break;
             }
@@ -348,7 +348,7 @@ function SwapText({
         let used = 0;
         if (parent && Number.isFinite(maxInner)) {
             const cs = getComputedStyle(parent);
-            const gap = parseFloat(cs.columnGap || cs.gap) || 0;
+            const gap = Number.parseFloat(cs.columnGap || cs.gap) || 0;
             const others = Array.from(parent.children).filter((el) => el !== wrap);
             used =
                 others.reduce((sum, el) => sum + el.getBoundingClientRect().width, 0) +

@@ -363,14 +363,14 @@
   transition-delay: 0ms;
 }
 
-.t-morph[data-open="true"] .t-morph-menu {
+  .t-morph[data-open="true"] .t-morph-menu {
   opacity: 1;
   pointer-events: auto !important;
   visibility: visible;
-  transition-delay: var(--morph-fade-delay);
   transition:
     opacity var(--morph-fade-dur) var(--morph-close-ease),
     visibility 0s linear 0s;
+  transition-delay: var(--morph-fade-delay);
 }
 
 .t-toggle {

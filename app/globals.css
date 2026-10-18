@@ -1613,7 +1613,6 @@ body[data-resizing] .xterm {
 [class*="sash-module_active"]::before,
 [class*="sash-module_hover"]::before {
   opacity: 0 !important;
-  background-color: transparent !important;
   background: transparent !important;
 }
 

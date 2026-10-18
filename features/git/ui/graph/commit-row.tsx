@@ -292,7 +292,7 @@ export const GraphCommitRow = React.memo(function GraphCommitRow({
                                             <span>,</span>
                                             <span>{getRelativeTime(log.date)}</span>
                                             <span className="text-text-muted">
-                                                ({new Date(parseInt(log.date) * 1000).toLocaleString(undefined, {
+                                                ({new Date(Number.parseInt(log.date) * 1000).toLocaleString(undefined, {
                                                     month: 'long', day: 'numeric', year: 'numeric',
                                                     hour: 'numeric', minute: '2-digit', hour12: true
                                                 })})

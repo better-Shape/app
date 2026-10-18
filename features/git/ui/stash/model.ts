@@ -217,7 +217,7 @@ function unquoteGitPath(token: string): string {
         }
         const octal = text.slice(i + 1, i + 4);
         if (/^[0-7]{3}$/.test(octal)) {
-            out += String.fromCharCode(parseInt(octal, 8));
+            out += String.fromCharCode(Number.parseInt(octal, 8));
             i += 3;
             continue;
         }

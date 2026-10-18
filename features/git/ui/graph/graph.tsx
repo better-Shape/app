@@ -334,7 +334,7 @@ export default function Graph({
             if (!has) return false;
         }
         if (dateFilter !== "all") {
-            const ts = parseInt(log.date, 10);
+            const ts = Number.parseInt(log.date, 10);
             if (Number.isFinite(ts)) {
                 const days = dateFilter === "7d" ? 7 : dateFilter === "30d" ? 30 : 90;
                 const cutoff = Date.now() / 1000 - days * 86400;

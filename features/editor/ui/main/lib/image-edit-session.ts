@@ -12,8 +12,8 @@ export function parseSvgDimensions(svg: string): { width: number; height: number
         const el = doc.documentElement;
         const widthAttr = el.getAttribute("width");
         const heightAttr = el.getAttribute("height");
-        const w = widthAttr ? parseFloat(widthAttr.replace(/px$/, "")) : 0;
-        const h = heightAttr ? parseFloat(heightAttr.replace(/px$/, "")) : 0;
+        const w = widthAttr ? Number.parseFloat(widthAttr.replace(/px$/, "")) : 0;
+        const h = heightAttr ? Number.parseFloat(heightAttr.replace(/px$/, "")) : 0;
         if (w > 0 && h > 0) return { width: Math.round(w), height: Math.round(h) };
 
         const viewBox = el.getAttribute("viewBox")?.trim().split(/[\s,]+/).map(Number);

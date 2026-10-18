@@ -3,7 +3,7 @@ import { commands } from "@/lib/backend";
 
 export const getRelativeTime = (timestamp: string) => {
     const now = new Date();
-    const date = new Date(parseInt(timestamp) * 1000);
+    const date = new Date(Number.parseInt(timestamp) * 1000);
     const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
 
     if (diffInSeconds < 60) return `${diffInSeconds}s ago`;

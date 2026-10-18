@@ -590,7 +590,7 @@ export function CommandPalette() {
             if (mode === "goto_line") {
                 const trimmed = query.trim();
                 if (!trimmed) return;
-                const parts = trimmed.split(/[:\s,]+/).map((p) => parseInt(p, 10)).filter((n) => !Number.isNaN(n));
+                const parts = trimmed.split(/[:\s,]+/).map((p) => Number.parseInt(p, 10)).filter((n) => !Number.isNaN(n));
                 const line = parts[0] ?? 1;
                 const column = parts[1] ?? 1;
                 setOpen(false);
