@@ -699,7 +699,7 @@ const ChatRow = ({
     onOpen,
     onTogglePin,
     handlers,
-}: ChatShelfRowProps & { id: string }) {
+}: ChatShelfRowProps & { id: string }) => {
     const now = useClock();
     const generating = useIsChatGenerating(id);
     const [renaming, setRenaming] = useState(false);
