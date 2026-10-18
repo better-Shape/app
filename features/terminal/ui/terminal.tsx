@@ -11,7 +11,7 @@ import { LayoutColumnTwo20Regular } from "@fluentui/react-icons/headless/svg/lay
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { commands, useProjectState } from "@/lib/backend";
 import type { TerminalShellProfile } from "@/lib/backend/types";
-import { cn } from "@/lib/utils";
+import { cn, randomInt, randomSuffix } from "@/lib/utils";
 import { Icon } from "@/components/ui/icon";
 
 import type { Terminal as XTermType } from "@xterm/xterm";
@@ -61,8 +61,8 @@ const SHELL_DISPLAY_NAMES: Record<TerminalShell, string> = {
     ai: "Agent Terminal",
 };
 
-const createTabId = () => (typeof crypto !== "undefined" && "randomUUID" in crypto) ? crypto.randomUUID() : Math.random().toString(36).slice(2, 11);
-const createPtyId = () => Math.floor(100000 + Math.random() * 2_000_000_000);
+const createTabId = () => (typeof crypto !== "undefined" && "randomUUID" in crypto) ? crypto.randomUUID() : randomSuffix(9);
+const createPtyId = () => randomInt(100000, 2_000_099_999);
 
 const getNextTerminalName = (tabs: TerminalTab[], shell: TerminalShell, cwd: string): string => {
     const prefix = SHELL_DISPLAY_NAMES[shell];

@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react";
 import { formatCommandError } from "@/lib/errors/format";
+import { randomSuffix } from "@/lib/utils";
 
 export type NotificationType = "info" | "warning" | "error" | "success";
 
@@ -63,7 +64,7 @@ export const notificationStore = {
         description?: string,
         options?: NotifyOptions,
     ) => {
-        const id = Math.random().toString(36).substring(2, 9);
+        const id = randomSuffix(7);
         const autoHide = options?.autoHide ?? true;
         const notification: Notification = {
             id,

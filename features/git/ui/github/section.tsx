@@ -128,7 +128,7 @@ function normalize(section: GitHubListSection, data: unknown): GhItem[] {
             if (section === "issues" && i.pull_request) return false;
             return true;
         })
-        .map((raw) => {
+        .map((raw, index) => {
             const i = raw as Record<string, unknown>;
             const user =
                 i.user && typeof i.user === "object"
@@ -147,7 +147,7 @@ function normalize(section: GitHubListSection, data: unknown): GhItem[] {
                 : "";
             const number = typeof i.number === "number" ? i.number : Number(i.number);
             return {
-                id: String(i.id ?? i.number ?? Math.random()),
+                id: String(i.id ?? i.number ?? `${section}-${index}`),
                 title: String(i.title ?? `#${i.number}`),
                 subtitle: [`#${i.number}`, user, labels].filter(Boolean).join(" · "),
                 url: typeof i.html_url === "string" ? i.html_url : undefined,

@@ -16,6 +16,7 @@ import { type IconGlyph, Icon } from "@/components/ui/icon";
 import { FileIcon } from "@/components/ui/file-icon";
 import { cn } from "@/lib/utils";
 import { Tooltip } from "@/components/ui/tooltip";
+import { randomSuffix } from "@/lib/utils";
 const IMAGE_EXTENSIONS = new Set([
     "png", "jpg", "jpeg", "gif", "bmp", "webp", "svg", "ico", "tiff", "tif", "avif", "heic", "heif",
 ]);
@@ -65,7 +66,7 @@ export function attachmentKind(file: File): AttachmentKind {
 function newId() {
     return typeof crypto !== "undefined" && "randomUUID" in crypto
         ? crypto.randomUUID()
-        : `att-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        : `att-${Date.now()}-${randomSuffix(6)}`;
 }
 
 /** Downscale large images so vision tokens stay cheap. */

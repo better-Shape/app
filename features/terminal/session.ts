@@ -1,3 +1,5 @@
+import { randomSuffix } from "@/lib/utils";
+
 /**
  * Shared terminal session registration (used by the always-mounted DevRunHost
  * and the Terminal UI). Keeps background Run tabs available when the panel is closed.
@@ -29,7 +31,7 @@ const MAX_SCROLLBACK_CHARS = 400_000;
 function createTabId() {
     return typeof crypto !== "undefined" && "randomUUID" in crypto
         ? crypto.randomUUID()
-        : Math.random().toString(36).slice(2, 11);
+        : randomSuffix(9);
 }
 
 class TerminalSessionStore {

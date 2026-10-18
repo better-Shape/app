@@ -10,6 +10,7 @@ import { PersonAccounts20Regular } from "@fluentui/react-icons/headless/svg/pers
 import { PersonAdd20Regular } from "@fluentui/react-icons/headless/svg/person-add";
 import { TaskListSquareLtr20Regular } from "@fluentui/react-icons/headless/svg/task-list-square-ltr";
 import { Warning20Regular } from "@fluentui/react-icons/headless/svg/warning";
+import { randomSuffix } from "@/lib/utils";
 
 export type TabKind = "graph" | "agents" | "plan" | "file" | "diff" | "files" | "prs" | "browser" | "problems" | "search" | "packages" | "blame";
 
@@ -34,7 +35,7 @@ export type WorkspaceTab = {
 };
 
 export function uid(prefix: string) {
-    return `${prefix}-${Math.random().toString(36).slice(2, 9)}`;
+    return `${prefix}-${randomSuffix(7)}`;
 }
 
 export const DEFAULT_TABS: WorkspaceTab[] = [

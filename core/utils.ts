@@ -51,3 +51,24 @@ export function getGitStatusColor(status: string): string {
     if (status === "D") return "var(--git-deleted)";
     return "var(--git-added)";
 }
+
+const ID_ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyz";
+
+/**
+ * A short base36 id suffix for DOM keys and ephemeral element ids. Draws from
+ * `crypto.getRandomValues` rather than `Math.random` so the generator is sound
+ * wherever it is reused, and uniqueness within a render tree is enough.
+ */
+export function randomSuffix(length = 8): string {
+    const bytes = crypto.getRandomValues(new Uint8Array(length));
+    let out = "";
+    for (let i = 0; i < length; i++) out += ID_ALPHABET[bytes[i] % ID_ALPHABET.length];
+    return out;
+}
+
+/** A uniformly random integer in `[min, max]`, drawn from `crypto.getRandomValues`. */
+export function randomInt(min: number, max: number): number {
+    const span = max - min + 1;
+    const [value] = crypto.getRandomValues(new Uint32Array(1));
+    return min + (value % span);
+}

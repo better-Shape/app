@@ -5,6 +5,7 @@ import { createChatRequestId } from "@/lib/chat/request-ownership";
 import React from "react";
 import { useIsMounted } from "@/lib/ui/use-mounted";
 import { useScopedState } from "@/lib/ui/use-scoped-state";
+import { randomSuffix } from "@/lib/utils";
 import { listen } from "@tauri-apps/api/event";
 import { commands, Conversation, useProjectState } from "@/lib/backend";
 import { useChatStream } from "./chat-stream-store";
@@ -966,7 +967,7 @@ export function useChatSession(
     /** Queue a follow-up bound to `conversationId` (defaults to the chat on screen). */
     const enqueueChatMessage = React.useCallback(
         (content: string, conversationId?: string | null) => {
-            const id = `q-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+            const id = `q-${Date.now()}-${randomSuffix(6)}`;
             const owner = conversationId === undefined ? conversationIdRef.current : conversationId;
             setMessageQueue((prev) => [...prev, { id, content: content.trim(), conversationId: owner }]);
         },
@@ -1193,7 +1194,7 @@ export function useChatSession(
             } else {
                 // A failed delivery goes back to the front of its own chat's queue.
                 restoreQueuedMessage({
-                    id: `q-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                    id: `q-${Date.now()}-${randomSuffix(6)}`,
                     content,
                     conversationId: target,
                 });

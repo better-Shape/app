@@ -1,6 +1,7 @@
 "use client";
 
 import { useScopedState } from "@/lib/ui/use-scoped-state";
+import { randomSuffix } from "@/lib/utils";
 
 import React, { useEffect } from "react";
 
@@ -18,7 +19,7 @@ export function ChatMermaid({ source }: { source: string }) {
                     securityLevel: "strict",
                     theme: "neutral",
                 });
-                const id = `mmd-${Math.random().toString(36).slice(2, 10)}`;
+                const id = `mmd-${randomSuffix()}`;
                 const { svg: rendered } = await mermaid.render(id, source);
                 if (!cancelled) setSvg(rendered);
             } catch {

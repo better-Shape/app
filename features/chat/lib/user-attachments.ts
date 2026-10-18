@@ -1,5 +1,6 @@
 import { decodeXmlAttr } from "@/lib/chat/xml";
 import type { ComposerAttachment } from "../ui/composer/attachments";
+import { randomSuffix } from "@/lib/utils";
 
 const ATTACHMENT_BLOCK_RE =
     /<attached_(image|file|asset)\b([^>]*)>([\s\S]*?)<\/attached_\1>/g;
@@ -68,7 +69,7 @@ export function parseUserAttachments(content: string): {
 function newId() {
     return typeof crypto !== "undefined" && "randomUUID" in crypto
         ? crypto.randomUUID()
-        : `att-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        : `att-${Date.now()}-${randomSuffix(6)}`;
 }
 
 /** Rebuild composer chips from a restored user message (no raw tags in the input). */
