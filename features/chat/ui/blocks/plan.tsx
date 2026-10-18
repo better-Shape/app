@@ -50,34 +50,42 @@ export function PlanningBlock({ steps, completedCount, totalCount, isGenerating 
         : active
           ? [active]
           : displaySteps.filter((step) => step.status === "done").slice(-2);
-    const renderSteps = (items: PlanStep[]) => (
-        <div className="flex flex-col px-2 pb-2">
-            {items.map((step, index) => (
-                <div key={`${step.label}-${index}`} className="flex h-7 items-center gap-2">
-                    <span className="flex size-4 shrink-0 items-center justify-center">
-                        {step.status === "done" ? (
-                            <Icon icon={CheckmarkCircle20Filled} className="size-4 text-success" />
-                        ) : step.status === "active" ? (
-                            <span className="size-4 rounded-full border-2 border-accent border-t-transparent animate-spin" />
-                        ) : step.status === "cancelled" ? (
-                            <Icon icon={Dismiss20Regular} className="size-4 text-text-disabled" />
-                        ) : (
-                            <span className="size-4 rounded-full border border-text-muted/55" />
-                        )}
-                    </span>
-                    <span className={cn(
-                        "text-sm leading-snug",
-                        step.status === "done" && "text-text-muted",
-                        step.status === "active" && "text-text-primary",
-                        step.status === "pending" && "text-text-muted",
-                        step.status === "cancelled" && "text-text-disabled",
-                    )}>
-                        {step.label}
-                    </span>
-                </div>
-            ))}
-        </div>
-    );
+    const renderSteps = (items: PlanStep[]) => {
+        const labelOccurrences = new Map<string, number>();
+        return (
+            <div className="flex flex-col px-2 pb-2">
+                {items.map((step) => {
+                    const occurrence = labelOccurrences.get(step.label) ?? 0;
+                    labelOccurrences.set(step.label, occurrence + 1);
+                    const key = occurrence === 0 ? step.label : `${step.label}-${occurrence}`;
+                    return (
+                        <div key={key} className="flex h-7 items-center gap-2">
+                            <span className="flex size-4 shrink-0 items-center justify-center">
+                                {step.status === "done" ? (
+                                    <Icon icon={CheckmarkCircle20Filled} className="size-4 text-success" />
+                                ) : step.status === "active" ? (
+                                    <span className="size-4 rounded-full border-2 border-accent border-t-transparent animate-spin" />
+                                ) : step.status === "cancelled" ? (
+                                    <Icon icon={Dismiss20Regular} className="size-4 text-text-disabled" />
+                                ) : (
+                                    <span className="size-4 rounded-full border border-text-muted/55" />
+                                )}
+                            </span>
+                            <span className={cn(
+                                "text-sm leading-snug",
+                                step.status === "done" && "text-text-muted",
+                                step.status === "active" && "text-text-primary",
+                                step.status === "pending" && "text-text-muted",
+                                step.status === "cancelled" && "text-text-disabled",
+                            )}>
+                                {step.label}
+                            </span>
+                        </div>
+                    );
+                })}
+            </div>
+        );
+    };
 
     return (
         <div className="my-1 w-full overflow-hidden squircle-2xl bg-surface-4">

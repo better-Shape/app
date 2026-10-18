@@ -599,8 +599,8 @@ export default function Graph({
         }
     }
 
-    // Keyboard: j/k or arrows move selection among matches; Tab next; Enter expands; n/N; H → HEAD.
-    // Search fields (in-graph + manager titlebar) also accept arrows/Tab for match nav.
+    // Keyboard: j/k or arrows move selection among matches; Enter expands; n/N; H → HEAD.
+    // Keep Tab native so keyboard users can reach graph controls in the normal tab order.
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
             const target = e.target as HTMLElement | null;
@@ -617,7 +617,7 @@ export default function Graph({
             if (inTitlebarSearch && !rich) return;
 
             const isNav =
-                e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Tab"
+                e.key === "ArrowDown" || e.key === "ArrowUp"
                 || e.key.toLowerCase() === "j" || e.key.toLowerCase() === "k"
                 || (e.key.toLowerCase() === "n" && !e.ctrlKey && !e.metaKey)
                 || e.key === "Enter"
@@ -627,10 +627,10 @@ export default function Graph({
             if ((inGraphSearch || inTitlebarSearch) && (e.key.toLowerCase() === "j" || e.key.toLowerCase() === "k")) return;
 
             const key = e.key.toLowerCase();
-            if (key === "j" || e.key === "ArrowDown" || (e.key === "Tab" && !e.shiftKey)) {
+            if (key === "j" || e.key === "ArrowDown") {
                 e.preventDefault();
                 jumpToNextMatch(1);
-            } else if (key === "k" || e.key === "ArrowUp" || (e.key === "Tab" && e.shiftKey)) {
+            } else if (key === "k" || e.key === "ArrowUp") {
                 e.preventDefault();
                 jumpToNextMatch(-1);
             } else if (key === "n" && !e.ctrlKey && !e.metaKey) {
@@ -678,6 +678,8 @@ export default function Graph({
                             <div
                                 key={log.hash}
                                 role="listitem"
+                                aria-posinset={idx + 1}
+                                aria-setsize={gitLogs.length}
                                 aria-current={selectedHash === log.hash ? "true" : undefined}
                                 style={{ position: "absolute", top, left: 0, right: 0 }}
                             >

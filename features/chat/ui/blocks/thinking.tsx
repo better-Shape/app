@@ -15,7 +15,7 @@ export function ThinkingBlock({ content, isActive }: { content: string; isActive
     const lines = content.split("\n").filter(Boolean);
 
     return (
-        <div className="flex flex-col my-2 w-full" aria-busy={isActive || undefined}>
+        <div className="flex flex-col my-2 w-full">
             <button
                 onClick={() => setIsOpen(!isOpen)}
                 className="flex items-center gap-2 py-1.5 text-sm text-text-muted hover:text-text-primary transition-colors group w-full text-left"
@@ -35,7 +35,10 @@ export function ThinkingBlock({ content, isActive }: { content: string; isActive
             </button>
 
             {isOpen && (
-                <div className="mt-1 flex w-full min-w-0 flex-col gap-1 text-sm leading-relaxed text-text-muted">
+                <div
+                    aria-busy={isActive || undefined}
+                    className="mt-1 flex w-full min-w-0 flex-col gap-1 text-sm leading-relaxed text-text-muted"
+                >
                     {lines.map((line, i) => (
                         <span key={i} className={cn(
                             "block",
