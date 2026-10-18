@@ -89,6 +89,7 @@ jobs:
           npm ci --ignore-scripts 2>&1 | tee "$RUNNER_TEMP/tauri-build.log"
 
       - name: Build runtime
+        id: build-runtime
         shell: bash
         run: |
           set -euo pipefail
@@ -105,14 +106,9 @@ jobs:
           ARGS=(build --bundles "${{ matrix.bundles }}")
           if [ -n "${{ matrix.target }}" ]; then ARGS+=(--target "${{ matrix.target }}"); fi
           npm run tauri -- "${ARGS[@]}" 2>&1 | tee -a "$RUNNER_TEMP/tauri-build.log"
-          status=${PIPESTATUS[0]}
-          if [ $status -ne 0 ]; then
-            echo "tauri build failed with $status" >&2
-            exit $status
-          fi
 
       - name: Report native build failure
-        if: failure() && steps.build-tauri.outcome == 'failure'
+        if: ${{ failure() && (steps.build-tauri.outcome == 'failure' || steps.build-runtime.outcome == 'failure') }}
         shell: bash
         run: |
           if [ -f "$RUNNER_TEMP/tauri-build.log" ]; then
@@ -120,7 +116,7 @@ jobs:
           fi
 
       - name: Upload native build diagnostics
-        if: failure() && steps.build-tauri.outcome == 'failure'
+        if: ${{ failure() && (steps.build-tauri.outcome == 'failure' || steps.build-runtime.outcome == 'failure') }}
         uses: actions/upload-artifact@v7
         with:
           name: native-build-log-${{ matrix.os }}-${{ matrix.arch }}

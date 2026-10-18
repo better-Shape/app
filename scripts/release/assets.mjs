@@ -132,7 +132,7 @@ function validateBundles(outDir, bundlesStr) {
         if (!found) missing.push(bundle);
     }
     if (missing.length) {
-        console.error(`::error::Missing requested bundles: ${missing.join(", ")} (requested: ${bundlesStr}, found: ${files.join(", ")})`);
+        console.log(`::error::Missing requested bundles: ${missing.join(", ")} (requested: ${bundlesStr}, found: ${files.join(", ")})`);
         process.exit(1);
     }
     console.log(`Validated bundles: ${requested.join(", ")} present`);
