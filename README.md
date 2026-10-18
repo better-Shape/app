@@ -78,9 +78,10 @@ npm run test:all      # Both
 ```
 
 If your network blocks `crates.io`, `sh.rustup.rs` or the Playwright browser CDN, `CONTRIBUTING.md`
-names the vendor branch that supplies the toolchain, the crate registry and the browser. Add the two
-cargo flags `engineering/rust-toolchain.md` documents, and these commands run offline;
-`npm run test:rust` and `npm run test:all` do not carry those flags themselves.
+names the vendor branch that supplies the toolchain, the crate registry and the browser. Its
+toolchain is Rust 1.89.0, which meets the lockfile's MSRV, so the commands run offline with only
+`CARGO_BUILD_JOBS=1` on `cargo test` for the linker headroom; `engineering/rust-toolchain.md` has
+the detail, and `npm run test:rust` and `npm run test:all` pass as they are.
 
 TypeScript, React, Next.js App Router, Tauri 2, Rust.
 

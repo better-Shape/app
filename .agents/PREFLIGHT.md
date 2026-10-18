@@ -20,7 +20,7 @@ the crate registry, the Tauri sysroot, the browser, and the shared libraries eac
 
 - [ ] I set `$CARGO_HOME/config.toml` with the vendored source replacement and `CARGO_NET_OFFLINE=true`, because `cargo --config <path>` does not reach `cargo clippy`.
 - [ ] I exported a `CARGO_TARGET_DIR` outside the workspace and outside shared `/tmp` (the section 5 recipe puts it under the private payload root), so a multi-gigabyte target directory stays out of the workspace.
-- [ ] I ran the Rust gates with `--ignore-rust-version`, because `notify-rust@4.18.0` declares `rust-version = "1.89.0"` while the pin is 1.88.0.
+- [ ] I ran the Rust gates without `--ignore-rust-version`: the vendored toolchain and the `src-tauri/Cargo.toml` pin are both 1.89.0, which meets `notify-rust@4.18.0`'s `rust-version = "1.89.0"`.
 - [ ] I ran `cargo test` with `CARGO_BUILD_JOBS=1`, because parallel linking is killed with `signal 9` on a small sandbox.
 - [ ] I ran the browser suite with `PLAYWRIGHT_BROWSERS_PATH` pointing at the extracted browser tree, `PLAYWRIGHT_SANDBOX_LIBS` pointing at the payload's `chrome-deps/cft-156` for NSS and NSPR, and `npm ci` with `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`. Without the library directory the browser dies on `libnspr4.so` before the first spec.
 - [ ] For every gate that still cannot run, I said so in the PR body with the reason and the substitute command I ran, rather than marking it passed.
@@ -33,14 +33,15 @@ with the toolchain notes in `engineering/rust-toolchain.md`.
 If you changed Rust, also run:
 
 - [ ] `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`
-- [ ] `cargo clippy --ignore-rust-version --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings`
-- [ ] `CARGO_BUILD_JOBS=1 cargo test --ignore-rust-version --all-features --manifest-path src-tauri/Cargo.toml`
+- [ ] `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings`
+- [ ] `CARGO_BUILD_JOBS=1 cargo test --all-features --manifest-path src-tauri/Cargo.toml`
 
-Drop `--ignore-rust-version` on a host whose toolchain is 1.89.0 or newer. CI runs stable, so it
-runs the plain commands. On a blocked host, verify the vendored sysroot before any link step:
+The pin is 1.89.0, which matches the vendored toolchain and `notify-rust@4.18.0`, so no
+`--ignore-rust-version` is needed. `CARGO_BUILD_JOBS=1` stays for the linker headroom. On a blocked
+host, verify the vendored sysroot before any link step:
 `find "$GTK_SYSROOT" -xtype l -name "lib*.so*"` and `find "$GTK_SYSROOT" -type l -lname '/*'`
 must both print nothing, and `libdbus-1.so` must resolve inside the sysroot. The second check
-matters because a dangling test cannot see an absolute link that still resolves on this host. The current payload (`58094f1c`) passes both; the first delivery (`7ec94c1b`)
+matters because a dangling test cannot see an absolute link that still resolves on this host. The current payload (`7c4c878`) passes both; the first delivery (`7ec94c1b`)
 needs the section 7.1 repair in `engineering/sandbox-vendored-toolchain.md`, without which
 `cargo test` fails to link.
 

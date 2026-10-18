@@ -90,10 +90,10 @@ npm run test:all      → local aggregate (CI runs Vitest and Cargo separately)
 ```
 
 On a network that cannot reach `crates.io` or the Playwright browser CDN, the Rust and browser gates
-still run through the orphan branch `vendor/sandbox-toolchain`, with the two cargo flags
-`engineering/rust-toolchain.md` documents. See
-`engineering/rust-toolchain.md` for the cargo flags and `engineering/sandbox-vendored-toolchain.md`
-for the fetch recipe. `.github/CICD_REVIEW_AND_IMPLEMENTATION.md` records that pipeline as it stood
+still run through the orphan branch `vendor/sandbox-toolchain`. Its toolchain is Rust 1.89.0, which
+matches the pin, so the cargo commands need only `CARGO_BUILD_JOBS=1` for the linker headroom;
+`engineering/rust-toolchain.md` has the cargo flag detail and
+`engineering/sandbox-vendored-toolchain.md` the fetch recipe. `.github/CICD_REVIEW_AND_IMPLEMENTATION.md` records that pipeline as it stood
 on 2026-10-12 and is not a recipe.
 
 ## Adding a new workflow

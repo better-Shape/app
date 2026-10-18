@@ -13,7 +13,7 @@ This file is the OpenSpec project context for BetterShape. It was checked agains
 | Desktop shell | Tauri 2.11.1 (`src-tauri/`), `tauri-build` 2.5.4 |
 | Renderer | Next.js ^16.4.0 (dev uses webpack, `npm run dev:webpack`), React 19.2.3 |
 | Styling | Tailwind CSS ^4, tokens in `app/globals.css` |
-| Language | TypeScript ^6.0.3, Rust `rust-version` 1.88.0, edition 2021 |
+| Language | TypeScript ^6.0.3, Rust `rust-version` 1.89.0, edition 2021 |
 | Lint | ESLint ^9 (`eslint.config.mjs`), `--max-warnings=0` in `lint:strict` |
 | Tests | Vitest ^4.1.11 (`npm run test`), `cargo test` (`npm run test:rust`) |
 | Package manager | npm, with `package-lock.json`. CI runs `npm ci`. `bun.lock` also exists in the tree |
@@ -42,7 +42,7 @@ This file is the OpenSpec project context for BetterShape. It was checked agains
 | cargo | `npm run test:rust` | Rust unit tests under `src-tauri` |
 | Both | `npm run test:all` | `npm run test` followed by `npm run test:rust` |
 
-`test:all` needs a Rust toolchain. A machine without cargo can run the TypeScript gates only, and the PR must say that the Rust gate did not run. A machine whose network blocks `crates.io` is a different case: the orphan branch `vendor/sandbox-toolchain` carries the toolchain, the crate registry and the Tauri sysroot, so the Rust gate does run offline. See `engineering/rust-toolchain.md` for the two flags it needs there.
+`test:all` needs a Rust toolchain. A machine without cargo can run the TypeScript gates only, and the PR must say that the Rust gate did not run. A machine whose network blocks `crates.io` is a different case: the orphan branch `vendor/sandbox-toolchain` carries the toolchain, the crate registry and the Tauri sysroot, so the Rust gate does run offline. See `engineering/rust-toolchain.md` for the cargo flags it needs there.
 
 ### Git workflow
 

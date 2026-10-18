@@ -9,16 +9,16 @@ Two sources cover the toolchain. Use them in this order.
 
 ## Source 1, the vendor branch, everything works
 
-The orphan branch `vendor/sandbox-toolchain` on `better-Shape/app` carries the Rust 1.88.0
+The orphan branch `vendor/sandbox-toolchain` on `better-Shape/app` carries the Rust 1.89.0
 components, the cargo dependency tree for `src-tauri`, a Debian 12 development sysroot for the
 Tauri stack, and the missing command line tools. Fetch it, extract it to `/tmp`, and follow its
-`FETCH.md`. Measured with it on 2026-10-16:
+`FETCH.md`. Measured with it on 2026-10-17:
 
 | Gate | Command | Result |
 | --- | --- | --- |
 | Format | `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check` | clean |
-| Lints | `cargo clippy --ignore-rust-version --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings` | exit 0, 5m 19s |
-| Tests | `CARGO_BUILD_JOBS=1 cargo test --ignore-rust-version --manifest-path src-tauri/Cargo.toml` | 313 passed, 0 failed |
+| Lints | `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings` | exit 0, 2m 23s |
+| Tests | `CARGO_BUILD_JOBS=1 cargo test --manifest-path src-tauri/Cargo.toml --all-features` | 313 passed, 0 failed |
 
 Full detail, including the two known payload defects and their workarounds, is in
 `engineering/sandbox-vendored-toolchain.md`. Read section 7 before running the gates.
@@ -42,31 +42,33 @@ eval "$(scripts/ci/install-rust-toolchain.sh --env)"     # load the tools in the
 | rustfmt / cargo-fmt | 1.8.0-stable (6b00bc3880 2025-06-23) |
 | clippy / cargo-clippy | 0.1.88 (6b00bc3880 2025-06-23) |
 
-The versions match `rust-version = "1.88.0"` in `src-tauri/Cargo.toml` and the components on the
-vendor branch. Without the vendor branch this source supports the format check only, because cargo
-cannot resolve dependencies from `crates.io`.
+The npm mirror `@rustbin/*` publishes no 1.89.0, so this source tops out at 1.88.0, behind the
+`rust-version = "1.89.0"` pin in `src-tauri/Cargo.toml`. It still covers the format check, which
+does not resolve dependencies and ignores the pin. Without the vendor branch it cannot run
+`cargo clippy` or `cargo test`, both because it is behind the pin and because cargo cannot resolve
+dependencies from `crates.io`.
 
 Keep the two sources in separate prefixes. The vendor branch runs each component's own `install.sh`,
 which puts the binaries flat in `$PREFIX/bin`. This script assembles a sysroot under
 `$RUST_TOOLS_DIR/sysroot/bin`. Point one source's `--env` output at the other source's directory and
 the tools are simply not found. Pick one source per shell and do not mix them.
 
-## Two flags every Rust gate needs here
+## The cargo flag every Rust gate needs here
 
-`cargo clippy` and `cargo test` fail before compiling anything without them.
+`cargo test` needs it; `cargo clippy` runs without it.
 
 ```bash
 SV="${SV:?export SV to the payload root printed by the section 5 fetch recipe}"
 export CARGO_HOME="$SV/cargo-home"       # section 5 writes config.toml here, pointing at $SV/cargo-vendor
 export CARGO_NET_OFFLINE=true
 export CARGO_TARGET_DIR="$SV/cargo-target" # keeps a multi-gigabyte target directory out of the workspace and out of shared /tmp
-cargo clippy --ignore-rust-version --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
-CARGO_BUILD_JOBS=1 cargo test --ignore-rust-version --manifest-path src-tauri/Cargo.toml
+cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
+CARGO_BUILD_JOBS=1 cargo test --manifest-path src-tauri/Cargo.toml --all-features
 ```
 
-- `--ignore-rust-version` is required because `notify-rust@4.18.0`, pulled in by
-  `tauri-plugin-notification`, declares `rust-version = "1.89.0"` while the pin is 1.88.0. It is the
-  only crate in the lockfile above 1.88.0, and it compiles and tests cleanly on 1.88.0.
+- The vendored toolchain is Rust 1.89.0, matching the `src-tauri/Cargo.toml` pin and
+  `notify-rust@4.18.0`'s `rust-version = "1.89.0"`, so no `--ignore-rust-version` is needed. That
+  crate is the only one in the lockfile above 1.88.0.
 - `CARGO_BUILD_JOBS=1` is required because linking the two test binaries in parallel peaks above the
   memory a sandbox has, and the linker is killed with `signal 9`.
 - `cargo --config <path> clippy` does not work. Cargo does not forward the global `--config` flag to
@@ -74,9 +76,8 @@ CARGO_BUILD_JOBS=1 cargo test --ignore-rust-version --manifest-path src-tauri/Ca
   `no matching package named base64`. Built-in commands such as `metadata` and `check` do honour the
   flag. Put the replacement in `$CARGO_HOME/config.toml` instead.
 
-`npm run test:rust`, `npm run test:all` and the cargo lines in `.agents/PREFLIGHT.md` run cargo
-without `--ignore-rust-version`, so they fail here on the version check. Report them in the PR body
-as failed with that reason, and paste the output of the equivalent command that passed.
+`npm run test:rust` and `npm run test:all` run cargo without `--ignore-rust-version`, and with the
+vendored 1.89.0 toolchain they pass as they are.
 
 ## Do not repeat these mistakes
 

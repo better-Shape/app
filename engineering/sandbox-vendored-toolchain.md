@@ -48,7 +48,7 @@ Nothing in this section uses the vendor branch. It records what the open network
 that the gap list in section 3 is honest. With the branch, the Rust gates run as well, which is what
 section 7 measures and describes.
 
-### 2.1 Rust 1.88.0 from npm
+### 2.1 Rust 1.88.0 from npm (format only)
 
 `scripts/ci/install-rust-toolchain.sh` assembles a sysroot from the `@rustbin/*` npm packages and
 runs a clippy probe. Re-run today, it produced:
@@ -61,7 +61,9 @@ runs a clippy probe. Re-run today, it produced:
 | clippy | 0.1.88 (6b00bc3880 2025-06-23) |
 
 The clippy probe passes, which proves the toolchain links and lints a crate with no dependencies.
-This version matches `rust-version = "1.88.0"` in `src-tauri/Cargo.toml`.
+The npm mirror `@rustbin/*` publishes no 1.89.0, so this path tops out at 1.88.0, behind the
+`rust-version = "1.89.0"` pin in `src-tauri/Cargo.toml`. It still covers the format check, which does
+not resolve dependencies; `cargo clippy` and `cargo test` need the vendor branch.
 
 What the toolchain can and cannot do here:
 
@@ -153,7 +155,7 @@ Should means fidelity or robustness. Optional means provenance or polish.
 | G4 | NSS, NSPR and the CfT shared-library closure | any Chrome or Chromium launch without apt | must |
 | G5 | `pkg-config`, `cmake`, `patchelf`, `file` | Rust build scripts, `tauri build` bundling | must for G2 |
 | G6 | Font set beyond DejaVu | text rendering differences against CI | optional |
-| G7 | Official Rust 1.88.0 tarballs and the channel manifest | provenance of a toolchain that today comes from the third-party `@rustbin` repackaging | optional |
+| G7 | Official Rust 1.89.0 tarballs and the channel manifest | provenance of a toolchain that today comes from the third-party `@rustbin` repackaging | optional |
 
 ### G1 crates.io dependency set
 
@@ -166,7 +168,7 @@ and `static.crates.io` all fail to connect. Pin the set to this lockfile:
 src-tauri/Cargo.lock sha256 c4cece116c312de4cd5ff7a1a4b8c0e2583083b9997a6a63e05fed7b84b8c537
 ```
 
-What the free agent produces, run on the same commit with Rust 1.88.0:
+What the free agent produces, run on the same commit with Rust 1.89.0:
 
 ```bash
 cargo vendor --locked --versioned-dirs --manifest-path src-tauri/Cargo.toml /tmp/cargo-vendor
@@ -177,10 +179,10 @@ Requirements on the artifact:
 
 - `cargo vendor` prints a `[source.crates-io] replace-with = "vendored-sources"` block. Save that
   block in the branch as `rust/cargo-config.toml` so consumers do not have to regenerate it. A file
-  path in `cargo --config <path>` is accepted and applied, verified with cargo 1.88.0 and a vendor
+  path in `cargo --config <path>` is accepted and applied, verified with cargo and a vendor
   directory that did not exist, which failed with `failed to load source for dependency backoff`.
-- Keep the consume side on Rust 1.88.0, because `src-tauri/Cargo.toml` sets
-  `rust-version = "1.88.0"` and the sandbox toolchain is 1.88.0.
+- Keep the consume side on the pinned toolchain: `src-tauri/Cargo.toml` sets `rust-version = "1.89.0"`
+  and the vendored toolchain is 1.89.0.
 - Ship the lockfile hash next to the tarball so a consumer can refuse a mismatched lockfile.
 - Keep `CARGO_HOME` out of the workspace when consuming, and private to the run: section 5 puts it
   under the extracted payload root, so two runs on one host never share a registry or a config.
@@ -278,9 +280,8 @@ mkdir -p "$CARGO_HOME"
 printf '[source.crates-io]\nreplace-with = "vendored-sources"\n\n[source.vendored-sources]\ndirectory = "/tmp/cargo-vendor"\n' \
   > "$CARGO_HOME/config.toml"
 export CARGO_NET_OFFLINE=true
-cargo clippy --ignore-rust-version \
-  --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
-cargo test --ignore-rust-version --manifest-path src-tauri/Cargo.toml
+cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
+CARGO_BUILD_JOBS=1 cargo test --manifest-path src-tauri/Cargo.toml --all-features
 ```
 
 Do not reach for `cargo --config <path> clippy`. Cargo does not forward the global `--config` flag
@@ -416,21 +417,21 @@ CI renders with the Ubuntu runner's font set, and the visual baselines are exclu
 exactly that reason. If visual parity with CI matters later, vendor the same font packages CI has,
 otherwise leave this alone.
 
-### G7 Official Rust toolchain, optional
+### G7 Official Rust toolchain, now the shipped toolchain
 
-`@rustbin/*` works today and is the only way to get a toolchain from npm. Vendoring the upstream
-1.88.0 components gives a first-party source and upstream-published hashes:
+`@rustbin/*` publishes no 1.89.0, so the vendored payload uses the upstream 1.89.0 components, which
+gives a first-party source and upstream-published hashes:
 
 ```text
-https://static.rust-lang.org/dist/rustc-1.88.0-x86_64-unknown-linux-gnu.tar.xz
-https://static.rust-lang.org/dist/rust-std-1.88.0-x86_64-unknown-linux-gnu.tar.xz
-https://static.rust-lang.org/dist/cargo-1.88.0-x86_64-unknown-linux-gnu.tar.xz
-https://static.rust-lang.org/dist/rustfmt-1.88.0-x86_64-unknown-linux-gnu.tar.xz
-https://static.rust-lang.org/dist/clippy-1.88.0-x86_64-unknown-linux-gnu.tar.xz
-https://static.rust-lang.org/dist/channel-rust-1.88.0.toml
+https://static.rust-lang.org/dist/rustc-1.89.0-x86_64-unknown-linux-gnu.tar.xz
+https://static.rust-lang.org/dist/rust-std-1.89.0-x86_64-unknown-linux-gnu.tar.xz
+https://static.rust-lang.org/dist/cargo-1.89.0-x86_64-unknown-linux-gnu.tar.xz
+https://static.rust-lang.org/dist/rustfmt-1.89.0-x86_64-unknown-linux-gnu.tar.xz
+https://static.rust-lang.org/dist/clippy-1.89.0-x86_64-unknown-linux-gnu.tar.xz
+https://static.rust-lang.org/dist/channel-rust-1.89.0.toml
 ```
 
-`channel-rust-1.88.0.toml` carries the sha256 and xz hash for each component, so ship it and let
+`channel-rust-1.89.0.toml` carries the sha256 and xz hash for each component, so ship it and let
 the fetch script verify against upstream-published hashes. Each component tarball is between 3 MB
 and 70 MB, so no splitting is needed. The consumer extracts each component with its own
 `install.sh --prefix=<dir>`, exactly as rustup would.
@@ -447,7 +448,7 @@ README.md                     what this branch is, source URLs, licences, how to
 FETCH.md                      copy-paste consumer commands, verified on the free box
 MANIFEST.sha256               sha256 for every file in the tree and for each reassembled asset
 LICENSES/                     licence text per redistributed library
-rust/toolchain/               G7 components and channel-rust-1.88.0.toml
+rust/toolchain/               G7 components and channel-rust-1.89.0.toml
 rust/cargo-vendor.tar.xz      G1 vendor tree, split if over 90 MB
 rust/cargo-config.toml        the source replacement block cargo vendor prints
 rust/Cargo.lock.sha256        c4cece116c312de4cd5ff7a1a4b8c0e2583083b9997a6a63e05fed7b84b8c537
@@ -645,8 +646,9 @@ describes, so re-run it after any re-extraction.
 Two things this recipe deliberately does. The source replacement goes in `$CARGO_HOME/config.toml`
 rather than through `cargo --config`, because cargo does not forward the global flag to external
 subcommands and `cargo --config <path> clippy` fails with `no matching package named base64`. And
-every cargo gate needs `--ignore-rust-version`, with `CARGO_BUILD_JOBS=1` on `cargo test`; section
-7.5 explains why and what happens without them.
+`cargo test` needs `CARGO_BUILD_JOBS=1` for the linker headroom. The vendored toolchain is Rust 1.89.0,
+which meets the lockfile's MSRV, so no `--ignore-rust-version` is needed; section 7.5 records the
+resolution.
 
 ## 6. Reference map for the branch and the docs
 
@@ -659,7 +661,7 @@ the CI row that nothing in the sandbox depends on.
 | `engineering/sandbox-vendor-handoff-prompt.md` | done | the brief for the free agent, now carrying the second-pass corrections, the A1 record and the NSS and shared-object checks in A6 |
 | `playwright.config.ts` | done | `sandboxLibsEnv()` feeds `launchOptions.env` on all three browser paths, so the NSS/NSPR directory reaches the browser and its probe but never the dev server's environment |
 | `AGENTS.md` | done | new `Blocked sandbox toolchain` section with the fetch recipe pinned to a commit and one `mktemp -d` root per run under `set -euo pipefail`, and a return to the checkout after the manifest check, the five facts that decide whether a gate can pass, and the delegation path, plus one line under Facts about this repository |
-| `.agents/PREFLIGHT.md` | done | `Blocked sandbox` checklist with the exact invocations, the Rust checks carrying `--ignore-rust-version`, `CARGO_BUILD_JOBS=1` and `--all-features` to match CI, and the sysroot verification named as a prerequisite |
+| `.agents/PREFLIGHT.md` | done | `Blocked sandbox` checklist with the exact invocations, `CARGO_BUILD_JOBS=1` and `--all-features` to match CI, and the sysroot verification named as a prerequisite. Updated to 1.89.0, which drops `--ignore-rust-version` |
 | `engineering/rust-toolchain.md` | done | rewritten around two sources, the vendor branch where every gate runs and npm for format only. Corrected the `Cannot run` table, the `no sudo` claim, and a reference to a file that does not exist in this repository |
 | `.github/RELEASE_READINESS.md` | done | the `CI only` claim replaced with the offline path, the reproducing block updated, every Cargo row given `--manifest-path`, the browser smoke and CI-mode rows measured, and the sysroot note pointed at the second delivery |
 | `scripts/ci/install-rust-toolchain.sh` | done | the closing note now says which tool the npm source supports and points at the vendor branch |
@@ -667,28 +669,30 @@ the CI row that nothing in the sandbox depends on.
 | `e2e/README.md` | done | the sandbox section leads with the vendored browser tree, reassembles and verifies the manifest inside a subshell so the `npm` commands stay in the checkout, names the headless shell for explicit overrides, and the command table points at it |
 | `docs/developing/browser-preview.mdx` | done | the vendored recipe exports `PLAYWRIGHT_BROWSERS_PATH` and `PLAYWRIGHT_SANDBOX_LIBS`, and names the headless shell for a browser handed in through `PLAYWRIGHT_CHROMIUM_PATH` |
 | `docs/developing/local-development.mdx` | done | the tests section names the vendor branch and the toolchain note |
-| `docs/developing/ci-cd.mdx` | done | one paragraph after the jobs table: the two jobs run locally through the vendor branch, with the flags the 1.88.0 pin needs |
-| `CONTRIBUTING.md` | done | the run-the-app block names the vendor branch and the two flags |
-| `README.md` | done | the test block names the branch for what the network blocks, and the two cargo flags the commands need, since the npm scripts do not carry them |
-| `openspec/project.md` | done | the row that said a machine without cargo runs the TypeScript gates only now separates a missing toolchain from a blocked network |
-| `FULL-REVIEW.md` | done | the Rust block names the two flags, says `cargo fmt` must not take `--ignore-rust-version`, and points at the branch |
-| `.cursor/rules/git-workflow.mdc` | done | the pre-push rule points at the branch, records that the npm Rust scripts carry no `--ignore-rust-version`, and sets the review cadence: one request per head, exponential backoff on a refusal, no finishing while a review is pending |
+| `docs/developing/ci-cd.mdx` | done | one paragraph after the jobs table: the two jobs run locally through the vendor branch, with the flags the pin needs (1.89.0 now, so only `CARGO_BUILD_JOBS=1`) |
+| `CONTRIBUTING.md` | done | the run-the-app block names the vendor branch and its cargo flags (1.89.0 now, so only `CARGO_BUILD_JOBS=1`) |
+| `README.md` | done | the test block names the branch for what the network blocks and its cargo flags. Updated to 1.89.0, where the npm scripts pass unmodified |
+| `openspec/project.md` | done | the row that said a machine without cargo runs the TypeScript gates only now separates a missing toolchain from a blocked network, and the language row pins 1.89.0 |
+| `FULL-REVIEW.md` | done | the Rust block names `CARGO_BUILD_JOBS=1` and points at the branch. Updated to 1.89.0, which drops `--ignore-rust-version` |
+| `.cursor/rules/git-workflow.mdc` | done | the pre-push rule points at the branch and sets the review cadence: one request per head, exponential backoff on a refusal, no finishing while a review is pending. Updated to 1.89.0, where the npm Rust scripts pass unmodified |
 | `CLAUDE.md` | not needed | a symlink to `AGENTS.md`, so the section already reaches it |
 | `.github/CICD_REVIEW_AND_IMPLEMENTATION.md` | not needed | dated record of the pipeline as it stood on 2026-10-12, not a recipe |
 | `.github/actions/setup/action.yml` | not needed | the vendored sysroot mirrors this apt list. A comment here would be the only place the two must agree, and the gate docs already carry the pointer |
-| `.github/workflows/ci.yml` | needs decision | CI installs stable Rust, which is ahead of the 1.88.0 pin and unaffected by the `notify-rust` gap. If the pin moves to 1.89.0, this file and the vendor payload move together |
+| `.github/workflows/ci.yml` | not needed | CI installs stable Rust via `dtolnay/rust-toolchain@stable`, which is already ahead of the 1.89.0 pin and unaffected by the `notify-rust` gap |
 
 Do not touch `.dump/app/browser-preview-audit-2026-10-14.md`. It is a dated record, not a recipe.
 
 ## 7. Verification of the delivered payload
 
 Branch `vendor/sandbox-toolchain`, orphan, 0 parents, one commit.
-The first delivery was `7ec94c1b353220d291924ee71c6346fcf35e66cd`; the current one is
-`58094f1cb906451f7baf1f8e26261f4bf46c9651`, which rebuilds the sysroot usr-merged and regenerates
-the manifest. Both were verified from this sandbox over the restricted network only. The current
-fetch is `curl` from codeload: an 802 MB archive that extracts to 1.5 GB on disk, because the
-assembled archives and their split parts are both present until reassembly. The workspace was never
-written to.
+The first delivery was `7ec94c1b353220d291924ee71c6346fcf35e66cd`, the second
+`58094f1cb906451f7baf1f8e26261f4bf46c9651` (usr-merged sysroot, regenerated manifest), and the
+current one is `7c4c8788b138294d1a9be31dbee79075df5e7f3d`, which replaces the Rust 1.88.0 toolchain
+components with 1.89.0 and regenerates `README.md`, `FETCH.md` and the manifest. The sections below
+record the first two deliveries as measured; section 7.5 records the 1.89.0 change and its results.
+All were verified from this sandbox over the restricted network only. The current fetch is `curl`
+from codeload: a ~915 MB archive that extracts to ~1.6 GB on disk, because the assembled archives and
+their split parts are both present until reassembly. The workspace was never written to.
 
 What passed here:
 
@@ -834,36 +838,37 @@ the file count, the manifest entry count and the packed size from a single measu
 here on `58094f1c`: 3779 of 3779 OK, 3777 files before reassembly and 3780 after it, and 1.5 GB on
 disk as delivered because each split asset ships both assembled and in parts.
 
-### 7.5 Upstream findings that block the Rust gates in `AGENTS.md`
+### 7.5 The `notify-rust` MSRV gap, and its resolution
 
 `notify-rust@4.18.0`, pulled in by `tauri-plugin-notification`, declares `rust-version = "1.89.0"`.
 It is the only crate in the lockfile above 1.88.0, verified by scanning every `rust-version` key in
-the vendored tree. The toolchain pin is 1.88.0, from `src-tauri/Cargo.toml` and from the vendored
-components. Cargo refuses before it compiles anything:
+the vendored tree. Against the original 1.88.0 toolchain and pin, cargo refused before it compiled
+anything:
 
 ```text
 error: rustc 1.88.0 is not supported by the following package:
   notify-rust@4.18.0 requires rustc 1.89.0
 ```
 
-`--ignore-rust-version` clears it, and the crate compiles and its tests pass on 1.88.0. That flag is
-a workaround, so the durable fixes are one of:
+`--ignore-rust-version` cleared it and the crate compiles and its tests pass on 1.88.0, but that flag
+is a workaround.
 
-1. Bump the pinned toolchain to 1.89.0 or newer, in `src-tauri/Cargo.toml`, in
-   `scripts/ci/install-rust-toolchain.sh` and in the vendored payload, and let CI's stable toolchain
-   follow.
-2. Pin `notify-rust` down to a version that declares 1.88.0, with
-   `cargo update notify-rust --precise <version>`, and rebuild the vendor tree.
+**Resolved by the first fix option: the pin and the vendored payload are now Rust 1.89.0.** The
+second delivery of the vendor branch was replaced by a third, `7c4c878`, which carries the official
+Rust 1.89.0 components (each checked against the `xz_hash` in `channel-rust-1.89.0.toml`) alongside
+the unchanged crate registry and sysroot. `src-tauri/Cargo.toml` now sets `rust-version = "1.89.0"`,
+so no `--ignore-rust-version` is needed anywhere and the gates pass verbatim:
 
-Until one of those lands, `.agents/PREFLIGHT.md` and `AGENTS.md` name gates that cannot pass
-verbatim in a sandbox with this payload:
-
-| Gate name | Status with the payload |
+| Gate name | Status with the current payload (`7c4c878`) |
 | --- | --- |
-| `npm run test:rust` | fails, no `--ignore-rust-version` |
+| `npm run test:rust` | passes, 313 tests, no flag |
 | `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check` | passes |
-| `cargo clippy ... -- -D warnings` | passes with `--ignore-rust-version`, fails without |
-| `cargo test ... --all-features` | passes with `--ignore-rust-version` and `CARGO_BUILD_JOBS=1` |
+| `cargo clippy ... -- -D warnings` | passes, no flag |
+| `cargo test ... --all-features` | passes with `CARGO_BUILD_JOBS=1` for the linker headroom |
+
+The npm-only source in section 2.1 could not be bumped: `@rustbin/*` publishes no 1.89.0, so that
+path stays at 1.88.0 and remains format-only. The alternative fix (pin `notify-rust` down to a
+version that declares 1.88.0 and rebuild the vendor tree) was not taken.
 
 ### 7.6 A browser handed in through `PLAYWRIGHT_CHROMIUM_PATH`
 

@@ -1,5 +1,10 @@
 # Handoff prompt: vendor the sandbox toolchain onto a GitHub branch
 
+> Note added 2026-10-17. The pin moved to Rust 1.89.0 and the payload was rebuilt: the current
+> vendor head is `7c4c8788b138294d1a9be31dbee79075df5e7f3d`. Where the brief below says 1.88.0, read
+> 1.89.0; where it says `--ignore-rust-version`, drop it. `engineering/sandbox-vendored-toolchain.md`
+> section 7.5 records the change. The body is kept as the brief that produced the original payload.
+
 Paste everything below the line into the free-network agent. It is written to be self-contained.
 The research behind it is `engineering/sandbox-vendored-toolchain.md`.
 

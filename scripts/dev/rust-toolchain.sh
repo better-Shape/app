@@ -13,6 +13,11 @@
 #                               resolution needs the crates.io index, which is
 #                               blocked here.
 #
+# The npm mirror `@rustbin/*` publishes no 1.89.0, so this path tops out at 1.88.0,
+# behind the `rust-version = "1.89.0"` pin in src-tauri/Cargo.toml. It still covers
+# `cargo fmt` (which does not resolve dependencies and ignores the pin), but it cannot
+# run `cargo clippy` or `cargo test` against the pin.
+#
 # For cargo clippy, cargo test and the Tauri build, fetch the orphan branch
 # vendor/sandbox-toolchain on better-Shape/app and follow its FETCH.md. It carries
 # the crate registry, a Debian 12 dev sysroot for the GTK and WebKit stack, and the

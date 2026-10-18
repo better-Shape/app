@@ -42,10 +42,10 @@ All jobs use the composite action `.github/actions/setup` for consistent Node 22
 The `test-rust` and `rust-lints` jobs need crates.io and the Tauri system libraries. A machine that
 can reach neither still runs the same commands locally through the orphan branch
 `vendor/sandbox-toolchain`, which carries the crate registry and a Debian 12 development sysroot.
-That needs the cargo flags in `engineering/rust-toolchain.md`: `--ignore-rust-version` on each of
-`cargo check`, `cargo clippy` and `cargo test`, because the pinned 1.88.0 toolchain is behind one
-crate's `rust-version`, plus `CARGO_BUILD_JOBS=1` on `cargo test` for the linker headroom. `engineering/sandbox-vendored-toolchain.md` has the
-fetch recipe.
+The vendored toolchain is Rust 1.89.0, which matches the `src-tauri/Cargo.toml` pin and
+`notify-rust@4.18.0`'s `rust-version`, so the commands need no `--ignore-rust-version`; only
+`CARGO_BUILD_JOBS=1` on `cargo test` for the linker headroom. `engineering/rust-toolchain.md` has the
+flag detail and `engineering/sandbox-vendored-toolchain.md` has the fetch recipe.
 
 Caching:
 
