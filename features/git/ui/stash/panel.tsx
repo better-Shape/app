@@ -237,8 +237,23 @@ export function StashPanel() {
         }
     }, [repoPath]);
 
-    useEffect(() => {
+    /**
+     * Clear the previous repo's stashes while rendering, so a repo switch never
+     * paints the old rows under the new path even for one frame. The fetch that
+     * fills them stays in the effect below, keyed on `load`.
+     */
+    const [shownFor, setShownFor] = useState(repoPath);
+    if (shownFor !== repoPath) {
+        setShownFor(repoPath);
         setEntries(null);
+    }
+
+    useEffect(() => {
+        // `load` is the fetch, and its `setLoading(true)` is that fetch's own
+        // loading flag, so the write belongs to this effect rather than to a
+        // render-derived value. The stashes it replaces are cleared while
+        // rendering, above.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         void load();
     }, [load]);
 

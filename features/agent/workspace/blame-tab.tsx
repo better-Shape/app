@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { commands, useProjectState, type BlameLine } from "@/lib/backend";
+import { useClock } from "@/lib/ui/use-clock";
 import { openCommitFileDiffTab } from "@/features/agent/workspace/file-diff";
 import { BlamePanel, type BlameCommitTarget } from "@/features/git/ui/blame/panel";
 import { blameBlockedReason, blameState, relativeLabel } from "@/features/git/ui/blame/model";
@@ -34,12 +35,25 @@ export function BlameTab() {
         [active_file, project_path],
     );
 
+    /**
+     * Both resets run while rendering. `status` must read `loading` on the same
+     * commit the request starts, or the panel paints the previous file's rows
+     * under the new file's name for one frame; the "show all" toggle resets to
+     * collapsed for the same reason. React documents the render-time compare as
+     * the alternative to a reset effect, and it removes the extra render.
+     */
+    const [shownFor, setShownFor] = useState({ active_file, rerunToken });
+    if (shownFor.active_file !== active_file || shownFor.rerunToken !== rerunToken) {
+        setShownFor({ active_file, rerunToken });
+        setShowAll(false);
+        setStatus("loading");
+        setMessage(null);
+    }
+
     useEffect(() => {
         if (!project_path || !active_file || blocked) return;
         const id = ++ticket.current;
         let cancelled = false;
-        setStatus("loading");
-        setMessage(null);
         void commands
             .gitBlameFile(project_path, active_file)
             .then((result) => {
@@ -64,10 +78,6 @@ export function BlameTab() {
             cancelled = true;
         };
     }, [project_path, active_file, blocked, rerunToken]);
-
-    useEffect(() => {
-        setShowAll(false);
-    }, [active_file, rerunToken]);
 
     const state = useMemo(
         () =>
@@ -99,13 +109,18 @@ export function BlameTab() {
     const onRefresh = useCallback(() => setRerunToken((token) => token + 1), []);
     const onShowAll = useCallback(() => setShowAll(true), []);
 
+    // The shared clock, so the relative dates age on screen and the value is not
+    // an impure read during render. Its server snapshot is a fixed 0, so the
+    // prerender and the hydration paint agree and only the client re-renders.
+    const nowSeconds = useClock();
+
     return (
         <div role="region" aria-label="Blame" className="h-full min-h-0 bg-sidebar" style={SIDEBAR_SURFACE}>
             <BlamePanel
                 state={state}
                 busy={status === "loading" && blocked === null}
                 showAll={showAll}
-                nowSeconds={Math.floor(Date.now() / 1000)}
+                nowSeconds={nowSeconds}
                 onRefresh={onRefresh}
                 onShowAll={onShowAll}
                 onOpenCommit={onOpenCommit}

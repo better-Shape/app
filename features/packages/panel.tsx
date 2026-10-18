@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { ArrowSync20Regular } from "@fluentui/react-icons/headless/svg/arrow-sync";
 import { ArrowUp20Regular } from "@fluentui/react-icons/headless/svg/arrow-up";
 import { Checkmark20Regular } from "@fluentui/react-icons/headless/svg/checkmark";
@@ -203,12 +203,15 @@ function InstallForm({
 }) {
     const [spec, setSpec] = useState("");
     const [dev, setDev] = useState(false);
-
-    // The tab owns the outcome and bumps the key after a successful install, which
-    // clears the field without the panel having to learn what success means.
-    useEffect(() => {
+    // The tab bumps `formKey` after a successful install, which clears the field
+    // without this component having to learn what success means. Resetting while
+    // rendering is the documented alternative to a reset effect, and it drops the
+    // stale keystroke a frame earlier than an effect would.
+    const [clearedAt, setClearedAt] = useState(formKey);
+    if (formKey !== clearedAt) {
+        setClearedAt(formKey);
         setSpec("");
-    }, [formKey]);
+    }
 
     const trimmed = spec.trim();
     const usable = normalizeInstallSpec(trimmed) !== null;

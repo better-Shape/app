@@ -163,16 +163,15 @@ function JournalRow({
 
 export function InterruptedTurns() {
     const [state, setState] = useState<InterruptedTurnsState>({ kind: "checking" });
-    const [dismissed, setDismissed] = useState<ReadonlySet<string>>(() => new Set<string>());
+    // Read once, during the first render. Nothing renders from this set until the
+    // journals land, so the prerender and the hydration paint both show nothing
+    // and the stored keys cannot cause a mismatch.
+    const [dismissed, setDismissed] = useState<ReadonlySet<string>>(() => readDismissed());
     const [attempt, setAttempt] = useState(0);
     /** One automatic check per mount; a retry clears it so it is never swallowed. */
     const ran = useRef(false);
     /** Highest issued check number, so a slow retry cannot be overwritten by the one before it. */
     const token = useRef(0);
-
-    useEffect(() => {
-        setDismissed(readDismissed());
-    }, []);
 
     const check = useCallback(() => {
         const issued = token.current + 1;

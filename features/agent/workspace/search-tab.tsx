@@ -104,7 +104,13 @@ export function SearchTab() {
     }, [autoFocusField]);
 
     useEffect(() => {
+        // The two writes below are the search's own lifecycle: `idle` the moment
+        // the query or settings make a search impossible, `loading` the moment one
+        // becomes possible. Both must land on the same commit as the inputs that
+        // caused them, and the debounce timer is what actually runs the query, so
+        // this cannot move to render without splitting the timer from its state.
         if (!project_path || searchBlockedReason(query, settings)) {
+            // eslint-disable-next-line react-hooks/set-state-in-effect
             setOutcome({ status: "idle" });
             return;
         }

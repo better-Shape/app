@@ -36,12 +36,26 @@ export function PackagesTab() {
 
     const packageManager: PackageManagerKey = override ?? resolvePackageManager(project_path);
 
+    /**
+     * The pending reset runs while rendering, not in an effect, so `status` reads
+     * `loading` on the same commit the new request starts. An effect left the
+     * previous manager's tree on screen for one frame under the new manager's name.
+     */
+    const [loadedFor, setLoadedFor] = useState({ project_path, packageManager, rerunToken });
+    if (
+        loadedFor.project_path !== project_path ||
+        loadedFor.packageManager !== packageManager ||
+        loadedFor.rerunToken !== rerunToken
+    ) {
+        setLoadedFor({ project_path, packageManager, rerunToken });
+        setStatus("loading");
+        setMessage(null);
+    }
+
     useEffect(() => {
         if (!project_path) return;
         const id = ++ticket.current;
         let cancelled = false;
-        setStatus("loading");
-        setMessage(null);
         void commands
             .getPackageInfo(project_path, packageManager)
             .then((result) => {
