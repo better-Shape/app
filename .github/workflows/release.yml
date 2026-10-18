@@ -227,7 +227,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ARGS=(--arch "${{ matrix.arch }}" --out-dir dist/release)
+          ARGS=(--arch "${{ matrix.arch }}" --out-dir dist/release --bundles "${{ matrix.bundles }}")
           if [ -n "${{ matrix.target }}" ]; then ARGS+=(--target "${{ matrix.target }}"); fi
           node scripts/release/assets.mjs "${ARGS[@]}"
 
