@@ -31,15 +31,17 @@ describe("settings", () => {
     it("persist", () => {
         updateSettingSection("editor", { tabSize: 4, fontSize: 15 });
         const stored = localStorage.getItem(ESTABLISHED_SETTINGS_STORAGE_KEY);
-        expect(stored).not.toBeNull();
-        const parsed = JSON.parse(stored!);
+        if (stored === null) throw new Error("Settings were not persisted");
+        const parsed = JSON.parse(stored);
         expect(parsed.editor.tabSize).toBe(4);
         expect(parsed.editor.fontSize).toBe(15);
     });
 
     it("persists the reduced-motion preference and applies it immediately", () => {
         updateSettingSection("appearance", { motionPreference: "reduced" });
-        const parsed = JSON.parse(localStorage.getItem(ESTABLISHED_SETTINGS_STORAGE_KEY)!);
+        const stored = localStorage.getItem(ESTABLISHED_SETTINGS_STORAGE_KEY);
+        if (stored === null) throw new Error("Settings were not persisted");
+        const parsed = JSON.parse(stored);
         expect(parsed.appearance.motionPreference).toBe("reduced");
         expect(document.documentElement.dataset.motionPreference).toBe("reduced");
 

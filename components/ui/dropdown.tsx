@@ -372,20 +372,26 @@ type NestedMenuContentProps = {
 /** Share nested trigger behavior between dropdown and menubar menu primitives. */
 const renderNestedMenuTrigger = <
     TElement extends HTMLElement,
-    TProps extends NestedMenuTriggerState & { className?: string; children?: React.ReactNode },
+    TProps extends NestedMenuTriggerState & {
+        className?: string;
+        children?: React.ReactNode;
+        onClick?: React.MouseEventHandler<TElement>;
+    },
 >(
     Item: React.ElementType,
     props: TProps,
     ref: React.ForwardedRef<TElement>,
 ): React.ReactElement => {
-    const { className, children, isOpened, setIsOpened, ...itemProps } = props;
+    const { className, children, isOpened, setIsOpened, onClick, ...itemProps } = props;
     return (
         <Item
             ref={ref}
             className={cn(className)}
-            onClick={(event: React.MouseEvent) => {
-                event.preventDefault();
+            onClick={(event: React.MouseEvent<TElement>) => {
+                onClick?.(event);
                 event.stopPropagation();
+                if (event.defaultPrevented) return;
+                event.preventDefault();
                 setIsOpened?.(!isOpened);
             }}
             {...itemProps}

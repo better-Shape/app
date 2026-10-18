@@ -6,7 +6,9 @@ describe("indexing progress semantics", () => {
     function renderProgress(props: Parameters<typeof IndexingProgressBar>[0]) {
         const host = document.createElement("div");
         host.innerHTML = renderToStaticMarkup(<IndexingProgressBar {...props} />);
-        return host.querySelector<HTMLElement>('[role="progressbar"]')!;
+        const progress = host.querySelector<HTMLElement>('[role="progressbar"]');
+        if (!progress) throw new Error("Indexing progress bar did not render");
+        return progress;
     }
 
     it("stays indeterminate and says saving while the index is being persisted", () => {
