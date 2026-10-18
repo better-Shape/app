@@ -81,6 +81,7 @@ export function RefPill({
                 type="button"
                 aria-label={`Filter graph to ${kind}: ${raw}`}
                 title={`${kind}: ${raw}`}
+                data-preserve-native-title=""
                 className="inline-flex shrink-0 cursor-pointer rounded-sm transition-[filter,transform] duration-[var(--transition-fast)] ease-[var(--ease-out)] hover:brightness-110 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus"
                 onClick={(event) => {
                     event.stopPropagation();
@@ -103,6 +104,7 @@ export function RefPill({
             className={pillClasses}
             onPointerDown={(e) => e.stopPropagation()}
             title={pillTitle}
+            data-preserve-native-title={hoverOnly ? "" : undefined}
         >
             {visual}
         </span>
