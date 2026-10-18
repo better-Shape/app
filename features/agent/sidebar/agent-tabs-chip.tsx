@@ -13,6 +13,7 @@ import {
 } from "@/features/agent/subagents/store";
 import { NEW_CHAT_TAB_ID } from "@/features/chat/ui/shell/tabs";
 
+/** Shows the active chat's child-agent tabs in a collapsible selector. */
 export function AgentTabsChip() {
     const [parentId, setParentId] = useState<string | null>(null);
     const [open, setOpen] = useState(false);
@@ -62,23 +63,26 @@ export function AgentTabsChip() {
                     style={{ ["--icon-size" as string]: "14px" }}
                 />
             </button>
-            {open ? (
-                <div id={listId} className="mt-1 flex flex-col gap-0.5 px-0.5">
-                    {cards.map((card) => (
-                        <button
-                            key={card.id}
-                            type="button"
-                            onClick={() => {
-                                openSubagent(card.id);
-                                setOpen(false);
-                            }}
-                            className="flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1 text-left text-sm font-normal text-text-secondary transition-colors duration-[var(--transition-fast)] ease-[var(--ease-out)] hover:bg-panel-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus"
-                        >
-                            <span className="min-w-0 flex-1 truncate">{card.title}</span>
-                        </button>
-                    ))}
-                </div>
-            ) : null}
+            <div
+                id={listId}
+                hidden={!open}
+                inert={!open}
+                className={cn("mt-1 flex flex-col gap-0.5 px-0.5", !open && "hidden")}
+            >
+                {cards.map((card) => (
+                    <button
+                        key={card.id}
+                        type="button"
+                        onClick={() => {
+                            openSubagent(card.id);
+                            setOpen(false);
+                        }}
+                        className="flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1 text-left text-sm font-normal text-text-secondary transition-colors duration-[var(--transition-fast)] ease-[var(--ease-out)] hover:bg-panel-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus"
+                    >
+                        <span className="min-w-0 flex-1 truncate">{card.title}</span>
+                    </button>
+                ))}
+            </div>
         </div>
     );
 }

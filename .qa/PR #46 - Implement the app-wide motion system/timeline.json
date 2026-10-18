@@ -1,0 +1,108 @@
+{
+  "name": "bettershape-motion-preference",
+  "url": "http://127.0.0.1:48921/settings?category=motion",
+  "viewport": {
+    "width": 1280,
+    "height": 800
+  },
+  "capturedFrames": 250,
+  "captureFps": 28.7,
+  "durationMs": 8698,
+  "gifFps": 30,
+  "gifFrames": 261,
+  "timeline": [
+    {
+      "action": "subtitle",
+      "text": "System preference is the default",
+      "startFrame": 0,
+      "endFrame": 0
+    },
+    {
+      "action": "wait",
+      "ms": 800,
+      "startFrame": 0,
+      "endFrame": 24
+    },
+    {
+      "action": "screenshot",
+      "label": "motion-system",
+      "startFrame": 24,
+      "endFrame": 25
+    },
+    {
+      "action": "subtitle",
+      "text": "Open the Motion preference",
+      "startFrame": 25,
+      "endFrame": 25
+    },
+    {
+      "action": "move",
+      "selector": "#settings-motion button[aria-label=\"Motion preference\"]",
+      "ms": 600,
+      "startFrame": 25,
+      "endFrame": 61
+    },
+    {
+      "action": "click",
+      "selector": "#settings-motion button[aria-label=\"Motion preference\"]",
+      "startFrame": 61,
+      "endFrame": 92
+    },
+    {
+      "action": "wait",
+      "ms": 450,
+      "startFrame": 92,
+      "endFrame": 104
+    },
+    {
+      "action": "screenshot",
+      "label": "motion-options",
+      "startFrame": 104,
+      "endFrame": 105
+    },
+    {
+      "action": "subtitle",
+      "text": "Reduce non-essential movement",
+      "startFrame": 105,
+      "endFrame": 105
+    },
+    {
+      "action": "move",
+      "selector": "[role=\"menuitemcheckbox\"]:has-text(\"Reduce motion\")",
+      "ms": 500,
+      "startFrame": 105,
+      "endFrame": 133
+    },
+    {
+      "action": "click",
+      "selector": "[role=\"menuitemcheckbox\"]:has-text(\"Reduce motion\")",
+      "startFrame": 133,
+      "endFrame": 168
+    },
+    {
+      "action": "wait",
+      "ms": 900,
+      "startFrame": 168,
+      "endFrame": 194
+    },
+    {
+      "action": "screenshot",
+      "label": "motion-reduced",
+      "startFrame": 194,
+      "endFrame": 195
+    },
+    {
+      "action": "subtitle",
+      "text": "System reduced motion is always honored",
+      "startFrame": 195,
+      "endFrame": 195
+    },
+    {
+      "action": "wait",
+      "ms": 900,
+      "startFrame": 195,
+      "endFrame": 221
+    }
+  ],
+  "errors": []
+}

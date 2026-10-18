@@ -14,7 +14,6 @@ export function GeneratingIndicator({
         <span
             className="inline-flex min-w-0 items-center gap-2 py-0.5 text-text-muted"
             role="status"
-            aria-busy="true"
         >
             <span className="inline-flex shrink-0" aria-hidden="true">
                 <Eclipse size={14} className="text-text-muted" />

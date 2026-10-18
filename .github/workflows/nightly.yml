@@ -35,14 +35,13 @@ jobs:
             arch: aarch64
             target: aarch64-pc-windows-msvc
             bundles: nsis
-          # `macos-13` is retired from actions/runner-images; Intel is cross-compiled
-          # from the arm64 runner because the macOS SDK ships x86_64 slices.
           - runner: macos-latest
             os: macos
             arch: aarch64
             target: aarch64-apple-darwin
             bundles: dmg
-          - runner: macos-latest
+          # Build Intel natively so OpenSSL's x86_64 pkg-config/sysroot is available.
+          - runner: macos-26-intel
             os: macos
             arch: x86_64
             target: x86_64-apple-darwin

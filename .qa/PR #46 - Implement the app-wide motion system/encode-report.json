@@ -1,0 +1,25 @@
+{
+  "gif": {
+    "file": "out.gif",
+    "width": 1100,
+    "height": 688,
+    "frames": 113,
+    "fps": 14.29,
+    "durationSec": 8.71,
+    "kb": 251
+  },
+  "mp4": {
+    "file": "out.mp4",
+    "width": 1100,
+    "height": 688,
+    "frames": 261,
+    "fps": 30,
+    "durationSec": 8.7,
+    "kb": 67
+  },
+  "contactSheet": "contact-sheet.png",
+  "captureFps": 28.7,
+  "gifFps": 30,
+  "optimized": true,
+  "warnings": []
+}

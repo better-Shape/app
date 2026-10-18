@@ -52,17 +52,27 @@
   0% {
     transform: translateX(-100%);
   }
-  50% {
-    transform: translateX(0);
-  }
   100% {
-    transform: translateX(100%);
+    /* A 30%-wide segment must travel 333.333% of its own width to cross the track. */
+    transform: translateX(333.333%);
   }
 }
 
 .bettershape-loading-progress {
   width: 30% !important;
   animation: bettershape-loading-progress 1.5s infinite var(--ease-out);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bettershape-loading-progress {
+    animation: none !important;
+    transform: translateX(0) !important;
+  }
+}
+
+:root[data-motion-preference="reduced"] .bettershape-loading-progress {
+  animation: none !important;
+  transform: translateX(0) !important;
 }
 
 @keyframes bettershape-popover-in {

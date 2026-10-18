@@ -1,4 +1,7 @@
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
+import { GeneratingIndicator } from "@/features/chat/ui/blocks/generating";
 import {
     isChatGenerating,
     resetGeneratingChatsForTests,
@@ -14,5 +17,14 @@ describe("generating chats", () => {
         setChatGenerating("A", true);
         setChatGenerating("B", false);
         expect(isChatGenerating("A")).toBe(true);
+    });
+
+    it("announces the active work status without keeping its live region busy", () => {
+        const markup = renderToStaticMarkup(
+            createElement(GeneratingIndicator, { label: "Searching files" }),
+        );
+        expect(markup).toContain('role="status"');
+        expect(markup).toContain("Searching files");
+        expect(markup).not.toContain("aria-busy");
     });
 });

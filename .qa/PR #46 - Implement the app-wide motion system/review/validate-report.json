@@ -1,0 +1,60 @@
+{
+  "gif": "out.gif",
+  "width": 1100,
+  "height": 688,
+  "frames": 113,
+  "fps": 14.29,
+  "durationSec": 8.71,
+  "kb": 251,
+  "activeFrames": 101,
+  "totalDiffFrames": 112,
+  "activeFraction": 0.902,
+  "captionFrames": 109,
+  "captionFraction": 0.965,
+  "captionText": null,
+  "checks": [
+    {
+      "id": "motion",
+      "ok": true,
+      "detail": "90% of frames change"
+    },
+    {
+      "id": "smoothness",
+      "ok": true,
+      "detail": "moving frames at 33.3fps (min delay 30ms)"
+    },
+    {
+      "id": "length",
+      "ok": true,
+      "detail": "113 frames"
+    },
+    {
+      "id": "inspect-sheet",
+      "ok": true,
+      "detail": "inspect-sheet.png"
+    },
+    {
+      "id": "subtitle-strip",
+      "ok": true,
+      "detail": "subtitle-strip.png"
+    },
+    {
+      "id": "captions",
+      "ok": true,
+      "detail": "96% of frames carry a caption"
+    }
+  ],
+  "warnings": [
+    "tesseract not installed; caption text was not read back"
+  ],
+  "verdict": "PASS_WITH_WARNINGS",
+  "instruction": "Open review/inspect-sheet.png and review/subtitle-strip.png and read them. Confirm each frame matches the step it claims, the cursor lands on the intended control, and every caption is legible and correct. A PASS here means the clip is smooth and moving; only your eyes can confirm it makes sense.",
+  "visualReview": {
+    "status": "passed",
+    "inspectionSheet": "The sampled frames show the Motion settings page in the order named by the storyboard.",
+    "subtitleStrip": "Captions are readable and appear in the intended order.",
+    "pointer": "The cursor lands on the Motion preference control and the Reduce motion option.",
+    "stateChange": "The first screenshot shows Follow system. The final screenshot shows Reduce motion selected.",
+    "layout": "The settings navigation, preference control, menu, and caption remain within the 1280 by 800 frame."
+  }
+}

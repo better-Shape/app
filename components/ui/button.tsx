@@ -204,14 +204,15 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
             return true;
         };
 
-        // Native tooltips are suppressed app-wide. Keep button titles in data
-        // from the first render rather than mutating server HTML during hydration.
+        // Explicit Button titles are intentional tooltips; the app-wide suppressor
+        // leaves this native title in place from the first server-rendered pass.
         if (label) {
             return (
                 <span
                     ref={ref as React.Ref<HTMLSpanElement>}
                     className={classes}
-                    data-native-title={title ?? undefined}
+                    title={title}
+                    data-preserve-native-title={title ? "" : undefined}
                 >
                     {content}
                 </span>
@@ -224,7 +225,8 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
                     ref={ref as React.Ref<HTMLAnchorElement>}
                     href={ariaDisabled ? undefined : href}
                     className={classes}
-                    data-native-title={title ?? undefined}
+                    title={title}
+                    data-preserve-native-title={title ? "" : undefined}
                     data-pressed={pressed && !ariaDisabled ? true : undefined}
                     aria-busy={loading || aiBusy || undefined}
                     aria-disabled={ariaDisabled || undefined}
@@ -253,7 +255,8 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
                 disabled={useNativeDisabled || undefined}
                 {...props}
                 className={classes}
-                data-native-title={title ?? undefined}
+                title={title}
+                data-preserve-native-title={title ? "" : undefined}
                 data-pressed={pressed && !inactive ? true : undefined}
                 aria-busy={loading || aiBusy || undefined}
                 aria-pressed={selected ? true : ariaPressed}

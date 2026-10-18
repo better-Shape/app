@@ -11,6 +11,8 @@ import { cn } from "@/lib/utils";
 import { notificationStore, useNotifications, type Notification } from "@/features/notifications";
 import { errorDocsUrl } from "@/lib/errors/catalog";
 import { commands } from "@/lib/backend";
+import { prefersReducedMotion } from "@/lib/ui/motion";
+import { useReducedMotion } from "@/lib/ui/use-reduced-motion";
 import { Button } from "./button";
 
 export const TOAST_AUTO_HIDE_MS = 5500;
@@ -128,14 +130,24 @@ export function NotificationToasts() {
     const { notifications, toastIds } = useNotifications();
     const [mounted, setMounted] = React.useState(false);
     const [leavingId, setLeavingId] = React.useState<string | null>(null);
+    const reducedMotion = useReducedMotion();
 
     React.useEffect(() => setMounted(true), []);
+    React.useEffect(() => {
+        if (!reducedMotion || leavingId === null) return;
+        notificationStore.dismissToast(leavingId);
+    }, [leavingId, reducedMotion]);
 
     const toasts = toastIds
         .map((id) => notifications.find((n) => n.id === id))
         .filter((n): n is Notification => Boolean(n));
 
     const dismiss = React.useCallback((id: string) => {
+        if (prefersReducedMotion(document.documentElement)) {
+            notificationStore.dismissToast(id);
+            return;
+        }
+
         setLeavingId(id);
         window.setTimeout(() => {
             notificationStore.dismissToast(id);

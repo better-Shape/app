@@ -356,6 +356,7 @@ const DropdownMenuNestedTrigger = React.forwardRef<
 ));
 DropdownMenuNestedTrigger.displayName = "DropdownMenuNestedTrigger";
 
+/** Keeps the controlled submenu branch mounted while making its closed content inert. */
 const DropdownMenuNestedContent = ({ children, isOpened }: { children: React.ReactNode, isOpened?: boolean }) => {
     return (
         <div
@@ -683,6 +684,7 @@ const MenubarNestedTrigger = React.forwardRef<
 ));
 MenubarNestedTrigger.displayName = "MenubarNestedTrigger";
 
+/** Keeps the controlled menubar branch mounted while making its closed content inert. */
 const MenubarNestedContent = ({ children, isOpened }: { children: React.ReactNode, isOpened?: boolean }) => {
     return (
         <div
