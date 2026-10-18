@@ -52,6 +52,9 @@ yarn-error.log*
 /.dump/app/qa/
 /scripts/motion/compare.html
 
+# ui-capture skill output: GIFs, frames, screenshots and reports
+/.qa-artifacts/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

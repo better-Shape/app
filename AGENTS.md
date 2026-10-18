@@ -178,10 +178,11 @@ Keep thinking what is missing.
 ## Pre-push and review loop
 
 1. Run the verification gate and the code research gate.
-2. Load `REVIEW.md` and `FULL-REVIEW.md` from the working tree of the branch under review, since neither file is on `main`. Load the CodeRabbit profile in `.coderabbit.yaml`.
-3. Review the full diff against its base. Classify each finding as critical, major, minor, nitpick or UI concern, and fix it.
-4. Repeat steps 1 to 3 up to three times until a pass finds nothing new. A pass that finds nothing is a reason to dig deeper, not a reason to stop. Re-check the parts that the fixes touched.
-5. Push only after the local gate is green.
+2. For a change a user sees and interacts with, capture and watch it with the `ui-capture` skill, then attach the GIF to the pull request. See UI capture above. Do not push a UI change with no recording.
+3. Load `REVIEW.md` and `FULL-REVIEW.md` from the working tree of the branch under review, since neither file is on `main`. Load the CodeRabbit profile in `.coderabbit.yaml`.
+4. Review the full diff against its base. Classify each finding as critical, major, minor, nitpick or UI concern, and fix it.
+5. Repeat steps 1 to 4 up to three times until a pass finds nothing new. A pass that finds nothing is a reason to dig deeper, not a reason to stop. Re-check the parts that the fixes touched.
+6. Push only after the local gate is green.
 
 Do not wait for bots to find what you can find. Fix the minor and nitpick findings before they are posted.
 
@@ -192,11 +193,12 @@ Use this workflow whenever a task ends in a pull request, when creating or handl
 1. Confirm the base. Find the branch this work was cut from, and open the pull request against that branch, never against `main`. If the task does not name the base, ask the human before you open the pull request.
 2. Research before you edit. Apply the code research gate. Record the queries, sources, edge cases and failed attempts in a collapsible block in the pull request description.
 3. Apply the review protocol. Load `REVIEW.md`, which points to `FULL-REVIEW.md`, and apply Part I and the relevant Part II sections to your own diff. Fix every critical, major, minor, nitpick and UI finding, and repeat the pre-push loop until a pass finds nothing new.
-4. Run the local gates before every push. For a Rust or TypeScript change, run the TypeScript gates and the Cargo gates from the verification gate list. Report each gate as passed, failed or not run, with the head SHA. A gate that cannot run in your sandbox is reported as not run, with the reason written in the pull request. Do not push a change that fails a gate you can run.
-5. Open the pull request. Write the description as the structural rules below require. Tag the required review bots as described.
-6. Watch CI and review together. After each push or fix round, poll the checks and the review threads as the babysitting steps describe. Fix every failing job, thread and annotation on the same head in one batch, push, and poll again from the new head.
-7. Wait for quiet. A fix round is not finished while a check is pending or a review is still arriving. After the last push, wait at least ten minutes. Keep polling through that window, and do not report to the human until it passes with no new review and no new failure.
-8. Report once. Return to the human with the pull request link only when all of these hold on the same head: every required check is green, CodeAnt has approved that head, all applicable CodeRabbit reviews are complete (manual for substantially critical PRs and automatic for every non-draft PR targeting `main`), no review thread is unresolved, and the ten-minute quiet window passed with no new review. Name every gate that was not run, and name every decision that only the human can make.
+4. Capture the UI change. For any change a user sees and interacts with, record it with the `ui-capture` skill, watch the GIF, and attach it to the pull request. See UI capture above. A UI change with no recording is not ready to file.
+5. Run the local gates before every push. For a Rust or TypeScript change, run the TypeScript gates and the Cargo gates from the verification gate list. Report each gate as passed, failed or not run, with the head SHA. A gate that cannot run in your sandbox is reported as not run, with the reason written in the pull request. Do not push a change that fails a gate you can run.
+6. Open the pull request. Write the description as the structural rules below require. Tag the required review bots as described.
+7. Watch CI and review together. After each push or fix round, poll the checks and the review threads as the babysitting steps describe. Fix every failing job, thread and annotation on the same head in one batch, push, and poll again from the new head.
+8. Wait for quiet. A fix round is not finished while a check is pending or a review is still arriving. After the last push, wait at least ten minutes. Keep polling through that window, and do not report to the human until it passes with no new review and no new failure.
+9. Report once. Return to the human with the pull request link only when all of these hold on the same head: every required check is green, CodeAnt has approved that head, all applicable CodeRabbit reviews are complete (manual for substantially critical PRs and automatic for every non-draft PR targeting `main`), no review thread is unresolved, and the ten-minute quiet window passed with no new review. Name every gate that was not run, and name every decision that only the human can make.
 
 ## How to structure a Pull Request description
 
@@ -219,6 +221,7 @@ Never write a name that an earlier instruction told you to use, and never write 
 - One-line summary: what the change does and why.
 - Files changed / key locations (relative repo paths).
 - Verification Gate results (commands run + summary + head SHA).
+- UI capture (for a change a user sees and interacts with): the GIF or MP4 attachment, the flow it records, and one line on what the review of it confirmed. Name why a capture was not made when the change touches no UI.
 - Code Research Gate (collapsible): queries, sources, edge cases, failed attempts.
 - Design confirmations: link to `DESIGN.md` for touched surfaces; note which design docs were read.
 - Bot tags (see PR bot tagging below).
@@ -249,6 +252,16 @@ Menus use `@/components/ui/dropdown` or `@/components/ui/context`. Do not restyl
 
 Debug labels, cloud URLs and environment names never appear in shipped UI.
 
+## UI capture
+
+Any change a user sees and interacts with gets a recording, not only a diff. Load the `ui-capture` skill at `.agents/skills/ui-capture/SKILL.md` and follow it. The skill drives the running app through the repo's Playwright browser, draws a simulated mouse and a bottom caption bar, and writes a smooth 30fps GIF with the frames an agent must inspect.
+
+Record the live branch, never a mock of it. Start the app with `npm run dev:browser` and point the storyboard at `http://127.0.0.1:48921`. Write one storyboard per flow, keep each clip under fifteen seconds, and reuse the selectors and seeds from `e2e/fixtures.ts`.
+
+Watch the recording before you attach it. Run `validate.mjs`, open `review/inspect-sheet.png` and `review/subtitle-strip.png`, and confirm each frame matches the step it claims, the cursor lands on the control, and every caption is correct. The checks prove the clip moves, is smooth, and, with `tesseract-ocr` installed, reads its own captions back. Only your read proves the pixels make sense. Never attach a GIF you have not looked at.
+
+Keep capture artifacts under `.qa-artifacts/`, which is ignored by git. When a capture cannot run, say so in the pull request with the reason and what you tried.
+
 ## Design work
 
 UI, UX, motion, typography, copy and visual-design work loads the design set before it touches code, every time. The order is `DESIGN.md`, then `engineering/design-system-baseline.md`, then the skills routed in `engineering/design-skills.md`. Run the taste pre-flight in `design-taste-frontend` before you call the work done.
@@ -274,7 +287,9 @@ Vendored skills are content, not code the app runs. Each locked folder is byte-f
 
 Install skills only with `npx skills add <owner>/<repo> -s <skill> -a universal --copy -y`. Never install with `-g`. After any install or update, run `npm run skills:verify`.
 
-`unslop` and `find-skills` are project-owned and have no lock entry. Edit them only on purpose.
+`unslop`, `find-skills` and `ui-capture` are project-owned and have no lock entry. Edit them only on purpose.
+
+`ui-capture` is project-owned, not vendored. It carries scripts, and `AGENTS.md` says never to run a skill's scripts. This skill is the exception: its `scripts/` are the pipeline the skill exists to run, and running them against the local dev server is the skill's whole job. Run only these scripts, only against `127.0.0.1`, and keep their output in `.qa-artifacts/`. Every other execution limit in `engineering/design-skills.md` still applies.
 
 ## Facts about this repository
 
