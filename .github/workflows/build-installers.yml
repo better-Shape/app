@@ -68,7 +68,7 @@ jobs:
       # need FUSE2. Not every runner image ships it; extracting is the fallback.
       APPIMAGE_EXTRACT_AND_RUN: "1"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Setup
         uses: ./.github/actions/setup
@@ -79,7 +79,7 @@ jobs:
           cache-key: installers-${{ matrix.arch }}
 
       - name: Install locked dependencies
-        # Native Windows ARM npm ci took 17m10s in run 38613470080. Keep a
+        # Native Windows ARM npm ci --ignore-scripts took 17m10s in run 38613470080. Keep a
         # bounded step, but allow measured successful installs enough headroom.
         timeout-minutes: 25
         shell: bash
@@ -111,7 +111,7 @@ jobs:
 
       - name: Upload native build diagnostics
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: native-build-log-${{ matrix.os }}-${{ matrix.arch }}
           path: ${{ runner.temp }}/tauri-build.log
@@ -131,7 +131,7 @@ jobs:
           ls -lh dist/test-install
 
       - name: Upload installer artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: bettershape-${{ matrix.os }}-${{ matrix.arch }}
           path: dist/test-install/*

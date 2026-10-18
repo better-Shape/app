@@ -29,7 +29,7 @@ jobs:
       matrix:
         language: [javascript-typescript, rust]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Setup
         uses: ./.github/actions/setup
@@ -38,14 +38,14 @@ jobs:
           install-system-deps: ${{ matrix.language == 'rust' && 'true' || 'false' }}
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@ce5e7eeac396d720fe2d802714996c8ce561e311 # v3
         with:
           languages: ${{ matrix.language }}
           queries: security-and-quality
 
       - name: Autobuild
         id: autobuild
-        uses: github/codeql-action/autobuild@v3
+        uses: github/codeql-action/autobuild@ce5e7eeac396d720fe2d802714996c8ce561e311 # v3
         continue-on-error: true
         # For JS/TS, autobuild is no-op (interpreted). For Rust, it runs cargo build.
         # If autobuild fails, we fallback to manual build for JS, and still try analysis
@@ -58,7 +58,7 @@ jobs:
           if [ "${{ steps.autobuild.outcome }}" = "failure" ]; then
             echo "::warning::Autobuild failed, running manual build fallback"
           fi
-          npm ci
+          npm ci --ignore-scripts
           npm run build:runtime
           # Build may fail due to missing env, but we still want CodeQL to try
           npm run build || echo "::warning::Next.js build failed, but continuing for CodeQL"
@@ -72,7 +72,7 @@ jobs:
           fi
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@ce5e7eeac396d720fe2d802714996c8ce561e311 # v3
         with:
           category: "/language:${{ matrix.language }}"
 
@@ -87,7 +87,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Check dependency graph status
         id: dep-graph-check
@@ -142,7 +142,7 @@ jobs:
       - name: Dependency Review
         id: dep-review
         if: steps.dep-graph-check.outputs.enabled == 'true'
-        uses: actions/dependency-review-action@v4
+        uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # v4
         with:
           fail-on-severity: high
           deny-licenses: GPL-2.0, GPL-3.0
@@ -184,7 +184,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Setup
         uses: ./.github/actions/setup
@@ -192,7 +192,7 @@ jobs:
           install-rust: "true"
           install-system-deps: "false"
 
-      - run: npm ci
+      - run: npm ci --ignore-scripts
 
       - name: npm audit (high and above)
         run: |
@@ -224,7 +224,7 @@ jobs:
 
       - name: Upload audit reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: audit-reports
           path: |
@@ -244,10 +244,10 @@ jobs:
       contents: read
       security-events: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Run zizmor
-        uses: zizmorcore/zizmor-action@v0.6.4
+        uses: zizmorcore/zizmor-action@cc914d7f3750a2d13d75c7f184a1060aa0e9d482 # v0.6.4
         with:
           persona: auditable
         continue-on-error: true
@@ -266,18 +266,18 @@ jobs:
       contents: read
       actions: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
 
       - name: Run Scorecard
-        uses: ossf/scorecard-action@v2.4.1
+        uses: ossf/scorecard-action@f49aabe0b5af0936a0987cfb85d86b75731b0186 # v2.4.1
         with:
           results_file: results.sarif
           results_format: sarif
           publish_results: true
 
       - name: Upload Scorecard results
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@ce5e7eeac396d720fe2d802714996c8ce561e311 # v3
         with:
           sarif_file: results.sarif

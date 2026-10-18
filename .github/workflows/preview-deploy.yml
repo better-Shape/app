@@ -49,7 +49,7 @@ jobs:
     steps:
       - name: Resolve PR for the build commit
         id: resolve
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
           HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
@@ -119,7 +119,7 @@ jobs:
       # treat any checkout action under workflow_run as executing fork
       # code with this job's secrets. Fetch the two trusted manifest
       # files from the default branch through the contents API instead;
-      # npm ci then builds the pinned CLI from the committed lockfile.
+      # npm ci --ignore-scripts then builds the pinned CLI from the committed lockfile.
       - name: Fetch CLI manifest from default branch (API, no checkout)
         env:
           GH_TOKEN: ${{ github.token }}
@@ -150,7 +150,7 @@ jobs:
       - name: Re-resolve PR head before deploying
         id: head-recheck
         if: steps.vercel-check.outputs.enabled == 'true'
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
           PR_NUMBER: ${{ needs.resolve-pr.outputs.pr-number }}
@@ -178,7 +178,7 @@ jobs:
 
       - name: Download static bundle
         if: steps.vercel-check.outputs.enabled == 'true' && steps.head-recheck.outputs.stand-down != 'true'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: browser-preview-${{ github.event.workflow_run.head_sha }}
           path: preview-static
@@ -268,7 +268,7 @@ jobs:
         # Never on stand-down: this run owns no current preview link,
         # and posting its no-URL body would overwrite the newer one.
         if: steps.head-recheck.outputs.stand-down != 'true'
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
           PR_NUMBER: ${{ needs.resolve-pr.outputs.pr-number }}
           PREVIEW_URL: ${{ steps.vercel-deploy.outputs.url }}
@@ -367,7 +367,7 @@ jobs:
       # A failed build must not leave a previous preview URL presented as
       # current: annotate the sticky comment instead.
       - name: Annotate sticky comment
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
           PR_NUMBER: ${{ needs.resolve-pr.outputs.pr-number }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}

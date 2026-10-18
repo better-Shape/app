@@ -73,7 +73,7 @@ Before you write prose for the human, in documentation, commit text or UI copy, 
 Run every gate that applies to your diff, then report each one as passed, failed or not run. Never call a gate green when you did not run it, and a clean run from before your last edit proves nothing.
 
 ```bash
-npm ci                            # the install CI runs
+npm ci --ignore-scripts           # the install CI runs
 npm run lint                      # ESLint, the CI lint gate
 npm run typecheck                # TypeScript, app and tests, zero errors
 npm run test                      # Vitest, after build:runtime
@@ -89,7 +89,7 @@ Run the gate the way CI runs it. A piped command reports the exit code of the pi
 Preflight checklist (required before any push)
 
 - Run these locally and paste the head SHA plus results in the PR verification block:
-  - npm ci
+  - npm ci --ignore-scripts
   - npm run lint
   - npm run typecheck
   - npm run build:runtime

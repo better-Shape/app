@@ -4,7 +4,7 @@ Use this before every push. Paste the results and head SHA into the PR Verificat
 
 ## Required local checks
 
-- [ ] `npm ci`
+- [ ] `npm ci --ignore-scripts`
 - [ ] `npm run lint`
 - [ ] `npm run typecheck`
 - [ ] `npm run build:runtime`
