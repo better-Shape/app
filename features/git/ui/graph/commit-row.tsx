@@ -159,9 +159,6 @@ export const GraphCommitRow = React.memo(function GraphCommitRow({
             <ContextMenu>
                 <ContextMenuTrigger asChild>
                     <div
-                        role="option"
-                        aria-selected={selected}
-                        tabIndex={-1}
                         className={cn(
                             "relative z-0 flex cursor-pointer items-center whitespace-nowrap outline-none group",
                             isExpanded ? "rounded-none bg-transparent" : "rounded-lg hover:bg-[var(--row-hover)]",
@@ -577,8 +574,8 @@ export const GraphCommitRow = React.memo(function GraphCommitRow({
                             <div className="flex flex-col gap-1 py-1 pl-2" aria-busy={!filesLoaded}>
                                 {!filesLoaded ? (
                                     <>
-                                        <div className="h-[18px] w-3/5 animate-pulse rounded bg-panel-hover/80" />
-                                        <div className="h-[18px] w-2/5 animate-pulse rounded bg-panel-hover/80" />
+                                        <div className="h-[18px] w-3/5 rounded bg-panel-hover/80" />
+                                        <div className="h-[18px] w-2/5 rounded bg-panel-hover/80" />
                                     </>
                                 ) : (
                                     <div className="text-xs text-text-disabled">No changes found</div>

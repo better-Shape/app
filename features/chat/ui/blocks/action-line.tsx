@@ -2,10 +2,9 @@
 
 import { ChevronRight20Regular } from "@fluentui/react-icons/headless/svg/chevron-right";
 
-import { useState, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 import { Icon } from "@/components/ui/icon";
 import { Favicon } from "@/components/ui/favicon";
-import { ShimmerText } from "@/components/ui/shimmer-text";
 import { cn } from "@/lib/utils";
 import { hostnameOf } from "@/lib/ui/favicon";
 import { Collapse } from "./collapse";
@@ -49,7 +48,7 @@ export function ActionLine({
     open,
     defaultOpen = false,
     onOpenChange,
-    shimmer = false,
+    busy = false,
     className,
     title,
 }: {
@@ -65,10 +64,11 @@ export function ActionLine({
     open?: boolean;
     defaultOpen?: boolean;
     onOpenChange?: (open: boolean) => void;
-    shimmer?: boolean;
+    busy?: boolean;
     className?: string;
     title?: string;
 }) {
+    const collapseId = useId();
     const [uncontrolled, setUncontrolled] = useState(defaultOpen);
     const isOpen = open ?? uncontrolled;
     const collapsible = children != null && children !== false;
@@ -84,10 +84,12 @@ export function ActionLine({
     const Tag = interactive ? "button" : "div";
 
     return (
-        <div className="w-full min-w-0">
+        <div className="w-full min-w-0" aria-busy={busy || undefined}>
             <Tag
                 type={interactive ? "button" : undefined}
                 title={title}
+                aria-expanded={collapsible ? isOpen : undefined}
+                aria-controls={collapsible ? collapseId : undefined}
                 onClick={
                     interactive
                         ? () => {
@@ -98,14 +100,14 @@ export function ActionLine({
                 }
                 className={cn(
                     "group/line flex w-fit max-w-full items-center gap-1.5 py-0.5 text-left chat-text font-normal text-text-muted",
-                    interactive && "cursor-pointer",
+                    interactive && "cursor-pointer transition-colors duration-[var(--transition-fast)] ease-[var(--ease-out)] focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus",
                     className,
                 )}
             >
                 {icon}
                 <span className="min-w-0 truncate">
-                    <span className={cn("text-text-secondary", interactive && "group-hover/line:text-text-primary")}>
-                        {shimmer ? <ShimmerText>{action}</ShimmerText> : action}
+                    <span className={cn("text-text-secondary", busy && "text-text-primary", interactive && "group-hover/line:text-text-primary")}>
+                        {action}
                     </span>
                     {detail ? <span className="text-text-muted"> {detail}</span> : null}
                 </span>
@@ -138,7 +140,7 @@ export function ActionLine({
                     />
                 ) : null}
             </Tag>
-            {collapsible ? <Collapse open={isOpen}>{children}</Collapse> : null}
+            {collapsible ? <Collapse id={collapseId} open={isOpen}>{children}</Collapse> : null}
         </div>
     );
 }

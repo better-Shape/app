@@ -2,7 +2,6 @@
 
 
 import React, { useEffect, useMemo } from "react";
-import { cn } from "@/lib/utils";
 import { stripLeakedToolCode, stripOrphanThinkTags } from "./stream";
 import { ChatMarkdown } from "./view";
 import { syncSubagentsFromChunks } from "@/features/agent/subagents/store";
@@ -1117,10 +1116,7 @@ export function MessageRenderer({
             return (
                 <div
                     key={`text-${index}`}
-                    className={cn(
-                        "text-sm font-medium text-text-primary leading-[var(--conversation-line-height)] mb-0 w-full overflow-hidden prose-compact chat-markdown",
-                        isGenerating && isLastSegment && "animate-in fade-in duration-300",
-                    )}
+                    className="text-sm font-medium text-text-primary leading-[var(--conversation-line-height)] mb-0 w-full overflow-hidden prose-compact chat-markdown"
                 >
                     <ChatMarkdown content={text} isGenerating={isGenerating} isLast={isLastSegment} />
                 </div>

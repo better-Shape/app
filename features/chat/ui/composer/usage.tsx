@@ -54,7 +54,7 @@ export function UsageRing({
                 strokeDasharray={circumference}
                 strokeDashoffset={offset}
                 className={cn(
-                    "transition-[stroke-dashoffset] duration-300",
+                    "transition-[stroke-dashoffset] duration-[var(--transition-base)] ease-[var(--ease-out)]",
                     clamped >= 90 ? "text-warning" : "text-accent",
                 )}
             />

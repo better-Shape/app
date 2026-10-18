@@ -12,15 +12,17 @@
   /* Sampled against `--spring-tap`'s own settle time. Any other duration truncates the
      curve and the remainder pops when the animation is removed. */
   --dropdown-close-dur: var(--spring-tap-dur);
+  --toast-enter-dur: var(--transition-base);
+  --toast-exit-dur: var(--transition-fast);
 
-  --morph-open-dur: 320ms;
-  --morph-close-dur: 240ms;
-  --morph-ease: cubic-bezier(0.22, 1, 0.36, 1);
-  --morph-close-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --morph-open-dur: var(--transition-spatial);
+  --morph-close-dur: var(--transition-base);
+  --morph-ease: var(--ease-out);
+  --morph-close-ease: var(--ease-out);
   --morph-r-closed: 16px;
   --morph-r-open: 16px;
-  --morph-fade-dur: 180ms;
-  --morph-fade-delay: 40ms;
+  --morph-fade-dur: var(--transition-fast);
+  --morph-fade-delay: 0ms;
   --morph-slide: 0px;
   --morph-rotate: 45deg;
   --morph-scale: 1;
@@ -30,12 +32,10 @@
   --morph-w-open: 260px;
   --morph-h-open: 180px;
 
-  --toggle-dur: 350ms;
+  --toggle-dur: var(--transition-base);
   --toggle-travel: 14.66px;
-  --toggle-ov1: 1px;
-  --toggle-ov2: 0px;
-  --toggle-track: 0ms;
-  --toggle-ease: cubic-bezier(0.34, 1.35, 0.64, 1);
+  --toggle-track: var(--transition-fast);
+  --toggle-ease: var(--ease-out);
 
   --think-hold: 2000ms;
   --think-swap: 150ms;
@@ -112,6 +112,24 @@
 
 }
 
+/* Indeterminate global loading bar; motion only runs while work is active. */
+@keyframes bettershape-loading-progress {
+  0% {
+    transform: translateX(-100%);
+  }
+  50% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.bettershape-loading-progress {
+  width: 30% !important;
+  animation: bettershape-loading-progress 1.5s infinite var(--ease-out);
+}
+
 @keyframes bettershape-popover-in {
   from { opacity: 0; scale: var(--dropdown-pre-scale, 0.97); }
   to { opacity: 1; scale: 1; }
@@ -144,6 +162,12 @@
  * Critically damped. The menu travels 0.97 to 1, so 6% overshoot is a third of a pixel:
  * invisible, and on a surface the user is about to click into.
  */
+
+/* Menus are jump cuts: opening, closing or retargeting one never animates the surface. */
+.bettershape-menu-content[data-state="open"],
+.bettershape-menu-content[data-state="closed"] {
+  animation: none !important;
+}
 
 /* Apple-style press: fast ease-out into the squash, spring with overshoot on release. */
 .press-spring {
@@ -276,7 +300,6 @@
   /* Inset ring avoids border-box width fighting the measured trigger. */
   box-shadow: inset 0 0 0 1px var(--border-subtle);
   transform-origin: bottom left;
-  will-change: width, height;
   transition:
     width var(--morph-close-dur) var(--morph-close-ease),
     height var(--morph-close-dur) var(--morph-close-ease);
@@ -374,12 +397,15 @@
 }
 
 .t-toggle {
-  transition: background var(--toggle-track) var(--toggle-ease);
+  transition: background-color var(--toggle-track) var(--toggle-ease);
 }
 
 .t-toggle-thumb {
   translate: 0 0;
-  will-change: translate;
+}
+
+.t-toggle.is-init .t-toggle-thumb {
+  transition: translate var(--toggle-dur) var(--toggle-ease);
 }
 
 .t-toggle[data-on="true"] .t-toggle-thumb {
@@ -662,7 +688,7 @@
   border-top-color: transparent;
   animation: t-spin-check-spin 0.7s linear infinite;
   opacity: 1;
-  transition: opacity 120ms var(--dropdown-ease);
+  transition: opacity var(--transition-fast) var(--ease-out);
 }
 
 .t-spin-check[data-state="done"] .t-spin-check__ring {
@@ -679,17 +705,8 @@
   opacity: 1;
   transform: scale(1);
   transition:
-    opacity 160ms var(--dropdown-ease),
-    transform 220ms var(--morph-ease);
-}
-
-@keyframes t-wave-bar {
-  0%, 100% { transform: scaleY(0.35); }
-  50% { transform: scaleY(1); }
-}
-.t-wave-bar {
-  transform-origin: center;
-  animation: t-wave-bar 0.9s ease-in-out infinite;
+    opacity var(--transition-base) var(--ease-out),
+    transform var(--transition-base) var(--ease-out);
 }
 
 @keyframes t-spin-check-spin {
@@ -801,19 +818,16 @@
   to {
     opacity: 0;
     transform: translateY(calc(var(--hint-distance) * -1));
-    filter: blur(var(--hint-blur));
   }
 }
 @keyframes t-swap-in {
   from {
     opacity: 0;
     transform: translateY(var(--hint-distance));
-    filter: blur(var(--hint-blur));
   }
   to {
     opacity: 1;
     transform: translateY(0);
-    filter: blur(0);
   }
 }
 
@@ -852,7 +866,9 @@
   .t-composer-hint__text {
     transition: none !important;
   }
-  .t-swap__layer--out,
+  .t-swap__layer--out {
+    display: none !important;
+  }
   .t-swap__layer--in {
     animation: none !important;
     filter: none !important;
@@ -860,32 +876,7 @@
     opacity: 1 !important;
   }
   .t-toggle-thumb {
-    animation: none !important;
-  }
-  .t-think-text {
     transition: none !important;
-    transform: none !important;
-    filter: none !important;
-  }
-  .t-think-text::before {
-    display: none !important;
-  }
-  .t-reason-scroll {
-    transition: none !important;
-    transform: none !important;
-  }
-  .t-stream-w {
-    transition: none !important;
-    filter: none !important;
-    opacity: 1 !important;
-  }
-  .t-success-check {
-    animation: none !important;
-    opacity: 1;
-  }
-  .t-success-check svg path {
-    animation: none !important;
-    stroke-dashoffset: 0 !important;
   }
   .t-spin-check__ring {
     animation: none !important;

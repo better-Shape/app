@@ -346,6 +346,28 @@ function AiSettings({
     return <AiSettingsPanel settings={settings} page={page} />;
 }
 
+function MotionSettings({ settings }: { settings: BetterShapeSettings }) {
+    return (
+        <SettingSection
+            id="settings-motion"
+            title="Motion"
+            description="Follow the system setting or reduce non-essential movement. System reduced-motion preferences always apply."
+        >
+            <SettingRow title="Motion preference">
+                <SettingSelect
+                    aria-label="Motion preference"
+                    value={settings.appearance.motionPreference}
+                    options={[
+                        { value: "system", label: "Follow system" },
+                        { value: "reduced", label: "Reduce motion" },
+                    ]}
+                    onChange={(motionPreference) => updateSettingSection("appearance", { motionPreference })}
+                />
+            </SettingRow>
+        </SettingSection>
+    );
+}
+
 function DeveloperSettings({ settings }: { settings: BetterShapeSettings }) {
     const dev = settings.developer;
 
@@ -798,6 +820,8 @@ export function SettingsView({
                 return "settings-git";
             case "appearance":
                 return "settings-editor-font";
+            case "motion":
+                return "settings-motion";
             case "advanced":
             case "application":
                 return "settings-updates";
@@ -987,6 +1011,7 @@ export function SettingsView({
                             {activeLeafId === "editor-font" ? <EditorSettings settings={settings} /> : null}
                             {activeLeafId === "terminal" ? <TerminalSettings settings={settings} /> : null}
                             {activeLeafId === "git" ? <GitSettings settings={settings} /> : null}
+                            {activeLeafId === "motion" ? <MotionSettings settings={settings} /> : null}
                             {activeLeafId === "updates" ? <UpdatesSettings settings={settings} /> : null}
                             {activeLeafId === "notifications" ? <PrivacySettings settings={settings} part="notifications" /> : null}
                             {activeLeafId === "privacy" ? <PrivacySettings settings={settings} part="privacy" /> : null}

@@ -80,7 +80,7 @@ export const ScrollArea = React.forwardRef<
                     <div
                         aria-hidden
                         className={cn(
-                            "pointer-events-none absolute inset-x-0 top-0 z-10 h-8 bg-linear-to-b to-transparent transition-opacity duration-150",
+                            "pointer-events-none absolute inset-x-0 top-0 z-10 h-8 bg-linear-to-b to-transparent transition-opacity duration-[var(--transition-fast)] ease-[var(--ease-out)]",
                             fadeFrom,
                             showTop ? "opacity-100" : "opacity-0",
                         )}
@@ -88,7 +88,7 @@ export const ScrollArea = React.forwardRef<
                     <div
                         aria-hidden
                         className={cn(
-                            "pointer-events-none absolute inset-x-0 bottom-0 z-10 h-8 bg-linear-to-t to-transparent transition-opacity duration-150",
+                            "pointer-events-none absolute inset-x-0 bottom-0 z-10 h-8 bg-linear-to-t to-transparent transition-opacity duration-[var(--transition-fast)] ease-[var(--ease-out)]",
                             fadeFrom,
                             showBottom ? "opacity-100" : "opacity-0",
                         )}

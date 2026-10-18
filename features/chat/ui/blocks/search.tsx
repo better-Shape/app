@@ -183,12 +183,15 @@ function SourceStack({ sources }: { sources: WebSearchResult[] }) {
 
 function SourcesBranch({ sources }: { sources: WebSearchResult[] }) {
     const [open, setOpen] = React.useState(true);
+    const collapseId = React.useId();
     return (
         <div className="mt-1 w-full min-w-0">
             <button
                 type="button"
+                aria-expanded={open}
+                aria-controls={collapseId}
                 onClick={() => setOpen((value) => !value)}
-                className="group/line flex w-fit max-w-full items-center gap-1.5 text-left chat-text text-text-muted"
+                className="group/line flex w-fit max-w-full items-center gap-1.5 text-left chat-text text-text-muted focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus"
             >
                 <span className="text-text-secondary group-hover/line:text-text-primary">Sources</span>
                 {open ? null : <SourceStack sources={sources} />}
@@ -200,7 +203,7 @@ function SourcesBranch({ sources }: { sources: WebSearchResult[] }) {
                     )}
                 />
             </button>
-            <Collapse open={open}>
+            <Collapse id={collapseId} open={open}>
                 <div className="mt-0.5 flex flex-col">
                     {sources.map((result, index) => (
                         <SourceRow key={`${result.url}-${index}`} result={result} />

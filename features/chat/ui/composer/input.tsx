@@ -25,6 +25,7 @@ import { Icon } from "@/components/ui/icon";
 
 
 import { cn } from "@/lib/utils";
+import { useReducedMotion } from "@/lib/ui/use-reduced-motion";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -323,6 +324,7 @@ function SwapText({
     const [ready, setReady] = React.useState(false);
     const [clipping, setClipping] = React.useState(false);
     const shownRef = React.useRef(value);
+    const reducedMotion = useReducedMotion();
 
     const fitWidth = React.useCallback(() => {
         const wrap = wrapRef.current;
@@ -383,11 +385,14 @@ function SwapText({
         if (value === shownRef.current) return;
         const from = shownRef.current;
         shownRef.current = value;
-        setLeaving(from || null);
         setShown(value);
+        if (reducedMotion) return;
+        setLeaving(from || null);
         const t = window.setTimeout(() => setLeaving(null), 400);
         return () => window.clearTimeout(t);
-    }, [value]);
+    }, [value, reducedMotion]);
+
+    if (reducedMotion && leaving !== null) setLeaving(null);
 
     return (
         <span
@@ -422,11 +427,12 @@ function RotatingComposerHint({ paused }: { paused: boolean }) {
     const [index, setIndex] = React.useState(0);
     const [phase, setPhase] = React.useState<"in" | "out" | "enter">("in");
     const indexRef = React.useRef(0);
+    const reducedMotion = useReducedMotion();
 
-    if (paused && phase !== "in") setPhase("in");
+    if ((paused || reducedMotion) && phase !== "in") setPhase("in");
 
     React.useEffect(() => {
-        if (paused) return;
+        if (paused || reducedMotion) return;
         let exitTimer: ReturnType<typeof setTimeout> | undefined;
         let enterTimer: ReturnType<typeof setTimeout> | undefined;
         const hold = window.setInterval(() => {
@@ -443,7 +449,7 @@ function RotatingComposerHint({ paused }: { paused: boolean }) {
             if (exitTimer) clearTimeout(exitTimer);
             if (enterTimer) clearTimeout(enterTimer);
         };
-    }, [paused]);
+    }, [paused, reducedMotion]);
 
     return (
         <div className="t-composer-hint pl-3" aria-hidden>

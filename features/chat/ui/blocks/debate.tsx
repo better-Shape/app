@@ -2,7 +2,6 @@
 
 import React, { useMemo, useState } from "react";
 import { ChatMarkdown } from "../md/view";
-import { Collapse } from "./collapse";
 import { ActionLine } from "./action-line";
 import { providerIcon } from "@/lib/ui/provider-icon";
 import { AUTO_DISPLAY_MODEL } from "../message/bubble";
@@ -81,21 +80,20 @@ export function ReviewDebatePanel({
     if (!display?.trim()) return null;
 
     return (
-        <div className="my-0.5">
-            <ActionLine
-                action="Adversarial review"
-                icon={
-                    <span className="flex size-4 shrink-0 items-center justify-center overflow-visible">
-                        {providerIcon(iconModel, 14)}
-                    </span>
-                }
-                onClick={() => setOpen((v) => !v)}
-            />
-            <Collapse open={open}>
-                <div className="w-full min-w-0 py-1 text-sm font-medium text-text-primary prose-compact chat-markdown">
-                    <ChatMarkdown content={display} />
-                </div>
-            </Collapse>
-        </div>
+        <ActionLine
+            action="Adversarial review"
+            icon={
+                <span className="flex size-4 shrink-0 items-center justify-center overflow-visible">
+                    {providerIcon(iconModel, 14)}
+                </span>
+            }
+            open={open}
+            onOpenChange={setOpen}
+            className="my-0.5"
+        >
+            <div className="w-full min-w-0 py-1 text-sm font-medium text-text-primary prose-compact chat-markdown">
+                <ChatMarkdown content={display} />
+            </div>
+        </ActionLine>
     );
 }

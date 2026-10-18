@@ -118,11 +118,16 @@ export function BrowseStage({
             />
             {status === "controlling" && frame.image ? (
                 <svg
-                    className="pointer-events-none absolute z-10 text-text-primary"
+                    className={cn(
+                        "pointer-events-none absolute z-10 text-text-primary",
+                        pointer
+                            ? "transition-none"
+                            : "transition-[translate] duration-[var(--transition-spatial)] ease-[var(--ease-out)]",
+                    )}
                     style={{
-                        left: spot.left,
-                        top: spot.top,
-                        transition: pointer ? "none" : "left 180ms cubic-bezier(.2,.7,.2,1), top 180ms cubic-bezier(.2,.7,.2,1)",
+                        left: 0,
+                        top: 0,
+                        translate: `${spot.left}px ${spot.top}px`,
                         filter: "drop-shadow(0 1px 1.5px rgba(0,0,0,0.45))",
                     }}
                     width="22"

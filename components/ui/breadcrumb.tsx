@@ -120,7 +120,7 @@ export const BreadcrumbItem = ({
 
   const interactiveClass = cn(
     "-mx-1 flex items-center gap-1.5 rounded-md px-1 py-0.5 text-md whitespace-nowrap text-text-tertiary",
-    "transition-colors duration-150 ease outline-none",
+    "transition-colors duration-[var(--transition-fast)] ease-[var(--ease-out)] outline-none",
     "hover:bg-[var(--btn-hover)] hover:text-text-secondary",
     "focus-visible:ring-2 focus-visible:ring-border-focus-ring",
     className,

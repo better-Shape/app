@@ -39,6 +39,7 @@ export function PlanningBlock({ steps, completedCount, totalCount, isGenerating 
     isGenerating?: boolean;
 }) {
     const [isOpen, setIsOpen] = React.useState(totalCount <= 5);
+    const collapseId = React.useId();
     const displaySteps = React.useMemo(
         () => freezeActiveSteps(steps, isGenerating),
         [steps, isGenerating],
@@ -54,6 +55,8 @@ export function PlanningBlock({ steps, completedCount, totalCount, isGenerating 
         <div className="my-1 w-full overflow-hidden squircle-2xl bg-surface-4">
             <button
                 type="button"
+                aria-expanded={totalCount > 1 ? isOpen : undefined}
+                aria-controls={collapseId}
                 onClick={() => totalCount > 1 && setIsOpen((open) => !open)}
                 className={cn(
                     "flex w-full items-center gap-2 px-2 py-2 text-left",
@@ -69,7 +72,7 @@ export function PlanningBlock({ steps, completedCount, totalCount, isGenerating 
                 </span>
             </button>
 
-            <Collapse open={visibleSteps.length > 0}>
+            <Collapse id={collapseId} open={visibleSteps.length > 0}>
                 <div className="flex flex-col px-2 pb-2">
                     {visibleSteps.map((step, i) => (
                         <div key={`${step.label}-${i}`} className="flex h-7 items-center gap-2">
@@ -149,6 +152,7 @@ export function PlanSavedBlock({
         markdown ? splitPlanDocument(markdown).body : "",
     );
     const [open, setOpen] = React.useState(true);
+    const collapseId = React.useId();
 
     const applyPlan = (content: string) => {
         setPreview(parsePlanMarkdown(content));
@@ -224,8 +228,10 @@ export function PlanSavedBlock({
         <div className="my-1 w-full overflow-hidden squircle-2xl border border-border-subtle bg-surface-2 p-2">
             <button
                 type="button"
+                aria-expanded={open}
+                aria-controls={collapseId}
                 onClick={() => setOpen((v) => !v)}
-                className="flex w-full items-center gap-2 text-left transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]"
+                className="flex w-full items-center gap-2 text-left transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus"
             >
                 <span className="flex size-4 shrink-0 items-center justify-center text-text-muted">
                     <Icon icon={CalendarCheckmark24Filled} className="icon-sm" />
@@ -242,7 +248,7 @@ export function PlanSavedBlock({
                 />
             </button>
 
-            <Collapse open={open}>
+            <Collapse id={collapseId} open={open}>
                 <div className="flex flex-col gap-2 pt-2">
                     {body.trim() ? (
                         <div className="chat-markdown px-1 text-sm text-text-primary">

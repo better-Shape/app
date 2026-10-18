@@ -3,7 +3,7 @@
 import { Bot20Regular } from "@fluentui/react-icons/headless/svg/bot";
 import { ChevronDown20Regular } from "@fluentui/react-icons/headless/svg/chevron-down";
 
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useId, useMemo, useState, useSyncExternalStore } from "react";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 import {
@@ -21,6 +21,7 @@ import { NEW_CHAT_TAB_ID } from "@/features/chat/ui/shell/tabs";
 export const AgentTabsChip = () => {
     const [parentId, setParentId] = useState<string | null>(null);
     const [open, setOpen] = useState(false);
+    const listId = useId();
     const all = useSyncExternalStore(subscribeSubagents, getSubagents, getSubagents);
 
     useEffect(() => {
@@ -47,11 +48,13 @@ export const AgentTabsChip = () => {
         <div className="relative px-2 pb-1">
             <button
                 type="button"
+                aria-expanded={open}
+                aria-controls={listId}
                 onClick={() => setOpen((v) => !v)}
                 className={cn(
                     "inline-flex w-fit max-w-full items-center gap-1.5 rounded-lg px-2 py-1",
                     "text-sm font-normal text-text-secondary",
-                    "transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--row-hover)] hover:text-text-primary",
+                    "transition-colors duration-[var(--transition-fast)] ease-[var(--ease-out)] hover:bg-[var(--row-hover)] hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus",
                 )}
             >
                 <Icon icon={Bot20Regular} className="text-text-muted" />
@@ -60,14 +63,14 @@ export const AgentTabsChip = () => {
                 <Icon
                     icon={ChevronDown20Regular}
                     className={cn(
-                        "text-text-muted transition-transform duration-200",
+                        "text-text-muted transition-transform duration-[var(--transition-fast)] ease-[var(--ease-out)]",
                         open && "rotate-180",
                     )}
                     style={{ ["--icon-size" as string]: "14px" }}
                 />
             </button>
             {open ? (
-                <div className="mt-1 flex flex-col gap-0.5 px-0.5">
+                <div id={listId} className="mt-1 flex flex-col gap-0.5 px-0.5">
                     {cards.map((card) => (
                         <button
                             key={card.id}
@@ -76,7 +79,7 @@ export const AgentTabsChip = () => {
                                 openSubagent(card.id);
                                 setOpen(false);
                             }}
-                            className="flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1 text-left text-sm font-normal text-text-secondary transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--row-hover)] hover:text-text-primary"
+                            className="flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1 text-left text-sm font-normal text-text-secondary transition-colors duration-[var(--transition-fast)] ease-[var(--ease-out)] hover:bg-[var(--row-hover)] hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus"
                         >
                             <span className="min-w-0 flex-1 truncate">{card.title}</span>
                         </button>

@@ -16,7 +16,7 @@ import { commands } from "@/lib/backend";
 import { Button } from "./button";
 
 export const TOAST_AUTO_HIDE_MS = 5500;
-const TOAST_EXIT_MS = 220;
+const TOAST_EXIT_MS = 140;
 export const TOAST_STACK_CLASS =
     "pointer-events-none fixed top-3 left-1/2 z-notification w-[min(420px,calc(100vw-24px))] -translate-x-1/2 outline-none";
 

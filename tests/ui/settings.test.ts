@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { getEditorOptionsFromSettings, updateSettingSection } from "@/lib/settings";
+import { SETTINGS_STORAGE_KEY } from "@/lib/settings/constants";
 
 describe("settings", () => {
     it("editor options", () => {
@@ -28,8 +29,18 @@ describe("settings", () => {
 
     it("persist", () => {
         updateSettingSection("editor", { tabSize: 4, fontSize: 15 });
-        const parsed = JSON.parse(localStorage.getItem("bettershape-settings-v1")!);
+        const parsed = JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY)!);
         expect(parsed.editor.tabSize).toBe(4);
         expect(parsed.editor.fontSize).toBe(15);
+    });
+
+    it("persists the reduced-motion preference and applies it immediately", () => {
+        updateSettingSection("appearance", { motionPreference: "reduced" });
+        const parsed = JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY)!);
+        expect(parsed.appearance.motionPreference).toBe("reduced");
+        expect(document.documentElement.dataset.motionPreference).toBe("reduced");
+
+        updateSettingSection("appearance", { motionPreference: "system" });
+        expect(document.documentElement.dataset.motionPreference).toBeUndefined();
     });
 });

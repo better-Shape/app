@@ -8,7 +8,7 @@ export function Skeleton({ className }: { className?: string }) {
     return (
         <div
             className={cn(
-                "animate-pulse rounded-md bg-panel-hover/80",
+                "rounded-md bg-panel-hover/80",
                 className,
             )}
             aria-hidden

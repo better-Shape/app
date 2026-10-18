@@ -181,18 +181,21 @@ function SectionHeader({
     count,
     open,
     onToggle,
+    controlsId,
 }: {
     label: string;
     count: number;
     open: boolean;
     onToggle: () => void;
+    controlsId: string;
 }) {
     return (
         <button
             type="button"
             onClick={onToggle}
             aria-expanded={open}
-            className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-xs font-medium text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--row-hover)] hover:text-text-secondary"
+            aria-controls={controlsId}
+            className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-xs font-medium text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--row-hover)] hover:text-text-secondary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus"
         >
             <Icon
                 icon={ChevronRight20Regular}
@@ -209,6 +212,9 @@ function SectionHeader({
 
 export function BranchWindow({ active = true }: { active?: boolean }) {
     const { query: filter } = useFilter();
+    const localBranchesId = React.useId();
+    const remoteBranchesId = React.useId();
+    const remoteGroupsId = React.useId();
     const [workspaceRoot, setWorkspaceRoot] = useState<string | null>(null);
     const { scmRepoPath } = useGitRepos(workspaceRoot);
     const project_path = scmRepoPath ?? workspaceRoot;
@@ -630,9 +636,10 @@ export function BranchWindow({ active = true }: { active?: boolean }) {
                     label="Local"
                     count={localItems.length}
                     open={localOpen}
+                    controlsId={localBranchesId}
                     onToggle={() => setLocalOpen((v) => !v)}
                 />
-                <Collapse open={localOpen}>
+                <Collapse id={localBranchesId} open={localOpen}>
                     <div className="mb-3 space-y-0.5">
                         {localItems.length === 0 ? (
                             <div className="px-2 py-2 text-sm text-text-muted">No local branches</div>
@@ -677,20 +684,24 @@ export function BranchWindow({ active = true }: { active?: boolean }) {
                     label="Remote"
                     count={remoteTotal}
                     open={remoteOpen}
+                    controlsId={remoteBranchesId}
                     onToggle={() => setRemoteOpen((v) => !v)}
                 />
-                <Collapse open={remoteOpen}>
+                <Collapse id={remoteBranchesId} open={remoteOpen}>
                     <div className="space-y-2">
                         {remoteGroups.length === 0 ? (
                             <div className="px-2 py-2 text-sm text-text-muted">No remote branches</div>
                         ) : (
                             <>
-                                {remoteGroupsVisible.map(([remote, items, fullCount]) => {
+                                {remoteGroupsVisible.map(([remote, items, fullCount], index) => {
                                     const open = !collapsedRemotes.has(remote);
+                                    const collapseId = `${remoteGroupsId}-${index}`;
                                     return (
                                         <div key={remote}>
                                             <button
                                                 type="button"
+                                                aria-expanded={open}
+                                                aria-controls={collapseId}
                                                 onClick={() => {
                                                     setCollapsedRemotes((prev) => {
                                                         const next = new Set(prev);
@@ -699,7 +710,7 @@ export function BranchWindow({ active = true }: { active?: boolean }) {
                                                         return next;
                                                     });
                                                 }}
-                                                className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-sm text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--row-hover)] hover:text-text-secondary"
+                                                className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-sm text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--row-hover)] hover:text-text-secondary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus"
                                             >
                                                 <Icon
                                                     icon={ChevronRight20Regular}
@@ -712,7 +723,7 @@ export function BranchWindow({ active = true }: { active?: boolean }) {
                                                 <span className="flex-1 truncate font-medium">{remote}</span>
                                                 <span className="text-xs tabular-nums">{fullCount}</span>
                                             </button>
-                                            <Collapse open={open}>
+                                            <Collapse id={collapseId} open={open}>
                                                 <div className="ml-2 space-y-0.5 border-l border-border-subtle/50 pl-1">
                                                     {items.map((item) => (
                                                         <BranchRow

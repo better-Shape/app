@@ -23,6 +23,7 @@ import { startAgentBackgroundExitToasts } from "@/features/chat/lib/agent-termin
 import { useWindowControls } from "@/features/agent/workbench/titlebar/hooks/use-window-controls";
 import { WindowControls } from "@/features/agent/workbench/titlebar/ui/window-controls";
 import { usePlatform } from "@/lib/platform";
+import { prefersReducedMotion } from "@/lib/ui/motion";
 import { normalizePath } from "@/lib/path/utils";
 import { NewFilePromptHost } from "./workspace/new-file-prompt";
 import { InterruptedTurns } from "./recovery/interrupted-turns";
@@ -70,15 +71,20 @@ function SidebarPeek({
 
     useEffect(() => {
         if (shown) return;
-        const t = window.setTimeout(() => setMounted(false), 200);
+        if (prefersReducedMotion()) return;
+        const t = window.setTimeout(() => setMounted(false), 160);
         return () => window.clearTimeout(t);
     }, [shown]);
+
+    if (!shown && prefersReducedMotion()) return null;
 
     return (
         <div
             ref={attachHost}
             role="presentation"
             data-sidebar-peek=""
+            aria-hidden={!shown}
+            inert={!shown}
             className={cn(
                 "fixed z-30 flex w-82 flex-col overflow-visible origin-left",
                 // Comes out of the rail button rather than fading in at a fixed spot:
@@ -164,9 +170,6 @@ export function AgentLayout({ children }: { children: React.ReactNode }) {
 
     useEffect(() => startAgentBackgroundExitToasts(), []);
 
-    // Resolve sidebar nav portal target when overlay / explorer needs it.
-    const navSlot = useElementById(AGENT_SIDEBAR_NAV_SLOT, Boolean(overlay));
-
     useEffect(() => {
         if (!splash) return;
         let t2: number | undefined;
@@ -188,6 +191,9 @@ export function AgentLayout({ children }: { children: React.ReactNode }) {
             if (t2 !== undefined) window.clearTimeout(t2);
         };
     }, [splash]);
+
+    // Resolve sidebar nav portal target when overlay / explorer needs it.
+    const navSlot = useElementById(AGENT_SIDEBAR_NAV_SLOT, Boolean(overlay));
 
     const persistWorkspace = useCallback((next: boolean) => {
         setWorkspaceOpen(next);

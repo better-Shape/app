@@ -201,7 +201,7 @@ export function InlineDiff({ file, original, replacement, isGenerating }: {
 
     return (
         <div className={cn(
-            "w-full flex flex-col rounded-md border overflow-hidden my-2 transition-all duration-300",
+            "w-full flex flex-col rounded-md border overflow-hidden my-2 transition-[border-color,background-color,opacity] duration-[var(--transition-base)] ease-[var(--ease-out)]",
             status === "accepted" ? "border-success/30 bg-success/5" :
                 status === "rejected" ? "border-error/20 bg-error/5 opacity-60" :
                     "border-border-subtle bg-panel/40"

@@ -303,6 +303,7 @@ function ChatMessageItemInner({
     const [menuModel, setMenuModel] = React.useState(model);
     const [advanced, setAdvanced] = React.useState(false);
     const [contextVeil, setContextVeil] = React.useState(true);
+    const contextWindowId = React.useId();
     const bodyRef = React.useRef<HTMLDivElement>(null);
     const shownStats = menuStats ?? stats;
     const shownModel = menuModel ?? model;
@@ -618,12 +619,11 @@ function ChatMessageItemInner({
                                 {hasContextWindowData(shownStats?.contextBreakdown, shownStats?.inputTokens, shownStats?.outputTokens) ? (
                                     <>
                                         <div
-                                            className="grid transition-[grid-template-rows] duration-500 ease-out"
+                                            id={contextWindowId}
+                                            aria-hidden={!advanced}
+                                            inert={!advanced}
+                                            className="grid transition-[grid-template-rows] duration-[var(--transition-base)] ease-[var(--ease-out)]"
                                             style={{ gridTemplateRows: advanced ? "1fr" : "0fr" }}
-                                            onTransitionEnd={(e) => {
-                                                if (e.propertyName !== "grid-template-rows") return;
-                                                if (advanced) setContextVeil(false);
-                                            }}
                                         >
                                             <div className="min-h-0 px-2 pt-1 pb-1">
                                                 <ContextWindowMenu
@@ -635,7 +635,7 @@ function ChatMessageItemInner({
                                         </div>
                                         <div
                                             className={cn(
-                                                "pointer-events-none absolute inset-x-0 bottom-0 z-[1] h-30 bg-linear-to-t from-surface-4 to-transparent transition-opacity delay-200",
+                                                "pointer-events-none absolute inset-x-0 bottom-0 z-[1] h-30 bg-linear-to-t from-surface-4 to-transparent transition-opacity delay-200 duration-[var(--transition-fast)] ease-[var(--ease-out)]",
                                                 contextVeil ? "opacity-100" : "opacity-0",
                                             )}
                                             aria-hidden
@@ -643,8 +643,13 @@ function ChatMessageItemInner({
                                         {!advanced ? (
                                             <button
                                                 type="button"
-                                                className="relative z-10 flex w-35 mx-auto bg-panel-hover backdrop-blur-2xl squircle-2xl px-1.5 py-1 items-center justify-center gap-1 text-md font-medium text-text-secondary hover:text-text-primary"
-                                                onClick={() => setAdvanced(true)}
+                                                aria-expanded={advanced}
+                                                aria-controls={contextWindowId}
+                                                className="relative z-10 mx-auto flex w-35 items-center justify-center gap-1 squircle-2xl bg-panel-hover px-1.5 py-1 text-md font-medium text-text-secondary hover:text-text-primary transition-colors duration-[var(--transition-fast)] ease-[var(--ease-out)]"
+                                                onClick={() => {
+                                                    setAdvanced(true);
+                                                    setContextVeil(false);
+                                                }}
                                             >
                                                 Advanced
                                                 <Icon icon={ChevronDown20Regular} />

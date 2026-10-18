@@ -461,7 +461,7 @@ export const AgentSidebar = ({
     const showConnect = !showHostedNav && !github.loggedIn;
 
     return (
-        <aside aria-hidden={!open} className={sidebarShellClass(open, expanded)}>
+        <aside aria-hidden={!open} inert={!open} className={sidebarShellClass(open, expanded)}>
             <div className={sidebarColumnClass(open, expanded)}>
                 {showHostedNav ? (
                     <HostedSidebarHeader expanded={expanded} onToggle={toggle} />

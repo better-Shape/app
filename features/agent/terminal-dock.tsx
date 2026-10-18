@@ -192,12 +192,13 @@ export function TerminalDock() {
         <div
             className={cn(
                 "relative z-20 shrink-0 overflow-hidden",
-                "transition-[height,margin] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
+                "transition-[height,margin] duration-[var(--transition-spatial)] ease-[var(--ease-out)]",
                 open ? "m-3" : "pointer-events-none m-0",
                 resizing && "transition-none",
             )}
             style={{ height: open ? height + 10 : 0 }}
             aria-hidden={!open}
+            inert={!open}
         >
             <div
                 className="relative flex h-full flex-col overflow-hidden rounded-xl squircle-2xl border border-border bg-panel px-2 pb-2"

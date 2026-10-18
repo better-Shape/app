@@ -334,13 +334,14 @@ export default function Chat({
         >
             <div
                 ref={emptyStackRef}
-                className={cn("relative flex w-full shrink-0 flex-col items-center gap-5", columnWidth)}
-                style={{
-                    marginTop: emptyTop,
-                    transition: emptyTopMotion
-                        ? "margin-top 920ms cubic-bezier(0.22, 1, 0.36, 1)"
-                        : "none",
-                }}
+                className={cn(
+                    "relative flex w-full shrink-0 flex-col items-center gap-5",
+                    columnWidth,
+                    emptyTopMotion
+                        ? "transition-[translate] duration-[var(--transition-spatial)] ease-[var(--ease-out)]"
+                        : "transition-none",
+                )}
+                style={{ translate: `0 ${emptyTop}px` }}
             >
                 <ChatEmptyState
                     onSelectMode={(mode) => {
