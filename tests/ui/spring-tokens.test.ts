@@ -13,7 +13,6 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
-// @ts-expect-error, a Node ESM tool, deliberately outside the TS project.
 import { SPRINGS, FALLBACKS, renderCss, springToLinear, peakOf } from "../../scripts/motion/springs.cjs";
 
 const ROOT = join(__dirname, "..", "..");
@@ -27,7 +26,7 @@ const css = readFileSync(CSS_PATH, "utf8");
  * A missing match should say which pattern failed rather than throw a property access on
  * null, and the assertion above it is what carries the expectation.
  */
-const must = <T>(value: T | null | undefined, what: string): T => {
+const must = <T>(value: T | null | undefined, what: string): NonNullable<T> => {
     if (value === null || value === undefined) throw new Error(`expected ${what}`);
     return value;
 };
