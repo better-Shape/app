@@ -49,7 +49,7 @@ jobs:
     steps:
       - name: Resolve PR for the build commit
         id: resolve
-        uses: actions/github-script@v9
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
           HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
@@ -150,7 +150,7 @@ jobs:
       - name: Re-resolve PR head before deploying
         id: head-recheck
         if: steps.vercel-check.outputs.enabled == 'true'
-        uses: actions/github-script@v9
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
           PR_NUMBER: ${{ needs.resolve-pr.outputs.pr-number }}
@@ -268,7 +268,7 @@ jobs:
         # Never on stand-down: this run owns no current preview link,
         # and posting its no-URL body would overwrite the newer one.
         if: steps.head-recheck.outputs.stand-down != 'true'
-        uses: actions/github-script@v9
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           PR_NUMBER: ${{ needs.resolve-pr.outputs.pr-number }}
           PREVIEW_URL: ${{ steps.vercel-deploy.outputs.url }}
@@ -367,7 +367,7 @@ jobs:
       # A failed build must not leave a previous preview URL presented as
       # current: annotate the sticky comment instead.
       - name: Annotate sticky comment
-        uses: actions/github-script@v9
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           PR_NUMBER: ${{ needs.resolve-pr.outputs.pr-number }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}

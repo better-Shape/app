@@ -130,7 +130,14 @@ export function ThinkingEffortControl({
                             }}
                             onKeyUp={(event) => {
                                 pointerCancelled.current = false;
-                                if (event.key === "ArrowLeft" || event.key === "ArrowRight" || event.key === "Home" || event.key === "End") {
+                                if (
+                                    event.key === "ArrowLeft" ||
+                                    event.key === "ArrowRight" ||
+                                    event.key === "ArrowUp" ||
+                                    event.key === "ArrowDown" ||
+                                    event.key === "Home" ||
+                                    event.key === "End"
+                                ) {
                                     commit(Number(event.currentTarget.value));
                                 }
                             }}
