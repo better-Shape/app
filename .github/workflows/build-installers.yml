@@ -15,10 +15,10 @@ permissions:
   contents: read
 
 concurrency:
-  group: build-installers-${{ github.workflow }}-${{ github.event.pull_request.head.ref || github.ref_name || github.ref }}
+  group: build-installers-${{ github.workflow }}-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.event.pull_request.head.ref || github.ref_name || github.ref }}
   # Let cold native builds finish; newer pending runs coalesce instead of
   # restarting Intel compilation on every review-fix push.
-  # Uses head_ref/ref_name so push + pull_request for same draft/** branch share the group.
+  # Includes head repo to avoid cross-fork collisions on same branch name; uses head_ref/ref_name so push + pull_request for same draft/** branch share the group.
   cancel-in-progress: false
 
 jobs:
@@ -80,6 +80,7 @@ jobs:
           cache-key: installers-${{ matrix.arch }}
 
       - name: Install locked dependencies
+        id: install-deps
         # Native Windows ARM npm ci took 17m10s in run 38613470080. Keep a
         # bounded step, but allow measured successful installs enough headroom.
         timeout-minutes: 25
@@ -108,7 +109,7 @@ jobs:
           npm run tauri -- "${ARGS[@]}" 2>&1 | tee -a "$RUNNER_TEMP/tauri-build.log"
 
       - name: Report native build failure
-        if: ${{ failure() && (steps.build-tauri.outcome == 'failure' || steps.build-runtime.outcome == 'failure') }}
+        if: ${{ failure() && (steps.install-deps.outcome == 'failure' || steps.build-runtime.outcome == 'failure' || steps.build-tauri.outcome == 'failure') }}
         shell: bash
         run: |
           if [ -f "$RUNNER_TEMP/tauri-build.log" ]; then
@@ -116,7 +117,7 @@ jobs:
           fi
 
       - name: Upload native build diagnostics
-        if: ${{ failure() && (steps.build-tauri.outcome == 'failure' || steps.build-runtime.outcome == 'failure') }}
+        if: ${{ failure() && (steps.install-deps.outcome == 'failure' || steps.build-runtime.outcome == 'failure' || steps.build-tauri.outcome == 'failure') }}
         uses: actions/upload-artifact@v7
         with:
           name: native-build-log-${{ matrix.os }}-${{ matrix.arch }}
