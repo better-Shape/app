@@ -226,7 +226,7 @@ const PickRow = ({
         onClick={onSelect}
         className={cn(
             "flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm",
-            selected ? "bg-panel-hover text-text-primary" : "text-text-secondary hover:bg-panel-hover/60",
+            selected ? "bg-panel-hover text-text-primary" : "text-text-secondary hover:bg-[var(--row-hover)]",
         )}
     >
         <PickRowIcon iconNode={item.iconNode} icon={item.icon} />

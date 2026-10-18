@@ -148,7 +148,7 @@ export function PrRowActions({
                     disabled={busy !== null || sweepBusy}
                     onPointerDown={sweepFromElement}
                     onClick={runFromElement}
-                    className="flex size-7 items-center justify-center rounded-md text-text-muted hover:bg-panel-hover hover:text-text-primary disabled:opacity-50"
+                    className="flex size-7 items-center justify-center rounded-md text-text-muted hover:bg-[var(--btn-hover)] hover:text-text-primary disabled:opacity-50"
                 >
                     <Icon icon={ACTION_ICON[action]} />
                 </button>

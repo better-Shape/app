@@ -70,7 +70,7 @@ function MatchRow({
                 type="button"
                 onClick={() => onOpen(hit)}
                 aria-label={`${hit.label} line ${hit.line}: ${hit.lineText.trim()}`}
-                className="flex min-w-0 flex-1 items-start gap-2 rounded-md px-2 py-1 text-left hover:bg-panel-hover focus-visible:bg-panel-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus-ring"
+                className="flex min-w-0 flex-1 items-start gap-2 rounded-md px-2 py-1 text-left hover:bg-[var(--row-hover)] focus-visible:bg-panel-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus-ring"
             >
                 <span className="shrink-0 text-2xs tabular-nums text-text-muted">{position}</span>
                 <span className="min-w-0 flex-1 truncate font-mono text-2xs text-text-primary">
@@ -85,7 +85,7 @@ function MatchRow({
                 type="button"
                 onClick={() => onReplace(hit)}
                 aria-label={`Replace this match in ${hit.label} at ${position}`}
-                className="shrink-0 rounded-md px-1.5 py-1 text-2xs text-text-muted opacity-0 hover:bg-panel-hover hover:text-text-primary focus-visible:bg-panel-hover focus-visible:text-text-primary focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus-ring group-hover:opacity-100"
+                className="shrink-0 rounded-md px-1.5 py-1 text-2xs text-text-muted opacity-0 hover:bg-[var(--row-hover)] hover:text-text-primary focus-visible:bg-panel-hover focus-visible:text-text-primary focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus-ring group-hover:opacity-100"
             >
                 Replace
             </button>
@@ -120,7 +120,7 @@ function GroupHeading({
                 type="button"
                 onClick={() => onReplaceFile(group)}
                 aria-label={`Replace all ${pluralMatches(group.hits.length)} in ${group.label}`}
-                className="shrink-0 rounded-md px-1.5 py-0.5 text-2xs text-text-muted hover:bg-panel-hover hover:text-text-primary focus-visible:bg-panel-hover focus-visible:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus-ring"
+                className="shrink-0 rounded-md px-1.5 py-0.5 text-2xs text-text-muted hover:bg-[var(--row-hover)] hover:text-text-primary focus-visible:bg-panel-hover focus-visible:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus-ring"
             >
                 Replace all
             </button>
@@ -222,7 +222,7 @@ function OptionsMenu({
                 <button
                     type="button"
                     aria-label="Search options"
-                    className="flex size-7 shrink-0 items-center justify-center rounded-md text-text-muted hover:bg-panel-hover hover:text-text-primary data-[state=open]:bg-panel-hover data-[state=open]:text-text-primary"
+                    className="flex size-7 shrink-0 items-center justify-center rounded-md text-text-muted hover:bg-[var(--btn-hover)] hover:text-text-primary data-[state=open]:bg-[var(--btn-open)] data-[state=open]:text-text-primary data-[state=open]:hover:bg-[var(--btn-open-hover)]"
                 >
                     <Icon icon={Options20Regular} />
                 </button>
@@ -352,7 +352,7 @@ export function SearchPanel({
                     type="button"
                     aria-label="Search again"
                     onClick={onRerun}
-                    className="flex size-7 shrink-0 items-center justify-center rounded-md text-text-muted hover:bg-panel-hover hover:text-text-primary"
+                    className="flex size-7 shrink-0 items-center justify-center rounded-md text-text-muted hover:bg-[var(--btn-hover)] hover:text-text-primary"
                 >
                     <Icon icon={ArrowSync20Regular} className={cn(searching && "animate-spin motion-reduce:animate-none")} />
                 </button>

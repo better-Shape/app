@@ -91,7 +91,7 @@ function PackageRowView({
     onUpdate: (name: string) => void;
 }) {
     return (
-        <li className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-panel-hover">
+        <li className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-[var(--row-hover)]">
             <span className="min-w-0 flex-1 truncate font-mono text-xs text-text-primary" title={row.name}>
                 {row.name}
             </span>
@@ -103,7 +103,7 @@ function PackageRowView({
                 onClick={() => onUpdate(row.name)}
                 disabled={busy}
                 aria-label={`Update ${row.name}`}
-                className="flex size-6 shrink-0 items-center justify-center rounded-md text-text-muted hover:bg-panel-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus-ring disabled:cursor-not-allowed disabled:opacity-40"
+                className="flex size-6 shrink-0 items-center justify-center rounded-md text-text-muted hover:bg-[var(--btn-hover)] hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus-ring disabled:cursor-not-allowed disabled:opacity-40"
             >
                 <Icon icon={ArrowUp20Regular} className="icon-sm" />
             </button>
@@ -112,7 +112,7 @@ function PackageRowView({
                 onClick={() => onUninstall(row.name)}
                 disabled={busy}
                 aria-label={`Uninstall ${row.name}`}
-                className="flex size-6 shrink-0 items-center justify-center rounded-md text-text-muted hover:bg-panel-hover hover:text-error focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus-ring disabled:cursor-not-allowed disabled:opacity-40"
+                className="flex size-6 shrink-0 items-center justify-center rounded-md text-text-muted hover:bg-[var(--btn-hover)] hover:text-error focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus-ring disabled:cursor-not-allowed disabled:opacity-40"
             >
                 <Icon icon={Delete20Regular} className="icon-sm" />
             </button>
@@ -170,7 +170,7 @@ function PackageManagerMenu({
                     type="button"
                     disabled={disabled}
                     aria-label={`Package manager: ${value}`}
-                    className="shrink-0 rounded-md px-2 py-1 text-xs text-text-secondary hover:bg-panel-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus-ring disabled:cursor-not-allowed disabled:opacity-40"
+                    className="shrink-0 rounded-md px-2 py-1 text-xs text-text-secondary hover:bg-[var(--row-hover)] hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus-ring disabled:cursor-not-allowed disabled:opacity-40"
                 >
                     {value}
                 </button>
@@ -239,8 +239,8 @@ function InstallForm({
                 className={cn(
                     "flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-xs",
                     dev
-                        ? "bg-panel-active text-text-primary"
-                        : "text-text-secondary hover:bg-panel-hover hover:text-text-primary",
+                        ? "bg-[var(--btn-open)] text-text-primary hover:bg-[var(--btn-open-hover)]"
+                        : "text-text-secondary hover:bg-[var(--btn-hover)] hover:text-text-primary",
                     "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus-ring",
                     "disabled:cursor-not-allowed disabled:opacity-40",
                 )}
@@ -312,7 +312,7 @@ export function PackagesPanel({
                     aria-label="Refresh package list"
                     onClick={onRefresh}
                     disabled={busy}
-                    className="flex size-7 shrink-0 items-center justify-center rounded-md text-text-muted hover:bg-panel-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus-ring disabled:cursor-not-allowed disabled:opacity-40"
+                    className="flex size-7 shrink-0 items-center justify-center rounded-md text-text-muted hover:bg-[var(--btn-hover)] hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus-ring disabled:cursor-not-allowed disabled:opacity-40"
                 >
                     <Icon
                         icon={ArrowSync20Regular}

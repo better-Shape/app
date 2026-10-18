@@ -476,7 +476,7 @@ export function StashPanel() {
                                                 }, ${row.when}`}
                                                 disabled={row.index === null}
                                                 onClick={() => void togglePreview(row)}
-                                                className="flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left hover:bg-panel-hover focus-visible:bg-panel-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus-ring disabled:cursor-not-allowed disabled:opacity-60"
+                                                className="flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left hover:bg-[var(--row-hover)] focus-visible:bg-panel-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus-ring disabled:cursor-not-allowed disabled:opacity-60"
                                             >
                                                 <Icon
                                                     icon={Archive20Regular}

@@ -785,12 +785,7 @@ const ChatRow = ({
             ref={rowRef}
             data-motion-id={id}
             data-row-variant={variant}
-            className={cn(
-                "flex flex-col overflow-hidden",
-                isDragging && "opacity-40",
-                color && "bg-[color-mix(in_oklch,var(--chat-tint)_22%,transparent)] text-text-primary",
-                color && active && "bg-[color-mix(in_oklch,var(--chat-tint)_30%,transparent)]",
-            )}
+            className={cn("flex flex-col overflow-hidden", isDragging && "opacity-40", outerTintClass(color, active))}
             style={{
                 ...(color ? { ["--chat-tint" as string]: CHAT_COLOR_HEX[color] } : {}),
                 contentVisibility: isDragging ? "visible" : "auto",
@@ -799,16 +794,7 @@ const ChatRow = ({
         >
             <ContextMenu>
                 <ContextMenuTrigger asChild>
-                    <div
-                        className={cn(
-                            "group/chat relative flex w-full items-center gap-1 px-2 text-sm",
-                            variant === "card" ? "h-[78px] py-2" : "h-10",
-                            !color && "squircle-2xl",
-                            "transition-colors duration-[var(--transition-fast)] ease-[var(--ease-out)]",
-                            !color && (active ? "bg-panel-hover text-text-primary" : "text-text-primary hover:bg-panel-hover"),
-                            color && "text-text-primary hover:bg-[color-mix(in_oklch,var(--chat-tint)_12%,transparent)]",
-                        )}
-                    >
+                    <div className={rowChromeClass(variant, color, active)}>
                         {renaming ? (
                             <input
                                 ref={inputRef}
@@ -914,7 +900,7 @@ const ChatRow = ({
                                             type="button"
                                             aria-label="Pin"
                                             onClick={() => onTogglePin(true)}
-                                            className="flex size-6 items-center justify-center rounded-md text-text-muted hover:bg-panel-active hover:text-text-primary"
+                                            className="flex size-6 items-center justify-center rounded-md text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary"
                                         >
                                             <Icon icon={Pin20Regular} className="icon-sm" />
                                         </button>
@@ -926,7 +912,7 @@ const ChatRow = ({
                                             <button
                                                 type="button"
                                                 aria-label="Chat actions"
-                                                className="flex size-6 items-center justify-center rounded-md text-text-muted hover:bg-panel-active hover:text-text-primary"
+                                                className="flex size-6 items-center justify-center rounded-md text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary"
                                             >
                                                 <Icon icon={MoreHorizontal20Regular} className="icon-sm" />
                                             </button>
@@ -1033,7 +1019,7 @@ const ChatRow = ({
                                 "flex h-8 items-center gap-2 pr-2 pl-7 text-left text-sm text-text-secondary",
                                 color
                                     ? "hover:bg-[color-mix(in_oklch,var(--chat-tint)_16%,transparent)] hover:text-text-primary"
-                                    : "hover:bg-panel-hover hover:text-text-primary",
+                                    : "hover:bg-[var(--row-hover)] hover:text-text-primary",
                             )}
                         >
                             <span className={cn("size-1.5 shrink-0 rounded-full", nestedDot(card.status))} aria-hidden />
@@ -1076,7 +1062,12 @@ function ShelfHeader({
             data-drop-shelf={dragging && isDropShelf(shelf) ? shelf : undefined}
             aria-expanded={open}
             onClick={() => { if (!dragging) onToggle(shelf); }}
-            className={cn("flex h-6 w-full items-center gap-1 rounded-md pr-2 pl-1 text-xs font-medium text-text-muted transition-colors duration-[var(--transition-fast)] ease-[var(--ease-out)] hover:bg-panel-hover hover:text-text-secondary", isOver && "bg-panel-active text-text-primary")}
+            className={cn(
+                "flex h-6 w-full items-center gap-1 rounded-md pr-2 pl-1 text-xs font-medium text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
+                isOver
+                    ? "bg-[var(--row-selected)] text-text-primary hover:bg-[var(--row-selected-hover)]"
+                    : "hover:bg-[var(--row-hover)] hover:text-text-secondary",
+            )}
         >
             <Icon
                 icon={ChevronDown20Regular}

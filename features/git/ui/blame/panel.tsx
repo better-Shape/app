@@ -49,7 +49,7 @@ function BlameGroupRow({
     const date = formatBlameDate(group.at, nowSeconds);
     const label = `${group.author}, ${group.summary}, commit ${shortHash}, lines ${span}`;
     return (
-        <li className="flex items-start gap-2 rounded-md px-2 py-1.5 hover:bg-panel-hover">
+        <li className="flex items-start gap-2 rounded-md px-2 py-1.5 hover:bg-[var(--row-hover)]">
             <span
                 className="w-16 shrink-0 pt-0.5 text-right font-mono text-2xs tabular-nums text-text-muted"
                 title="File lines this commit is responsible for"
@@ -79,7 +79,7 @@ function BlameGroupRow({
                 }
                 aria-label={`Open the diff for ${label}`}
                 title="Open the commit diff"
-                className="flex size-6 shrink-0 items-center justify-center rounded-md text-text-muted hover:bg-panel-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus-ring"
+                className="flex size-6 shrink-0 items-center justify-center rounded-md text-text-muted hover:bg-[var(--btn-hover)] hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus-ring"
             >
                 <Icon icon={ArrowExportUp20Regular} className="icon-sm" />
             </button>
@@ -131,7 +131,7 @@ export function BlamePanel({
                     aria-label="Re-run git blame"
                     onClick={onRefresh}
                     disabled={busy}
-                    className="flex size-7 shrink-0 items-center justify-center rounded-md text-text-muted hover:bg-panel-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus-ring disabled:cursor-not-allowed disabled:opacity-40"
+                    className="flex size-7 shrink-0 items-center justify-center rounded-md text-text-muted hover:bg-[var(--btn-hover)] hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus-ring disabled:cursor-not-allowed disabled:opacity-40"
                 >
                     <Icon
                         icon={ArrowSync20Regular}
