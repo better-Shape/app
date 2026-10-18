@@ -1,12 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import type { BrowserPickedElement } from "@/lib/backend/types";
 import { AgentControlBar } from "@/features/chat/ui/blocks/browse-frame";
 import { useBrowseFrame, type BrowseFrame } from "@/features/agent/browser/session";
 import { getLastDevUrl } from "@/features/preview/store";
-import { createBrowserActions } from "./browser-actions";
+import { useIsMounted } from "@/lib/ui/use-mounted";
+import { useBrowserActions } from "./browser-actions";
 import { BrowserToolbar, BookmarkBar, PageContextMenu, type BrowserState } from "./browser-chrome";
 import {
     useBookmarks,
@@ -144,11 +145,7 @@ export const BrowserView = ({
     const [tabs, setTabs] = useState<PageTab[]>(() => (controlled ? [] : [blankTab("new-1")]));
     const [activeId, setActiveId] = useState<string | null>(() => (controlled ? null : "new-1"));
     const [localActive, setLocalActive] = useState<string | null>(null);
-    const [draft, setDraft] = useState<{ key: string; value: string } | null>(() => {
-        if (controlled) return null;
-        const last = getLastDevUrl();
-        return last ? { key: "new-1", value: last } : null;
-    });
+    const [draft, setDraft] = useState<{ key: string; value: string } | null>(null);
     const [picking, setPicking] = useState(false);
     const [savingShot, setSavingShot] = useState(false);
     const [hover, setHover] = useState<HoverTarget | null>(null);
@@ -162,6 +159,16 @@ export const BrowserView = ({
     const currentUrlRef = useRef("");
     const travelUntil = useRef(0);
     const seenScheme = useRef<ReturnType<typeof useColorScheme>["scheme"] | null>(null);
+
+    // The last previewed URL is a module global that the server render cannot see, so it is
+    // adopted after hydration rather than in the initial state, which would mismatch the prerender.
+    const hydrated = useIsMounted();
+    const [openedOnce, setOpenedOnce] = useState(false);
+    if (hydrated && !controlled && !openedOnce) {
+        setOpenedOnce(true);
+        const last = getLastDevUrl();
+        if (last) setDraft({ key: "new-1", value: last });
+    }
 
     const { bookmarks, bar: bookmarkBar, showBar, toggle: toggleSaved } = useBookmarks();
     const { scheme, choose: chooseScheme } = useColorScheme();
@@ -213,22 +220,32 @@ export const BrowserView = ({
     useFrameSrcSync({ frameRef, frameTabRef: frameTab, active });
     usePickingBroadcast({ frameRef, picking, frameSrc, showPage });
 
-    // Jump to the agent's tab when it starts driving, and leave it when it stops.
-    const wasAgentActive = useRef(false);
-    useEffect(() => {
-        if (agentActive && !wasAgentActive.current) setLocalActive(AGENT_TAB);
-        if (!agentActive) setLocalActive((current) => (current === AGENT_TAB ? null : current));
-        wasAgentActive.current = agentActive;
-    }, [agentActive]);
+    // Jump to the agent's tab when it starts driving, and leave it when it stops. The edge is
+    // detected during render so the switch lands in the same commit as the agent's own change.
+    const [wasAgentActive, setWasAgentActive] = useState(false);
+    if (wasAgentActive !== agentActive) {
+        setWasAgentActive(agentActive);
+        if (agentActive) setLocalActive(AGENT_TAB);
+        else setLocalActive((current) => (current === AGENT_TAB ? null : current));
+    }
 
-    useEffect(() => {
-        if (!controlled || !tabIds) return;
-        setTabs((previous) => (tabsMatch(previous, tabIds) ? previous : tabsFromIds(previous, tabIds)));
-        if (tabId) setActiveId(tabId);
-        // A draft belongs to the view it was typed in, so a change of active tab drops it
-        // rather than leaving the previous page's half-typed address over the new one.
-        setDraft(null);
-    }, [controlled, tabIds, tabId]);
+    // The controlled tab list is adopted during render, so the frame never paints a pass of the
+    // previous list before the caller's one arrives.
+    const [tabScope, setTabScope] = useState<{
+        controlled: boolean;
+        tabIds: string[] | undefined;
+        tabId: string | null;
+    }>({ controlled, tabIds, tabId });
+    if (tabScope.controlled !== controlled || tabScope.tabIds !== tabIds || tabScope.tabId !== tabId) {
+        setTabScope({ controlled, tabIds, tabId });
+        if (controlled && tabIds) {
+            setTabs((previous) => (tabsMatch(previous, tabIds) ? previous : tabsFromIds(previous, tabIds)));
+            if (tabId) setActiveId(tabId);
+            // A draft belongs to the view it was typed in, so a change of active tab drops it
+            // rather than leaving the previous page's half-typed address over the new one.
+            setDraft(null);
+        }
+    }
 
     /**
      * A new tab clears what belonged to the old one.
@@ -236,20 +253,24 @@ export const BrowserView = ({
      * The picker and the outline are about the page that was on screen, so both drop when the
      * user moves to another tab rather than following them there.
      */
-    useEffect(() => {
+    // A new tab clears what belonged to the old one. The scope is compared during render so
+    // the picker and the outline drop in the same commit as the tab change.
+    const [selectionScope, setSelectionScope] = useState<{ activeId: string | null; showAgent: boolean } | null>(null);
+    if (selectionScope === null || selectionScope.activeId !== activeId || selectionScope.showAgent !== showAgent) {
+        setSelectionScope({ activeId, showAgent });
         setPicking(false);
         setHover(null);
-    }, [activeId, showAgent]);
+    }
 
-    activeIdRef.current = activeId;
-    currentUrlRef.current = currentUrl;
+    useLayoutEffect(() => { activeIdRef.current = activeId; }, [activeId]);
+    useLayoutEffect(() => { currentUrlRef.current = currentUrl; }, [currentUrl]);
 
     useEffect(() => {
         if (!meta.id || !meta.url || !onMeta) return;
         onMeta(meta.id, meta.title ?? "", meta.url, meta.favicon);
     }, [meta, onMeta]);
 
-    const actions = createBrowserActions({
+    const actions = useBrowserActions({
         active,
         showAgent,
         currentUrl,

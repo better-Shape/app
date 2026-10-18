@@ -91,7 +91,7 @@ export type BrowserActionDeps = {
  * The actions read the deps object at call time rather than closing over it, so a handler
  * built on one render still acts on the tab that is on screen when it is pressed.
  */
-export const createBrowserActions = (deps: BrowserActionDeps): BrowserActions => {
+export const useBrowserActions = (deps: BrowserActionDeps): BrowserActions => {
     /** Asks the frame to go back or forward one step of its own history. */
     const goHistory = (delta: number) => {
         const { active, showAgent } = deps;

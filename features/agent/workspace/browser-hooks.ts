@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState, type RefObject } from "react";
 
+import { useIsMounted } from "@/lib/ui/use-mounted";
+
 import { commands } from "@/lib/backend";
 import type { BrowserPickedElement } from "@/lib/backend/types";
 import { hostnameOf } from "@/lib/ui/favicon";
@@ -292,10 +294,23 @@ export const usePickingBroadcast = ({
     }, [frameRef, picking, frameSrc, showPage]);
 };
 
-/** The bookmarks this profile saved, and whether the bar showing them is out. */
+/**
+ * The bookmarks this profile saved, and whether the bar showing them is out.
+ *
+ * Both are read after hydration rather than in the initial state, so the server and the first
+ * client render agree on empty and the saved values arrive in the next commit. Reading storage
+ * during render would make the prerender and the client disagree on every saved bookmark.
+ */
 export const useBookmarks = () => {
-    const [bookmarks, setBookmarks] = useState<Bookmark[]>(() => loadJson(BOOKMARKS_KEY, []));
-    const [bar, setBar] = useState(() => loadJson(BOOKMARK_BAR_KEY, false));
+    const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
+    const [bar, setBar] = useState(false);
+    const hydrated = useIsMounted();
+    const [restored, setRestored] = useState(false);
+    if (hydrated && !restored) {
+        setRestored(true);
+        setBookmarks(loadJson<Bookmark[]>(BOOKMARKS_KEY, []));
+        setBar(loadJson<boolean>(BOOKMARK_BAR_KEY, false));
+    }
 
     /** Adds the page or removes it, which is what the star toggles between. */
     const toggle = useCallback((url: string, title: string) => {
