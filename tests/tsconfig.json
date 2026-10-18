@@ -1,6 +1,11 @@
 {
   "extends": "../tsconfig.json",
   "compilerOptions": {
+    // The app compiles at ES2017 for browser reach, but this scope is test code
+    // that only ever runs on the CI Node (22+) or jsdom. The regex `s` (dotAll)
+    // flag several specs use is ES2018, and a plain `npx tsc --noEmit` never
+    // saw it because the root config excludes `tests`.
+    "target": "ES2022",
     "types": ["node", "styled-jsx", "vitest/globals"],
     "incremental": false
   },

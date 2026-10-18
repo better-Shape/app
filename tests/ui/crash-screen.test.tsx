@@ -4,7 +4,10 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const reportMock = vi.hoisted(() => vi.fn(async () => {}));
+// Typed parameter, so `mock.calls.at(-1)?.[0]` indexes a real tuple instead of `[]`.
+const reportMock = vi.hoisted(() =>
+    vi.fn(async (_opts: { category: string; message: string }) => {}),
+);
 vi.mock("@/lib/feedback/report", () => ({ submitProblemReport: reportMock }));
 
 /**
@@ -87,6 +90,7 @@ describe("CrashScreen", () => {
         hint?: string;
         message?: string;
         digest?: string;
+        stack?: string;
     }) {
         const { CrashScreen } = await import("@/components/layout/error/crash-screen");
         act(() =>
@@ -114,7 +118,7 @@ describe("CrashScreen", () => {
         });
     }
 
-    const lastReport = () => reportMock.mock.calls.at(-1)?.[0].message as string;
+    const lastReport = () => reportMock.mock.calls.at(-1)?.[0]?.message as string;
 
     it("shows the title and the plain-language hint", async () => {
         await render({ title: "BetterShape hit an unexpected error", hint: "Your files on disk are untouched." });

@@ -13,7 +13,8 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
-// @ts-expect-error, a Node ESM tool, deliberately outside the TS project.
+// A Node ESM tool that this scope type-checks like any other module, so no
+// `@ts-expect-error` is needed here.
 import { SPRINGS, FALLBACKS, renderCss, springToLinear, peakOf } from "../../scripts/motion/springs.mjs";
 
 const ROOT = join(__dirname, "..", "..");
