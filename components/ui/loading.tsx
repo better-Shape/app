@@ -16,7 +16,12 @@ export const LoadingBar = ({ className }: { className?: string }) => {
     const showBar = useDelayedFlag(isLoading, { delayMs: 200, minVisibleMs: 400 });
 
     return (
-        <div role="progressbar" aria-label="Loading" className={cn("h-[4px] w-full bg-transparent overflow-hidden relative", className)}>
+        <div
+            role={isLoading ? "progressbar" : undefined}
+            aria-label={isLoading ? "Loading" : undefined}
+            aria-hidden={isLoading ? undefined : true}
+            className={cn("h-[4px] w-full bg-transparent overflow-hidden relative", className)}
+        >
             <div
                 className={cn(
                     "absolute top-0 left-0 h-full bg-accent",

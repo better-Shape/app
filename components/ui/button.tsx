@@ -515,14 +515,15 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
             return true;
         };
 
-        // Native tooltips are suppressed app-wide. Keep button titles in data
-        // from the first render rather than mutating server HTML during hydration.
+        // Explicit Button titles are intentional tooltips; the app-wide suppressor
+        // leaves this native title in place from the first server-rendered pass.
         if (label) {
             return (
                 <span
                     ref={ref as React.Ref<HTMLSpanElement>}
                     className={classes}
-                    data-native-title={title ?? undefined}
+                    title={title}
+                    data-preserve-native-title={title ? "" : undefined}
                 >
                     {content}
                 </span>
@@ -536,7 +537,8 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
                     href={ariaDisabled ? undefined : href}
                     {...anchorTargetProps(href, ariaDisabled)}
                     className={classes}
-                    data-native-title={title ?? undefined}
+                    title={title}
+                    data-preserve-native-title={title ? "" : undefined}
                     {...stateAriaProps({ busy, pressed, blocked: ariaDisabled, ariaDisabled })}
                     onClick={(e) => {
                         if (guardActivation(e)) return;
@@ -561,7 +563,8 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
                 disabled={disabledAttribute}
                 {...props}
                 className={classes}
-                data-native-title={title ?? undefined}
+                title={title}
+                data-preserve-native-title={title ? "" : undefined}
                 {...stateAriaProps({ busy, pressed, blocked: inactive, ariaDisabled })}
                 aria-pressed={pressedAria(selected, ariaPressed)}
                 onClick={(e) => {

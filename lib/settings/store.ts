@@ -1125,7 +1125,7 @@ export function updateSettingSection<K extends keyof BetterShapeSettings>(
     section: K,
     patch: Partial<BetterShapeSettings[K]>
 ): void {
-    updateSettings({ [section]: { ...currentSettings[section], ...patch } } as Partial<BetterShapeSettings>);
+    updateSettings({ [section]: patch } as Partial<BetterShapeSettings>);
 }
 
 /**

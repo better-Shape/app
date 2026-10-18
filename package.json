@@ -30,7 +30,7 @@
     "ci": "npm run lint && npm run typecheck && npm run test:all",
     "ci:strict": "npm run lint:strict && npm run typecheck && npm run test:all",
     "docs:index": "node scripts/build/docs-index.mjs",
-  "skills:verify": "node scripts/ci/verify-skills.mjs",
+    "skills:verify": "node scripts/ci/verify-skills.mjs",
     "sync-version": "node scripts/release/version.mjs",
     "release-notes": "node scripts/release/notes.mjs",
     "release": "node scripts/release/run.mjs",
@@ -151,7 +151,8 @@
     "ajv": "6.15.0",
     "@babel/core": "7.29.7",
     "@humanfs/node": "0.16.8",
-    "baseline-browser-mapping": "2.11.28"
+    "baseline-browser-mapping": "2.11.28",
+    "typescript-eslint": "8.71.2"
   },
   "engines": {
     "node": "^22.13.0 || >=24.0.0"

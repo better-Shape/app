@@ -44,13 +44,13 @@ import type { RefInfo } from "./ref-pill";
 import { Panel } from "@/features/panels";
 import { GitManagerTrigger } from "@/features/git/ui/manager/git-manager-trigger";
 import { GitChromeActions } from "@/features/git/ui/manager/chrome";
+import { GraphLoadingStatus } from "./graph-loading-status";
 
 // ── VIRTUAL SCROLL CONSTANTS ──
 /**
  * Named placeholder lanes. A keyed row survives a re-render, so an index would tell React
  * that the third skeleton is the same lane as whatever replaces it.
  */
-const GRAPH_SKELETON_ROWS = ["lane-a", "lane-b", "lane-c", "lane-d", "lane-e", "lane-f", "lane-g", "lane-h"];
 
 const OVERSCAN_PX = GRAPH_OVERSCAN_PX;
 
@@ -711,20 +711,7 @@ export default function Graph({
                     })}
                 </div>
             ) : isInitialLoading ? (
-                <div className="flex flex-col gap-2 px-3 py-3" role="status" aria-busy="true">
-                    <span className="sr-only">Loading commits</span>
-                    <div aria-hidden="true">
-                        {GRAPH_SKELETON_ROWS.map((row) => (
-                            <div key={row} className="flex items-center gap-2">
-                                <span className="size-5 shrink-0 rounded-full bg-panel-hover" />
-                                <span
-                                    className="h-3 flex-1 rounded-md bg-panel-hover"
-                                    style={{ maxWidth: `${70 - (GRAPH_SKELETON_ROWS.indexOf(row) % 3) * 12}%` }}
-                                />
-                            </div>
-                        ))}
-                    </div>
-                </div>
+                <GraphLoadingStatus />
             ) : (
                 <div className="flex h-full flex-1 items-center justify-center text-xs text-text-muted">
                     No commits found

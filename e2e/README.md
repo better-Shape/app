@@ -78,16 +78,13 @@ them silently.
 local suite but are excluded from CI (`--grep-invert @visual`) until
 CI-generated baselines replace them; OS font rendering differs.
 
-## Known noise (recorded, not hidden)
+## Browser test notes
 
-- `/settings` logs one React hydration-mismatch error in dev about a
-  `Button` `title` attribute: the native-tooltip suppression rewrites
-  `title` → `data-native-title` on the client only, so SSR HTML and first
-  client render differ. The audit records it; it is deliberately **not**
-  in the fixtures allowlist. Fix is to apply the same rewrite during SSR
-  or render `data-native-title` on both sides.
-- React DevTools / Fast Refresh console chatter is allowlisted in
-  `fixtures.ts` (environmental, not app code).
+- The settings visual baseline changes to Motion and back to Providers before
+  capture. Those clicks confirm React handlers have hydrated before Playwright
+  disables animations and hides input carets.
+- React DevTools and Fast Refresh messages are allowlisted in `fixtures.ts`
+  because they come from the development environment.
 
 ## Sandboxed / CI environments without browser downloads
 

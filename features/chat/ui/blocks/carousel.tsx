@@ -44,10 +44,12 @@ export function DesignPreviewCarousel({
     const [animKey, setAnimKey] = useState(0);
 
     const go = useCallback(
-        (delta: number) => {
+        (delta: number, animate = true) => {
             if (count < 2) return;
-            setSlideDir(delta > 0 ? "up" : "down");
-            setAnimKey((k) => k + 1);
+            if (animate) {
+                setSlideDir(delta > 0 ? "up" : "down");
+                setAnimKey((k) => k + 1);
+            }
             onActiveIndexChange((activeIndex + delta + count) % count);
         },
         [count, activeIndex, onActiveIndexChange],
@@ -58,10 +60,10 @@ export function DesignPreviewCarousel({
         const onKey = (e: KeyboardEvent) => {
             if (e.key === "ArrowUp" || e.key === "ArrowLeft") {
                 e.preventDefault();
-                go(-1);
+                go(-1, false);
             } else if (e.key === "ArrowDown" || e.key === "ArrowRight") {
                 e.preventDefault();
-                go(1);
+                go(1, false);
             }
         };
         window.addEventListener("keydown", onKey);
