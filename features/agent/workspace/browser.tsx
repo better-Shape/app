@@ -8,6 +8,7 @@ import { ArrowSync20Regular } from "@fluentui/react-icons/headless/svg/arrow-syn
 import { Camera20Filled } from "@fluentui/react-icons/headless/svg/camera";
 import { Code20Regular } from "@fluentui/react-icons/headless/svg/code";
 import { Database20Regular } from "@fluentui/react-icons/headless/svg/database";
+import { Dismiss20Regular } from "@fluentui/react-icons/headless/svg/dismiss";
 import { Globe20Regular } from "@fluentui/react-icons/headless/svg/globe";
 import { History20Regular } from "@fluentui/react-icons/headless/svg/history";
 import { Link20Regular } from "@fluentui/react-icons/headless/svg/link";
@@ -49,6 +50,8 @@ import { getLastDevUrl } from "@/features/preview/store";
 import { iconFor } from "./model";
 import { ToolBtn } from "./tool";
 
+const PAGE_W = 1280;
+const PAGE_H = 800;
 const AGENT_TAB = "agent";
 const BOOKMARKS_KEY = "bettershape-browser-bookmarks";
 const BOOKMARK_BAR_KEY = "bettershape-browser-bookmark-bar";
@@ -75,6 +78,17 @@ function saveJson(key: string, value: unknown) {
 function looksLikeUrl(raw: string) {
     const s = raw.trim();
     return /^(https?:\/\/|localhost|127\.0\.0\.1)/i.test(s) || (/^[\w-]+(\.[\w-]+)+/i.test(s) && !/\s/.test(s));
+}
+
+function fitPage(width: number, height: number) {
+    const scale = Math.min(width / PAGE_W, height / PAGE_H);
+    const w = PAGE_W * scale;
+    const h = PAGE_H * scale;
+    return { left: (width - w) / 2, top: (height - h) / 2, width: w, height: h };
+}
+
+function modifiersOf(e: { altKey: boolean; ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }) {
+    return (e.altKey ? 1 : 0) | (e.ctrlKey ? 2 : 0) | (e.metaKey ? 4 : 0) | (e.shiftKey ? 8 : 0);
 }
 
 function displayUrl(url: string) {

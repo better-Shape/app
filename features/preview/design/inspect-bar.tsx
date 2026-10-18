@@ -18,6 +18,7 @@ import {
 } from "./bridge";
 import { patchJsx } from "./jsx-source";
 import { isUserSourcePath } from "./library";
+import { isLocalPreviewUrl } from "../store";
 
 type InspectionSelection = {
     element: DesignElementSnapshot;

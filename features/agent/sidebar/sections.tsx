@@ -699,6 +699,10 @@ const ChatRow = ({
     onOpen,
     onTogglePin,
     handlers,
+    activity,
+    shelf,
+    draggable,
+    disposition,
 }: ChatShelfRowProps & { id: string }) => {
     const now = useClock();
     const generating = useIsChatGenerating(id);
