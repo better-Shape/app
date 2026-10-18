@@ -15,9 +15,10 @@ permissions:
   contents: read
 
 concurrency:
-  group: build-installers-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: build-installers-${{ github.workflow }}-${{ github.event.pull_request.head.ref || github.ref_name || github.ref }}
   # Let cold native builds finish; newer pending runs coalesce instead of
   # restarting Intel compilation on every review-fix push.
+  # Uses head_ref/ref_name so push + pull_request for same draft/** branch share the group.
   cancel-in-progress: false
 
 jobs:
@@ -88,21 +89,30 @@ jobs:
           npm ci --ignore-scripts 2>&1 | tee "$RUNNER_TEMP/tauri-build.log"
 
       - name: Build runtime
-        run: npm run build:runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run build:runtime 2>&1 | tee -a "$RUNNER_TEMP/tauri-build.log"
 
       # No TAURI_SIGNING_PRIVATE_KEY: bundle.createUpdaterArtifacts is false and there
       # is no tauri-plugin-updater in the dependency tree, so no platform here needs an
       # updater signature. That keeps this workflow usable on forks with no secrets.
       - name: Build Tauri bundle
+        id: build-tauri
         shell: bash
         run: |
           set -euo pipefail
           ARGS=(build --bundles "${{ matrix.bundles }}")
           if [ -n "${{ matrix.target }}" ]; then ARGS+=(--target "${{ matrix.target }}"); fi
-          npm run tauri -- "${ARGS[@]}" 2>&1 | tee "$RUNNER_TEMP/tauri-build.log"
+          npm run tauri -- "${ARGS[@]}" 2>&1 | tee -a "$RUNNER_TEMP/tauri-build.log"
+          status=${PIPESTATUS[0]}
+          if [ $status -ne 0 ]; then
+            echo "tauri build failed with $status" >&2
+            exit $status
+          fi
 
       - name: Report native build failure
-        if: failure()
+        if: failure() && steps.build-tauri.outcome == 'failure'
         shell: bash
         run: |
           if [ -f "$RUNNER_TEMP/tauri-build.log" ]; then
@@ -110,7 +120,7 @@ jobs:
           fi
 
       - name: Upload native build diagnostics
-        if: failure()
+        if: failure() && steps.build-tauri.outcome == 'failure'
         uses: actions/upload-artifact@v7
         with:
           name: native-build-log-${{ matrix.os }}-${{ matrix.arch }}

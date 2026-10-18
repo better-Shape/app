@@ -63,7 +63,8 @@ runs:
           curl \
           wget \
           file \
-          patchelf
+          patchelf \
+          xdg-utils
 
     - name: Install Rust toolchain
       if: ${{ inputs.install-rust == 'true' }}
