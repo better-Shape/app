@@ -103,5 +103,5 @@ on 2026-10-12 and is not a recipe.
 3. Add `timeout-minutes` to all jobs
 4. Use composite setup action
 5. Add concurrency with appropriate cancel-in-progress
-6. Use `actions/checkout@v4`, `setup-node@v4`, `dtolnay/rust-toolchain@stable`, `Swatinem/rust-cache@v2`
+6. Use `actions/checkout@v7`, `setup-node@v7`, `dtolnay/rust-toolchain@stable`, `Swatinem/rust-cache@v2`
 7. Document in `docs/developing/ci-cd.mdx`

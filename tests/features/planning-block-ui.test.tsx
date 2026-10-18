@@ -1,5 +1,7 @@
+import { act } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { PlanningBlock } from "@/features/chat/ui/blocks/plan";
 
 describe("PlanningBlock disclosure semantics", () => {
@@ -31,5 +33,35 @@ describe("PlanningBlock disclosure semantics", () => {
         expect(controlledPanel?.hidden).toBe(true);
         expect(controlledPanel?.textContent).not.toContain("Active task");
         expect(host.textContent).toContain("Active task");
+    });
+
+    it("uses unambiguous keys for repeated and suffix-like step labels", () => {
+        const host = document.createElement("div");
+        document.body.appendChild(host);
+        const root = createRoot(host);
+        const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+        try {
+            act(() => {
+                root.render(
+                    <PlanningBlock
+                        steps={[
+                            { label: "Build", status: "done" },
+                            { label: "Build", status: "active" },
+                            { label: "Build-1", status: "pending" },
+                        ]}
+                        completedCount={1}
+                        totalCount={3}
+                        isGenerating
+                    />,
+                );
+            });
+
+            expect(errorSpy.mock.calls.some(([message]) => String(message).includes("same key"))).toBe(false);
+        } finally {
+            act(() => root.unmount());
+            host.remove();
+            errorSpy.mockRestore();
+        }
     });
 });

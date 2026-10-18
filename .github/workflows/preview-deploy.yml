@@ -178,7 +178,7 @@ jobs:
 
       - name: Download static bundle
         if: steps.vercel-check.outputs.enabled == 'true' && steps.head-recheck.outputs.stand-down != 'true'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: browser-preview-${{ github.event.workflow_run.head_sha }}
           path: preview-static

@@ -54,7 +54,7 @@ export function PlanningBlock({ steps, completedCount, totalCount, isGenerating 
                 {items.map((step) => {
                     const occurrence = labelOccurrences.get(step.label) ?? 0;
                     labelOccurrences.set(step.label, occurrence + 1);
-                    const key = occurrence === 0 ? step.label : `${step.label}-${occurrence}`;
+                    const key = JSON.stringify([step.label, occurrence]);
                     return (
                         <div key={key} className="flex h-7 items-center gap-2">
                             <span className="flex size-4 shrink-0 items-center justify-center">

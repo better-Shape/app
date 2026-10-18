@@ -50,7 +50,7 @@ jobs:
       # AppImage bundling runs the downloaded linuxdeploy AppImages, which need FUSE2.
       APPIMAGE_EXTRACT_AND_RUN: "1"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup
         uses: ./.github/actions/setup
@@ -145,7 +145,7 @@ jobs:
           echo "✓ Installer found"
 
       - name: Upload nightly artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: nightly-${{ matrix.os }}-${{ matrix.arch }}
           path: |
@@ -170,12 +170,12 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
@@ -183,7 +183,7 @@ jobs:
       - run: npm ci
 
       - name: Download artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: dist/nightly
           merge-multiple: true

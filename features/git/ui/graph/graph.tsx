@@ -582,9 +582,14 @@ export default function Graph({
             const inGraphSearch = !!target.closest("[data-graph-search]");
             const inTitlebarSearch = !!target.closest("[data-git-titlebar-search]");
             const inThisGraph = !!(rootRef.current && rootRef.current.contains(target));
+            const isInteractiveControl = !!target.closest(
+                'button, a[href], select, summary, [role="button"], [role="link"], [role="checkbox"], [role="radio"], [role="switch"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"]',
+            );
             const inField = !!target.closest("input, textarea, [contenteditable=true]");
 
             if (!inThisGraph && !inTitlebarSearch) return;
+            // Interactive controls own their keyboard activation and selection keys.
+            if (isInteractiveControl) return;
             if (inField && !inGraphSearch && !inTitlebarSearch) return;
             // Titlebar search is shared — only steal keys while Git Graph is the active manager surface.
             if (inTitlebarSearch && !rich) return;
