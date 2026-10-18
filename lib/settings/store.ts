@@ -392,6 +392,32 @@ export const DEFAULT_SETTINGS: BetterShapeSettings = {
     },
 };
 
+let currentSettings: BetterShapeSettings = {
+    ...DEFAULT_SETTINGS,
+    editor: { ...DEFAULT_SETTINGS.editor },
+    terminal: { ...DEFAULT_SETTINGS.terminal },
+    voice: { ...DEFAULT_SETTINGS.voice },
+    git: { ...DEFAULT_SETTINGS.git },
+    ai: { ...DEFAULT_SETTINGS.ai },
+    files: { ...DEFAULT_SETTINGS.files },
+    eslint: { ...DEFAULT_SETTINGS.eslint },
+    prettier: { ...DEFAULT_SETTINGS.prettier },
+    lsp: { ...DEFAULT_SETTINGS.lsp },
+    node: { ...DEFAULT_SETTINGS.node },
+    python: { ...DEFAULT_SETTINGS.python },
+    designAutocomplete: { ...DEFAULT_SETTINGS.designAutocomplete },
+    designDiagnostics: { ...DEFAULT_SETTINGS.designDiagnostics },
+    tailwindControls: { ...DEFAULT_SETTINGS.tailwindControls },
+    designBlame: { ...DEFAULT_SETTINGS.designBlame },
+    spacingRefactor: { ...DEFAULT_SETTINGS.spacingRefactor },
+    developer: { ...DEFAULT_SETTINGS.developer },
+    privacy: { ...DEFAULT_SETTINGS.privacy },
+    notifications: { ...DEFAULT_SETTINGS.notifications },
+    workspace: { ...DEFAULT_SETTINGS.workspace },
+    updates: { ...DEFAULT_SETTINGS.updates },
+    appearance: { ...DEFAULT_SETTINGS.appearance },
+};
+
 /**
  * True once the OS keychain has been confirmed usable. Keys are then stripped
  * from every copy of the settings that leaves this process (localStorage, the
@@ -482,31 +508,6 @@ export function applyVaultSecrets(secrets: Record<string, string>): void {
     emit();
 }
 
-let currentSettings: BetterShapeSettings = {
-    ...DEFAULT_SETTINGS,
-    editor: { ...DEFAULT_SETTINGS.editor },
-    terminal: { ...DEFAULT_SETTINGS.terminal },
-    voice: { ...DEFAULT_SETTINGS.voice },
-    git: { ...DEFAULT_SETTINGS.git },
-    ai: { ...DEFAULT_SETTINGS.ai },
-    files: { ...DEFAULT_SETTINGS.files },
-    eslint: { ...DEFAULT_SETTINGS.eslint },
-    prettier: { ...DEFAULT_SETTINGS.prettier },
-    lsp: { ...DEFAULT_SETTINGS.lsp },
-    node: { ...DEFAULT_SETTINGS.node },
-    python: { ...DEFAULT_SETTINGS.python },
-    designAutocomplete: { ...DEFAULT_SETTINGS.designAutocomplete },
-    designDiagnostics: { ...DEFAULT_SETTINGS.designDiagnostics },
-    tailwindControls: { ...DEFAULT_SETTINGS.tailwindControls },
-    designBlame: { ...DEFAULT_SETTINGS.designBlame },
-    spacingRefactor: { ...DEFAULT_SETTINGS.spacingRefactor },
-    developer: { ...DEFAULT_SETTINGS.developer },
-    privacy: { ...DEFAULT_SETTINGS.privacy },
-    notifications: { ...DEFAULT_SETTINGS.notifications },
-    workspace: { ...DEFAULT_SETTINGS.workspace },
-    updates: { ...DEFAULT_SETTINGS.updates },
-    appearance: { ...DEFAULT_SETTINGS.appearance },
-};
 let localSettingsHydrated = false;
 let tauriSettingsHydrated = false;
 let settingsBridgeInitialized = false;
