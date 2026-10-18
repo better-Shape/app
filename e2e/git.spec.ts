@@ -28,7 +28,7 @@ test.describe("git manager", () => {
         });
     }
 
-    test("virtualized graph exposes full positions and keeps ref filters tabbable", async ({ page, expectNoPageErrors }) => {
+    test("virtualized graph exposes full positions and supports keyboard ref filtering", async ({ page, expectNoPageErrors }) => {
         await gotoRoute(page, "/git?section=graph");
         await expectPreviewActive(page, "project");
         await expect(page.getByLabel("Loading Git Manager")).toBeHidden({ timeout: 30_000 });
@@ -39,10 +39,12 @@ test.describe("git manager", () => {
         await expect(firstCommit).toHaveAttribute("aria-posinset", /^[1-9]\d*$/);
         await expect(firstCommit).toHaveAttribute("aria-setsize", /^[1-9]\d*$/);
 
-        const refFilter = page.getByRole("button", { name: /Filter graph to/ }).first();
+        const refFilter = page.getByRole("button", { name: /Filter graph to (?:Branch|Remote branch|Tag):/ }).first();
         await expect(refFilter).toBeVisible({ timeout: 30_000 });
         await refFilter.focus();
         await expect(refFilter).toBeFocused();
+        await page.keyboard.press("Enter");
+        await expect(graph.locator(".graph-commit-mute").first()).toBeVisible();
         await page.keyboard.press("Tab");
         await expect(refFilter).not.toBeFocused();
         expectNoPageErrors();
