@@ -41,6 +41,7 @@ export type BrowserActions = {
     submitUrl: (raw: string) => void;
     togglePicking: () => void;
     openTools: () => void;
+    takeScreenshot: () => void;
     closeTools: () => void;
     chooseScheme: (scheme: ColorScheme) => void;
     showBookmarkBar: (show: boolean) => void;
@@ -61,6 +62,7 @@ export type BrowserState = {
     agentDriving: boolean;
     toolsOpen: boolean;
     toolsError: boolean;
+    screenshotting: boolean;
     scheme: ColorScheme;
     bookmarkBar: boolean;
 };
@@ -159,9 +161,12 @@ const BrowserMenuContent = ({ state, actions }: { state: BrowserState; actions: 
             <Icon icon={Code20Regular} />
             Developer tools
         </DropdownMenuCheckboxItem>
-        <DropdownMenuItem disabled>
+        <DropdownMenuItem
+            disabled={!state.reloadable || state.screenshotting}
+            onClick={actions.takeScreenshot}
+        >
             <Icon icon={Camera20Filled} />
-            Take Screenshot
+            {state.screenshotting ? "Saving screenshot" : "Take Screenshot"}
         </DropdownMenuItem>
         <DropdownMenuItem disabled={state.agentDriving || !state.url} onClick={actions.reload}>
             <Icon icon={ArrowSync20Regular} />

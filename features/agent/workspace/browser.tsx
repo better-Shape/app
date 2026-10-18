@@ -26,6 +26,9 @@ import { AGENT_TAB, blankTab, type PageTab } from "./browser-storage";
 import { displayUrl } from "./browser-suggest";
 import { isNavigable, navigateTabs, syncTabs, tabsMatch } from "./browser-tabs";
 
+/** Re-exported so a failed capture can be unit tested without mounting the window. */
+export { screenshotFailureMessage } from "./browser-actions";
+
 /** The tab list a controlled window shows, keeping the state of every tab that survives. */
 const tabsFromIds = (tabs: readonly PageTab[], ids: readonly string[]) => syncTabs(tabs, ids);
 
@@ -89,6 +92,7 @@ type ChromeInput = {
     bookmarks: readonly { url: string }[];
     picking: boolean;
     pageTools: ToolsState | null;
+    screenshotting: boolean;
     scheme: ReturnType<typeof useColorScheme>["scheme"];
     bookmarkBar: boolean;
 };
@@ -110,6 +114,7 @@ const chromeState = (input: ChromeInput): BrowserState => ({
     agentDriving: input.showAgent,
     toolsOpen: Boolean(input.pageTools?.src),
     toolsError: Boolean(input.pageTools?.error),
+    screenshotting: input.screenshotting,
     scheme: input.scheme,
     bookmarkBar: input.bookmarkBar,
 });
@@ -145,6 +150,7 @@ export const BrowserView = ({
         return last ? { key: "new-1", value: last } : null;
     });
     const [picking, setPicking] = useState(false);
+    const [savingShot, setSavingShot] = useState(false);
     const [hover, setHover] = useState<HoverTarget | null>(null);
     const [tools, setTools] = useState<ToolsState | null>(null);
     const [frameSrc, setFrameSrc] = useState("about:blank");
@@ -259,6 +265,8 @@ export const BrowserView = ({
         setFrameSrc,
         setPicking,
         setTools,
+        savingShot,
+        setSavingShot,
         saveBookmark: toggleSaved,
         chooseScheme,
         showBookmarkBar: showBar,
@@ -274,6 +282,7 @@ export const BrowserView = ({
         bookmarks,
         picking,
         pageTools,
+        screenshotting: savingShot,
         scheme,
         bookmarkBar,
     });

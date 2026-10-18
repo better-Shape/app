@@ -3,6 +3,7 @@
 import type { Dispatch, RefObject, SetStateAction } from "react";
 
 import { commands } from "@/lib/backend";
+import { notificationStore } from "@/features/notifications";
 import { hostnameOf } from "@/lib/ui/favicon";
 import type { BrowseFrame } from "@/features/agent/browser/session";
 import type { ColorScheme, PageTab } from "./browser-storage";
@@ -48,6 +49,18 @@ const toolsRefusal = (error: unknown) => {
     return message || "This page doesn't have developer tools yet.";
 };
 
+/**
+ * The message a failed capture shows.
+ *
+ * The backend rejects with a bare string, an `Error`, or a payload carrying neither, so a
+ * capture that fails must never surface as an empty failure message.
+ */
+export const screenshotFailureMessage = (error: unknown): string => {
+    const message =
+        typeof error === "string" ? error : error instanceof Error ? error.message : "";
+    return message || "The page could not be captured.";
+};
+
 /** Everything the browser's actions read or write, taken at the moment they are called. */
 export type BrowserActionDeps = {
     active: PageTab | null;
@@ -65,6 +78,8 @@ export type BrowserActionDeps = {
     setFrameSrc: (src: string) => void;
     setPicking: Dispatch<SetStateAction<boolean>>;
     setTools: Dispatch<SetStateAction<ToolsState | null>>;
+    savingShot: boolean;
+    setSavingShot: Dispatch<SetStateAction<boolean>>;
     saveBookmark: (url: string, title: string) => void;
     chooseScheme: (scheme: ColorScheme) => void;
     showBookmarkBar: (show: boolean) => void;
@@ -159,6 +174,35 @@ export const createBrowserActions = (deps: BrowserActionDeps): BrowserActions =>
             });
     };
 
+    /**
+     * Captures the page on screen and reports where the file landed.
+     *
+     * The guard drops a second press while the first capture is still running, so a
+     * double-click cannot race two captures into the downloads folder.
+     */
+    const takeScreenshot = () => {
+        const { active, savingShot } = deps;
+        if (!active || savingShot) return;
+        deps.setSavingShot(true);
+        commands
+            .browserScreenshot(active.id)
+            .then((savedTo) => {
+                notificationStore.add(
+                    "Screenshot saved",
+                    "success",
+                    savedTo ? `Saved to ${savedTo}` : undefined,
+                );
+            })
+            .catch((error: unknown) => {
+                notificationStore.add(
+                    "Screenshot failed",
+                    "error",
+                    screenshotFailureMessage(error),
+                );
+            })
+            .finally(() => deps.setSavingShot(false));
+    };
+
     return {
         back: () => goHistory(-1),
         forward: () => goHistory(1),
@@ -167,6 +211,7 @@ export const createBrowserActions = (deps: BrowserActionDeps): BrowserActions =>
         submitUrl,
         togglePicking: () => deps.setPicking((on) => !on),
         openTools,
+        takeScreenshot,
         closeTools: () => deps.setTools(null),
         chooseScheme: deps.chooseScheme,
         showBookmarkBar: deps.showBookmarkBar,
