@@ -18,7 +18,7 @@ export function getFileExtension(pathOrName: string): string {
     // Strip diff:* prefix
     const stripped = pathOrName.replace(/^diff:[^:]*(?::[a-f0-9]{4,40})?:/, "");
     // Grab the filename portion (after last slash/backslash)
-    const filename = stripped.replace(/.*[/\\]/, "");
+    const filename = stripped.replace(/^[^\n]*[/\\]/m, "");
     // Strip display-name suffixes like " (abc1234)" or " (Index)"
     const clean = filename.replace(/\s+\([^)]+\)\s*$/, "");
     return (clean.split(".").pop() ?? "").toLowerCase();

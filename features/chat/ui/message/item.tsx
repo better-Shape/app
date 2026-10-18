@@ -116,7 +116,7 @@ function MentionRichText({ text }: { text: string }) {
     /** Color backtick spans and bare paths even when there are no @mentions. */
     const paintPlain = (chunk: string, keyPrefix: string): React.ReactNode[] => {
         const out: React.ReactNode[] = [];
-        const re = /(`[^`\n]+`)|((?:[A-Za-z]:)?(?:[\w.-]+[\\/])+[\w.-]+\.\w+)/g;
+        const re = /(`[^`\n]+`)|((?<![\w.-])(?<![\w.-][\\/])(?:[A-Za-z]:)?(?:[\w.-]+[\\/])+[\w.-]+\.\w+)/g;
         let last = 0;
         let m: RegExpExecArray | null;
         let i = 0;

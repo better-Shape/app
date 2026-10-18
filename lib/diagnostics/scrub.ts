@@ -12,7 +12,7 @@
  * had, shortening deep filesystem paths, is folded in below.
  */
 
-const EMAIL_RE = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
+const EMAIL_RE = /(?<![a-zA-Z0-9._%+-])[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
 const HOME_PATH_RE =
   /(?:[A-Z]:\\Users\\[^\\]+|\/Users\/[^/]+|\/home\/[^/]+|C:\\Users\\[^\\]+)/gi;
 const SECRET_RE =

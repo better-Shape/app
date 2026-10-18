@@ -27,7 +27,7 @@ export function identityFilterAmount(type: string) {
 export function parseCssFunctions(value?: string | null): CssFunction[] {
     if (!value || value === "none") return [];
     const out: CssFunction[] = [];
-    const re = /([a-z-]+)\(([^()]*)\)/gi;
+    const re = /(?<![a-z-])([a-z-]+)\(([^()]*)\)/gi;
     let match: RegExpExecArray | null;
     while ((match = re.exec(value))) {
         const type = match[1] ?? "blur";
