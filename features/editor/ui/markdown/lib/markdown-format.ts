@@ -162,9 +162,9 @@ export function locateMarkdownText(
     // Last resort: search inside stripped projection (links → labels, drop markers).
     const stripped = src
         .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
-        .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
-        .replace(/\[([^\]]+)\]\[[^\]]*\]/g, "$1")
-        .replace(/(\*\*|__|\*|_|~~|`|#+\s+)/g, "");
+        .replace(/(?<!\[)\[([^\]]+)\]\([^)]*\)/g, "$1")
+        .replace(/(?<!\[)\[([^\]]+)\]\[[^\]]*\]/g, "$1")
+        .replace(/(\*\*|__|\*|_|~~|`|(?<!#)#+\s+)/g, "");
     const strippedIdx = stripped.toLowerCase().indexOf(needle.toLowerCase());
     if (strippedIdx === -1) return null;
 

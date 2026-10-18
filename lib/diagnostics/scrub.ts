@@ -18,7 +18,7 @@ const HOME_PATH_RE =
 const SECRET_RE =
   /(?:(?:sk|pk|rk|whsec|api)[_-](?:live|test)?[_-]?[A-Za-z0-9]{8,}|ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}|(?:Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+|-----BEGIN [A-Z ]+PRIVATE KEY-----[\s\S]*?-----END [A-Z ]+PRIVATE KEY-----)/gi;
 const SECRET_KV_RE =
-  /\b([a-z0-9_-]*(?:password|passwd|pwd|token|secret|api[_-]?key))(["']?\s*[:=]\s*)(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s"',}]+)/gi;
+  /(?<![a-z0-9_-])\b([a-z0-9_-]*(?:password|passwd|pwd|token|secret|api[_-]?key))(["']?\s*[:=]\s*)(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s"',}]+)/gi;
 
 export function redactText(input: string, max = 2000): string {
   return input
