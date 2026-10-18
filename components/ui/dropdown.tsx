@@ -369,14 +369,15 @@ type NestedMenuContentProps = {
     isOpened?: boolean;
 };
 
-function renderNestedMenuTrigger<
+/** Share nested trigger behavior between dropdown and menubar menu primitives. */
+const renderNestedMenuTrigger = <
     TElement extends HTMLElement,
     TProps extends NestedMenuTriggerState & { className?: string; children?: React.ReactNode },
 >(
     Item: React.ElementType,
     props: TProps,
     ref: React.ForwardedRef<TElement>,
-): React.ReactElement {
+): React.ReactElement => {
     const { className, children, isOpened, setIsOpened, ...itemProps } = props;
     return (
         <Item
@@ -400,9 +401,10 @@ function renderNestedMenuTrigger<
             />
         </Item>
     );
-}
+};
 
-function NestedMenuContent({ children, isOpened }: NestedMenuContentProps) {
+/** Keep nested content mounted while making closed branches inert and hidden. */
+const NestedMenuContent = ({ children, isOpened }: NestedMenuContentProps) => {
     return (
         <div
             aria-hidden={!isOpened}
@@ -415,7 +417,7 @@ function NestedMenuContent({ children, isOpened }: NestedMenuContentProps) {
             <div className="overflow-hidden flex flex-col pl-1">{children}</div>
         </div>
     );
-}
+};
 
 const DropdownMenuNestedTrigger = React.forwardRef<
     React.ElementRef<typeof DropdownMenuItem>,
