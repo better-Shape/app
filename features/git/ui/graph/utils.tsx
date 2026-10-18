@@ -31,7 +31,7 @@ export const renderCommitMessage = (message: string) => {
                     onClick={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
-                        commands.openUrlExternal(`https://github.com/${username}`);
+                        void commands.openUrlExternal(`https://github.com/${username}`);
                     }}
                 >
                     {part}

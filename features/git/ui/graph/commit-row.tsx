@@ -128,14 +128,14 @@ export const GraphCommitRow = React.memo(function GraphCommitRow({
             if (!remoteUrl) { notify.error("Git", "No remote URL found"); return; }
             if (remoteUrl.startsWith("git@")) remoteUrl = remoteUrl.replace(/^git@([^:]+):/, "https://$1/");
             remoteUrl = remoteUrl.replace(/\.git$/, "");
-            commands.openUrlExternal(`${remoteUrl}/commit/${log.hash}`);
+            void commands.openUrlExternal(`${remoteUrl}/commit/${log.hash}`);
         } catch (err) { notify.error("Git", "Failed to get remote URL: " + String(err)); }
     };
 
     const handleOpenAuthorEmail = (e?: React.MouseEvent) => {
         if (e) { e.preventDefault(); e.stopPropagation(); }
         if (log.author_email) {
-            commands.openUrlExternal(`mailto:${log.author_email}`);
+            void commands.openUrlExternal(`mailto:${log.author_email}`);
         } else {
             notify.error("Git", "No email found for this author.");
         }

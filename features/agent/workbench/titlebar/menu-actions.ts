@@ -99,10 +99,10 @@ export function createMenuActionHandler(ctx: MenuActionContext) {
                 notifyWorkspaceClosed();
                 break;
             case "Close Tab":
-                if (ctx.activeFile) commands.closeFile(ctx.activeFile);
+                if (ctx.activeFile) void commands.closeFile(ctx.activeFile);
                 break;
             case "Close All Tabs":
-                commands.closeAllFiles();
+                void commands.closeAllFiles();
                 break;
             case "New Text File":
                 window.dispatchEvent(new CustomEvent("bettershape-explorer-create", { detail: { type: "file" } }));

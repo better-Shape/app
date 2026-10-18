@@ -32,7 +32,7 @@ export function CreateBranchFromCommitInline({ hash, repoPath, onDone, onCancel 
                 value={name}
                 onChange={e => setName(e.target.value)}
                 onKeyDown={e => {
-                    if (e.key === 'Enter') { e.preventDefault(); doCreate(); }
+                    if (e.key === 'Enter') { e.preventDefault(); void doCreate(); }
                     if (e.key === 'Escape') { e.preventDefault(); onCancel(); }
                 }}
                 disabled={creating}

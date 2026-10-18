@@ -182,7 +182,7 @@ function FolderSubMenu({ name, folderPath, isSelected, gitStatuses, gitModifiedD
                                 key={child.name}
                                 className="flex items-center gap-2 px-2 py-1 text-xs cursor-default rounded-md text-text-muted hover:text-text-primary focus:bg-[var(--row-hover)] focus:text-text-primary outline-none"
                                 onClick={() => {
-                                    commands.openFile(child.path, child.name);
+                                    void commands.openFile(child.path, child.name);
                                 }}
                             >
                                 <FileIcon name={child.name} isDir={false} className="w-3.5 h-3.5 shrink-0" />
@@ -310,7 +310,7 @@ function BreadcrumbFolderItem({ part, folderPath, nextPartName, gitStatuses, git
                                     isSelected ? "bg-[var(--row-selected)] focus:bg-[var(--row-selected-hover)] text-text-primary font-medium" : "text-text-muted hover:text-text-primary focus:bg-[var(--row-hover)] focus:text-text-primary"
                                 )}
                                 onClick={() => {
-                                commands.openFile(child.path, child.name);
+                                void commands.openFile(child.path, child.name);
                             }}
                         >
                             <FileIcon name={child.name} isDir={false} className="w-3.5 h-3.5 shrink-0" />
@@ -431,7 +431,7 @@ export function Breadcrumbs({ path, projectPath, isDiff, isImage, className, com
             } catch { }
         };
 
-        loadGitStatus();
+        void loadGitStatus();
         return () => { isCancelled = true; };
     }, [projectPath]);
 
