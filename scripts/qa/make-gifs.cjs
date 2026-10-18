@@ -371,7 +371,7 @@ if (!selected.length) {
         await page.close();
 
         const gif = path.join(OUT, `${name}.gif`);
-        const frames = fs.readdirSync(dir).filter((f) => f.endsWith(".png")).sort();
+        const frames = fs.readdirSync(dir).filter((f) => f.endsWith(".png")).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
         if (!frames.length) {
             warn(`  no frames captured for ${name}`);
             continue;

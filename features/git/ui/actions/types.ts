@@ -68,14 +68,12 @@ export function isActionsSection(id: string): id is ActionsFocus {
     return id === "workflow-runs" || id === "jobs";
 }
 
-/** The tab a focus mode opens on, which is the first tab that mode allows. */
-export function defaultTabForFocus(focus: ActionsFocus): DetailTab {
-    return tabsForFocus(focus)[0] ?? "jobs";
-}
+/** The tab every focus mode opens on, which is the first tab each mode allows. */
+export const DEFAULT_DETAIL_TAB: DetailTab = "jobs";
 
 export function tabsForFocus(focus: ActionsFocus): DetailTab[] {
-    if (focus === "jobs") return ["jobs"];
-    return ["jobs", "artifacts", "workflows"];
+    if (focus === "jobs") return [DEFAULT_DETAIL_TAB];
+    return [DEFAULT_DETAIL_TAB, "artifacts", "workflows"];
 }
 
 export function focusTitle(focus: ActionsFocus): string {

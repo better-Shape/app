@@ -1373,12 +1373,12 @@ const ConflictBanner = ({
                 try {
                     await commands.gitMergeAbort(gitRepo);
                     notify.info("Git", "Merge aborted.");
-                    refresh();
+                    void refresh();
                 } catch {
                     try {
                         await commands.gitRebaseAbort(gitRepo);
                         notify.info("Git", "Rebase aborted.");
-                        refresh();
+                        void refresh();
                     } catch (e) {
                         notify.gitError(e, "Could not abort merge/rebase");
                     }
@@ -2774,7 +2774,7 @@ const Source = ({
 
     useEffect(() => {
         // Soft refresh on mount, don't flash the global loading bar for routine open.
-        refresh({ track: false });
+        void refresh({ track: false });
     }, [refresh]);
 
     useEffect(() => {

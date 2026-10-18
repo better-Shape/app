@@ -39,7 +39,7 @@ export function editContentHash(replacement: string): string {
     const s = replacement.replace(/\r\n/g, "\n");
     let h = 0;
     for (let i = 0; i < s.length; i++) {
-        h = (h * 31 + s.charCodeAt(i)) | 0;
+        h = (Math.imul(h, 31) + s.charCodeAt(i)) | 0;
     }
     return `${s.length}:${h.toString(36)}`;
 }

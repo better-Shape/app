@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils";
 import { Panel } from "@/features/panels";
 import { useFilter } from "../manager/filter-context";
 import {
-    defaultTabForFocus,
+    DEFAULT_DETAIL_TAB,
     tabsForFocus,
     type ActionsFocus,
     type Artifact,
@@ -93,7 +93,7 @@ export function ActionsConsole({ focus }: { focus: ActionsFocus }) {
     const [dispatchRef, setDispatchRef] = useState("main");
     const [dispatchBusy, setDispatchBusy] = useState(false);
     const [statusFilter, setStatusFilter] = useState<string>("all");
-    const [detailTab, setDetailTab] = useState<DetailTab>(defaultTabForFocus(focus));
+    const [detailTab, setDetailTab] = useState<DetailTab>(DEFAULT_DETAIL_TAB);
     const [live, setLive] = useState(false);
     const logRef = useRef<HTMLPreElement | null>(null);
     const allowedTabs = useMemo(() => tabsForFocus(focus), [focus]);
@@ -101,7 +101,7 @@ export function ActionsConsole({ focus }: { focus: ActionsFocus }) {
     const [focusScope, setFocusScope] = useState<readonly [typeof focus] | null>(null);
     if (focusScope === null || !Object.is(focusScope[0], focus)) {
         setFocusScope([focus]);
-        setDetailTab(defaultTabForFocus(focus));
+        setDetailTab(DEFAULT_DETAIL_TAB);
         setLive(false);
         setStatusFilter("all");
         setLogs("");

@@ -978,13 +978,13 @@ export const DESIGN_BRIDGE_SCRIPT = String.raw`
     insertBar.style.display = "block";
     if (vertical) {
       insertBar.style.height = "2px";
-      insertBar.style.width = Math.max(12, (before ? r.width : r.width) - 4) + "px";
-      insertBar.style.left = (before ? r.left : r.left) + 2 + "px";
+      insertBar.style.width = Math.max(12, r.width - 4) + "px";
+      insertBar.style.left = r.left + 2 + "px";
       insertBar.style.top = (before ? r.top - 1 : r.bottom - 1) + "px";
     } else {
       insertBar.style.width = "2px";
-      insertBar.style.height = Math.max(12, (before ? r.height : r.height) - 4) + "px";
-      insertBar.style.top = (before ? r.top : r.top) + 2 + "px";
+      insertBar.style.height = Math.max(12, r.height - 4) + "px";
+      insertBar.style.top = r.top + 2 + "px";
       insertBar.style.left = (before ? r.left - 1 : r.right - 1) + "px";
     }
   }

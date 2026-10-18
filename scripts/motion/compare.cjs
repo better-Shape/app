@@ -253,7 +253,7 @@ let t0 = 0;
 let raf = 0;
 const read = (box, name) => {
   const m = getComputedStyle(box).translate.match(/(-?[\\d.]+)px/);
-  samples[name].push([performance.now() - t0, m ? parseFloat(m[1]) : 0]);
+  samples[name].push([performance.now() - t0, m ? Number.parseFloat(m[1]) : 0]);
 };
 const loop = () => {
   read(boxes[0], "before");
@@ -286,7 +286,7 @@ const draw = () => {
   ctx.clearRect(0, 0, w, h);
   const pad = 34;
   const span = Math.max(OLD_DUR, NEW_DUR) + 40;
-  const travel = parseFloat(boxes[0].style.getPropertyValue("--travel")) || 1;
+  const travel = Number.parseFloat(boxes[0].style.getPropertyValue("--travel")) || 1;
   const X = (ms) => pad + (ms / span) * (w - pad * 2);
   const Y = (px) => h - pad - (px / travel) * (h - pad * 2);
 

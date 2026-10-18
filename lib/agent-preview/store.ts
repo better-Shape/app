@@ -134,7 +134,7 @@ export function designPreviewSessionId(items: DesignPreviewItem[]): string {
     if (!key) return `preview-${Date.now()}`;
     let hash = 0;
     for (let i = 0; i < key.length; i++) {
-        hash = (hash * 31 + key.charCodeAt(i)) | 0;
+        hash = (Math.imul(hash, 31) + key.charCodeAt(i)) | 0;
     }
     return `p${Math.abs(hash).toString(36)}`;
 }

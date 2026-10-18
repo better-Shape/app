@@ -62,7 +62,7 @@ async function fingerprintProject(projectPath: string): Promise<string> {
 
 function hashStr(s: string): string {
     let h = 0;
-    for (let i = 0; i < Math.min(s.length, 8000); i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+    for (let i = 0; i < Math.min(s.length, 8000); i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) | 0;
     return (h >>> 0).toString(36);
 }
 
