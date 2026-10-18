@@ -363,7 +363,7 @@
   transition-delay: 0ms;
 }
 
-  .t-morph[data-open="true"] .t-morph-menu {
+.t-morph[data-open="true"] .t-morph-menu {
   opacity: 1;
   pointer-events: auto !important;
   visibility: visible;

@@ -1272,8 +1272,8 @@ export const DESIGN_BRIDGE_SCRIPT = String.raw`
       width: el.getBoundingClientRect().width,
       height: el.getBoundingClientRect().height,
       rect: el.getBoundingClientRect(),
-      left: parseFloat(computed.left) || 0,
-      top: parseFloat(computed.top) || 0,
+      left: Number.parseFloat(computed.left) || 0,
+      top: Number.parseFloat(computed.top) || 0,
       position: computed.position
     };
   }
@@ -1313,8 +1313,8 @@ export const DESIGN_BRIDGE_SCRIPT = String.raw`
         width: selected.getBoundingClientRect().width,
         height: selected.getBoundingClientRect().height,
         rect: selected.getBoundingClientRect(),
-        left: parseFloat(computed.left) || 0,
-        top: parseFloat(computed.top) || 0,
+        left: Number.parseFloat(computed.left) || 0,
+        top: Number.parseFloat(computed.top) || 0,
         position: computed.position
       };
       event.preventDefault();
@@ -1441,8 +1441,8 @@ export const DESIGN_BRIDGE_SCRIPT = String.raw`
       }
       var computed = getComputedStyle(selected);
       var step = event.shiftKey ? 10 : 1;
-      var left = parseFloat(computed.left) || 0;
-      var top = parseFloat(computed.top) || 0;
+      var left = Number.parseFloat(computed.left) || 0;
+      var top = Number.parseFloat(computed.top) || 0;
       if (computed.position === "static") selected.style.position = "relative";
       if (event.key === "ArrowLeft") left -= step;
       if (event.key === "ArrowRight") left += step;
@@ -1555,8 +1555,8 @@ export const DESIGN_BRIDGE_SCRIPT = String.raw`
     var rect = selected.getBoundingClientRect();
     var parentRect = selected.parentElement.getBoundingClientRect();
     var computed = getComputedStyle(selected);
-    var left = parseFloat(computed.left) || 0;
-    var top = parseFloat(computed.top) || 0;
+    var left = Number.parseFloat(computed.left) || 0;
+    var top = Number.parseFloat(computed.top) || 0;
     if (computed.position === "static") selected.style.position = "relative";
     if (alignment === "center" || alignment === "center-x") {
       left += parentRect.left + (parentRect.width - rect.width) / 2 - rect.left;
