@@ -103,19 +103,20 @@ export const CollapsibleSection = ({
 
     return (
         <section className={sectionClass(isOpen, isFlex, className)}>
-            <div
-                className="h-chrome group flex items-center px-sm hover:bg-[var(--row-hover)] cursor-pointer text-text-secondary hover:text-text-primary shrink-0 sticky top-0 z-10 transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]"
-                onClick={toggle}
-            >
-                <div className="w-5 flex items-center justify-center transition-transform duration-100">
-                    <Icon icon={ChevronRight20Regular} className={chevronClass(isOpen)} />
-                </div>
-                <span className="ml-1 text-sm font-normal">{title}</span>
+            <div className="h-chrome group flex items-center px-sm hover:bg-[var(--row-hover)] text-text-secondary hover:text-text-primary shrink-0 sticky top-0 z-10 transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]">
+                <button
+                    type="button"
+                    aria-expanded={isOpen}
+                    className="flex min-w-0 flex-1 items-center text-left"
+                    onClick={toggle}
+                >
+                    <div className="w-5 flex items-center justify-center transition-transform duration-100">
+                        <Icon icon={ChevronRight20Regular} className={chevronClass(isOpen)} />
+                    </div>
+                    <span className="ml-1 truncate text-sm font-normal">{title}</span>
+                </button>
                 {headerActions ? (
-                    <div
-                        className="ml-auto mr-1 flex items-center gap-0.5"
-                        onClick={(event) => event.stopPropagation()}
-                    >
+                    <div className="ml-auto mr-1 flex items-center gap-0.5">
                         {headerActions}
                     </div>
                 ) : null}

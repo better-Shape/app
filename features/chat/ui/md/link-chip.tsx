@@ -26,7 +26,8 @@ export function ChatLinkChip({
     if (isLocalFile) {
         const name = href.split(/[\\/]/).pop() || href;
         return (
-            <span
+            <button
+                type="button"
                 className={cn("chat-link-chip cursor-pointer", className)}
                 title={`${href} — click or Ctrl+click to open`}
                 onClick={(e) => {
@@ -39,7 +40,7 @@ export function ChatLinkChip({
                     <FileIcon name={name} className="h-3 w-3" />
                 </span>
                 <span className="truncate">{children || name}</span>
-            </span>
+            </button>
         );
     }
 
