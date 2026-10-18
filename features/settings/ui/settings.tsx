@@ -700,8 +700,9 @@ function FeedbackSection() {
                                 </AlertDialogDescription>
                             </AlertDialogHeader>
                             <AlertDialogBody>
-                                <label className="mb-1 block text-sm text-text-muted">Category</label>
+                                <label htmlFor="report-category" className="mb-1 block text-sm text-text-muted">Category</label>
                                 <select
+                                    id="report-category"
                                     className="mb-3 w-full rounded-md border border-border bg-transparent px-2 py-1.5 text-sm"
                                     value={category}
                                     onChange={(e) => setCategory(e.target.value as ReportCategory)}
@@ -710,8 +711,9 @@ function FeedbackSection() {
                                         <option key={c} value={c}>{c}</option>
                                     ))}
                                 </select>
-                                <label className="mb-1 block text-sm text-text-muted">Link a chat (optional)</label>
+                                <label htmlFor="report-linked-chat" className="mb-1 block text-sm text-text-muted">Link a chat (optional)</label>
                                 <select
+                                    id="report-linked-chat"
                                     className="mb-3 w-full rounded-md border border-border bg-transparent px-2 py-1.5 text-sm"
                                     value={linkedId}
                                     onChange={(e) => setLinkedId(e.target.value)}
