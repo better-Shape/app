@@ -89,6 +89,7 @@ export function MediaLightbox({
             onClick={onClose}
         >
             <div
+                role="presentation"
                 className="relative flex max-h-[85vh] max-w-[92vw] flex-col overflow-hidden rounded-xl bg-white shadow-md"
                 onClick={(e) => e.stopPropagation()}
             >
@@ -122,13 +123,13 @@ export function MediaLightbox({
             </div>
 
             {design ? (
-                <p className="max-w-[90vw] truncate text-sm text-white/90" onClick={(e) => e.stopPropagation()}>
+                <p role="presentation" className="max-w-[90vw] truncate text-sm text-white/90" onClick={(e) => e.stopPropagation()}>
                     {design.name}
                 </p>
             ) : null}
 
             {designs && designs.length > 1 ? (
-                <div className="flex items-center gap-2.5" onClick={(e) => e.stopPropagation()}>
+                <div role="presentation" className="flex items-center gap-2.5" onClick={(e) => e.stopPropagation()}>
                     {designs.map((item, i) => (
                         <button
                             key={item.id}

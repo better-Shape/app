@@ -81,7 +81,7 @@ export function TabBarShell({
                             modifiers={[restrictToHorizontalAxis, restrictToFirstScrollableAncestor]}
                         >
                             <div className={WORKBENCH_TAB_ROW_CLASS}>
-                                <div className={WORKBENCH_TAB_LIST_CLASS}>
+                                <div role="tablist" className={WORKBENCH_TAB_LIST_CLASS}>
                                     <SortableContext items={itemIds} strategy={horizontalListSortingStrategy}>
                                         {children}
                                     </SortableContext>

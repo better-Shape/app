@@ -373,9 +373,10 @@ export function SearchPanel({
             </div>
 
             <div className="flex shrink-0 items-end gap-1 px-3">
-                <label className="flex min-w-0 flex-1 flex-col gap-1 pb-1">
+                <label htmlFor="search-replace" className="flex min-w-0 flex-1 flex-col gap-1 pb-1">
                     <span className="text-2xs text-text-muted">Replace with</span>
                     <Input
+                        id="search-replace"
                         ref={replacementRef}
                         value={replacement}
                         onChange={(e) => onReplacementChange(e.target.value)}
@@ -398,9 +399,10 @@ export function SearchPanel({
             </div>
 
             <div className="grid shrink-0 grid-cols-2 gap-2 px-3 pb-2">
-                <label className="flex min-w-0 flex-col gap-1">
+                <label htmlFor="search-include" className="flex min-w-0 flex-col gap-1">
                     <span className="text-2xs text-text-muted">Include files matching</span>
                     <Input
+                        id="search-include"
                         value={settings.includePattern}
                         onChange={(e) => onPatternChange("include", e.target.value)}
                         aria-label="Include files matching"
@@ -409,9 +411,10 @@ export function SearchPanel({
                         disabled={searching}
                     />
                 </label>
-                <label className="flex min-w-0 flex-col gap-1">
+                <label htmlFor="search-exclude" className="flex min-w-0 flex-col gap-1">
                     <span className="text-2xs text-text-muted">Exclude files matching</span>
                     <Input
+                        id="search-exclude"
                         value={settings.excludePattern}
                         onChange={(e) => onPatternChange("exclude", e.target.value)}
                         aria-label="Exclude files matching"

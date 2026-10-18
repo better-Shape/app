@@ -199,6 +199,7 @@ const SidebarPeekToggle = ({
     onHoverEnd?: () => void;
 }) => (
     <div
+        role="presentation"
         data-sidebar-peek-toggle=""
         className="relative z-10 flex shrink-0 items-center pl-1"
         data-no-drag

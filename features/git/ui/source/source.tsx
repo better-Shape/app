@@ -227,13 +227,13 @@ const ChangeRow = ({
         <ContextMenu>
             <ContextMenuTrigger>
                 <div
-                    onClick={() => onShowDiff(file.path, file.staged)}
                     className={cn(
-                        "flex items-center px-0.5 py-0.5 cursor-pointer rounded-lg group relative h-7 transition-colors",
+                        "flex items-center px-0.5 py-0.5 rounded-lg group relative h-7 transition-colors",
                         selected ? "bg-[var(--row-selected)] hover:bg-[var(--row-selected-hover)]" : "hover:bg-[var(--row-hover)]",
                     )}
                 >
                     <div
+                        role="presentation"
                         className="w-5 h-5 flex items-center justify-center shrink-0 cursor-pointer text-text-muted hover:text-text-primary mr-1"
                         onClick={handleToggleState}
                         onPointerDown={(e) => e.stopPropagation()}
@@ -244,12 +244,18 @@ const ChangeRow = ({
                             label={file.staged ? `Unstage ${file.path}` : `Stage ${file.path}`}
                         />
                     </div>
-                    <div className="w-4 mr-1.5 flex justify-center shrink-0 pointer-events-none">
-                        <FileIcon name={file.path.split(/[/\\]/).pop() || ""} />
-                    </div>
-                    <ChangeRowPathLabel path={file.path} />
+                    <button
+                        type="button"
+                        onClick={() => onShowDiff(file.path, file.staged)}
+                        className="flex min-w-0 flex-1 cursor-pointer items-center text-left"
+                    >
+                        <div className="w-4 mr-1.5 flex justify-center shrink-0 pointer-events-none">
+                            <FileIcon name={file.path.split(/[/\\]/).pop() || ""} />
+                        </div>
+                        <ChangeRowPathLabel path={file.path} />
 
-                    <ChangeRowStatusLetter status={file.status} />
+                        <ChangeRowStatusLetter status={file.status} />
+                    </button>
                 </div>
             </ContextMenuTrigger>
             <ChangeRowMenu
@@ -272,26 +278,24 @@ const ChangeSectionHeader = ({ title, count, isAllStaged, isSomeStaged, onToggle
     onToggleOpen: () => void;
     onToggleStage: () => void;
 }) => (
-    <div
-        className="flex items-center group py-1 rounded-lg shrink-0 cursor-pointer hover:bg-[var(--row-hover)] transition-colors"
-        onClick={onToggleOpen}
-    >
+    <div className="flex items-center group py-1 rounded-lg shrink-0 hover:bg-[var(--row-hover)] transition-colors">
         <div className="w-4 h-4 -mr-2.5 flex items-center justify-center shrink-0 text-text-primary hover:text-text-primary" />
-        <div
-            className="flex shrink-0 items-center justify-center h-full mr-2"
-            onClick={(e) => {
-                e.stopPropagation();
-            }}
-        >
+        <div role="presentation" className="flex shrink-0 items-center justify-center h-full mr-2">
             <Checkmark
                 checked={isAllStaged ? true : isSomeStaged ? "indeterminate" : false}
                 onCheckedChange={onToggleStage}
                 label={isAllStaged ? "Unstage all changes" : "Stage all changes"}
             />
         </div>
-        <span className="text-sm font-normal text-text-secondary group-hover:text-text-primary transition-colors">
-            {title} <span className="text-text-muted font-normal ml-1">{count} files</span>
-        </span>
+        <button
+            type="button"
+            onClick={onToggleOpen}
+            className="flex min-w-0 flex-1 cursor-pointer items-center text-left"
+        >
+            <span className="text-sm font-normal text-text-secondary group-hover:text-text-primary transition-colors">
+                {title} <span className="text-text-muted font-normal ml-1">{count} files</span>
+            </span>
+        </button>
     </div>
 );
 

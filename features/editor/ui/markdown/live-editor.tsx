@@ -518,6 +518,7 @@ function FormatBar({
 }) {
     return (
         <div
+            role="presentation"
             className={cn(
                 "fixed z-50 flex -translate-x-1/2 items-center gap-0.5 rounded-xl border border-border-subtle bg-surface-3 px-1 py-1 shadow-sm",
                 above ? "-translate-y-[calc(100%+8px)]" : "translate-y-2",

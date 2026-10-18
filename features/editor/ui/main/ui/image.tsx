@@ -197,6 +197,7 @@ export function ImageView({
     return (
         <div
             ref={containerRef}
+            role="presentation"
             onWheel={handleWheel}
             onMouseDown={handleMouseDown}
             className={`relative flex h-full w-full items-center justify-center overflow-hidden bg-editor select-none ${isDragging ? "cursor-grabbing" : "cursor-grab"}`}

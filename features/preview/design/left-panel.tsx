@@ -220,7 +220,11 @@ export function DesignLeftPanel({
                                     )}
                                     style={{ paddingLeft: 9 + Math.min(layer.depth, 12) * 12 }}
                                 >
-                                    <span
+                                    <button
+                                        type="button"
+                                        aria-label={isCollapsed ? `Expand ${title}` : `Collapse ${title}`}
+                                        aria-expanded={hasChildren ? !isCollapsed : undefined}
+                                        disabled={!hasChildren}
                                         className="flex size-4 shrink-0 items-center justify-center"
                                         onClick={() => {
                                             if (!hasChildren) return;
@@ -235,7 +239,7 @@ export function DesignLeftPanel({
                                         {hasChildren ? (
                                             <Icon icon={isCollapsed ? ChevronRight20Regular : ChevronDown20Regular} />
                                         ) : null}
-                                    </span>
+                                    </button>
                                     <Icon
                                         icon={KindIcon}
                                         className={layer.variable ? "text-violet-400" : kindClass(kind)}

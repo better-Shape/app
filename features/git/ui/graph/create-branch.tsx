@@ -25,7 +25,7 @@ export function CreateBranchFromCommitInline({ hash, repoPath, onDone, onCancel 
     };
 
     return (
-        <div className="flex flex-col gap-1 px-1.5 py-1 min-w-[220px]" onClick={e => e.stopPropagation()} onPointerDown={e => e.stopPropagation()}>
+        <div role="presentation" className="flex flex-col gap-1 px-1.5 py-1 min-w-[220px]" onClick={e => e.stopPropagation()} onPointerDown={e => e.stopPropagation()}>
             <span className="text-md text-text-primary">New branch name</span>
             <Input
                 autoFocus

@@ -27,21 +27,27 @@ export function ContextChip({
     className?: string;
     onClick?: () => void;
 }) {
-    return (
-        <span
-            role={onClick ? "button" : undefined}
-            tabIndex={onClick ? 0 : undefined}
-            onClick={onClick}
-            className={cn(
-                "mx-0.5 inline-flex items-center gap-1 rounded-lg bg-accent-text-bg px-1.5 py-0.5 align-middle font-medium text-accent-text",
-                onClick && "cursor-pointer hover:bg-accent-text/20 transition-colors",
-                className,
-            )}
-        >
+    const classes = cn(
+        "mx-0.5 inline-flex items-center gap-1 rounded-lg bg-accent-text-bg px-1.5 py-0.5 align-middle font-medium text-accent-text",
+        onClick && "cursor-pointer hover:bg-accent-text/20 transition-colors",
+        className,
+    );
+    const body = (
+        <>
             {icon ? <span className="chat-link-favicon">{icon}</span> : null}
             <span className="max-w-[14rem] truncate">{children}</span>
-        </span>
+        </>
     );
+    // A chip that acts is a button so it is tabbable and answers Enter and Space;
+    // one that only labels is a span.
+    if (onClick) {
+        return (
+            <button type="button" onClick={onClick} className={classes}>
+                {body}
+            </button>
+        );
+    }
+    return <span className={classes}>{body}</span>;
 }
 
 export function MentionChipIcon({ mention }: { mention: ChatMention }) {

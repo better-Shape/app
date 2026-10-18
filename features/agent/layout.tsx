@@ -77,6 +77,7 @@ function SidebarPeek({
     return (
         <div
             ref={attachHost}
+            role="presentation"
             data-sidebar-peek=""
             className={cn(
                 "fixed z-30 flex w-82 flex-col overflow-visible origin-left",

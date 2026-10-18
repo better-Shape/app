@@ -70,9 +70,10 @@ export function DispatchDialog({
                 </AlertDialogHeader>
                 <AlertDialogBody>
                     <div className="flex flex-col gap-3">
-                        <label className="flex flex-col gap-1">
+                        <label htmlFor="dispatch-git-ref" className="flex flex-col gap-1">
                             <span className="text-xs text-text-muted">Branch / tag</span>
                             <Input
+                                id="dispatch-git-ref"
                                 value={gitRef}
                                 onChange={(e) => setGitRef(e.target.value)}
                                 placeholder="main"

@@ -283,7 +283,8 @@ function createMarkdownComponents(options?: { nested?: boolean }) {
             if (isFilePath) {
                 const name = (children as string).split(/[\\/]/).pop() || (children as string);
                 return (
-                    <span
+                    <button
+                        type="button"
                         className="mx-0.5 inline-flex cursor-pointer items-center gap-1.5 squircle-lg  bg-panel-hover px-2 py-0.5 align-middle font-sans chat-text text-text-primary transition-colors hover:bg-[var(--btn-hover)]"
                         title={children as string}
                         onClick={() => {
@@ -292,7 +293,7 @@ function createMarkdownComponents(options?: { nested?: boolean }) {
                     >
                         <FileIcon name={name} className="h-4 w-4" />
                         {name}
-                    </span>
+                    </button>
                 );
             }
 

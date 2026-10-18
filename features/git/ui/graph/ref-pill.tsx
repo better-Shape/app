@@ -78,19 +78,30 @@ export function RefPill({
     const raw = refInfo.label.replace(/^tag:\s*/i, "");
     const kind = refInfo.isTag ? "Tag" : refInfo.isRemote ? "Remote branch" : refInfo.isHead ? "HEAD" : "Branch";
 
-    const pill = (
-        <span
-            className={cn(
-                "inline-flex shrink-0 transition-[filter,transform] duration-150",
-                onActivate && "cursor-pointer hover:brightness-110 active:scale-[0.98]",
-                hoverOnly && !onActivate && "cursor-default hover:brightness-110",
-            )}
+    const pillClasses = cn(
+        "inline-flex shrink-0 transition-[filter,transform] duration-150",
+        onActivate && "cursor-pointer hover:brightness-110 active:scale-[0.98]",
+        hoverOnly && !onActivate && "cursor-default hover:brightness-110",
+    );
+    const pillTitle = hoverOnly || onActivate ? `${kind}: ${raw}` : undefined;
+    const pill = onActivate ? (
+        <button
+            type="button"
+            className={pillClasses}
             onClick={(e) => {
                 e.stopPropagation();
-                onActivate?.(refInfo);
+                onActivate(refInfo);
             }}
             onPointerDown={(e) => e.stopPropagation()}
-            title={hoverOnly || onActivate ? `${kind}: ${raw}` : undefined}
+            title={pillTitle}
+        >
+            <RefPillVisual refInfo={refInfo} color={color} emphasized={emphasized} />
+        </button>
+    ) : (
+        <span
+            className={pillClasses}
+            onPointerDown={(e) => e.stopPropagation()}
+            title={pillTitle}
         >
             <RefPillVisual refInfo={refInfo} color={color} emphasized={emphasized} />
         </span>

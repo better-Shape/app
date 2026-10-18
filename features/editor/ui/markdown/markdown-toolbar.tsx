@@ -160,6 +160,7 @@ export function MarkdownToolbar({
     const toolbar = (
         <div
             ref={measurePanel}
+            role="presentation"
             className="fixed z-710 flex items-center gap-0.5 rounded-xl border border-border-subtle bg-surface-3 px-1 py-1 shadow-xl"
             style={{ top: position.top, left: position.left }}
             onMouseDown={(e) => {

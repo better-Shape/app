@@ -137,6 +137,7 @@ function LazyFileDiff({
         <section
             ref={hostRef}
             id={domId}
+            role="presentation"
             onMouseEnter={() => setHover(true)}
             onMouseLeave={() => setHover(false)}
         >

@@ -142,16 +142,15 @@ function MentionRichText({ text }: { text: string }) {
                 const path = m[2];
                 const name = path.split(/[\\/]/).pop() || path;
                 out.push(
-                    <span
+                    <button
                         key={`${keyPrefix}-p-${i}`}
-                        role="button"
-                        tabIndex={0}
+                        type="button"
                         title={path}
                         onClick={() => void openProjectFile(path, name)}
                         className="inline cursor-pointer font-mono text-[0.9em] text-accent-text underline-offset-2 hover:underline"
                     >
                         {path}
-                    </span>,
+                    </button>,
                 );
             }
             last = m.index + m[0].length;
@@ -391,8 +390,10 @@ function ChatMessageItemInner({
             <ContextMenu>
             <ContextMenuTrigger asChild>
             <div
+                role="group"
+                aria-label="Message"
                 className="group/msg relative mb-2 flex w-full select-text"
-                tabIndex={0}
+                tabIndex={-1}
                 onKeyDown={handleKeyDown}
             >
                 <div className="group flex w-full min-w-0 items-start">
@@ -485,8 +486,10 @@ function ChatMessageItemInner({
         <ContextMenu>
         <ContextMenuTrigger asChild>
         <div
+            role="group"
+            aria-label="Message"
             className="group/msg group relative z-10 mb-2 flex w-full select-text flex-col gap-1"
-            tabIndex={0}
+            tabIndex={-1}
             onKeyDown={handleKeyDown}
         >
             <div className="flex min-w-0 flex-col gap-1 pr-6">

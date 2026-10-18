@@ -143,13 +143,13 @@ export function CreatePullRequestDialog({
                 </AlertDialogHeader>
                 <div className="flex flex-col gap-2 px-1">
                     <div className="grid grid-cols-2 gap-2">
-                        <label className="flex min-w-0 flex-col gap-1 text-xs text-text-muted">
+                        <label htmlFor="pr-base" className="flex min-w-0 flex-col gap-1 text-xs text-text-muted">
                             Base
-                            <Input value={base} onChange={(e) => setBase(e.target.value)} className="h-8" />
+                            <Input id="pr-base" value={base} onChange={(e) => setBase(e.target.value)} className="h-8" />
                         </label>
-                        <label className="flex min-w-0 flex-col gap-1 text-xs text-text-muted">
+                        <label htmlFor="pr-head" className="flex min-w-0 flex-col gap-1 text-xs text-text-muted">
                             Compare
-                            <Input value={head} onChange={(e) => setHead(e.target.value)} className="h-8" />
+                            <Input id="pr-head" value={head} onChange={(e) => setHead(e.target.value)} className="h-8" />
                         </label>
                     </div>
                     <div

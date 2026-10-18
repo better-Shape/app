@@ -306,13 +306,14 @@ const stateAriaProps = ({
 });
 
 /**
- * Where an anchor points, and how it stands aside when it cannot act.
+ * How an anchor stands aside when it cannot act, plus the button role it takes when the
+ * href is only a placeholder.
  *
- * An anchor has no `disabled` attribute, so the state travels as the missing href, the
- * button role it takes when the href is a placeholder, and a negative tab index.
+ * An anchor has no `disabled` attribute, so the state travels as the missing href and a
+ * negative tab index. The `href` itself stays a literal attribute at the call site, because
+ * the linter reads interactivity from the element's own attributes and a spread hides them.
  */
 const anchorTargetProps = (href: string, ariaDisabled: boolean) => ({
-    href: ariaDisabled ? undefined : href,
     role: href === "#" ? ("button" as const) : undefined,
     tabIndex: ariaDisabled ? -1 : 0,
 });
@@ -525,6 +526,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
             return (
                 <a
                     ref={ref as React.Ref<HTMLAnchorElement>}
+                    href={ariaDisabled ? undefined : href}
                     {...anchorTargetProps(href, ariaDisabled)}
                     className={classes}
                     {...stateAriaProps({ busy, pressed, blocked: ariaDisabled, ariaDisabled })}

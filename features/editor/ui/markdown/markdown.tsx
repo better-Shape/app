@@ -267,6 +267,7 @@ export const MarkdownPreview = React.forwardRef<HTMLDivElement, MarkdownPreviewP
         return (
             <div
                 ref={setRefs}
+                role="presentation"
                 onMouseUp={handleMouseUp}
                 onClickCapture={(e) => {
                     const el = e.target;

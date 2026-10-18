@@ -1021,7 +1021,15 @@ export default function Terminal({
                 return (
                     <div
                         key={tab.id}
+                        role="tab"
+                        aria-selected={isActive}
+                        tabIndex={0}
                         onClick={() => onActivate(tab.id)}
+                        onKeyDown={(event) => {
+                            if (event.key !== "Enter" && event.key !== " ") return;
+                            event.preventDefault();
+                            onActivate(tab.id);
+                        }}
                         className={workbenchTabItemClass(isActive)}
                     >
                         <span className="max-w-[160px] truncate text-sm">{tab.title}</span>
@@ -1109,6 +1117,7 @@ export default function Terminal({
         showShellMenu: boolean,
     ) => (
         <div
+            role="presentation"
             className={cn(
                 "flex h-full min-h-0 min-w-0 flex-col overflow-hidden",
                 splitEnabled && focusedGroup === group && "ring-1 ring-inset ring-accent/20",
@@ -1238,6 +1247,7 @@ export default function Terminal({
                                 )}
                             </div>
                             <div
+                                role="presentation"
                                 className="w-1 shrink-0 cursor-col-resize bg-border-subtle/40 hover:bg-accent/40 transition-colors"
                                 onMouseDown={() => {
                                     splitDragging.current = true;

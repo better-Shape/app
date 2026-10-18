@@ -13,6 +13,7 @@ import { Icon } from "@/components/ui/icon";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useAutoFocusRef } from "@/lib/ui/use-auto-focus-ref";
 import { commands } from "@/lib/backend/commands";
 
 export type QuestionOption = {
@@ -73,6 +74,7 @@ export function QuestionsCard({
     const [picked, setPicked] = useState<QuestionAnswers>(initialAnswers || {});
     const [customOpen, setCustomOpen] = useState(false);
     const [customText, setCustomText] = useState("");
+    const customInputRef = useAutoFocusRef<HTMLInputElement>();
     const [submitting, setSubmitting] = useState(false);
 
     const total = Math.max(questions.length, 1);
@@ -244,7 +246,7 @@ export function QuestionsCard({
                         }}
                     >
                         <input
-                            autoFocus
+                            ref={customInputRef}
                             value={customText}
                             onChange={(e) => setCustomText(e.target.value)}
                             placeholder="Type your answer"

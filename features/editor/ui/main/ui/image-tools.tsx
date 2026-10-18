@@ -93,6 +93,7 @@ export function ImageAdjustmentsPanel({
 
     return (
         <div
+            role="presentation"
             data-state={state}
             className="image-adjustments-panel bettershape-popover-content bettershape-popover-content--from-right pointer-events-auto absolute top-2 right-2 z-30 flex max-h-[calc(100%-1rem)] w-[280px] flex-col overflow-hidden"
             onMouseDown={(e) => e.stopPropagation()}
@@ -193,6 +194,7 @@ export function ImageToolsCard({
 
     return (
         <aside
+            role="presentation"
             className={cn(
                 "image-tools-card flex max-h-full w-full flex-col overflow-hidden rounded-xl border border-border-subtle bg-panel text-text-primary font-sans select-none shadow-md",
                 className,

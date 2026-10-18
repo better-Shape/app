@@ -85,6 +85,9 @@ function SortableWorkspaceTab({
                     style={style}
                     {...attributes}
                     {...listeners}
+                    role="tab"
+                    aria-selected={isActive}
+                    tabIndex={0}
                     onClick={() => onSelect(tab.id)}
                     className={cn(workbenchTabItemClass(isActive, isDragging), "max-w-44")}
                 >

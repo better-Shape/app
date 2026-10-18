@@ -358,6 +358,7 @@ export default function Chat({
             <div className="relative min-h-0 flex-1">
                 <div
                     ref={scrollContainerRef}
+                    role="presentation"
                     onScroll={session.handleScroll}
                     onKeyDown={(e) => {
                         if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "a") return;

@@ -327,7 +327,12 @@ export function DesignPreviewGallery({
                           aria-modal="true"
                           aria-label={item.name || "Component preview"}
                       >
-                          <div className="absolute inset-0 bg-black/60" onClick={() => setOpen(false)} />
+                          <button
+                              type="button"
+                              aria-label="Close preview"
+                              className="absolute inset-0 bg-black/60"
+                              onClick={() => setOpen(false)}
+                          />
                           <div className="relative flex max-h-full w-full max-w-[920px] flex-col overflow-hidden rounded-2xl bg-surface-1 p-2 pt-0 shadow-[0_24px_80px_rgba(0,0,0,0.45)]">
                               <div className="flex h-11 shrink-0 items-center justify-between gap-3 px-1.5">
                                   <span className="truncate text-sm font-semibold text-text-primary">

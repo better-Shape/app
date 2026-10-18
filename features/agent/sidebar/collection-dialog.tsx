@@ -44,6 +44,7 @@ import {
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
+import { useAutoFocusRef } from "@/lib/ui/use-auto-focus-ref";
 import {
     CHAT_COLORS,
     CHAT_COLOR_HEX,
@@ -103,6 +104,8 @@ export function CollectionDialog({
     const [icon, setIcon] = useState<CollectionIcon>(existing?.icon ?? "star");
     const [color, setColor] = useState<ChatColor>(existing?.color ?? "blue");
     const [query, setQuery] = useState("");
+    const nameRef = useAutoFocusRef<HTMLInputElement>();
+    const queryRef = useAutoFocusRef<HTMLInputElement>();
     const icons = useMemo(() => {
         const needle = query.trim().toLowerCase();
         return COLLECTION_ICONS.filter((id) => !needle || id.includes(needle));
@@ -129,7 +132,7 @@ export function CollectionDialog({
                 <AlertDialogBody>
                 {step === 0 ? (
                     <input
-                        autoFocus
+                        ref={nameRef}
                         value={name}
                         placeholder="Collection name"
                         onChange={(event) => setName(event.target.value)}
@@ -144,7 +147,7 @@ export function CollectionDialog({
                         <div className="flex items-center gap-2 rounded-md px-2 ring-1 ring-border">
                             <Icon icon={Search20Regular} className="icon-sm text-text-muted" />
                             <input
-                                autoFocus
+                                ref={queryRef}
                                 value={query}
                                 placeholder="Search icons"
                                 onChange={(event) => setQuery(event.target.value)}

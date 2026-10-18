@@ -25,8 +25,9 @@ export const renderCommitMessage = (message: string) => {
         if (part.startsWith('@')) {
             const username = part.substring(1);
             return (
-                <span
+                <button
                     key={i}
+                    type="button"
                     className="text-info hover:underline cursor-pointer"
                     onClick={(e) => {
                         e.preventDefault();
@@ -35,7 +36,7 @@ export const renderCommitMessage = (message: string) => {
                     }}
                 >
                     {part}
-                </span>
+                </button>
             );
         }
         return part;

@@ -143,6 +143,7 @@ export function Combobox({
                 {headerText ? <DropdownMenuLabel>{headerText}</DropdownMenuLabel> : null}
                 {searchable ? (
                     <div
+                        role="presentation"
                         className="px-1 pb-1"
                         onPointerDown={(e) => e.stopPropagation()}
                         onKeyDown={(e) => e.stopPropagation()}

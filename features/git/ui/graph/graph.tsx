@@ -650,6 +650,8 @@ export default function Graph({
 
     const graphList = (
         <div
+            role="listbox"
+            aria-label="Commit graph"
             className="graph-scroll min-h-0 flex-1 overflow-y-scroll overflow-x-hidden relative outline-none"
             tabIndex={0}
             onScroll={handleScroll}
@@ -664,7 +666,7 @@ export default function Graph({
             }}
         >
             {gitLogs.length > 0 ? (
-                <div style={{ height: totalHeight, position: "relative" }} role="listbox" aria-label="Commit graph">
+                <div style={{ height: totalHeight, position: "relative" }} role="presentation">
                     {gitLogs.slice(startIdx, endIdx + 1).map((log, relIdx) => {
                         const idx = startIdx + relIdx;
                         const top = rowTop(rowLayout, idx);

@@ -263,6 +263,7 @@ export const GraphCommitRow = React.memo(function GraphCommitRow({
                                 content={
                                     <div
                                         id={`tooltip-content-${log.hash}`}
+                                        role="presentation"
                                         className="flex max-w-[240px] flex-col gap-2 p-0.5"
                                         onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); }}
                                         onPointerDown={() => {
@@ -283,12 +284,13 @@ export const GraphCommitRow = React.memo(function GraphCommitRow({
                                         }}
                                     >
                                         <div className="flex flex-wrap items-center gap-1 text-sm text-text-secondary pointer-events-auto">
-                                            <span
+                                            <button
+                                                type="button"
                                                 className="font-medium text-text-primary cursor-pointer hover:underline hover:text-accent"
                                                 onClick={handleOpenAuthorEmail}
                                             >
                                                 {log.author}
-                                            </span>
+                                            </button>
                                             <span>,</span>
                                             <span>{getRelativeTime(log.date)}</span>
                                             <span className="text-text-muted">
@@ -305,7 +307,8 @@ export const GraphCommitRow = React.memo(function GraphCommitRow({
                                             {renderCommitMessage(log.message)}
                                         </div>
                                         <div className="flex items-center gap-4 mt-0.5 text-text-muted pointer-events-auto">
-                                            <div
+                                            <button
+                                                type="button"
                                                 className={cn(
                                                     "flex items-center gap-1.5 cursor-pointer transition-colors py-0.5 press-spring",
                                                     hashCopied ? "text-success" : "hover:text-text-primary",
@@ -314,14 +317,15 @@ export const GraphCommitRow = React.memo(function GraphCommitRow({
                                             >
                                                 <Icon icon={Clipboard20Regular} />
                                                 <span className="text-sm font-medium select-text">{log.hash.slice(0, 7)}</span>
-                                            </div>
-                                            <div
+                                            </button>
+                                            <button
+                                                type="button"
                                                 className="flex items-center gap-1.5 cursor-pointer hover:text-text-primary transition-colors py-0.5"
                                                 onClick={handleOpenGitHub}
                                             >
                                                 <Icon icon={Open20Regular} />
                                                 <span className="text-sm">Open in GitHub</span>
-                                            </div>
+                                            </button>
                                         </div>
                                     </div>
                                 }
@@ -345,7 +349,8 @@ export const GraphCommitRow = React.memo(function GraphCommitRow({
                                 {getRelativeTime(log.date)}
                             </span>
                             <Tooltip content={hashCopied ? "Copied" : log.hash} side="top" delayDuration={250}>
-                                <span
+                                <button
+                                    type="button"
                                     className={cn(
                                         "hidden w-[52px] shrink-0 cursor-default whitespace-nowrap text-right font-mono text-xs tabular-nums transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] @[480px]:inline",
                                         hashCopied ? "text-success opacity-100" : "text-text-disabled opacity-70",
@@ -356,7 +361,7 @@ export const GraphCommitRow = React.memo(function GraphCommitRow({
                                     }}
                                 >
                                     {log.hash.slice(0, 7)}
-                                </span>
+                                </button>
                             </Tooltip>
                         </div>
                     </div>
@@ -517,7 +522,8 @@ export const GraphCommitRow = React.memo(function GraphCommitRow({
                                                 align="start"
                                                 delayDuration={400}
                                             >
-                                                <div
+                                                <button
+                                                    type="button"
                                                     onClick={(e) => { e.stopPropagation(); onShowCommitDiff(log.hash, file.path); }}
                                                     onDoubleClick={(e) => {
                                                         e.stopPropagation();
@@ -544,7 +550,7 @@ export const GraphCommitRow = React.memo(function GraphCommitRow({
                                                     >
                                                         {file.status}
                                                     </span>
-                                                </div>
+                                                </button>
                                             </Tooltip>
                                         </ContextMenuTrigger>
                                         <ContextMenuContent>

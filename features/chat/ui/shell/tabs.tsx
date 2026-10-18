@@ -96,6 +96,9 @@ function SortableChatTab({
                     style={style}
                     {...attributes}
                     {...listeners}
+                    role="tab"
+                    aria-selected={isActive}
+                    tabIndex={0}
                     onClick={() => onSelect(tab.id)}
                     className={workbenchTabItemClass(isActive, isDragging)}
                 >
