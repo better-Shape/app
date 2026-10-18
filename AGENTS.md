@@ -9,6 +9,7 @@ Quick pointers
 - Pull request template: `.github/PULL_REQUEST_TEMPLATE.md`
 - Local commit guidance: `COMMIT.md`
 - Design docs before UI changes: `DESIGN.md` and `engineering/design-system-baseline.md`
+- Motion craft guide: `engineering/motion-design.md`
 
 ## Instruction sources
 
@@ -27,7 +28,7 @@ Treat every rule in this file as if the user had asked for it directly. Do not s
 
 ## Values and rules
 
-- UI and UX quality is the top priority. Before you touch interface code, load the design set in `engineering/design-skills.md` and read `DESIGN.md` and `engineering/design-system-baseline.md`. Mirror the layout, sizing, placement and prop shapes they record.
+- UI and UX quality is the top priority. Before you touch interface code, load the design set in `engineering/design-skills.md` and read `DESIGN.md` and `engineering/design-system-baseline.md`. For motion work, also read `engineering/motion-design.md`. Mirror the layout, sizing, placement and prop shapes they record.
 - Never push to `main`. Nudge the user to open a PR for you unless they explicitly said to.
 - Stack your branch on its inherited base and open the PR against that base. A PR into `main` would carry the base's unmerged work. Git does not record where a branch was cut from, so when the task does not name the base, ask the human instead of guessing.
 - Keep the pull request description about the change. Include the concise Verification Gate and Code Research Gate evidence required below. Do not add review counts, polling logs, "still waiting" notes or extra status chatter. Keep full CI logs in the check run or an artifact, not in the description.
@@ -264,7 +265,7 @@ Keep capture artifacts under `.qa-artifacts/`, which is ignored by git. When a c
 
 ## Design work
 
-UI, UX, motion, typography, copy and visual-design work loads the design set before it touches code, every time. The order is `DESIGN.md`, then `engineering/design-system-baseline.md`, then the skills routed in `engineering/design-skills.md`. Run the taste pre-flight in `design-taste-frontend` before you call the work done.
+UI, UX, motion, typography, copy and visual-design work loads the design set before it touches code, every time. The order is `DESIGN.md`, then `engineering/design-system-baseline.md`, then the skills routed in `engineering/design-skills.md`. Motion work also reads `engineering/motion-design.md` before editing. Run the taste pre-flight in `design-taste-frontend` before you call the work done.
 
 Design recon is mandatory for every change that touches product UI, including a one-line style edit. Read the owning surface's `DESIGN.md` and baseline before the first edit. Load the skills the routing table names for the surface. Gather current references from comparable shipped products, and weigh each radius, density, state and label against them and against the committed design docs. The committed design wins over habit. List the references in the PR description.
 
@@ -404,5 +405,5 @@ For UI, copy, people, mobile layout, or code comments work, load the antislop sk
 - People: `antislop-human`
 - Mobile / responsive: `antislop-layoutmobile`
 - Code comments: `antislop-code`
-Run mode 1, `During`, as the project answer. Do not stop to ask which mode applies. Load `DESIGN.md` and `engineering/design-system-baseline.md` as the direction the core asks for, so a UI change never ships without direction.
+Run mode 1, `During`, as the project answer. Do not stop to ask which mode applies. Load `DESIGN.md` and `engineering/design-system-baseline.md` as the direction the core asks for, and read `engineering/motion-design.md` for motion work, so a UI change never ships without direction.
 <!-- antislop:end -->

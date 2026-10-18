@@ -180,12 +180,14 @@ export function SettingSelect<T extends string>({
     onChange,
     className,
     disabled,
+    "aria-label": ariaLabel,
 }: {
     value: T;
     options: { value: T; label: string }[];
     onChange: (v: T) => void;
     className?: string;
     disabled?: boolean;
+    "aria-label"?: string;
 }) {
     const label = options.find((o) => o.value === value)?.label ?? value;
 
@@ -196,6 +198,7 @@ export function SettingSelect<T extends string>({
                     variant="ghost"
                     size="sm"
                     disabled={disabled}
+                    aria-label={ariaLabel}
                     className={cn(SETTING_CONTROL_BTN, className)}
                 >
                     <span className="truncate">{label}</span>

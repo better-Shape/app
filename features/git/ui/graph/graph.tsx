@@ -636,7 +636,7 @@ export default function Graph({
             }}
         >
             {gitLogs.length > 0 ? (
-                <div style={{ height: totalHeight, position: "relative" }} role="listbox" aria-label="Commit graph">
+                <div style={{ height: totalHeight, position: "relative" }} role="list" aria-label="Commit graph">
                     {gitLogs.slice(startIdx, endIdx + 1).map((log, relIdx) => {
                         const idx = startIdx + relIdx;
                         const top = rowTop(rowLayout, idx);
@@ -645,7 +645,12 @@ export default function Graph({
                         const prevMuted = idx > 0 ? (mutedHashes?.has(gitLogs[idx - 1].hash) ?? false) : true;
                         const nextMuted = idx < gitLogs.length - 1 ? (mutedHashes?.has(gitLogs[idx + 1].hash) ?? false) : true;
                         return (
-                            <div key={log.hash} style={{ position: "absolute", top, left: 0, right: 0 }}>
+                            <div
+                                key={log.hash}
+                                role="listitem"
+                                aria-current={selectedHash === log.hash ? "true" : undefined}
+                                style={{ position: "absolute", top, left: 0, right: 0 }}
+                            >
                                 <GraphCommitRow
                                     log={log}
                                     node={node}
@@ -676,13 +681,16 @@ export default function Graph({
                     })}
                 </div>
             ) : isInitialLoading ? (
-                <div className="flex flex-col gap-2 px-3 py-3" aria-hidden>
-                    {Array.from({ length: 8 }, (_, i) => (
-                        <div key={i} className="flex items-center gap-2">
-                            <span className="size-5 shrink-0 animate-pulse rounded-full bg-panel-hover" />
-                            <span className="h-3 flex-1 animate-pulse rounded-md bg-panel-hover" style={{ maxWidth: `${70 - (i % 3) * 12}%` }} />
-                        </div>
-                    ))}
+                <div className="flex flex-col gap-2 px-3 py-3" role="status" aria-busy="true">
+                    <span className="sr-only">Loading commits</span>
+                    <div aria-hidden="true">
+                        {Array.from({ length: 8 }, (_, i) => (
+                            <div key={i} className="flex items-center gap-2">
+                                <span className="size-5 shrink-0 rounded-full bg-panel-hover" />
+                                <span className="h-3 flex-1 rounded-md bg-panel-hover" style={{ maxWidth: `${70 - (i % 3) * 12}%` }} />
+                            </div>
+                        ))}
+                    </div>
                 </div>
             ) : (
                 <div className="flex h-full flex-1 items-center justify-center text-xs text-text-muted">
@@ -935,7 +943,7 @@ export default function Graph({
             ) : null}
 
             <div
-                className="shrink-0 pointer-events-none relative z-10 transition-opacity duration-200"
+                className="shrink-0 pointer-events-none relative z-10 transition-opacity duration-[var(--transition-fast)] ease-[var(--ease-out)]"
                 style={{
                     height: 30,
                     marginBottom: -30,

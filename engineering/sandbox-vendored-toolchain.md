@@ -497,7 +497,7 @@ set -euo pipefail
 
 # Pin the commit you reviewed. The branch head can move, and MANIFEST.sha256
 # travels with the payload, so a moving head would verify either way.
-SV_SHA=58094f1cb906451f7baf1f8e26261f4bf46c9651
+SV_SHA=7c4c8788b138294d1a9be31dbee79075df5e7f3d
 # Private extraction root, one per run. mktemp -d keeps another user on a shared host from
 # pre-creating the path as a symlink. Export SV before this line to pick the root yourself,
 # for example /tmp/sandbox-vendor on a single-user host.

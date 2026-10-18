@@ -5,7 +5,7 @@ import { ChevronRight20Regular } from "@fluentui/react-icons/headless/svg/chevro
 import { WindowConsole20Regular } from "@fluentui/react-icons/headless/svg/window-console";
 
 
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 import { Icon } from "@/components/ui/icon";
 
 import { Button } from "@/components/ui/button";
@@ -36,11 +36,14 @@ function JobStatusIcon({
     );
 }
 
-function AnimatedCollapse({ open, children }: { open: boolean; children: ReactNode }) {
+function AnimatedCollapse({ open, children, id }: { open: boolean; children: ReactNode; id?: string }) {
     return (
         <div
+            id={id}
+            aria-hidden={!open}
+            inert={!open}
             className={cn(
-                "grid transition-[grid-template-rows,opacity] duration-200 ease-[var(--ease-out)]",
+                "grid transition-[grid-template-rows,opacity] duration-[var(--transition-base)] ease-[var(--ease-out)]",
                 open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
             )}
         >
@@ -71,6 +74,8 @@ export function JobsPanel({
     onOpenUrl: (url?: string) => void;
     onSelectStep?: (jobId: number, step: WorkflowStep) => void;
 }) {
+    const idPrefix = useId();
+
     if (mode === "steps") {
         const flat = jobs.flatMap((job) =>
             (job.steps ?? []).map((step) => ({ job, step })),
@@ -133,6 +138,7 @@ export function JobsPanel({
                 ) : (
                     jobs.map((job) => {
                         const open = expandedJobs.has(job.id);
+                        const stepsId = `${idPrefix}-steps-${job.id}`;
                         return (
                             <div
                                 key={job.id}
@@ -140,13 +146,15 @@ export function JobsPanel({
                             >
                                 <Button
                                     variant="ghost"
+                                    aria-expanded={open}
+                                    aria-controls={stepsId}
                                     className="h-auto w-full items-start gap-1 rounded-xl px-2 py-2 text-left font-normal"
                                     onClick={() => onToggleJob(job.id)}
                                 >
                                     <Icon
                                         icon={ChevronRight20Regular}
                                         className={cn(
-                                            "mt-0.5 shrink-0 text-text-muted transition-transform duration-200 ease-[var(--ease-out)]",
+                                            "mt-0.5 shrink-0 text-text-muted transition-transform duration-[var(--transition-fast)] ease-[var(--ease-out)]",
                                             open && "rotate-90",
                                         )}
                                     />
@@ -167,7 +175,7 @@ export function JobsPanel({
                                         </div>
                                     </div>
                                 </Button>
-                                <AnimatedCollapse open={open}>
+                                <AnimatedCollapse id={stepsId} open={open}>
                                     {job.steps && job.steps.length > 0 ? (
                                         <ul className="pb-2 pl-7 pr-2">
                                             {job.steps.map((step) => (

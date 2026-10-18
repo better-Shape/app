@@ -21,7 +21,7 @@ import { useOverlayRoot } from "@/lib/ui/overlay-root";
 const itemClasses =
     "group relative flex cursor-default select-none items-center gap-2 squircle-2xl px-4! py-1.5 text-sm outline-none transition-[background-color,color,transform] duration-[var(--transition-fast)] ease-[var(--ease-out)] focus:bg-panel-hover focus:text-text-primary data-disabled:pointer-events-none data-disabled:opacity-50";
 const containerClasses =
-    "bettershape-popover-content z-dropdown overflow-hidden squircle-2xl border border-border-secondary bg-sidebar text-text-primary shadow-md";
+    "bettershape-popover-content bettershape-menu-content z-dropdown overflow-hidden squircle-2xl border border-border-secondary bg-sidebar text-text-primary shadow-md";
 const shortcutClasses =
     "ml-auto shrink-0 pr-1 text-sm text-text-muted group-focus:text-text-primary";
 /** Inset so rows and the panel sit off the edges. */
@@ -33,7 +33,7 @@ function DropdownScrollScrim({ side, visible }: { side: "up" | "down"; visible: 
     return (
         <div
             className={cn(
-                "pointer-events-none absolute inset-x-0 z-20 h-6 transition-opacity duration-200",
+                "pointer-events-none absolute inset-x-0 z-20 h-6 transition-opacity duration-[var(--transition-fast)] ease-[var(--ease-out)]",
                 side === "up" ? "top-0 bg-linear-to-b from-sidebar to-transparent" : "bottom-0 bg-linear-to-t from-sidebar to-transparent",
                 visible ? "opacity-100" : "opacity-0",
             )}
@@ -348,9 +348,10 @@ const DropdownMenuNestedTrigger = React.forwardRef<
             setIsOpened?.(!isOpened);
         }}
         {...props}
+        aria-expanded={isOpened ?? false}
     >
         {children}
-        <Icon icon={ChevronRight20Regular} className={cn("ml-auto transition-transform duration-200", isOpened && "rotate-90")}  />
+        <Icon icon={ChevronRight20Regular} className={cn("ml-auto transition-transform duration-[var(--transition-fast)] ease-[var(--ease-out)]", isOpened && "rotate-90")} />
     </DropdownMenuItem>
 ));
 DropdownMenuNestedTrigger.displayName = "DropdownMenuNestedTrigger";
@@ -358,8 +359,10 @@ DropdownMenuNestedTrigger.displayName = "DropdownMenuNestedTrigger";
 const DropdownMenuNestedContent = ({ children, isOpened }: { children: React.ReactNode, isOpened?: boolean }) => {
     return (
         <div
+            aria-hidden={!isOpened}
+            inert={!isOpened}
             className={cn(
-                "grid transition-[grid-template-rows,opacity] duration-200 ease-in-out",
+                "grid transition-[grid-template-rows,opacity] duration-[var(--transition-base)] ease-[var(--ease-out)]",
                 isOpened ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
             )}
         >
@@ -672,9 +675,10 @@ const MenubarNestedTrigger = React.forwardRef<
             setIsOpened?.(!isOpened);
         }}
         {...props}
+        aria-expanded={isOpened ?? false}
     >
         {children}
-        <Icon icon={ChevronRight20Regular} className={cn("ml-auto transition-transform duration-200", isOpened && "rotate-90")}  />
+        <Icon icon={ChevronRight20Regular} className={cn("ml-auto transition-transform duration-[var(--transition-fast)] ease-[var(--ease-out)]", isOpened && "rotate-90")} />
     </MenubarItem>
 ));
 MenubarNestedTrigger.displayName = "MenubarNestedTrigger";
@@ -682,8 +686,10 @@ MenubarNestedTrigger.displayName = "MenubarNestedTrigger";
 const MenubarNestedContent = ({ children, isOpened }: { children: React.ReactNode, isOpened?: boolean }) => {
     return (
         <div
+            aria-hidden={!isOpened}
+            inert={!isOpened}
             className={cn(
-                "grid transition-[grid-template-rows,opacity] duration-200 ease-in-out",
+                "grid transition-[grid-template-rows,opacity] duration-[var(--transition-base)] ease-[var(--ease-out)]",
                 isOpened ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
             )}
         >

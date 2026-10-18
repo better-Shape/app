@@ -36,6 +36,7 @@ export function GeneratedMediaCard({
                     "relative my-2 w-full max-w-[360px] overflow-hidden rounded-xl border border-border-subtle",
                     "bg-linear-to-br from-accent/25 via-surface-3 to-surface-2 p-4",
                 )}
+                aria-busy={loading || undefined}
             >
                 <div
                     className="pointer-events-none absolute -right-8 -top-10 size-36 rounded-full bg-accent/30 blur-3xl"
@@ -48,9 +49,7 @@ export function GeneratedMediaCard({
                 <div className="relative z-10 flex flex-col gap-3">
                     <div className="text-xs font-medium text-text-secondary">Generated audio</div>
                     {loading && !url ? (
-                        <div className="preview-shimmer h-11 rounded-lg" aria-hidden>
-                            <span className="preview-shimmer-blob" />
-                        </div>
+                        <div className="preview-placeholder h-11 rounded-lg" aria-hidden />
                     ) : (
                         <audio
                             controls
@@ -70,7 +69,10 @@ export function GeneratedMediaCard({
 
     // SVG / image — fill the card; no letterbox bars.
     return (
-        <div className="my-2 w-full max-w-[360px] overflow-hidden rounded-xl border border-border-subtle bg-surface-3">
+        <div
+            className="my-2 w-full max-w-[360px] overflow-hidden rounded-xl border border-border-subtle bg-surface-3"
+            aria-busy={showShimmer || undefined}
+        >
             <div
                 className={cn(
                     "relative w-full overflow-hidden bg-surface-2",
@@ -78,9 +80,7 @@ export function GeneratedMediaCard({
                 )}
             >
                 {showShimmer ? (
-                    <div className="preview-shimmer absolute inset-0" aria-hidden>
-                        <span className="preview-shimmer-blob" />
-                    </div>
+                    <div className="preview-placeholder absolute inset-0" aria-hidden />
                 ) : null}
                 {url ? (
                     // eslint-disable-next-line @next/next/no-img-element
@@ -88,7 +88,7 @@ export function GeneratedMediaCard({
                         src={url}
                         alt={prompt || (kind === "svg" ? "Generated SVG" : "Generated image")}
                         className={cn(
-                            "relative z-10 block w-full transition-opacity duration-300",
+                            "relative z-10 block w-full transition-opacity duration-[var(--transition-base)] ease-[var(--ease-out)]",
                             kind === "svg"
                                 ? "h-auto max-h-[420px] object-contain object-center p-2"
                                 : "size-full object-cover",

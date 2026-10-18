@@ -6,6 +6,7 @@ import { ChevronDown20Regular } from "@fluentui/react-icons/headless/svg/chevron
 
 import React from "react";
 import { Icon } from "@/components/ui/icon";
+import { GeneratingIndicator } from "./generating";
 
 
 import { cn } from "@/lib/utils";
@@ -29,7 +30,7 @@ export function CodebaseAnalysis({ items, isActive }: { items: AnalysisItem[]; i
     ].filter(Boolean).join(", ");
 
     return (
-        <div className="flex flex-col gap-1 my-2">
+        <div className="flex flex-col gap-1 my-2" aria-busy={isActive || undefined}>
             <button
                 onClick={() => setIsOpen(!isOpen)}
                 className="flex items-center gap-2 py-1.5 text-xs text-text-muted hover:text-text-primary transition-colors group w-full text-left"
@@ -42,12 +43,9 @@ export function CodebaseAnalysis({ items, isActive }: { items: AnalysisItem[]; i
                     )}
                 />
                 {isActive ? (
-                    <span className="font-medium text-sm animate-pulse text-text-secondary">Analyzing codebase...</span>
+                    <GeneratingIndicator label="Analyzing codebase..." />
                 ) : (
                     <span className="font-medium text-sm">Analyzed {summary}</span>
-                )}
-                {isActive && (
-                    <div className="w-2.5 h-2.5 border border-accent border-t-transparent rounded-full animate-spin ml-1" />
                 )}
             </button>
 

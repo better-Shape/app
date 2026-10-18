@@ -7,6 +7,8 @@ import { type IconGlyph, Icon } from "@/components/ui/icon";
 
 import { cn } from "@/lib/utils";
 import {
+    BETTERSHAPE_INSTANT_OVERLAY_CLASS,
+    BETTERSHAPE_INSTANT_PANEL_CLASS,
     BETTERSHAPE_MODAL_PANEL_CLASS,
     BETTERSHAPE_OVERLAY_CLASS,
     BETTERSHAPE_OVERLAY_CONTENT_CLASS,
@@ -88,7 +90,13 @@ export function QuickPick({
     return (
         <Dialog.Root open={open} onOpenChange={onOpenChange}>
             <Dialog.Portal container={overlayRoot}>
-                <Dialog.Overlay className={cn(BETTERSHAPE_OVERLAY_CLASS, "z-[200]")} />
+                <Dialog.Overlay
+                    className={cn(
+                        BETTERSHAPE_OVERLAY_CLASS,
+                        BETTERSHAPE_INSTANT_OVERLAY_CLASS,
+                        "z-[200]",
+                    )}
+                />
                 <Dialog.Content
                     className={cn(
                         BETTERSHAPE_OVERLAY_CONTENT_CLASS,
@@ -116,7 +124,13 @@ export function QuickPick({
                     <Dialog.Description className="sr-only">
                         {placeholder || "Select an option"}
                     </Dialog.Description>
-                    <div className={cn(BETTERSHAPE_MODAL_PANEL_CLASS, "overflow-hidden p-1.5")}>
+                    <div
+                        className={cn(
+                            BETTERSHAPE_MODAL_PANEL_CLASS,
+                            BETTERSHAPE_INSTANT_PANEL_CLASS,
+                            "overflow-hidden p-1.5",
+                        )}
+                    >
                         {title ? (
                             <div className="px-2.5 py-1.5 text-center text-sm text-text-primary">
                                 {title}

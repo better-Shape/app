@@ -14,7 +14,7 @@ import { commands } from "@/lib/backend";
 import { Button } from "./button";
 
 export const TOAST_AUTO_HIDE_MS = 5500;
-const TOAST_EXIT_MS = 220;
+const TOAST_EXIT_MS = 140;
 export const TOAST_STACK_CLASS =
     "pointer-events-none fixed top-3 left-1/2 z-notification w-[min(420px,calc(100vw-24px))] -translate-x-1/2 outline-none";
 
@@ -62,7 +62,6 @@ function ToastCard({
         <div
             className={cn(
                 "bettershape-toast pointer-events-auto relative w-full overflow-hidden squircle-2xl border border-border-subtle bg-surface-3 p-2 text-left shadow-lg",
-                "transition-[opacity,transform,filter] duration-200 ease-[var(--ease-out)]",
                 entered && !leaving
                     ? "scale-100 opacity-100 blur-0"
                     : "scale-95 opacity-0 blur-[2px]",

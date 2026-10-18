@@ -1,6 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
+import { SETTINGS_STORAGE_KEY } from "./constants";
 import { isWindows } from "@/lib/platform";
 import { normalizeColorTheme, type ColorThemeId } from "./themes";
 import type { AgentWorkflow } from "@/lib/chat/workflows";
@@ -30,6 +31,11 @@ export function normalizeUpdateChannel(value: unknown): UpdateChannel {
     return "stable";
 }
 export type ColorThemeSetting = ColorThemeId;
+export type MotionPreferenceSetting = "system" | "reduced";
+
+export function normalizeMotionPreference(value: unknown): MotionPreferenceSetting {
+    return value === "reduced" ? "reduced" : "system";
+}
 /** How agent terminal commands are approved: ask for everything, safe-list
  * auto-runs (default), or run everything except hard-blocked commands. */
 export type AutoRunModeSetting = "ask" | "auto" | "always";
@@ -228,6 +234,7 @@ export interface BetterShapeSettings {
     appearance: {
         /** Color theme. */
         colorTheme: ColorThemeSetting;
+        motionPreference: MotionPreferenceSetting;
     };
     skills: {
         /** Extra folders scanned for skill files, in the order the user added them. */
@@ -380,10 +387,9 @@ export const DEFAULT_SETTINGS: BetterShapeSettings = {
     },
     appearance: {
         colorTheme: "dark",
+        motionPreference: "system",
     },
 };
-
-const STORAGE_KEY = "bettershape-settings-v1";
 
 /**
  * True once the OS keychain has been confirmed usable. Keys are then stripped
@@ -649,6 +655,11 @@ function mergeSettings(
                     base.appearance?.colorTheme ??
                     DEFAULT_SETTINGS.appearance.colorTheme,
             ),
+            motionPreference: normalizeMotionPreference(
+                patch.appearance?.motionPreference ??
+                    base.appearance?.motionPreference ??
+                    DEFAULT_SETTINGS.appearance.motionPreference,
+            ),
         },
     };
 }
@@ -716,7 +727,7 @@ export function initSettingsBridge(): void {
     settingsBridgeInitialized = true;
 
     window.addEventListener("storage", (event) => {
-        if (event.key !== STORAGE_KEY || !event.newValue) return;
+        if (event.key !== SETTINGS_STORAGE_KEY || !event.newValue) return;
         try {
             applySettingsFromPayload(JSON.parse(event.newValue) as Partial<BetterShapeSettings>);
             emitLocal();
@@ -730,7 +741,7 @@ export function initSettingsBridge(): void {
             void listen<BetterShapeSettings>("bettershape-settings-changed", (event) => {
                 applySettingsFromPayload(event.payload);
                 try {
-                    localStorage.setItem(STORAGE_KEY, JSON.stringify(forStorage(currentSettings)));
+                    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(forStorage(currentSettings)));
                 } catch { /* ignore */ }
                 emitLocal();
             });
@@ -741,7 +752,7 @@ export function initSettingsBridge(): void {
 function loadFromLocalStorage() {
     if (typeof window === "undefined") return;
     try {
-        const raw = localStorage.getItem(STORAGE_KEY);
+        const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
         if (raw) {
             const parsed = JSON.parse(raw) as Partial<BetterShapeSettings>;
             const rawChannel = parsed.updates?.channel;
@@ -756,7 +767,7 @@ function loadFromLocalStorage() {
 function persist() {
     if (typeof window === "undefined") return;
     try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(forStorage(currentSettings)));
+        localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(forStorage(currentSettings)));
     } catch { /* ignore */ }
 }
 
@@ -881,6 +892,11 @@ export function applyAppearanceSettings(settings: BetterShapeSettings) {
     document.documentElement.style.setProperty("--editor-font-family", settings.editor.fontFamily);
     document.documentElement.style.setProperty("--editor-font-size", `${settings.editor.fontSize}px`);
     document.documentElement.style.setProperty("--font-mono", settings.editor.fontFamily);
+    if (settings.appearance.motionPreference === "reduced") {
+        document.documentElement.dataset.motionPreference = "reduced";
+    } else {
+        delete document.documentElement.dataset.motionPreference;
+    }
     paintDarkTheme();
 }
 

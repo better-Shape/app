@@ -552,7 +552,7 @@ const ChatRowTrailingActions = ({ generating, unread, pinned, nestedCount, expan
     <>
         <ChatRowStatusDots generating={generating} unread={unread} />
         <span className="flex shrink-0 items-center">
-            <span className="grid grid-cols-[0fr] overflow-hidden transition-[grid-template-columns] duration-150 ease-[var(--ease-out)] group-hover/chat:grid-cols-[1fr] group-has-[[data-state=open]]/chat:grid-cols-[1fr]">
+            <span className="grid grid-cols-[0fr] overflow-hidden transition-[grid-template-columns] duration-[var(--transition-fast)] ease-[var(--ease-out)] group-hover/chat:grid-cols-[1fr] group-focus-within/chat:grid-cols-[1fr] group-has-[[data-state=open]]/chat:grid-cols-[1fr]">
             <span className="flex min-w-0 overflow-hidden">
             <ChatRowActionMenus
                 pinned={pinned}
@@ -598,7 +598,7 @@ const ChatRowOpenButton = ({ title, variant, timestamp, meta, selecting, selecte
         >
     <span
         className={cn(
-            "grid shrink-0 transition-[grid-template-columns,opacity,margin] duration-200 ease-[var(--ease-out)]",
+            "grid shrink-0 transition-[grid-template-columns,opacity,margin] duration-[var(--transition-base)] ease-[var(--ease-out)]",
             selecting ? "mr-1 grid-cols-[14px] opacity-100" : "grid-cols-[0px] opacity-0",
         )}
     >
@@ -841,12 +841,12 @@ const ShelfHeader = ({
             data-shelf-header={shelf}
             aria-expanded={open}
             onClick={() => onToggle(shelf)}
-            className="flex h-6 w-full items-center gap-1 rounded-md pr-2 pl-1 text-xs font-medium text-text-muted transition-colors duration-[var(--transition-fast)] ease-[var(--ease-out)] hover:bg-panel-hover hover:text-text-secondary"
+            className="flex h-6 w-full items-center gap-1 rounded-md pr-2 pl-1 text-xs font-medium text-text-muted transition-colors duration-[var(--transition-fast)] ease-[var(--ease-out)] hover:bg-panel-hover hover:text-text-secondary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus"
         >
             <Icon
                 icon={ChevronDown20Regular}
                 className={cn(
-                    "icon-sm transition-transform duration-200 ease-[var(--ease-out)]",
+                    "icon-sm transition-transform duration-[var(--transition-fast)] ease-[var(--ease-out)]",
                     !open && "-rotate-90",
                 )}
             />

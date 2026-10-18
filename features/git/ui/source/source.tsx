@@ -1943,11 +1943,10 @@ const CommitComposer = ({
         }
     };
     return (
-    <div className={cn(
-        "flex flex-col gap-0.5 relative overflow-hidden m-2 border border-border rounded-xl",
-        "bg-transparent",
-        commitSuggestionStatus === "loading" && "git-generate-shimmer",
-    )}>
+    <div
+        className="flex flex-col gap-0.5 relative overflow-hidden m-2 border border-border rounded-xl bg-transparent"
+        aria-busy={commitSuggestionStatus === "loading" || undefined}
+    >
         <Input
             placeholder="Commit title"
             value={commitTitle}

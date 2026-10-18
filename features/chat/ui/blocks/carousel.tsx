@@ -11,6 +11,7 @@ import { Icon } from "@/components/ui/icon";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { DesignPreviewItem } from "./gallery";
+import styles from "./carousel.module.css";
 
 function isHtmlPreview(item: DesignPreviewItem): boolean {
     if (item.kind === "html") return true;
@@ -76,17 +77,6 @@ export function DesignPreviewCarousel({
 
     return (
         <div className={cn("flex min-h-0 w-full flex-col", compact ? "gap-2" : "h-full")}>
-            <style>{`
-                @keyframes designPreviewSlideUp {
-                    from { opacity: 0; transform: translateY(14px); }
-                    to { opacity: 1; transform: translateY(0); }
-                }
-                @keyframes designPreviewSlideDown {
-                    from { opacity: 0; transform: translateY(-14px); }
-                    to { opacity: 1; transform: translateY(0); }
-                }
-            `}</style>
-
             <div className="flex shrink-0 items-start justify-between gap-2 px-0.5">
                 <div className="min-w-0">
                     <p className="truncate text-sm font-medium text-text-primary">{item.name}</p>
@@ -105,12 +95,8 @@ export function DesignPreviewCarousel({
             >
                 <div
                     key={animKey}
-                    className="absolute inset-0"
-                    style={{
-                        animation: `${
-                            slideDir === "up" ? "designPreviewSlideUp" : "designPreviewSlideDown"
-                        } 260ms ease-out`,
-                    }}
+                    data-direction={slideDir}
+                    className={cn("absolute inset-0", styles.previewSlide)}
                 >
                     {html ? (
                         <iframe
@@ -176,7 +162,7 @@ export function DesignPreviewCarousel({
                                 type="button"
                                 title={preview.name}
                                 className={cn(
-                                    "h-1.5 w-1.5 rounded-full transition-colors",
+                                    "h-1.5 w-1.5 rounded-full transition-colors duration-[var(--transition-fast)] ease-[var(--ease-out)]",
                                     index === activeIndex
                                         ? "bg-text-primary"
                                         : "bg-text-disabled hover:bg-text-muted",

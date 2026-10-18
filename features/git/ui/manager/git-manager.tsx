@@ -2,7 +2,6 @@
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import Image from "next/image";
 import { usePathname, useSearchParams } from "next/navigation";
 import { listen } from "@tauri-apps/api/event";
 import { BetterShapeLogo } from "@/components/ui/bettershape-logo";
@@ -83,74 +82,6 @@ function initialSection(pathname: string | null, query: string | null): GitSecti
 }
 
 type GitEmptyReason = "no-project" | "no-repo" | "no-commits";
-
-const INTRO_SEEN_KEY = "bettershape-git-manager-intro-seen";
-
-function GitManagerIntro({ children }: { children: React.ReactNode }) {
-    // Always start false so SSR + first paint match; skip splash after mount if already seen.
-    const [ready, setReady] = useState(false);
-    const [visible, setVisible] = useState(false);
-
-    useEffect(() => {
-        let cancelled = false;
-        let t2: number | undefined;
-
-        try {
-            if (sessionStorage.getItem(INTRO_SEEN_KEY) === "1") {
-                setReady(true);
-                return;
-            }
-        } catch {
-            /* ignore */
-        }
-
-        const fadeIn = requestAnimationFrame(() => {
-            if (!cancelled) setVisible(true);
-        });
-
-        const t1 = window.setTimeout(() => {
-            if (cancelled) return;
-            setVisible(false);
-            t2 = window.setTimeout(() => {
-                if (cancelled) return;
-                try {
-                    sessionStorage.setItem(INTRO_SEEN_KEY, "1");
-                } catch {
-                    /* ignore */
-                }
-                setReady(true);
-            }, 450);
-        }, 1200);
-
-        return () => {
-            cancelled = true;
-            cancelAnimationFrame(fadeIn);
-            if (t1 !== undefined) window.clearTimeout(t1);
-            if (t2 !== undefined) window.clearTimeout(t2);
-        };
-    }, []);
-
-    if (!ready) {
-        return (
-            <div className="flex h-full items-center justify-center bg-background">
-                <Image
-src="/logos/logo.png"
-                    alt="BetterShape"
-                    width={46}
-                    height={46}
-                    priority
-                    style={{ width: 46, height: 46 }}
-                    className={cn(
-                        "logo-invert transition-opacity duration-500 ease-out",
-                        visible ? "opacity-100" : "opacity-0",
-                    )}
-                />
-            </div>
-        );
-    }
-
-    return <>{children}</>;
-}
 
 function GitManagerEmpty({ reason }: { reason: GitEmptyReason }) {
     const detail =
@@ -504,26 +435,17 @@ function ManagerShell() {
 }
 
 export function GitManager({
-    embedded = false,
     navPortalTarget,
     sidebarExpanded = true,
     onClose,
 }: {
-    embedded?: boolean;
     navPortalTarget?: HTMLElement | null;
     sidebarExpanded?: boolean;
     onClose?: () => void;
 }) {
-    const body = embedded ? (
-        <GitManagerGate />
-    ) : (
-        <GitManagerIntro>
-            <GitManagerGate />
-        </GitManagerIntro>
-    );
     return (
         <GitEmbedCtx.Provider value={{ navPortalTarget, sidebarExpanded, onClose }}>
-            {body}
+            <GitManagerGate />
         </GitEmbedCtx.Provider>
     );
 }

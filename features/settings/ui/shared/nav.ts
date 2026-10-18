@@ -85,6 +85,7 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
         label: "Application",
         children: [
             { id: "keyboard-shortcuts", label: "Keyboard Shortcuts", icon: Keyboard20Regular, targetId: "settings-keyboard-shortcuts" },
+            { id: "motion", label: "Motion", icon: Settings20Regular, targetId: "settings-motion" },
             { id: "updates", label: "About", icon: ArrowDownload20Regular, targetId: "settings-updates" },
             { id: "notifications", label: "Notifications", icon: Alert20Regular, targetId: "settings-notifications" },
             { id: "privacy", label: "Data Control", icon: Shield20Regular, targetId: "settings-privacy" },
@@ -111,7 +112,8 @@ export type SettingsCategoryId =
     | "editor"
     | "terminal"
     | "git"
-    | "application";
+    | "application"
+    | "motion";
 
 export type SettingsCategory = {
     id: SettingsCategoryId;
@@ -150,6 +152,12 @@ export const SETTINGS_CATEGORIES: SettingsCategory[] = [
         label: "Git",
         icon: BranchFork20Regular,
         keywords: ["source", "control", "scm"],
+    },
+    {
+        id: "motion",
+        label: "Motion",
+        icon: Settings20Regular,
+        keywords: ["animation", "reduced motion", "accessibility"],
     },
     {
         id: "application",

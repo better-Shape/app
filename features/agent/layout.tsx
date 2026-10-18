@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import Image from "next/image";
 import Chat from "@/features/chat/ui/chat";
 import { useProjectState } from "@/lib/backend";
 import { cn } from "@/lib/utils";
@@ -19,6 +18,7 @@ import { startAgentBackgroundExitToasts } from "@/features/chat/lib/agent-termin
 import { useWindowControls } from "@/features/agent/workbench/titlebar/hooks/use-window-controls";
 import { WindowControls } from "@/features/agent/workbench/titlebar/ui/window-controls";
 import { usePlatform } from "@/lib/platform";
+import { prefersReducedMotion } from "@/lib/ui/motion";
 import { normalizePath } from "@/lib/path/utils";
 import { NewFilePromptHost } from "./workspace/new-file-prompt";
 
@@ -31,7 +31,6 @@ const WINDOW_MIN_HEIGHT = 500;
 const WINDOW_MIN_WIDTH = 1000;
 const MAX_WORKSPACE_RATIO = 0.72;
 const MAX_WORKSPACE_PX = 1200;
-const SPLASH_KEY = "bettershape-agent-splash-seen";
 const ZEN_KEY = "bettershape-zen-mode";
 
 function layoutMinWidth(sidebarOpen: boolean, workspaceOpen: boolean) {
@@ -65,17 +64,22 @@ function SidebarPeek({
 
     useEffect(() => {
         if (shown) return;
-        const t = window.setTimeout(() => setMounted(false), 200);
+        if (prefersReducedMotion()) return;
+        const t = window.setTimeout(() => setMounted(false), 160);
         return () => window.clearTimeout(t);
     }, [shown]);
+
+    if (!shown && prefersReducedMotion()) return null;
 
     return (
         <div
             ref={attachHost}
             data-sidebar-peek=""
+            aria-hidden={!shown}
+            inert={!shown}
             className={cn(
-                "fixed z-30 flex w-82 flex-col overflow-visible transition-opacity duration-200 ease-[var(--ease-out)]",
-                shown ? "opacity-100" : "pointer-events-none opacity-0",
+                "fixed z-30 flex w-82 flex-col overflow-visible transition-[opacity,translate] duration-[var(--transition-base)] ease-[var(--ease-out)]",
+                shown ? "translate-x-0 opacity-100" : "pointer-events-none -translate-x-1 opacity-0",
             )}
             style={{ top: 0, bottom: 8, left: 8 }}
             onMouseEnter={onEnter}
@@ -113,8 +117,6 @@ export function AgentLayout({ children }: { children: React.ReactNode }) {
     const [overlay, setOverlay] = useState<AgentOverlay>(null);
     const [workspaceWidth, setWorkspaceWidth] = useState(560);
     const [workspaceFits, setWorkspaceFits] = useState(true);
-    const [splash, setSplash] = useState(false);
-    const [splashVisible, setSplashVisible] = useState(false);
     const [isResizing, setIsResizing] = useState(false);
     const [navSlot, setNavSlot] = useState<HTMLElement | null>(null);
     const [sidebarFlyout, setSidebarFlyout] = useState(false);
@@ -132,9 +134,6 @@ export function AgentLayout({ children }: { children: React.ReactNode }) {
             setWorkspaceOpen(localStorage.getItem("bettershape-agent-workspace") !== "false");
             setSidebarOpen(localStorage.getItem("bettershape-agent-sidebar") !== "false");
             setZenMode(localStorage.getItem(ZEN_KEY) === "1");
-            if (sessionStorage.getItem(SPLASH_KEY) !== "1") {
-                setSplash(true);
-            }
         } catch {
             /* ignore */
         }
@@ -171,28 +170,6 @@ export function AgentLayout({ children }: { children: React.ReactNode }) {
             window.clearTimeout(stop);
         };
     }, [overlay, sidebarOpen]);
-
-    useEffect(() => {
-        if (!splash) return;
-        let t2: number | undefined;
-        const raf = requestAnimationFrame(() => setSplashVisible(true));
-        const t1 = window.setTimeout(() => {
-            setSplashVisible(false);
-            t2 = window.setTimeout(() => {
-                try {
-                    sessionStorage.setItem(SPLASH_KEY, "1");
-                } catch {
-                    /* ignore */
-                }
-                setSplash(false);
-            }, 280);
-        }, 700);
-        return () => {
-            cancelAnimationFrame(raf);
-            if (t1 !== undefined) window.clearTimeout(t1);
-            if (t2 !== undefined) window.clearTimeout(t2);
-        };
-    }, [splash]);
 
     const persistWorkspace = useCallback((next: boolean) => {
         setWorkspaceOpen(next);
@@ -539,30 +516,6 @@ export function AgentLayout({ children }: { children: React.ReactNode }) {
             <DevRunHost />
             <ProjectQuickPickHost />
             <NewFilePromptHost />
-            {splash ? (
-                <div
-                    className={cn(
-                        "pointer-events-none absolute inset-0 z-[100] flex items-center justify-center bg-transparent",
-                        "transition-opacity duration-300 ease-[var(--ease-out)]",
-                        splashVisible ? "opacity-100" : "opacity-0",
-                    )}
-                    aria-hidden
-                >
-                    <Image
-src="/logos/logo.png"
-                        alt="BetterShape"
-                        width={52}
-                        height={52}
-                        priority
-                        style={{ width: 52, height: 52 }}
-                        className={cn(
-                            "logo-invert transition-opacity duration-500 ease-[var(--ease-out)]",
-                            splashVisible ? "opacity-100" : "opacity-0",
-                        )}
-                    />
-                </div>
-            ) : null}
-
             <AgentSidebar
                 expanded
                 open={sidebarShown}
@@ -655,7 +608,7 @@ src="/logos/logo.png"
                                 "h-full min-w-0 overflow-hidden",
                                 rightExpanded ? "py-2 pr-2" : "pointer-events-none p-0",
                                 !isResizing &&
-                                    "transition-[width] duration-200 ease-[var(--ease-out)]",
+                                    "transition-[width] duration-[var(--transition-spatial)] ease-[var(--ease-out)]",
                             )}
                             aria-hidden={!rightExpanded}
                         >

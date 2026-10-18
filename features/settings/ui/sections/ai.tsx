@@ -653,11 +653,19 @@ export function AiSettingsPanel({
                                 {indexing ? "Indexing…" : "Re-index"}
                             </Button>
                         </div>
-                        <div className="mt-3 h-0.5 w-full overflow-hidden rounded-full bg-white/10">
+                        <div
+                            className="mt-3 h-0.5 w-full overflow-hidden rounded-full bg-white/10"
+                            role="progressbar"
+                            aria-label="Project indexing"
+                            aria-valuemin={0}
+                            aria-valuemax={100}
+                            aria-valuenow={indexing && indexPhase === "scanning" ? undefined : indexing ? indexPercent : indexStatus?.filesIndexed ? 100 : 0}
+                            aria-valuetext={indexing ? indexPhase === "scanning" ? "Scanning files" : `Indexing ${indexPercent}%` : indexStatus ? "Indexed" : "Not indexed yet"}
+                        >
                             <div
                                 className={cn(
                                     "h-full rounded-full bg-success",
-                                    indexing && indexPhase === "scanning" && "w-1/3 animate-pulse",
+                                    indexing && indexPhase === "scanning" && "bettershape-loading-progress",
                                 )}
                                 style={
                                     indexing && indexPhase === "scanning"

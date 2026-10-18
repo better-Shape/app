@@ -178,23 +178,26 @@ function SectionHeader({
     count,
     open,
     onToggle,
+    controlsId,
 }: {
     label: string;
     count: number;
     open: boolean;
     onToggle: () => void;
+    controlsId: string;
 }) {
     return (
         <button
             type="button"
             onClick={onToggle}
             aria-expanded={open}
-            className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-xs font-medium text-text-muted hover:bg-panel-hover/40 hover:text-text-secondary"
+            aria-controls={controlsId}
+            className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-xs font-medium text-text-muted transition-colors duration-[var(--transition-fast)] ease-[var(--ease-out)] hover:bg-panel-hover/40 hover:text-text-secondary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus"
         >
             <Icon
                 icon={ChevronRight20Regular}
                 className={cn(
-                    "shrink-0 transition-transform duration-200 ease-[var(--ease-out)]",
+                    "shrink-0 transition-transform duration-[var(--transition-fast)] ease-[var(--ease-out)]",
                     open && "rotate-90",
                 )}
             />
@@ -204,11 +207,14 @@ function SectionHeader({
     );
 }
 
-function AnimatedCollapse({ open, children }: { open: boolean; children: React.ReactNode }) {
+function AnimatedCollapse({ id, open, children }: { id: string; open: boolean; children: React.ReactNode }) {
     return (
         <div
+            id={id}
+            aria-hidden={!open}
+            inert={!open}
             className={cn(
-                "grid transition-[grid-template-rows,opacity] duration-200 ease-[var(--ease-out)]",
+                "grid transition-[grid-template-rows,opacity] duration-[var(--transition-base)] ease-[var(--ease-out)]",
                 open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
             )}
         >
@@ -219,6 +225,9 @@ function AnimatedCollapse({ open, children }: { open: boolean; children: React.R
 
 export function BranchWindow({ active = true }: { active?: boolean }) {
     const { query: filter } = useFilter();
+    const localBranchesId = React.useId();
+    const remoteBranchesId = React.useId();
+    const remoteGroupsId = React.useId();
     const [workspaceRoot, setWorkspaceRoot] = useState<string | null>(null);
     const { scmRepoPath } = useGitRepos(workspaceRoot);
     const project_path = scmRepoPath ?? workspaceRoot;
@@ -612,9 +621,10 @@ export function BranchWindow({ active = true }: { active?: boolean }) {
                     label="Local"
                     count={localItems.length}
                     open={localOpen}
+                    controlsId={localBranchesId}
                     onToggle={() => setLocalOpen((v) => !v)}
                 />
-                <AnimatedCollapse open={localOpen}>
+                <AnimatedCollapse id={localBranchesId} open={localOpen}>
                     <div className="mb-3 space-y-0.5">
                         {localItems.length === 0 ? (
                             <div className="px-2 py-2 text-sm text-text-muted">No local branches</div>
@@ -659,20 +669,24 @@ export function BranchWindow({ active = true }: { active?: boolean }) {
                     label="Remote"
                     count={remoteTotal}
                     open={remoteOpen}
+                    controlsId={remoteBranchesId}
                     onToggle={() => setRemoteOpen((v) => !v)}
                 />
-                <AnimatedCollapse open={remoteOpen}>
+                <AnimatedCollapse id={remoteBranchesId} open={remoteOpen}>
                     <div className="space-y-2">
                         {remoteGroups.length === 0 ? (
                             <div className="px-2 py-2 text-sm text-text-muted">No remote branches</div>
                         ) : (
                             <>
-                                {remoteGroupsVisible.map(([remote, items, fullCount]) => {
+                                {remoteGroupsVisible.map(([remote, items, fullCount], index) => {
                                     const open = !collapsedRemotes.has(remote);
+                                    const collapseId = `${remoteGroupsId}-${index}`;
                                     return (
                                         <div key={remote}>
                                             <button
                                                 type="button"
+                                                aria-expanded={open}
+                                                aria-controls={collapseId}
                                                 onClick={() => {
                                                     setCollapsedRemotes((prev) => {
                                                         const next = new Set(prev);
@@ -681,12 +695,12 @@ export function BranchWindow({ active = true }: { active?: boolean }) {
                                                         return next;
                                                     });
                                                 }}
-                                                className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-sm text-text-muted hover:bg-panel-hover/40 hover:text-text-secondary"
+                                                className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-sm text-text-muted transition-colors duration-[var(--transition-fast)] ease-[var(--ease-out)] hover:bg-panel-hover/40 hover:text-text-secondary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus"
                                             >
                                                 <Icon
                                                     icon={ChevronRight20Regular}
                                                     className={cn(
-                                                        "transition-transform duration-200 ease-[var(--ease-out)]",
+                                                        "transition-transform duration-[var(--transition-fast)] ease-[var(--ease-out)]",
                                                         open && "rotate-90",
                                                     )}
                                                 />
@@ -694,7 +708,7 @@ export function BranchWindow({ active = true }: { active?: boolean }) {
                                                 <span className="flex-1 truncate font-medium">{remote}</span>
                                                 <span className="text-xs tabular-nums">{fullCount}</span>
                                             </button>
-                                            <AnimatedCollapse open={open}>
+                                            <AnimatedCollapse id={collapseId} open={open}>
                                                 <div className="ml-2 space-y-0.5 border-l border-border-subtle/50 pl-1">
                                                     {items.map((item) => (
                                                         <BranchRow

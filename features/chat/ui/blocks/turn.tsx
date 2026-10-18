@@ -246,7 +246,7 @@ function ThoughtStep({
 }) {
     const trimmed = joinThoughtLines(content).trim();
     if (!trimmed) return null;
-    if (isActive) return <ActionLine action="Thinking" shimmer />;
+    if (isActive) return <ActionLine action="Thinking" busy />;
 
     const expandable = trimmed.length >= 80;
     const detail = trimmed.length < 40 ? "briefly" : `${estimateThoughtSeconds(trimmed)}s`;
@@ -279,6 +279,7 @@ function EditApprovalRow({ block }: { block: Chunk }) {
     const [localStatus, setLocalStatus] = useState<string | null>(null);
     const [isProcessing, setIsProcessing] = useState(false);
     const [diffOpen, setDiffOpen] = useState(true);
+    const diffId = React.useId();
     const { add, del } = editDelta(block);
     const file = block.file || "";
 
@@ -328,8 +329,10 @@ function EditApprovalRow({ block }: { block: Chunk }) {
             title={
                 <button
                     type="button"
+                    aria-expanded={diffOpen}
+                    aria-controls={diffId}
                     onClick={() => setDiffOpen((v) => !v)}
-                    className="group/line flex min-w-0 items-center gap-1.5 text-left chat-text font-normal text-text-muted"
+                    className="group/line flex min-w-0 items-center gap-1.5 text-left chat-text font-normal text-text-muted focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus"
                 >
                     <span className="text-text-secondary group-hover/line:text-text-primary">Edit</span>
                     <span className="min-w-0 truncate text-text-muted">{fileName(file)}</span>
@@ -354,7 +357,7 @@ function EditApprovalRow({ block }: { block: Chunk }) {
             skipLabel="Skip"
             acceptLabel="Accept"
         >
-            <Collapse open={diffOpen}>
+            <Collapse id={diffId} open={diffOpen}>
                 <WorkflowEditPreview
                     original={block.original || ""}
                     replacement={block.replacement || ""}
@@ -581,7 +584,7 @@ function StepRow({ block }: { block: Chunk }) {
                 action={block.isGenerating ? "Visiting" : "Visited"}
                 detail={host}
                 favicons={url ? [url] : undefined}
-                shimmer={Boolean(block.isGenerating)}
+                busy={Boolean(block.isGenerating)}
                 onClick={block.visitUrl ? () => void commands.openUrlExternal(block.visitUrl!) : undefined}
             />
         );
@@ -782,7 +785,7 @@ export function TurnWorkflowSummary({
                     add={stats.linesAdded}
                     del={stats.linesRemoved}
                     favicons={marks.urls}
-                    shimmer={Boolean(isActive)}
+                    busy={Boolean(isActive)}
                     open={open}
                     onOpenChange={setOpen}
                     extra={
