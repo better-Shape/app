@@ -198,17 +198,17 @@ export const ChatMarkdown = React.memo(({
     isGenerating?: boolean;
     isLast?: boolean;
 }) => {
-    // Keep revealing briefly after generation ends so a late dump still types in.
+    // Keep revealing briefly after generation ends so a late dump still types in. The hold
+    // latches on during render, and only the release is timed, so the effect never sets state
+    // synchronously and the reveal does not lose a frame at the start of generation.
     const [hold, setHold] = useState(false);
+    const holding = !!isGenerating && !!isLast;
+    if (holding && !hold) setHold(true);
     useEffect(() => {
-        if (isGenerating && isLast) {
-            setHold(true);
-            return;
-        }
-        if (!hold) return;
+        if (holding || !hold) return;
         const t = window.setTimeout(() => setHold(false), 700);
         return () => window.clearTimeout(t);
-    }, [isGenerating, isLast, hold]);
+    }, [holding, hold]);
 
     const live = !nested && !!isLast && (!!isGenerating || hold);
     const visible = useRevealText(content, live);
