@@ -55,7 +55,7 @@ jobs:
         run: |
           set -euo pipefail
           # Determine expected tag: GITHUB_REF_NAME for tag push, INPUT_TAG for manual dispatch
-          # Use env var INPUT_TAG to avoid injection via direct ${{ inputs.tag }} expansion in shell
+          # Keep the dispatch input in INPUT_TAG; never interpolate it into shell source, including comments.
           if [[ "${GITHUB_REF:-}" == refs/tags/* ]]; then
             TAG="${GITHUB_REF_NAME#v}"
             echo "Tag push: $TAG from $GITHUB_REF_NAME"
@@ -132,13 +132,14 @@ jobs:
             arch: aarch64
             target: aarch64-pc-windows-msvc
             bundles: nsis
+          # Use native runners for both architectures; SDK slices alone do not
+          # cross-compile native dependencies such as OpenSSL.
           - runner: macos-latest
             os: macos
             arch: aarch64
             experimental: true
             target: aarch64-apple-darwin
             bundles: dmg
-          # Build Intel natively so OpenSSL's x86_64 pkg-config/sysroot is available.
           - runner: macos-26-intel
             os: macos
             arch: x86_64
@@ -150,6 +151,12 @@ jobs:
             arch: x86_64
             experimental: true
             target: x86_64-unknown-linux-gnu
+            bundles: deb,appimage,rpm
+          - runner: ubuntu-24.04-arm
+            os: linux
+            arch: aarch64
+            experimental: true
+            target: aarch64-unknown-linux-gnu
             bundles: deb,appimage,rpm
 
     runs-on: ${{ matrix.runner }}
@@ -217,32 +224,12 @@ jobs:
           npm run tauri -- build --bundles "${{ matrix.bundles }}" --target "${{ matrix.target }}"
 
       - name: Prepare release assets
-        # assets.mjs is Windows-only: it looks for bundle/nsis/*-setup.exe, requires
-        # the updater .sig next to it, looks for BetterShape.exe, and shells out to
-        # PowerShell's Compress-Archive. On macOS/Linux the bundles are copied as-is.
-        if: runner.os == 'Windows'
-        run: node scripts/release/assets.mjs --arch ${{ matrix.arch }} --out-dir dist/release
-
-      - name: Collect bundles (macOS/Linux)
-        if: runner.os != 'Windows'
         shell: bash
         run: |
           set -euo pipefail
-          BUNDLE_DIR="src-tauri/target/${{ matrix.target }}/release/bundle"
-          if [ ! -d "$BUNDLE_DIR" ]; then
-            echo "::error::No bundle directory at $BUNDLE_DIR"
-            exit 1
-          fi
-          mkdir -p dist/release
-          # Files only - a macOS .app is a directory and must not land in dist/release
-          # (upload.mjs and attest-build-provenance both expect a flat set of files).
-          find "$BUNDLE_DIR" -maxdepth 2 -type f \( -name '*.dmg' -o -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' -o -name '*.sig' \) \
-            -exec cp {} dist/release/ \;
-          if [ -z "$(find dist/release -mindepth 1 -print -quit)" ]; then
-            echo "::error::No installers collected from $BUNDLE_DIR"
-            find "$BUNDLE_DIR" -type f | head -n 20 || true
-            exit 1
-          fi
+          ARGS=(--arch "${{ matrix.arch }}" --out-dir dist/release --bundles "${{ matrix.bundles }}")
+          if [ -n "${{ matrix.target }}" ]; then ARGS+=(--target "${{ matrix.target }}"); fi
+          node scripts/release/assets.mjs "${ARGS[@]}"
 
       - name: List assets
         shell: bash
