@@ -632,8 +632,7 @@ function ChatMessageItemInner({
                                         </div>
                                         <div
                                             className={cn(
-                                                "pointer-events-none absolute inset-x-0 z-[1] h-30 bg-linear-to-t from-surface-4 to-transparent transition-opacity delay-200",
-                                                advanced ? "bottom-0" : "bottom-0",
+                                                "pointer-events-none absolute inset-x-0 bottom-0 z-[1] h-30 bg-linear-to-t from-surface-4 to-transparent transition-opacity delay-200",
                                                 contextVeil ? "opacity-100" : "opacity-0",
                                             )}
                                             aria-hidden
