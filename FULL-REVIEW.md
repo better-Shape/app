@@ -501,9 +501,9 @@ cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -
 ```
 
 On a host that cannot reach `crates.io` and lacks the Tauri system libraries, fetch the orphan branch
-`vendor/sandbox-toolchain` first, then add `--ignore-rust-version` and `CARGO_BUILD_JOBS=1` to the two
-commands that compile, `cargo clippy` and `cargo test`. Do not add `--ignore-rust-version` to
-`cargo fmt`: rustfmt does not accept it and the formatting check fails on the flag itself. Every
+`vendor/sandbox-toolchain` first, then add `CARGO_BUILD_JOBS=1` to the two commands that compile,
+`cargo clippy` and `cargo test`. The vendored toolchain is 1.89.0 and matches the pin and
+`notify-rust@4.18.0`'s `rust-version`, so no `--ignore-rust-version` is needed. Every
 cargo command above runs from the repository root, so each one carries
 `--manifest-path src-tauri/Cargo.toml`. `AGENTS.md` under Blocked sandbox toolchain has the recipe,
 and `engineering/rust-toolchain.md` has the measured results.

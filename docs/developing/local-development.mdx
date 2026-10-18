@@ -39,9 +39,10 @@ npm run test
 If your Linux x86_64 machine cannot reach `sh.rustup.rs`, `crates.io` or the Playwright browser CDN,
 the Rust tests and the browser suite still run. The payload is Debian 12 amd64 only, so macOS,
 Windows and ARM hosts still need their own network access. Fetch the orphan branch
-`vendor/sandbox-toolchain` and follow its `FETCH.md`. The cargo commands then need the flags
-`engineering/rust-toolchain.md` documents; `npm run test:rust` and `npm run test:all` do not pass
-them themselves. That path was verified end to end on 2026-10-17.
+`vendor/sandbox-toolchain` and follow its `FETCH.md`. The cargo commands then need only
+`CARGO_BUILD_JOBS=1` on `cargo test` for the linker headroom, because the vendored toolchain is
+Rust 1.89.0 and meets the lockfile's MSRV; `npm run test:rust` and `npm run test:all` pass as they
+are. That path was verified end to end on 2026-10-17.
 
 ## Sending the change
 

@@ -2,6 +2,11 @@
 # Install a Rust 1.88.0 toolchain (rustc, cargo, rustfmt, clippy) for agent sandboxes
 # that cannot reach static.rust-lang.org or sh.rustup.rs, using only the npm registry.
 #
+# The npm mirror `@rustbin/*` publishes no 1.89.0, so this path tops out at 1.88.0,
+# behind the `rust-version = "1.89.0"` pin in src-tauri/Cargo.toml. It still covers
+# `cargo fmt` (which does not resolve dependencies and ignores the pin); for
+# `cargo clippy` and `cargo test` against the pin, use the vendor branch instead.
+#
 # Installs OUTSIDE the repository and workspace: into $RUST_TOOLS_DIR (default
 # /tmp/rust-tools). It never runs `npm install`, so package.json and package-lock.json
 # are not touched. Re-running is safe: an existing sysroot is reused.
