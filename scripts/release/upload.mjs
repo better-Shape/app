@@ -282,7 +282,7 @@ function collectFiles(args) {
       if (statSync(full).isFile()) files.push(full);
     }
   }
-  return files.filter((f) => existsSync(f)).sort();
+  return files.filter((f) => existsSync(f)).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 }
 
 async function main() {

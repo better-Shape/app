@@ -629,7 +629,9 @@ export function PluginsSettingsView() {
     const categories = useMemo(() => {
         const present = new Set(plugins.map((p) => p.category).filter(Boolean));
         const ordered = CATEGORY_ORDER.filter((c) => present.has(c));
-        const extra = [...present].filter((c) => !CATEGORY_ORDER.includes(c as (typeof CATEGORY_ORDER)[number])).sort();
+        const extra = [...present]
+            .filter((c) => !CATEGORY_ORDER.includes(c as (typeof CATEGORY_ORDER)[number]))
+            .sort((a, b) => a.localeCompare(b));
         return [...ordered, ...extra];
     }, [plugins]);
 

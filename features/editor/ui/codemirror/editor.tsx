@@ -324,9 +324,9 @@ export function CodeMirrorEditor({
                 EditorView.domEventHandlers({
                     dragstart(event, view) {
                         const sel = view.state.selection.main;
-                        if (sel.empty) return false;
+                        if (sel.empty) return;
                         const text = view.state.sliceDoc(sel.from, sel.to);
-                        if (!text) return false;
+                        if (!text) return;
                         const path = pathRef.current;
                         event.dataTransfer?.setData(
                             BETTERSHAPE_CLIP_CODE,
