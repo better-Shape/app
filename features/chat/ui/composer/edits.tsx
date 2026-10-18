@@ -98,63 +98,63 @@ export function PendingEditsPanel({
                 {withStats.map((edit) => {
                     const fileName = edit.file.split(/[\\/]/).pop() || edit.file;
                     return (
-                        <button
+                        <div
                             key={edit.id}
-                            type="button"
-                            onClick={() => {
-                                const resolved = resolveProjectFilePath(edit.file, getProjectPath());
-                                void openProjectFile(edit.file, fileName).then((ok) => {
-                                    if (!ok) return;
-                                    setTimeout(() => {
-                                        window.dispatchEvent(
-                                            new CustomEvent("bettershape-editor-preview-diff", {
-                                                detail: {
-                                                    path: resolved,
-                                                    original: edit.original,
-                                                    replacement: edit.replacement,
-                                                },
-                                            }),
-                                        );
-                                    }, 150);
-                                });
-                            }}
-                            className="group flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-[var(--row-hover)]"
+                            className="group flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-[var(--row-hover)]"
                         >
-                            <span className="min-w-0 flex-1 truncate text-text-primary">{fileName}</span>
-                            <span className="shrink-0 tabular-nums text-xs">
-                                {edit.add > 0 ? <span className="text-success">+{edit.add}</span> : null}
-                                {edit.add > 0 && edit.del > 0 ? " " : null}
-                                {edit.del > 0 ? <span className="text-error">-{edit.del}</span> : null}
-                            </span>
+                            <button
+                                type="button"
+                                className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                                onClick={() => {
+                                    const resolved = resolveProjectFilePath(edit.file, getProjectPath());
+                                    void openProjectFile(edit.file, fileName).then((ok) => {
+                                        if (!ok) return;
+                                        setTimeout(() => {
+                                            window.dispatchEvent(
+                                                new CustomEvent("bettershape-editor-preview-diff", {
+                                                    detail: {
+                                                        path: resolved,
+                                                        original: edit.original,
+                                                        replacement: edit.replacement,
+                                                    },
+                                                }),
+                                            );
+                                        }, 150);
+                                    });
+                                }}
+                            >
+                                <span className="min-w-0 flex-1 truncate text-text-primary">{fileName}</span>
+                                <span className="shrink-0 tabular-nums text-xs">
+                                    {edit.add > 0 ? <span className="text-success">+{edit.add}</span> : null}
+                                    {edit.add > 0 && edit.del > 0 ? " " : null}
+                                    {edit.del > 0 ? <span className="text-error">-{edit.del}</span> : null}
+                                </span>
+                            </button>
                             {onAccept ? (
                                 <Tooltip content="Keep">
-                                    <span
-                                        role="button"
+                                    <button
+                                        type="button"
+                                        aria-label="Keep this edit"
                                         className="text-text-muted hover:text-success"
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            onAccept(edit.id);
-                                        }}
+                                        onClick={() => onAccept(edit.id)}
                                     >
                                         <Icon icon={Checkmark20Regular} />
-                                    </span>
+                                    </button>
                                 </Tooltip>
                             ) : null}
                             {onReject ? (
                                 <Tooltip content="Undo">
-                                    <span
-                                        role="button"
+                                    <button
+                                        type="button"
+                                        aria-label="Undo this edit"
                                         className="text-text-muted hover:text-error"
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            onReject(edit.id);
-                                        }}
+                                        onClick={() => onReject(edit.id)}
                                     >
                                         <Icon icon={Dismiss20Regular} />
-                                    </span>
+                                    </button>
                                 </Tooltip>
                             ) : null}
-                        </button>
+                        </div>
                     );
                 })}
             </DropdownMenuContent>
