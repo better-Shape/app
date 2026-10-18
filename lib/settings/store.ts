@@ -507,7 +507,8 @@ let currentSettings: BetterShapeSettings = {
     updates: { ...DEFAULT_SETTINGS.updates },
     appearance: { ...DEFAULT_SETTINGS.appearance },
 };
-let hydrated = false;
+let localSettingsHydrated = false;
+let tauriSettingsHydrated = false;
 let settingsBridgeInitialized = false;
 let settingsInitialization: Promise<void> | null = null;
 let settingsRevision = 0;
@@ -713,7 +714,7 @@ export function getFileExcludePatterns(): string {
 function applySettingsFromPayload(next: Partial<BetterShapeSettings> | BetterShapeSettings) {
     currentSettings = mergeSettings(DEFAULT_SETTINGS, next, { preserveSecrets: true });
     recordSettingsChange(next);
-    hydrated = true;
+    localSettingsHydrated = true;
     applyAppearanceSettings(currentSettings);
 }
 
@@ -815,9 +816,13 @@ function persistToTauriStore(snapshot: BetterShapeSettings = currentSettings): P
 export function initSettings(): Promise<void> {
     initSettingsBridge();
     if (settingsInitialization) return settingsInitialization;
-    if (hydrated) return Promise.resolve();
+    if (tauriSettingsHydrated) return Promise.resolve();
 
-    loadFromLocalStorage();
+    if (!localSettingsHydrated && typeof window !== "undefined") {
+        loadFromLocalStorage();
+        localSettingsHydrated = true;
+        applyAppearanceSettings(currentSettings);
+    }
     settingsHydrationRevision = settingsRevision;
     settingsHydrationPatches = [];
     settingsHydrationPending = true;
@@ -844,7 +849,8 @@ export function initSettings(): Promise<void> {
         } finally {
             settingsHydrationPending = false;
             settingsHydrationPatches = [];
-            hydrated = true;
+            localSettingsHydrated = true;
+            tauriSettingsHydrated = true;
             applyAppearanceSettings(currentSettings);
             emit();
             // Keep the Rust indexer embeddings flag in sync with persisted settings.
@@ -864,9 +870,9 @@ export function initSettings(): Promise<void> {
 }
 
 export function getSettings(): BetterShapeSettings {
-    if (!hydrated && typeof window !== "undefined") {
+    if (!localSettingsHydrated && typeof window !== "undefined") {
         loadFromLocalStorage();
-        hydrated = true;
+        localSettingsHydrated = true;
         applyAppearanceSettings(currentSettings);
     }
     return currentSettings;

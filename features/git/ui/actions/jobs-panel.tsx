@@ -5,7 +5,7 @@ import { ChevronRight20Regular } from "@fluentui/react-icons/headless/svg/chevro
 import { WindowConsole20Regular } from "@fluentui/react-icons/headless/svg/window-console";
 
 
-import { useId, type ReactNode } from "react";
+import { useId } from "react";
 import { Icon } from "@/components/ui/icon";
 
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,7 @@ import { ScrollArea } from "@/components/ui/scroll";
 import { cn } from "@/lib/utils";
 import type { WorkflowJob, WorkflowStep } from "./types";
 import { durationLabel, statusIcon, statusTone } from "./utils";
+import { AnimatedCollapse } from "@/features/git/ui/shared/animated-collapse";
 import { GitListSkeleton } from "@/features/git/ui/shared/skeletons";
 
 function JobStatusIcon({
@@ -33,22 +34,6 @@ function JobStatusIcon({
                 icon.spin && "animate-spin",
             )}
         />
-    );
-}
-
-function AnimatedCollapse({ open, children, id }: { open: boolean; children: ReactNode; id?: string }) {
-    return (
-        <div
-            id={id}
-            aria-hidden={!open}
-            inert={!open}
-            className={cn(
-                "grid transition-[grid-template-rows,opacity] duration-[var(--transition-base)] ease-[var(--ease-out)]",
-                open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
-            )}
-        >
-            <div className="min-h-0 overflow-hidden">{children}</div>
-        </div>
     );
 }
 

@@ -30,7 +30,7 @@ export function CodebaseAnalysis({ items, isActive }: { items: AnalysisItem[]; i
     ].filter(Boolean).join(", ");
 
     return (
-        <div className="flex flex-col gap-1 my-2" aria-busy={isActive || undefined}>
+        <div className="flex flex-col gap-1 my-2">
             <button
                 onClick={() => setIsOpen(!isOpen)}
                 className="flex items-center gap-2 py-1.5 text-xs text-text-muted hover:text-text-primary transition-colors group w-full text-left"
@@ -50,7 +50,10 @@ export function CodebaseAnalysis({ items, isActive }: { items: AnalysisItem[]; i
             </button>
 
             {isOpen && (
-                <div className="flex w-full min-w-0 flex-col gap-1.5 pb-2">
+                <div
+                    aria-busy={isActive || undefined}
+                    className="flex w-full min-w-0 flex-col gap-1.5 pb-2"
+                >
                     {items.map((item, i) => (
                         <div key={i} className="flex items-center gap-2 text-sm text-text-muted font-medium px-2 py-0.5">
                             <span className="opacity-50">

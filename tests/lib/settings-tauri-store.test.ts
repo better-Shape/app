@@ -37,6 +37,17 @@ afterEach(() => {
 });
 
 describe("Tauri settings persistence", () => {
+    it("loads desktop settings even when a component reads settings before initialization", async () => {
+        storeMock.get.mockResolvedValueOnce({ appearance: { motionPreference: "reduced" } });
+        const { getSettings, initSettings } = await import("@/lib/settings/store");
+
+        expect(getSettings().appearance.motionPreference).toBe("system");
+        await initSettings();
+
+        expect(storeMock.get).toHaveBeenCalledOnce();
+        expect(getSettings().appearance.motionPreference).toBe("reduced");
+    });
+
     it("keeps a motion preference changed while startup hydration is pending", async () => {
         const pendingRead = deferred<{ appearance: { motionPreference: "system" } }>();
         storeMock.get.mockImplementationOnce(() => pendingRead.promise);

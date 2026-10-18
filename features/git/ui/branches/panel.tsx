@@ -33,6 +33,7 @@ import {
 } from "@/components/ui/context";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useFilter } from "@/features/git/ui/manager/filter-context";
+import { AnimatedCollapse } from "@/features/git/ui/shared/animated-collapse";
 import { ManagerDiffEditor } from "@/features/git/ui/shared/manager-diff";
 import { useGitRepos } from "@/lib/git/repos";
 import { confirm } from "@tauri-apps/plugin-dialog";
@@ -204,22 +205,6 @@ function SectionHeader({
             <span className="flex-1">{label}</span>
             <span className="tabular-nums opacity-80">{count}</span>
         </button>
-    );
-}
-
-function AnimatedCollapse({ id, open, children }: { id: string; open: boolean; children: React.ReactNode }) {
-    return (
-        <div
-            id={id}
-            aria-hidden={!open}
-            inert={!open}
-            className={cn(
-                "grid transition-[grid-template-rows,opacity] duration-[var(--transition-base)] ease-[var(--ease-out)]",
-                open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
-            )}
-        >
-            <div className="min-h-0 overflow-hidden">{children}</div>
-        </div>
     );
 }
 

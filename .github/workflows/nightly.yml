@@ -1,13 +1,8 @@
 name: Nightly
 
-# Manual only: no schedule, so a nightly build never runs unattended.
+# Manual only: no schedule, and dispatch accepts no user-defined inputs.
 on:
   workflow_dispatch:
-    inputs:
-      prerelease:
-        description: "Publish as prerelease?"
-        type: boolean
-        default: true
 
 permissions:
   contents: read
@@ -165,10 +160,10 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
-  # Optional: Create nightly prerelease if manually triggered
+  # A manual run always publishes the nightly prerelease; dispatch inputs stay empty.
   publish-nightly:
     name: Publish Nightly Prerelease
-    if: github.event_name == 'workflow_dispatch' && inputs.prerelease
+    if: github.event_name == 'workflow_dispatch'
     needs: build-check
     runs-on: ubuntu-latest
     timeout-minutes: 15
