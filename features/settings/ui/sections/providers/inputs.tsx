@@ -8,6 +8,7 @@ import { notify } from "@/features/notifications";
 import { cn } from "@/lib/utils";
 import {
     ArrowReset20Regular,
+    Checkmark20Regular,
     Clipboard20Regular,
     Eye20Regular,
     EyeOff20Regular,
@@ -99,7 +100,7 @@ export function KeyInput({
                             aria-label="Copy key"
                             onClick={() => void copyKey()}
                         >
-                            <Icon icon={copied ? CheckmarkSized : Clipboard20Regular} />
+                            <Icon icon={copied ? Checkmark20Regular : Clipboard20Regular} />
                         </Button>
                     </Tooltip>
                 ) : (
@@ -133,27 +134,6 @@ export function KeyInput({
                 </div>
             ) : null}
         </div>
-    );
-}
-
-function CheckmarkSized({ className }: { className?: string }) {
-    return (
-        <svg
-            className={className}
-            width="14"
-            height="14"
-            viewBox="0 0 20 20"
-            fill="none"
-            aria-hidden
-        >
-            <path
-                d="M4 10.5l4 4 8-9"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-            />
-        </svg>
     );
 }
 
