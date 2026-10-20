@@ -1744,7 +1744,9 @@ export function useChatSession(
     const handleKeyDown = (e: React.KeyboardEvent) => {
         if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
-            handleSendMessage();
+            void handleSendMessage().catch((err) => {
+                console.error("Failed to send message:", err);
+            });
         }
     };
 

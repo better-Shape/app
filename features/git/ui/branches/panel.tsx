@@ -556,7 +556,7 @@ export function BranchWindow({ active = true }: { active?: boolean }) {
             const branch = selectedItem?.kind === "remote"
                 ? selectedItem.displayName
                 : selectedItem?.name ?? currentBranch;
-            commands.openUrlExternal(`${url}/tree/${encodeURIComponent(branch)}`);
+            await commands.openUrlExternal(`${url}/tree/${encodeURIComponent(branch)}`);
         } catch (e) {
             notify.error("Git", String(e));
         }

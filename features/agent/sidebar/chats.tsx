@@ -322,7 +322,7 @@ export function ChatList({
     useEffect(() => {
         void loadChats();
         /** Reload chats through the version-fenced loader when a conversation event invalidates the list. */
-        const onRefresh = () => { loadChats(); };
+        const onRefresh = () => { void loadChats(); };
         window.addEventListener("bettershape-chat-refresh", onRefresh);
         window.addEventListener("bettershape-chats-changed", onRefresh);
         window.addEventListener("bettershape-chat-active", onRefresh);

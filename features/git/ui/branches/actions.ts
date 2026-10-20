@@ -220,7 +220,7 @@ export const createBranchActions = (deps: BranchActionDeps) => {
                     return;
                 }
                 const branch = remoteBranchFor(deps.selectedItem, currentBranch);
-                commands.openUrlExternal(`${browseUrl(url)}/tree/${encodeURIComponent(branch)}`);
+                await commands.openUrlExternal(`${browseUrl(url)}/tree/${encodeURIComponent(branch)}`);
             } catch (error) {
                 notify.error("Git", `Could not open the remote: ${String(error)}`);
             }

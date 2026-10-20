@@ -978,6 +978,8 @@ function getAppCommands(): EditorAction[] {
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     const path = (window as any).__bettershapeActivePath || "";
                     openLanguageModePicker(path);
+                }).catch((e) => {
+                    console.error("Failed to open language mode picker:", e);
                 });
             },
         },

@@ -452,7 +452,9 @@ function TerminalInstance({ tab, isActive }: { tab: TerminalTab, isActive: boole
             }
         };
 
-        init();
+        void init().catch((e) => {
+            console.error("Failed to initialize terminal:", e);
+        });
         let detachCopy: (() => void) | undefined;
         let fitTimer: ReturnType<typeof setTimeout> | undefined;
 // Two modes on purpose: the immediate fit runs now, the delayed one collapses a
@@ -745,7 +747,7 @@ export default function Terminal({
             const inst = globalTerminalStore.instances.get(id);
             const killId = inst && inst.ptyId >= 0 ? inst.ptyId : closing?.boundPtyId;
             if (typeof killId === "number" && killId >= 0) {
-                import("@tauri-apps/api/core").then(({ invoke }) => invoke("pty_kill", { id: killId }).catch(() => { }));
+                import("@tauri-apps/api/core").then(({ invoke }) => invoke("pty_kill", { id: killId }).catch(() => { })).catch(() => { });
             }
             if (inst) {
                 inst.unlistenOutput();
