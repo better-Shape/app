@@ -101,7 +101,7 @@ Deep online search recon spree covered 5 query clusters, 60+ primary sources, wi
 
 ## Verification
 
-- `AGENTS.md` edit verified: 481 lines (was 408), markdown renders, new protocol reads as binding hard constraint overriding minimal-fix tendency
+- At `951bb38`, `AGENTS.md` edit verified: 481 lines (was 408), markdown renders, new protocol reads as binding hard constraint overriding minimal-fix tendency
 - Conflicting rule reconciliation verified: both amended lines now point to protocol
 - Typecheck/lint gates deferred: no `node_modules` in sandbox; AGENTS.md is docs-only change, no TypeScript surface affected. Full gate must be run on CI per AGENTS.md blocked-sandbox instructions (vendor/sandbox-toolchain pin 7c4c878)
 - Decision recorded here per AGENTS.md durable engineering memory rules and per `REVIEW.md` ledger expectations

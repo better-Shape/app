@@ -1,6 +1,6 @@
 [BLOCKER! ALWAYS LOAD THIS ENTIRE DOCUMENT INTO CONTEXT, IT MUST SURVIVE COMPACTIONS OR COMPRESSIONS]
 
-> **Load note:** This file is ~58 KiB and exceeds the Codex default 32 KiB project-docs limit. Configure Codex to load the full file (set project-docs limit to 64 KiB or use an explicit full-read instruction). If truncation cannot be avoided, the authoritative elaboration for the two protocols lives in `engineering/proactive-protocol.md` and `engineering/deep-refinement-protocol.md`, which must be loaded alongside this file. Future work should keep this file lean and move detail to linked docs.
+> **Load note:** This file is ~60 KiB and exceeds the Codex default 32 KiB project-docs limit. Configure Codex to load the full file (set project-docs limit to 64 KiB or use an explicit full-read instruction). If truncation cannot be avoided, the authoritative elaboration for the two hard constraints lives in `engineering/proactive-protocol.md` and `engineering/deep-refinement-protocol.md`, which must be loaded alongside this file; for any other truncated sections, fetch the full file via the repository directly rather than relying on the truncated view. Future work should keep this file lean and move detail to linked docs.
 
 # BetterShape agent rules
 
@@ -189,7 +189,7 @@ implement -> detail audit -> edge case sweep -> missing feature search -> propos
 
 ### 7. Enforcement
 
-- After each refinement iteration, run focused verification relevant to the change and report the new head SHA; run the full Verification Gate (including `npm ci`, lint, typecheck, build, tests, skills verification, and Rust gates when relevant) only on the final tree before filing. A result from before the last refinement proves nothing.
+- After each refinement iteration, run focused verification relevant to the change and report the new head SHA; run the full Verification Gate (including `npm ci`, lint, typecheck, build, tests, skills verification, and Rust gates when relevant) on the final tree before filing and before every push as required by the Verification Gate section. A result from before the last refinement proves nothing.
 - The Code Research Gate MUST list detail gaps checked, edge cases enumerated and dispositioned, missing features researched with sources, and failed refinement attempts. A gate that omits any of those is not run.
 - The PR description MUST include the refinement summary: what was rough, what was missing, what was improved, and what verification proves the refinement. For UI work, attach the current refined-state capture and name what it confirms.
 - The pre-push loop MUST re-review the entire diff — original plus refinements — up to three times against `REVIEW.md` and `FULL-REVIEW.md`, verifying detail, edge cases, and missing features with evidence; a change that passes tests but still has rough edges is not ready to file.

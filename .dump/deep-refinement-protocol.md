@@ -19,7 +19,7 @@
      - `verifier subagent` -> `verifier`
    - Verified: `grep -n Fable AGENTS.md` returns no results. Protocol is now agent-agnostic.
 
-2. **Added Deep Refinement Protocol — HARD CONSTRAINT (new section 123-220 in new AGENTS.md)**
+2. **Added Deep Refinement Protocol — HARD CONSTRAINT (section 123-195 in AGENTS.md at `4c6706d1c884467918a7163f74223f9d863c9b90`)**
    - Applies after proactive protocol, before Git
    - Total AGENTS.md: 481 -> 554 lines, 2 HARD CONSTRAINT sections
    - Content implements user verbatim hardening: "everything you've achieved so far in this session but you still need to go into deep refinement a lot of the implementations on first glance look good but you know there's very little attention to detail and very some very rough edge cases that can be further improved and also there are some features that me that are also missing that you that should be there research and implement and refine the entire implementation of everything so far"
