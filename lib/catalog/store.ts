@@ -30,7 +30,7 @@ function toModelInfo(settings: ProvidersSettings): ModelInfo[] {
     outputCost: 0,
     contextWindow: option.contextWindow,
     releaseDate: "Rolling",
-    vision: option.vision,
+    vision: option.capabilities.vision,
   }));
 }
 

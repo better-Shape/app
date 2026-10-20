@@ -639,8 +639,8 @@ export const ChatInput = React.memo(function ChatInput({
     }
     const resolvedAutoModel = React.useMemo(() => {
         if (concreteAllModels.length === 0) return null;
-        const wanted = (settings.ai.providers?.defaultModel ?? "").trim();
-        if (wanted && wanted !== "auto") {
+        const wanted = (settings.ai.providers?.chatMode ?? "").trim();
+        if (wanted && wanted !== "auto" && wanted !== "ask") {
             const match = concreteAllModels.find((m) => m.id === wanted);
             if (match) return match;
         }

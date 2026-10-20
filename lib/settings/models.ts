@@ -43,7 +43,7 @@ export function modelsFromProviders(settings: ProvidersSettings, usable: string[
             outputCost: 0,
             contextWindow: option.contextWindow,
             releaseDate: "Rolling",
-            vision: option.vision,
+            vision: option.capabilities.vision,
         });
     }
     return out;

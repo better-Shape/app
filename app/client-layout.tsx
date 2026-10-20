@@ -144,6 +144,9 @@ const ClientLayout = ({ children }: { children: React.ReactNode }) => {
             if (cancelled) return;
             initGitHubAuth();
 
+            // Warm the public model catalog (models.dev) in the background.
+            void import("@/lib/ai/model-catalog").then(({ primeModelCatalog }) => primeModelCatalog());
+
             // MCP: sync user mcp.json so the agent sees tools without visiting Settings.
             await syncMcpServers();
 

@@ -19,6 +19,7 @@ import {
     searchKeyWarning,
     stripProviderPrefix,
     toRustAiConfig,
+    withFeatureModel,
     type ProviderId,
     type ProvidersSettings,
 } from "@/lib/ai/providers";
@@ -68,13 +69,13 @@ describe("secret handling", () => {
         const live = withKey("openai", "sk-live");
         live.services.composio = { apiKey: "ck-live", userId: "me" };
         const loaded = redactProviderSecrets({ ai: { providers: live } }).ai.providers;
-        loaded.defaultModel = "openai/gpt-5";
+        loaded.chatMode = "openai/gpt-5";
 
         const merged = mergeProviderConnections(live, loaded);
 
         expect(merged.connections.openai.apiKey).toBe("sk-live");
         expect(merged.services.composio.apiKey).toBe("ck-live");
-        expect(merged.defaultModel).toBe("openai/gpt-5");
+        expect(merged.chatMode).toBe("openai/gpt-5");
     });
 
     it("lets a stored key replace the live one when present", () => {
@@ -146,7 +147,7 @@ describe("embeddings routing", () => {
     });
 
     it("requires a model id for runtimes that bring their own", () => {
-        const custom = withKey("custom", "", { baseUrl: "http://127.0.0.1:11434/v1" });
+        let custom = withKey("custom", "", { baseUrl: "http://127.0.0.1:11434/v1" });
         custom.connections.custom.enabled = true;
         // A local runtime is usable, but without a model id there is nothing to
         // call — so the index stays off until one is named.
@@ -154,15 +155,14 @@ describe("embeddings routing", () => {
         expect(embeddingsTarget(custom)).toBeNull();
         expect(embeddingsAvailable(custom)).toBe(false);
 
-        custom.embeddingModel = "nomic-embed-text";
+        custom = withFeatureModel(custom, "embeddings", "nomic-embed-text");
         expect(embeddingsTarget(custom)).toEqual({ id: "custom", model: "nomic-embed-text" });
         expect(embeddingsAvailable(custom)).toBe(true);
         expect(toRustAiConfig(custom).embeddingModel).toBe("nomic-embed-text");
     });
 
     it("honours an explicit choice on a provider without a default", () => {
-        const groq = withKey("groq", "gsk_live");
-        groq.embeddingModel = "my-embed";
+        const groq = withFeatureModel(withKey("groq", "gsk_live"), "embeddings", "my-embed");
         expect(embeddingsTarget(groq)).toEqual({ id: "groq", model: "my-embed" });
     });
 
@@ -171,7 +171,7 @@ describe("embeddings routing", () => {
         // slug. Sending it to OpenAI 404s, so the pick must own the request.
         const settings = withKey("openai", "sk-live");
         settings.connections.mistral = { ...settings.connections.mistral, apiKey: "ms-live" };
-        settings.embeddingModel = "mistral-embed";
+        settings.featureModels = withFeatureModel(settings, "embeddings", "mistral-embed").featureModels;
 
         expect(embeddingsTarget(settings)).toEqual({ id: "mistral", model: "mistral-embed" });
         const payload = toRustAiConfig(settings);
@@ -184,7 +184,7 @@ describe("embeddings routing", () => {
         // both usable the pick stays OpenAI, which is the cheaper direct route.
         const settings = withKey("openai", "sk-live");
         settings.connections.openrouter = { ...settings.connections.openrouter, apiKey: "sk-or-live" };
-        settings.embeddingModel = "text-embedding-3-small";
+        settings.featureModels = withFeatureModel(settings, "embeddings", "text-embedding-3-small").featureModels;
 
         expect(embeddingsTarget(settings)).toEqual({ id: "openai", model: "text-embedding-3-small" });
     });
