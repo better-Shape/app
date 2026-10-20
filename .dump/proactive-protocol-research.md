@@ -4,6 +4,7 @@
 **Branch:** `arena/5cd4a20b-app` from `406e4f47d722316a73f4e64b20ac7367112e0bcb` (`draft/mega-absorb-all`)
 **Decision:** Hard-constrain Fable 5.5 proactive behavior into `AGENTS.md`
 **Status:** Implemented
+**Update 2026-10-20 (4c6706d):** Fable-specific branding generalized to all agents. Protocol now applies universally; see `.dump/deep-refinement-protocol.md` for subsequent Deep Refinement addition. This research record remains authoritative for the underlying evidence.
 
 ## Summary
 

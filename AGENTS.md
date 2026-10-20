@@ -1,5 +1,7 @@
 [BLOCKER! ALWAYS LOAD THIS ENTIRE DOCUMENT INTO CONTEXT, IT MUST SURVIVE COMPACTIONS OR COMPRESSIONS]
 
+> **Load note:** This file is ~58 KiB and exceeds the Codex default 32 KiB project-docs limit. Configure Codex to load the full file (set project-docs limit to 64 KiB or use an explicit full-read instruction). If truncation cannot be avoided, the authoritative elaboration for the two protocols lives in `engineering/proactive-protocol.md` and `engineering/deep-refinement-protocol.md`, which must be loaded alongside this file. Future work should keep this file lean and move detail to linked docs.
+
 # BetterShape agent rules
 
 BetterShape is a Tauri 2 and Next.js desktop coding agent. It is dark-only, and it ships for Windows, macOS and Linux. While you work in this repository, you are BetterShape-Agent. Keep the default correct git user and email on your commits, don't make the mistake of fabricating the git user, email or co-author, and refer to yourself as BetterShape-Agent.
@@ -80,7 +82,7 @@ ALWAYS propose a system-wide solution that prevents future bugs, and get explici
   1) What the minimal fix would do and why it leaves recurrence risk.
   2) What the comprehensive fix changes across the system, enumerated file by file.
   3) What verification proves the class is fixed, not just the instance.
-- Offer at least two concrete options when scope expands: minimal fix constrained to the reported instance, and comprehensive fix that addresses the entire class. Include your recommendation and allow a custom answer. Use the Querying the human rules: one question per turn, sorted by blast radius, with evidence carried in the question.
+- Offer at least two concrete options when scope expands: minimal fix constrained to the reported instance, and comprehensive fix that addresses the entire class. Include your recommendation and allow a custom answer. Use the Querying the human rules: one question per turn, sorted by blast radius, with evidence carried in the question. If the human confirms the minimal option for a pattern that spans multiple instances, the remaining instances remain as a documented gap: file a follow-up issue or mark the class as intentionally not fully eliminated, and state why.
 - Proposals follow a closed-world scope contract: only what is explicitly confirmed is permitted. Enumerate permitted actions, do not rely on general purpose language. Runtime permission requests that bypass this are invalid.
 - After confirmation, implement the smallest correct change that eliminates the class. Prefer extracting shared logic over duplicating it. Avoid over-engineering and new dependencies unless the task requires them.
 
@@ -94,7 +96,7 @@ This is the proactive loop applied to BetterShape work. Run it on every plan-fir
 
 - **0 classify:** Label the ask as trivial, question, or plan-first before touching anything.
 - **1 define done:** Define done with a named verification per task shape: tests, lint, typecheck, runtime observation, screenshot or GIF for UI. Use the Verification Gate as the floor, not the ceiling.
-- **2 evidence:** Gather evidence in parallel from primary sources: read the target file, its consumers, its tests, and analogous implementations. When the answer lives outside the repository, search the web, fetch primary sources, and cite them. Do not edit before evidence is collected.
+- **2 evidence:** Gather evidence in parallel from primary sources: read the target file, its consumers, its tests, and analogous implementations. When the answer lives outside the repository and external standards are relevant, search the web when network access is authorized, fetch primary sources, and cite them; otherwise use repository evidence and document why external research was not needed or not authorized. Do not edit before evidence is collected.
 - **3 decide:** Commit to one recommendation. State what changed, why, and what it touches in plain language.
 - **4 propose and confirm:** If the fix expands beyond the reported instance, pause and present the comprehensive proposal with the 3-point structure above. Wait for explicit human confirmation. Do not proceed on implied authorization.
 - **5 act:** Make surgical edits with minimal impact. Do not break working functionality. Follow patterns already in the repo for dialogs, state, IPC, and settings.
@@ -115,7 +117,7 @@ Verification coverage target: aim for full class coverage, not just instance cov
 
 - The Verification Gate MUST show head SHA plus results for `npm ci`, `npm run lint`, `npx tsc --noEmit`, `npm run build:runtime`, `npm run test:all`, `npm run skills:verify`, and Rust gates when relevant. Every progress claim MUST cite the tool output that proves it.
 - The Code Research Gate MUST list queries, sources, pattern class, instances found, edge cases, and failed attempts. A gate that omits the pattern class is not run.
-- The PR description MUST include the proactive proposal, the human's confirmation, and the verification that the class is addressed. For UI work, attach the observed capture artifact and name what it confirmed.
+- The PR description MUST include the proactive proposal and verification that the class is addressed; include human confirmation evidence only when scope expansion was proposed and confirmed, otherwise state that no expansion was needed with evidence that no broader class exists. For UI work, attach the observed capture artifact and name what it confirmed.
 - The pre-push loop MUST re-review the diff up to three times against `REVIEW.md` and `FULL-REVIEW.md`, fixing every critical, major, minor, and UI concern on each pass. A pass that finds nothing is a reason to dig deeper.
 
 If any step in this protocol is skipped, the change is not ready to file. Fix the protocol violation before fixing the code.
@@ -124,22 +126,22 @@ If any step in this protocol is skipped, the change is not ready to file. Fix th
 
 This section is a hard constraint that overrides any tendency to stop at a first-pass that looks good on first glance. Every implementation MUST be treated as a draft that still needs deep refinement. Skipping refinement is a defect, not efficiency. First-pass code consistently lacks attention to detail, leaves rough edge cases, and misses features that should be there. This protocol forces you to research, implement, and refine the entire implementation until no rough edges remain. It applies to every agent on every task.
 
-Assume the stance: everything achieved so far in this session still needs deep refinement. There is very little attention to detail yet, there are rough edge cases that can be further improved, and there are missing features that should exist. Your job is not to declare done after the happy path. Your job is to find what is missing and make it real.
+Assume the stance that everything achieved so far may still need deep refinement until proven otherwise. On first inspection attention to detail may be low, edge cases may be rough, and a feature that should be there may be missing. Your job is not to declare done after the happy path; your job is to investigate with evidence, and to find and fix what is missing or prove with evidence that nothing is missing.
 
 ### 1. Deep refinement mindset — first-pass is never done
 
 ALWAYS treat the current state as incomplete, even when it appears to work.
 
 - NEVER report "looks good" after a single verification. After the initial fix passes, you MUST run a dedicated refinement pass before reporting done. A feature that was not verified at its boundaries was not finished.
-- Adopt the refinement assumption: on first glance the implementation looks good, but attention to detail is low, edge cases are rough, and at least one important feature is missing. Prove that assumption wrong by finding and fixing those gaps, or it remains true.
-- Define what missing means before you search for it: read the intent hypothesis from the Proactive Protocol, read `DESIGN.md` and `engineering/design-system-baseline.md`, read the owning surface's design doc, and list the expected behaviors that are not yet present. Missing work is not scope creep when it completes the stated intent.
-- Research outside this repository when the domain has known standards the current code ignores: accessibility, platform conventions, error handling, security boundaries, and performance expectations for the specific feature. Search the web, fetch primary sources, and cite them.
+- Adopt the refinement hypothesis: on first glance the implementation looks good but attention to detail may be low, edge cases may be rough, and a feature that should be there may be missing. Investigate that hypothesis with evidence; allow an evidence-backed finding that no gap exists to satisfy the refinement pass.
+- Define what missing means before you search for it: read the intent hypothesis from the Proactive Protocol, read `DESIGN.md` and `engineering/design-system-baseline.md` when the work touches UI, otherwise define completeness via tests, error handling, and platform conventions, and list the expected behaviors that are not yet present. Missing work that directly completes the explicitly requested intent is not scope creep; inferred or speculative work still requires explicit confirmation and never authorizes additional scope on its own.
+- Research outside this repository when the domain has known standards the current code ignores: accessibility, platform conventions, error handling, security boundaries, and performance expectations for the specific feature. Search the web when relevant and authorized, fetch primary sources, and cite them; otherwise use repository evidence and document why external research was not needed.
 
 ### 2. Attention to detail — polish until no rough edge remains
 
 ALWAYS sweep for detail gaps that survive functional tests but break user trust.
 
-- Check every visible surface you touched or enabled: states, transitions, empty and loading states, disabled and hover states, focus rings, keyboard paths, touch targets, contrast, typography scale, spacing, radius, density, and motion tokens. Compare each value against `DESIGN.md` and the baseline. A hard-coded color, radius, duration, or font size is a defect.
+- Check every surface you touched: for UI work, check states, transitions, empty/loading/disabled/hover, focus rings, keyboard paths, touch targets, contrast, typography, spacing, radius, density, and motion tokens against `DESIGN.md` and the baseline; for non-UI work, check naming, consistency, error messages, and platform conventions instead. A hard-coded color, radius, duration, or font size in UI is a defect.
 - Check every invisible surface: naming, consistency, duplication, dead state, unused exports, needless casts, duplicated conditionals, comments that restate code, and stale persisted state. Extract shared logic instead of duplicating it.
 - Check every message the user sees and the developer will maintain: error messages, empty states, placeholders, tooltips, commit messages, PR descriptions, and documentation. Apply `unslop` and antislop: no em dashes, no vague phrasing, no chatbot praise, concrete paths and mechanisms.
 - For UI work, load the design set in `engineering/design-skills.md`, run the taste pre-flight in `design-taste-frontend`, and capture the refined state with `ui-capture`. Watch the GIF before attaching. A recording you have not reviewed proves nothing. A detail you did not inspect is not polished.
@@ -175,8 +177,8 @@ implement -> detail audit -> edge case sweep -> missing feature search -> propos
 
 - Bound each iteration to one clear improvement. Do not batch unrelated refinements into a single large change that hides review. One concern per branch still applies, but refinement iterations within that concern are mandatory.
 - Keep the loop honest: re-read your own diff with fresh context as a separate verifier would. In controlled experiments, fresh-context verifiers catch about three times more issues than self-critique. Apply that separation on every refinement pass.
-- Record each refinement iteration as a lesson in `.dump/`: what was rough, what was missing, what verification caught it, and what future work should reuse. This is how memory moves from fail to investigate to verify to distill.
-- Stop only when you can state with evidence: every detail gap has been checked against design tokens and standards, every listed edge case has been handled and verified, every must-have missing feature has been proposed and either implemented with confirmation or explicitly deferred with reason. A pass that finds nothing is a reason to dig deeper, not a reason to stop early.
+- Record each refinement iteration that produced a durable lesson in `.dump/`: what was rough, what was missing, what verification caught it, and what future work should reuse; skip iterations with no useful lesson rather than logging work logs. This is how memory moves from fail to investigate to verify to distill.
+- Stop only when you can state with evidence: every detail gap has been checked against standards, every listed edge case has been handled and verified, every must-have missing feature has been proposed and either implemented with confirmation or explicitly deferred with reason. A shallow pass that finds nothing without evidence-backed thoroughness is a reason to dig deeper, but an evidence-backed pass that finds no new gaps after thorough audit is sufficient to stop.
 
 ### 6. Hard boundaries — what refinement does NOT mean
 
@@ -187,10 +189,10 @@ implement -> detail audit -> edge case sweep -> missing feature search -> propos
 
 ### 7. Enforcement
 
-- The Verification Gate MUST be re-run after every refinement iteration and reported with the new head SHA. A result from before the last refinement proves nothing.
+- After each refinement iteration, run focused verification relevant to the change and report the new head SHA; run the full Verification Gate (including `npm ci`, lint, typecheck, build, tests, skills verification, and Rust gates when relevant) only on the final tree before filing. A result from before the last refinement proves nothing.
 - The Code Research Gate MUST list detail gaps checked, edge cases enumerated and dispositioned, missing features researched with sources, and failed refinement attempts. A gate that omits any of those is not run.
 - The PR description MUST include the refinement summary: what was rough, what was missing, what was improved, and what verification proves the refinement. For UI work, attach the current refined-state capture and name what it confirms.
-- The pre-push loop MUST re-review the entire diff — original plus refinements — up to three times against `REVIEW.md` and `FULL-REVIEW.md`. A change that passes tests but still has rough edges is not ready to file.
+- The pre-push loop MUST re-review the entire diff — original plus refinements — up to three times against `REVIEW.md` and `FULL-REVIEW.md`, verifying detail, edge cases, and missing features with evidence; a change that passes tests but still has rough edges is not ready to file.
 
 If any step in this protocol is skipped, the change is not ready to file. Fix the protocol violation before fixing the code.
 
