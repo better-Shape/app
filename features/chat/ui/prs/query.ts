@@ -321,7 +321,7 @@ function clauseMatches(item: PrSearchableItem, clause: PrClause): boolean | null
             return clause.negated ? !matches : matches;
         }
         case "status": {
-            if (clause.value === "all") return true;
+            if (clause.value === "all") return !clause.negated;
             const wanted = clause.value;
             const has = item.status.toLowerCase() === wanted;
             return clause.negated ? !has : has;

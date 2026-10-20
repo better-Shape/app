@@ -129,6 +129,11 @@ describe("matchPrQuery — clauses", () => {
         expect(matchPrQuery(item({ status: "merged" }), parsePrQuery("status:all")).matched).toBe(true);
     });
 
+    it("excludes every row for -status:all", () => {
+        expect(matchPrQuery(item({ status: "open" }), parsePrQuery("-status:all")).matched).toBe(false);
+        expect(matchPrQuery(item({ status: "merged" }), parsePrQuery("-status:all")).matched).toBe(false);
+    });
+
     it("matches draft:true against a draft row only", () => {
         expect(matchPrQuery(item({ draft: true }), parsePrQuery("draft:true")).matched).toBe(true);
         expect(matchPrQuery(item({ draft: false }), parsePrQuery("draft:true")).matched).toBe(false);

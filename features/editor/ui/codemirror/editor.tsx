@@ -129,11 +129,11 @@ export function CodeMirrorEditor({
         // construction time.
         const indentCompartment = new Compartment();
         const eolCompartment = new Compartment();
-        let wrapEnabled = false;
         // Seed from Settings -> Editor. `getEditorOptionsFromSettings()` is the
         // tested settings->editor mapper; before this it had no production caller
         // and every editor setting except font family/size was inert.
         const editorOptions = getEditorOptionsFromSettings();
+        let wrapEnabled = editorOptions.wordWrap !== "off";
         let insertSpaces = editorOptions.insertSpaces !== false;
         let tabSize =
             typeof editorOptions.tabSize === "number" && editorOptions.tabSize > 0
@@ -291,7 +291,7 @@ export function CodeMirrorEditor({
                     { key: "Mod-]", run: indentMore },
                     { key: "Mod-[", run: indentLess },
                 ]),
-                wrapCompartment.of([]),
+                wrapCompartment.of(wrapEnabled ? EditorView.lineWrapping : []),
                 langCompartment.of(lang ? [lang, betterShapeSyntaxLinter(path), lintGutter()] : []),
                 EditorView.updateListener.of((update) => {
                     if (!update.docChanged) {
