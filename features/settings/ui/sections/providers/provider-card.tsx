@@ -223,13 +223,14 @@ export function ProviderCard({
     const testConnection = async () => {
         setTesting(true);
         setTestResult(null);
+        // Snapshot inputs at start so we don't resend mid-edit keystrokes,
+        // but read the connection from settings again at completion time so
+        // edits the user made while the probe was in flight (key, base URL,
+        // pinned models) are not overwritten by a stale closure.
+        const key = connection.apiKey;
+        const url = connection.baseUrl || preset.baseUrl;
         try {
-            const report = await commands.aiTestProvider(
-                id,
-                preset.kind,
-                connection.apiKey,
-                connection.baseUrl || preset.baseUrl,
-            );
+            const report = await commands.aiTestProvider(id, preset.kind, key, url);
             setTestResult({
                 ok: report.ok,
                 message: report.message,
@@ -238,9 +239,10 @@ export function ProviderCard({
             });
             if (report.ok) {
                 // Persist what the provider reported, enriched with catalog
-                // metadata so context windows / pricing / capabilities show up
-                // without the user typing a single model id.
-                update(withRefreshedModels(connection, report.models, id));
+                // metadata. Use the latest providers.connections[id] so
+                // mid-flight edits are preserved rather than reverted.
+                const latest = providers.connections[id] ?? connection;
+                update(withRefreshedModels(latest, report.models, id));
                 notify.success("Connection verified", `${preset.label} responded in ${report.latencyMs} ms — ${report.models.length} model${report.models.length === 1 ? "" : "s"} found.`);
             } else {
                 notify.error("Connection failed", report.message);
