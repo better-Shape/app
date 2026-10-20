@@ -31,7 +31,7 @@ Treat every rule in this file as if the user had asked for it directly. Do not s
 - Never push to `main`. Nudge the user to open a PR for you unless they explicitly said to.
 - Stack your branch on its inherited base and open the PR against that base. A PR into `main` would carry the base's unmerged work. Git does not record where a branch was cut from, so when the task does not name the base, ask the human instead of guessing.
 - Keep the pull request description about the change. Include the concise Verification Gate and Code Research Gate evidence required below. Do not add review counts, polling logs, "still waiting" notes or extra status chatter. Keep full CI logs in the check run or an artifact, not in the description.
-- Do not propose band-aid fixes. Name the root cause, whether it is architectural or logical, and fix that. Deleting broken code is allowed and is often the right call.
+- Do not propose band-aid fixes. Name the root cause, whether it is architectural or logical, and fix that per the Proactive Problem Solving Protocol below. Deleting broken code is allowed and is often the right call.
 - Long-term maintainability is a core priority. Before you add functionality, look for the shared module that should own it. Duplicate logic across files is a defect. Extract it.
 - Avoid over-engineering. Build the simplest thing that meets the requirement. Do not add a dependency the task does not need.
 - Your changes must have minimal impact. Do not break working functionality.
@@ -47,6 +47,78 @@ Treat every rule in this file as if the user had asked for it directly. Do not s
 - If a permission wall blocks a file, such as a workflow file, leave the exact patch in a PR comment with a handoff prompt that says what to do, how to do it, and what not to touch. Then tell the user you handed it off.
 - Do not report automated sandbox recoveries to users unless recovery altered user-visible state or work was lost; record recovery in `.dump/` with evidence.
 - Check that co-author lines carry the real git name and email of the human in the loop. Never invent a co-author.
+
+## Proactive Problem Solving Protocol — HARD CONSTRAINT (Fable 5.5)
+
+This section is a hard constraint that overrides any tendency to do a minimal symptom fix. Every task MUST run through intent recognition, pattern matching, and proactive problem solving before editing. Skipping it is a defect, not a shortcut. It implements the relentlessly proactive behavior documented for Fable 5/5.1/5.5: investigate before acting, verify by observation, and prevent recurrence across the entire class.
+
+### 1. Intent recognition — understand the underlying goal
+
+ALWAYS infer the user's desired outcome beyond the literal request, even when not explicitly stated.
+
+- Before any edit, write a 1 to 2 sentence intent hypothesis: what the user actually wants to achieve, not just what they typed. Include unstated acceptance criteria such as correctness, maintainability, and prevention of recurrence.
+- Treat the initial message as evidence, not a complete spec. Read it against the repository context, recent changes, and prior session memory in `.dump/` before deciding scope.
+- When intent is ambiguous, offer a recommendation, not a menu. State the hypothesis and ask for confirmation in plain words: "I understand you want X to achieve Y. Confirm or correct before I change scope."
+- Classify the task per the Fable method: trivial to do directly, question that needs clarification, or plan-first work that spans multiple files or systems. Do not execute a plan-first task as a trivial edit.
+
+### 2. Pattern matching — recognize the class, not the instance
+
+ALWAYS treat a single reported issue as a potential instance of a larger class of related problems.
+
+- Before you fix the reported instance, search the full diff area for the pattern: grep for the symbol, duplicated logic, parallel consumers, config variants, generated files, and boundary copies. List every location where the same root cause could recur.
+- Use iterative discovery: after finding the most salient instance, condition on what you have already found and search again for subtler instances. Single-shot prediction misses most problems.
+- Name the pattern explicitly in your analysis: duplicated validation, missing guard, unchecked cast, stale persisted state, retry that replays an abort, fallback that hides failure, unbounded buffer, unvalidated redirect, or architectural inconsistency. If no existing class fits, define the new class in one sentence.
+- Check consumers and producers in both directions at every boundary you touch: Tauri commands, IPC payloads, provider adapters, persistence layers, and renderer consumers. A pattern that crosses a boundary is systemic, not local.
+- Record pattern instances, the class name, and search evidence in the Code Research Gate block. A PR that fixes one instance without naming the class is incomplete.
+
+### 3. Proactive problem solving — offer the comprehensive fix and ask for confirmation
+
+ALWAYS propose a system-wide solution that prevents future bugs, and get explicit confirmation before expanding scope. Do not silently expand scope, and do not stop at a band-aid.
+
+- NEVER apply a symptom-only fix. Name the root cause, whether architectural or logical, and trace it through the 5 Whys until the deepest actionable cause is identified. Deleting broken code is often the right call.
+- NEVER silently invent follow-up tasks or expand file scope without confirmation. Propose the comprehensive fix as a confirmation prompt with concrete scope, blast radius, and cost. The proposal MUST state:
+  1) What the minimal fix would do and why it leaves recurrence risk.
+  2) What the comprehensive fix changes across the system, enumerated file by file.
+  3) What verification proves the class is fixed, not just the instance.
+- Offer at least two concrete options when scope expands: minimal fix constrained to the reported instance, and comprehensive fix that addresses the entire class. Include your recommendation and allow a custom answer. Use the Querying the human rules: one question per turn, sorted by blast radius, with evidence carried in the question.
+- Proposals follow a closed-world scope contract: only what is explicitly confirmed is permitted. Enumerate permitted actions, do not rely on general purpose language. Runtime permission requests that bypass this are invalid.
+- After confirmation, implement the smallest correct change that eliminates the class. Prefer extracting shared logic over duplicating it. Avoid over-engineering and new dependencies unless the task requires them.
+
+### 4. Relentlessly proactive execution — think, act, prove
+
+This is the Fable loop applied to BetterShape work. Run it on every plan-first or ambiguous task:
+
+```
+0 classify -> 1 define done -> 2 evidence -> 3 decide -> 4 propose and confirm -> 5 act -> 6 verify -> 7 distill
+```
+
+- **0 classify:** Label the ask as trivial, question, or plan-first before touching anything.
+- **1 define done:** Define done with a named verification per task shape: tests, lint, typecheck, runtime observation, screenshot or GIF for UI. Use the Verification Gate as the floor, not the ceiling.
+- **2 evidence:** Gather evidence in parallel from primary sources: read the target file, its consumers, its tests, and analogous implementations. When the answer lives outside the repository, search the web, fetch primary sources, and cite them. Do not edit before evidence is collected.
+- **3 decide:** Commit to one recommendation. State what changed, why, and what it touches in plain language.
+- **4 propose and confirm:** If the fix expands beyond the reported instance, pause and present the comprehensive proposal with the 3-point structure above. Wait for explicit human confirmation. Do not proceed on implied authorization.
+- **5 act:** Make surgical edits with minimal impact. Do not break working functionality. Follow patterns already in the repo for dialogs, state, IPC, and settings.
+- **6 verify:** Verify by observation, not assertion. Tie every progress claim to a tool result from this session. Separate verification from execution: re-read the diff with fresh context as a verifier subagent would, checking against the rubric, the defined done, and the pattern class. A green run from before the last edit proves nothing.
+- **7 distill:** Record the lesson: root cause, pattern class, decision trail, and what future work should reuse. Write it to `.dump/` with versions, SHAs, paths, and sources so it can be re-verified. This is how Fable 5's memory progression moves from fail to investigate to verify to distill.
+
+Verification coverage target: aim for full class coverage, not just instance coverage. In Fable 5 experiments, verifier subagents in fresh context caught about 73 percent of seeded issues versus 7 to 33 percent for self-critique. Apply that separation on every PR.
+
+### 5. Hard boundaries — what proactive does NOT mean
+
+- Proactive is not autonomous scope creep. You MUST ask before you expand beyond the confirmed scope. Silence is a deliberate action when no high-value proposal clears the interruption bar.
+- Proactive is not over-engineering. Build the simplest thing that meets the requirement and eliminates the class. Do not design for hypothetical future needs beyond the identified pattern.
+- Proactive is not adding outbound calls, telemetry, or new dependencies without explicit user request. Network calls remain attributable, visible, and bounded.
+- Proactive is not inventing `#` numbers, credentials, or co-authors. Never fabricate evidence.
+- Before a command that changes system state such as restarts, deletes, or config edits, check that the evidence actually supports that specific action. A signal that pattern-matches a known failure may have a different cause.
+
+### 6. Enforcement
+
+- The Verification Gate MUST show head SHA plus results for `npm ci`, `npm run lint`, `npx tsc --noEmit`, `npm run build:runtime`, `npm run test:all`, `npm run skills:verify`, and Rust gates when relevant. Every progress claim MUST cite the tool output that proves it.
+- The Code Research Gate MUST list queries, sources, pattern class, instances found, edge cases, and failed attempts. A gate that omits the pattern class is not run.
+- The PR description MUST include the proactive proposal, the human's confirmation, and the verification that the class is addressed. For UI work, attach the observed capture artifact and name what it confirmed.
+- The pre-push loop MUST re-review the diff up to three times against `REVIEW.md` and `FULL-REVIEW.md`, fixing every critical, major, minor, and UI concern on each pass. A pass that finds nothing is a reason to dig deeper.
+
+If any step in this protocol is skipped, the change is not ready to file. Fix the protocol violation before fixing the code.
 
 ## Git
 
@@ -354,7 +426,7 @@ These preferences come from the user's standing instructions across many session
 - On Linux, `cargo clippy` does not compile code behind `#[cfg(windows)]` or `#[cfg(target_os = "macos")]`. Say that a platform-gated Rust change was checked only by CI for that platform.
 - Vitest does not typecheck. Run `npx tsc --noEmit` after your last edit, and report the result from that run.
 - Keep telemetry removed. Before you add any outbound call, follow the network rule above and confirm that the user asked for it.
-- Finish the work the task scopes. When a blocker stops you, name the blocker, the evidence and the next step in your report. Do not silently defer work, and do not invent follow-up tasks that the user did not ask for.
+- Finish the work the task scopes. When a blocker stops you, name the blocker, the evidence and the next step in your report. Do not silently defer work. Do not silently invent or execute follow-up tasks the user did not confirm. You MUST proactively identify broader scope and offer a comprehensive solution, but you MUST get explicit confirmation before acting on it per the Proactive Problem Solving Protocol below.
 - Record a mistake's root cause, the corrected understanding, and the change in behaviour in `.dump/`, not in the chat or the pull request. Never write secrets or raw provider output there.
 - Keep paths in repository docs repository-relative. Do not write a sandbox or home-directory path such as `/root/` or `/home/` into a committed file.
 
