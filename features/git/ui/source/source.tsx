@@ -150,6 +150,7 @@ const ChangeRowMenu = ({
     onRefresh: () => void;
     onShowDiff: (path: string, staged: boolean) => void;
 }) => {
+            const { copy } = useCopyToClipboard();
             /** Discard this file's unstaged changes after confirmation. */
             const handleDiscard = async () => {
                 const ok = await confirm(
@@ -185,10 +186,7 @@ const ChangeRowMenu = ({
                     </ContextMenuItem>
                 )}
                 <ContextMenuSeparator />
-                <ContextMenuItem onClick={() => {
-                    navigator.clipboard.writeText(file.path);
-                    notify.success("Copied", "File path copied to clipboard.");
-                }}>
+                <ContextMenuItem onClick={() => copy(file.path, "File path copied to clipboard.")}>
                     Copy Path
                 </ContextMenuItem>
             </ContextMenuContent>

@@ -78,6 +78,9 @@ export const GraphCommitRow = React.memo(function GraphCommitRow({
     // confirmation has to land on the hash itself rather than only in a toast at the
     // edge of the window.
     const { copied: hashCopied, copy: copyHash } = useCopyToClipboard({ silent: true, resetMs: 1100 });
+    // The menu's copy items describe the payload they copied, so they use the shared
+    // hook rather than a bare `writeText`, which would announce success unconditionally.
+    const { copy: copyText } = useCopyToClipboard();
 
     const [tooltipOpen, setTooltipOpen] = useState(false);
     const isDraggingRef = useRef(false);
@@ -368,13 +371,13 @@ export const GraphCommitRow = React.memo(function GraphCommitRow({
                 </ContextMenuTrigger>
 
                 <ContextMenuContent>
-                    <ContextMenuItem onClick={() => { navigator.clipboard.writeText(log.hash); notify.success("Copied", "Commit hash copied"); }}>
+                    <ContextMenuItem onClick={() => copyText(log.hash, "Commit hash copied")}>
                         Copy Commit Hash
                     </ContextMenuItem>
-                    <ContextMenuItem onClick={() => { navigator.clipboard.writeText(log.message); notify.success("Copied", "Commit message copied"); }}>
+                    <ContextMenuItem onClick={() => copyText(log.message, "Commit message copied")}>
                         Copy Commit Message
                     </ContextMenuItem>
-                    <ContextMenuItem onClick={() => { navigator.clipboard.writeText(log.author); notify.success("Copied", "Author copied"); }}>
+                    <ContextMenuItem onClick={() => copyText(log.author, "Author copied")}>
                         Copy Author Name
                     </ContextMenuItem>
                     <ContextMenuItem onClick={async () => {
