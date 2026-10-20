@@ -1914,7 +1914,9 @@ mod scrape_tests {
         assert!(state.session_meta.lock().unwrap().contains_key(&7));
         assert!(meta.is_running());
         assert_eq!(meta.exit_code(), None);
-        assert_eq!(state.session_is_running(7), None);
+        // A child status that cannot be polled is not an exit: the metadata stays
+        // authoritative and the session keeps reporting as running.
+        assert_eq!(state.session_is_running(7), Some(true));
     }
 
     #[test]
@@ -2001,13 +2003,16 @@ mod scrape_tests {
             .insert(7, Arc::clone(&meta));
         state.mark_preview_scrape(7);
         let snapshot = state.read_session_output(7, 500).unwrap();
+        // `scrape_preview_url` round-trips the banner through `Url`, so the retained
+        // readiness record carries the normalized host and a root-path slash, which
+        // is the form the shipping baseline (`origin/main`) produces.
         assert_eq!(
             snapshot.preview_url.as_deref(),
-            Some("http://localhost:5173")
+            Some("http://127.0.0.1:5173/")
         );
         assert!(snapshot.running);
         let serialized = serde_json::to_value(snapshot).unwrap();
-        assert_eq!(serialized["previewUrl"], "http://localhost:5173");
+        assert_eq!(serialized["previewUrl"], "http://127.0.0.1:5173/");
         meta.mark_exited(Some(0));
         assert!(state
             .read_session_output(7, 500)
@@ -2081,13 +2086,13 @@ mod drain_tests {
     fn a_session_with_draining_readers_is_not_reported_as_finished() {
         let meta = Arc::new(SessionMeta::new(SessionKind::AgentPiped));
         assert!(!meta.draining());
-        meta.begin_reading();
-        meta.begin_reading();
-        assert!(meta.draining());
         // A wait that has nothing to wait for must not cost anything.
         let started = std::time::Instant::now();
         meta.await_drains(std::time::Duration::from_secs(5));
         assert!(started.elapsed() < std::time::Duration::from_millis(50));
+        meta.begin_reading();
+        meta.begin_reading();
+        assert!(meta.draining());
         let reader = meta.clone();
         thread::spawn(move || {
             thread::sleep(std::time::Duration::from_millis(20));

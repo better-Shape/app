@@ -10,7 +10,7 @@ pub fn next_turn_sequence() -> Option<u64> {
 
 fn advance(counter: &AtomicU64) -> Option<u64> {
     counter
-        .try_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_add(1))
+        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_add(1))
         .ok()
 }
 
