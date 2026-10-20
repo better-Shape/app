@@ -113,7 +113,7 @@ function hoverTokens(line: string): string[] {
  * Every background fill with the variant chain in front of it, so `data-[state=open]:focus:bg-x`
  * is read as the chain `data-[state=open]:focus:` and the name `--x`.
  */
-const FILL = /((?:[a-z-]+:|data-\[[^\]]*\]:)*)bg-\[var\((--[\w-]+)\)\]/g;
+const FILL = /(?<![\w:-])((?:[a-z-]+:|data-\[[^\]]*\]:)*)bg-\[var\((--[\w-]+)\)\]/g;
 
 /**
  * The element that owns the fill at `index`: the nearest opening tag that starts before the

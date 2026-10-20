@@ -30,3 +30,27 @@ alphabet (349,524 strings for the email rule, 97,655 for the CSS rule) found no
 difference, and differential fuzzing over the full character set found none for
 the path painter. Random sampling alone was not enough: it missed `a@b..cd`,
 which exhaustive enumeration caught.
+
+## A fifth quadratic, in the test harness (2026-10-20)
+
+A second, wider pass extracted every regex literal from the files the report
+names and timed each against inputs built from its own character classes. It
+found one the first pass missed:
+
+- `tests/ui/hover-rungs.test.ts` `FILL`, quadratic on `a:` runs. The first pass
+  flagged only shipped source, and this regex is in a test helper that scans the
+  `.tsx` tree, so a long variant chain in any source line stalls it.
+
+`(?<![\w:-])` anchors the chain start, the same shape the earlier fixes use. It
+is language-identical here: across all 274 `.tsx` files the two regexes return
+the same 323 matches in the same order, and 200,000 random strings over the
+relevant alphabet produce no difference. Timing drops from 1004 ms to 0.3 ms on
+a 16 KB input, and the doubling ratio falls from 3.98 to 2.02.
+
+The same pass confirmed the remaining `S8786` anchors are not exploitable. The
+`[\\/]+$` and `\s+$` path-trim family is quadratic only when a forced-fail
+sentinel follows a long run, because the engine retries the `$` anchor at each
+start; the inputs those regexes see are paths and identifiers, and the whole
+tree of them runs in under a millisecond. `STATE_FILL` in the same test file is
+linear despite its nested-looking shape, because its inner group must consume a
+literal `:` each round.
