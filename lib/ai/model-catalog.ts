@@ -534,10 +534,13 @@ export function enrichDiscoveredModels(
         const id = `${providerId}/${slug.startsWith(`${providerId}/`) ? slug.slice(providerId.length + 1) : slug}`;
         if (seen.has(id)) continue;
         seen.add(id);
-        // Look up metadata by the raw slug (handles nested slugs like
-        // "accounts/fireworks/models/..." because getModelMetadata only splits
-        // on the first slash when the prefix is a known namespace).
-        const meta = getModelMetadata(full, providerId);
+        // Look up metadata by the raw id first (gateway providers like
+        // OpenRouter report vendor/model e.g. "openai/gpt-4o" which is the
+        // exact catalog key), then fall back to the provider-prefixed form
+        // ("openrouter/openai/gpt-4o") so local gateways that stamp their
+        // own prefix still resolve.
+        const meta = getModelMetadata(full, providerId)
+            ?? getModelMetadata(id, providerId);
         out.push({
             ...meta,
             providerId,
