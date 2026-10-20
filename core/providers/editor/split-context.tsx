@@ -148,7 +148,7 @@ const setGroupActive = (
             active: action.path,
         },
     };
-    if (group === "left") commands.setActiveFile(action.path);
+    if (group === "left") void commands.setActiveFile(action.path);
     return { split: next };
 };
 
@@ -251,7 +251,7 @@ export const EditorSplitProvider = ({ children }: { children: React.ReactNode })
         dispatch({ type: "SPLIT_RIGHT", activePath, allPaths: openPaths });
         const remaining = openPaths.filter((p) => p !== activePath);
         const leftActive = pickNeighbor(activePath, remaining);
-        if (leftActive) commands.setActiveFile(leftActive);
+        if (leftActive) void commands.setActiveFile(leftActive);
     }, [active_file, openPaths, split]);
 
     /** Close the split and return backend focus to the surviving tab. */
@@ -259,7 +259,7 @@ export const EditorSplitProvider = ({ children }: { children: React.ReactNode })
         if (!split) return;
         const focus = closeSplitFocusPath(split, openPaths);
         dispatch({ type: "CLOSE_SPLIT" });
-        if (focus) commands.setActiveFile(focus);
+        if (focus) void commands.setActiveFile(focus);
     }, [split, openPaths]);
 
     /** Focus one editor group without changing its active tab. */
@@ -270,7 +270,7 @@ export const EditorSplitProvider = ({ children }: { children: React.ReactNode })
     /** Activate a tab in one group, or the backend file when unsplit. */
     const setGroupActiveFile = useCallback((group: EditorGroupId, path: string) => {
         if (!split) {
-            commands.setActiveFile(path);
+            void commands.setActiveFile(path);
             return;
         }
         dispatch({ type: "SET_GROUP_ACTIVE", group, path });

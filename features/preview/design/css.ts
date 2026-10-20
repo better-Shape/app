@@ -140,9 +140,9 @@ function parseGradientAngle(raw: string): number {
     if (value.includes("to right")) return 90;
     if (value.includes("to bottom")) return 180;
     if (value.includes("to left")) return 270;
-    const deg = value.match(/(-?\d*\.?\d+)\s*deg/);
+    const deg = value.match(/((?!(?<=\d)(?=\d))-?(?:\d+\.\d+|\.\d+|\d+))\s*deg/);
     if (deg) return Number(deg[1]);
-    const turn = value.match(/(-?\d*\.?\d+)\s*turn/);
+    const turn = value.match(/((?!(?<=\d)(?=\d))-?(?:\d+\.\d+|\.\d+|\d+))\s*turn/);
     if (turn) return Number(turn[1]) * 360;
     return 180;
 }
@@ -169,7 +169,7 @@ export function parseCssGradient(value?: string | null): CssGradient | null {
     const colorParts = parts.slice(start);
     const stops = colorParts.map((part, index) => {
         const extracted = extractColor(part);
-        const pct = extracted.rest.match(/(-?\d*\.?\d+)\s*%/);
+        const pct = extracted.rest.match(/((?!(?<=\d)(?=\d))-?(?:\d+\.\d+|\.\d+|\d+))\s*%/);
         const at =
             pct != null
                 ? Number(pct[1])
