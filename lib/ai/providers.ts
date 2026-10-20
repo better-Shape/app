@@ -1442,30 +1442,46 @@ export function embeddingModelOptions(settings: ProvidersSettings): string[] {
  */
 export function embeddingsTarget(settings: ProvidersSettings): { id: ProviderId; model: string } | null {
   const chosen = modelForFeature(settings, "embeddings");
-  const preferredOf = (ids: ProviderId[]): ProviderId | undefined =>
-    ids.find((id) => id === "openai") ?? ids.find((id) => id === "openrouter") ?? ids[0];
-  // A connection advertises a model only if its preset or the user pinned it.
-  // Routing a vendor slug such as `mistral-embed` to OpenAI 404s, so a named
-  // model goes to the connection that actually serves it.
-  const advertises = (id: ProviderId, model: string): boolean => {
-    const connection = settings.connections[id];
+
+  // Every usable OpenAI-wire connection. When the chosen model is available
+  // from several providers (e.g. text-embedding-3-small on both openai and
+  // openrouter) we pick the preferred one, but when only one provider
+  // actually knows the model we route to that provider instead of forcing
+  // it through openai and 404'ing on vendor-specific slugs.
+  const wire = PROVIDER_PRESETS.filter(
+    (preset) => preset.kind === "openai" && isConnectionUsable(preset.id, settings.connections),
+  );
+  const wireIds = wire.map((p) => p.id);
+
+  const providerOffersModel = (pid: ProviderId): boolean => {
+    const conn = settings.connections[pid];
+    const preset = providerPreset(pid);
+    const native = embeddingSlugFor(pid, chosen);
+    const presetEmbeds = preset.embeddingModels ?? [];
+    const discoveredEmbeds = (conn.discoveredModels ?? [])
+      .filter((m) => m.nonChat && /embed|embedding/i.test(m.id))
+      .map((m) => m.id);
     return (
-      (providerPreset(id).embeddingModels ?? []).includes(model) ||
-      (connection?.models ?? []).includes(model) ||
-      (connection?.extraModels ?? []).includes(model)
+      presetEmbeds.includes(native) ||
+      presetEmbeds.includes(chosen) ||
+      discoveredEmbeds.includes(native) ||
+      discoveredEmbeds.includes(chosen)
+
     );
   };
 
   if (chosen) {
-    // Any OpenAI-wire connection can embed when the user names the model.
-    const wire = PROVIDER_PRESETS.filter(
-      (preset) => preset.kind === "openai" && isConnectionUsable(preset.id, settings.connections),
-    ).map((preset) => preset.id);
-    const owner = wire.find((id) => advertises(id, chosen)) ?? preferredOf(wire);
-    return owner ? { id: owner, model: embeddingSlugFor(owner, chosen) } : null;
+    if (!wireIds.length) return null;
+    const owner =
+      wireIds.find(providerOffersModel) ??
+      (wireIds.find((id) => id === "openai") ?? wireIds.find((id) => id === "openrouter") ?? wireIds[0]);
+    return { id: owner, model: embeddingSlugFor(owner, chosen) };
+
   }
 
-  const known = embeddingProviders(settings);
+  const preferredOf = (ids: ProviderId[]): ProviderId | undefined =>
+    ids.find((id) => id === "openai") ?? ids.find((id) => id === "openrouter") ?? ids[0];
+  const known = wireIds.filter((id) => providerPreset(id).embeddings === true);
   const preferred = preferredOf(known);
   if (!preferred) return null;
   const fallback = providerPreset(preferred).embeddingModels?.[0] ?? "";
@@ -1518,7 +1534,11 @@ export function toRustAiConfig(settings: ProvidersSettings): RustAiConfig {
       label: preset.label,
       apiKey: connection.apiKey.trim(),
       baseUrl: connection.baseUrl.trim() || preset.baseUrl,
-      models: visibleModelIdsFor(preset.id, settings.connections),
+      // Send every chat model the connection reports, not just the visible
+      // subset: model visibility is a UI-picker preference, not a runtime
+      // routing constraint. Hiding a model that was selected as default
+      // (or pinned by a previous session) must not make Rust fall back silently.
+      models: chatModelIdsFor(preset.id, settings.connections),
       enabled: connection.enabled,
       keyless: preset.keyless === true,
       headers: providerHeaders(preset.id, connection),

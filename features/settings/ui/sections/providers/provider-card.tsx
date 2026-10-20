@@ -263,17 +263,16 @@ export function ProviderCard({
             return;
         }
         setTesting(true);
+        // Snapshot inputs at start so we don't resend mid-edit keystrokes, but
+        // read the connection from the latest settings at completion time so
+        // edits made during the probe are not overwritten by a stale closure.
+        const key = connection.apiKey;
+        const url = connection.baseUrl || preset.baseUrl;
         try {
-            const rawReport: unknown = await commands.aiTestProvider(
-                id,
-                preset.kind,
-                connection.apiKey,
-                connection.baseUrl || preset.baseUrl,
-                {
-                    headers: mergedProviderHeaders(id, connection),
-                    authStyle: mergedProviderAuthStyle(id, connection),
-                },
-            );
+            const rawReport: unknown = await commands.aiTestProvider(id, preset.kind, key, url, {
+                headers: mergedProviderHeaders(id, connection),
+                authStyle: mergedProviderAuthStyle(id, connection),
+            });
             if (!isValidProviderReport(rawReport)) {
                 throw new Error(
                     `Could not reach ${preset.label} diagnostics. Verify your API key and base URL, then try again.`,
@@ -288,9 +287,10 @@ export function ProviderCard({
             });
             if (report.ok) {
                 // Persist what the provider reported, enriched with catalog
-                // metadata so context windows / pricing / capabilities show up
-                // without the user typing a single model id.
-                update(withRefreshedModels(connection, report.models, id));
+                // metadata. Use the latest providers.connections[id] so
+                // mid-flight edits are preserved rather than reverted.
+                const latest = providers.connections[id] ?? connection;
+                update(withRefreshedModels(latest, report.models, id));
                 notify.success("Connection verified", `${preset.label} responded in ${report.latencyMs} ms — ${report.models.length} model${report.models.length === 1 ? "" : "s"} found.`);
             } else {
                 notify.error("Connection failed", report.message);

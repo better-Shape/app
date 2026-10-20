@@ -473,6 +473,14 @@ export function getModelMetadata(id: string, providerHint?: ProviderId): ModelMe
         const remapped = byId.get(`${mapped}/${nativeSlug}`);
         if (remapped) return remapped;
     }
+    // When the id uses a BetterShape routing prefix but the catalog stores
+    // models under the inner vendor id (e.g. "openrouter/anthropic/claude-…"
+    // is cataloged as "anthropic/claude-…"), strip the routing prefix and
+    // recurse once.
+    if (isKnownProviderId(catalogPrefix) && nativeSlug.includes("/")) {
+        const inner = getModelMetadata(nativeSlug, providerHint);
+        if (inner.source === "catalog") return inner;
+    }
     // Pure inference.
     const prefix = trimmed.includes("/") ? catalogPrefix : (providerHint ?? "custom");
     const resolvedId = (isKnownProviderId(prefix) ? prefix : "custom") as ProviderId;
@@ -534,18 +542,17 @@ export function enrichDiscoveredModels(
         const id = `${providerId}/${slug.startsWith(`${providerId}/`) ? slug.slice(providerId.length + 1) : slug}`;
         if (seen.has(id)) continue;
         seen.add(id);
-        // Look up metadata by the raw id first (gateway providers like
-        // OpenRouter report vendor/model e.g. "openai/gpt-4o" which is the
-        // exact catalog key), then fall back to the provider-prefixed form
-        // ("openrouter/openai/gpt-4o") so local gateways that stamp their
-        // own prefix still resolve. `getModelMetadata` never returns null
-        // (it falls back to an inferred record), so prefer whichever lookup
-        // actually came from the catalog rather than the inferred default.
+        // Look up metadata by the raw reported id first (gateway vendors
+        // return "anthropic/claude-…" which is the catalog key), then try
+        // the BetterShape-prefixed form for local gateways that stamp their
+        // own prefix. getModelMetadata never returns null (it falls back to
+        // an inferred record), so pick whichever call actually hit the
+        // catalog; otherwise use the raw lookup.
         const rawMeta = getModelMetadata(full, providerId);
         const prefixedMeta = getModelMetadata(id, providerId);
-        const meta = rawMeta.source === "catalog"
-            ? rawMeta
-            : (prefixedMeta.source === "catalog" ? prefixedMeta : rawMeta);
+        const meta = prefixedMeta.source === "catalog" && rawMeta.source !== "catalog"
+            ? prefixedMeta
+            : rawMeta;
         out.push({
             ...meta,
             providerId,
