@@ -45,6 +45,28 @@ Only Failed attempts may say `None` when there were no failures. Queries, source
 
 </details>
 
+## Proactive and Deep Refinement Evidence
+
+<details>
+<summary>Proactive protocol</summary>
+
+- Intent hypothesis (1-2 sentences):
+- Pattern class and instances found (with search evidence):
+- Proposal presented: minimal vs comprehensive scope, file list, verification for class:
+- Human confirmation evidence (link or quote) — only when scope expansion was proposed; otherwise state no expansion needed with evidence:
+
+</details>
+
+<details>
+<summary>Deep refinement evidence</summary>
+
+- Detail gaps checked (visible/invisible surfaces, design tokens, messages):
+- Edge cases enumerated and dispositioned (with verification per edge):
+- Missing features researched (sources, ranked must/should/nice) and outcome (implemented with confirmation or deferred with reason):
+- Refinement verification (focused checks per iteration, full gate on final tree):
+
+</details>
+
 ## Design confirmations
 
 - Product UI touched: <yes or no>
