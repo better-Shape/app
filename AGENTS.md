@@ -48,9 +48,9 @@ Treat every rule in this file as if the user had asked for it directly. Do not s
 - Do not report automated sandbox recoveries to users unless recovery altered user-visible state or work was lost; record recovery in `.dump/` with evidence.
 - Check that co-author lines carry the real git name and email of the human in the loop. Never invent a co-author.
 
-## Proactive Problem Solving Protocol — HARD CONSTRAINT (Fable 5.5)
+## Proactive Problem Solving Protocol — HARD CONSTRAINT
 
-This section is a hard constraint that overrides any tendency to do a minimal symptom fix. Every task MUST run through intent recognition, pattern matching, and proactive problem solving before editing. Skipping it is a defect, not a shortcut. It implements the relentlessly proactive behavior documented for Fable 5/5.1/5.5: investigate before acting, verify by observation, and prevent recurrence across the entire class.
+This section is a hard constraint that overrides any tendency to do a minimal symptom fix. Every task MUST run through intent recognition, pattern matching, and proactive problem solving before editing. Skipping it is a defect, not a shortcut. It implements relentlessly proactive behavior: investigate before acting, verify by observation, and prevent recurrence across the entire class. This applies to every agent operating in this repository.
 
 ### 1. Intent recognition — understand the underlying goal
 
@@ -59,7 +59,7 @@ ALWAYS infer the user's desired outcome beyond the literal request, even when no
 - Before any edit, write a 1 to 2 sentence intent hypothesis: what the user actually wants to achieve, not just what they typed. Include unstated acceptance criteria such as correctness, maintainability, and prevention of recurrence.
 - Treat the initial message as evidence, not a complete spec. Read it against the repository context, recent changes, and prior session memory in `.dump/` before deciding scope.
 - When intent is ambiguous, offer a recommendation, not a menu. State the hypothesis and ask for confirmation in plain words: "I understand you want X to achieve Y. Confirm or correct before I change scope."
-- Classify the task per the Fable method: trivial to do directly, question that needs clarification, or plan-first work that spans multiple files or systems. Do not execute a plan-first task as a trivial edit.
+- Classify the task per the Think/Act/Prove method: trivial to do directly, question that needs clarification, or plan-first work that spans multiple files or systems. Do not execute a plan-first task as a trivial edit.
 
 ### 2. Pattern matching — recognize the class, not the instance
 
@@ -86,7 +86,7 @@ ALWAYS propose a system-wide solution that prevents future bugs, and get explici
 
 ### 4. Relentlessly proactive execution — think, act, prove
 
-This is the Fable loop applied to BetterShape work. Run it on every plan-first or ambiguous task:
+This is the proactive loop applied to BetterShape work. Run it on every plan-first or ambiguous task:
 
 ```
 0 classify -> 1 define done -> 2 evidence -> 3 decide -> 4 propose and confirm -> 5 act -> 6 verify -> 7 distill
@@ -98,10 +98,10 @@ This is the Fable loop applied to BetterShape work. Run it on every plan-first o
 - **3 decide:** Commit to one recommendation. State what changed, why, and what it touches in plain language.
 - **4 propose and confirm:** If the fix expands beyond the reported instance, pause and present the comprehensive proposal with the 3-point structure above. Wait for explicit human confirmation. Do not proceed on implied authorization.
 - **5 act:** Make surgical edits with minimal impact. Do not break working functionality. Follow patterns already in the repo for dialogs, state, IPC, and settings.
-- **6 verify:** Verify by observation, not assertion. Tie every progress claim to a tool result from this session. Separate verification from execution: re-read the diff with fresh context as a verifier subagent would, checking against the rubric, the defined done, and the pattern class. A green run from before the last edit proves nothing.
-- **7 distill:** Record the lesson: root cause, pattern class, decision trail, and what future work should reuse. Write it to `.dump/` with versions, SHAs, paths, and sources so it can be re-verified. This is how Fable 5's memory progression moves from fail to investigate to verify to distill.
+- **6 verify:** Verify by observation, not assertion. Tie every progress claim to a tool result from this session. Separate verification from execution: re-read the diff with fresh context as a verifier would, checking against the rubric, the defined done, and the pattern class. A green run from before the last edit proves nothing.
+- **7 distill:** Record the lesson: root cause, pattern class, decision trail, and what future work should reuse. Write it to `.dump/` with versions, SHAs, paths, and sources so it can be re-verified. This is how the memory progression moves from fail to investigate to verify to distill.
 
-Verification coverage target: aim for full class coverage, not just instance coverage. In Fable 5 experiments, verifier subagents in fresh context caught about 73 percent of seeded issues versus 7 to 33 percent for self-critique. Apply that separation on every PR.
+Verification coverage target: aim for full class coverage, not just instance coverage. In controlled experiments, verifier subagents in fresh context caught about 73 percent of seeded issues versus 7 to 33 percent for self-critique. Apply that separation on every PR.
 
 ### 5. Hard boundaries — what proactive does NOT mean
 
@@ -117,6 +117,80 @@ Verification coverage target: aim for full class coverage, not just instance cov
 - The Code Research Gate MUST list queries, sources, pattern class, instances found, edge cases, and failed attempts. A gate that omits the pattern class is not run.
 - The PR description MUST include the proactive proposal, the human's confirmation, and the verification that the class is addressed. For UI work, attach the observed capture artifact and name what it confirmed.
 - The pre-push loop MUST re-review the diff up to three times against `REVIEW.md` and `FULL-REVIEW.md`, fixing every critical, major, minor, and UI concern on each pass. A pass that finds nothing is a reason to dig deeper.
+
+If any step in this protocol is skipped, the change is not ready to file. Fix the protocol violation before fixing the code.
+
+## Deep Refinement Protocol — HARD CONSTRAINT
+
+This section is a hard constraint that overrides any tendency to stop at a first-pass that looks good on first glance. Every implementation MUST be treated as a draft that still needs deep refinement. Skipping refinement is a defect, not efficiency. First-pass code consistently lacks attention to detail, leaves rough edge cases, and misses features that should be there. This protocol forces you to research, implement, and refine the entire implementation until no rough edges remain. It applies to every agent on every task.
+
+Assume the stance: everything achieved so far in this session still needs deep refinement. There is very little attention to detail yet, there are rough edge cases that can be further improved, and there are missing features that should exist. Your job is not to declare done after the happy path. Your job is to find what is missing and make it real.
+
+### 1. Deep refinement mindset — first-pass is never done
+
+ALWAYS treat the current state as incomplete, even when it appears to work.
+
+- NEVER report "looks good" after a single verification. After the initial fix passes, you MUST run a dedicated refinement pass before reporting done. A feature that was not verified at its boundaries was not finished.
+- Adopt the refinement assumption: on first glance the implementation looks good, but attention to detail is low, edge cases are rough, and at least one important feature is missing. Prove that assumption wrong by finding and fixing those gaps, or it remains true.
+- Define what missing means before you search for it: read the intent hypothesis from the Proactive Protocol, read `DESIGN.md` and `engineering/design-system-baseline.md`, read the owning surface's design doc, and list the expected behaviors that are not yet present. Missing work is not scope creep when it completes the stated intent.
+- Research outside this repository when the domain has known standards the current code ignores: accessibility, platform conventions, error handling, security boundaries, and performance expectations for the specific feature. Search the web, fetch primary sources, and cite them.
+
+### 2. Attention to detail — polish until no rough edge remains
+
+ALWAYS sweep for detail gaps that survive functional tests but break user trust.
+
+- Check every visible surface you touched or enabled: states, transitions, empty and loading states, disabled and hover states, focus rings, keyboard paths, touch targets, contrast, typography scale, spacing, radius, density, and motion tokens. Compare each value against `DESIGN.md` and the baseline. A hard-coded color, radius, duration, or font size is a defect.
+- Check every invisible surface: naming, consistency, duplication, dead state, unused exports, needless casts, duplicated conditionals, comments that restate code, and stale persisted state. Extract shared logic instead of duplicating it.
+- Check every message the user sees and the developer will maintain: error messages, empty states, placeholders, tooltips, commit messages, PR descriptions, and documentation. Apply `unslop` and antislop: no em dashes, no vague phrasing, no chatbot praise, concrete paths and mechanisms.
+- For UI work, load the design set in `engineering/design-skills.md`, run the taste pre-flight in `design-taste-frontend`, and capture the refined state with `ui-capture`. Watch the GIF before attaching. A recording you have not reviewed proves nothing. A detail you did not inspect is not polished.
+- Use the Delivery Gate in `engineering/design-skills.md`: a FAIL on any item means not shippable, even when tests pass.
+
+### 3. Edge cases — harden the rough edges
+
+ALWAYS enumerate and handle the edge cases the first pass ignored. List them explicitly in the Code Research Gate and handle each one:
+
+- Empty and maximal inputs, boundaries and off-by-one, failure and cancellation paths, abort and retry, disconnect and shutdown, ordering and races, platform differences, and every consumer of a changed contract.
+- Specifically watch for patterns that look correct but hide failure: a fallback that swallows the original error, a retry that replays an aborted request, a response body read twice, an unchecked cast, an unvalidated redirect, an unbounded buffer, stale persisted state, and a race between concurrent writes.
+- For each edge case, state the expected behavior, the verification that proves it, and what the code does when the edge is hit. If verification cannot be run in this sandbox, name why and what substitute command was run.
+- Add or update tests for every edge case you fix, without altering existing tests to make them pass. Fix the code the test describes. If a test is genuinely wrong, say so in the PR.
+- Run the full verification gate after hardening, not just the single test that covers the fix. A green run from before your last edit proves nothing about the current tree.
+
+### 4. Missing features — research, propose, implement, refine
+
+ALWAYS search for features that should be there but are not yet present. An implementation that implements only the literal request is incomplete when the broader scope implies more.
+
+- Compare what exists against the full intent: what would a user expect this feature to do beyond the happy path? What does a comparable shipped product do in the same surface? Gather at least two external references and weigh each missing feature against them and the committed design docs.
+- Enumerate missing features as a ranked list: must-have to fulfill the intent, should-have to prevent support burden, and nice-to-have that can defer. For each must-have, name the file, the behavior, and the verification that will prove it.
+- Apply the Proactive Protocol's confirmation rule: if the missing feature expands scope beyond the reported task, propose it with the 3-point structure, offer minimal vs comprehensive options with your recommendation, and wait for explicit confirmation before acting. Do not silently implement scope expansion, and do not silently omit scope that completes the intent.
+- Implement the confirmed missing features with the same standards as the original fix: smallest correct change, shared ownership, no new dependency unless required, no telemetry or outbound call without user request, input validated and bounded at every untrusted boundary.
+- After implementing, refine the entire implementation as a whole, not just the new part. Run a holistic pass that checks integration, naming, state ownership, and whether the new feature introduced inconsistency elsewhere. The whole must feel designed, not assembled.
+
+### 5. Refinement execution — iterate until no rough edge remains
+
+This is the refinement loop. Run it after every initial success, and repeat until a pass finds no new detail gaps, edge cases, or missing features:
+
+```
+implement -> detail audit -> edge case sweep -> missing feature search -> propose refinements and get confirmation -> implement refinements -> verify by observation -> repeat
+```
+
+- Bound each iteration to one clear improvement. Do not batch unrelated refinements into a single large change that hides review. One concern per branch still applies, but refinement iterations within that concern are mandatory.
+- Keep the loop honest: re-read your own diff with fresh context as a separate verifier would. In controlled experiments, fresh-context verifiers catch about three times more issues than self-critique. Apply that separation on every refinement pass.
+- Record each refinement iteration as a lesson in `.dump/`: what was rough, what was missing, what verification caught it, and what future work should reuse. This is how memory moves from fail to investigate to verify to distill.
+- Stop only when you can state with evidence: every detail gap has been checked against design tokens and standards, every listed edge case has been handled and verified, every must-have missing feature has been proposed and either implemented with confirmation or explicitly deferred with reason. A pass that finds nothing is a reason to dig deeper, not a reason to stop early.
+
+### 6. Hard boundaries — what refinement does NOT mean
+
+- Refinement is not gold-plating or endless polish beyond the intent. Once the intent is fully satisfied with detail, edge cases, and must-have features verified, stop. Do not invent new requirements to prolong work.
+- Refinement is not silent scope expansion. Proactive identification is mandatory, autonomous execution without confirmation is not. Follow the closed-world scope contract.
+- Refinement is not skipping verification to save time. Every refinement claim MUST cite the tool output, test result, or observed capture that proves it. A claim without evidence is not refinement.
+- Refinement is not weakening tests or lowering thresholds to make a check pass. That is a defect. Fix the code, not the test.
+
+### 7. Enforcement
+
+- The Verification Gate MUST be re-run after every refinement iteration and reported with the new head SHA. A result from before the last refinement proves nothing.
+- The Code Research Gate MUST list detail gaps checked, edge cases enumerated and dispositioned, missing features researched with sources, and failed refinement attempts. A gate that omits any of those is not run.
+- The PR description MUST include the refinement summary: what was rough, what was missing, what was improved, and what verification proves the refinement. For UI work, attach the current refined-state capture and name what it confirms.
+- The pre-push loop MUST re-review the entire diff — original plus refinements — up to three times against `REVIEW.md` and `FULL-REVIEW.md`. A change that passes tests but still has rough edges is not ready to file.
 
 If any step in this protocol is skipped, the change is not ready to file. Fix the protocol violation before fixing the code.
 
