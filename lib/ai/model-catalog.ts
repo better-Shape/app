@@ -538,9 +538,14 @@ export function enrichDiscoveredModels(
         // OpenRouter report vendor/model e.g. "openai/gpt-4o" which is the
         // exact catalog key), then fall back to the provider-prefixed form
         // ("openrouter/openai/gpt-4o") so local gateways that stamp their
-        // own prefix still resolve.
-        const meta = getModelMetadata(full, providerId)
-            ?? getModelMetadata(id, providerId);
+        // own prefix still resolve. `getModelMetadata` never returns null
+        // (it falls back to an inferred record), so prefer whichever lookup
+        // actually came from the catalog rather than the inferred default.
+        const rawMeta = getModelMetadata(full, providerId);
+        const prefixedMeta = getModelMetadata(id, providerId);
+        const meta = rawMeta.source === "catalog"
+            ? rawMeta
+            : (prefixedMeta.source === "catalog" ? prefixedMeta : rawMeta);
         out.push({
             ...meta,
             providerId,
