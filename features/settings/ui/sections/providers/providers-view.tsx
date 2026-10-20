@@ -147,12 +147,12 @@ export function ProvidersSettingsView() {
     const [query, setQuery] = React.useState("");
     const needsEmbeddingId = embeddable && embeddingOptions.length === 0;
 
+    // A provider card shows up in the "configured" zone as soon as the user
+    // has enabled it, so they can paste a key into the card they just added
+    // instead of being trapped on the FirstRun screen. `ProviderCard` itself
+    // renders the key prompt and disabled Test button until the key is set.
     const configured = React.useMemo(
-        () =>
-            PROVIDER_PRESETS.filter((preset) => {
-                const c = providers.connections[preset.id];
-                return c.enabled && (c.apiKey.trim() || preset.keyless) && (!preset.needsBaseUrl || c.baseUrl.trim());
-            }),
+        () => PROVIDER_PRESETS.filter((preset) => providers.connections[preset.id]?.enabled),
         [providers.connections],
     );
 
