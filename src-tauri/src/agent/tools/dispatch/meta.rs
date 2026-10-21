@@ -282,7 +282,7 @@ async fn approve_stdio_server(cfg: &McpServerConfig, ctx: &ToolCtx<'_>) -> Resul
                 "'{}' was not approved. Nothing was written or started. Ask the user first if it should run.",
                 preview
             ))
-        },
+        }
         super::common::ApprovalDecision::Cancelled => {
             Err("The turn was cancelled while waiting for approval.".to_string())
         }
