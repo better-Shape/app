@@ -83,6 +83,9 @@ const SUBAGENT_STATUS_MAP: Partial<Record<string, SubagentStatus>> = {
 const parseSubagentStatus = (statusRaw?: string): SubagentStatus =>
     SUBAGENT_STATUS_MAP[(statusRaw || "").toLowerCase()] ?? "done";
 
+/** `<attr="value">` readers, compiled once per attribute name. */
+const ATTR_PATTERNS = new Map<string, RegExp>();
+
 type ExtractedSubagentEntry = {
     id: string;
     title: string;
@@ -93,8 +96,14 @@ type ExtractedSubagentEntry = {
 };
 
 /** Reads a quoted XML attribute value from a `<subagent>` or `<subagent_ref>` tag header. */
-const readXmlAttr = (tag: string, name: string): string =>
-    tag.match(new RegExp(`${name}="([^"]*)"`))?.[1] ?? "";
+const readXmlAttr = (tag: string, name: string): string => {
+    let re = ATTR_PATTERNS.get(name);
+    if (!re) {
+        re = new RegExp(`${name}="([^"]*)"`);
+        ATTR_PATTERNS.set(name, re);
+    }
+    return tag.match(re)?.[1] ?? "";
+};
 
 /** Resolves a non-empty subagent display title from `<subagent>` XML attributes. */
 const resolveXmlSubagentTitle = (tag: string): string =>

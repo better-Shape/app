@@ -1736,6 +1736,24 @@ export const ChatInput = React.memo(function ChatInput({
         };
     }, [applyProgrammaticInputValue, inputValue]);
 
+    // Highlight ranges for the overlay mirror the textarea. Parsing them on
+    // every render repeated the same scan on each streamed token.
+    const highlightRanges = React.useMemo(() => {
+        const mentionRs = mentionRanges(inputValue);
+        const slashRs = slashCommandRanges(inputValue, settings.ai.workflows ?? []);
+        const ranges = [
+            ...mentionRs.map((r) => ({ kind: "mention" as const, ...r })),
+            ...slashRs.map((r) => ({ kind: "slash" as const, ...r })),
+        ].sort((a, b) => a.start - b.start);
+        const merged: typeof ranges = [];
+        for (const r of ranges) {
+            const prev = merged[merged.length - 1];
+            if (prev && r.start < prev.end) continue;
+            merged.push(r);
+        }
+        return merged;
+    }, [inputValue, settings.ai.workflows]);
+
     const hasContextStrip =
         (pendingEdits?.length ?? 0) > 0 ||
         queuedMessages.length > 0 ||
@@ -2122,18 +2140,7 @@ export const ChatInput = React.memo(function ChatInput({
                                     if (!inputValue.includes("@") && !inputValue.includes("/")) {
                                         return inputValue ? `${inputValue}${trailingBreak}` : "\u00a0";
                                     }
-                                    const mentionRs = mentionRanges(inputValue);
-                                    const slashRs = slashCommandRanges(inputValue, settings.ai.workflows ?? []);
-                                    const ranges = [
-                                        ...mentionRs.map((r) => ({ kind: "mention" as const, ...r })),
-                                        ...slashRs.map((r) => ({ kind: "slash" as const, ...r })),
-                                    ].sort((a, b) => a.start - b.start);
-                                    const merged: typeof ranges = [];
-                                    for (const r of ranges) {
-                                        const prev = merged[merged.length - 1];
-                                        if (prev && r.start < prev.end) continue;
-                                        merged.push(r);
-                                    }
+                                    const merged = highlightRanges;
                                     if (merged.length === 0) {
                                         return inputValue ? `${inputValue}${trailingBreak}` : "\u00a0";
                                     }

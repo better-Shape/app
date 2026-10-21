@@ -21,6 +21,7 @@ import { CommandPaletteBridge } from "@/features/agent/palette";
 import { DesignPreviewCaptureHost } from "@/features/chat/ui/design-capture";
 import { WebviewReconnect } from "@/components/layout/webview-reconnect";
 import { PreviewCrash } from "@/components/layout/error/preview-crash";
+import { KeyboardShortcutsCheatsheet } from "@/features/shortcuts/ui/cheatsheet";
 
 /**
  * A route base matches its own path and anything under it. The prod static export serves
@@ -36,7 +37,10 @@ const ProviderShell = ({ children }: { children: React.ReactNode }) => (
     <LoadingProvider>
         <NotificationProvider>
             <SuppressNativeTooltips />
-            <GlobalContextMenu>{children}</GlobalContextMenu>
+            <GlobalContextMenu>
+                <KeyboardShortcutsCheatsheet />
+                {children}
+            </GlobalContextMenu>
         </NotificationProvider>
     </LoadingProvider>
 );

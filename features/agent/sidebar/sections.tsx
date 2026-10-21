@@ -98,18 +98,21 @@ export const SORT_OPTIONS: { value: ChatSort; label: string }[] = [
  * Shelves own the pin split, so the sort choice is the whole answer. The id tiebreak keeps
  * equal-timestamped rows from swapping, which is what makes a reorder animate.
  */
+/** One collator for every title comparison; `localeCompare` built a new one per call. */
+const titleCollator = new Intl.Collator(undefined, { sensitivity: "base" });
+
 export function sortShelf(chats: readonly Conversation[], sort: ChatSort): Conversation[] {
     const sorted = [...chats];
     sorted.sort((a, b) => {
         if (sort === "name-asc") {
             return (
-                (a.title || "").localeCompare(b.title || "", undefined, { sensitivity: "base" })
+                titleCollator.compare(a.title || "", b.title || "")
                 || a.id.localeCompare(b.id)
             );
         }
         if (sort === "name-desc") {
             return (
-                (b.title || "").localeCompare(a.title || "", undefined, { sensitivity: "base" })
+                titleCollator.compare(b.title || "", a.title || "")
                 || a.id.localeCompare(b.id)
             );
         }

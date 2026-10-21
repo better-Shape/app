@@ -8,6 +8,10 @@ export const stripOrphanThinkTags = (text: string): string => {
         .replace(/<\/?think[^>]*>\s*/gi, "");
 };
 
+// The rule it guards is `/gi`, so probe case-insensitively: `_EXECUTE` must not
+// fall through the fast path and survive in the rendered message.
+const hasExecuteDump = (text: string) => /_[eE]xecute/i.test(text);
+
 const LEAKED_TOOL_CALL_FN_RE =
     /(?:default_api\.[a-zA-Z_]\w*|render_design_previews|read_file|edit_file|write_file|grep_search|run_terminal|web_search|list_terminals|terminal_read|terminal_input)/;
 const LEAKED_PRINT_FN_RE = new RegExp(`\\bprint\\s*\\(\\s*${LEAKED_TOOL_CALL_FN_RE.source}\\s*\\(`);
@@ -19,7 +23,7 @@ export const looksLikeLeakedToolCode = (body: string): boolean => {
     const t = body.trim();
     if (!t) return false;
     if (/"tool_code"\s*:/.test(t)) return true;
-    const hasExecute = t.includes("_execute");
+    const hasExecute = hasExecuteDump(t);
     if (
         LEAKED_PRINT_FN_RE.test(t) ||
         (hasExecute && /\bprint\s*\(\s*[a-zA-Z_][a-zA-Z0-9_]*\s*\(/.test(t))
@@ -98,6 +102,7 @@ const LEAKED_TAG_PATTERNS = LEAKED_TOOL_XML_TAGS.map((tag) => {
 });
 
 const FW_BAR = "\uFF5C";
+const TRIPLE_NEWLINE = /\n{3,}/g;
 const DSML_PAIRED_RE = new RegExp(
     `<${FW_BAR}{0,2}DSML${FW_BAR}{1,2}[\\w.]*?>[\\s\\S]*?<\\/${FW_BAR}{0,2}DSML${FW_BAR}{1,2}[\\w.]*?>`,
     "gi",
@@ -186,6 +191,7 @@ const mapOutsideCodeFences = (text: string, fn: (prose: string) => string): stri
     return out.join("");
 };
 
+
 /**
  * Strip provider/model tool-call grammars that leaked into assistant text.
  * Surveyed shapes: DeepSeek DSML, Qwen/Hermes/GLM `<tool_call>`, MiniMax,
@@ -196,7 +202,7 @@ export const stripLeakedToolMarkup = (text: string): string => {
     const hasAngle = text.includes("<");
     const hasDsml = text.includes(FW_BAR);
     const hasMistral = text.includes("[TOOL_CALLS]");
-    const hasExecute = text.includes("_execute");
+    const hasExecute = hasExecuteDump(text);
     if (!hasAngle && !hasDsml && !hasMistral && !hasExecute) {
         return text.includes("\n\n\n") ? text.replace(/\n{3,}/g, "\n\n") : text;
     }
@@ -212,7 +218,7 @@ export const stripLeakedToolMarkup = (text: string): string => {
         const proseAngle = prose.includes("<");
         const proseDsml = prose.includes(FW_BAR);
         const proseMistral = prose.includes("[TOOL_CALLS]");
-        const proseExecute = prose.includes("_execute");
+        const proseExecute = hasExecuteDump(prose);
         if (!proseAngle && !proseDsml && !proseMistral && !proseExecute) return prose;
 
         let p = prose;
@@ -266,7 +272,21 @@ export const stripLeakedToolMarkup = (text: string): string => {
  * ```
  * Also strips cross-model XML / sentinel tool grammars from prose.
  */
-export const stripLeakedToolCode = (text: string): string => {
+export function stripLeakedToolCode(text: string): string {
+    // Fast path: no marker any rule can match, so the only work left is the
+    // newline collapse the full path ends with.
+    if (
+        !text.includes("`")
+        && !text.includes("<")
+        && !text.includes("tool_code")
+        && !text.includes("print")
+        && !text.includes("functions.")
+        && !text.includes("[TOOL_CALLS]")
+        && !hasExecuteDump(text)
+    ) {
+        return text.replace(TRIPLE_NEWLINE, "\n\n");
+    }
+
     let s = text;
 
     if (s.includes("```")) {
@@ -289,6 +309,9 @@ export const stripLeakedToolCode = (text: string): string => {
     }
 
     if (s.includes("print") || s.includes("functions.")) {
+        // Only known tool helpers count as a leak; a prose example such as
+        // `print(foo(bar))` must stay visible. Both a closed one-line dump and a
+        // still-streaming tail are removed.
         const leakedPrintLineRe = new RegExp(
             `(?:^|\\n)[ \\t]*print\\s*\\(\\s*${LEAKED_TOOL_CALL_FN_RE.source}\\s*\\([^\\n]*\\)\\s*\\)[ \\t]*(?=\\n|$)`,
             "g",
@@ -320,7 +343,8 @@ export const stripLeakedToolCode = (text: string): string => {
 };
 
 /** Repair cumulative-stream glitches and obvious duplicate phrases in assistant text. */
-export const repairStreamGlitches = (text: string): string => {
+/** Repair cumulative-stream glitches and obvious duplicate phrases in assistant text. */
+export function repairStreamGlitches(text: string): string {
     if (text.length < 40) return text;
 
     const maxAdjLen = Math.min(120, Math.floor(text.length / 2));
@@ -355,8 +379,15 @@ export const repairStreamGlitches = (text: string): string => {
             matched++;
         }
         const prevChar = text.charAt(start - 1);
+        // A copy that runs to the end of the text is a replay, not prose, even
+        // when it is one character shorter than its offset (missing a trailing
+        // space). Short repeated openers in later paragraphs are left alone.
+        const isSuffixReplay = start + matched >= text.length - 1;
         const isGlitchReplay =
-            matched === start || matched >= 80 || (prevChar.length > 0 && !/\s/.test(prevChar));
+            matched === start
+            || matched >= 80
+            || isSuffixReplay
+            || (prevChar.length > 0 && !/\s/.test(prevChar));
         if (matched >= 20 && isGlitchReplay) {
             return text.slice(0, start) + text.slice(start + matched);
         }
@@ -377,7 +408,7 @@ export const repairStreamGlitches = (text: string): string => {
     }
 
     return text;
-};
+}
 
 /** Normalize assistant markdown before ReactMarkdown. */
 export const looksLikeProseMarkdown = (text: string): boolean => {
@@ -697,6 +728,11 @@ export function preprocessChatMarkdown(
     if (!options?.streaming) {
         s = repairStreamGlitches(s);
         s = truncateForDisplay(s);
+    } else {
+        // Cap the live text at the same limit the settled render uses: a model
+        // that dumps a huge file mid-stream would otherwise re-parse the whole
+        // thing on every frame for text that is never shown past the cap.
+        s = truncateForDisplay(s);
     }
     s = s.replace(/^[•●▪◦]\s+/gm, "- ");
     s = s.replace(/^\s*[-*_]{3,}\s*$/gm, "");
@@ -715,12 +751,28 @@ export function preprocessChatMarkdown(
     return s;
 }
 
-/** Close an unclosed fenced code block so streaming markdown does not swallow the rest as mono code. */
+/**
+ * Close an unclosed fenced code block so streaming markdown does not swallow the
+ * rest as mono code. Tracks the open fence instead of counting markers, so a
+ * streamed ````` example, a `~~~` block, or an info string on the opener all
+ * close with the right marker — counting `^```` used to leave them open.
+ */
 function balanceMarkdownFences(text: string): string {
-    if (!text.includes("```")) return text;
-    const fenceCount = (text.match(/^```/gm) || []).length;
-    if (fenceCount % 2 !== 0) {
-        return `${text}\n\`\`\``;
+    let open: { char: string; len: number } | null = null;
+    for (const line of text.split("\n")) {
+        const parsed = readStreamFenceMarker(line);
+        if (!parsed) continue;
+        if (open) {
+            // A closer has the same character, at least the opener's length, and
+            // no info string (CommonMark); anything else is just content.
+            if (parsed.char === open.char && parsed.len >= open.len && parsed.suffix.trim() === "") {
+                open = null;
+            }
+            continue;
+        }
+        if (!isOpeningStreamFence(parsed)) continue;
+        open = { char: parsed.char, len: parsed.len };
     }
-    return text;
+    if (!open) return text;
+    return `${text}\n${open.char.repeat(open.len)}`;
 }

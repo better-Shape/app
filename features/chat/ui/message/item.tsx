@@ -10,6 +10,7 @@ import { TextQuote20Regular } from "@fluentui/react-icons/headless/svg/text-quot
 
 import React from "react";
 import { useChatStreamGetters } from "@/features/chat/lib/chat-stream-store";
+import type { ChatMessage } from "@/lib/backend";
 import { cn, createOccurrenceKeyer } from "@/lib/utils";
 import { toTimestampMs } from "@/lib/ui/timestamp";
 import { MessageRenderer, parseMessageContent, extractWebSearchResults } from "../md/renderer";
@@ -86,6 +87,8 @@ type ChatMessageItemProps = {
     onFork?: (index: number) => void;
     isFileEditResolved?: (file: string, replacement?: string) => boolean;
     fullWidthBubbles?: boolean;
+    /** Live transcript, read only when the usage menu opens. */
+    messagesRef?: React.RefObject<ChatMessage[]>;
 };
 
 /** Renders an attached file or image thumbnail chip inside a sent user message. */

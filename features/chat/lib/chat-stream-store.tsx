@@ -124,6 +124,24 @@ const defaultGettersValue: ChatStreamGettersValue = {
 
 const ChatStreamGettersContext = React.createContext<ChatStreamGettersValue>(defaultGettersValue);
 
+/**
+ * Turn-level state without the transcript. Streaming replaces `messages` on
+ * every token; surfaces that only show a spinner or the viewed id subscribe
+ * here so they do not re-render per token.
+ */
+export type ChatStreamMeta = Pick<
+    ChatStreamState,
+    | "isLoading"
+    | "activityLabel"
+    | "turnPhase"
+    | "turnId"
+    | "sendError"
+    | "contextSummarized"
+    | "viewedConversationId"
+>;
+
+const ChatStreamMetaContext = React.createContext<ChatStreamMeta | null>(null);
+
 const PENDING_KEY = "__pending__";
 const MAX_TRANSCRIPT_CACHE = 24;
 const PREFETCH_EVENT = "bettershape-chat-prefetch";
@@ -956,23 +974,27 @@ export const ChatStreamProvider = ({ children }: { children: React.ReactNode }) 
     const ownsRequest = React.useCallback((id: string | null, requestId: string) =>
         liveTurnsRef.current.get(id ?? PENDING_KEY)?.requestId === requestId, []);
 
-    const value = React.useMemo<ChatStreamContextValue>(
+    const meta = React.useMemo<ChatStreamMeta>(
         () => ({
             isLoading,
-            messages,
             activityLabel,
             turnPhase,
             turnId,
             sendError,
             contextSummarized,
             viewedConversationId,
+        }),
+        [isLoading, activityLabel, turnPhase, turnId, sendError, contextSummarized, viewedConversationId],
+    );
+
+    const actions = React.useMemo(
+        () => ({
             setMessages,
             setSendError,
             setContextSummarized,
             getViewedConversationId,
             getDraftConversationId,
             showConversation,
-            prefetchConversation,
             isCurrentView,
             reloadViewedMessages,
             bootstrapFromBackend,
@@ -982,25 +1004,14 @@ export const ChatStreamProvider = ({ children }: { children: React.ReactNode }) 
             prepareStop,
             startDraftChat,
             hasLiveTurn,
+            prefetchConversation,
             ownsRequest,
             getRequestOwner,
         }),
         [
-            isLoading,
-            messages,
-            activityLabel,
-            turnPhase,
-            turnId,
-            sendError,
-            contextSummarized,
-            viewedConversationId,
-            setMessages,
-            setSendError,
-            setContextSummarized,
             getViewedConversationId,
             getDraftConversationId,
             showConversation,
-            prefetchConversation,
             isCurrentView,
             reloadViewedMessages,
             bootstrapFromBackend,
@@ -1010,16 +1021,24 @@ export const ChatStreamProvider = ({ children }: { children: React.ReactNode }) 
             prepareStop,
             startDraftChat,
             hasLiveTurn,
+            prefetchConversation,
             ownsRequest,
             getRequestOwner,
         ],
+    );
+
+    const value = React.useMemo<ChatStreamContextValue>(
+        () => ({ ...meta, messages, ...actions }),
+        [meta, messages, actions],
     );
 
     return (
         <ChatStreamGettersContext.Provider value={gettersValue}>
             <ChatStreamViewedIdContext.Provider value={viewedConversationId}>
                 <ChatStreamStatusContext.Provider value={statusValue}>
-                    <ChatStreamContext.Provider value={value}>{children}</ChatStreamContext.Provider>
+                    <ChatStreamMetaContext.Provider value={meta}>
+                        <ChatStreamContext.Provider value={value}>{children}</ChatStreamContext.Provider>
+                    </ChatStreamMetaContext.Provider>
                 </ChatStreamStatusContext.Provider>
             </ChatStreamViewedIdContext.Provider>
         </ChatStreamGettersContext.Provider>
@@ -1054,4 +1073,10 @@ export const useViewedConversationId = (): string | null => {
 /** Static getter accessors that never trigger context re-renders. */
 export function useChatStreamGetters(): ChatStreamGettersValue {
     return React.useContext(ChatStreamGettersContext);
+}
+
+/** Turn-level state that does not change per streamed token. */
+export function useChatStreamMeta(): ChatStreamMeta {
+    const ctx = React.useContext(ChatStreamMetaContext);
+    return ctx ?? defaultState;
 }

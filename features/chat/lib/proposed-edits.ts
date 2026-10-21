@@ -55,20 +55,40 @@ export function getCurrentConversationId(): string | null {
     return currentConversationId;
 }
 
-function loadResolvedFilesStore(): Record<string, Record<string, ResolvedEntry | "applied" | "rejected">> {
+type ResolvedStore = Record<string, Record<string, ResolvedEntry | "applied" | "rejected">>;
+
+/**
+ * Parsed copy of the persisted store, keyed by the exact text it came from.
+ * Every render of an edit card asks whether its file is resolved, and
+ * re-parsing the whole JSON store for each answer added up.
+ */
+/** `undefined` means "no memo yet"; `null` is a real value (`getItem` miss). */
+let resolvedStoreRaw: string | null | undefined;
+let resolvedStore: ResolvedStore = {};
+
+function loadResolvedFilesStore(): ResolvedStore {
     try {
         const stored = localStorage.getItem(RESOLVED_FILES_KEY);
-        if (stored) return JSON.parse(stored);
+        if (resolvedStoreRaw !== undefined && stored === resolvedStoreRaw) return resolvedStore;
+        resolvedStoreRaw = stored;
+        resolvedStore = stored ? (JSON.parse(stored) as ResolvedStore) : {};
+        return resolvedStore;
     } catch { /* ignore */ }
     return {};
 }
 
-function saveResolvedFilesStore(
-    store: Record<string, Record<string, ResolvedEntry | "applied" | "rejected">>,
-) {
+function saveResolvedFilesStore(store: ResolvedStore) {
     try {
-        localStorage.setItem(RESOLVED_FILES_KEY, JSON.stringify(store));
-    } catch { /* ignore */ }
+        const raw = JSON.stringify(store);
+        localStorage.setItem(RESOLVED_FILES_KEY, raw);
+        resolvedStoreRaw = raw;
+        resolvedStore = store;
+    } catch {
+        // Quota or a blocked storage API: drop the memo so the next read falls
+        // back to whatever actually persisted, instead of serving a value that
+        // was never saved.
+        resolvedStoreRaw = undefined;
+    }
 }
 
 function normalizeEntry(

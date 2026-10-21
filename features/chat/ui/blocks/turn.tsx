@@ -1029,7 +1029,7 @@ function turnMarks(blocks: Chunk[]) {
 }
 
 /** Renders the TurnWorkflowSummary UI component. */
-export const TurnWorkflowSummary = ({
+function TurnWorkflowSummaryInner({
     blocks,
     isActive,
     durationMs,
@@ -1044,7 +1044,7 @@ export const TurnWorkflowSummary = ({
     /** When false, only the step pile is shown (for interleaved mid-turn groups). */
     showHeader?: boolean;
     children?: React.ReactNode;
-}) => {
+}) {
     const visible = blocks.filter((b) => isRenderableWorkflowBlock(b, isActive));
     const pendingBlocks = visible.filter(
         (b) =>
@@ -1350,4 +1350,10 @@ export const TurnWorkflowSummary = ({
             {children}
         </div>
     );
-};
+}
+
+/**
+ * Memoized: a turn keeps several workflow groups, and streaming only changes
+ * the last one. Earlier groups skip coalescing and stats on every token.
+ */
+export const TurnWorkflowSummary = React.memo(TurnWorkflowSummaryInner);

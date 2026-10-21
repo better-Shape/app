@@ -31,12 +31,19 @@ function useBreadcrumbOutline(path: string, enabled = true) {
     const requestVersionRef = useRef(0);
     const outlineResponseVersionRef = useRef(0);
     const currentPathRef = useRef(path);
+    const outlineTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     useEffect(() => {
         if (!enabled) return;
         currentPathRef.current = path;
         requestVersionRef.current++;
         outlineResponseVersionRef.current = 0;
+        // A pending debounce belongs to the file we just left: drop it instead of
+        // sending an outline request whose answer is discarded.
+        if (outlineTimerRef.current !== null) {
+            clearTimeout(outlineTimerRef.current);
+            outlineTimerRef.current = null;
+        }
         // eslint-disable-next-line
         setState((prev) => prev.path === path ? prev : { path, outlineResponse: null, cursorPos: { line: 1, col: 1 } });
     }, [path, enabled]);
@@ -66,7 +73,11 @@ function useBreadcrumbOutline(path: string, enabled = true) {
             if (!detail || detail.path !== currentPathRef.current) return;
 
             const reqVer = ++requestVersionRef.current;
-            window.setTimeout(() => {
+            // Debounce: one outline request per typing pause. Without this every
+            // keystroke sent the whole buffer to the backend 300ms later.
+            if (outlineTimerRef.current !== null) clearTimeout(outlineTimerRef.current);
+            outlineTimerRef.current = setTimeout(() => {
+                outlineTimerRef.current = null;
                 commands.getOutline(detail.path, detail.content, detail.extension, detail.version)
                     .then(response => {
                         if (reqVer < requestVersionRef.current) return;
@@ -90,6 +101,10 @@ function useBreadcrumbOutline(path: string, enabled = true) {
         window.addEventListener("bettershape-editor-status", handleStatus);
 
         return () => {
+            if (outlineTimerRef.current !== null) {
+                clearTimeout(outlineTimerRef.current);
+                outlineTimerRef.current = null;
+            }
             window.removeEventListener("bettershape-editor-buffer", handleBuffer);
             window.removeEventListener("bettershape-editor-status", handleStatus);
         };

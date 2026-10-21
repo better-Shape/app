@@ -1,4 +1,5 @@
 import { commands } from "@/lib/backend/commands";
+import { requestTerminalCommand } from "@/features/terminal/commands";
 import { isPopoutPath } from "@/lib/window/tauri-window";
 
 /** `mode` used to be ignored, so Find in Files and Replace in Files both opened the
@@ -60,12 +61,10 @@ export function dispatchShortcutAction(label: string, _key: string): boolean {
             window.dispatchEvent(new CustomEvent("bettershape-layout-toggle", { detail: { id: "primary-sidebar", value: true } }));
             return true;
         case "Terminal":
-            window.dispatchEvent(new CustomEvent("bettershape-layout-toggle", { detail: { id: "panel", value: true } }));
-            window.dispatchEvent(new CustomEvent("bettershape-terminal-shortcut", { detail: { action: "open" } }));
+            requestTerminalCommand("open");
             return true;
         case "New Terminal":
-            window.dispatchEvent(new CustomEvent("bettershape-layout-toggle", { detail: { id: "panel", value: true } }));
-            window.dispatchEvent(new CustomEvent("bettershape-terminal-shortcut", { detail: { action: "new" } }));
+            requestTerminalCommand("new");
             return true;
         case "Settings":
             void import("@/lib/window/open-settings").then(({ openSettingsWindow }) => openSettingsWindow());
@@ -162,6 +161,9 @@ export function dispatchShortcutAction(label: string, _key: string): boolean {
                 await commands.saveFile(selected, content);
                 await commands.openFile(selected, selected.split(/[\\/]/).pop() || selected);
             })();
+            return true;
+        case "Keyboard Shortcuts":
+            window.dispatchEvent(new Event("bettershape-open-shortcuts"));
             return true;
         case "Recent Files":
             window.dispatchEvent(new CustomEvent("bettershape-command-palette", {

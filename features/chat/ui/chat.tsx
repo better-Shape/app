@@ -16,6 +16,7 @@ import { Collapse } from "@/components/ui/collapse";
 import { ChatEmptyState } from "./shell/empty";
 import { ChatSelectionQuoteToolbar } from "./quote-selection";
 import { parseMessageContent } from "./md/renderer";
+import type { ChatMessage } from "@/lib/backend";
 import type { ComposerTaskItem } from "./composer/activity";
 import { AGENT_TABS_SLOT } from "@/features/agent/chrome";
 import { ChatHistoryStepper, useChatTurnActive } from "./shell/history-stepper";
@@ -44,6 +45,30 @@ import {
     subscribeSubagents,
     upsertSubagent,
 } from "@/features/agent/subagents/store";
+
+/**
+ * Subagent tags are scanned out of every message on each stream tick. Message
+ * objects stay stable while their text does, so each one is scanned once.
+ */
+const subagentScanCache = new WeakMap<
+    ChatMessage,
+    {
+        content: string;
+        parentId: string | undefined;
+        items: ReturnType<typeof extractSubagentsFromText>;
+    }
+>();
+
+function scannedSubagents(message: ChatMessage, parentId: string | undefined) {
+    const content = message.content || "";
+    const cached = subagentScanCache.get(message);
+    // `parentId` is not used by the extractor today, but keying on it keeps the
+    // cache honest if a tag ever starts carrying it.
+    if (cached && cached.content === content && cached.parentId === parentId) return cached.items;
+    const items = extractSubagentsFromText(content, parentId);
+    subagentScanCache.set(message, { content, parentId, items });
+    return items;
+}
 
 /** Sticky prompt text. */
 const stickyPromptText = (content: string): string => {
@@ -271,7 +296,9 @@ const Chat = ({
             newChatRef.current().catch(() => undefined);
         };
         const onRestoreLast = () => {
-            const msgs = session.messages;
+            // Read the live transcript on demand: keeping `session.messages` in the
+            // dep list re-subscribed both listeners on every streamed token.
+            const msgs = session.messagesRef.current;
             for (let i = msgs.length - 1; i >= 0; i--) {
                 if (msgs[i]?.role === "user") {
                     restoreRef.current(i).catch(() => undefined);
@@ -285,7 +312,7 @@ const Chat = ({
             window.removeEventListener("bettershape-chat-new", onNewChat);
             window.removeEventListener("bettershape-chat-restore-last", onRestoreLast);
         };
-    }, [session.messages]);
+    }, [session.messagesRef]);
 
     const extractedSubagents = useMemo(() => {
         const parentId = session.conversationId ?? session.activeChatTabId ?? undefined;
@@ -294,7 +321,7 @@ const Chat = ({
         for (const m of session.messages) {
             const raw = m.content || "";
             if (!raw.includes("<subagent")) continue;
-            for (const item of extractSubagentsFromText(raw, parentId)) {
+            for (const item of scannedSubagents(m, parentId)) {
                 seen.set(item.id, { ...item, updatedAt: m.timestamp });
             }
         }
@@ -899,6 +926,7 @@ const Chat = ({
                                 isLoading={session.isLoading}
                                 activityLabel={session.activityLabel}
                                 messagesEndRef={messagesEndRef}
+                                messagesRef={session.messagesRef}
                                 onRedo={session.handleRedo}
                                 onRestore={session.handleRestore}
                                 onFork={session.handleFork}
