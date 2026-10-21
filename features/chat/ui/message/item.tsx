@@ -303,7 +303,40 @@ function extractPresentationMetadata(content: string) {
     return { content: rest, forked, renamed };
 }
 
-function ChatMessageItemInner({
+/** Format user text and attachment names for the message copy action. */
+function userMessageCopyText(content: string): string {
+    const parts = parseUserAttachments(content);
+    const names = parts.attachments.map((attachment) => attachment.name).join(", ");
+    if (names && parts.text) return `${parts.text}\n\n[${names}]`;
+    if (names) return `[${names}]`;
+    return parts.text || content;
+}
+
+/** Copy rendered text for rich assistant chunks when its visible DOM is available. */
+function assistantMessageCopyText(content: string, body: HTMLDivElement | null): string {
+    const metadata = extractPresentationMetadata(content);
+    const chunks = parseMessageContent(metadata.content);
+    const renderedText = body?.innerText || body?.textContent || undefined;
+    const hasRendererOnlyChunks = chunks.some(
+        (chunk) => chunk.type !== "text" && chunk.type !== "openui",
+    );
+    if ((metadata.forked || metadata.renamed || hasRendererOnlyChunks) && renderedText?.trim()) {
+        return renderedText;
+    }
+    const openUIText = Array.from(
+        body?.querySelectorAll<HTMLElement>("[data-openui-block]") ?? [],
+        (element) => element.innerText || element.textContent || "",
+    );
+    return getMessageCopyText(chunks, openUIText, renderedText);
+}
+
+/** Select the role-specific text fallback used by clipboard and context-menu actions. */
+function messageCopyText(role: string, content: string, body: HTMLDivElement | null): string {
+    return role === "user" ? userMessageCopyText(content) : assistantMessageCopyText(content, body);
+}
+
+/** Render the user or assistant message body and its available actions. */
+const ChatMessageItemInner = ({
     role,
     content,
     timestamp,
@@ -317,7 +350,7 @@ function ChatMessageItemInner({
     onRestore,
     onFork,
     isFileEditResolved,
-}: ChatMessageItemProps) {
+}: ChatMessageItemProps) => {
     const viewedMessages = useChatStreamOptional().messages;
     const [expanded, setExpanded] = React.useState(false);
     const [forkOpen, setForkOpen] = React.useState(false);
@@ -330,29 +363,8 @@ function ChatMessageItemInner({
     const shownStats = menuStats ?? stats;
     const shownModel = menuModel ?? model;
 
-    const getCopyText = () => {
-        if (role === "user") {
-            const parts = parseUserAttachments(content);
-            const names = parts.attachments.map((a) => a.name).join(", ");
-            if (names && parts.text) return `${parts.text}\n\n[${names}]`;
-            if (names) return `[${names}]`;
-            return parts.text || content;
-        }
-        const metadata = extractPresentationMetadata(content);
-        const chunks = parseMessageContent(metadata.content);
-        const renderedText = bodyRef.current?.innerText || bodyRef.current?.textContent || undefined;
-        const hasRendererOnlyChunks = chunks.some(
-            (chunk) => chunk.type !== "text" && chunk.type !== "openui",
-        );
-        if (metadata.forked || metadata.renamed || hasRendererOnlyChunks) {
-            if (renderedText?.trim()) return renderedText;
-        }
-        const openUIText = Array.from(
-            bodyRef.current?.querySelectorAll<HTMLElement>("[data-openui-block]") ?? [],
-            (element) => element.innerText || element.textContent || "",
-        );
-        return getMessageCopyText(chunks, openUIText, renderedText);
-    };
+    /** Resolve a role-aware clipboard fallback from the current rendered message. */
+    const getCopyText = () => messageCopyText(role, content, bodyRef.current);
 
     /** Prefer an explicit in-message selection; otherwise copy the normalized rendered message. */
     function handleCopy(): void {
@@ -365,6 +377,7 @@ function ChatMessageItemInner({
         void navigator.clipboard.writeText(getCopyText());
     }
 
+    /** Select only the text rendered in this message body. */
     const handleSelectAll = () => {
         selectNodeContents(bodyRef.current);
     };
@@ -709,7 +722,7 @@ function ChatMessageItemInner({
         </AlertDialog>
         </>
     );
-}
+};
 
 function DetailRow({ label, value }: { label: string; value: string }) {
     return (

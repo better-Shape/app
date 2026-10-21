@@ -57,15 +57,9 @@ const maskQuotedValue = (source: string, start: number, quote: "\"" | "'", maske
     while (index < source.length) {
         const character = source[index] ?? "";
         if (character !== "\n") masked[index] = " ";
-        switch (quotedCharacterAction(character, quote, escaped)) {
-            case "escape-next":
-                escaped = true;
-                break;
-            case "close":
-                return index + 1;
-            default:
-                escaped = false;
-        }
+        const action = quotedCharacterAction(character, quote, escaped);
+        if (action === "close") return index + 1;
+        escaped = action === "escape-next";
         index += 1;
     }
     return index;
@@ -162,26 +156,27 @@ type OpenUIWorkBudget = { nodes: number; renderCost: number };
 /** Return the rejection sentinel used for cycles, excessive depth, and either work limit. */
 const rejectedExpansionCount = (): number => MAX_OPENUI_EXPANDED_NODES + 1;
 
-/** Count a referenced definition while reserving both component count and estimated DOM work. */
-const countDefinitionTree = (
+/** Reserve one definition's expansion against both independent work limits. */
+const reserveDefinitionBudget = (
+    definition: OpenUIDefinition | undefined,
+    budget: OpenUIWorkBudget,
+): boolean => {
+    const renderCost = definition ? componentRenderCost(definition.component) : 1;
+    if (budget.nodes < 1 || budget.renderCost < renderCost) return false;
+    budget.nodes -= 1;
+    budget.renderCost -= renderCost;
+    return true;
+};
+
+/** Recursively account for a parent's children after the parent's own budget is reserved. */
+const countDefinitionChildren = (
     definitions: OpenUIDefinitions,
     name: string,
+    children: string[],
     depth: number,
     budget: OpenUIWorkBudget,
     ancestors: Set<string>,
 ): number => {
-    if (ancestors.has(name) || budget.nodes < 1) return rejectedExpansionCount();
-
-    const definition = definitions.get(name);
-    const renderCost = definition ? componentRenderCost(definition.component) : 1;
-    if (budget.renderCost < renderCost) return rejectedExpansionCount();
-    budget.nodes -= 1;
-    budget.renderCost -= renderCost;
-
-    const children = definition?.children ?? [];
-    if (children.length === 0) return 1;
-    if (depth >= MAX_OPENUI_NESTING) return rejectedExpansionCount();
-
     ancestors.add(name);
     let total = 1;
     for (const child of children) {
@@ -191,6 +186,24 @@ const countDefinitionTree = (
     }
     ancestors.delete(name);
     return total;
+};
+
+/** Count a referenced definition while reserving both component count and estimated DOM work. */
+const countDefinitionTree = (
+    definitions: OpenUIDefinitions,
+    name: string,
+    depth: number,
+    budget: OpenUIWorkBudget,
+    ancestors: Set<string>,
+): number => {
+    if (ancestors.has(name)) return rejectedExpansionCount();
+    const definition = definitions.get(name);
+    if (!reserveDefinitionBudget(definition, budget)) return rejectedExpansionCount();
+
+    const children = definition?.children ?? [];
+    if (children.length === 0) return 1;
+    if (depth >= MAX_OPENUI_NESTING) return rejectedExpansionCount();
+    return countDefinitionChildren(definitions, name, children, depth, budget, ancestors);
 };
 
 /** Count repeated child references as expanded work, not just unique definitions. */
