@@ -416,12 +416,15 @@ pub(super) async fn tool_mcp_manage(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutc
                 return fail(e);
             }
             // A stdio server is a program this machine will run on every
-            // launch. The user answers for it unless auto-run is on.
+            // launch. The user answers for it unless auto-run is on. An env
+            // change is part of what gets run, so it needs the same answer.
             let starts_a_process = cfg.transport == crate::mcp::McpTransport::Stdio
                 && (is_add
                     || existing
                         .as_ref()
-                        .map(|old| old.command != cfg.command || old.args != cfg.args)
+                        .map(|old| {
+                            old.command != cfg.command || old.args != cfg.args || old.env != cfg.env
+                        })
                         .unwrap_or(true));
             if starts_a_process {
                 if let Err(e) = approve_stdio_server(&cfg, ctx).await {
@@ -630,12 +633,18 @@ pub(super) async fn tool_mcp_manage(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutc
             };
 
             // Testing a stdio server runs it. A command the model just invented
-            // gets the same approval as adding one.
-            if cfg.transport == crate::mcp::McpTransport::Stdio
-                && admin::load_server(&cfg.id).ok().flatten().is_none()
-            {
-                if let Err(e) = approve_stdio_server(&cfg, ctx).await {
-                    return fail(e);
+            // gets the same approval as adding one, and so does a stored id whose
+            // command or args this call replaces.
+            if cfg.transport == crate::mcp::McpTransport::Stdio {
+                let stored = admin::load_server(&cfg.id).ok().flatten();
+                let starts_new_command = stored
+                    .as_ref()
+                    .map(|old| old.command != cfg.command || old.args != cfg.args || old.env != cfg.env)
+                    .unwrap_or(true);
+                if starts_new_command {
+                    if let Err(e) = approve_stdio_server(&cfg, ctx).await {
+                        return fail(e);
+                    }
                 }
             }
 

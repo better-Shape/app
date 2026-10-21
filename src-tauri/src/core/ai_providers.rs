@@ -577,6 +577,7 @@ pub fn auth_header(provider: &ResolvedProvider) -> Option<(&'static str, String)
     let name = match provider.auth_style.as_str() {
         "api-key" => "api-key",
         "x-api-key" => "x-api-key",
+        "x-goog-api-key" => "x-goog-api-key",
         "bearer" => "Authorization",
         "none" => return None,
         _ => match provider.kind {

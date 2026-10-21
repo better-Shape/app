@@ -474,14 +474,46 @@ pub async fn execute_visit_url(url: &str, _api_key: &str) -> Result<VisitUrlResu
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
         .user_agent("Mozilla/5.0 (compatible; BetterShape/1.0)")
+        // Redirects are followed by hand so each hop passes the same SSRF
+        // check as the first URL; reqwest's own policy would follow a public
+        // page's Location straight to a private address.
+        .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|e| format!("Visit URL request failed: {e}"))?;
 
-    let resp = client
-        .get(parsed.clone())
-        .send()
-        .await
-        .map_err(|e| format!("Visit URL request failed: {e}"))?;
+    let mut current = parsed.clone();
+    let mut hops = 0usize;
+    let resp = loop {
+        let resp = client
+            .get(current.clone())
+            .send()
+            .await
+            .map_err(|e| format!("Visit URL request failed: {e}"))?;
+        if !resp.status().is_redirection() {
+            break resp;
+        }
+        hops += 1;
+        if hops > 5 {
+            return Err("Too many redirects.".to_string());
+        }
+        let Some(location) = resp
+            .headers()
+            .get(reqwest::header::LOCATION)
+            .and_then(|v| v.to_str().ok())
+        else {
+            break resp;
+        };
+        let next = current
+            .join(location)
+            .map_err(|e| format!("Invalid redirect target: {e}"))?;
+        if !matches!(next.scheme(), "http" | "https") {
+            return Err("Redirect left http(s).".to_string());
+        }
+        current = crate::agent::security::urls::validate_outbound_url_resolved(next.as_str())
+            .await
+            .and_then(|u| url::Url::parse(&u).map_err(|e| e.to_string()))
+            .map_err(|e| format!("Redirect refused: {e}"))?;
+    };
 
     let status = resp.status();
     if !status.is_success() {
@@ -494,10 +526,22 @@ pub async fn execute_visit_url(url: &str, _api_key: &str) -> Result<VisitUrlResu
         .and_then(|v| v.to_str().ok())
         .unwrap_or("")
         .to_string();
-    let body = resp
-        .text()
-        .await
-        .map_err(|e| format!("Could not read page body: {e}"))?;
+    // A page body is model input, not a file to download. Read it in chunks and
+    // stop at the cap so a hostile or runaway server cannot buffer unbounded
+    // bytes into memory before the later per-format truncation runs.
+    let body = {
+        const MAX_BODY_BYTES: usize = 2_000_000;
+        let mut resp = resp;
+        let mut bytes: Vec<u8> = Vec::new();
+        while let Some(chunk) = resp.chunk().await.map_err(|e| format!("Could not read page body: {e}"))? {
+            if bytes.len() >= MAX_BODY_BYTES {
+                break;
+            }
+            let room = MAX_BODY_BYTES - bytes.len();
+            bytes.extend_from_slice(&chunk[..chunk.len().min(room)]);
+        }
+        String::from_utf8_lossy(&bytes).into_owned()
+    };
 
     let title = extract_title(&body);
     let (formatted, host) = if content_type.contains("json") {

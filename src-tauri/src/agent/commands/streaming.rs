@@ -613,7 +613,9 @@ pub async fn stream_chat(
                 continue;
             }
 
-            let Some(data) = line.strip_prefix("data: ") else {
+            // SSE permits `data:` with no space before the payload; only one
+            // optional leading space is stripped.
+            let Some(data) = line.strip_prefix("data:").map(|d| d.strip_prefix(' ').unwrap_or(d)) else {
                 continue;
             };
             if data.trim() == "[DONE]" {

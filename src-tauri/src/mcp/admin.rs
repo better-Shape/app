@@ -430,11 +430,47 @@ pub fn redact_env(env: &HashMap<String, String>) -> String {
         .join(", ")
 }
 
+/// Strip credentials that a stdio argument or an HTTP URL can carry inline.
+///
+/// `describe_target` feeds model-visible output, so a `--token sk-...` flag, a
+/// `?api_key=...` query parameter, URL userinfo, or a bare key with a known
+/// prefix must not survive it. Only the value is masked; the shape stays legible.
+fn redact_inline_secrets(text: &str) -> String {
+    static URL_USERINFO: OnceLock<regex::Regex> = OnceLock::new();
+    static QUERY_PARAM: OnceLock<regex::Regex> = OnceLock::new();
+    static CLI_FLAG: OnceLock<regex::Regex> = OnceLock::new();
+    static KEY_PREFIX: OnceLock<regex::Regex> = OnceLock::new();
+
+    let userinfo = URL_USERINFO.get_or_init(|| {
+        regex::Regex::new(r"(?i)(https?://)[^/@\s]+@").unwrap()
+    });
+    let query = QUERY_PARAM.get_or_init(|| {
+        regex::Regex::new(
+            r#"(?i)([?&](?:api[_-]?key|access[_-]?token|auth[_-]?token|token|key|secret|password|passwd|pwd|apikey)=)[^&\s"']+"#,
+        )
+        .unwrap()
+    });
+    let flag = CLI_FLAG.get_or_init(|| {
+        regex::Regex::new(
+            r#"(?i)((?:^|\s)--?(?:api[_-]?key|access[_-]?token|auth[_-]?token|token|key|secret|password|passwd|pwd|apikey)(?:=|\s+))[^&\s"']+"#,
+        )
+        .unwrap()
+    });
+    let prefix = KEY_PREFIX.get_or_init(|| {
+        regex::Regex::new(r"\b(?:sk|pk|ghp|gho|ghs|ghu|glpat|AKIA|xox[baprs])[-_A-Za-z0-9]{8,}").unwrap()
+    });
+
+    let text = userinfo.replace_all(text, "$1");
+    let text = query.replace_all(&text, "${1}***");
+    let text = flag.replace_all(&text, "${1}***");
+    prefix.replace_all(&text, "***").into_owned()
+}
+
 /// One-line description of where a server lives, with secrets removed.
 pub fn describe_target(cfg: &McpServerConfig) -> String {
     match cfg.transport {
         McpTransport::Stdio => {
-            let mut line = format!("{} {}", cfg.command, cfg.args.join(" "));
+            let mut line = redact_inline_secrets(&format!("{} {}", cfg.command, cfg.args.join(" ")));
             line = line.trim().to_string();
             let env = redact_env(&cfg.env);
             if env.is_empty() {
@@ -443,7 +479,7 @@ pub fn describe_target(cfg: &McpServerConfig) -> String {
                 format!("{line} (env: {env})")
             }
         }
-        McpTransport::Http => cfg.url.clone().unwrap_or_default(),
+        McpTransport::Http => redact_inline_secrets(&cfg.url.clone().unwrap_or_default()),
     }
 }
 
@@ -609,6 +645,25 @@ mod tests {
         let line = describe_target(&cfg);
         assert_eq!(line, "https://mcp.example.com/sse");
         assert!(!line.contains("secret"));
+    }
+
+    #[test]
+    fn describe_target_masks_inline_credentials() {
+        let mut cfg = stdio_cfg("x", "npx");
+        cfg.args = vec![
+            "-y".into(),
+            "server".into(),
+            "--token".into(),
+            "sk-live-abcdef123456".into(),
+        ];
+        let line = describe_target(&cfg);
+        assert!(!line.contains("sk-live-abcdef123456"), "{line}");
+        assert!(line.contains("--token"), "{line}");
+
+        let http = http_cfg("y", "https://user:pw@mcp.example.com/sse?api_key=abc123");
+        let line = describe_target(&http);
+        assert!(!line.contains("abc123"), "{line}");
+        assert!(!line.contains("user:pw"), "{line}");
     }
 
     #[test]

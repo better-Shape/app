@@ -594,6 +594,9 @@ export function CodeMirrorEditor({
                         .then((formatted) => {
                             const live = viewRef.current;
                             if (!live || typeof formatted !== "string" || !formatted || formatted === source) return;
+                            // Drop the result if the user typed while formatting ran;
+                            // replacing the document would discard those edits.
+                            if (live.state.doc.toString() !== source) return;
                             live.dispatch({
                                 changes: { from: 0, to: live.state.doc.length, insert: formatted },
                             });
