@@ -359,6 +359,11 @@ const BarChartAccessibleTable = ({ title, points }: { title?: string; points: Ke
     </table>
 );
 
+/** Keep the visual chart caption inside its figure while avoiding extra render branching. */
+const BarChartTitle = ({ title }: { title?: string }) => title
+    ? <figcaption className="mb-3 text-sm font-medium text-text-primary">{title}</figcaption>
+    : null;
+
 /** Render either the bounded visual bars or a concise empty-data message. */
 const BarChartContents = ({ chart }: { chart: BarChartData }) => chart.count === 0
     ? <p className="text-xs text-text-secondary">No chart data was provided.</p>
@@ -384,12 +389,14 @@ const BarChart = defineComponent({
     component: ({ props }) => {
         const chart = buildBarChartData(props.labels, props.values);
         return (
-            <figure className="min-w-0">
-                {props.title ? <figcaption className="mb-3 text-sm font-medium text-text-primary">{props.title}</figcaption> : null}
-                <BarChartContents chart={chart} />
-                <BarChartLimitNotice chart={chart} />
+            <>
+                <figure className="min-w-0">
+                    <BarChartTitle title={props.title} />
+                    <BarChartContents chart={chart} />
+                    <BarChartLimitNotice chart={chart} />
+                </figure>
                 <BarChartAccessibleTable title={props.title} points={chart.points} />
-            </figure>
+            </>
         );
     },
 });
@@ -400,6 +407,7 @@ type KeyedDataTableRow = { item: KeyedDataTableCell[]; key: string };
 type DataTableData = {
     columns: KeyedDataTableColumn[];
     rows: KeyedDataTableRow[];
+    empty: boolean;
     truncated: boolean;
 };
 
@@ -417,6 +425,7 @@ const buildDataTableData = (rawColumns: string[], rawRows: string[][]): DataTabl
             }));
             return { item: cells, key };
         }),
+        empty: columns.length === 0 || rows.length === 0,
         truncated: rawColumns.length > columns.length || rawRows.length > rows.length,
     };
 };
@@ -457,6 +466,16 @@ const DataTableLimitNotice = ({ table }: { table: DataTableData }) => table.trun
     ? <p className="px-3 py-2 text-xs text-text-secondary" role="status">Showing the first {table.rows.length} rows and {table.columns.length} columns.</p>
     : null;
 
+/** Render a table title only when the generated surface supplied one. */
+const DataTableTitle = ({ title }: { title?: string }) => title
+    ? <h4 className="mb-2 text-sm font-medium text-text-primary">{title}</h4>
+    : null;
+
+/** Give the data table a useful accessible caption when no title was provided. */
+const DataTableCaption = ({ title }: { title?: string }) => (
+    <caption className="sr-only">{title || "Generated data table"}</caption>
+);
+
 /** Render the compact table component while delegating row details to focused helpers. */
 const DataTable = defineComponent({
     name: "DataTable",
@@ -468,16 +487,15 @@ const DataTable = defineComponent({
     }),
     component: ({ props }) => {
         const table = buildDataTableData(props.columns, props.rows);
-        const isEmpty = table.columns.length === 0 || table.rows.length === 0;
         return (
             <div className="max-w-full overflow-x-auto">
-                {props.title ? <h4 className="mb-2 text-sm font-medium text-text-primary">{props.title}</h4> : null}
+                <DataTableTitle title={props.title} />
                 <table className="w-full border-collapse border-y border-border-subtle text-left text-xs">
-                    <caption className="sr-only">{props.title || "Generated data table"}</caption>
+                    <DataTableCaption title={props.title} />
                     <DataTableHead columns={table.columns} />
                     <DataTableRows rows={table.rows} />
                 </table>
-                <DataTableEmptyState empty={isEmpty} />
+                <DataTableEmptyState empty={table.empty} />
                 <DataTableLimitNotice table={table} />
             </div>
         );

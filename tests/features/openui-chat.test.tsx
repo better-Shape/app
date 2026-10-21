@@ -163,7 +163,7 @@ describe("OpenUIBlock", () => {
         const bars = Array.from(host.querySelectorAll("figure span[style]"));
         expect(host.textContent).toContain("-5");
         expect(host.querySelector("figure > div[aria-hidden='true']")).toBeTruthy();
-        expect(host.querySelector("figure table.sr-only tbody")?.textContent).toContain("-5");
+        expect(host.querySelector("table.sr-only tbody")?.textContent).toContain("-5");
         expect(bars[0]?.getAttribute("style")).toContain("left: 50%");
         expect(bars[1]?.getAttribute("style")).toContain("left: 0%");
         const table = host.querySelector("table:not(.sr-only)");

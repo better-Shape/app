@@ -869,6 +869,10 @@ type MessageBlockContext = {
 };
 type MessageBlockParser = (context: MessageBlockContext) => Chunk;
 
+/** Preserve the existing optional streaming flag consistently across tag parsers. */
+const generationFields = (context: MessageBlockContext): { isGenerating?: boolean } =>
+    context.mode === "selfClosing" ? {} : { isGenerating: context.isGenerating };
+
 /** Parse terminal metadata and command text consistently for complete and streaming tags. */
 const parseTerminalCommandBlock = (context: MessageBlockContext): Chunk => {
     const statusMatch = context.tagFull.match(/status="([^"]+)"/);
@@ -890,7 +894,7 @@ const parseTerminalCommandBlock = (context: MessageBlockContext): Chunk => {
         ...(context.mode === "selfClosing" ? {} : { commandReason: reason }),
         sessionId: sessionMatch?.[1] ? Number(sessionMatch[1]) : undefined,
         exitCode: exitMatch?.[1] ? Number(exitMatch[1]) : undefined,
-        ...(context.mode === "selfClosing" ? {} : { isGenerating: context.isGenerating }),
+        ...generationFields(context),
     };
 };
 
@@ -901,7 +905,7 @@ const parseSearchResultBlock = (context: MessageBlockContext): Chunk => {
         type: context.type === "web_result" ? "web_result" : "search_result",
         content: context.content,
         query,
-        ...(context.mode === "selfClosing" ? {} : { isGenerating: context.isGenerating }),
+        ...generationFields(context),
     };
 };
 
@@ -910,7 +914,7 @@ const parseRunBlock = (context: MessageBlockContext): Chunk => ({
     type: "run",
     content: context.content,
     command: context.mode === "selfClosing" ? "" : context.content.trim(),
-    ...(context.mode === "selfClosing" ? {} : { isGenerating: context.isGenerating }),
+    ...generationFields(context),
 });
 
 const MESSAGE_BLOCK_PARSERS: Partial<Record<Chunk["type"], MessageBlockParser>> = {
@@ -952,7 +956,7 @@ const parseMessageBlock = (context: MessageBlockContext): Chunk => {
     return {
         type: context.type,
         content: context.content,
-        ...(context.mode === "selfClosing" ? {} : { isGenerating: context.isGenerating }),
+        ...generationFields(context),
     };
 };
 
