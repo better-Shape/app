@@ -191,11 +191,25 @@ export function ProvidersSettingsView() {
     const addProvider = (id: ProviderId) => {
         if (!id) return;
         const preset = providerPreset(id);
+        // Defensive: `normalizeProvidersSettings` guarantees an entry for every
+        // preset at load time, but if older saved settings are missing a newly
+        // added provider id, `existing` would be undefined and spreading it
+        // would drop the required apiKey/baseUrl fields.
+        const existing = providers.connections[id];
         update({
             connections: {
                 ...providers.connections,
                 [id]: {
-                    ...providers.connections[id],
+                    ...(existing ?? {
+                        apiKey: "",
+                        baseUrl: "",
+                        models: [],
+                        hiddenModels: [],
+                        extraModels: [],
+                        discoveredModels: [],
+                        headers: {},
+                        authStyle: "",
+                    }),
                     enabled: true,
                 },
             },

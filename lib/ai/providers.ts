@@ -16,48 +16,13 @@ import {
     getModelMetadata as catalogGetModelMetadata,
     registerProviderLabels,
 } from "./model-catalog";
+import type { ProviderId as ProviderIdType } from "./provider-ids";
+
+// Re-export for callers that already import from this module (eliminates the
+// duplicate union that previously lived here and in provider-ids.ts).
+export type ProviderId = ProviderIdType;
 
 export type ProviderKind = "openai" | "anthropic" | "google";
-
-export type ProviderId =
-  | "openai"
-  | "anthropic"
-  | "google"
-  | "azure"
-  | "openrouter"
-  | "zen"
-  | "zen-messages"
-  | "zen-go"
-  | "nvidia"
-  | "xai"
-  | "deepseek"
-  | "groq"
-  | "mistral"
-  | "cerebras"
-  | "together"
-  | "fireworks"
-  | "moonshot"
-  | "zai"
-  | "zai-coding"
-  | "qwen"
-  | "deepinfra"
-  | "venice"
-  | "vercel"
-  | "minimax"
-  | "baseten"
-  | "digitalocean"
-  | "cohere"
-  | "perplexity"
-  | "llmgateway"
-  | "zenmux"
-  | "kilo"
-  | "cloudflare"
-  | "cloudflare-gateway"
-  | "databricks"
-  | "ollama"
-  | "lmstudio"
-  | "vllm"
-  | "custom";
 
 /** Header the provider expects the API key in. */
 export type AuthStyle = "bearer" | "api-key" | "x-api-key" | "x-goog-api-key" | "none";
@@ -1889,43 +1854,14 @@ export function usableProvidersForModelNames(
  * Safe to call with an empty list (used to clear discovery state on reset).
  * Defensively tolerant of the catalog module being unavailable.
  */
-type EnrichedFromCatalog = {
-    id: string;
-    name?: string;
-    contextWindowLabel?: string;
-    contextWindow?: number;
-    maxOutputTokens?: number | null;
-    inputCostPerM?: number | null;
-    outputCostPerM?: number | null;
-    vision?: boolean;
-    reasoning?: boolean;
-    toolUse?: boolean;
-    nonChat?: boolean;
-    source?: "catalog" | "discovered" | "inferred";
-};
-type EnrichFn = (pid: ProviderId, ids: string[]) => EnrichedFromCatalog[];
-
 export function enrichDiscovered(
   providerId: ProviderId,
   discoveredIds: string[],
 ): DiscoveredModelEntry[] {
   const now = Date.now();
-  const enrich: EnrichFn = enrichDiscoveredModels;
-  return enrich(providerId, discoveredIds).map((m) => ({
-    id: m.id,
-    name: m.name,
-    contextWindow: m.contextWindowLabel,
-    contextTokens: m.contextWindow || undefined,
-    maxOutputTokens: m.maxOutputTokens ?? undefined,
-    inputCostPerM: m.inputCostPerM ?? undefined,
-    outputCostPerM: m.outputCostPerM ?? undefined,
-    vision: m.vision,
-    reasoning: m.reasoning,
-    toolUse: m.toolUse,
-    nonChat: m.nonChat,
-    source: m.source,
-    discoveredAt: now,
-  }));
+  // Delegates to the shared toDiscoveredEntry helper so the field-mapping
+  // code is defined in one place (previously duplicated inline here).
+  return enrichDiscoveredModels(providerId, discoveredIds).map((m) => toDiscoveredEntry(m, now));
 }
 
 /** Convert catalog metadata into the persisted shape. */

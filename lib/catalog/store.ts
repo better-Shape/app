@@ -9,36 +9,21 @@
  */
 
 import { useMemo, useSyncExternalStore } from "react";
-import { AUTO_MODEL } from "@/lib/catalog";
-import type { ModelInfo } from "@/lib/settings/models";
+import { modelsFromProviders, type ModelInfo } from "@/lib/settings/models";
 import { getSettings, subscribeSettings, useSettings } from "@/lib/settings";
-import { availableModels, type ProvidersSettings } from "@/lib/ai/providers";
-
-function toModelInfo(settings: ProvidersSettings): ModelInfo[] {
-  return availableModels(settings).map((option) => ({
-    id: option.id,
-    name: option.name,
-    description: `${option.provider}${option.contextWindow ? ` · ${option.contextWindow} context` : ""}`,
-    provider: option.provider,
-    inputCost: 0,
-    cachedInputCost: 0,
-    outputCost: 0,
-    contextWindow: option.contextWindow,
-    releaseDate: "Rolling",
-    vision: option.capabilities.vision,
-  }));
-}
+import { availableModels } from "@/lib/ai/providers";
 
 /** Every model the user can currently reach (Auto always included). */
 export function getCatalogModels(): ModelInfo[] {
-  return [AUTO_MODEL, ...toModelInfo(getSettings().ai.providers)];
+  return modelsFromProviders(
+    getSettings().ai.providers,
+    availableModels(getSettings().ai.providers).map((m) => m.id),
+  );
 }
 
 /** Models offered by one provider id. */
 export function getCatalogModelsForProvider(providerId: string): ModelInfo[] {
-  return toModelInfo(getSettings().ai.providers).filter(
-    (model) => model.id.split("/")[0] === providerId,
-  );
+  return getCatalogModels().filter((model) => model.id.split("/")[0] === providerId);
 }
 
 export function getCatalogProviderOrder(): readonly string[] {
@@ -61,7 +46,10 @@ export function getBetterShapeCatalog(): { models: ModelInfo[] } | null {
 export function useBetterShapeCatalog() {
   const settings = useSettings();
   const providers = settings.ai.providers;
-  const models = useMemo(() => [AUTO_MODEL, ...toModelInfo(providers)], [providers]);
+  const models = useMemo(
+    () => modelsFromProviders(providers, availableModels(providers).map((m) => m.id)),
+    [providers],
+  );
   // A stable object identity per provider set keeps consumer effects honest.
   return useMemo(
     () => ({ catalog: { models }, loading: false, error: null, models }),
