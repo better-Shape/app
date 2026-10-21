@@ -171,7 +171,16 @@ type OpenUIFence = {
     closed: boolean;
 };
 
-type OpenUIFenceScan = { fences: OpenUIFence[]; overflowStart?: number };
+type OpenUIFenceOverflow = { start: number; end: number };
+type OpenUIFenceScan = { fences: OpenUIFence[]; overflow?: OpenUIFenceOverflow };
+
+type PendingTag = {
+    name: string;
+    closing: boolean;
+    quote: "\"" | "'" | null;
+    lastNonWhitespace: string;
+    readingName: boolean;
+};
 
 const MESSAGE_BLOCK_TAGS = [
     { type: 'edit', start: '<edit', end: '</edit>' },
@@ -246,13 +255,95 @@ const MESSAGE_BLOCK_TAGS = [
 const MESSAGE_BLOCK_TAG_NAMES = new Set(
     MESSAGE_BLOCK_TAGS.map(({ start }) => /^<([^\s>]+)/.exec(start)?.[1]).filter((name): name is string => Boolean(name)),
 );
+const MAX_TAG_NAME_LENGTH = 128;
+
+function isTagNameCharacter(character: string): boolean {
+    return /^[A-Za-z0-9:_-]$/.test(character);
+}
+
+/** Update structural-block depth with a quote-aware, bounded-state tag scanner. */
+function scanStructuralTags(
+    text: string,
+    activeTags: Map<string, number>,
+    pending: PendingTag | null,
+): PendingTag | null {
+    let index = 0;
+    let tag = pending;
+
+    const finishTag = (completed: PendingTag) => {
+        if (!MESSAGE_BLOCK_TAG_NAMES.has(completed.name)) return;
+        const count = activeTags.get(completed.name) ?? 0;
+        if (completed.closing) {
+            if (count <= 1) activeTags.delete(completed.name);
+            else activeTags.set(completed.name, count - 1);
+        } else if (completed.lastNonWhitespace !== "/") {
+            activeTags.set(completed.name, count + 1);
+        }
+    };
+
+    while (index < text.length) {
+        if (tag) {
+            const character = text[index] ?? "";
+            if (tag.readingName) {
+                if (isTagNameCharacter(character)) {
+                    if (tag.name !== "\u0000") {
+                        if (tag.name.length < MAX_TAG_NAME_LENGTH) tag.name += character;
+                        else tag.name = "\u0000";
+                    }
+                    index += 1;
+                    continue;
+                }
+                if (!tag.name) {
+                    tag = null;
+                    continue;
+                }
+                tag.readingName = false;
+            }
+            if (tag.quote) {
+                if (character === tag.quote) tag.quote = null;
+            } else if (character === "\"" || character === "'") {
+                tag.quote = character;
+            } else if (character === ">") {
+                finishTag(tag);
+                tag = null;
+                index += 1;
+                continue;
+            } else if (!/\s/.test(character)) {
+                tag.lastNonWhitespace = character;
+            }
+            index += 1;
+            continue;
+        }
+
+        if (text[index] !== "<") {
+            index += 1;
+            continue;
+        }
+        let nameStart = index + 1;
+        let closing = false;
+        if (text[nameStart] === "/") {
+            closing = true;
+            nameStart += 1;
+        }
+        const first = text[nameStart] ?? "";
+        if (first && !/[A-Za-z]/.test(first)) {
+            index += 1;
+            continue;
+        }
+        tag = { name: "", closing, quote: null, lastNonWhitespace: "", readingName: true };
+        index = nameStart;
+    }
+    if (tag?.readingName && tag.name) tag.readingName = false;
+    return tag;
+}
 
 /** Finds only top-level Markdown fences, so an OpenUI example inside a code sample stays code. */
 function findOpenUIFences(text: string): OpenUIFenceScan {
     const fences: OpenUIFence[] = [];
-    let activeFence: { marker: string; length: number; openUI?: OpenUIFence } | null = null;
+    let activeFence: { marker: string; length: number; openUI?: OpenUIFence; overflow?: boolean } | null = null;
     const activeMessageTags = new Map<string, number>();
-    let pendingMessageTag: string | null = null;
+    let pendingMessageTag: PendingTag | null = null;
+    let overflow: OpenUIFenceOverflow | undefined;
     let lineStart = 0;
 
     while (lineStart < text.length) {
@@ -263,42 +354,22 @@ function findOpenUIFences(text: string): OpenUIFenceScan {
 
         if (activeFence) {
             const closing = line.match(/^ {0,3}(`{3,}|~{3,})[ \t]*$/);
-            if (
-                closing
-                && closing[1]?.[0] === activeFence.marker
-                && closing[1].length >= activeFence.length
-            ) {
+            if (closing && closing[1]?.[0] === activeFence.marker && closing[1].length >= activeFence.length) {
+                let finishedOverflow = false;
                 if (activeFence.openUI) {
                     let sourceEnd = lineStart;
                     if (text.slice(sourceEnd - 2, sourceEnd) === "\r\n") sourceEnd -= 2;
                     else if (text[sourceEnd - 1] === "\n") sourceEnd -= 1;
                     fences.push({ ...activeFence.openUI, end: nextLineStart, sourceEnd, closed: true });
+                } else if (activeFence.overflow && overflow) {
+                    overflow = { ...overflow, end: nextLineStart };
+                    finishedOverflow = true;
                 }
                 activeFence = null;
+                if (finishedOverflow) return { fences, overflow };
             }
         } else {
-            const tagSource: string = pendingMessageTag ? `${pendingMessageTag}\n${line}` : line;
-            pendingMessageTag = null;
-            const tagPattern = /<\/?([A-Za-z][\w:-]*)\b[^>]*>/g;
-            let tagMatch: RegExpExecArray | null;
-            while ((tagMatch = tagPattern.exec(tagSource)) !== null) {
-                const tagName = tagMatch[1];
-                if (!tagName || !MESSAGE_BLOCK_TAG_NAMES.has(tagName)) continue;
-                const fullTag = tagMatch[0];
-                const count = activeMessageTags.get(tagName) ?? 0;
-                if (fullTag.startsWith("</")) {
-                    if (count <= 1) activeMessageTags.delete(tagName);
-                    else activeMessageTags.set(tagName, count - 1);
-                } else if (!/\/\s*>$/.test(fullTag)) {
-                    activeMessageTags.set(tagName, count + 1);
-                }
-            }
-            const unfinishedTag = /<\/?([A-Za-z][\w:-]*)\b[^>]*$/.exec(tagSource);
-            if (unfinishedTag?.[1] && MESSAGE_BLOCK_TAG_NAMES.has(unfinishedTag[1])) {
-                pendingMessageTag = tagSource.slice(unfinishedTag.index).slice(0, 2_048);
-            }
-
-            // BetterShape's structural blocks are parsed as opaque chunks; do not extract Markdown from their payloads.
+            pendingMessageTag = scanStructuralTags(line, activeMessageTags, pendingMessageTag);
             if (activeMessageTags.size === 0 && pendingMessageTag === null) {
                 const opening = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
                 const marker = opening?.[1];
@@ -306,13 +377,17 @@ function findOpenUIFences(text: string): OpenUIFenceScan {
                 if (marker && !(marker[0] === "`" && info.includes("`"))) {
                     const language = info.trim().split(/\s+/, 1)[0]?.toLowerCase();
                     const isOpenUI = language === "openui-lang";
-                    if (isOpenUI && fences.length >= MAX_OPENUI_BLOCKS_PER_MESSAGE) {
-                        return { fences, overflowStart: lineStart };
-                    }
-                    const openUI = isOpenUI
+                    const isOverflow = isOpenUI && fences.length >= MAX_OPENUI_BLOCKS_PER_MESSAGE;
+                    if (isOverflow && !overflow) overflow = { start: lineStart, end: text.length };
+                    const openUI = isOpenUI && !isOverflow
                         ? { start: lineStart, end: text.length, sourceStart: nextLineStart, sourceEnd: text.length, closed: false }
                         : undefined;
-                    activeFence = { marker: marker[0] ?? "`", length: marker.length, openUI };
+                    activeFence = {
+                        marker: marker[0] ?? "`",
+                        length: marker.length,
+                        openUI,
+                        overflow: isOverflow,
+                    };
                 }
             }
         }
@@ -322,9 +397,10 @@ function findOpenUIFences(text: string): OpenUIFenceScan {
     }
 
     if (activeFence?.openUI) fences.push(activeFence.openUI);
-    return { fences };
+    return { fences, overflow };
 }
 
+/** Parse assistant text into structural UI chunks and bounded OpenUI visual blocks. */
 export function parseMessageContent(text: string): Chunk[] {
     return parseMessageContentWithOpenUI(text);
 }
@@ -342,29 +418,42 @@ export function getMessageCopyText(chunks: readonly Chunk[], openUIText: readonl
         .join("\n\n");
 }
 
+/** Split eligible visual fences before handing the remaining text to the structural parser. */
 function parseMessageContentWithOpenUI(text: string, detectOpenUI = true): Chunk[] {
     const scan = detectOpenUI ? findOpenUIFences(text) : { fences: [] };
-    if (scan.fences.length || scan.overflowStart !== undefined) {
+    if (scan.fences.length || scan.overflow) {
         const chunks: Chunk[] = [];
         let cursor = 0;
         for (const fence of scan.fences) {
             if (fence.start > cursor) chunks.push(...parseMessageContentWithOpenUI(text.slice(cursor, fence.start), false));
-            const source = stripLeakedToolCode(text.slice(fence.sourceStart, fence.sourceEnd));
+            const sourceLength = fence.sourceEnd - fence.sourceStart;
+            const boundedSource = text.slice(
+                fence.sourceStart,
+                Math.min(fence.sourceEnd, fence.sourceStart + MAX_OPENUI_SOURCE_LENGTH),
+            );
+            // OpenUI source is executable DSL, not a code sample: scrub hidden control markup even
+            // when it is nested in Markdown fences, and never sanitize more than the accepted size.
+            const source = stripLeakedToolCode(boundedSource, { includeFencedCode: true });
             chunks.push({
                 type: "openui",
-                content: source.slice(0, MAX_OPENUI_SOURCE_LENGTH),
+                content: source,
                 isGenerating: !fence.closed,
-                openuiTruncated: source.length > MAX_OPENUI_SOURCE_LENGTH,
+                openuiTruncated: sourceLength > MAX_OPENUI_SOURCE_LENGTH,
             });
             cursor = fence.end;
         }
-        if (scan.overflowStart !== undefined) {
-            if (scan.overflowStart > cursor) {
-                chunks.push(...parseMessageContentWithOpenUI(text.slice(cursor, scan.overflowStart), false));
+        if (scan.overflow) {
+            if (scan.overflow.start > cursor) {
+                chunks.push(...parseMessageContentWithOpenUI(text.slice(cursor, scan.overflow.start), false));
             }
-            // Render the untrusted overflow as Markdown source; do not parse it as BetterShape blocks.
-            chunks.push({ type: "text", content: stripLeakedToolCode(text.slice(scan.overflowStart)) });
-        } else if (cursor < text.length) {
+            // Keep excess visual source as ordinary Markdown, then resume structural block parsing.
+            chunks.push({
+                type: "text",
+                content: stripLeakedToolCode(text.slice(scan.overflow.start, scan.overflow.end)),
+            });
+            cursor = scan.overflow.end;
+        }
+        if (cursor < text.length) {
             chunks.push(...parseMessageContentWithOpenUI(text.slice(cursor), false));
         }
         return mergeAdjacentTextChunks(chunks);

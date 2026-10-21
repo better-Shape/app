@@ -93,9 +93,19 @@ test.describe("workbench (seeded project)", () => {
             );
         const originalTabOrder = await workspaceTabOrder();
         expect(originalTabOrder).toEqual(["Graph", "Files"]);
-        await page.locator("#bettershape-workbench [aria-roledescription='sortable'][aria-label='Graph']").focus();
+        const graphTab = page.locator("#bettershape-workbench [aria-roledescription='sortable'][aria-label='Graph']");
+        await graphTab.focus();
         await page.keyboard.press("Space");
+        await expect.poll(() => graphTab.evaluate((element) => (element as HTMLElement).style.zIndex)).toBe("20");
         await page.keyboard.press("ArrowRight");
+        await expect
+            .poll(() =>
+                graphTab.evaluate((element) => {
+                    const offset = /translate3d\((-?[\d.]+)px/.exec((element as HTMLElement).style.transform)?.[1];
+                    return Number(offset ?? 0);
+                }),
+            )
+            .toBeGreaterThan(0);
         await page.keyboard.press("Enter");
         await expect.poll(workspaceTabOrder).toEqual(["Files", "Graph"]);
 
@@ -104,6 +114,18 @@ test.describe("workbench (seeded project)", () => {
         await expect(explorer).toBeVisible();
         expectNoPageErrors();
         expectNoConsoleErrors();
+    });
+
+    test("copy action includes rendered OpenUI text instead of its source", async ({ page }) => {
+        await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+        await expect(page.locator("[data-openui-block]")).toBeVisible();
+
+        await page.getByRole("button", { name: "Copy message" }).last().click();
+        const copied = await page.evaluate(() => navigator.clipboard.readText());
+
+        expect(copied).toContain("The project tree and conversation use local fixture data.");
+        expect(copied).toContain("Root files");
+        expect(copied).not.toContain("root = Surface");
     });
 
     test("seeded conversation renders a visual answer", async ({ page, expectNoPageErrors, expectNoConsoleErrors }) => {

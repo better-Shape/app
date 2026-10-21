@@ -407,19 +407,23 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
             }
         };
 
+        /** Apply an event only to the exact live turn and conversation that owns it. */
         const patchLiveForTurn = (
             identity: { conversationId?: string; turnId?: string },
             update: (live: LiveTurn) => void,
-        ) => {
+        ): boolean => {
             const { conversationId, turnId } = identity;
-            if (!conversationId || !turnId || finishedTurns.has(turnId)) return;
-            if (isForeignConversation(conversationId)) return;
+            if (!conversationId || !turnId || finishedTurns.has(turnId)) return false;
+            if (isForeignConversation(conversationId)) return false;
             const currentLive = liveTurnsRef.current.get(conversationId);
-            if (!currentLive || currentLive.turnId !== turnId) return;
+            if (!currentLive || currentLive.turnId !== turnId) return false;
+            let applied = false;
             patchLive(conversationId, (live) => {
                 if (live.turnId !== turnId) return;
                 update(live);
+                applied = true;
             });
+            return applied;
         };
 
         register(
@@ -565,6 +569,10 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
                 const { stats, model, error, conversationId, content, turnId } =
                     event.payload ?? {};
                 if (isForeignConversation(conversationId)) return;
+                if (conversationId && turnId) {
+                    const currentLive = liveTurnsRef.current.get(conversationId);
+                    if (currentLive && currentLive.turnId !== turnId) return;
+                }
                 if (turnId) finishedTurns.add(turnId);
                 if (!error && stats) {
                     void import("@/lib/chat/last-turn-usage").then(({ setLastTurnUsage }) => {
@@ -670,10 +678,11 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
             }>("agent-command-pending", (event) => {
                 const cmd = event.payload?.command?.trim() || "Command";
                 const reason = event.payload?.reason?.trim();
-                patchLiveForTurn(event.payload ?? {}, (live) => {
+                const accepted = patchLiveForTurn(event.payload ?? {}, (live) => {
                     live.turnPhase = "awaiting_approval";
                     live.activityLabel = "Waiting for approval";
                 });
+                if (!accepted) return;
                 notifyApprovalOsOnly(
                     event.payload?.id,
                     "Approval required",
@@ -693,10 +702,11 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
             }>("agent-edit-pending", (event) => {
                 const file = event.payload?.path?.trim() || event.payload?.file?.trim() || "file";
                 const reason = event.payload?.reason?.trim();
-                patchLiveForTurn(event.payload ?? {}, (live) => {
+                const accepted = patchLiveForTurn(event.payload ?? {}, (live) => {
                     live.turnPhase = "awaiting_approval";
                     live.activityLabel = "Waiting for edit approval";
                 });
+                if (!accepted) return;
                 notifyApprovalOsOnly(
                     event.payload?.id,
                     "Edit approval required",

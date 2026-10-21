@@ -320,11 +320,16 @@ function ChatMessageItemInner({
             if (names) return `[${names}]`;
             return parts.text || content;
         }
+        const chunks = parseMessageContent(content);
+        if (chunks.some((chunk) => chunk.type !== "text" && chunk.type !== "openui")) {
+            const renderedText = bodyRef.current?.innerText || bodyRef.current?.textContent;
+            if (renderedText?.trim()) return renderedText;
+        }
         const openUIText = Array.from(
             bodyRef.current?.querySelectorAll<HTMLElement>("[data-openui-block]") ?? [],
             (element) => element.innerText || element.textContent || "",
         );
-        return getMessageCopyText(parseMessageContent(content), openUIText);
+        return getMessageCopyText(chunks, openUIText);
     };
 
     const handleCopy = () => {
@@ -424,7 +429,7 @@ function ChatMessageItemInner({
                         <div className="flex w-fit items-center gap-0.5 self-end select-none opacity-0 transition-opacity group-hover:opacity-100">
                             <MessageSentTime timestamp={timestamp} />
                             <Tooltip content="Copy Message" side="top">
-                                <Button variant="ghost" size="icon" onClick={handleCopy}>
+                                <Button variant="ghost" size="icon" aria-label="Copy message" onClick={handleCopy}>
                                     <Icon icon={Clipboard20Regular} className="icon-md" />
                                 </Button>
                             </Tooltip>
@@ -530,7 +535,7 @@ function ChatMessageItemInner({
             {!isGenerating && (
                 <div className="flex w-fit items-center gap-0.5 self-start select-none">
                     <Tooltip content="Copy Message" side="bottom">
-                        <Button variant="ghost" size="icon" onClick={handleCopy}>
+                        <Button variant="ghost" size="icon" aria-label="Copy message" onClick={handleCopy}>
                             <Icon icon={Clipboard20Regular} />
                         </Button>
                     </Tooltip>

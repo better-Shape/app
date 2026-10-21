@@ -26,6 +26,8 @@ const events = vi.hoisted(() => ({
     handlers: new Map<string, Set<(event: { payload: unknown }) => void>>(),
 }));
 
+const desktopNotifications = vi.hoisted(() => ({ show: vi.fn() }));
+
 vi.mock("@tauri-apps/api/event", () => ({
     listen: vi.fn(async (name: string, handler: (event: { payload: unknown }) => void) => {
         if (!events.handlers.has(name)) events.handlers.set(name, new Set());
@@ -34,6 +36,10 @@ vi.mock("@tauri-apps/api/event", () => ({
             events.handlers.get(name)?.delete(handler);
         };
     }),
+}));
+
+vi.mock("@/lib/notifications/desktop", () => ({
+    showDesktopNotification: desktopNotifications.show,
 }));
 
 vi.mock("@/lib/backend", () => ({
@@ -119,6 +125,7 @@ beforeEach(() => {
     backend.currentResolvers = [];
     backend.messageRequests = [];
     events.handlers.clear();
+    desktopNotifications.show.mockClear();
     resetGeneratingChatsForTests();
     host = document.createElement("div");
     document.body.appendChild(host);
@@ -232,6 +239,9 @@ describe("a chat that runs in the background stays in the background", () => {
             label: "Stale turn",
         });
         expect(api.activityLabel).toBe("Thinking");
+        act(() => api.showConversation("A"));
+        expect(api.activityLabel).toBe("Thinking");
+        act(() => api.showConversation("B"));
 
         // A's event arrives while B is visible: it updates A's live state only.
         emit("chat_status", {
@@ -254,6 +264,51 @@ describe("a chat that runs in the background stays in the background", () => {
 
         act(() => api.showConversation("A"));
         expect(api.activityLabel).toBe("A terminal command");
+    });
+
+    it("ignores a stale completion when a newer turn is live for the same conversation", async () => {
+        await mount("A");
+        emit("chat_started", { conversationId: "A", turnId: "old-turn", model: "m" });
+        emit("chat_started", { conversationId: "A", turnId: "new-turn", model: "m" });
+
+        emit("chat_complete", {
+            conversationId: "A",
+            turnId: "old-turn",
+            content: "stale completion",
+        });
+
+        expect(api.isLoading).toBe(true);
+        expect(api.turnId).toBe("new-turn");
+        expect(api.activityLabel).toBe("Thinking");
+    });
+
+    it("sends approval notifications only for accepted live-turn events", async () => {
+        await mount("A");
+        emit("chat_started", { conversationId: "A", turnId: "t-a", model: "m" });
+        emit("chat_started", { conversationId: "B", turnId: "t-b", model: "m" });
+        act(() => api.showConversation("B"));
+
+        emit("agent-command-pending", {
+            id: "unscoped",
+            command: "git status",
+        });
+        emit("agent-command-pending", {
+            id: "stale",
+            conversationId: "A",
+            turnId: "old-turn",
+            command: "git status",
+        });
+        await settle();
+        expect(desktopNotifications.show).not.toHaveBeenCalled();
+
+        emit("agent-command-pending", {
+            id: "current",
+            conversationId: "A",
+            turnId: "t-a",
+            command: "git status",
+        });
+        await settle();
+        expect(desktopNotifications.show).toHaveBeenCalledTimes(1);
     });
 
     it("routes approval pending and resolved events to their owning live turn", async () => {

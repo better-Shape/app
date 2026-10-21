@@ -146,6 +146,7 @@ pub async fn send_chat_message(
 
     // Case-insensitive so "visual" / "Visual" (and legacy "design") both attach DESIGN.md.
     let mode_prompt = match mode_to_use.to_ascii_lowercase().as_str() {
+        "ask" => prompts::OPENUI_MD,
         "plan" => prompts::PLAN_MD,
         "visual" | "design" => prompts::DESIGN_MD,
         "review" => prompts::REVIEW_MD,
@@ -568,10 +569,6 @@ pub async fn send_chat_message(
     if !mode_prompt.is_empty() {
         turn_context.push_str("\n\n");
         turn_context.push_str(mode_prompt);
-    }
-    if mode_to_use.eq_ignore_ascii_case("ask") {
-        turn_context.push_str("\n\n");
-        turn_context.push_str(prompts::OPENUI_MD);
     }
     turn_context.push_str("\n\nCURRENT CONTEXT:\n");
     turn_context.push_str(&context_string);

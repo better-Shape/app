@@ -1,19 +1,84 @@
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { OpenUIBlock } from "@/features/chat/ui/blocks/openui";
+import { ChatMessageItem } from "@/features/chat/ui/message/item";
 
 let host: HTMLDivElement | null = null;
 let root: Root | null = null;
+let clipboardDescriptor: PropertyDescriptor | undefined;
 
 afterEach(() => {
     if (root) act(() => root?.unmount());
     host?.remove();
     root = null;
     host = null;
+    if (clipboardDescriptor) Object.defineProperty(navigator, "clipboard", clipboardDescriptor);
+    else Reflect.deleteProperty(navigator, "clipboard");
+    clipboardDescriptor = undefined;
 });
 
 describe("OpenUIBlock", () => {
+    it("copies rendered visual text through the assistant message action", async () => {
+        host = document.createElement("div");
+        document.body.appendChild(host);
+        root = createRoot(host);
+        const writeText = vi.fn().mockResolvedValue(undefined);
+        clipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+        Object.defineProperty(navigator, "clipboard", {
+            configurable: true,
+            value: { writeText },
+        });
+
+        await act(async () => {
+            root?.render(
+                <ChatMessageItem
+                    role="assistant"
+                    content={'```openui-lang\nroot = Surface([label])\nlabel = Text("Visual summary")\n```'}
+                    timestamp={0}
+                />,
+            );
+        });
+
+        expect(host.querySelector("[data-openui-block]")?.textContent).toContain("Visual summary");
+        const copyButton = host.querySelector<HTMLButtonElement>('button[aria-label="Copy message"]');
+        expect(copyButton).toBeTruthy();
+        await act(async () => copyButton?.click());
+
+        expect(writeText).toHaveBeenCalledWith("Visual summary");
+    });
+
+    it("copies rendered chart text instead of dropping structured message blocks", async () => {
+        host = document.createElement("div");
+        document.body.appendChild(host);
+        root = createRoot(host);
+        const writeText = vi.fn().mockResolvedValue(undefined);
+        clipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+        Object.defineProperty(navigator, "clipboard", {
+            configurable: true,
+            value: { writeText },
+        });
+
+        await act(async () => {
+            root?.render(
+                <ChatMessageItem
+                    role="assistant"
+                    content={'A chart:\n<chart>{"title":"Test results","points":[{"label":"Passed","value":42}]}</chart>'}
+                    timestamp={0}
+                />,
+            );
+        });
+
+        expect(host.textContent).toContain("Test results");
+        expect(host.textContent).toContain("Passed");
+        const copyButton = host.querySelector<HTMLButtonElement>('button[aria-label="Copy message"]');
+        await act(async () => copyButton?.click());
+
+        expect(writeText.mock.calls[0]?.[0]).toContain("A chart:");
+        expect(writeText.mock.calls[0]?.[0]).toContain("Test results");
+        expect(writeText.mock.calls[0]?.[0]).toContain("Passed");
+    });
+
     it("disables OpenUI runtime telemetry and the remote development inspector", () => {
         expect(process.env.OPENUI_TELEMETRY_DISABLED).toBe("1");
         expect(Reflect.get(globalThis, Symbol.for("openui.devtools.autoMount"))).toBe(true);
@@ -127,6 +192,41 @@ describe("OpenUIBlock", () => {
 
         expect(host.textContent).toContain("nested too deeply to display");
         expect(host.textContent).not.toContain("Deep content");
+    });
+
+    it("does not count definition-like text inside a string as expanded work", async () => {
+        host = document.createElement("div");
+        document.body.appendChild(host);
+        root = createRoot(host);
+        const response = 'root = Surface([label])\nlabel = Text("root = Surface([a, a, a, a, a])", "body")';
+
+        await act(async () => {
+            root?.render(<OpenUIBlock response={response} />);
+        });
+
+        expect(host.textContent).toContain("root = Surface([a, a, a, a, a])");
+        expect(host.querySelector("section")).toBeTruthy();
+    });
+
+    it("rejects repeated references whose expanded component tree exceeds the total budget", async () => {
+        host = document.createElement("div");
+        document.body.appendChild(host);
+        root = createRoot(host);
+        const repeated = Array(8).fill("b").join(", ");
+        const response = [
+            `root = Surface([${Array(8).fill("a").join(", ")}])`,
+            `a = Stack([${repeated}])`,
+            `b = Stack([${Array(8).fill("leaf").join(", ")}])`,
+            'leaf = Text("Safe leaf")',
+        ].join("\n");
+
+        await act(async () => {
+            root?.render(<OpenUIBlock response={response} />);
+        });
+
+        expect(host.textContent).toContain("too complex to display safely");
+        expect(host.textContent).not.toContain("Safe leaf");
+        expect(host.querySelector("section")).toBeNull();
     });
 
     it("shows a safe fallback when a generated program references an unknown component", async () => {

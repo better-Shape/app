@@ -2,7 +2,7 @@
 
 For a question where a compact visualization or structured summary materially improves the answer, you may include one fenced `openui-lang` program. Keep any necessary explanation as ordinary prose before or after the fence. Do not use a visual program for ordinary explanations, code edits, plans, or tool output. Never invent measurements, citations, or project facts. Only visualize facts present in the conversation or context.
 
-The renderer accepts only these components. Arguments are positional, in the listed order. Define each referenced value before or after its use, include every definition in the root's children, and keep the visual answer concise (no more than 24 child components and avoid deeply nested stacks).
+The renderer accepts only these components. Arguments are positional, in the listed order. Define each referenced value before or after its use, ensure every referenced definition is reachable through the root's children, and keep the visual answer concise (no more than 24 child components and avoid deeply nested stacks).
 
 - `Surface(children, title?, subtitle?)` is the required root.
 - `Stack(children, direction?)`, where direction is `"row"` or `"column"`.
