@@ -459,6 +459,23 @@ const BarChartLimitNotice = ({ chart }: { chart: BarChartData }) => chart.dataLi
     ? <p className="mt-2 text-xs text-text-secondary" role="status">Showing the first {chart.count} matching label-value pairs.</p>
     : null;
 
+type BarChartComponentProps = { labels: string[]; values: number[]; title?: string };
+
+/** Adapt OpenUI chart props to the bounded visual and accessible chart views. */
+const renderBarChart = ({ props }: { props: BarChartComponentProps }) => {
+    const chart = buildBarChartData(props.labels, props.values);
+    return (
+        <>
+            <figure className="min-w-0">
+                <BarChartTitle title={props.title} />
+                <BarChartContents chart={chart} />
+                <BarChartLimitNotice chart={chart} />
+            </figure>
+            <BarChartAccessibleTable title={props.title} points={chart.points} />
+        </>
+    );
+};
+
 const BarChart = defineComponent({
     name: "BarChart",
     description: "A simple bar chart for comparing a small number of labeled values.",
@@ -467,19 +484,7 @@ const BarChart = defineComponent({
         values: z.array(z.number()),
         title: z.string().optional(),
     }),
-    component: ({ props }) => {
-        const chart = buildBarChartData(props.labels, props.values);
-        return (
-            <>
-                <figure className="min-w-0">
-                    <BarChartTitle title={props.title} />
-                    <BarChartContents chart={chart} />
-                    <BarChartLimitNotice chart={chart} />
-                </figure>
-                <BarChartAccessibleTable title={props.title} points={chart.points} />
-            </>
-        );
-    },
+    component: renderBarChart,
 });
 
 type KeyedDataTableColumn = { item: string; key: string };
@@ -558,6 +563,25 @@ const DataTableCaption = ({ title }: { title?: string }) => (
 );
 
 /** Render the compact table component while delegating row details to focused helpers. */
+type DataTableComponentProps = { columns: string[]; rows: string[][]; title?: string };
+
+/** Adapt OpenUI table props to the bounded, accessible data-table view. */
+const renderDataTable = ({ props }: { props: DataTableComponentProps }) => {
+    const table = buildDataTableData(props.columns, props.rows);
+    return (
+        <div className="max-w-full overflow-x-auto">
+            <DataTableTitle title={props.title} />
+            <table className="w-full border-collapse border-y border-border-subtle text-left text-xs">
+                <DataTableCaption title={props.title} />
+                <DataTableHead columns={table.columns} />
+                <DataTableRows rows={table.rows} />
+            </table>
+            <DataTableEmptyState empty={table.empty} />
+            <DataTableLimitNotice table={table} />
+        </div>
+    );
+};
+
 const DataTable = defineComponent({
     name: "DataTable",
     description: "A compact data table. Each row must contain one value for each column.",
@@ -566,21 +590,7 @@ const DataTable = defineComponent({
         rows: z.array(z.array(z.string())),
         title: z.string().optional(),
     }),
-    component: ({ props }) => {
-        const table = buildDataTableData(props.columns, props.rows);
-        return (
-            <div className="max-w-full overflow-x-auto">
-                <DataTableTitle title={props.title} />
-                <table className="w-full border-collapse border-y border-border-subtle text-left text-xs">
-                    <DataTableCaption title={props.title} />
-                    <DataTableHead columns={table.columns} />
-                    <DataTableRows rows={table.rows} />
-                </table>
-                <DataTableEmptyState empty={table.empty} />
-                <DataTableLimitNotice table={table} />
-            </div>
-        );
-    },
+    component: renderDataTable,
 });
 
 const library = createLibrary({
