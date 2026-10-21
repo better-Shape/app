@@ -81,3 +81,40 @@ is reachable regardless: `F1` -> "Keyboard Shortcuts" -> `Enter`, or the
   `test:e2e:update-snapshots` in dev would bake it into the PNGs.
 - `cargo check --all-targets` 8m36s, `cargo clippy --all-targets -- -D warnings`
   4m14s, both exit 0, using the `vendor/sandbox-toolchain` pin `7c4c878`.
+
+### 3. Cheat sheet said the wrong number while filtering
+
+The header printed the total ("40 bound") even when the list showed two rows.
+It now reads "2 of 40 bound" while a query is active, and the plain total
+otherwise. Row `title={binding.when}` and the "Custom shortcut" `title` were
+dead code: `components/ui/suppress-native-tooltips.tsx` strips every `title`
+attribute from the document on mount, so the custom-binding accent had no text
+equivalent for assistive tech. Replaced with an `sr-only` prefix.
+
+### 4. Terminal find bar gave no announcement
+
+Enter moves the active match without moving focus, so a screen-reader user got
+no feedback. The match counter (`1/2`, `0/0`) is now `aria-live="polite"`.
+
+## Measurement traps (do not repeat)
+
+- **xterm renders to a canvas.** `locator(...).innerText()` on
+  `[data-terminal-root]` returns only the tab titles, never the buffer text.
+  Assert on the canvas pixels (screenshot) or on `term.buffer.active`; reading
+  DOM text made a working scrollback restore look broken for a whole round.
+- **Playwright `page.goto` has no default 30s grace under load.** Two runs
+  failed with `ERR_CONNECTION_REFUSED` / `Timeout` because a second dev server
+  was compiling on 2 cores; the app was fine.
+- **`npm run lint` includes `playwright-report/`** until the ignore fix above
+  lands; the crash hides the real warning list.
+
+## Browser evidence (dev server, seeded project)
+
+- perf HUD: `data-perf-hud` present on `/`, `/settings`, `/popout`; 264x99;
+  axe serious/critical inside the panel: 0.
+- cheat sheet: opens from the `bettershape-open-shortcuts` event and from
+  `F1` -> "Keyboard Shortcuts" -> Enter; 103 `<kbd>` nodes, filter reduces
+  them, Esc closes.
+- terminal: `Ctrl+F` -> "HISTORY" reports `1/2`, Enter -> `2/2`, gutter text
+  `0/0` for no match, Esc closes. Restore shows the old lines followed by
+  `── restored from previous session ──`.
