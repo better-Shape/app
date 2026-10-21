@@ -517,6 +517,45 @@ const findOpenUIFences = (text: string): OpenUIFenceScan => {
     return { fences: state.fences, overflow: state.overflow };
 };
 
+/** Turn chart payloads into title and label/value rows when the rendered DOM is unavailable. */
+function chartCopyText(raw: string | undefined): string {
+    const parsed = parseCardJson<unknown>(raw);
+    const record = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? parsed as { title?: unknown; points?: unknown }
+        : null;
+    const title = typeof record?.title === "string" ? record.title.trim() : "";
+    const points = Array.isArray(parsed) ? parsed : Array.isArray(record?.points) ? record.points : [];
+    const rows = points.flatMap((point) => {
+        if (!point || typeof point !== "object") return [];
+        const item = point as { label?: unknown; value?: unknown };
+        const label = String(item.label ?? "").trim();
+        const value = item.value;
+        return label && (typeof value === "string" || typeof value === "number")
+            ? [`${label}: ${value}`]
+            : [];
+    });
+    return [title, ...rows].filter(Boolean).join("\n");
+}
+
+/** Preserve readable prompts and selected answers when a question card has no DOM text. */
+function questionCopyText(chunk: Chunk): string {
+    return (chunk.questions ?? []).map((question) => {
+        const options = question.options.map(({ label }) => label).filter(Boolean).join(" / ");
+        const answer = chunk.answers?.[question.id];
+        const answerText = Array.isArray(answer) ? answer.join(", ") : answer;
+        return [question.prompt, options, answerText ? `Answer: ${answerText}` : ""]
+            .filter(Boolean)
+            .join("\n");
+    }).join("\n\n");
+}
+
+/** Provide a useful textual fallback for structured chunks that have no rendered DOM. */
+function structuredChunkCopyText(chunk: Chunk): string {
+    if (chunk.type === "question" || chunk.type === "questions") return questionCopyText(chunk);
+    if (chunk.type === "chart") return chartCopyText(chunk.content);
+    return chunk.content?.trim() ?? "";
+}
+
 /** Plain-text copy keeps prose and includes rendered visual text rather than raw OpenUI source. */
 export const getMessageCopyText = (
     chunks: readonly Chunk[],
@@ -531,7 +570,7 @@ export const getMessageCopyText = (
         .map((chunk) => {
             if (chunk.type === "text") return chunk.content?.trim() ?? "";
             if (chunk.type === "openui") return openUIText[visualIndex++]?.trim() ?? "";
-            return "";
+            return structuredChunkCopyText(chunk);
         })
         .filter(Boolean)
         .join("\n\n");

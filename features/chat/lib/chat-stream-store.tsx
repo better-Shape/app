@@ -183,6 +183,7 @@ const resolveChatStatusUpdate = (
     return activityLabel ? { activityLabel } : null;
 };
 
+/** Bridge backend chat events into turn-scoped state shared by chat descendants. */
 export function ChatStreamProvider({ children }: { children: React.ReactNode }) {
     const [isLoading, setIsLoading] = React.useState(defaultState.isLoading);
     const [messages, setMessages] = React.useState<ChatMessage[]>(defaultState.messages);

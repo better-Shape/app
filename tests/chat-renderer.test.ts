@@ -99,11 +99,20 @@ describe("parseMessageContent", () => {
         );
     });
 
-    it("uses rendered text when a structured chunk has no plain-text representation", () => {
-        const payload = JSON.stringify({ questions: [{ id: "q1", prompt: "Pick a layout", options: [] }] });
+    it("copies structured content with rendered text or a readable data fallback", () => {
+        const payload = JSON.stringify({ questions: [{ id: "q1", prompt: "Pick a layout", options: [{ id: "grid", label: "Grid view" }] }] });
         const chunks = parseMessageContent(`<questions>${payload}</questions>`);
-
         expect(getMessageCopyText(chunks, [], "Pick a layout")).toBe("Pick a layout");
+
+        const structured = parseMessageContent(
+            'Results:\n<chart>{"title":"Build status","points":[{"label":"Passed","value":42}]}</chart>\n<questions>' + payload + "</questions>",
+        );
+        const copied = getMessageCopyText(structured);
+        expect(copied).toContain("Results:");
+        expect(copied).toContain("Build status");
+        expect(copied).toContain("Passed: 42");
+        expect(copied).toContain("Pick a layout");
+        expect(copied).toContain("Grid view");
     });
 
     it("keeps OpenUI source out of the embedded-block parser and strips leaked tool output", () => {
@@ -344,7 +353,7 @@ describe("preprocessChatMarkdown", () => {
         expect(preprocessChatMarkdown(input)).toBe("## Title\n\nBody");
     });
 
-    it("strips leaked tool_code JSON fences from design-mode dumps", () => {
+    it("strips leaked tool markup while preserving prose around malformed tags", () => {
         const input = `Here are two concepts.
 
 \`\`\`json
@@ -356,9 +365,7 @@ describe("preprocessChatMarkdown", () => {
         expect(out).toContain("Here are two concepts");
         expect(out).not.toContain("tool_code");
         expect(out).not.toContain("render_design_previews");
-    });
 
-    it("preserves prose around malformed tags and nested hidden wrappers", () => {
         const prose = stripLeakedToolCode("<analysis it's fine> following prose");
         const broken = stripLeakedToolCode('<analysis title="unfinished>hidden prose');
         expect(prose).toContain("following prose");
