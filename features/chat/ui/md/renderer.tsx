@@ -1106,7 +1106,8 @@ export const MessageRenderer = ({
         const seenReviews = new Set<string | undefined>();
         const kept: Chunk[] = [];
         for (let i = merged.length - 1; i >= 0; i--) {
-            const chunk = merged[i]!;
+            const chunk = merged[i];
+            if (!chunk) continue;
             if (chunk.type === 'persona_review') {
                 if (seenReviews.has(chunk.commandId)) continue;
                 seenReviews.add(chunk.commandId);

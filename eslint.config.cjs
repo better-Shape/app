@@ -95,7 +95,6 @@ const eslintConfig = defineConfig([
     // Agent capture and probe output, also gitignored. Same class as the two
     // above: local QA artifacts must not change the lint result.
     ".qa-artifacts/**",
->>>>>>> d4514a5a (lint: ignore agent capture output, count only bound rows while filtering):eslint.config.mjs
   ]),
   {
     // Every CommonJS file, not only the ones under `scripts`: the Next.js config
