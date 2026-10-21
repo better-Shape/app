@@ -7,7 +7,7 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { commands } from "@/lib/backend";
 import { notify } from "@/features/notifications";
-import { updateSettingSection, areSecretsVaulted } from "@/lib/settings";
+import { getSettings, updateSettingSection, areSecretsVaulted } from "@/lib/settings";
 import {
     SettingRow,
     SettingSelect,
@@ -223,10 +223,12 @@ export function ProviderCard({
     const testConnection = async () => {
         setTesting(true);
         setTestResult(null);
-        // Snapshot inputs at start so we don't resend mid-edit keystrokes,
-        // but read the connection from settings again at completion time so
-        // edits the user made while the probe was in flight (key, base URL,
-        // pinned models) are not overwritten by a stale closure.
+        // Snapshot inputs at the start of the call so we don't resend mid-edit
+        // keystrokes during the await. The `providers` value in this closure
+        // may be stale by the time the probe returns, so read settings again
+        // through getSettings() before persisting; updateSettingSection merges
+        // against currentSettings, but we build the patch from the latest
+        // connection object so user edits during the flight are preserved.
         const key = connection.apiKey;
         const url = connection.baseUrl || preset.baseUrl;
         try {
@@ -238,10 +240,7 @@ export function ProviderCard({
                 latencyMs: report.latencyMs,
             });
             if (report.ok) {
-                // Persist what the provider reported, enriched with catalog
-                // metadata. Use the latest providers.connections[id] so
-                // mid-flight edits are preserved rather than reverted.
-                const latest = providers.connections[id] ?? connection;
+                const latest = getSettings().ai.providers.connections[id] ?? connection;
                 update(withRefreshedModels(latest, report.models, id));
                 notify.success("Connection verified", `${preset.label} responded in ${report.latencyMs} ms — ${report.models.length} model${report.models.length === 1 ? "" : "s"} found.`);
             } else {
