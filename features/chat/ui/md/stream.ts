@@ -62,6 +62,30 @@ const STRIP_ACROSS_FENCES = [
     "list_terminals",
 ] as const;
 
+const escapeTag = (tag: string) => tag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** Compiled once: the strip pass used to build >100 regexes per message. */
+const ACROSS_FENCE_PATTERNS = STRIP_ACROSS_FENCES.map(
+    (tag) => new RegExp(`<${escapeTag(tag)}\\b[^>]*>[\\s\\S]*?<\\/${escapeTag(tag)}>`, "gi"),
+);
+
+type TagPatterns = { paired: RegExp; open: RegExp; incomplete: RegExp; close: RegExp };
+
+const TAG_PATTERNS = new Map<string, TagPatterns>(
+    LEAKED_TOOL_XML_TAGS.map((tag) => {
+        const esc = escapeTag(tag);
+        return [
+            tag,
+            {
+                paired: new RegExp(`<${esc}\\b[^>]*>[\\s\\S]*?<\\/${esc}>`, "gi"),
+                open: new RegExp(`<${esc}\\b[^>]*\\/?>`, "gi"),
+                incomplete: new RegExp(`<${esc}\\b[^>]*>[\\s\\S]*$`, "gi"),
+                close: new RegExp(`<\\/${esc}>`, "gi"),
+            },
+        ];
+    }),
+);
+
 /** Apply `fn` only to prose outside fenced code blocks (preserve legitimate examples). */
 function mapOutsideCodeFences(text: string, fn: (prose: string) => string): string {
     const parts = text.split(/(```[\s\S]*?```)/g);
@@ -73,6 +97,28 @@ function mapOutsideCodeFences(text: string, fn: (prose: string) => string): stri
         .join("");
 }
 
+/** Fullwidth bar used by DeepSeek DSML sentinels. */
+const FW = "\uFF5C";
+
+/** Fixed grammars: compiled once instead of on every parse pass. */
+const DSML_PAIRED = new RegExp(
+    `<${FW}{0,2}DSML${FW}{1,2}[\\w.]*?>[\\s\\S]*?<\\/${FW}{0,2}DSML${FW}{1,2}[\\w.]*?>`,
+    "gi",
+);
+const DSML_INCOMPLETE = new RegExp(`<${FW}{0,2}DSML${FW}{1,2}[\\w.]*?>[\\s\\S]*$`, "gi");
+const DSML_TAG = new RegExp(`<\\/?${FW}{0,2}DSML${FW}{1,2}[\\w.]*?>`, "gi");
+const DSML_ASCII_PAIRED = /<\s*\|\s*DSML\s*\|\s*[\w.]*?>[\s\S]*?<\/\s*\|\s*DSML\s*\|\s*[\w.]*?>/gi;
+const DSML_ASCII_TAG = /<\/?\s*\|\s*DSML\s*\|\s*[\w.]*?>/gi;
+const SPECIAL_TOKENS =
+    /<\|(?:tool_calls_section_begin|tool_calls_section_end|tool_call_section_begin|tool_call_section_end|tool_call_begin|tool_call_end|tool_call_argument_begin|tool_call|tool_response|python_tag)\|>/gi;
+const SPECIAL_TOKEN_BROAD = /<\|[^|]{0,48}tool[^|]{0,48}\|>/gi;
+const MISTRAL_ARRAY = /\[TOOL_CALLS\]\s*\[[\s\S]*?\](?=\s*(?:\n|$))/g;
+const MISTRAL_LINE = /\[TOOL_CALLS\][^\n]*(?:\n\[(?:ARGS|CALL_ID)\][^\n]*)*/g;
+const EXECUTE_DUMP = /(?:^|\n)_execute\s*\n(?:tool_name|name)\s*:[^\n]*(?:\n[a-z_]+\s*:[^\n]*)*/gi;
+const FUNCTION_ATTR = /<\/?function\s*=[^>]*>/gi;
+const PARAMETER_ATTR = /<\/?parameter\s*=[^>]*>/gi;
+const TRIPLE_NEWLINE = /\n{3,}/g;
+
 /**
  * Strip provider/model tool-call grammars that leaked into assistant text.
  * Surveyed shapes: DeepSeek DSML, Qwen/Hermes/GLM `<tool_call>`, MiniMax,
@@ -80,66 +126,65 @@ function mapOutsideCodeFences(text: string, fn: (prose: string) => string): stri
  * Mistral `[TOOL_CALLS]`, plus BetterShape terminal UI chunks.
  */
 export function stripLeakedToolMarkup(text: string): string {
-    const fw = "\uFF5C"; // fullwidth ｜ used by DeepSeek DSML
-
     let s = text;
-    for (const tag of STRIP_ACROSS_FENCES) {
-        const esc = tag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        s = s.replace(new RegExp(`<${esc}\\b[^>]*>[\\s\\S]*?<\\/${esc}>`, "gi"), "");
+    for (const pattern of ACROSS_FENCE_PATTERNS) {
+        s = s.replace(pattern, "");
     }
 
     s = mapOutsideCodeFences(s, (prose) => {
         let p = prose;
 
-        for (const tag of LEAKED_TOOL_XML_TAGS) {
-            const esc = tag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-            // Complete paired blocks.
-            p = p.replace(new RegExp(`<${esc}\\b[^>]*>[\\s\\S]*?<\\/${esc}>`, "gi"), "");
-            // Self-closing / empty open tags.
-            p = p.replace(new RegExp(`<${esc}\\b[^>]*\\/?>`, "gi"), "");
-            // Incomplete open still streaming → eat remainder of this prose segment.
-            p = p.replace(new RegExp(`<${esc}\\b[^>]*>[\\s\\S]*$`, "gi"), "");
-            // Stray closers.
-            p = p.replace(new RegExp(`<\\/${esc}>`, "gi"), "");
+        if (p.includes("<")) {
+            // Every tag rule needs a `<`; skipping the sweep on plain prose
+            // keeps the common streaming case cheap.
+            for (const tag of LEAKED_TOOL_XML_TAGS) {
+                if (!p.includes(tag)) continue;
+                const patterns = TAG_PATTERNS.get(tag);
+                if (!patterns) continue;
+                // Complete paired blocks.
+                p = p.replace(patterns.paired, "");
+                // Self-closing / empty open tags.
+                p = p.replace(patterns.open, "");
+                // Incomplete open still streaming → eat remainder of this prose segment.
+                p = p.replace(patterns.incomplete, "");
+                // Stray closers.
+                p = p.replace(patterns.close, "");
+            }
+
+            // DeepSeek DSML (fullwidth bars, double/single/no leading bar).
+            // e.g. <｜｜DSML｜｜tool_calls>…</｜｜DSML｜｜tool_calls>
+            //      <｜DSML｜invoke name="x">…</｜DSML｜invoke>
+            p = p.replace(DSML_PAIRED, "");
+            p = p.replace(DSML_INCOMPLETE, "");
+            p = p.replace(DSML_TAG, "");
+            // ASCII-pipe proxy variant: < | DSML | tool_calls>
+            p = p.replace(DSML_ASCII_PAIRED, "");
+            p = p.replace(DSML_ASCII_TAG, "");
+
+            // Kimi / Llama / Gemma / OpenAI-compat special tokens.
+            p = p.replace(SPECIAL_TOKENS, "");
+            // Broader catch for unknown <|…tool…|> sentinels (keep short).
+            p = p.replace(SPECIAL_TOKEN_BROAD, "");
+
         }
 
-        // DeepSeek DSML (fullwidth bars, double/single/no leading bar).
-        // e.g. <｜｜DSML｜｜tool_calls>…</｜｜DSML｜｜tool_calls>
-        //      <｜DSML｜invoke name="x">…</｜DSML｜invoke>
-        const dsmlOpen = new RegExp(
-            `<${fw}{0,2}DSML${fw}{1,2}[\\w.]*?>[\\s\\S]*?<\\/${fw}{0,2}DSML${fw}{1,2}[\\w.]*?>`,
-            "gi",
-        );
-        p = p.replace(dsmlOpen, "");
-        p = p.replace(new RegExp(`<${fw}{0,2}DSML${fw}{1,2}[\\w.]*?>[\\s\\S]*$`, "gi"), "");
-        p = p.replace(new RegExp(`<\\/?${fw}{0,2}DSML${fw}{1,2}[\\w.]*?>`, "gi"), "");
-        // ASCII-pipe proxy variant: < | DSML | tool_calls>
-        p = p.replace(/<\s*\|\s*DSML\s*\|\s*[\w.]*?>[\s\S]*?<\/\s*\|\s*DSML\s*\|\s*[\w.]*?>/gi, "");
-        p = p.replace(/<\/?\s*\|\s*DSML\s*\|\s*[\w.]*?>/gi, "");
-
-        // Kimi / Llama / Gemma / OpenAI-compat special tokens.
-        p = p.replace(
-            /<\|(?:tool_calls_section_begin|tool_calls_section_end|tool_call_section_begin|tool_call_section_end|tool_call_begin|tool_call_end|tool_call_argument_begin|tool_call|tool_response|python_tag)\|>/gi,
-            "",
-        );
-        // Broader catch for unknown <|…tool…|> sentinels (keep short).
-        p = p.replace(/<\|[^|]{0,48}tool[^|]{0,48}\|>/gi, "");
-
         // Mistral sentinel + JSON payload on the same/following lines.
-        p = p.replace(/\[TOOL_CALLS\]\s*\[[\s\S]*?\](?=\s*(?:\n|$))/g, "");
-        p = p.replace(/\[TOOL_CALLS\][^\n]*(?:\n\[(?:ARGS|CALL_ID)\][^\n]*)*/g, "");
+        p = p.replace(MISTRAL_ARRAY, "");
+        p = p.replace(MISTRAL_LINE, "");
 
         // DeepSeek / Hermes `_execute` textual tool dumps.
-        p = p.replace(/(?:^|\n)_execute\s*\n(?:tool_name|name)\s*:[^\n]*(?:\n[a-z_]+\s*:[^\n]*)*/gi, "\n");
+        p = p.replace(EXECUTE_DUMP, "\n");
 
         // Qwen Hermes bare function= / parameter= lines without outer wrapper.
-        p = p.replace(/<\/?function\s*=[^>]*>/gi, "");
-        p = p.replace(/<\/?parameter\s*=[^>]*>/gi, "");
+        if (p.includes("<")) {
+            p = p.replace(FUNCTION_ATTR, "");
+            p = p.replace(PARAMETER_ATTR, "");
+        }
 
         return p;
     });
 
-    return s.replace(/\n{3,}/g, "\n\n");
+    return s.replace(TRIPLE_NEWLINE, "\n\n");
 }
 
 /**
@@ -150,7 +195,25 @@ export function stripLeakedToolMarkup(text: string): string {
  * ```
  * Also strips cross-model XML / sentinel tool grammars from prose.
  */
+// The rule it guards is `/gi`, so probe case-insensitively: `_EXECUTE` must not
+// fall through the fast path and survive in the rendered message.
+const hasExecuteDump = (text: string) => /_[eE]xecute/i.test(text);
+
 export function stripLeakedToolCode(text: string): string {
+    // Fast path: no marker any rule can match, so the only work left is the
+    // newline collapse the full path ends with.
+    if (
+        !text.includes("`")
+        && !text.includes("<")
+        && !text.includes("tool_code")
+        && !text.includes("print")
+        && !text.includes("functions.")
+        && !text.includes("[TOOL_CALLS]")
+        && !hasExecuteDump(text)
+    ) {
+        return text.replace(TRIPLE_NEWLINE, "\n\n");
+    }
+
     let s = text;
 
     // Complete fenced blocks whose body looks like a tool leak.
@@ -180,26 +243,80 @@ export function stripLeakedToolCode(text: string): string {
     return s.replace(/\n{3,}/g, "\n\n");
 }
 
+/** True when `text[i..i+len)` equals `text[j..j+len)`, without allocating slices. */
+function sameRange(text: string, i: number, j: number, len: number): boolean {
+    for (let k = 0; k < len; k++) {
+        if (text.charCodeAt(i + k) !== text.charCodeAt(j + k)) return false;
+    }
+    return true;
+}
+
+const HASH_BASE = 131;
+
+/**
+ * Rolling-hash prefix table for adjacent-duplicate search. Keys are compared
+ * with `sameRange` before a hit is trusted, so a collision only costs time.
+ */
+function adjacentDuplicate(text: string, maxLen: number): { start: number; len: number } | null {
+    const n = text.length;
+    const prefix = new Uint32Array(n + 1);
+    const power = new Uint32Array(maxLen + 1);
+    power[0] = 1;
+    for (let i = 0; i < n; i++) {
+        prefix[i + 1] = (Math.imul(prefix[i]!, HASH_BASE) + text.charCodeAt(i)) >>> 0;
+    }
+    for (let i = 1; i <= maxLen; i++) {
+        power[i] = Math.imul(power[i - 1]!, HASH_BASE) >>> 0;
+    }
+    const windowHash = (at: number, len: number) =>
+        (prefix[at + len]! - Math.imul(prefix[at]!, power[len]!)) >>> 0;
+
+    for (let len = maxLen; len >= 20; len--) {
+        for (let i = 0; i + len * 2 <= n; i++) {
+            if (windowHash(i, len) !== windowHash(i + len, len)) continue;
+            if (sameRange(text, i, i + len, len)) return { start: i, len };
+        }
+    }
+    return null;
+}
+
+/** Z-array: z[i] is the length of the longest common prefix of `text` and `text[i..]`. */
+function zFunction(text: string): Uint32Array {
+    const n = text.length;
+    const z = new Uint32Array(n);
+    let left = 0;
+    let right = 0;
+    for (let i = 1; i < n; i++) {
+        let k = 0;
+        if (i < right) k = Math.min(right - i, z[i - left]!);
+        while (i + k < n && text.charCodeAt(k) === text.charCodeAt(i + k)) k++;
+        z[i] = k;
+        if (i + k > right) {
+            left = i;
+            right = i + k;
+        }
+    }
+    return z;
+}
+
 /** Repair cumulative-stream glitches and obvious duplicate phrases in assistant text. */
 export function repairStreamGlitches(text: string): string {
     if (text.length < 24) return text;
 
-    for (let len = Math.min(120, Math.floor(text.length / 2)); len >= 20; len--) {
-        for (let i = 0; i + len * 2 <= text.length; i++) {
-            const a = text.slice(i, i + len);
-            const b = text.slice(i + len, i + len * 2);
-            if (a === b) {
-                return text.slice(0, i + len) + text.slice(i + len * 2);
-            }
-        }
+    const duplicate = adjacentDuplicate(text, Math.min(120, Math.floor(text.length / 2)));
+    if (duplicate) {
+        return text.slice(0, duplicate.start + duplicate.len) + text.slice(duplicate.start + duplicate.len * 2);
     }
 
-    for (let start = 20; start < text.length - 20; start++) {
-        const maxLen = Math.min(start, text.length - start);
-        for (let len = maxLen; len >= 20; len--) {
-            if (text.slice(0, len) === text.slice(start, start + len)) {
-                return text.slice(0, start) + text.slice(start + len);
-            }
+    if (text.length >= 41) {
+        // The loop below needs `start < length - 20` to run at all, which holds
+        // from 41 characters on; a 41-char duplicate prefix is still a glitch.
+        const z = zFunction(text);
+        for (let start = 20; start < text.length - 20; start++) {
+            const shared = z[start]!;
+            if (shared < 20) continue;
+            const len = Math.min(Math.min(start, text.length - start), shared);
+            return text.slice(0, start) + text.slice(start + len);
         }
     }
 
@@ -283,6 +400,11 @@ export function preprocessChatMarkdown(
     if (!options?.streaming) {
         s = repairStreamGlitches(s);
         s = truncateForDisplay(s);
+    } else {
+        // Cap the live text at the same limit the settled render uses: a model
+        // that dumps a huge file mid-stream would otherwise re-parse the whole
+        // thing on every frame for text that is never shown past the cap.
+        s = truncateForDisplay(s);
     }
     s = s.replace(/^[•●▪◦]\s+/gm, "- ");
     s = s.replace(/^\s*[-*_]{3,}\s*$/gm, "");
@@ -298,11 +420,37 @@ export function preprocessChatMarkdown(
     return s;
 }
 
-/** Close an unclosed fenced code block so streaming markdown does not swallow the rest as mono code. */
+/**
+ * Fence markers at the start of a line: three or more backticks, or three or more
+ * tildes, optionally indented up to three spaces.
+ */
+const FENCE_LINE = /^ {0,3}(`{3,}|~{3,})([^\n]*)$/gm;
+
+/**
+ * Close an unclosed fenced code block so streaming markdown does not swallow the
+ * rest as mono code. Tracks the open fence instead of counting markers, so a
+ * streamed ````` example, a `~~~` block, or an info string on the opener all
+ * close with the right marker — counting `^```` used to leave them open.
+ */
 function balanceMarkdownFences(text: string): string {
-    const fenceCount = (text.match(/^```/gm) || []).length;
-    if (fenceCount % 2 !== 0) {
-        return `${text}\n\`\`\``;
+    let open: { char: string; len: number } | null = null;
+    FENCE_LINE.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = FENCE_LINE.exec(text)) !== null) {
+        const marker = match[1]!;
+        const info = (match[2] ?? "").trim();
+        if (open) {
+            // A closer has the same character, at least the opener's length, and
+            // no info string (CommonMark); anything else is just content.
+            if (marker[0] === open.char && marker.length >= open.len && info === "") {
+                open = null;
+            }
+            continue;
+        }
+        // A backtick fence's info string cannot itself contain a backtick.
+        if (marker[0] === "`" && info.includes("`")) continue;
+        open = { char: marker[0]!, len: marker.length };
     }
-    return text;
+    if (!open) return text;
+    return `${text}\n${open.char.repeat(open.len)}`;
 }

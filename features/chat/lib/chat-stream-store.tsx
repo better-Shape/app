@@ -115,6 +115,24 @@ const defaultState: ChatStreamState = {
 
 const ChatStreamContext = React.createContext<ChatStreamContextValue | null>(null);
 
+/**
+ * Turn-level state without the transcript. Streaming replaces `messages` on
+ * every token; surfaces that only show a spinner or the viewed id subscribe
+ * here so they do not re-render per token.
+ */
+export type ChatStreamMeta = Pick<
+    ChatStreamState,
+    | "isLoading"
+    | "activityLabel"
+    | "turnPhase"
+    | "turnId"
+    | "sendError"
+    | "contextSummarized"
+    | "viewedConversationId"
+>;
+
+const ChatStreamMetaContext = React.createContext<ChatStreamMeta | null>(null);
+
 const PENDING_KEY = "__pending__";
 
 function appendAssistantChunk(prev: ChatMessage[], chunk: string): ChatMessage[] {
@@ -762,33 +780,60 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
         [],
     );
 
-    const value: ChatStreamContextValue = {
-        isLoading,
-        messages,
-        activityLabel,
-        turnPhase,
-        turnId,
-        sendError,
-        contextSummarized,
-        viewedConversationId,
-        setMessages,
-        setSendError,
-        setContextSummarized,
-        getViewedConversationId,
-        getDraftConversationId,
-        showConversation,
-        isCurrentView,
-        reloadViewedMessages,
-        bootstrapFromBackend,
-        setDraftAdopter,
-        appendUserOptimistic,
-        stopLiveTurn,
-        startDraftChat,
-        hasLiveTurn,
-    };
+    const meta = React.useMemo<ChatStreamMeta>(
+        () => ({
+            isLoading,
+            activityLabel,
+            turnPhase,
+            turnId,
+            sendError,
+            contextSummarized,
+            viewedConversationId,
+        }),
+        [isLoading, activityLabel, turnPhase, turnId, sendError, contextSummarized, viewedConversationId],
+    );
+
+    const actions = React.useMemo(
+        () => ({
+            setMessages,
+            setSendError,
+            setContextSummarized,
+            getViewedConversationId,
+            getDraftConversationId,
+            showConversation,
+            isCurrentView,
+            reloadViewedMessages,
+            bootstrapFromBackend,
+            setDraftAdopter,
+            appendUserOptimistic,
+            stopLiveTurn,
+            startDraftChat,
+            hasLiveTurn,
+        }),
+        [
+            getViewedConversationId,
+            getDraftConversationId,
+            showConversation,
+            isCurrentView,
+            reloadViewedMessages,
+            bootstrapFromBackend,
+            setDraftAdopter,
+            appendUserOptimistic,
+            stopLiveTurn,
+            startDraftChat,
+            hasLiveTurn,
+        ],
+    );
+
+    const value = React.useMemo<ChatStreamContextValue>(
+        () => ({ ...meta, messages, ...actions }),
+        [meta, messages, actions],
+    );
 
     return (
-        <ChatStreamContext.Provider value={value}>{children}</ChatStreamContext.Provider>
+        <ChatStreamMetaContext.Provider value={meta}>
+            <ChatStreamContext.Provider value={value}>{children}</ChatStreamContext.Provider>
+        </ChatStreamMetaContext.Provider>
     );
 }
 
@@ -803,5 +848,11 @@ export function useChatStream() {
 /** Safe variant for editor surfaces that may render outside ChatStreamProvider (e.g. popout). */
 export function useChatStreamOptional(): ChatStreamState {
     const ctx = React.useContext(ChatStreamContext);
+    return ctx ?? defaultState;
+}
+
+/** Turn-level state that does not change per streamed token. */
+export function useChatStreamMeta(): ChatStreamMeta {
+    const ctx = React.useContext(ChatStreamMetaContext);
     return ctx ?? defaultState;
 }

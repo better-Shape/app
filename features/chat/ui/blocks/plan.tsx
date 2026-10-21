@@ -13,7 +13,7 @@ import { Icon } from "@/components/ui/icon";
 
 import { cn } from "@/lib/utils";
 import { commands, useProjectState } from "@/lib/backend";
-import { useChatStream } from "@/features/chat/lib/chat-stream-store";
+import { useChatStreamMeta } from "@/features/chat/lib/chat-stream-store";
 import { displayPlanName, parsePlanMarkdown, splitPlanDocument, type PlanPreview } from "@/lib/plan/preview";
 import { ChatMarkdown } from "@/features/chat/ui/md/view";
 import { freezeActiveSteps, todoCountLabel } from "@/lib/chat/planning-block";
@@ -113,7 +113,7 @@ export function PlanSavedBlock({
     markdown?: string;
 }) {
     const { project_path } = useProjectState();
-    const { isLoading, viewedConversationId } = useChatStream();
+    const { isLoading, viewedConversationId } = useChatStreamMeta();
     const [missing, setMissing] = React.useState(false);
     const [checking, setChecking] = React.useState(false);
     const [preview, setPreview] = React.useState<PlanPreview | null>(() =>

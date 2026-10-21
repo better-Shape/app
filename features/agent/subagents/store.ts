@@ -63,6 +63,9 @@ export function subagentsForParent(parentId: string): SubagentCard[] {
     return cards.filter((c) => c.parentId === parentId);
 }
 
+/** `<attr="value">` readers, compiled once per attribute name. */
+const ATTR_PATTERNS = new Map<string, RegExp>();
+
 export function extractSubagentsFromText(text: string, parentId?: string): Array<{
     id: string;
     title: string;
@@ -80,7 +83,16 @@ export function extractSubagentsFromText(text: string, parentId?: string): Array
         status: SubagentStatus;
     }> = [];
     const seen = new Set<string>();
-    const attr = (tag: string, name: string) => tag.match(new RegExp(`${name}="([^"]*)"`))?.[1] ?? "";
+    const attr = (tag: string, name: string) => {
+        // One compiled pattern per attribute name, shared across every tag in
+        // every message (this used to build a RegExp per attribute lookup).
+        let re = ATTR_PATTERNS.get(name);
+        if (!re) {
+            re = new RegExp(`${name}="([^"]*)"`);
+            ATTR_PATTERNS.set(name, re);
+        }
+        return tag.match(re)?.[1] ?? "";
+    };
     const push = (id: string, title: string, task: string, model?: string, transcript?: string, statusRaw?: string) => {
         const key = id || title;
         if (!key || seen.has(key)) return;

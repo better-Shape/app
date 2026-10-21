@@ -1,6 +1,9 @@
 "use client";
 
 import { Add20Regular } from "@fluentui/react-icons/headless/svg/add";
+import { ArrowDown20Regular } from "@fluentui/react-icons/headless/svg/arrow-down";
+import { ArrowUp20Regular } from "@fluentui/react-icons/headless/svg/arrow-up";
+import { Search20Regular } from "@fluentui/react-icons/headless/svg/search";
 import { ChevronDown20Regular } from "@fluentui/react-icons/headless/svg/chevron-down";
 import { ChevronUp20Regular } from "@fluentui/react-icons/headless/svg/chevron-up";
 import { Delete20Filled } from "@fluentui/react-icons/headless/svg/delete";
@@ -47,10 +50,26 @@ import {
     workbenchTabItemClass,
 } from "@/features/editor/ui/tabs/workbench-tab-styles";
 import { terminalSessionStore, type TerminalTab as SessionTab } from "@/features/terminal/session";
+import { attachTerminalCommandHost } from "@/features/terminal/commands";
+import { findTerminalMatches, nextMatchIndex, type TerminalMatch } from "./search";
+import { usePerfRenderCount } from "@/lib/dev/perf-hud-hooks";
+import {
+    clearTerminalSnapshot,
+    saveTerminalSnapshots,
+    snapshotBuffer,
+    takeRestoreCandidate,
+    type TerminalSnapshotEntry,
+} from "@/features/terminal/persistence";
 import { rememberBetterShapeClip } from "@/features/chat/lib/bettershape-clip";
 type TerminalShell = SessionTab["shell"];
 type TerminalGroupId = SessionTab["group"];
 type TerminalTab = SessionTab;
+
+/** One module promise per session — `pty-output` used to start a dynamic import per chunk. */
+let runStatusModule: Promise<typeof import("@/features/preview/run-status")> | null = null;
+const loadRunStatus = () =>
+    (runStatusModule ??= import("@/features/preview/run-status"));
+
 
 const SHELL_DISPLAY_NAMES: Record<TerminalShell, string> = {
     powershell: "PowerShell",
@@ -121,6 +140,12 @@ export function reapOrphanedTerminalSessions() {
 
 
 
+/**
+ * Set while search selects a match, so moving between matches does not spam the
+ * clipboard-history list with terminal excerpts.
+ */
+let suppressSelectionClip = false;
+
 function TerminalInstance({ tab, isActive }: { tab: TerminalTab, isActive: boolean }) {
     const terminalRef = useRef<HTMLDivElement>(null);
     const xtermRef = useRef<XTermType | null>(null);
@@ -159,6 +184,38 @@ function TerminalInstance({ tab, isActive }: { tab: TerminalTab, isActive: boole
         let fitAddon: FitAddonType | undefined;
         let ptyId: number | undefined;
         let unlistenOutput: (() => void) | undefined;
+
+        // Batch pty bytes into one xterm write per tick: a chatty build emits hundreds
+        // of small chunks a second and every `write` re-enters the parser. Capped so a
+        // hidden tab cannot buffer without bound, and flushed before the exit banner
+        // and on unmount so byte order is preserved.
+        let pendingOutput = "";
+        let flushTimer: ReturnType<typeof setTimeout> | undefined;
+        const flushOutput = () => {
+            if (flushTimer !== undefined) {
+                clearTimeout(flushTimer);
+                flushTimer = undefined;
+            }
+            if (!pendingOutput) return;
+            const chunk = pendingOutput;
+            pendingOutput = "";
+            try {
+                term?.write(chunk);
+            } catch {
+                // The xterm may already be disposed (tab closed); losing the last
+                // few bytes of a dead session is better than throwing mid-unmount.
+            }
+        };
+        const queueOutput = (data: string) => {
+            pendingOutput += data;
+            if (pendingOutput.length >= 65_536) {
+                flushOutput();
+                return;
+            }
+            if (flushTimer === undefined) {
+                flushTimer = setTimeout(flushOutput, 16);
+            }
+        };
 
         const init = async () => {
             if (!isMounted) return;
@@ -231,6 +288,7 @@ function TerminalInstance({ tab, isActive }: { tab: TerminalTab, isActive: boole
             });
 
             const publishSelection = () => {
+                if (suppressSelectionClip) return;
                 const selected = term?.getSelection();
                 if (!selected) return;
                 rememberBetterShapeClip({ kind: "terminal", text: selected, label: tab.title || "Terminal" });
@@ -285,6 +343,19 @@ function TerminalInstance({ tab, isActive }: { tab: TerminalTab, isActive: boole
 
             fitAddon.fit();
 
+            // Replay last session's history before the new pty paints anything,
+            // so the restored text sits above the fresh prompt. Once per
+            // shell+cwd per session (see takeRestoreCandidate).
+            if (tab.boundPtyId === undefined && tab.shell !== "ai") {
+                const restored = takeRestoreCandidate({ cwd: tab.cwd, shell: tab.shell });
+                if (restored) {
+                    term.write(restored.replace(/\n/g, "\r\n") + "\r\n");
+                    term.write(
+                        "\x1b[38;2;113;113;122m\u2500\u2500 restored from previous session \u2500\u2500\x1b[0m\r\n",
+                    );
+                }
+            }
+
             if (tab.shell === "ai" && tab.boundPtyId === undefined) {
                 term.write(`Agent Terminal\r\n\r\n`);
                 unlistenOutput = await listen<{ type: string; command?: string; data?: string; exitCode?: number }>("bettershape-terminal-ai-action", (e) => {
@@ -322,24 +393,25 @@ function TerminalInstance({ tab, isActive }: { tab: TerminalTab, isActive: boole
                 ptyId = tab.boundPtyId ?? createPtyId();
                 unlistenOutput = await listen<{ id: number; data: string }>("pty-output", (e) => {
                     if (e.payload.id === ptyId && term) {
-                        term.write(e.payload.data);
+                        queueOutput(e.payload.data);
 
                         // Detect development server URLs for the Preview panel
                         const devMatch = e.payload.data.match(/https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]):\d+/);
                         if (devMatch) {
                             setLastDevUrl(devMatch[0]);
                         }
-                        void import("@/features/preview/run-status").then(({ noteDevRunOutput }) => {
+                        void loadRunStatus().then(({ noteDevRunOutput }) => {
                             noteDevRunOutput(e.payload.data);
                         });
                     }
                 });
                 const unlistenExit = await listen<{ id: number; exit_code: number | null }>("pty-exit", (e) => {
                     if (e.payload.id === ptyId && term) {
+                        flushOutput();
                         const code = e.payload.exit_code ?? 0;
                         term.write(`\r\n\x1b[38;2;120;120;120m[Process exited with code ${code}]\x1b[0m\r\n`);
                         term.scrollToBottom();
-                        void import("@/features/preview/run-status").then(({ noteDevRunExit }) => {
+                        void loadRunStatus().then(({ noteDevRunExit }) => {
                             noteDevRunExit(code);
                         });
                     }
@@ -461,6 +533,7 @@ function TerminalInstance({ tab, isActive }: { tab: TerminalTab, isActive: boole
         return () => {
             isMounted = false;
             detachCopy?.();
+            flushOutput();
             if (fitTimer) clearTimeout(fitTimer);
             resObs.disconnect();
             window.removeEventListener("bettershape-terminal-refit", onRefit);
@@ -547,6 +620,19 @@ function TerminalInstance({ tab, isActive }: { tab: TerminalTab, isActive: boole
                 <ContextMenuItem onClick={() => xtermRef.current?.clearSelection()}>
                     Clear Selection
                 </ContextMenuItem>
+                <ContextMenuSeparator />
+                <ContextMenuItem
+                    onClick={() =>
+                        window.dispatchEvent(
+                            new CustomEvent("bettershape-terminal-shortcut", {
+                                detail: { action: "find" },
+                            }),
+                        )
+                    }
+                >
+                    Find…
+                    <ContextMenuShortcut>Ctrl+F</ContextMenuShortcut>
+                </ContextMenuItem>
             </ContextMenuContent>
         </ContextMenu>
     );
@@ -562,6 +648,7 @@ export default function Terminal({
     /** Hide Problems/Output/Tests chrome — terminal tabs only. */
     terminalOnly?: boolean;
 }) {
+    usePerfRenderCount("terminal");
     const { project_path } = useProjectState();
     const [terminalTabs, setTerminalTabs] = useState<TerminalTab[]>(globalTerminalStore.tabs);
     const [projectActiveTabs, setProjectActiveTabs] = useState<Record<string, string | null>>(globalTerminalStore.activeProjectTabs);
@@ -580,6 +667,13 @@ export default function Terminal({
     const tabScrollRef = useRef<HTMLDivElement>(null);
     const [splitRatio, setSplitRatio] = useState(0.5);
     const splitDragging = useRef(false);
+
+    // In-buffer search over the focused pane's terminal.
+    const [searchOpen, setSearchOpen] = useState(false);
+    const [searchQuery, setSearchQuery] = useState("");
+    const [searchMatches, setSearchMatches] = useState<TerminalMatch[]>([]);
+    const [searchActive, setSearchActive] = useState(-1);
+    const searchInputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
         if (!project_path) return;
@@ -757,6 +851,22 @@ export default function Terminal({
         addTab(resolved, "right");
     }, [addTab, ensurePanelOpen, resolveAvailableDefaultShell]);
 
+    const clearActiveTerminal = useCallback(() => {
+        const id = focusedGroup === "right" ? secondaryTerminalId : activeTerminalId;
+        if (!id) return;
+        const inst = globalTerminalStore.instances.get(id);
+        if (inst) {
+            try {
+                inst.term.clear();
+            } catch {
+                /* ignore */
+            }
+        }
+        // "Clear" should survive a reload too, not just blank the live buffer.
+        const tab = globalTerminalStore.tabs.find((t) => t.id === id);
+        if (tab) clearTerminalSnapshot({ cwd: tab.cwd, shell: tab.shell });
+    }, [focusedGroup, activeTerminalId, secondaryTerminalId]);
+
     // Listen for titlebar menu terminal commands
     useEffect(() => {
         const handleTerminalShortcut = (e: Event) => {
@@ -775,6 +885,13 @@ export default function Terminal({
                     break;
                 case "close_all_tabs":
                     currentTabs.forEach((tab) => closeTab(tab.id));
+                    break;
+                case "clear":
+                    clearActiveTerminal();
+                    break;
+                case "find":
+                    setActiveView("terminal");
+                    setSearchOpen(true);
                     break;
                 case "close":
                     onClose?.();
@@ -796,6 +913,8 @@ export default function Terminal({
         };
 
         window.addEventListener("bettershape-terminal-shortcut", handleTerminalShortcut as EventListener);
+        // Commands requested while the panel was closed replay from here.
+        const detachCommandHost = attachTerminalCommandHost();
         const handleTerminalView = (e: Event) => {
             const view = (e as CustomEvent<string>).detail;
             if (view === "tests" || view === "terminal") {
@@ -804,10 +923,11 @@ export default function Terminal({
         };
         window.addEventListener("bettershape-terminal-view", handleTerminalView as EventListener);
         return () => {
+            detachCommandHost();
             window.removeEventListener("bettershape-terminal-shortcut", handleTerminalShortcut as EventListener);
             window.removeEventListener("bettershape-terminal-view", handleTerminalView as EventListener);
         };
-    }, [addTab, closeTab, onClose, safeCwd, activeTerminalId, secondaryTerminalId, focusedGroup, setActiveTerminalId, currentTabs, ensurePanelOpen, resolveAvailableDefaultShell, splitTerminal]);
+    }, [addTab, closeTab, onClose, safeCwd, activeTerminalId, secondaryTerminalId, focusedGroup, setActiveTerminalId, currentTabs, ensurePanelOpen, resolveAvailableDefaultShell, splitTerminal, clearActiveTerminal]);
 
     useEffect(() => {
         if (!isOpen || activeView !== "terminal" || closingRef.current) return;
@@ -863,18 +983,151 @@ export default function Terminal({
         }
     }, []);
 
-    const clearActiveTerminal = useCallback(() => {
-        const id = focusedGroup === "right" ? secondaryTerminalId : activeTerminalId;
-        if (!id) return;
-        const inst = globalTerminalStore.instances.get(id);
-        if (inst) {
-            try {
-                inst.term.clear();
-            } catch {
-                /* ignore */
-            }
+    // ---- In-buffer search -------------------------------------------------
+    // Targets the focused pane's active tab; the buffer is read on demand so a
+    // closed or remounted terminal simply yields no matches.
+    const searchTargetId =
+        (focusedGroup === "right" ? secondaryTerminalId : null) ?? activeTerminalId;
+
+    const searchTerm = useCallback((): XTermType | null => {
+        if (!searchTargetId) return null;
+        const inst = globalTerminalStore.instances.get(searchTargetId);
+        return (inst?.term as XTermType | undefined) ?? null;
+    }, [searchTargetId]);
+
+    const focusMatch = useCallback((matches: TerminalMatch[], index: number) => {
+        const term = searchTerm();
+        if (!term || index < 0 || index >= matches.length) return;
+        const match = matches[index]!;
+        const rows = term.rows || 24;
+        term.scrollToLine(Math.max(0, match.row - Math.floor(rows / 2)));
+        suppressSelectionClip = true;
+        term.select(match.col, match.row, match.length);
+        window.setTimeout(() => {
+            suppressSelectionClip = false;
+        }, 50);
+    }, [searchTerm]);
+
+    const stepSearch = useCallback((delta: number) => {
+        if (searchMatches.length === 0) return;
+        const next = nextMatchIndex(searchActive, delta, searchMatches.length);
+        setSearchActive(next);
+        focusMatch(searchMatches, next);
+    }, [searchActive, searchMatches, focusMatch]);
+
+    const closeSearch = useCallback(() => {
+        setSearchOpen(false);
+        setSearchQuery("");
+        setSearchMatches([]);
+        setSearchActive(-1);
+        try {
+            searchTerm()?.clearSelection();
+        } catch {
+            /* terminal disposed */
         }
-    }, [focusedGroup, activeTerminalId, secondaryTerminalId]);
+    }, [searchTerm]);
+
+    useEffect(() => {
+        if (!searchOpen) return;
+        let cancelled = false;
+        let timer: number | undefined;
+        let attempts = 0;
+
+        // Re-scan on query change (debounced) and when the focused pane moves.
+        // The xterm instance is created asynchronously after the panel opens, so
+        // retry briefly instead of showing "0/0" until the next keystroke.
+        const run = () => {
+            if (cancelled) return;
+            const term = searchTerm();
+            if (!term) {
+                if (attempts++ < 12) timer = window.setTimeout(run, 200);
+                return;
+            }
+            const buffer = term.buffer.active;
+            const lines: string[] = [];
+            for (let i = 0; i < buffer.length; i++) {
+                lines.push(buffer.getLine(i)?.translateToString(true) ?? "");
+            }
+            if (cancelled) return;
+            const matches = findTerminalMatches(lines, searchQuery);
+            setSearchMatches(matches);
+            const first = matches.length ? 0 : -1;
+            setSearchActive(first);
+            focusMatch(matches, first);
+        };
+
+        timer = window.setTimeout(run, 60);
+        return () => {
+            cancelled = true;
+            if (timer !== undefined) window.clearTimeout(timer);
+        };
+    }, [searchOpen, searchQuery, searchTargetId, searchTerm, focusMatch]);
+
+    useEffect(() => {
+        if (!searchOpen) return;
+        const id = window.setTimeout(() => {
+            searchInputRef.current?.focus();
+            searchInputRef.current?.select();
+        }, 0);
+        return () => window.clearTimeout(id);
+    }, [searchOpen]);
+
+    // Ctrl/Cmd+F inside the terminal opens the strip instead of browser find.
+    useEffect(() => {
+        const onKey = (event: KeyboardEvent) => {
+            if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return;
+            if (event.code !== "KeyF" && event.key.toLowerCase() !== "f") return;
+            const target = event.target as HTMLElement | null;
+            if (!target?.closest?.('[data-terminal-root="true"]')) return;
+            event.preventDefault();
+            event.stopPropagation();
+            setSearchOpen(true);
+        };
+        window.addEventListener("keydown", onKey, true);
+        return () => window.removeEventListener("keydown", onKey, true);
+    }, []);
+
+    // Snapshot scrollback periodically and when the webview goes away, so a
+    // reload keeps the visible history. Reads only the normal screen buffer.
+    useEffect(() => {
+        // Buffer position doubles as a dirty flag: snapshotting every tab every
+        // tick means thousands of line renders on an idle session.
+        const lastSnapshot = new Map<string, string>();
+        const persist = (force = false) => {
+            const entries: TerminalSnapshotEntry[] = [];
+            for (const tab of globalTerminalStore.tabs) {
+                const inst = globalTerminalStore.instances.get(tab.id);
+                const term = inst?.term as XTermType | undefined;
+                if (!term || (inst?.ptyId ?? 0) < 0) continue;
+                try {
+                    const buffer = term.buffer.active;
+                    const marker = `${buffer.length}:${buffer.cursorX}:${buffer.cursorY}`;
+                    if (!force && lastSnapshot.get(tab.id) === marker) continue;
+                    lastSnapshot.set(tab.id, marker);
+                    const text = snapshotBuffer(buffer);
+                    if (text) entries.push({ target: { cwd: tab.cwd, shell: tab.shell }, text });
+                } catch {
+                    /* buffer disposed mid-write */
+                }
+            }
+            // One JSON read/write for the whole tick, not one per dirty tab.
+            saveTerminalSnapshots(entries);
+        };
+        const timer = window.setInterval(() => persist(), 10_000);
+        const onVisibility = () => {
+            if (document.visibilityState === "hidden") persist(true);
+        };
+        const onPageHide = () => persist(true);
+        window.addEventListener("pagehide", onPageHide);
+        document.addEventListener("visibilitychange", onVisibility);
+        return () => {
+            window.clearInterval(timer);
+            window.removeEventListener("pagehide", onPageHide);
+            document.removeEventListener("visibilitychange", onVisibility);
+            // Tab switches/unmounts are a free opportunity to flush.
+            persist(true);
+        };
+    }, []);
 
     const view = terminalOnly ? "terminal" : activeView;
 
@@ -1097,6 +1350,18 @@ export default function Terminal({
                     <div className="flex shrink-0 items-center gap-0.5">
                         {activeView === "terminal" ? (
                             <>
+                                <Tooltip content="Find in Terminal">
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className={cn(WORKBENCH_TAB_ACTION_BUTTON_CLASS, "h-7 w-7")}
+                                        onClick={() => setSearchOpen((open) => !open)}
+                                        aria-pressed={searchOpen}
+                                        aria-label="Find in terminal"
+                                    >
+                                        <Icon icon={Search20Regular} />
+                                    </Button>
+                                </Tooltip>
                                 <Tooltip content="Clear Terminal">
                                     <Button
                                         variant="ghost"
@@ -1138,6 +1403,76 @@ export default function Terminal({
                             <Icon icon={Dismiss20Regular} />
                         </Button>
                     </div>
+                </div>
+            ) : null}
+
+            {searchOpen && view === "terminal" ? (
+                <div
+                    role="search"
+                    aria-label="Find in terminal"
+                    className="relative z-30 flex shrink-0 items-center gap-1 border-b border-border-subtle bg-panel px-2 py-1 transition-colors focus-within:border-accent/40"
+                >
+                    <Icon icon={Search20Regular} className="size-3.5 shrink-0 text-text-muted" />
+                    <input
+                        ref={searchInputRef}
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                                e.preventDefault();
+                                stepSearch(e.shiftKey ? -1 : 1);
+                            } else if (e.key === "Escape") {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                closeSearch();
+                            }
+                        }}
+                        placeholder="Find in terminal"
+                        aria-label="Find in terminal"
+                        spellCheck={false}
+                        autoComplete="off"
+                        className="h-6 min-w-0 flex-1 bg-transparent text-xs text-text-primary outline-none placeholder:text-text-muted focus-visible:outline-none"
+                    />
+                    <span className="shrink-0 tabular-nums text-[11px] text-text-muted">
+                        {searchQuery.trim()
+                            ? searchMatches.length
+                                ? `${searchActive + 1}/${searchMatches.length}`
+                                : "0/0"
+                            : ""}
+                    </span>
+                    <Tooltip content="Previous match (Shift+Enter)">
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className={cn(WORKBENCH_TAB_ACTION_BUTTON_CLASS, "h-6 w-6")}
+                            onClick={() => stepSearch(-1)}
+                            disabled={searchMatches.length === 0}
+                            aria-label="Previous match"
+                        >
+                            <Icon icon={ArrowUp20Regular} />
+                        </Button>
+                    </Tooltip>
+                    <Tooltip content="Next match (Enter)">
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className={cn(WORKBENCH_TAB_ACTION_BUTTON_CLASS, "h-6 w-6")}
+                            onClick={() => stepSearch(1)}
+                            disabled={searchMatches.length === 0}
+                            aria-label="Next match"
+                        >
+                            <Icon icon={ArrowDown20Regular} />
+                        </Button>
+                    </Tooltip>
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        className={cn(WORKBENCH_TAB_ACTION_BUTTON_CLASS, "h-6 w-6")}
+                        onClick={closeSearch}
+                        aria-label="Close find"
+                    >
+                        <Icon icon={Dismiss20Regular} />
+                    </Button>
                 </div>
             ) : null}
 

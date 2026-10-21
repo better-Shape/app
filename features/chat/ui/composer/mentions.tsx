@@ -143,18 +143,26 @@ export function MentionPicker({
     useEffect(() => {
         if (!open || !project_path) return;
         let cancelled = false;
-        void (async () => {
-            try {
-                const results = await commands.searchProjectFiles(filter || "", 40);
-                if (!cancelled) {
-                    setFiles(results.map((r) => (r.relative_path || r.path).replace(/\\/g, "/")));
-                }
-            } catch {
-                if (!cancelled) setFiles([]);
-            }
-        })();
+        // Each keystroke used to trigger its own project scan; typing `@file` fired
+        // one per letter. An empty query (menu just opened) still searches at once.
+        const timer = window.setTimeout(
+            () => {
+                void (async () => {
+                    try {
+                        const results = await commands.searchProjectFiles(filter || "", 40);
+                        if (!cancelled) {
+                            setFiles(results.map((r) => (r.relative_path || r.path).replace(/\\/g, "/")));
+                        }
+                    } catch {
+                        if (!cancelled) setFiles([]);
+                    }
+                })();
+            },
+            filter ? 120 : 0,
+        );
         return () => {
             cancelled = true;
+            window.clearTimeout(timer);
         };
     }, [open, project_path, filter]);
 

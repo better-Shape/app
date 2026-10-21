@@ -272,6 +272,14 @@
             "key": "Ctrl+Shift+D",
             "when": "global",
             "category": "Agent"
+        },
+        {
+            "id": "view.keyboardShortcuts",
+            "label": "Keyboard Shortcuts",
+            "key": "Ctrl+K Ctrl+S",
+            "when": "global",
+            "category": "View",
+            "description": "Open the keyboard shortcut reference."
         }
     ]
 }

@@ -26,20 +26,24 @@ type Instance = {
 
 const MAX_SCROLLBACK_CHARS = 400_000;
 
+/** Chunked scrollback so trimming never rewrites the whole buffer. */
+type PtyScrollback = { chunks: string[]; head: number; total: number };
+
 function createTabId() {
     return typeof crypto !== "undefined" && "randomUUID" in crypto
         ? crypto.randomUUID()
         : Math.random().toString(36).slice(2, 11);
 }
 
-class TerminalSessionStore {
+/** Exported for tests; the app uses the `terminalSessionStore` singleton. */
+export class TerminalSessionStore {
     tabs: TerminalTab[] = [];
     activeProjectTabs: Record<string, string | null> = {};
     activeSecondaryTabs: Record<string, string | null> = {};
     focusedGroup: Record<string, TerminalGroupId> = {};
     instances = new Map<string, Instance>();
     /** Output captured while no xterm is attached (background Run). */
-    ptyScrollback = new Map<number, string>();
+    ptyScrollback = new Map<number, PtyScrollback>();
     listeners = new Set<() => void>();
 
     subscribe(l: () => void): () => void {
@@ -67,17 +71,40 @@ class TerminalSessionStore {
     }
 
     appendPtyOutput(ptyId: number, data: string) {
-        const prev = this.ptyScrollback.get(ptyId) ?? "";
-        let next = prev + data;
-        if (next.length > MAX_SCROLLBACK_CHARS) {
-            next = next.slice(next.length - MAX_SCROLLBACK_CHARS);
+        if (!data) return;
+        let entry = this.ptyScrollback.get(ptyId);
+        if (!entry) {
+            entry = { chunks: [], head: 0, total: 0 };
+            this.ptyScrollback.set(ptyId, entry);
         }
-        this.ptyScrollback.set(ptyId, next);
+        entry.chunks.push(data);
+        entry.total += data.length;
+        // Drop whole chunks from the front: the old code re-sliced the entire
+        // 400k-char scrollback on every chunk once it was full.
+        while (entry.total > MAX_SCROLLBACK_CHARS && entry.chunks.length - entry.head > 1) {
+            entry.total -= entry.chunks[entry.head].length;
+            entry.head += 1;
+        }
+        // One event can exceed the whole budget (a pasted dump, a huge frame).
+        // Keep its tail, which is what the old `slice(-MAX)` did.
+        if (entry.total > MAX_SCROLLBACK_CHARS) {
+            const last = entry.chunks[entry.chunks.length - 1]!.slice(-MAX_SCROLLBACK_CHARS);
+            entry.chunks = [last];
+            entry.head = 0;
+            entry.total = last.length;
+        }
+        // Compact once the dropped prefix dominates, keeping `head` bookkeeping cheap.
+        if (entry.head > 1024 && entry.head * 2 > entry.chunks.length) {
+            entry.chunks = entry.chunks.slice(entry.head);
+            entry.head = 0;
+        }
         // Live-attached xterms write via their own listeners; nothing else to notify.
     }
 
     takePtyScrollback(ptyId: number): string {
-        return this.ptyScrollback.get(ptyId) ?? "";
+        const entry = this.ptyScrollback.get(ptyId);
+        if (!entry) return "";
+        return entry.chunks.slice(entry.head).join("");
     }
 
     clearPtyScrollback(ptyId: number) {

@@ -8,7 +8,7 @@ import { Folder20Filled } from "@fluentui/react-icons/headless/svg/folder";
 import { MoreHorizontal20Regular } from "@fluentui/react-icons/headless/svg/more-horizontal";
 
 import React from "react";
-import { useChatStreamOptional } from "@/features/chat/lib/chat-stream-store";
+import type { ChatMessage } from "@/lib/backend";
 import { cn } from "@/lib/utils";
 import { toTimestampMs } from "@/lib/ui/timestamp";
 import { MessageRenderer, parseMessageContent, extractWebSearchResults } from "../md/renderer";
@@ -78,6 +78,8 @@ type ChatMessageItemProps = {
     onFork?: (index: number) => void;
     isFileEditResolved?: (file: string, replacement?: string) => boolean;
     fullWidthBubbles?: boolean;
+    /** Live transcript, read only when the usage menu opens. */
+    messagesRef?: React.RefObject<ChatMessage[]>;
 };
 
 function SentAttachment({ att }: { att: ParsedUserAttachment }) {
@@ -294,8 +296,8 @@ function ChatMessageItemInner({
     onRestore,
     onFork,
     isFileEditResolved,
+    messagesRef,
 }: ChatMessageItemProps) {
-    const viewedMessages = useChatStreamOptional().messages;
     const [expanded, setExpanded] = React.useState(false);
     const [forkOpen, setForkOpen] = React.useState(false);
     const [menuOpen, setMenuOpen] = React.useState(false);
@@ -545,7 +547,7 @@ function ChatMessageItemInner({
                             return;
                         }
                         if (typeof index !== "number" || index < 0) return;
-                        const msg = viewedMessages[index];
+                        const msg = messagesRef?.current?.[index];
                         if (msg && msg.role === "assistant") {
                             if (msg.stats) setMenuStats(msg.stats);
                             if (msg.model) setMenuModel(msg.model);

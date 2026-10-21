@@ -4,6 +4,11 @@ import { ActivityTotals, BrowserHistoryEntry, BrowserInputEvent, BrowserPickedEl
 type InvokeLogger = (command: string, durationMs: number) => void;
 
 let invokeLogger: InvokeLogger | null = null;
+/**
+ * Additional listeners (dev HUD). Kept separate from `setInvokeLogger`, which
+ * is a single-consumer setter the benchmarker owns.
+ */
+const invokeListeners = new Set<InvokeLogger>();
 const FILE_CACHE_MAX = 20;
 const GIT_CACHE_TTL_MS = 8000;
 const fileContentCache = new Map<string, string>();
@@ -13,13 +18,35 @@ export function setInvokeLogger(logger: InvokeLogger | null) {
     invokeLogger = logger;
 }
 
+/** Subscribe to command latency without replacing the benchmarker logger. */
+export function addInvokeListener(listener: InvokeLogger): () => void {
+    invokeListeners.add(listener);
+    return () => {
+        invokeListeners.delete(listener);
+    };
+}
+
 async function invokeCommand<T>(command: string, args?: Record<string, unknown>): Promise<T> {
     const started = performance.now();
     try {
         return await invoke<T>(command, args);
     } finally {
         const durationMs = performance.now() - started;
-        invokeLogger?.(command, durationMs);
+        // Instrumentation must never turn a resolved command into a rejection.
+        try {
+            invokeLogger?.(command, durationMs);
+        } catch {
+            /* ignore logger failures */
+        }
+        if (invokeListeners.size > 0) {
+            for (const listener of invokeListeners) {
+                try {
+                    listener(command, durationMs);
+                } catch {
+                    /* ignore listener failures */
+                }
+            }
+        }
     }
 }
 

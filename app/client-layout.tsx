@@ -18,6 +18,7 @@ import { SuppressNativeTooltips } from "@/components/ui/suppress-native-tooltips
 import { CommandPaletteBridge } from "@/features/agent/palette";
 import { DesignPreviewCaptureHost } from "@/features/chat/ui/design-capture";
 import { WebviewReconnect } from "@/components/layout/webview-reconnect";
+import { KeyboardShortcutsCheatsheet } from "@/features/shortcuts/ui/cheatsheet";
 
 function pathMatches(pathname: string | null, base: string) {
     if (!pathname) return false;
@@ -58,6 +59,20 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     // Re-ensure benign error filters (idempotent; instrumentation-client runs earlier).
     useEffect(() => {
         installBenignErrorFilters();
+    }, []);
+
+    // Dev-only performance overlay; a no-op in production builds.
+    useEffect(() => {
+        if (process.env.NODE_ENV === "production") return;
+        let unmount: (() => void) | undefined;
+        let cancelled = false;
+        void import("@/lib/dev/perf-hud-overlay").then(({ mountPerfHud }) => {
+            if (!cancelled) unmount = mountPerfHud();
+        });
+        return () => {
+            cancelled = true;
+            unmount?.();
+        };
     }, []);
 
     useEffect(() => {
@@ -155,6 +170,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
                 <NotificationProvider>
                     <SuppressNativeTooltips />
                     <GlobalContextMenu>
+                        <KeyboardShortcutsCheatsheet />
                         <div
                             id="bettershape-popout"
                             className="relative flex h-screen w-full flex-col overflow-hidden bg-titlebar font-sans text-sm text-text-primary select-none"
@@ -188,6 +204,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
                 <NotificationProvider>
                     <SuppressNativeTooltips />
                     <GlobalContextMenu>
+                        <KeyboardShortcutsCheatsheet />
                         {isBranch ? <FilterProvider>{body}</FilterProvider> : body}
                     </GlobalContextMenu>
                 </NotificationProvider>
@@ -220,6 +237,7 @@ function Content({ children }: { children: React.ReactNode }) {
                 <CheckpointRestoreDialog />
                 <CommandPaletteBridge />
                 <DesignPreviewCaptureHost />
+                <KeyboardShortcutsCheatsheet />
             </div>
             <WebviewReconnect />
             <div id="bettershape-overlays" />
