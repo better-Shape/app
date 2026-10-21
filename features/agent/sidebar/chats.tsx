@@ -56,7 +56,7 @@ import {
     subscribeSubagents,
 } from "@/features/agent/subagents/store";
 import { listen } from "@tauri-apps/api/event";
-import { useChatStreamOptional } from "@/features/chat/lib/chat-stream-store";
+import { useChatStreamMeta } from "@/features/chat/lib/chat-stream-store";
 import { useGeneratingChatIds } from "@/features/chat/lib/generating-chats";
 import { ScrollArea } from "@/components/ui/scroll";
 import { CollectionDialog } from "./collection-dialog";
@@ -292,7 +292,7 @@ export function ChatList({
 
     // Highlight the chat on screen. The backend's current chat can be another one while a
     // background chat runs, so it is not used here.
-    const viewedChatId = useChatStreamOptional().viewedConversationId;
+    const viewedChatId = useChatStreamMeta().viewedConversationId;
     useEffect(() => {
         setActiveId(viewedChatId);
     }, [viewedChatId]);

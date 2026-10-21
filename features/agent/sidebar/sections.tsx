@@ -88,12 +88,16 @@ export const SORT_OPTIONS: { value: ChatSort; label: string }[] = [
  * tiebreak keeps equal-timestamped rows from swapping between two otherwise
  * identical renders, which is what makes a reorder animate instead of flicker.
  */
+/** One collator for every title comparison; `localeCompare` built a new one per call. */
+const titleCollator = new Intl.Collator(undefined, { sensitivity: "base" });
+
+/** Orders a shelf of conversations for the given sort mode (pure, stable). */
 export const sortShelf = (chats: readonly Conversation[], sort: ChatSort): Conversation[] => {
     const nameSign = sort === "name-desc" ? -1 : 1;
     /** Title order for the name sorts, with the id as a stable tiebreak. */
     const byName = (a: Conversation, b: Conversation) =>
         nameSign
-        * ((a.title || "").localeCompare(b.title || "", undefined, { sensitivity: "base" })
+        * (titleCollator.compare(a.title || "", b.title || "")
             || a.id.localeCompare(b.id));
     /** Timestamp order for the age sorts, with the id as a stable tiebreak. */
     const byTime = (a: Conversation, b: Conversation) => {

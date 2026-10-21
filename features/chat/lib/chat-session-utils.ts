@@ -8,6 +8,23 @@ import {
     setProposedEdit,
 } from "./proposed-edits";
 
+/**
+ * Messages keep object identity while their content is unchanged, so parsing
+ * is cached per message. Several scans walk the whole transcript per stream
+ * tick and each one would otherwise re-parse every message it sees.
+ */
+const messageChunkCache = new WeakMap<ChatMessage, { content: string; chunks: Chunk[] }>();
+
+/** Parsed chunks for a message, re-parsed only when its content changes. */
+export function chunksForMessage(message: ChatMessage): Chunk[] {
+    const cached = messageChunkCache.get(message);
+    if (cached && cached.content === message.content) return cached.chunks;
+    const chunks = parseMessageContent(message.content);
+    messageChunkCache.set(message, { content: message.content, chunks });
+    return chunks;
+}
+
+/** Absolutises a project-relative path, leaving absolute and Windows paths as-is. */
 export function resolveChatFilePath(filePath: string, projectPath: string | null): string {
     if (/^[a-zA-Z]:[\\\/]/.test(filePath) || filePath.startsWith("/")) return filePath;
     if (!projectPath) return filePath;
@@ -23,7 +40,7 @@ export function syncProposedEditsFromMessages(history: ChatMessage[], convId: st
 
     history.forEach((m, msgIdx) => {
         if (m.role !== "assistant") return;
-        const chunks = parseMessageContent(m.content);
+        const chunks = chunksForMessage(m);
         chunks
             .filter((c): c is Chunk & { file: string } => c.type === "edit" && !!c.file)
             .forEach((e, editIdx) => {
@@ -72,14 +89,47 @@ export function syncProposedEditsFromMessages(history: ChatMessage[], convId: st
     });
 }
 
-export function groupChatMessages(messages: ChatMessage[]) {
-    return messages.reduce((groups, msg, msgIdx) => {
-        if (msg.hidden) return groups;
-        if (msg.role === "user" || groups.length === 0) {
+export type ChatMessageGroup = { msg: ChatMessage; msgIdx: number }[];
+
+/**
+ * Turns of a transcript. Streaming replaces `messages` on every token, so the
+ * grouping is rebuilt constantly; a group whose members are the same objects as
+ * last time is returned by identity. That lets a memoized turn component skip
+ * every turn except the one being streamed into.
+ */
+let lastGroupInput: ChatMessage[] | null = null;
+let lastGroups: ChatMessageGroup[] = [];
+
+/** Groups consecutive assistant messages under the user turn that started them. */
+export function groupChatMessages(messages: ChatMessage[]): ChatMessageGroup[] {
+    if (messages === lastGroupInput) return lastGroups;
+
+    const groups: ChatMessageGroup[] = [];
+    for (let msgIdx = 0; msgIdx < messages.length; msgIdx++) {
+        const msg = messages[msgIdx];
+        if (!msg || msg.hidden) continue;
+        const current = groups[groups.length - 1];
+        if (msg.role === "user" || !current) {
             groups.push([{ msg, msgIdx }]);
         } else {
-            groups[groups.length - 1].push({ msg, msgIdx });
+            current.push({ msg, msgIdx });
         }
-        return groups;
-    }, [] as { msg: ChatMessage; msgIdx: number }[][]);
+    }
+
+    // Reuse the previous array for any turn that did not change, so React sees
+    // stable props for it.
+    for (let i = 0; i < groups.length; i++) {
+        const previous = lastGroups[i];
+        const next = groups[i];
+        if (!previous || !next || previous.length !== next.length) continue;
+        const unchanged = previous.every((entry, k) => {
+            const other = next[k];
+            return other !== undefined && entry.msg === other.msg && entry.msgIdx === other.msgIdx;
+        });
+        if (unchanged) groups[i] = previous;
+    }
+
+    lastGroupInput = messages;
+    lastGroups = groups;
+    return groups;
 }

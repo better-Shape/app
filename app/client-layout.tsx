@@ -18,14 +18,21 @@ import { SuppressNativeTooltips } from "@/components/ui/suppress-native-tooltips
 import { CommandPaletteBridge } from "@/features/agent/palette";
 import { DesignPreviewCaptureHost } from "@/features/chat/ui/design-capture";
 import { WebviewReconnect } from "@/components/layout/webview-reconnect";
+import { KeyboardShortcutsCheatsheet } from "@/features/shortcuts/ui/cheatsheet";
+import { useKeyboardShortcuts } from "@/lib/ui/shortcuts";
 
+/** True when `pathname` is `base` itself or a route nested under it. */
 function pathMatches(pathname: string | null, base: string) {
     if (!pathname) return false;
     return pathname === base || pathname === `${base}/` || pathname.startsWith(`${base}/`);
 }
 
+/** App shell: window-level effects, keyboard bindings and the shell the routes mount into. */
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
     const pathname = usePathname();
+    // One window-level instance per window. The titlebar used to own this, which
+    // left the workbench (no titlebar) and the browser preview with no bindings.
+    useKeyboardShortcuts();
     // Prod static export uses trailing slashes (`/settings/`); match both forms.
     const isSettings = pathMatches(pathname, "/settings");
     const isBranch = pathMatches(pathname, "/branch") || pathMatches(pathname, "/git");
@@ -58,6 +65,23 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     // Re-ensure benign error filters (idempotent; instrumentation-client runs earlier).
     useEffect(() => {
         installBenignErrorFilters();
+    }, []);
+
+    // Dev-only performance overlay; a no-op in production builds.
+    useEffect(() => {
+        if (process.env.NODE_ENV === "production") return undefined;
+        let unmount: (() => void) | undefined;
+        let cancelled = false;
+        import("@/lib/dev/perf-hud-overlay")
+            .then(({ mountPerfHud }) => {
+                if (!cancelled) unmount = mountPerfHud();
+            })
+            // A missing chunk only costs the overlay, never the app shell.
+            .catch(() => undefined);
+        return () => {
+            cancelled = true;
+            unmount?.();
+        };
     }, []);
 
     useEffect(() => {
@@ -155,6 +179,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
                 <NotificationProvider>
                     <SuppressNativeTooltips />
                     <GlobalContextMenu>
+                        <KeyboardShortcutsCheatsheet />
                         <div
                             id="bettershape-popout"
                             className="relative flex h-screen w-full flex-col overflow-hidden bg-titlebar font-sans text-sm text-text-primary select-none"
@@ -188,6 +213,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
                 <NotificationProvider>
                     <SuppressNativeTooltips />
                     <GlobalContextMenu>
+                        <KeyboardShortcutsCheatsheet />
                         {isBranch ? <FilterProvider>{body}</FilterProvider> : body}
                     </GlobalContextMenu>
                 </NotificationProvider>
@@ -220,6 +246,7 @@ function Content({ children }: { children: React.ReactNode }) {
                 <CheckpointRestoreDialog />
                 <CommandPaletteBridge />
                 <DesignPreviewCaptureHost />
+                <KeyboardShortcutsCheatsheet />
             </div>
             <WebviewReconnect />
             <div id="bettershape-overlays" />

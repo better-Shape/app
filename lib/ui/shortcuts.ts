@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import { dispatchShortcutAction } from "@/lib/ui/shortcut-actions";
 import defaultKeybindings from "@/config/keybindings.json";
 import presetPack from "@/config/keybinding-presets.json";
+import { isTauriRuntime } from "@/lib/window/tauri-window";
 
 export interface KeyBinding {
     id: string;
@@ -20,6 +21,52 @@ export type KeybindingPresetId = keyof typeof presetPack.presets;
 
 const OVERRIDE_KEY = "bettershape-keybindings-override";
 const PRESET_KEY = "bettershape-keybindings-preset";
+
+/** Fired in this window, in sibling browser tabs, and across Tauri windows. */
+export const KEYBINDINGS_CHANGED_EVENT = "bettershape-keybindings-changed";
+
+/**
+ * Persisting is local; notifying is not. A sibling Tauri window (Settings) sits
+ * on a different `window`, so the DOM event alone never reaches the main window.
+ */
+function announceKeybindingsChanged(): void {
+    window.dispatchEvent(new Event(KEYBINDINGS_CHANGED_EVENT));
+    if (!isTauriRuntime()) return;
+    void import("@tauri-apps/api/event")
+        .then(({ emit }) => emit(KEYBINDINGS_CHANGED_EVENT))
+        .catch(() => undefined);
+}
+
+/**
+ * Subscribe to keybinding changes from every window that can make them: this DOM
+ * tree, other tabs of the same origin (`storage`), and sibling Tauri windows.
+ * Returns an unsubscribe that is safe to call more than once.
+ */
+export function onKeybindingsChanged(handler: () => void): () => void {
+    let disposed = false;
+    let unlisten: (() => void) | null = null;
+    const onStorage = (event: StorageEvent) => {
+        if (event.key === null || event.key === OVERRIDE_KEY || event.key === PRESET_KEY) handler();
+    };
+    window.addEventListener(KEYBINDINGS_CHANGED_EVENT, handler);
+    window.addEventListener("storage", onStorage);
+    if (isTauriRuntime()) {
+        void import("@tauri-apps/api/event")
+            .then(({ listen }) => listen(KEYBINDINGS_CHANGED_EVENT, () => handler()))
+            .then((fn) => {
+                if (disposed) fn();
+                else unlisten = fn;
+            })
+            .catch(() => undefined);
+    }
+    return () => {
+        disposed = true;
+        window.removeEventListener(KEYBINDINGS_CHANGED_EVENT, handler);
+        window.removeEventListener("storage", onStorage);
+        if (unlisten) unlisten();
+        unlisten = null;
+    };
+}
 
 type RawBinding = {
     id?: string;
@@ -63,7 +110,7 @@ export function loadKeybindings(): KeyBinding[] {
 
 export function saveKeybindingOverrides(overrides: Record<string, string>): void {
     localStorage.setItem(OVERRIDE_KEY, JSON.stringify(overrides));
-    window.dispatchEvent(new Event("bettershape-keybindings-changed"));
+    announceKeybindingsChanged();
 }
 
 export function setKeybindingOverride(label: string, key: string | null): void {
@@ -76,7 +123,7 @@ export function setKeybindingOverride(label: string, key: string | null): void {
 export function resetKeybindingOverrides(): void {
     localStorage.removeItem(OVERRIDE_KEY);
     localStorage.removeItem(PRESET_KEY);
-    window.dispatchEvent(new Event("bettershape-keybindings-changed"));
+    announceKeybindingsChanged();
 }
 
 export function getKeybindingOverrides(): Record<string, string> {
@@ -262,6 +309,21 @@ export function eventToKeyChord(e: KeyboardEvent): string | null {
 const SURFACE_OWNED_SHORTCUTS = new Set(["Find"]);
 
 /**
+ * A surface that handles a chord itself marks the element around it with
+ * `data-shortcut-owner="Ctrl+S,Ctrl+Shift+S"`. The window-level handler runs in
+ * the capture phase, before the surface's own listener, so `defaultPrevented`
+ * cannot tell it to stand down; this attribute can.
+ */
+function ownedByFocusedSurface(target: EventTarget | null, chord: string): boolean {
+    const element = target as HTMLElement | null;
+    const owner = element?.closest?.("[data-shortcut-owner]") as HTMLElement | null;
+    if (!owner) return false;
+    const owned = owner.dataset.shortcutOwner;
+    if (!owned) return false;
+    return owned.split(",").some((entry) => entry.trim() === chord);
+}
+
+/**
  * React hook that registers global keyboard shortcuts from the built-in config.
  */
 export function useKeyboardShortcuts() {
@@ -274,8 +336,7 @@ export function useKeyboardShortcuts() {
             bindingsRef.current = loadKeybindings();
         };
         reload();
-        window.addEventListener("bettershape-keybindings-changed", reload);
-        return () => window.removeEventListener("bettershape-keybindings-changed", reload);
+        return onKeybindingsChanged(reload);
     }, []);
 
     useEffect(() => {
@@ -321,6 +382,7 @@ export function useKeyboardShortcuts() {
             }
 
             const binding = bindingsRef.current.find((k) => k.key === fullShortcut);
+            if (binding && ownedByFocusedSurface(e.target, fullShortcut)) return;
 
             if (binding) {
                 const terminalRoot = target.closest('[data-terminal-root="true"]');

@@ -708,7 +708,8 @@ function turnMarks(blocks: Chunk[]) {
     };
 }
 
-export function TurnWorkflowSummary({
+/** Renders one turn's workflow steps; `TurnWorkflowSummary` memoises it. */
+function TurnWorkflowSummaryInner({
     blocks,
     isActive,
     showHeader = true,
@@ -888,3 +889,9 @@ export function TurnWorkflowSummary({
         </div>
     );
 }
+
+/**
+ * Memoized: a turn keeps several workflow groups, and streaming only changes
+ * the last one. Earlier groups skip coalescing and stats on every token.
+ */
+export const TurnWorkflowSummary = React.memo(TurnWorkflowSummaryInner);

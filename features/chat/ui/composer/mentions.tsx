@@ -141,27 +141,35 @@ export function MentionPicker({
     }, [open]);
 
     useEffect(() => {
-        if (!open || !project_path) return;
+        if (!open || !project_path) return undefined;
         let cancelled = false;
-        void (async () => {
-            try {
-                const results = await commands.searchProjectFiles(filter || "", 40);
-                if (!cancelled) {
-                    setFiles(results.map((r) => (r.relative_path || r.path).replace(/\\/g, "/")));
-                }
-            } catch {
-                if (!cancelled) setFiles([]);
-            }
-        })();
+        // Each keystroke used to trigger its own project scan; typing `@file` fired
+        // one per letter. An empty query (menu just opened) still searches at once.
+        const timer = window.setTimeout(
+            () => {
+                (async () => {
+                    try {
+                        const results = await commands.searchProjectFiles(filter || "", 40);
+                        if (!cancelled) {
+                            setFiles(results.map((r) => (r.relative_path || r.path).replace(/\\/g, "/")));
+                        }
+                    } catch {
+                        if (!cancelled) setFiles([]);
+                    }
+                })().catch(() => { /* failures already land in the empty-list branch */ });
+            },
+            filter ? 120 : 0,
+        );
         return () => {
             cancelled = true;
+            window.clearTimeout(timer);
         };
     }, [open, project_path, filter]);
 
     useEffect(() => {
-        if (!open) return;
+        if (!open) return undefined;
         let cancelled = false;
-        void (async () => {
+        (async () => {
             try {
                 const list = await commands.getConversations(project_path ?? undefined);
                 if (!cancelled) {
@@ -175,7 +183,7 @@ export function MentionPicker({
             } catch {
                 if (!cancelled) setChats([]);
             }
-        })();
+        })().catch(() => { /* same: surfaced as an empty chat list */ });
         return () => {
             cancelled = true;
         };

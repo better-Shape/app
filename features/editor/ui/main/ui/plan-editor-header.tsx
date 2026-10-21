@@ -9,7 +9,7 @@ import { Icon } from "@/components/ui/icon";
 
 import { commands, useProjectState } from "@/lib/backend";
 import { getPlanOrigin, resolveProjectPlanPath } from "@/features/chat/lib/plan-origin";
-import { useChatStreamOptional } from "@/features/chat/lib/chat-stream-store";
+import { useChatStreamMeta } from "@/features/chat/lib/chat-stream-store";
 import { displayPlanName } from "@/lib/plan/preview";
 import { planSlugFromPath } from "@/lib/plan/file";
 import { Button } from "@/components/ui/button";
@@ -71,7 +71,7 @@ export function PlanEditorHeader({
     onRawChange?: (raw: boolean) => void;
     onSaveToWorkspace?: () => void;
 }) {
-    const { isLoading } = useChatStreamOptional();
+    const { isLoading } = useChatStreamMeta();
     const { project_path } = useProjectState();
     const [checking, setChecking] = React.useState(false);
     const title = displayPlanName(titleProp || planSlugFromPath(path));

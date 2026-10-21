@@ -17,6 +17,7 @@ import { ImageView } from "./ui/image";
 import { FontView } from "./ui/font";
 
 import { getProposedEdit, clearProposedEdit, isFileResolvedForCurrentConversation } from "../../../chat/lib/proposed-edits";
+import { usePerfRenderCount } from "@/lib/dev/perf-hud-hooks";
 import { useFileContent } from "./hooks/use-file-content";
 import { useImageLoader } from "./hooks/use-image-loader";
 import { Button } from "@/components/ui/button";
@@ -29,6 +30,7 @@ import { parsePlanMarkdown } from "@/lib/plan/preview";
 
 // Main file viewer component handling various file types (text, image, markdown)
 export default function FileViewer({ path, group: _group = "left", variant = "editor" }: { path: string; group?: EditorGroupId; variant?: "editor" | "workspace" }) {
+    usePerfRenderCount("editor");
     const { getViewMode, setViewMode } = useEditorView();
     // getFileExtension handles diff: prefixes and display-name suffixes like " (abc1234)"
     const ext = useMemo(() => getFileExtension(path), [path]);

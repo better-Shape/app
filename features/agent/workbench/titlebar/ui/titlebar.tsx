@@ -14,7 +14,6 @@ import { Icon } from "@/components/ui/icon";
 import { BetterShapeLogo } from "@/components/ui/bettershape-logo";
 
 import { useProjectState } from "@/lib/backend";
-import { useKeyboardShortcuts } from "@/lib/ui/shortcuts";
 import type { TitlebarProps } from "../types";
 import { createMenuActionHandler } from "../menu-actions";
 import { useWindowControls } from "../hooks/use-window-controls";
@@ -25,9 +24,8 @@ import { WindowControls } from "../ui/window-controls";
 import { TitlebarUpdateButton } from "../ui/update-button";
 import { GIT_WINDOW_TITLE_SLOT } from "@/features/git/ui/manager/chrome";
 
+/** Window chrome: drag region, window buttons and the per-window title. */
 export default function Titlebar({ onboarding, settings, focus, title, onBack }: TitlebarProps) {
-    useKeyboardShortcuts();
-
     const { active_file, project_path, open_files } = useProjectState();
     const isCompact = Boolean(onboarding || settings);
     const isFocus = Boolean(focus);

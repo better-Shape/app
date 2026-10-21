@@ -28,27 +28,52 @@ import { providerIcon } from "@/lib/ui/provider-icon";
 const PATH_IN_PROSE =
     /(?:^|(?<=\s))((?:\.{1,2}[\\/])?(?:[\w.-]+[\\/])+[\w.-]+\.[A-Za-z0-9]{1,12})(?=$|[\s,;:)\]"'`])/g;
 
+/**
+ * Existence probes shared across every mounted link. A streamed transcript can
+ * hold dozens of path links, and each re-parse used to fire its own
+ * `readFile` + `lsDir` pair. Results are kept briefly — long enough to cover a
+ * streaming burst, short enough that a file deleted outside the app stops
+ * being clickable. Misses are never cached, so a file created later links up
+ * on the next mount.
+ */
+const PATH_PROBE_TTL_MS = 60_000;
+const PATH_PROBE_CACHE_MAX = 500;
+const pathExistsCache = new Map<string, { promise: Promise<boolean>; at: number }>();
+
+/** Cached existence probe: one file+`ls` round trip per path per TTL window. */
+function pathExists(resolved: string): Promise<boolean> {
+    const now = Date.now();
+    const cached = pathExistsCache.get(resolved);
+    if (cached && now - cached.at < PATH_PROBE_TTL_MS) return cached.promise;
+    if (pathExistsCache.size > PATH_PROBE_CACHE_MAX) pathExistsCache.clear();
+    const probe = commands
+        .readFile(resolved)
+        .then(() => true)
+        .catch(() => commands.lsDir(resolved).then(() => true).catch(() => false));
+    const entry = { promise: probe, at: now };
+    pathExistsCache.set(resolved, entry);
+    probe
+        .then((found) => {
+            if (!found && pathExistsCache.get(resolved) === entry) pathExistsCache.delete(resolved);
+        })
+        // `probe` maps every rejection to `false`, so this only marks the
+        // chain as handled for the promise linters.
+        .catch(() => undefined);
+    return probe;
+}
+
+/** Project-relative path that only becomes a link once the file is known to exist. */
 function ProjectPathLink({ path }: { path: string }) {
     const [exists, setExists] = useState<boolean | null>(null);
 
     useEffect(() => {
         let cancelled = false;
         const resolved = resolveProjectFilePath(path, getProjectPath());
-        void commands
-            .readFile(resolved)
-            .then(() => {
-                if (!cancelled) setExists(true);
+        pathExists(resolved)
+            .then((found) => {
+                if (!cancelled) setExists(found);
             })
-            .catch(() =>
-                commands
-                    .lsDir(resolved)
-                    .then(() => {
-                        if (!cancelled) setExists(true);
-                    })
-                    .catch(() => {
-                        if (!cancelled) setExists(false);
-                    }),
-            );
+            .catch(() => { /* see pathExists: it never rejects */ });
         return () => {
             cancelled = true;
         };
@@ -95,14 +120,33 @@ function linkifyChildren(children: React.ReactNode): React.ReactNode {
     });
 }
 
+/** Fenced code block with a copy button that survives streaming remounts. */
 function CodeBlock({ language, code, ...rest }: { language: string; code: string; [k: string]: unknown }) {
     const [copied, setCopied] = useState(false);
+    // Code blocks remount constantly while text streams in; a pending reset
+    // timer used to outlive the button that owned it.
+    const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    useEffect(() => {
+        return () => {
+            if (resetTimer.current) clearTimeout(resetTimer.current);
+        };
+    }, []);
 
+    /** Copies the block; a denied clipboard leaves the label unchanged. */
     const copy = () => {
-        void navigator.clipboard.writeText(code).then(() => {
-            setCopied(true);
-            window.setTimeout(() => setCopied(false), 1400);
-        });
+        navigator.clipboard
+            .writeText(code)
+            .then(() => {
+                setCopied(true);
+                if (resetTimer.current) clearTimeout(resetTimer.current);
+                resetTimer.current = setTimeout(() => {
+                    resetTimer.current = null;
+                    setCopied(false);
+                }, 1400);
+            })
+            // Clipboard access can be denied (no permission, no user gesture
+            // after an async hop). Leave the label alone instead of throwing.
+            .catch(() => { /* ignore */ });
     };
 
     return (
@@ -356,6 +400,11 @@ export const ChatMarkdown = React.memo(({
 
     const live = !nested && !!isLast && (!!isGenerating || hold);
     const visible = useRevealText(content, live);
+    // Parsing markdown is the expensive half of a streamed frame. Hand React a
+    // deferred slice so it can drop intermediate typewriter frames instead of
+    // building a full AST for every one; the settled text is never deferred.
+    const deferred = React.useDeferredValue(visible);
+    const renderedText = live ? deferred : visible;
 
     const components = React.useMemo(
         () => createMarkdownComponents({ nested }),
@@ -363,8 +412,8 @@ export const ChatMarkdown = React.memo(({
     );
 
     const processed = React.useMemo(
-        () => preprocessChatMarkdown(visible, { streaming: live, trim: !live }),
-        [visible, live],
+        () => preprocessChatMarkdown(renderedText, { streaming: live, trim: !live }),
+        [renderedText, live],
     );
 
     return (

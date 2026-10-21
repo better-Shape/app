@@ -55,22 +55,60 @@ export function getCurrentConversationId(): string | null {
     return currentConversationId;
 }
 
-function loadResolvedFilesStore(): Record<string, Record<string, ResolvedEntry | "applied" | "rejected">> {
+type ResolvedStore = Record<string, Record<string, ResolvedEntry | "applied" | "rejected">>;
+
+/**
+ * Parsed copy of the persisted store, keyed by the exact text it came from.
+ * Every render of an edit card asks whether its file is resolved, and
+ * re-parsing the whole JSON store for each answer added up.
+ */
+/** `undefined` means "no memo yet"; `null` is a real value (`getItem` miss). */
+let resolvedStoreRaw: string | null | undefined;
+let resolvedStore: ResolvedStore = {};
+
+/** Reads the resolved-edit map, reusing the last parse when storage is unchanged. */
+function loadResolvedFilesStore(): ResolvedStore {
+    let stored: string | null;
     try {
-        const stored = localStorage.getItem(RESOLVED_FILES_KEY);
-        if (stored) return JSON.parse(stored);
-    } catch { /* ignore */ }
-    return {};
+        stored = localStorage.getItem(RESOLVED_FILES_KEY);
+    } catch {
+        // Blocked storage: no memo, so a later read can still succeed.
+        return {};
+    }
+
+    if (resolvedStoreRaw !== undefined && stored === resolvedStoreRaw) return resolvedStore;
+
+    try {
+        const parsed: ResolvedStore = stored ? (JSON.parse(stored) as ResolvedStore) : {};
+        // Commit the memo only after a successful parse, so a corrupt value
+        // never leaves the previous store being served under the new text.
+        resolvedStoreRaw = stored;
+        resolvedStore = parsed;
+    } catch {
+        // Corrupt JSON: remember the empty result, or every edit card holding
+        // this text would throw through `JSON.parse` again on each render.
+        resolvedStoreRaw = stored;
+        resolvedStore = {};
+    }
+    return resolvedStore;
 }
 
-function saveResolvedFilesStore(
-    store: Record<string, Record<string, ResolvedEntry | "applied" | "rejected">>,
-) {
+/** Persists the resolved-edit map and refreshes the in-memory copy. */
+function saveResolvedFilesStore(store: ResolvedStore) {
     try {
-        localStorage.setItem(RESOLVED_FILES_KEY, JSON.stringify(store));
-    } catch { /* ignore */ }
+        const raw = JSON.stringify(store);
+        localStorage.setItem(RESOLVED_FILES_KEY, raw);
+        resolvedStoreRaw = raw;
+        resolvedStore = store;
+    } catch {
+        // Quota or a blocked storage API: drop the memo so the next read falls
+        // back to whatever actually persisted, instead of serving a value that
+        // was never saved.
+        resolvedStoreRaw = undefined;
+    }
 }
 
+/** Reads a stored entry from any older format, or `null` when it is not a decision. */
 function normalizeEntry(
     raw: ResolvedEntry | "applied" | "rejected" | undefined,
 ): ResolvedEntry | null {

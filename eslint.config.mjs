@@ -80,6 +80,16 @@ const eslintConfig = defineConfig([
     "public/preview/**",
     // Coverage
     "coverage/**",
+    // Playwright output. `npm run qa` / `npm run test:e2e` write both
+    // directories (they are gitignored), and the HTML reporter ships its own
+    // minified trace viewer. Linting them reported thousands of minifier
+    // artefacts and then killed the stylish formatter with
+    // `RangeError: Invalid string length` on any machine that had run QA.
+    "playwright-report/**",
+    "test-results/**",
+    // Agent capture and probe output, also gitignored. Same class as the two
+    // above: local QA artifacts must not change the lint result.
+    ".qa-artifacts/**",
   ]),
   {
     // Node tooling scripts; the Next.js config never defines the React hooks

@@ -13,6 +13,7 @@ import { FileIcon } from "@/components/ui/file-icon";
 import { FrameworkMark } from "@/features/chat/ui/shell/brand-marks";
 import { SearchInput } from "@/components/ui/search";
 
+import { requestTerminalCommand } from "@/features/terminal/commands";
 import { getShortcutForLabel } from "@/lib/ui/shortcuts";
 import { BETTERSHAPE_MODAL_PANEL_CLASS, BETTERSHAPE_OVERLAY_CLASS, BETTERSHAPE_OVERLAY_CONTENT_CLASS } from "@/lib/ui/modal-overlay";
 import { useOverlayRoot } from "@/lib/ui/overlay-root";
@@ -551,6 +552,16 @@ export function CommandPalette() {
         [filtered],
     );
 
+    // Row -> position in `selectableActions`. `indexOf` inside the render loop
+    // made painting the list quadratic in the number of actions.
+    const selectableIndex = useMemo(() => {
+        const index = new Map<EditorAction, number>();
+        selectableActions.forEach((action, position) => {
+            if (!index.has(action)) index.set(action, position);
+        });
+        return index;
+    }, [selectableActions]);
+
     useEffect(() => {
         setSelectedIndex(0);
     }, [filterTab, query, open]);
@@ -665,7 +676,7 @@ export function CommandPalette() {
                                     </React.Fragment>
                                 );
                             }
-                            const idx = selectableActions.indexOf(action);
+                            const idx = selectableIndex.get(action) ?? -1;
                             return (
                                 <React.Fragment key={action.id}>
                                     {showHeader ? (
@@ -801,6 +812,16 @@ function browsePlaceholder(mode: string, filter: string): string {
     return "Search agents, files, actions...";
 }
 
+/** Command that only announces an app event another surface already listens for. */
+function eventCommand(id: string, label: string, keybinding: string, type: string): EditorAction {
+    return {
+        id,
+        label,
+        shortcut: shortcut(keybinding),
+        run: () => window.dispatchEvent(new Event(type)),
+    };
+}
+
 /** App-level workbench commands for the command palette. */
 function getAppCommands(): EditorAction[] {
     const commands: EditorAction[] = [
@@ -849,6 +870,12 @@ function getAppCommands(): EditorAction[] {
             run: () => showSidebarTab("graph"),
         },
         {
+            id: "app.git.refresh",
+            label: "Git: Refresh Source Control",
+            shortcut: "",
+            run: () => window.dispatchEvent(new Event("bettershape-git-refresh")),
+        },
+        {
             id: "app.view.togglePrimarySidebar",
             label: "View: Toggle Primary Sidebar",
             shortcut: "",
@@ -864,28 +891,39 @@ function getAppCommands(): EditorAction[] {
             id: "app.view.terminal",
             label: "View: Toggle Terminal Panel",
             shortcut: shortcut("Terminal"),
-            run: () => {
-                toggleLayout("panel");
-                window.dispatchEvent(new CustomEvent("bettershape-terminal-shortcut", { detail: { action: "open" } }));
-            },
+            // The dock owns panel visibility: one toggle event, no forced open
+            // (the old extra `open` re-opened the panel it had just closed).
+            run: () => toggleLayout("panel"),
         },
         {
             id: "app.view.newTerminal",
             label: "Terminal: New Terminal",
             shortcut: shortcut("New Terminal"),
-            run: () => {
-                window.dispatchEvent(new CustomEvent("bettershape-layout-toggle", { detail: { id: "panel", value: true } }));
-                window.dispatchEvent(new CustomEvent("bettershape-terminal-shortcut", { detail: { action: "new" } }));
-            },
+            run: () => requestTerminalCommand("new"),
         },
         {
             id: "app.view.splitTerminal",
             label: "Terminal: Split Terminal",
             shortcut: "",
-            run: () => {
-                window.dispatchEvent(new CustomEvent("bettershape-layout-toggle", { detail: { id: "panel", value: true } }));
-                window.dispatchEvent(new CustomEvent("bettershape-terminal-shortcut", { detail: { action: "split" } }));
-            },
+            run: () => requestTerminalCommand("split"),
+        },
+        {
+            id: "app.terminal.clear",
+            label: "Terminal: Clear Terminal",
+            shortcut: "",
+            run: () => requestTerminalCommand("clear"),
+        },
+        {
+            id: "app.terminal.find",
+            label: "Terminal: Find in Terminal",
+            shortcut: "",
+            run: () => requestTerminalCommand("find"),
+        },
+        {
+            id: "app.terminal.closePanel",
+            label: "Terminal: Close Terminal Panel",
+            shortcut: "",
+            run: () => requestTerminalCommand("close"),
         },
         {
             id: "app.view.zenMode",
@@ -940,6 +978,14 @@ function getAppCommands(): EditorAction[] {
             },
         },
         // ── Editor settings ────────────────────────────────────────────────────
+        eventCommand("app.chat.new", "Chat: New Chat", "New Chat", "bettershape-chat-new"),
+        eventCommand("app.chat.cycleMode", "Chat: Cycle Chat Mode", "Cycle Chat Mode", "bettershape-chat-cycle-mode"),
+        eventCommand(
+            "app.help.keyboardShortcuts",
+            "Preferences: Keyboard Shortcuts",
+            "Keyboard Shortcuts",
+            "bettershape-open-shortcuts",
+        ),
         {
             id: "app.settings.open",
             label: "Preferences: Open Settings",

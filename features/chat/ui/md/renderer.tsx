@@ -158,7 +158,121 @@ export type Chunk = {
     answers?: QuestionAnswers | null;
 };
 
-export function parseMessageContent(text: string): Chunk[] {
+type SearchTag = { type: string; start: string; end: string };
+
+/** Literal block openers the parser looks for, in source order (ties prefer longer). */
+const SEARCH_TAGS: SearchTag[] = [
+    { type: 'edit', start: '<edit', end: '</edit>' },
+    // Longer tag wins the same-index tie-break against '<edit'.
+    { type: 'edit_pending', start: '<edit_pending', end: '</edit_pending>' },
+    { type: 'design_previews', start: '<design_previews', end: '</design_previews>' },
+    { type: 'review_debate', start: '<review_debate', end: '</review_debate>' },
+    { type: 'persona_review', start: '<persona_review', end: '</persona_review>' },
+    { type: 'questions', start: '<questions', end: '</questions>' },
+    { type: 'question', start: '<question', end: '</question>' },
+    { type: 'inspect_runtime', start: '<inspect_runtime', end: '</inspect_runtime>' },
+    { type: 'search_result', start: '<search_result', end: '</search_result>' },
+    { type: 'search', start: '<search', end: '</search>' },
+    { type: 'grep', start: '<grep', end: '</grep>' },
+    { type: 'web_search', start: '<web_search', end: '</web_search>' },
+    { type: 'status', start: '<status', end: '</status>' },
+    { type: 'think', start: '<think>', end: '</think>' },
+    { type: 'think', start: '<think', end: '</think>' },
+    { type: 'thought', start: '<thought', end: '</thought>' },
+    { type: 'plan', start: '<plan', end: '</plan>' },
+    { type: 'plan_saved', start: '<plan_saved', end: '</plan_saved>' },
+    { type: 'todos', start: '<todos', end: '</todos>' },
+    { type: 'web_result', start: '<web_result', end: '</web_result>' },
+    { type: 'web_visit', start: '<web_visit', end: '</web_visit>' },
+    { type: 'generated_svg', start: '<generated_svg', end: '</generated_svg>' },
+    { type: 'generated_svg', start: '<recraft_svg', end: '</recraft_svg>' },
+    { type: 'generated_image', start: '<generated_image', end: '</generated_image>' },
+    { type: 'generated_audio', start: '<generated_audio', end: '</generated_audio>' },
+    { type: 'plugin_call', start: '<plugin_call', end: '</plugin_call>' },
+    { type: 'browse_session', start: '<browse_session', end: '</browse_session>' },
+    { type: 'chart', start: '<chart', end: '</chart>' },
+    { type: 'insight_card', start: '<insight_card', end: '</insight_card>' },
+    { type: 'ls', start: '<ls', end: '</ls>' },
+    { type: 'cat', start: '<cat', end: '</cat>' },
+    { type: 'run', start: '<run', end: '</run>' },
+    { type: 'create_file', start: '<create_file', end: '</create_file>' },
+    { type: 'mkdir', start: '<mkdir', end: '</mkdir>' },
+    { type: 'delete_file', start: '<delete_file', end: '</delete_file>' },
+    { type: 'rename_file', start: '<rename_file', end: '</rename_file>' },
+    { type: 'rename_chat', start: '<rename_chat', end: '</rename_chat>' },
+    { type: 'subagent_ref', start: '<subagent_ref', end: '/>' },
+    { type: 'subagent', start: '<subagent', end: '</subagent>' },
+    { type: 'terminal_command', start: '<terminal_command', end: '</terminal_command>' },
+    { type: 'git_operation', start: '<git_operation', end: '</git_operation>' },
+    // Hidden tool/result scaffolding (BetterShape UI + cross-model leak grammars).
+    // Defense-in-depth with stripLeakedToolCode — never render as prose.
+    { type: 'tool_result', start: '<tool_result', end: '</tool_result>' },
+    { type: 'tool_result', start: '<terminal_read', end: '</terminal_read>' },
+    { type: 'tool_result', start: '<terminal_input', end: '</terminal_input>' },
+    { type: 'tool_result', start: '<list_terminals', end: '</list_terminals>' },
+    { type: 'tool_result', start: '<tool_code', end: '</tool_code>' },
+    { type: 'tool_result', start: '<tool_call', end: '</tool_call>' },
+    { type: 'tool_result', start: '<tool_calls', end: '</tool_calls>' },
+    { type: 'tool_result', start: '<tool_response', end: '</tool_response>' },
+    { type: 'tool_result', start: '<function_call', end: '</function_call>' },
+    { type: 'tool_result', start: '<function_calls', end: '</function_calls>' },
+    { type: 'tool_result', start: '<function_response', end: '</function_response>' },
+    { type: 'tool_result', start: '<minimax:tool_call', end: '</minimax:tool_call>' },
+    { type: 'tool_result', start: '<invoke', end: '</invoke>' },
+    { type: 'tool_result', start: '<parameter', end: '</parameter>' },
+    { type: 'tool_result', start: '<arg_key', end: '</arg_key>' },
+    { type: 'tool_result', start: '<arg_value', end: '</arg_value>' },
+    { type: 'tool_result', start: '<pre_dispatch_explanation', end: '</pre_dispatch_explanation>' },
+    { type: 'tool_result', start: '<tools', end: '</tools>' },
+    { type: 'tool_result', start: '<new_path', end: '</new_path>' },
+    { type: 'tool_result', start: '<content', end: '</content>' },
+    { type: 'tool_result', start: '<analysis', end: '</analysis>' },
+    { type: 'tool_result', start: '<file_content', end: '</file_content>' },
+    { type: 'attached_image', start: '<attached_image', end: '</attached_image>' },
+    { type: 'sent_file', start: '<sent_file', end: '</sent_file>' },
+];
+
+const TAGS_BY_SECOND_CHAR = (() => {
+    const byChar = new Map<string, SearchTag[]>();
+    for (const tag of SEARCH_TAGS) {
+        const key = tag.start[1] ?? "";
+        const bucket = byChar.get(key);
+        if (bucket) bucket.push(tag);
+        else byChar.set(key, [tag]);
+    }
+    return byChar;
+})();
+
+/**
+ * Earliest block opener at or after `from`. Every opener starts with `<`, so
+ * the scan walks `<` positions instead of re-searching the whole tail for each
+ * tag; that kept long tagged transcripts quadratic. Same-index ties keep the
+ * longest opener, which is what picks `<edit_pending` over `<edit`.
+ */
+function findFirstTag(text: string, from: number) {
+    let at = text.indexOf("<", from);
+    while (at !== -1) {
+        const bucket = TAGS_BY_SECOND_CHAR.get(text[at + 1] ?? "");
+        if (bucket) {
+            let best: SearchTag | null = null;
+            for (const tag of bucket) {
+                if (tag.start.length <= (best?.start.length ?? 0)) continue;
+                if (text.startsWith(tag.start, at)) best = tag;
+            }
+            if (best) {
+                return { type: best.type, index: at, startTag: best.start, endTag: best.end };
+            }
+        }
+        at = text.indexOf("<", at + 1);
+    }
+    return null;
+}
+
+/**
+ * Splits assistant text into renderable chunks. Linear scan: each opener is
+ * located once via `findFirstTag`, so long transcripts stay O(n).
+ */
+function parseMessageContentUncached(text: string): Chunk[] {
     text = stripLeakedToolCode(text);
     const chunks: Chunk[] = [];
     let currentIndex = 0;
@@ -501,90 +615,8 @@ function unescapeXml(s: string): string {
     };
 
     while (currentIndex < text.length) {
-        const searchTags = [
-            { type: 'edit', start: '<edit', end: '</edit>' },
-            // Longer tag wins the same-index tie-break against '<edit'.
-            { type: 'edit_pending', start: '<edit_pending', end: '</edit_pending>' },
-            { type: 'design_previews', start: '<design_previews', end: '</design_previews>' },
-            { type: 'review_debate', start: '<review_debate', end: '</review_debate>' },
-            { type: 'persona_review', start: '<persona_review', end: '</persona_review>' },
-            { type: 'questions', start: '<questions', end: '</questions>' },
-            { type: 'question', start: '<question', end: '</question>' },
-            { type: 'inspect_runtime', start: '<inspect_runtime', end: '</inspect_runtime>' },
-            { type: 'search_result', start: '<search_result', end: '</search_result>' },
-            { type: 'search', start: '<search', end: '</search>' },
-            { type: 'grep', start: '<grep', end: '</grep>' },
-            { type: 'web_search', start: '<web_search', end: '</web_search>' },
-            { type: 'status', start: '<status', end: '</status>' },
-            { type: 'think', start: '<think>', end: '</think>' },
-            { type: 'think', start: '<think', end: '</think>' },
-            { type: 'thought', start: '<thought', end: '</thought>' },
-            { type: 'plan', start: '<plan', end: '</plan>' },
-            { type: 'plan_saved', start: '<plan_saved', end: '</plan_saved>' },
-            { type: 'todos', start: '<todos', end: '</todos>' },
-            { type: 'web_result', start: '<web_result', end: '</web_result>' },
-            { type: 'web_visit', start: '<web_visit', end: '</web_visit>' },
-            { type: 'generated_svg', start: '<generated_svg', end: '</generated_svg>' },
-            { type: 'generated_svg', start: '<recraft_svg', end: '</recraft_svg>' },
-            { type: 'generated_image', start: '<generated_image', end: '</generated_image>' },
-            { type: 'generated_audio', start: '<generated_audio', end: '</generated_audio>' },
-            { type: 'plugin_call', start: '<plugin_call', end: '</plugin_call>' },
-            { type: 'browse_session', start: '<browse_session', end: '</browse_session>' },
-            { type: 'chart', start: '<chart', end: '</chart>' },
-            { type: 'insight_card', start: '<insight_card', end: '</insight_card>' },
-            { type: 'ls', start: '<ls', end: '</ls>' },
-            { type: 'cat', start: '<cat', end: '</cat>' },
-            { type: 'run', start: '<run', end: '</run>' },
-            { type: 'create_file', start: '<create_file', end: '</create_file>' },
-            { type: 'mkdir', start: '<mkdir', end: '</mkdir>' },
-            { type: 'delete_file', start: '<delete_file', end: '</delete_file>' },
-            { type: 'rename_file', start: '<rename_file', end: '</rename_file>' },
-            { type: 'rename_chat', start: '<rename_chat', end: '</rename_chat>' },
-            { type: 'subagent_ref', start: '<subagent_ref', end: '/>' },
-            { type: 'subagent', start: '<subagent', end: '</subagent>' },
-            { type: 'terminal_command', start: '<terminal_command', end: '</terminal_command>' },
-            { type: 'git_operation', start: '<git_operation', end: '</git_operation>' },
-            // Hidden tool/result scaffolding (BetterShape UI + cross-model leak grammars).
-            // Defense-in-depth with stripLeakedToolCode — never render as prose.
-            { type: 'tool_result', start: '<tool_result', end: '</tool_result>' },
-            { type: 'tool_result', start: '<terminal_read', end: '</terminal_read>' },
-            { type: 'tool_result', start: '<terminal_input', end: '</terminal_input>' },
-            { type: 'tool_result', start: '<list_terminals', end: '</list_terminals>' },
-            { type: 'tool_result', start: '<tool_code', end: '</tool_code>' },
-            { type: 'tool_result', start: '<tool_call', end: '</tool_call>' },
-            { type: 'tool_result', start: '<tool_calls', end: '</tool_calls>' },
-            { type: 'tool_result', start: '<tool_response', end: '</tool_response>' },
-            { type: 'tool_result', start: '<function_call', end: '</function_call>' },
-            { type: 'tool_result', start: '<function_calls', end: '</function_calls>' },
-            { type: 'tool_result', start: '<function_response', end: '</function_response>' },
-            { type: 'tool_result', start: '<minimax:tool_call', end: '</minimax:tool_call>' },
-            { type: 'tool_result', start: '<invoke', end: '</invoke>' },
-            { type: 'tool_result', start: '<parameter', end: '</parameter>' },
-            { type: 'tool_result', start: '<arg_key', end: '</arg_key>' },
-            { type: 'tool_result', start: '<arg_value', end: '</arg_value>' },
-            { type: 'tool_result', start: '<pre_dispatch_explanation', end: '</pre_dispatch_explanation>' },
-            { type: 'tool_result', start: '<tools', end: '</tools>' },
-            { type: 'tool_result', start: '<new_path', end: '</new_path>' },
-            { type: 'tool_result', start: '<content', end: '</content>' },
-            { type: 'tool_result', start: '<analysis', end: '</analysis>' },
-            { type: 'tool_result', start: '<file_content', end: '</file_content>' },
-            { type: 'attached_image', start: '<attached_image', end: '</attached_image>' },
-            { type: 'sent_file', start: '<sent_file', end: '</sent_file>' },
-        ];
 
-        let firstMatch: { type: string, index: number, startTag: string, endTag: string } | null = null;
-        for (const tag of searchTags) {
-            const index = text.indexOf(tag.start, currentIndex);
-            if (index !== -1) {
-                if (
-                    !firstMatch
-                    || index < firstMatch.index
-                    || (index === firstMatch.index && tag.start.length > firstMatch.startTag.length)
-                ) {
-                    firstMatch = { type: tag.type, index, startTag: tag.start, endTag: tag.end };
-                }
-            }
-        }
+        const firstMatch = findFirstTag(text, currentIndex);
 
         if (!firstMatch) {
             const tail = stripOrphanThinkTags(text.slice(currentIndex));
@@ -892,6 +924,42 @@ function unescapeXml(s: string): string {
     return dedupeTerminalChunks(chunks);
 }
 
+/**
+ * Parsing is pure but expensive, and one render pass parses the same message
+ * several times (composer task items, pending edits, the message body). The
+ * cache below shares those results. Cached chunks are read-only for callers.
+ */
+const PARSE_CACHE_MAX_ENTRIES = 8;
+const PARSE_CACHE_MAX_CHARS = 192_000;
+const parseCache = new Map<string, Chunk[]>();
+let parseCacheChars = 0;
+
+/** Cached entry point for {@link parseMessageContentUncached} (LRU, size-capped). */
+export function parseMessageContent(text: string): Chunk[] {
+    const cached = parseCache.get(text);
+    if (cached) {
+        parseCache.delete(text);
+        parseCache.set(text, cached);
+        return cached;
+    }
+
+    const chunks = parseMessageContentUncached(text);
+    if (text.length <= PARSE_CACHE_MAX_CHARS) {
+        parseCache.set(text, chunks);
+        parseCacheChars += text.length;
+        while (
+            parseCache.size > PARSE_CACHE_MAX_ENTRIES
+            || (parseCacheChars > PARSE_CACHE_MAX_CHARS && parseCache.size > 1)
+        ) {
+            const oldest = parseCache.keys().next().value;
+            if (oldest === undefined) break;
+            parseCache.delete(oldest);
+            parseCacheChars -= oldest.length;
+        }
+    }
+    return chunks;
+}
+
 /** Merge consecutive plain-text segments so markdown renders as one block. */
 function mergeAdjacentTextChunks(chunks: Chunk[]): Chunk[] {
     const merged: Chunk[] = [];
@@ -1011,11 +1079,19 @@ export function MessageRenderer({
     const contentChunks = useMemo(() => {
         const merged = mergeAdjacentTextChunks(chunks);
         // A running persona review is superseded by the final block with the same id.
-        return merged.filter(
-            (c, i) =>
-                c.type !== 'persona_review'
-                || !merged.some((o, j) => j > i && o.type === 'persona_review' && o.commandId === c.commandId),
-        );
+        // Walk backwards once: a review survives only when no later block shares its id.
+        const seenReviews = new Set<string | undefined>();
+        const kept: Chunk[] = [];
+        for (let i = merged.length - 1; i >= 0; i--) {
+            const chunk = merged[i];
+            if (!chunk) continue;
+            if (chunk.type === 'persona_review') {
+                if (seenReviews.has(chunk.commandId)) continue;
+                seenReviews.add(chunk.commandId);
+            }
+            kept.push(chunk);
+        }
+        return kept.reverse();
     }, [chunks]);
     const browsing = contentChunks.some((c) => c.type === "browse_session");
 

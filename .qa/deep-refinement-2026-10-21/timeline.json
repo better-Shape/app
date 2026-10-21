@@ -1,0 +1,138 @@
+{
+  "name": "shortcut-cheatsheet",
+  "url": "http://127.0.0.1:48921/?seed=project",
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  },
+  "capturedFrames": 217,
+  "captureFps": 18.4,
+  "durationMs": 11810,
+  "gifFps": 30,
+  "gifFrames": 354,
+  "timeline": [
+    {
+      "action": "badge",
+      "text": "shortcut-cheatsheet",
+      "startFrame": 0,
+      "endFrame": 0
+    },
+    {
+      "action": "subtitle",
+      "text": "The workbench opens with the dev HUD in the corner",
+      "startFrame": 0,
+      "endFrame": 0
+    },
+    {
+      "action": "wait",
+      "ms": 2200,
+      "startFrame": 0,
+      "endFrame": 56
+    },
+    {
+      "action": "press",
+      "key": "F1",
+      "startFrame": 56,
+      "endFrame": 56
+    },
+    {
+      "action": "wait",
+      "ms": 900,
+      "startFrame": 56,
+      "endFrame": 70
+    },
+    {
+      "action": "screenshot",
+      "label": "palette",
+      "startFrame": 70,
+      "endFrame": 71
+    },
+    {
+      "action": "subtitle",
+      "text": "Search for Keyboard Shortcuts and press Enter",
+      "startFrame": 71,
+      "endFrame": 71
+    },
+    {
+      "action": "type",
+      "selector": "[role=dialog] input",
+      "text": "keyboard shortcuts",
+      "startFrame": 71,
+      "endFrame": 111
+    },
+    {
+      "action": "wait",
+      "ms": 700,
+      "startFrame": 111,
+      "endFrame": 126
+    },
+    {
+      "action": "press",
+      "key": "Enter",
+      "startFrame": 126,
+      "endFrame": 126
+    },
+    {
+      "action": "wait",
+      "ms": 900,
+      "startFrame": 126,
+      "endFrame": 137
+    },
+    {
+      "action": "screenshot",
+      "label": "cheatsheet-open",
+      "startFrame": 137,
+      "endFrame": 138
+    },
+    {
+      "action": "subtitle",
+      "text": "Filter to the terminal commands, the count follows",
+      "startFrame": 138,
+      "endFrame": 138
+    },
+    {
+      "action": "type",
+      "selector": "[role=dialog] input[aria-label='Filter shortcuts']",
+      "text": "terminal",
+      "startFrame": 138,
+      "endFrame": 160
+    },
+    {
+      "action": "wait",
+      "ms": 800,
+      "startFrame": 160,
+      "endFrame": 179
+    },
+    {
+      "action": "screenshot",
+      "label": "cheatsheet-filtered",
+      "startFrame": 179,
+      "endFrame": 180
+    },
+    {
+      "action": "subtitle",
+      "text": "Esc closes the sheet",
+      "startFrame": 180,
+      "endFrame": 180
+    },
+    {
+      "action": "press",
+      "key": "Escape",
+      "startFrame": 180,
+      "endFrame": 180
+    },
+    {
+      "action": "wait",
+      "ms": 700,
+      "startFrame": 180,
+      "endFrame": 197
+    },
+    {
+      "action": "screenshot",
+      "label": "closed",
+      "startFrame": 197,
+      "endFrame": 198
+    }
+  ],
+  "errors": []
+}
