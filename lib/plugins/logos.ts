@@ -127,8 +127,8 @@ export function humanizePluginActionName(slug: string, name?: string): string {
             return lower.charAt(0).toUpperCase() + lower.slice(1);
         })
         .join(" ")
-        .replace(/\s*\(deprecated\)/i, "")
-        .replace(/\s+Deprecated$/i, "")
+        .replace(/(?<!\s)\s*\(deprecated\)/i, "")
+        .replace(/(?<!\s)\s+Deprecated$/i, "")
         .trim() || slug;
 }
 
@@ -163,7 +163,7 @@ export function mcpServerBrandCandidates(name: string, url: string | undefined, 
 
 export function cleanPluginActionDescription(raw: string): string {
     let s = raw.replace(/\s+/g, " ").trim();
-    s = s.replace(/\s*Args:\s*\{[\s\S]*$/i, "").trim();
+    s = s.replace(/(?<!\s)\s*Args:\s*\{[\s\S]*$/i, "").trim();
     s = s.replace(/\{"type"\s*:\s*"object"[\s\S]*/g, "").trim();
     s = s.replace(/Deprecated\.?\s*/gi, "").trim();
     const cut = s.search(/[.!?]\s/);

@@ -101,7 +101,7 @@ export function parseGitLogLines(content?: string): GitLogLine[] {
     return content.split("\n").flatMap((line) => {
         const trimmed = line.trim();
         // New structured form
-        const structured = trimmed.match(/^\[commit\]\s+([^|]+)\|([^|]*)\|([^|]*)\|(.*)$/);
+        const structured = trimmed.match(/^\[commit\]\s+([^|\s][^|]*)\|([^|]*)\|([^|]*)\|(.*)$/);
         if (structured) {
             return [{
                 hash: structured[1].trim(),

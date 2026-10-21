@@ -21,7 +21,7 @@ function formatReviewContent(raw: string): string | null {
         return null;
     }
 
-    const fence = trimmed.match(/^```(?:json)?\s*([\s\S]*?)```$/i);
+    const fence = trimmed.match(/^```(?:json)?([\s\S]*?)```$/i);
     const candidate = (fence ? fence[1] : trimmed).trim();
     if (!(candidate.startsWith("{") || candidate.startsWith("["))) {
         return trimmed;
