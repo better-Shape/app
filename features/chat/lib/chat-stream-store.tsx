@@ -163,17 +163,21 @@ function labelForPhase(phase: TurnPhase, tool?: string, label?: string): string 
 
 type ChatStatusUpdate = { turnPhase?: TurnPhase; activityLabel?: string };
 
+type FixedStatusPhase = { turnPhase: TurnPhase; fallbackLabel: string };
+const FIXED_STATUS_PHASES: Record<string, FixedStatusPhase> = {
+    approval: { turnPhase: "awaiting_approval", fallbackLabel: "Waiting for approval" },
+    model: { turnPhase: "thinking", fallbackLabel: "Thinking" },
+};
+
 /** Translate a backend status event into the single UI update it represents. */
 const resolveChatStatusUpdate = (
     phase: string | undefined,
     tool: string | undefined,
     label: string | undefined,
 ): ChatStatusUpdate | null => {
-    if (phase === "approval") {
-        return { turnPhase: "awaiting_approval", activityLabel: label?.trim() || "Waiting for approval" };
-    }
-    if (phase === "model") {
-        return { turnPhase: "thinking", activityLabel: label?.trim() || "Thinking" };
+    const fixedPhase = phase ? FIXED_STATUS_PHASES[phase] : undefined;
+    if (fixedPhase) {
+        return { turnPhase: fixedPhase.turnPhase, activityLabel: label?.trim() || fixedPhase.fallbackLabel };
     }
     if (phase === "tool") {
         const turnPhase = phaseFromTool(tool);
@@ -439,10 +443,8 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
         };
 
         /** Confirm that an event still belongs to the current, unfinished conversation turn. */
-        const isEligibleTurnIdentity = (conversationId?: string, turnId?: string): boolean => {
-            if (!conversationId || !turnId) return false;
-            return isCurrentUnfinishedTurn(conversationId, turnId);
-        };
+        const isEligibleTurnIdentity = (conversationId?: string, turnId?: string): boolean =>
+            Boolean(conversationId && turnId && isCurrentUnfinishedTurn(conversationId, turnId));
 
         /** Apply an event only to the exact live turn and conversation that owns it. */
         function patchLiveForTurn(
