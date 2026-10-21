@@ -263,13 +263,17 @@ function adjacentDuplicate(text: string, maxLen: number): { start: number; len: 
     const power = new Uint32Array(maxLen + 1);
     power[0] = 1;
     for (let i = 0; i < n; i++) {
-        prefix[i + 1] = (Math.imul(prefix[i]!, HASH_BASE) + text.charCodeAt(i)) >>> 0;
+        prefix[i + 1] = (Math.imul(prefix[i] ?? 0, HASH_BASE) + text.charCodeAt(i)) >>> 0;
     }
     for (let i = 1; i <= maxLen; i++) {
-        power[i] = Math.imul(power[i - 1]!, HASH_BASE) >>> 0;
+        power[i] = Math.imul(power[i - 1] ?? 0, HASH_BASE) >>> 0;
     }
-    const windowHash = (at: number, len: number) =>
-        (prefix[at + len]! - Math.imul(prefix[at]!, power[len]!)) >>> 0;
+    const windowHash = (at: number, len: number) => {
+        const head = prefix[at + len] ?? 0;
+        const tail = prefix[at] ?? 0;
+        const scale = power[len] ?? 0;
+        return (head - Math.imul(tail, scale)) >>> 0;
+    };
 
     for (let len = maxLen; len >= 20; len--) {
         for (let i = 0; i + len * 2 <= n; i++) {
@@ -288,7 +292,7 @@ function zFunction(text: string): Uint32Array {
     let right = 0;
     for (let i = 1; i < n; i++) {
         let k = 0;
-        if (i < right) k = Math.min(right - i, z[i - left]!);
+        if (i < right) k = Math.min(right - i, z[i - left] ?? 0);
         while (i + k < n && text.charCodeAt(k) === text.charCodeAt(i + k)) k++;
         z[i] = k;
         if (i + k > right) {
@@ -313,7 +317,7 @@ export function repairStreamGlitches(text: string): string {
         // from 41 characters on; a 41-char duplicate prefix is still a glitch.
         const z = zFunction(text);
         for (let start = 20; start < text.length - 20; start++) {
-            const shared = z[start]!;
+            const shared = z[start] ?? 0;
             if (shared < 20) continue;
             const len = Math.min(Math.min(start, text.length - start), shared);
             return text.slice(0, start) + text.slice(start + len);
@@ -437,7 +441,8 @@ function balanceMarkdownFences(text: string): string {
     FENCE_LINE.lastIndex = 0;
     let match: RegExpExecArray | null;
     while ((match = FENCE_LINE.exec(text)) !== null) {
-        const marker = match[1]!;
+        const marker = match[1];
+        if (!marker) continue;
         const info = (match[2] ?? "").trim();
         if (open) {
             // A closer has the same character, at least the opener's length, and
@@ -449,7 +454,7 @@ function balanceMarkdownFences(text: string): string {
         }
         // A backtick fence's info string cannot itself contain a backtick.
         if (marker[0] === "`" && info.includes("`")) continue;
-        open = { char: marker[0]!, len: marker.length };
+        open = { char: marker.charAt(0), len: marker.length };
     }
     if (!open) return text;
     return `${text}\n${open.char.repeat(open.len)}`;
