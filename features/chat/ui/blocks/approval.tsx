@@ -142,6 +142,7 @@ const ApprovalActionButtons = ({
     acceptLabel,
     acceptShortcut,
     isProcessing,
+    isDisabled = false,
     onSkip,
     onAccept,
 }: {
@@ -149,12 +150,13 @@ const ApprovalActionButtons = ({
     acceptLabel: string;
     acceptShortcut: string;
     isProcessing?: boolean;
+    isDisabled?: boolean;
     onSkip: () => void;
     onAccept: () => void;
 }) => (
     <div data-find-skip className="flex shrink-0 items-center gap-1.5">
         <Tooltip content={skipLabel} shortcut="Esc">
-            <Button type="button" variant="ghost" size="sm" disabled={isProcessing} onClick={onSkip}>
+            <Button type="button" variant="ghost" size="sm" disabled={isProcessing || isDisabled} onClick={onSkip}>
                 <span>{skipLabel}</span>
             </Button>
         </Tooltip>
@@ -163,7 +165,7 @@ const ApprovalActionButtons = ({
                 type="button"
                 variant="default"
                 size="sm"
-                disabled={isProcessing}
+                disabled={isProcessing || isDisabled}
                 onClick={onAccept}
                 className="gap-1.5"
             >
@@ -198,6 +200,7 @@ export const ApprovalCard = (props: {
     skipLabel?: string;
     acceptLabel?: string;
     isProcessing?: boolean;
+    isDisabled?: boolean;
     onSkip: () => void;
     onAccept: () => void;
     className?: string;
@@ -209,6 +212,7 @@ export const ApprovalCard = (props: {
         children,
         footerLeft,
         isProcessing,
+        isDisabled,
         onSkip,
         onAccept,
         className,
@@ -218,7 +222,7 @@ export const ApprovalCard = (props: {
     const cardRef = useRef<HTMLDivElement>(null);
 
     useApprovalKeyboardShortcut({
-        enabled: true,
+        enabled: !isDisabled,
         isProcessing,
         cardRef,
         onAccept,
@@ -252,6 +256,7 @@ export const ApprovalCard = (props: {
                     acceptLabel={labels.acceptLabel}
                     acceptShortcut={labels.acceptShortcut}
                     isProcessing={isProcessing}
+                    isDisabled={isDisabled}
                     onSkip={onSkip}
                     onAccept={onAccept}
                 />

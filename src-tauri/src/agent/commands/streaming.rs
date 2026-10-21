@@ -182,19 +182,39 @@ impl ProxyContext {
 pub(crate) fn emit_chat_status(app_handle: &tauri::AppHandle, payload: serde_json::Value) {
     let conversation_id = payload.get("conversationId").and_then(Value::as_str);
     let turn_id = payload.get("turnId").and_then(Value::as_str);
-    if let Some(label) = payload
+    let explicit_label = payload
         .get("label")
         .and_then(|v| v.as_str())
-        .filter(|s| !s.trim().is_empty())
-    {
-        if let Some(agent_state) = app_handle.try_state::<crate::agent::models::AgentState>() {
+        .filter(|s| !s.trim().is_empty());
+    let inferred_label = inferred_tool_activity_label(&payload);
+    let label = explicit_label.or(inferred_label.as_deref());
+    let reset_label = payload.get("phase").and_then(|v| v.as_str()) == Some("model")
+        && payload.get("label").is_none();
+    if let Some(agent_state) = app_handle.try_state::<crate::agent::models::AgentState>() {
+        if let Some(label) = label {
             agent_state.set_in_flight_activity_label(conversation_id, turn_id, Some(label));
-        }
-    } else if payload.get("phase").and_then(|v| v.as_str()) == Some("model")
-        && payload.get("label").is_none()
-    {
-        if let Some(agent_state) = app_handle.try_state::<crate::agent::models::AgentState>() {
+        } else if reset_label {
             agent_state.set_in_flight_activity_label(conversation_id, turn_id, None);
+        }
+    }
+    let _ = app_handle.emit("chat_status", payload);
+}
+
+/// Adds the caller's turn and conversation to a status payload.
+pub(crate) fn chat_status_payload(
+    mut payload: serde_json::Value,
+    turn_id: Option<&str>,
+    conversation_id: Option<&str>,
+) -> serde_json::Value {
+    if let Some(object) = payload.as_object_mut() {
+        if let Some(turn_id) = turn_id {
+            object.insert("turnId".to_string(), serde_json::json!(turn_id));
+        }
+        if let Some(conversation_id) = conversation_id {
+            object.insert(
+                "conversationId".to_string(),
+                serde_json::json!(conversation_id),
+            );
         }
     }
     payload
@@ -238,7 +258,7 @@ fn inferred_tool_activity_label(payload: &serde_json::Value) -> Option<String> {
     Some(label)
 }
 
-pub(crate) fn emit_chat_status(
+pub(crate) fn emit_chat_status_scoped(
     app_handle: &tauri::AppHandle,
     turn_id: Option<&str>,
     conversation_id: Option<&str>,
@@ -256,9 +276,17 @@ pub(crate) fn emit_chat_status(
     if let (Some(turn_id), Some(conversation_id)) = (turn_id, conversation_id) {
         if let Some(agent_state) = app_handle.try_state::<crate::agent::models::AgentState>() {
             if let Some(label) = label {
-                agent_state.set_in_flight_activity_label(conversation_id, turn_id, Some(label));
+                agent_state.set_in_flight_activity_label(
+                    Some(conversation_id),
+                    Some(turn_id),
+                    Some(label),
+                );
             } else if reset_label {
-                agent_state.set_in_flight_activity_label(conversation_id, turn_id, None);
+                agent_state.set_in_flight_activity_label(
+                    Some(conversation_id),
+                    Some(turn_id),
+                    None,
+                );
             }
         }
     }
@@ -521,7 +549,7 @@ pub async fn stream_chat(
                 status, wait, attempt, MAX_STATUS_RETRIES
             ),
         );
-        emit_chat_status(
+        emit_chat_status_scoped(
             app_handle,
             proxy_ctx.turn_id.as_deref(),
             proxy_ctx.conversation_id.as_deref(),
@@ -858,7 +886,7 @@ pub async fn stream_chat(
                                 }
                             }
                         };
-                        emit_chat_status(
+                        emit_chat_status_scoped(
                             app_handle,
                             proxy_ctx.turn_id.as_deref(),
                             proxy_ctx.conversation_id.as_deref(),
@@ -984,7 +1012,7 @@ pub async fn stream_chat(
             "stream",
             "Model hit output length limit with no usable content or tool calls",
         );
-        emit_chat_status(
+        emit_chat_status_scoped(
             app_handle,
             proxy_ctx.turn_id.as_deref(),
             proxy_ctx.conversation_id.as_deref(),

@@ -647,6 +647,28 @@ async fn next_cdp_response(
     }
 }
 
+async fn fetch_debugger_websocket_url(
+    client: &reqwest::Client,
+    on_request_error: impl FnOnce(reqwest::Error) -> String,
+) -> Result<Option<String>, String> {
+    let version = client
+        .get(format!(
+            "{}/json/version",
+            crate::browser::webview_debug::base_url()
+        ))
+        .send()
+        .await
+        .map_err(on_request_error)?
+        .json::<serde_json::Value>()
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok(version
+        .get("webSocketDebuggerUrl")
+        .and_then(serde_json::Value::as_str)
+        .filter(|url| !url.is_empty())
+        .map(str::to_owned))
+}
+
 async fn iframe_targets() -> Result<Vec<serde_json::Value>, String> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(2))
@@ -669,25 +691,9 @@ async fn iframe_targets() -> Result<Vec<serde_json::Value>, String> {
     }) {
         return Ok(list);
     }
-    let version = client
-        .get(format!(
-            "{}/json/version",
-            crate::browser::webview_debug::base_url()
-        ))
-        .send()
-        .await
-        .map_err(|e| e.to_string())?
-        .json::<serde_json::Value>()
-        .await
-        .map_err(|e| e.to_string())?;
-    let ws = version
-        .get("webSocketDebuggerUrl")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-    if ws.is_empty() {
+    let Some(ws) = fetch_debugger_websocket_url(&client, |error| error.to_string()).await? else {
         return Ok(list);
-    }
+    };
     let (mut socket, _) = tokio_tungstenite::connect_async(&ws)
         .await
         .map_err(|e| e.to_string())?;
@@ -762,25 +768,11 @@ async fn session_call(target_id: &str, method: &str, params: &str) -> Result<(),
         .timeout(std::time::Duration::from_secs(2))
         .build()
         .map_err(|e| e.to_string())?;
-    let version = client
-        .get(format!(
-            "{}/json/version",
-            crate::browser::webview_debug::base_url()
-        ))
-        .send()
-        .await
-        .map_err(|_| "Restart BetterShape, then try again.".to_string())?
-        .json::<serde_json::Value>()
-        .await
-        .map_err(|e| e.to_string())?;
-    let ws = version
-        .get("webSocketDebuggerUrl")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-    if ws.is_empty() {
-        return Err("Restart BetterShape, then try again.".into());
-    }
+    let ws = fetch_debugger_websocket_url(&client, |_| {
+        "Restart BetterShape, then try again.".to_string()
+    })
+    .await?
+    .ok_or_else(|| "Restart BetterShape, then try again.".to_string())?;
     let (mut socket, _) = tokio_tungstenite::connect_async(&ws)
         .await
         .map_err(|e| e.to_string())?;

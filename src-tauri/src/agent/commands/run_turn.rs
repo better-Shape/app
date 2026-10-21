@@ -1264,9 +1264,11 @@ pub async fn run_agent_turn(mut config: AgentTurnConfig<'_>) -> Result<AgentTurn
                 };
                 streaming::emit_chat_status(
                     config.app_handle,
-                    config.proxy_ctx.turn_id.as_deref(),
-                    config.proxy_ctx.conversation_id.as_deref(),
-                    tool_status,
+                    streaming::chat_status_payload(
+                        tool_status,
+                        config.proxy_ctx.turn_id.as_deref(),
+                        config.proxy_ctx.conversation_id.as_deref(),
+                    ),
                 );
             }
 
