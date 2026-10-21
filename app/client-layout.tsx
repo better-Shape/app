@@ -22,6 +22,7 @@ import { DesignPreviewCaptureHost } from "@/features/chat/ui/design-capture";
 import { WebviewReconnect } from "@/components/layout/webview-reconnect";
 import { PreviewCrash } from "@/components/layout/error/preview-crash";
 import { KeyboardShortcutsCheatsheet } from "@/features/shortcuts/ui/cheatsheet";
+import { useKeyboardShortcuts } from "@/lib/ui/shortcuts";
 
 /**
  * A route base matches its own path and anything under it. The prod static export serves
@@ -133,6 +134,9 @@ const syncMcpServers = async (): Promise<void> => {
  * settings or re-registers the close listener.
  */
 const ClientLayout = ({ children }: { children: React.ReactNode }) => {
+    // One window-level instance per window. The titlebar used to own this, which
+    // left the workbench (no titlebar) and the browser preview with no bindings.
+    useKeyboardShortcuts();
     const pathname = usePathname();
     const isSettings = pathMatches(pathname, "/settings");
     const isBranch = pathMatches(pathname, "/branch") || pathMatches(pathname, "/git");

@@ -12,7 +12,7 @@ import {
     BETTERSHAPE_OVERLAY_CONTENT_CLASS,
 } from "@/lib/ui/modal-overlay";
 import { useOverlayRoot } from "@/lib/ui/overlay-root";
-import { loadKeybindings, splitKeyChord, type KeyBinding } from "@/lib/ui/shortcuts";
+import { loadKeybindings, onKeybindingsChanged, splitKeyChord, type KeyBinding } from "@/lib/ui/shortcuts";
 import { countBoundShortcuts, groupShortcuts } from "@/features/shortcuts/lib/group-shortcuts";
 import { cn } from "@/lib/utils";
 
@@ -34,10 +34,11 @@ export function KeyboardShortcutsCheatsheet() {
     useEffect(() => {
         const onChange = () => setBindings(loadKeybindings());
         window.addEventListener("bettershape-open-shortcuts", openSheet);
-        window.addEventListener("bettershape-keybindings-changed", onChange);
+        // Also follows edits made in the Settings window, not just this one.
+        const off = onKeybindingsChanged(onChange);
         return () => {
             window.removeEventListener("bettershape-open-shortcuts", openSheet);
-            window.removeEventListener("bettershape-keybindings-changed", onChange);
+            off();
         };
     }, [openSheet]);
 

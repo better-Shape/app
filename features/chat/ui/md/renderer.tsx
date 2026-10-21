@@ -268,6 +268,10 @@ function findFirstTag(text: string, from: number) {
     return null;
 }
 
+/**
+ * Splits assistant text into renderable chunks. Linear scan: each opener is
+ * located once via `findFirstTag`, so long transcripts stay O(n).
+ */
 function parseMessageContentUncached(text: string): Chunk[] {
     text = stripLeakedToolCode(text);
     const chunks: Chunk[] = [];
@@ -957,6 +961,7 @@ const PARSE_CACHE_MAX_CHARS = 192_000;
 const parseCache = new Map<string, Chunk[]>();
 let parseCacheChars = 0;
 
+/** Cached entry point for {@link parseMessageContentUncached} (LRU, size-capped). */
 export function parseMessageContent(text: string): Chunk[] {
     const cached = parseCache.get(text);
     if (cached) {

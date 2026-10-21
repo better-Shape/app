@@ -59,6 +59,7 @@ const subagentScanCache = new WeakMap<
     }
 >();
 
+/** Subagents mentioned in a message, memoised per message object. */
 function scannedSubagents(message: ChatMessage, parentId: string | undefined) {
     const content = message.content || "";
     const cached = subagentScanCache.get(message);

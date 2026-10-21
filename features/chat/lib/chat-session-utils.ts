@@ -15,6 +15,7 @@ import {
  */
 const messageChunkCache = new WeakMap<ChatMessage, { content: string; chunks: Chunk[] }>();
 
+/** Parsed chunks for a message, re-parsed only when its content changes. */
 export function chunksForMessage(message: ChatMessage): Chunk[] {
     const cached = messageChunkCache.get(message);
     if (cached && cached.content === message.content) return cached.chunks;
@@ -23,6 +24,7 @@ export function chunksForMessage(message: ChatMessage): Chunk[] {
     return chunks;
 }
 
+/** Absolutises a project-relative path, leaving absolute and Windows paths as-is. */
 export function resolveChatFilePath(filePath: string, projectPath: string | null): string {
     if (/^[a-zA-Z]:[\\\/]/.test(filePath) || filePath.startsWith("/")) return filePath;
     if (!projectPath) return filePath;

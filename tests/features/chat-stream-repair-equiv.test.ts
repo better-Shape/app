@@ -37,19 +37,9 @@ function reference(text: string): string {
         if (isGlitchReplay) return text.slice(0, start) + text.slice(start + matched);
     }
 
-    const glued = text.match(/([a-z])([A-Z][a-z]{4,})/);
-    if (glued && glued.index !== undefined) {
-        const splitAt = glued.index + 1;
-        const prefix = text.slice(0, splitAt);
-        const suffix = text.slice(splitAt);
-        for (let checkLen = 16; checkLen <= Math.min(80, prefix.length); checkLen++) {
-            const tail = prefix.slice(-checkLen);
-            if (suffix.startsWith(tail)) {
-                return prefix + suffix.slice(tail.length);
-            }
-        }
-    }
-
+    // The lower→Upper "glued sentence" rule is a plain suffix test, not part of
+    // the quadratic search this reference protects; copying it here duplicated
+    // production code and is asserted by explicit cases instead.
     return text;
 }
 
@@ -96,9 +86,12 @@ describe("repairStreamGlitches equivalence", () => {
         // The prefix-repeat pass only has a `start` to try once the text reaches
         // 41 characters; both sides must agree exactly at 40, 41 and 42.
         const prefix = "the same twenty char";
+        const repeatedPrefix = (prefix + "s").slice(0, 21);
         for (const total of [40, 41, 42, 43]) {
-            const repeatedPrefix = (prefix + "s").slice(0, 21);
-            const s = (repeatedPrefix + repeatedPrefix).padEnd(total, "x");
+            // Slice, do not pad: the doubled prefix is already 42 characters, so
+            // padEnd would leave 40 and 41 at 42 and never test the boundary.
+            const s = (repeatedPrefix + repeatedPrefix).slice(0, total).padEnd(total, "x");
+            expect(s).toHaveLength(total);
             expect(repairStreamGlitches(s), `len ${total}`).toBe(reference(s));
         }
         // 41 chars whose first 20 repeat at offset 20 (the exact boundary case).
@@ -112,7 +105,21 @@ describe("repairStreamGlitches equivalence", () => {
         expect(repairStreamGlitches("short")).toBe("short");
         const repeated = "The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog.";
         expect(repairStreamGlitches(repeated)).toBe("The quick brown fox jumps over the lazy dog. ");
-        const glued = "Here is a sentence that ran intoTwoWordsOfAnotherSentence".padEnd(60, ".");
-        expect(repairStreamGlitches(glued)).toBe(reference(glued));
+        const notGlued = "Here is a sentence that ran intoTwoWordsOfAnotherSentence".padEnd(60, ".");
+        expect(repairStreamGlitches(notGlued)).toBe(notGlued);
+    });
+
+    it("removes a glued repeat whose 16-char tail restarts the suffix", () => {
+        const chunk = "Pbcdefghijklmnop";
+        expect(repairStreamGlitches(chunk + chunk)).toBe(chunk);
+        // Same shape with a paragraph before it: only the glued copy goes.
+        const spaced = `${chunk} ${chunk}`;
+        expect(repairStreamGlitches(spaced)).toBe(spaced);
+    });
+
+    it("leaves uppercase prose alone when nothing repeats", () => {
+        const prose = "Hello there, this sentence has Capitals but no repeated tail at all.";
+        expect(repairStreamGlitches(prose)).toBe(reference(prose));
+        expect(repairStreamGlitches(prose)).toBe(prose);
     });
 });

@@ -285,6 +285,7 @@ const CodeBlock = React.memo(function CodeBlock({
         };
     }, []);
 
+    /** Copies the block; a denied clipboard leaves the label unchanged. */
     const copy = () => {
         navigator.clipboard?.writeText(code).then(() => {
             setCopied(true);

@@ -66,6 +66,7 @@ type ResolvedStore = Record<string, Record<string, ResolvedEntry | "applied" | "
 let resolvedStoreRaw: string | null | undefined;
 let resolvedStore: ResolvedStore = {};
 
+/** Reads the resolved-edit map, reusing the last parse when storage is unchanged. */
 function loadResolvedFilesStore(): ResolvedStore {
     try {
         const stored = localStorage.getItem(RESOLVED_FILES_KEY);
@@ -77,6 +78,7 @@ function loadResolvedFilesStore(): ResolvedStore {
     return {};
 }
 
+/** Persists the resolved-edit map and refreshes the in-memory copy. */
 function saveResolvedFilesStore(store: ResolvedStore) {
     try {
         const raw = JSON.stringify(store);

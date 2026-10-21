@@ -52,6 +52,7 @@ import {
 } from "@/features/editor/ui/tabs/workbench-tab-styles";
 import { terminalSessionStore, type TerminalTab as SessionTab } from "@/features/terminal/session";
 import { attachTerminalCommandHost } from "@/features/terminal/commands";
+import { findTerminalMatches, nextMatchIndex, toCellSelection, type TerminalMatch } from "./search";
 import { usePerfRenderCount } from "@/lib/dev/perf-hud-hooks";
 import {
     clearTerminalSnapshot,
@@ -64,7 +65,6 @@ import {
     rememberBetterShapeClip,
     terminalAttachmentFile,
 } from "@/features/chat/lib/bettershape-clip";
-import { findTerminalMatches, nextMatchIndex, type TerminalMatch } from "./search";
 type TerminalShell = SessionTab["shell"];
 type TerminalGroupId = SessionTab["group"];
 type TerminalTab = SessionTab;
@@ -784,6 +784,8 @@ const Terminal = ({
     const [searchOpen, setSearchOpen] = useState(false);
     const [searchQuery, setSearchQuery] = useState("");
     const [searchMatches, setSearchMatches] = useState<TerminalMatch[]>([]);
+    /** Lines from the last scan: `focusMatch` needs them to map string → cells. */
+    const searchLinesRef = useRef<string[]>([]);
     const [searchActive, setSearchActive] = useState(-1);
     const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -1143,12 +1145,26 @@ const Terminal = ({
 
     const focusMatch = useCallback((matches: TerminalMatch[], index: number) => {
         const term = searchTerm();
-        if (!term || index < 0 || index >= matches.length) return;
+        if (!term) return;
+        if (index < 0 || index >= matches.length) {
+            // No match: drop the highlight from the previous query instead of
+            // leaving an unrelated line selected.
+            try {
+                term.clearSelection();
+            } catch {
+                /* terminal disposed */
+            }
+            return;
+        }
         const match = matches[index]!;
         const rows = term.rows || 24;
+        const line = searchLinesRef.current[match.row] ?? "";
+        // `select` takes cell columns, so wide characters before the match shift
+        // it left of its string offset.
+        const { column, length } = toCellSelection(line, match);
         term.scrollToLine(Math.max(0, match.row - Math.floor(rows / 2)));
         suppressSelectionClip = true;
-        term.select(match.col, match.row, match.length);
+        term.select(column, match.row, length);
         window.setTimeout(() => {
             suppressSelectionClip = false;
         }, 50);
@@ -1195,6 +1211,7 @@ const Terminal = ({
                 lines.push(buffer.getLine(i)?.translateToString(true) ?? "");
             }
             if (cancelled) return;
+            searchLinesRef.current = lines;
             const matches = findTerminalMatches(lines, searchQuery);
             setSearchMatches(matches);
             const first = matches.length ? 0 : -1;
