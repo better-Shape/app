@@ -432,24 +432,25 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
         /** Confirm that an event still belongs to the current, unfinished conversation turn. */
         const isEligibleTurnIdentity = (conversationId?: string, turnId?: string): boolean => {
             if (!conversationId || !turnId) return false;
-            if (finishedTurns.has(turnId) || isForeignConversation(conversationId)) return false;
+            if (
+                finishedTurns.has(turnId)
+                || ignoredIdsRef.current.has(conversationId)
+                || isForeignConversation(conversationId)
+            ) return false;
             return liveTurnsRef.current.get(conversationId)?.turnId === turnId;
         };
 
         /** Apply an event only to the exact live turn and conversation that owns it. */
-        const patchLiveForTurn = (
+        function patchLiveForTurn(
             identity: { conversationId?: string; turnId?: string },
             update: (live: LiveTurn) => void,
-        ): boolean => {
+        ): boolean {
             const { conversationId, turnId } = identity;
-            if (!isEligibleTurnIdentity(conversationId, turnId) || !conversationId) return false;
-            let applied = false;
-            patchLive(conversationId, (live) => {
-                update(live);
-                applied = true;
-            });
-            return applied;
-        };
+            if (!conversationId) return false;
+            if (!isEligibleTurnIdentity(conversationId, turnId)) return false;
+            patchLive(conversationId, update);
+            return true;
+        }
 
         register(
             listen<{
@@ -792,6 +793,24 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
             }),
         );
 
+        /** Apply a translated status update to its matching live turn. */
+        function applyChatStatus(payload: {
+            phase?: string;
+            tool?: string;
+            label?: string;
+            turnId?: string;
+            conversationId?: string;
+        }): void {
+            const { phase, tool, label, turnId, conversationId } = payload;
+            if (!conversationId || !turnId) return;
+            const update = resolveChatStatusUpdate(phase, tool, label);
+            if (!update) return;
+            patchLiveForTurn({ conversationId, turnId }, (live) => {
+                if (update.turnPhase) live.turnPhase = update.turnPhase;
+                if (update.activityLabel) live.activityLabel = update.activityLabel;
+            });
+        }
+
         register(
             listen<{
                 phase?: string;
@@ -799,16 +818,7 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
                 label?: string;
                 turnId?: string;
                 conversationId?: string;
-            }>("chat_status", (event) => {
-                const { phase, tool, label, turnId, conversationId } = event.payload ?? {};
-                if (!turnId || !conversationId) return;
-                const update = resolveChatStatusUpdate(phase, tool, label);
-                if (!update) return;
-                patchLiveForTurn({ conversationId, turnId }, (live) => {
-                    if (update.turnPhase) live.turnPhase = update.turnPhase;
-                    if (update.activityLabel) live.activityLabel = update.activityLabel;
-                });
-            }),
+            }>("chat_status", (event) => applyChatStatus(event.payload ?? {})),
         );
 
         register(

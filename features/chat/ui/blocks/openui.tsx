@@ -17,13 +17,13 @@ const OpenUINestingContext = createContext(0);
 const withStableKeys = <T,>(
     items: readonly T[],
     identityOf: (item: T) => string,
-): Array<{ item: T; key: string; index: number }> => {
+): Array<{ item: T; key: string }> => {
     const occurrences = new Map<string, number>();
-    return items.map((item, index) => {
+    return items.map((item) => {
         const identity = identityOf(item);
         const occurrence = occurrences.get(identity) ?? 0;
         occurrences.set(identity, occurrence + 1);
-        return { item, key: `${identity}-${occurrence}`, index };
+        return { item, key: `${identity}-${occurrence}` };
     });
 };
 
@@ -56,13 +56,15 @@ const maskQuotedValue = (source: string, start: number, quote: "\"" | "'", maske
 /** Mask literals/comments before counting references, so prose cannot inflate the render budget. */
 const maskOpenUIStringsAndComments = (source: string): string => {
     const masked = source.split("");
+    let maskedUntil = 0;
     for (let index = 0; index < source.length; index += 1) {
+        if (index < maskedUntil) continue;
         const character = source[index] ?? "";
         const next = source[index + 1] ?? "";
         if (character === "/" && next === "/") {
-            index = maskLineComment(source, index, masked) - 1;
+            maskedUntil = maskLineComment(source, index, masked);
         } else if (character === "\"" || character === "'") {
-            index = maskQuotedValue(source, index, character, masked) - 1;
+            maskedUntil = maskQuotedValue(source, index, character, masked);
         }
     }
     return masked.join("");
@@ -99,7 +101,7 @@ const definitionChildren = (source: string, component: string, argsStart: number
 /** Parse named DSL definitions, stopping if their count alone exceeds the render budget. */
 const parseOpenUIDefinitions = (source: string): OpenUIDefinitions | null => {
     const definitions: OpenUIDefinitions = new Map();
-    const assignment = /^\s*([A-Za-z_][\w-]*)\s*=\s*(Surface|Stack|Text|Metric|Callout|Progress|BarChart|DataTable)\s*\(/gm;
+    const assignment = /^[ \t]*([A-Za-z_][A-Za-z0-9_-]*)[ \t]*=[ \t]*(Surface|Stack|Text|Metric|Callout|Progress|BarChart|DataTable)[ \t]*\(/gm;
     let match: RegExpExecArray | null;
     while ((match = assignment.exec(source)) !== null) {
         const name = match[1];
@@ -150,6 +152,17 @@ const BoundedChildren = ({ children, renderNode }: BoundedChildrenProps) => {
     );
 };
 
+/** Render optional surface heading content without adding wrapper logic to the host component. */
+const SurfaceHeader = ({ title, subtitle }: { title?: string; subtitle?: string }) => {
+    if (!title && !subtitle) return null;
+    return (
+        <header className="min-w-0">
+            {title ? <h3 className="text-md font-semibold text-text-primary">{title}</h3> : null}
+            {subtitle ? <p className={`${title ? "mt-1 " : ""}text-xs leading-relaxed text-text-secondary`}>{subtitle}</p> : null}
+        </header>
+    );
+};
+
 const Surface = defineComponent({
     name: "Surface",
     description: "The required top-level container for one visual answer.",
@@ -158,19 +171,17 @@ const Surface = defineComponent({
         title: z.string().optional(),
         subtitle: z.string().optional(),
     }),
-    component: ({ props, renderNode }) => (
-        <section className="my-3 w-full rounded-xl border border-border-subtle bg-surface-2 p-3">
-            {props.title || props.subtitle ? (
-                <header className="min-w-0">
-                    {props.title ? <h3 className="text-md font-semibold text-text-primary">{props.title}</h3> : null}
-                    {props.subtitle ? <p className={`${props.title ? "mt-1 " : ""}text-xs leading-relaxed text-text-secondary`}>{props.subtitle}</p> : null}
-                </header>
-            ) : null}
-            <div className={props.title || props.subtitle ? "mt-3" : ""}>
-                <BoundedChildren renderNode={renderNode}>{props.children}</BoundedChildren>
-            </div>
-        </section>
-    ),
+    component: ({ props, renderNode }) => {
+        const hasHeader = Boolean(props.title || props.subtitle);
+        return (
+            <section className="my-3 w-full rounded-xl border border-border-subtle bg-surface-2 p-3">
+                <SurfaceHeader title={props.title} subtitle={props.subtitle} />
+                <div className={hasHeader ? "mt-3" : ""}>
+                    <BoundedChildren renderNode={renderNode}>{props.children}</BoundedChildren>
+                </div>
+            </section>
+        );
+    },
 });
 
 const Stack = defineComponent({
@@ -279,7 +290,7 @@ const Progress = defineComponent({
 });
 
 type BarChartPoint = { label: string; value: number };
-type KeyedBarChartPoint = { item: BarChartPoint; key: string; index: number };
+type KeyedBarChartPoint = { item: BarChartPoint; key: string };
 type BarChartData = {
     count: number;
     maxMagnitude: number;
@@ -330,6 +341,38 @@ const BarChartRows = ({ points, maxMagnitude, hasNegativeValues }: BarChartRowsP
     </div>
 );
 
+/** Provide screen-reader table rows for the chart's plotted values. */
+const BarChartAccessibleRows = ({ points }: { points: KeyedBarChartPoint[] }) => (
+    <tbody>
+        {points.map(({ item: { label, value }, key }) => (
+            <tr key={key}><th scope="row">{label}</th><td>{value}</td></tr>
+        ))}
+    </tbody>
+);
+
+/** Expose chart data in a semantic table for assistive technology. */
+const BarChartAccessibleTable = ({ title, points }: { title?: string; points: KeyedBarChartPoint[] }) => (
+    <table className="sr-only">
+        <caption>{title || "Bar chart data"}</caption>
+        <thead><tr><th scope="col">Category</th><th scope="col">Value</th></tr></thead>
+        <BarChartAccessibleRows points={points} />
+    </table>
+);
+
+/** Render either the bounded visual bars or a concise empty-data message. */
+const BarChartContents = ({ chart }: { chart: BarChartData }) => chart.count === 0
+    ? <p className="text-xs text-text-secondary">No chart data was provided.</p>
+    : <BarChartRows
+        points={chart.points}
+        maxMagnitude={chart.maxMagnitude}
+        hasNegativeValues={chart.hasNegativeValues}
+    />;
+
+/** Announce chart truncation when displayed values were capped for safety. */
+const BarChartLimitNotice = ({ chart }: { chart: BarChartData }) => chart.dataLimited
+    ? <p className="mt-2 text-xs text-text-secondary" role="status">Showing the first {chart.count} matching label-value pairs.</p>
+    : null;
+
 const BarChart = defineComponent({
     name: "BarChart",
     description: "A simple bar chart for comparing a small number of labeled values.",
@@ -343,28 +386,17 @@ const BarChart = defineComponent({
         return (
             <figure className="min-w-0">
                 {props.title ? <figcaption className="mb-3 text-sm font-medium text-text-primary">{props.title}</figcaption> : null}
-                {chart.count === 0 ? (
-                    <p className="text-xs text-text-secondary">No chart data was provided.</p>
-                ) : (
-                    <BarChartRows
-                        points={chart.points}
-                        maxMagnitude={chart.maxMagnitude}
-                        hasNegativeValues={chart.hasNegativeValues}
-                    />
-                )}
-                {chart.dataLimited ? <p className="mt-2 text-xs text-text-secondary" role="status">Showing the first {chart.count} matching label-value pairs.</p> : null}
-                <table className="sr-only">
-                    <caption>{props.title || "Bar chart data"}</caption>
-                    <thead><tr><th scope="col">Category</th><th scope="col">Value</th></tr></thead>
-                    <tbody>{chart.points.map(({ item: { label, value }, key }) => <tr key={key}><th scope="row">{label}</th><td>{value}</td></tr>)}</tbody>
-                </table>
+                <BarChartContents chart={chart} />
+                <BarChartLimitNotice chart={chart} />
+                <BarChartAccessibleTable title={props.title} points={chart.points} />
             </figure>
         );
     },
 });
 
-type KeyedDataTableColumn = { item: string; key: string; index: number };
-type KeyedDataTableRow = { item: string[]; key: string; index: number };
+type KeyedDataTableColumn = { item: string; key: string };
+type KeyedDataTableCell = { value: string; key: string };
+type KeyedDataTableRow = { item: KeyedDataTableCell[]; key: string };
 type DataTableData = {
     columns: KeyedDataTableColumn[];
     rows: KeyedDataTableRow[];
@@ -373,15 +405,59 @@ type DataTableData = {
 
 /** Prepare stable row and column identities while enforcing table display limits. */
 const buildDataTableData = (rawColumns: string[], rawRows: string[][]): DataTableData => {
-    const columns = rawColumns.slice(0, 8);
-    const rows = rawRows.slice(0, 30);
+    const columns = withStableKeys(rawColumns.slice(0, 8), (column) => column);
+    const rows = withStableKeys(rawRows.slice(0, 30), (row) => JSON.stringify(row));
     return {
-        columns: withStableKeys(columns, (column) => column),
-        rows: withStableKeys(rows, (row) => JSON.stringify(row)),
+        columns,
+        rows: rows.map(({ item: values, key }) => {
+            const remainingValues = values[Symbol.iterator]();
+            const cells = columns.map(({ key: columnKey }) => ({
+                key: columnKey,
+                value: remainingValues.next().value ?? "",
+            }));
+            return { item: cells, key };
+        }),
         truncated: rawColumns.length > columns.length || rawRows.length > rows.length,
     };
 };
 
+/** Render column headings separately to keep the table tree shallow and accessible. */
+const DataTableHead = ({ columns }: Pick<DataTableData, "columns">) => (
+    <thead className="bg-surface-3/70 text-text-secondary">
+        <tr>
+            {columns.map(({ item: column, key }) => (
+                <th key={key} scope="col" className="break-words px-3 py-2 font-medium">{column}</th>
+            ))}
+        </tr>
+    </thead>
+);
+
+/** Render bounded table rows with per-cell stable keys. */
+const DataTableRows = ({ rows }: Pick<DataTableData, "rows">) => (
+    <tbody>
+        {rows.map(({ item: row, key: rowKey }) => (
+            <tr key={rowKey} className="border-t border-border-subtle text-text-primary">
+                {row.map(({ value, key }) => (
+                    <td key={key} className="max-w-56 break-words px-3 py-2" title={value}>
+                        {value}
+                    </td>
+                ))}
+            </tr>
+        ))}
+    </tbody>
+);
+
+/** Explain an empty table without adding conditional markup to the table component. */
+const DataTableEmptyState = ({ empty }: { empty: boolean }) => empty
+    ? <p className="px-3 py-2 text-xs text-text-secondary">No table data was provided.</p>
+    : null;
+
+/** Explain when source rows or columns exceed the display budget. */
+const DataTableLimitNotice = ({ table }: { table: DataTableData }) => table.truncated
+    ? <p className="px-3 py-2 text-xs text-text-secondary" role="status">Showing the first {table.rows.length} rows and {table.columns.length} columns.</p>
+    : null;
+
+/** Render the compact table component while delegating row details to focused helpers. */
 const DataTable = defineComponent({
     name: "DataTable",
     description: "A compact data table. Each row must contain one value for each column.",
@@ -398,21 +474,11 @@ const DataTable = defineComponent({
                 {props.title ? <h4 className="mb-2 text-sm font-medium text-text-primary">{props.title}</h4> : null}
                 <table className="w-full border-collapse border-y border-border-subtle text-left text-xs">
                     <caption className="sr-only">{props.title || "Generated data table"}</caption>
-                    <thead className="bg-surface-3/70 text-text-secondary">
-                        <tr>{table.columns.map(({ item: column, key }) => <th key={key} scope="col" className="break-words px-3 py-2 font-medium">{column}</th>)}</tr>
-                    </thead>
-                    <tbody>{table.rows.map(({ item: row, key: rowKey }) => (
-                        <tr key={rowKey} className="border-t border-border-subtle text-text-primary">
-                            {table.columns.map(({ index, key }) => (
-                                <td key={key} className="max-w-56 break-words px-3 py-2" title={row[index] ?? ""}>
-                                    {row[index] ?? ""}
-                                </td>
-                            ))}
-                        </tr>
-                    ))}</tbody>
+                    <DataTableHead columns={table.columns} />
+                    <DataTableRows rows={table.rows} />
                 </table>
-                {isEmpty ? <p className="px-3 py-2 text-xs text-text-secondary">No table data was provided.</p> : null}
-                {table.truncated ? <p className="px-3 py-2 text-xs text-text-secondary" role="status">Showing the first {table.rows.length} rows and {table.columns.length} columns.</p> : null}
+                <DataTableEmptyState empty={isEmpty} />
+                <DataTableLimitNotice table={table} />
             </div>
         );
     },

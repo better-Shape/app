@@ -158,6 +158,10 @@ export type Chunk = {
     questions?: AgentQuestion[];
     answers?: QuestionAnswers | null;
     openuiTruncated?: boolean;
+    /** Source offset of the fence; stable across incremental renders of its generated DSL. */
+    openuiSourceStart?: number;
+    /** Stable offset in the original message used to key the rendered chunk. */
+    sourceStart?: number;
 };
 
 const MAX_OPENUI_SOURCE_LENGTH = 32_000;
@@ -197,7 +201,7 @@ type OpenUIFenceScannerState = {
     overflow?: OpenUIFenceOverflow;
 };
 
-const MESSAGE_BLOCK_TAGS = [
+const MESSAGE_BLOCK_TAGS: Array<{ type: Chunk["type"]; start: string; end: string }> = [
     { type: 'edit', start: '<edit', end: '</edit>' },
     // Longer tag wins the same-index tie-break against '<edit'.
     { type: 'edit_pending', start: '<edit_pending', end: '</edit_pending>' },
@@ -366,8 +370,8 @@ const closeFenceOnLine = (
 ): boolean => {
     const active = state.activeFence;
     if (!active) return false;
-    const closing = line.match(/^ {0,3}(`{3,}|~{3,})[ \t]*$/);
-    if (!closing || closing[1]?.[0] !== active.marker || closing[1].length < active.length) return false;
+    const closing = parseFenceClosing(line);
+    if (!closing || closing[0] !== active.marker || closing.length < active.length) return false;
 
     let finishedOverflow = false;
     if (active.openUI) {
@@ -383,6 +387,31 @@ const closeFenceOnLine = (
     return finishedOverflow;
 };
 
+/** Read the marker and suffix from a fence line using bounded linear scans. */
+const readFenceMarker = (line: string): { marker: string; suffix: string } | null => {
+    let leadingSpaces = 0;
+    while (leadingSpaces < 3 && line[leadingSpaces] === " ") leadingSpaces += 1;
+    const character = line[leadingSpaces];
+    if (character !== "`" && character !== "~") return null;
+    let markerEnd = leadingSpaces;
+    while (line[markerEnd] === character) markerEnd += 1;
+    if (markerEnd - leadingSpaces < 3) return null;
+    return { marker: line.slice(leadingSpaces, markerEnd), suffix: line.slice(markerEnd) };
+};
+
+/** Read a top-level fence opener without a backtracking-prone regular expression. */
+const parseFenceOpening = (line: string): { marker: string; info: string } | null => {
+    const parsed = readFenceMarker(line);
+    return parsed ? { marker: parsed.marker, info: parsed.suffix } : null;
+};
+
+/** Read a fence closer only when its suffix contains horizontal whitespace. */
+const parseFenceClosing = (line: string): string | null => {
+    const parsed = readFenceMarker(line);
+    if (!parsed || !/^[ \\t]*$/.test(parsed.suffix)) return null;
+    return parsed.marker;
+};
+
 /** Open top-level Markdown fences only when no opaque structural tag is active. */
 const openFenceOnLine = (
     state: OpenUIFenceScannerState,
@@ -393,9 +422,9 @@ const openFenceOnLine = (
     state.pendingMessageTag = scanStructuralTags(line, state.activeMessageTags, state.pendingMessageTag);
     if (state.activeMessageTags.size > 0 || state.pendingMessageTag !== null) return;
 
-    const opening = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
-    const marker = opening?.[1];
-    const info = opening?.[2] ?? "";
+    const opening = parseFenceOpening(line);
+    const marker = opening?.marker;
+    const info = opening?.info ?? "";
     if (!marker || (marker[0] === "`" && info.includes("`"))) return;
 
     const language = info.trim().split(/\s+/, 1)[0]?.toLowerCase();
@@ -829,14 +858,112 @@ const parseInspectRuntimeBlock = (tagFull: string, content: string, isGenerating
 };
 
 
+type MessageBlockMode = "selfClosing" | "streaming" | "complete";
+type MessageBlockContext = {
+    type: Chunk["type"];
+    mode: MessageBlockMode;
+    tagFull: string;
+    block: string;
+    content: string;
+    isGenerating: boolean;
+};
+type MessageBlockParser = (context: MessageBlockContext) => Chunk;
+
+/** Parse terminal metadata and command text consistently for complete and streaming tags. */
+const parseTerminalCommandBlock = (context: MessageBlockContext): Chunk => {
+    const statusMatch = context.tagFull.match(/status="([^"]+)"/);
+    const idMatch = context.tagFull.match(/id="([^"]+)"/);
+    const sessionMatch = context.tagFull.match(/session="(\d+)"/);
+    const exitMatch = context.tagFull.match(/exit="(-?\d+)"/);
+    const lines = context.content.split("\n").filter(Boolean);
+    const command = context.mode === "selfClosing" ? "" : lines[0]?.trim() || "";
+    const reasonLine = lines.find((line) =>
+        line.includes("Awaiting approval:") || line.includes("Blocked:"),
+    );
+    const reason = reasonLine?.replace(/^.*?(Awaiting approval:|Blocked:)\s*/, "").trim();
+    return {
+        type: "terminal_command",
+        content: context.content,
+        command,
+        commandId: idMatch?.[1],
+        commandStatus: statusMatch?.[1] || (context.isGenerating ? "pending" : "completed"),
+        ...(context.mode === "selfClosing" ? {} : { commandReason: reason }),
+        sessionId: sessionMatch?.[1] ? Number(sessionMatch[1]) : undefined,
+        exitCode: exitMatch?.[1] ? Number(exitMatch[1]) : undefined,
+        ...(context.mode === "selfClosing" ? {} : { isGenerating: context.isGenerating }),
+    };
+};
+
+/** Parse search-result attributes without duplicating logic across tag completion states. */
+const parseSearchResultBlock = (context: MessageBlockContext): Chunk => {
+    const query = context.tagFull.match(/query="([^"]+)"/)?.[1];
+    return {
+        type: context.type === "web_result" ? "web_result" : "search_result",
+        content: context.content,
+        query,
+        ...(context.mode === "selfClosing" ? {} : { isGenerating: context.isGenerating }),
+    };
+};
+
+/** Parse a running command tag while preserving the streaming command text. */
+const parseRunBlock = (context: MessageBlockContext): Chunk => ({
+    type: "run",
+    content: context.content,
+    command: context.mode === "selfClosing" ? "" : context.content.trim(),
+    ...(context.mode === "selfClosing" ? {} : { isGenerating: context.isGenerating }),
+});
+
+const MESSAGE_BLOCK_PARSERS: Partial<Record<Chunk["type"], MessageBlockParser>> = {
+    edit: ({ block, isGenerating }) => parseEditBlock(block, isGenerating),
+    edit_pending: ({ block, isGenerating }) => parseEditPendingBlock(block, isGenerating),
+    plan: ({ block }) => parsePlanBlock(block),
+    plan_saved: ({ block, content }) => parsePlanSavedBlock(block, content),
+    todos: ({ block }) => parseTodosBlock(block),
+    terminal_command: parseTerminalCommandBlock,
+    git_operation: ({ tagFull, content, isGenerating }) => parseGitOperationBlock(tagFull, content, isGenerating),
+    browse_session: ({ type, tagFull, content, isGenerating }) => parseRichCard(type, tagFull, content, isGenerating),
+    cat: ({ tagFull, content, isGenerating }) => parseCatBlock(tagFull, content, isGenerating),
+    subagent_ref: ({ tagFull, isGenerating }) => parseSubagentRefBlock(tagFull, isGenerating),
+    subagent: ({ tagFull, content, isGenerating }) => parseSubagentBlock(tagFull, content, isGenerating),
+    design_previews: ({ block }) => parseDesignPreviewsBlock(block),
+    review_debate: ({ block }) => parseReviewDebateBlock(block),
+    persona_review: ({ block }) => parsePersonaReviewBlock(block),
+    question: ({ block }) => parseQuestionBlock(block),
+    questions: ({ block }) => parseQuestionBlock(block),
+    run: parseRunBlock,
+    web_result: parseSearchResultBlock,
+    search_result: parseSearchResultBlock,
+    web_visit: ({ tagFull, isGenerating }) => parseWebVisitBlock(tagFull, isGenerating),
+    inspect_runtime: ({ tagFull, content, isGenerating }) => parseInspectRuntimeBlock(tagFull, content, isGenerating),
+    plugin_call: ({ tagFull, content, isGenerating }) => parsePluginCallBlock(tagFull, content, isGenerating),
+    generated_svg: ({ tagFull, content, isGenerating }) =>
+        parseGeneratedMediaBlock("generated_svg", tagFull, content, isGenerating),
+    generated_image: ({ tagFull, content, isGenerating }) =>
+        parseGeneratedMediaBlock("generated_image", tagFull, content, isGenerating),
+    generated_audio: ({ tagFull, content, isGenerating }) =>
+        parseGeneratedMediaBlock("generated_audio", tagFull, content, isGenerating),
+    sent_file: ({ tagFull, content }) => parseSentFileBlock(tagFull, content),
+};
+
+/** Dispatch one structural wrapper to its shared parser, regardless of streaming state. */
+const parseMessageBlock = (context: MessageBlockContext): Chunk => {
+    const parse = MESSAGE_BLOCK_PARSERS[context.type];
+    if (parse) return parse(context);
+    return {
+        type: context.type,
+        content: context.content,
+        ...(context.mode === "selfClosing" ? {} : { isGenerating: context.isGenerating }),
+    };
+};
+
 /** Split eligible visual fences before handing the remaining text to the structural parser. */
-const parseMessageContentWithOpenUI = (text: string, detectOpenUI = true): Chunk[] => {
+const parseMessageContentWithOpenUI = (text: string, detectOpenUI = true, sourceOffset = 0): Chunk[] => {
     const scan = detectOpenUI ? findOpenUIFences(text) : { fences: [] };
     if (scan.fences.length || scan.overflow) {
         const chunks: Chunk[] = [];
         let cursor = 0;
         for (const fence of scan.fences) {
-            if (fence.start > cursor) chunks.push(...parseMessageContentWithOpenUI(text.slice(cursor, fence.start), false));
+            if (fence.start > cursor) chunks.push(...parseMessageContentWithOpenUI(text.slice(cursor, fence.start), false, sourceOffset + cursor));
             const sourceLength = fence.sourceEnd - fence.sourceStart;
             const boundedSource = text.slice(
                 fence.sourceStart,
@@ -850,12 +977,14 @@ const parseMessageContentWithOpenUI = (text: string, detectOpenUI = true): Chunk
                 content: source,
                 isGenerating: !fence.closed,
                 openuiTruncated: sourceLength > MAX_OPENUI_SOURCE_LENGTH,
+                openuiSourceStart: sourceOffset + fence.start,
+                sourceStart: sourceOffset + fence.start,
             });
             cursor = fence.end;
         }
         if (scan.overflow) {
             if (scan.overflow.start > cursor) {
-                chunks.push(...parseMessageContentWithOpenUI(text.slice(cursor, scan.overflow.start), false));
+                chunks.push(...parseMessageContentWithOpenUI(text.slice(cursor, scan.overflow.start), false, sourceOffset + cursor));
             }
             // Keep excess visual source as ordinary Markdown, then resume structural block parsing.
             chunks.push({
@@ -863,11 +992,12 @@ const parseMessageContentWithOpenUI = (text: string, detectOpenUI = true): Chunk
                 content: stripLeakedToolCode(text.slice(scan.overflow.start, scan.overflow.end), {
                     includeFencedCode: true,
                 }),
+                sourceStart: sourceOffset + scan.overflow.start,
             });
             cursor = scan.overflow.end;
         }
         if (cursor < text.length) {
-            chunks.push(...parseMessageContentWithOpenUI(text.slice(cursor), false));
+            chunks.push(...parseMessageContentWithOpenUI(text.slice(cursor), false, sourceOffset + cursor));
         }
         return mergeAdjacentTextChunks(chunks);
     }
@@ -877,323 +1007,68 @@ const parseMessageContentWithOpenUI = (text: string, detectOpenUI = true): Chunk
     let currentIndex = 0;
 
     while (currentIndex < text.length) {
-        const searchTags = MESSAGE_BLOCK_TAGS;
-
-        let firstMatch: { type: string, index: number, startTag: string, endTag: string } | null = null;
-        for (const tag of searchTags) {
+        let firstMatch: { type: Chunk["type"]; index: number; startTag: string; endTag: string } | null = null;
+        for (const tag of MESSAGE_BLOCK_TAGS) {
             const index = text.indexOf(tag.start, currentIndex);
-            if (index !== -1) {
-                if (
-                    !firstMatch
-                    || index < firstMatch.index
-                    || (index === firstMatch.index && tag.start.length > firstMatch.startTag.length)
-                ) {
-                    firstMatch = { type: tag.type, index, startTag: tag.start, endTag: tag.end };
-                }
+            if (index === -1) continue;
+            if (
+                !firstMatch
+                || index < firstMatch.index
+                || (index === firstMatch.index && tag.start.length > firstMatch.startTag.length)
+            ) {
+                firstMatch = { type: tag.type, index, startTag: tag.start, endTag: tag.end };
             }
         }
 
         if (!firstMatch) {
             const tail = stripOrphanThinkTags(text.slice(currentIndex));
-            if (tail) chunks.push({ type: 'text', content: tail });
+            if (tail) chunks.push({ type: "text", content: tail, sourceStart: sourceOffset + currentIndex });
             break;
         }
 
         if (firstMatch.index > currentIndex) {
             const segment = stripOrphanThinkTags(text.slice(currentIndex, firstMatch.index));
-            if (segment) chunks.push({ type: 'text', content: segment });
+            if (segment) chunks.push({
+                type: "text",
+                content: segment,
+                sourceStart: sourceOffset + currentIndex,
+            });
         }
 
-        const gtIndex = text.indexOf('>', firstMatch.index);
-        let contentStartIndex: number;
-        let endIndex: number;
-        // `<web_visit ... />` / `<plan_saved ... />` style tags must not swallow the rest of the message.
-        const isSelfClosing =
-            gtIndex !== -1
-            && gtIndex > firstMatch.index
-            && text[gtIndex - 1] === '/';
+        const gtIndex = text.indexOf(">", firstMatch.index);
+        const isSelfClosing = gtIndex !== -1 && gtIndex > firstMatch.index && text[gtIndex - 1] === "/";
+        const contentStartIndex = gtIndex === -1 ? text.length : gtIndex + 1;
+        const endIndex = gtIndex === -1 ? -1 : isSelfClosing
+            ? -2
+            : text.indexOf(firstMatch.endTag, contentStartIndex);
+        const mode: MessageBlockMode = endIndex === -2
+            ? "selfClosing"
+            : endIndex === -1
+                ? "streaming"
+                : "complete";
+        const content = mode === "selfClosing"
+            ? ""
+            : text.slice(contentStartIndex, mode === "complete" ? endIndex : undefined);
+        const tagFull = text.slice(firstMatch.index, contentStartIndex);
+        const block = mode === "selfClosing"
+            ? tagFull
+            : mode === "streaming"
+                ? text.slice(firstMatch.index)
+                : text.slice(firstMatch.index, endIndex + firstMatch.endTag.length);
+        const chunk = parseMessageBlock({
+            type: firstMatch.type,
+            mode,
+            tagFull,
+            block,
+            content,
+            isGenerating: mode === "streaming",
+        });
+        chunk.sourceStart = sourceOffset + firstMatch.index;
+        if (chunk.type === "todos") pushOrReplaceTodos(chunks, chunk);
+        else chunks.push(chunk);
 
-        if (gtIndex === -1) {
-            contentStartIndex = text.length;
-            endIndex = -1;
-        } else if (isSelfClosing) {
-            contentStartIndex = gtIndex + 1;
-            endIndex = -2; // sentinel: empty self-closing tag
-        } else {
-            contentStartIndex = gtIndex + 1;
-            endIndex = text.indexOf(firstMatch.endTag, contentStartIndex);
-        }
-
-        if (endIndex === -2) {
-            const content = '';
-            const tagFull = text.slice(firstMatch.index, gtIndex + 1);
-            if (firstMatch.type === 'edit') {
-                chunks.push(parseEditBlock(tagFull, false));
-            } else if (firstMatch.type === 'edit_pending') {
-                chunks.push(parseEditPendingBlock(tagFull, false));
-            } else if (firstMatch.type === 'plan') {
-                chunks.push(parsePlanBlock(tagFull));
-            } else if (firstMatch.type === 'plan_saved') {
-                chunks.push(parsePlanSavedBlock(tagFull, content));
-            } else if (firstMatch.type === 'todos') {
-                pushOrReplaceTodos(chunks, parseTodosBlock(tagFull));
-            } else if (firstMatch.type === 'terminal_command') {
-                const statusMatch = tagFull.match(/status="([^"]+)"/);
-                const idMatch = tagFull.match(/id="([^"]+)"/);
-                const sessionMatch = tagFull.match(/session="(\d+)"/);
-                const exitMatch = tagFull.match(/exit="(-?\d+)"/);
-                chunks.push({
-                    type: 'terminal_command',
-                    content,
-                    command: '',
-                    commandId: idMatch ? idMatch[1] : undefined,
-                    commandStatus: statusMatch ? statusMatch[1] : 'completed',
-                    sessionId: sessionMatch ? Number(sessionMatch[1]) : undefined,
-                    exitCode: exitMatch ? Number(exitMatch[1]) : undefined,
-                });
-            } else if (firstMatch.type === 'git_operation') {
-                chunks.push(parseGitOperationBlock(tagFull, content, false));
-            } else if (firstMatch.type === 'browse_session') {
-                const tagFull = text.slice(firstMatch.index, gtIndex === -1 ? text.length : gtIndex + 1);
-                chunks.push(parseRichCard(firstMatch.type, tagFull, content, false));
-            } else if (firstMatch.type === 'cat') {
-                chunks.push(parseCatBlock(tagFull, content, false));
-            } else if (firstMatch.type === 'subagent_ref') {
-                chunks.push(parseSubagentRefBlock(tagFull, false));
-            } else if (firstMatch.type === 'subagent') {
-                chunks.push(parseSubagentBlock(tagFull, content, false));
-            } else if (firstMatch.type === 'design_previews') {
-                chunks.push(parseDesignPreviewsBlock(tagFull));
-            } else if (firstMatch.type === 'review_debate') {
-                chunks.push(parseReviewDebateBlock(tagFull));
-            } else if (firstMatch.type === 'persona_review') {
-                chunks.push(parsePersonaReviewBlock(tagFull));
-            } else if (firstMatch.type === 'question' || firstMatch.type === 'questions') {
-                chunks.push(parseQuestionBlock(tagFull));
-            } else if (firstMatch.type === 'run') {
-                chunks.push({ type: 'run', content, command: '' });
-            } else if (firstMatch.type === 'web_result' || firstMatch.type === 'search_result') {
-                const queryMatch = tagFull.match(/query="([^"]+)"/);
-                chunks.push({
-                    type: firstMatch.type as Chunk['type'],
-                    content,
-                    query: queryMatch ? queryMatch[1] : undefined,
-                });
-            } else if (firstMatch.type === 'web_visit') {
-                chunks.push(parseWebVisitBlock(tagFull, false));
-            } else if (firstMatch.type === 'inspect_runtime') {
-                chunks.push(parseInspectRuntimeBlock(tagFull, content, false));
-            } else if (firstMatch.type === 'plugin_call') {
-                chunks.push(parsePluginCallBlock(tagFull, content, false));
-            } else if (firstMatch.type === 'generated_svg' || firstMatch.type === 'generated_image' || firstMatch.type === 'generated_audio') {
-                chunks.push(parseGeneratedMediaBlock(firstMatch.type as "generated_svg" | "generated_image" | "generated_audio", tagFull, content, false));
-            } else if (firstMatch.type === 'sent_file') {
-                chunks.push(parseSentFileBlock(tagFull, content));
-            } else {
-                chunks.push({
-                    type: firstMatch.type as Chunk['type'],
-                    content,
-                });
-            }
-            currentIndex = gtIndex + 1;
-            continue;
-        }
-
-        if (endIndex === -1) {
-            const content = text.slice(contentStartIndex);
-            const fullTag = text.slice(firstMatch.index);
-            if (firstMatch.type === 'edit') {
-                chunks.push(parseEditBlock(fullTag, true));
-            } else if (firstMatch.type === 'edit_pending') {
-                chunks.push(parseEditPendingBlock(fullTag, true));
-            } else if (firstMatch.type === 'plan') {
-                chunks.push(parsePlanBlock(fullTag));
-            } else if (firstMatch.type === 'plan_saved') {
-                chunks.push(parsePlanSavedBlock(fullTag, content));
-            } else if (firstMatch.type === 'todos') {
-                pushOrReplaceTodos(chunks, parseTodosBlock(fullTag));
-            } else if (firstMatch.type === 'terminal_command') {
-                const tagFull = text.slice(firstMatch.index, contentStartIndex);
-                const statusMatch = tagFull.match(/status="([^"]+)"/);
-                const idMatch = tagFull.match(/id="([^"]+)"/);
-                const sessionMatch = tagFull.match(/session="(\d+)"/);
-                const exitMatch = tagFull.match(/exit="(-?\d+)"/);
-                const lines = content.split('\n').filter(Boolean);
-                const cmd = lines[0]?.trim() || '';
-                const reasonLine = lines.find(l => l.includes('Awaiting approval:') || l.includes('Blocked:'));
-                const reason = reasonLine?.replace(/^.*?(Awaiting approval:|Blocked:)\s*/, '').trim();
-                chunks.push({
-                    type: 'terminal_command',
-                    content,
-                    command: cmd,
-                    commandId: idMatch ? idMatch[1] : undefined,
-                    commandStatus: statusMatch ? statusMatch[1] : 'pending',
-                    commandReason: reason,
-                    sessionId: sessionMatch ? Number(sessionMatch[1]) : undefined,
-                    exitCode: exitMatch ? Number(exitMatch[1]) : undefined,
-                    isGenerating: true,
-                });
-            } else if (firstMatch.type === 'git_operation') {
-                const tagFull = text.slice(firstMatch.index, contentStartIndex);
-                chunks.push(parseGitOperationBlock(tagFull, content, true));
-            } else if (firstMatch.type === 'cat') {
-                const tagFull = text.slice(firstMatch.index, contentStartIndex);
-                chunks.push(parseCatBlock(tagFull, content, true));
-            } else if (firstMatch.type === 'subagent_ref') {
-                const tagFull = text.slice(firstMatch.index, gtIndex + 1);
-                chunks.push(parseSubagentRefBlock(tagFull, true));
-            } else if (firstMatch.type === 'subagent') {
-                const tagFull = text.slice(firstMatch.index, contentStartIndex);
-                chunks.push(parseSubagentBlock(tagFull, content, true));
-            } else if (firstMatch.type === 'design_previews') {
-                chunks.push(parseDesignPreviewsBlock(text.slice(firstMatch.index)));
-            } else if (firstMatch.type === 'review_debate') {
-                chunks.push(parseReviewDebateBlock(text.slice(firstMatch.index)));
-            } else if (firstMatch.type === 'persona_review') {
-                chunks.push(parsePersonaReviewBlock(text.slice(firstMatch.index)));
-            } else if (firstMatch.type === 'question' || firstMatch.type === 'questions') {
-                chunks.push(parseQuestionBlock(text.slice(firstMatch.index)));
-            } else if (firstMatch.type === 'run') {
-                chunks.push({
-                    type: 'run',
-                    content,
-                    command: content.trim(),
-                    isGenerating: true,
-                });
-            } else if (firstMatch.type === 'web_result' || firstMatch.type === 'search_result') {
-                const tagFull = text.slice(firstMatch.index, contentStartIndex);
-                const queryMatch = tagFull.match(/query="([^"]+)"/);
-                chunks.push({
-                    type: firstMatch.type as Chunk['type'],
-                    content,
-                    query: queryMatch ? queryMatch[1] : undefined,
-                    isGenerating: true
-                });
-            } else if (firstMatch.type === 'web_visit') {
-                const tagFull = text.slice(firstMatch.index, contentStartIndex);
-                chunks.push(parseWebVisitBlock(tagFull, true));
-            } else if (firstMatch.type === 'inspect_runtime') {
-                const tagFull = text.slice(firstMatch.index, contentStartIndex);
-                chunks.push(parseInspectRuntimeBlock(tagFull, content, true));
-            } else if (firstMatch.type === 'browse_session') {
-                const tagFull = text.slice(firstMatch.index, gtIndex === -1 ? text.length : gtIndex + 1);
-                chunks.push(parseRichCard(firstMatch.type, tagFull, content, true));
-            } else if (firstMatch.type === 'plugin_call') {
-                const tagFull = text.slice(firstMatch.index, contentStartIndex);
-                chunks.push(parsePluginCallBlock(tagFull, content, true));
-            } else if (firstMatch.type === 'generated_svg' || firstMatch.type === 'generated_image' || firstMatch.type === 'generated_audio') {
-                const tagFull = text.slice(firstMatch.index, contentStartIndex);
-                chunks.push(parseGeneratedMediaBlock(firstMatch.type as "generated_svg" | "generated_image" | "generated_audio", tagFull, content, true));
-            } else if (firstMatch.type === 'sent_file') {
-                const tagFull = text.slice(firstMatch.index, contentStartIndex);
-                chunks.push(parseSentFileBlock(tagFull, content));
-            } else {
-                chunks.push({
-                    type: firstMatch.type as Chunk['type'],
-                    content,
-                    isGenerating: true,
-                    command: firstMatch.type === 'terminal_command' ? content : undefined
-                });
-            }
-            break;
-        } else {
-            const content = text.slice(contentStartIndex, endIndex);
-            const fullBlock = text.slice(firstMatch.index, endIndex + firstMatch.endTag.length);
-            if (firstMatch.type === 'edit') {
-                chunks.push(parseEditBlock(fullBlock, false));
-            } else if (firstMatch.type === 'edit_pending') {
-                chunks.push(parseEditPendingBlock(fullBlock, false));
-            } else if (firstMatch.type === 'plan') {
-                chunks.push(parsePlanBlock(fullBlock));
-            } else if (firstMatch.type === 'plan_saved') {
-                chunks.push(parsePlanSavedBlock(fullBlock, content));
-            } else if (firstMatch.type === 'todos') {
-                pushOrReplaceTodos(chunks, parseTodosBlock(fullBlock));
-            } else if (firstMatch.type === 'terminal_command') {
-                const tagFull = text.slice(firstMatch.index, contentStartIndex);
-                const statusMatch = tagFull.match(/status="([^"]+)"/);
-                const idMatch = tagFull.match(/id="([^"]+)"/);
-                const sessionMatch = tagFull.match(/session="(\d+)"/);
-                const exitMatch = tagFull.match(/exit="(-?\d+)"/);
-                const lines = content.split('\n').filter(Boolean);
-                const cmd = lines[0]?.trim() || '';
-                const reasonLine = lines.find(l => l.includes('Awaiting approval:') || l.includes('Blocked:'));
-                const reason = reasonLine?.replace(/^.*?(Awaiting approval:|Blocked:)\s*/, '').trim();
-                chunks.push({
-                    type: 'terminal_command',
-                    content,
-                    command: cmd,
-                    commandId: idMatch ? idMatch[1] : undefined,
-                    commandStatus: statusMatch ? statusMatch[1] : 'completed',
-                    commandReason: reason,
-                    sessionId: sessionMatch ? Number(sessionMatch[1]) : undefined,
-                    exitCode: exitMatch ? Number(exitMatch[1]) : undefined,
-                    isGenerating: false,
-                });
-            } else if (firstMatch.type === 'git_operation') {
-                const tagFull = text.slice(firstMatch.index, contentStartIndex);
-                chunks.push(parseGitOperationBlock(tagFull, content, false));
-            } else if (firstMatch.type === 'cat') {
-                const tagFull = text.slice(firstMatch.index, contentStartIndex);
-                chunks.push(parseCatBlock(tagFull, content, false));
-            } else if (firstMatch.type === 'subagent_ref') {
-                const tagFull = text.slice(firstMatch.index, endIndex + firstMatch.endTag.length);
-                chunks.push(parseSubagentRefBlock(tagFull, false));
-            } else if (firstMatch.type === 'subagent') {
-                const tagFull = text.slice(firstMatch.index, contentStartIndex);
-                chunks.push(parseSubagentBlock(tagFull, content, false));
-            } else if (firstMatch.type === 'design_previews') {
-                chunks.push(parseDesignPreviewsBlock(fullBlock));
-            } else if (firstMatch.type === 'review_debate') {
-                chunks.push(parseReviewDebateBlock(fullBlock));
-            } else if (firstMatch.type === 'persona_review') {
-                chunks.push(parsePersonaReviewBlock(fullBlock));
-            } else if (firstMatch.type === 'question' || firstMatch.type === 'questions') {
-                chunks.push(parseQuestionBlock(fullBlock));
-            } else if (firstMatch.type === 'run') {
-                chunks.push({
-                    type: 'run',
-                    content,
-                    command: content.trim(),
-                    isGenerating: false,
-                });
-            } else if (firstMatch.type === 'web_result' || firstMatch.type === 'search_result') {
-                const tagFull = text.slice(firstMatch.index, contentStartIndex);
-                const queryMatch = tagFull.match(/query="([^"]+)"/);
-                chunks.push({
-                    type: firstMatch.type as Chunk['type'],
-                    content,
-                    query: queryMatch ? queryMatch[1] : undefined,
-                    isGenerating: false
-                });
-            } else if (firstMatch.type === 'web_visit') {
-                const tagFull = text.slice(firstMatch.index, contentStartIndex);
-                chunks.push(parseWebVisitBlock(tagFull, false));
-            } else if (firstMatch.type === 'inspect_runtime') {
-                const tagFull = text.slice(firstMatch.index, contentStartIndex);
-                chunks.push(parseInspectRuntimeBlock(tagFull, content, false));
-            } else if (firstMatch.type === 'browse_session') {
-                const tagFull = text.slice(firstMatch.index, gtIndex === -1 ? text.length : gtIndex + 1);
-                chunks.push(parseRichCard(firstMatch.type, tagFull, content, false));
-            } else if (firstMatch.type === 'plugin_call') {
-                const tagFull = text.slice(firstMatch.index, contentStartIndex);
-                chunks.push(parsePluginCallBlock(tagFull, content, false));
-            } else if (firstMatch.type === 'generated_svg' || firstMatch.type === 'generated_image' || firstMatch.type === 'generated_audio') {
-                const tagFull = text.slice(firstMatch.index, contentStartIndex);
-                chunks.push(parseGeneratedMediaBlock(firstMatch.type as "generated_svg" | "generated_image" | "generated_audio", tagFull, content, false));
-            } else if (firstMatch.type === 'sent_file') {
-                const tagFull = text.slice(firstMatch.index, contentStartIndex);
-                chunks.push(parseSentFileBlock(tagFull, content));
-            } else {
-                chunks.push({
-                    type: firstMatch.type as Chunk['type'],
-                    content,
-                    isGenerating: false,
-                    command: firstMatch.type === 'terminal_command' ? content : undefined
-                });
-            }
-            currentIndex = endIndex + firstMatch.endTag.length;
-        }
+        if (mode === "streaming") break;
+        currentIndex = mode === "selfClosing" ? contentStartIndex : endIndex + firstMatch.endTag.length;
     }
 
     return dedupeTerminalChunks(chunks);
@@ -1269,7 +1144,7 @@ export function extractWebSearchResults(content: string): WebSearchResultItem[] 
  * tool runs splits the rail, so the line stops and starts again around it.
  */
 type Segment =
-    | { kind: 'workflow'; blocks: Chunk[] }
+    | { kind: 'workflow'; blocks: Chunk[]; sourceStart: number }
     | { kind: 'chunk'; chunk: Chunk };
 
 function buildSegments(chunks: Chunk[]): Segment[] {
@@ -1280,7 +1155,11 @@ function buildSegments(chunks: Chunk[]): Segment[] {
             if (prev?.kind === 'workflow') {
                 prev.blocks.push(chunk);
             } else {
-                segments.push({ kind: 'workflow', blocks: [chunk] });
+                segments.push({
+                    kind: 'workflow',
+                    blocks: [chunk],
+                    sourceStart: chunk.sourceStart ?? 0,
+                });
             }
             continue;
         }
@@ -1342,21 +1221,11 @@ export function MessageRenderer({
     );
 
     const workflowSegments = segments.filter((s): s is Extract<Segment, { kind: "workflow" }> => s.kind === "workflow");
-    const firstWorkflowIndex = segments.findIndex((s) => s.kind === "workflow");
-    const lastWorkflowIndex = (() => {
-        for (let i = segments.length - 1; i >= 0; i--) {
-            if (segments[i]?.kind === "workflow") return i;
-        }
-        return -1;
-    })();
-
-    const lastBrowseIndex = (() => {
-        for (let i = segments.length - 1; i >= 0; i--) {
-            const segment = segments[i];
-            if (segment?.kind === "chunk" && segment.chunk.type === "browse_session") return i;
-        }
-        return -1;
-    })();
+    const firstWorkflowSegment = workflowSegments[0];
+    const lastWorkflowSegment = workflowSegments.at(-1);
+    const lastBrowseSegment = segments
+        .filter((segment) => segment.kind === "chunk" && segment.chunk.type === "browse_session")
+        .at(-1);
 
     const lastSegment = segments[segments.length - 1];
     const proseIsStreaming =
@@ -1400,15 +1269,18 @@ export function MessageRenderer({
             || !!statusLabel
         );
 
-    const renderedSegments = segments.map((segment, index) => {
-        const isLastSegment = index === segments.length - 1;
+    const renderedSegments = segments.map((segment) => {
+        const isLastSegment = segment === segments.at(-1);
+        const segmentKey = segment.kind === "workflow"
+            ? `workflow-${segment.sourceStart}`
+            : `${segment.chunk.type}-${segment.chunk.sourceStart ?? 0}`;
 
         if (segment.kind === 'workflow') {
-            const isFirst = index === firstWorkflowIndex;
-            const isLastWf = index === lastWorkflowIndex;
+            const isFirst = segment === firstWorkflowSegment;
+            const isLastWf = segment === lastWorkflowSegment;
             return (
                 <TurnWorkflowSummary
-                    key={`wf-${index}`}
+                    key={segmentKey}
                     blocks={segment.blocks}
                     isActive={!!isGenerating && isLastWf}
                     durationMs={isFirst ? durationMs : undefined}
@@ -1421,7 +1293,7 @@ export function MessageRenderer({
         if (chunk.type === "openui") {
             return (
                 <OpenUIBlock
-                    key={`openui-${index}`}
+                    key={`openui-${chunk.openuiSourceStart ?? 0}`}
                     response={chunk.content || ""}
                     isStreaming={Boolean(isGenerating && isLastSegment)}
                     truncated={chunk.openuiTruncated}
@@ -1433,7 +1305,7 @@ export function MessageRenderer({
             if (!text?.trim()) return null;
             return (
                 <div
-                    key={`text-${index}`}
+                    key={segmentKey}
                     className={cn(
                         "text-sm font-medium text-text-primary leading-[var(--conversation-line-height)] mb-0 w-full overflow-hidden prose-compact chat-markdown",
                         isGenerating && isLastSegment && "animate-in fade-in duration-300",
@@ -1448,7 +1320,7 @@ export function MessageRenderer({
             const path = chunk.file || '';
             return (
                 <PlanSavedBlock
-                    key={`plan-saved-${index}`}
+                    key={segmentKey}
                     title={title}
                     path={path}
                     markdown={chunk.planMarkdown}
@@ -1466,7 +1338,7 @@ export function MessageRenderer({
             const completedCount = steps.filter((s) => s.status === 'done').length;
             return (
                 <PlanningBlock
-                    key={`plan-${index}`}
+                    key={segmentKey}
                     title={title}
                     steps={steps}
                     completedCount={completedCount}
@@ -1483,7 +1355,7 @@ export function MessageRenderer({
             const completedCount = steps.filter((s) => s.status === 'done').length;
             return (
                 <PlanningBlock
-                    key={`todos-${index}`}
+                    key={segmentKey}
                     title={chunk.content || 'Todos'}
                     steps={steps}
                     completedCount={completedCount}
@@ -1493,13 +1365,13 @@ export function MessageRenderer({
             );
         }
         if (chunk.type === 'chart') {
-            return <ChartBlock key={`chart-${index}`} content={chunk.content} />;
+            return <ChartBlock key={segmentKey} content={chunk.content} />;
         }
         if (chunk.type === 'insight_card') {
-            return <InsightCard key={`insight-${index}`} content={chunk.content} />;
+            return <InsightCard key={segmentKey} content={chunk.content} />;
         }
         if (chunk.type === 'browse_session') {
-            if (index !== lastBrowseIndex) return null;
+            if (segment !== lastBrowseSegment) return null;
             let image = "";
             let x: number | undefined;
             let y: number | undefined;
@@ -1513,7 +1385,7 @@ export function MessageRenderer({
             }
             return (
                 <BrowseChatCard
-                    key={`browse-${index}`}
+                    key={segmentKey}
                     url={chunk.visitUrl}
                     title={chunk.visitTitle}
                     status={chunk.commandStatus}
@@ -1521,14 +1393,14 @@ export function MessageRenderer({
                     x={x}
                     y={y}
                     consoleLines={consoleLines}
-                    followLive={index === lastBrowseIndex}
+                    followLive={segment === lastBrowseSegment}
                 />
             );
         }
         if (chunk.type === 'sent_file') {
             return (
                 <SentFileCard
-                    key={`file-${index}`}
+                    key={segmentKey}
                     name={chunk.file || "File"}
                     title={chunk.mediaPrompt}
                     mime={chunk.query || ""}
@@ -1542,7 +1414,7 @@ export function MessageRenderer({
             return (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
-                    key={`image-${index}`}
+                    key={segmentKey}
                     src={src}
                     alt={chunk.file || ""}
                     className="my-2 max-h-80 max-w-[420px] rounded-xl border border-border-subtle object-contain"
@@ -1557,7 +1429,7 @@ export function MessageRenderer({
                 .filter(Boolean)
                 .join(" · ");
             return (
-                <p key={`design-previews-${index}`} className="my-1 text-sm text-text-muted">
+                <p key={segmentKey} className="my-1 text-sm text-text-muted">
                     {names || `${n} design concept${n === 1 ? "" : "s"}`}
                 </p>
             );
@@ -1565,7 +1437,7 @@ export function MessageRenderer({
         if (chunk.type === 'generated_svg' || chunk.type === 'generated_image' || chunk.type === 'generated_audio') {
             return (
                 <GeneratedMediaCard
-                    key={`media-${index}`}
+                    key={segmentKey}
                     kind={
                         chunk.type === "generated_svg"
                             ? "svg"
@@ -1583,7 +1455,7 @@ export function MessageRenderer({
         if (chunk.type === 'review_debate') {
             return (
                 <ReviewDebatePanel
-                    key={`review-debate-${index}`}
+                    key={segmentKey}
                     content={chunk.content || ''}
                     model={chunk.reviewModel}
                 />
@@ -1592,7 +1464,7 @@ export function MessageRenderer({
         if (chunk.type === 'persona_review') {
             return (
                 <PersonaReviewPanel
-                    key={`persona-review-${chunk.commandId || index}`}
+                    key={segmentKey}
                     reviewId={chunk.commandId}
                     url={chunk.visitUrl}
                     status={chunk.commandStatus}
@@ -1603,7 +1475,7 @@ export function MessageRenderer({
         if (chunk.type === 'question') {
             return (
                 <QuestionsCard
-                    key={`question-${chunk.commandId || index}`}
+                    key={segmentKey}
                     askId={chunk.commandId}
                     status={chunk.commandStatus}
                     questions={chunk.questions || []}

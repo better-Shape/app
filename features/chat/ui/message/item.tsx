@@ -356,7 +356,7 @@ function ChatMessageItemInner({
     };
 
     /** Prefer an explicit in-message selection; otherwise copy the normalized rendered message. */
-    const handleCopy = () => {
+    function handleCopy(): void {
         const sel = window.getSelection();
         const selected = sel?.toString() ?? "";
         if (selected && bodyRef.current?.contains(sel?.anchorNode ?? null)) {
@@ -364,7 +364,7 @@ function ChatMessageItemInner({
             return;
         }
         void navigator.clipboard.writeText(getCopyText());
-    };
+    }
 
     const handleSelectAll = () => {
         selectNodeContents(bodyRef.current);
