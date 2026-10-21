@@ -592,7 +592,7 @@ pub(super) async fn run_git_commit_with_approval(
 
     match decision {
         ApprovalDecision::Approved => {
-            emit_command_resolved(ctx, &cmd_id, true);
+            emit_command_resolved(ctx, &cmd_id, true, Some("Running command"));
             let result = crate::domain::git::service::git_commit(
                 ctx.project_path.to_string(),
                 message.to_string(),
@@ -620,7 +620,7 @@ pub(super) async fn run_git_commit_with_approval(
             }
         }
         ApprovalDecision::Rejected => {
-            emit_command_resolved(ctx, &cmd_id, false);
+            emit_command_resolved(ctx, &cmd_id, false, None);
             ToolOutcome {
                 tool_result: "Commit was rejected by the user. Do NOT retry it.".to_string(),
                 ui_chunk: format!(
@@ -679,7 +679,7 @@ pub(super) async fn run_with_approval(
 
     match decision {
         ApprovalDecision::Approved => {
-            emit_command_resolved(ctx, &cmd_id, true);
+            emit_command_resolved(ctx, &cmd_id, true, Some("Running command"));
             // Execute through the SAME path as auto-approved commands: same
             // session engine, same streaming, same cancel token, same card id.
             let mut outcome = execute_terminal_session(command, &cmd_id, ctx).await;
@@ -687,7 +687,7 @@ pub(super) async fn run_with_approval(
             outcome
         }
         ApprovalDecision::Rejected => {
-            emit_command_resolved(ctx, &cmd_id, false);
+            emit_command_resolved(ctx, &cmd_id, false, None);
             ToolOutcome {
                 tool_result: format!(
                     "Command '{}' was rejected by the user. Do NOT retry it or attempt an equivalent command. Continue the task without it, or ask the user how to proceed.",

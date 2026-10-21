@@ -161,6 +161,28 @@ function labelForPhase(phase: TurnPhase, tool?: string, label?: string): string 
     }
 }
 
+type ChatStatusUpdate = { turnPhase?: TurnPhase; activityLabel?: string };
+
+/** Translate a backend status event into the single UI update it represents. */
+const resolveChatStatusUpdate = (
+    phase: string | undefined,
+    tool: string | undefined,
+    label: string | undefined,
+): ChatStatusUpdate | null => {
+    if (phase === "approval") {
+        return { turnPhase: "awaiting_approval", activityLabel: label?.trim() || "Waiting for approval" };
+    }
+    if (phase === "model") {
+        return { turnPhase: "thinking", activityLabel: label?.trim() || "Thinking" };
+    }
+    if (phase === "tool") {
+        const turnPhase = phaseFromTool(tool);
+        return { turnPhase, activityLabel: labelForPhase(turnPhase, tool, label) ?? undefined };
+    }
+    const activityLabel = label?.trim();
+    return activityLabel ? { activityLabel } : null;
+};
+
 export function ChatStreamProvider({ children }: { children: React.ReactNode }) {
     const [isLoading, setIsLoading] = React.useState(defaultState.isLoading);
     const [messages, setMessages] = React.useState<ChatMessage[]>(defaultState.messages);
@@ -407,19 +429,22 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
             }
         };
 
+        /** Confirm that an event still belongs to the current, unfinished conversation turn. */
+        const isEligibleTurnIdentity = (conversationId?: string, turnId?: string): boolean => {
+            if (!conversationId || !turnId) return false;
+            if (finishedTurns.has(turnId) || isForeignConversation(conversationId)) return false;
+            return liveTurnsRef.current.get(conversationId)?.turnId === turnId;
+        };
+
         /** Apply an event only to the exact live turn and conversation that owns it. */
         const patchLiveForTurn = (
             identity: { conversationId?: string; turnId?: string },
             update: (live: LiveTurn) => void,
         ): boolean => {
             const { conversationId, turnId } = identity;
-            if (!conversationId || !turnId || finishedTurns.has(turnId)) return false;
-            if (isForeignConversation(conversationId)) return false;
-            const currentLive = liveTurnsRef.current.get(conversationId);
-            if (!currentLive || currentLive.turnId !== turnId) return false;
+            if (!isEligibleTurnIdentity(conversationId, turnId) || !conversationId) return false;
             let applied = false;
             patchLive(conversationId, (live) => {
-                if (live.turnId !== turnId) return;
                 update(live);
                 applied = true;
             });
@@ -667,6 +692,26 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
             );
         };
 
+        /** Route pending approval chrome and alerts through the same exact-turn guard. */
+        const handlePendingApproval = (
+            identity: { id?: string; conversationId?: string; turnId?: string; reason?: string },
+            activityLabel: string,
+            notificationTitle: string,
+            subject: string,
+        ) => {
+            const accepted = patchLiveForTurn(identity, (live) => {
+                live.turnPhase = "awaiting_approval";
+                live.activityLabel = activityLabel;
+            });
+            if (!accepted) return;
+            const reason = identity.reason?.trim();
+            notifyApprovalOsOnly(
+                identity.id,
+                notificationTitle,
+                reason ? `${subject}: ${reason}` : subject,
+            );
+        };
+
         register(
             listen<{
                 id?: string;
@@ -676,17 +721,12 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
                 reason?: string;
                 safety?: string;
             }>("agent-command-pending", (event) => {
-                const cmd = event.payload?.command?.trim() || "Command";
-                const reason = event.payload?.reason?.trim();
-                const accepted = patchLiveForTurn(event.payload ?? {}, (live) => {
-                    live.turnPhase = "awaiting_approval";
-                    live.activityLabel = "Waiting for approval";
-                });
-                if (!accepted) return;
-                notifyApprovalOsOnly(
-                    event.payload?.id,
+                const payload = event.payload ?? {};
+                handlePendingApproval(
+                    payload,
+                    "Waiting for approval",
                     "Approval required",
-                    reason ? `${cmd}: ${reason}` : cmd,
+                    payload.command?.trim() || "Command",
                 );
             }),
         );
@@ -700,17 +740,12 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
                 path?: string;
                 reason?: string;
             }>("agent-edit-pending", (event) => {
-                const file = event.payload?.path?.trim() || event.payload?.file?.trim() || "file";
-                const reason = event.payload?.reason?.trim();
-                const accepted = patchLiveForTurn(event.payload ?? {}, (live) => {
-                    live.turnPhase = "awaiting_approval";
-                    live.activityLabel = "Waiting for edit approval";
-                });
-                if (!accepted) return;
-                notifyApprovalOsOnly(
-                    event.payload?.id,
+                const payload = event.payload ?? {};
+                handlePendingApproval(
+                    payload,
+                    "Waiting for edit approval",
                     "Edit approval required",
-                    reason ? `${file}: ${reason}` : file,
+                    payload.path?.trim() || payload.file?.trim() || "file",
                 );
             }),
         );
@@ -729,13 +764,16 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
             listen<{
                 id?: string;
                 approved?: boolean;
+                activityLabel?: string;
                 turnId?: string;
                 conversationId?: string;
             }>("agent-command-resolved", (event) => {
                 patchLiveForTurn(event.payload ?? {}, (live) => {
                     const approved = event.payload?.approved === true;
                     live.turnPhase = approved ? "running_command" : "thinking";
-                    live.activityLabel = approved ? "Running command" : "Thinking";
+                    live.activityLabel = approved
+                        ? event.payload?.activityLabel?.trim() || "Running command"
+                        : "Thinking";
                 });
             }),
         );
@@ -764,25 +802,11 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
             }>("chat_status", (event) => {
                 const { phase, tool, label, turnId, conversationId } = event.payload ?? {};
                 if (!turnId || !conversationId) return;
-
-                let nextPhase: TurnPhase | null = null;
-                let nextLabel: string | null = null;
-                if (phase === "approval") {
-                    nextPhase = "awaiting_approval";
-                    nextLabel = label?.trim() || "Waiting for approval";
-                } else if (phase === "model") {
-                    nextPhase = "thinking";
-                    nextLabel = label?.trim() || "Thinking";
-                } else if (phase === "tool") {
-                    nextPhase = phaseFromTool(tool);
-                    nextLabel = labelForPhase(nextPhase, tool, label);
-                } else if (label?.trim()) {
-                    nextLabel = label.trim();
-                }
-                if (!nextPhase && !nextLabel) return;
+                const update = resolveChatStatusUpdate(phase, tool, label);
+                if (!update) return;
                 patchLiveForTurn({ conversationId, turnId }, (live) => {
-                    if (nextPhase) live.turnPhase = nextPhase;
-                    if (nextLabel) live.activityLabel = nextLabel;
+                    if (update.turnPhase) live.turnPhase = update.turnPhase;
+                    if (update.activityLabel) live.activityLabel = update.activityLabel;
                 });
             }),
         );

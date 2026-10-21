@@ -75,7 +75,7 @@ function mapOutsideCodeFences(text: string, fn: (prose: string) => string, inclu
 }
 
 /** Finds a tag's closing bracket without mistaking a quoted attribute value for it. */
-function findTagEnd(text: string, start: number): number {
+const findTagEnd = (text: string, start: number): number => {
     let quote: "'" | '"' | null = null;
     let previousNonWhitespace = "";
     for (let index = start; index < text.length; index += 1) {
@@ -93,31 +93,49 @@ function findTagEnd(text: string, start: number): number {
         if (!/\s/.test(character)) previousNonWhitespace = character;
     }
     return -1;
-}
+};
+
+type UnclosedTagAction =
+    | { type: "truncate"; from: number }
+    | { type: "remove"; from: number; nextIndex: number }
+    | { type: "skip"; nextIndex: number };
+
+/** Decide whether one matching opener must be hidden, removed, or skipped. */
+const inspectToolTagOpener = (
+    text: string,
+    match: RegExpExecArray,
+    afterName: number,
+    truncateNonSelfClosing: boolean,
+): UnclosedTagAction => {
+    const end = findTagEnd(text, afterName);
+    if (end === -1) return { type: "truncate", from: match.index };
+    const selfClosing = text.slice(afterName, end).trimEnd().endsWith("/");
+    if (truncateNonSelfClosing && !selfClosing) return { type: "truncate", from: match.index };
+    if (selfClosing) return { type: "skip", nextIndex: end + 1 };
+    return { type: "remove", from: match.index, nextIndex: end + 1 };
+};
 
 /** Remove malformed leaked-tag openers, optionally hiding the rest of a wrapper payload. */
-function stripUnclosedToolTag(text: string, tag: string, truncateNonSelfClosing = false): string {
+const stripUnclosedToolTag = (text: string, tag: string, truncateNonSelfClosing = false): string => {
     const escapedTag = tag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const openingTag = new RegExp(`<${escapedTag}\\b`, "gi");
     let match: RegExpExecArray | null;
     while ((match = openingTag.exec(text)) !== null) {
-        const end = findTagEnd(text, openingTag.lastIndex);
-        if (end === -1) return text.slice(0, match.index);
-        const selfClosing = text.slice(openingTag.lastIndex, end).trimEnd().endsWith("/");
-        if (truncateNonSelfClosing && !selfClosing) return text.slice(0, match.index);
-        if (!selfClosing) {
-            // In ordinary leaked-markup cleanup, remove a valid opener and let the normal
-            // close-tag cleanup run without discarding following prose.
-            text = text.slice(0, match.index) + text.slice(end + 1);
-            openingTag.lastIndex = match.index;
+        const action = inspectToolTagOpener(text, match, openingTag.lastIndex, truncateNonSelfClosing);
+        if (action.type === "truncate") return text.slice(0, action.from);
+        if (action.type === "remove") {
+            // Preserve following prose; the normal closing-tag pass handles the companion token.
+            text = text.slice(0, action.from) + text.slice(action.nextIndex);
+            openingTag.lastIndex = action.from;
             continue;
         }
-        openingTag.lastIndex = end + 1;
+        openingTag.lastIndex = action.nextIndex;
     }
     return text;
-}
+};
 
-function stripNestedTagBlocks(text: string, tag: string): string {
+/** Remove complete nested wrapper payloads without mistaking quoted tag text for delimiters. */
+const stripNestedTagBlocks = (text: string, tag: string): string => {
     const escapedTag = tag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const matchingTag = new RegExp(`^<\\s*(\\/?)\\s*${escapedTag}\\b`, "i");
     let output = "";
@@ -163,7 +181,7 @@ function stripNestedTagBlocks(text: string, tag: string): string {
 
     if (depth > 0) return output;
     return output + text.slice(cursor);
-}
+};
 
 /**
  * Strip provider/model tool-call grammars that leaked into assistant text.

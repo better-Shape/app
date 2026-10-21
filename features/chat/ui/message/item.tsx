@@ -280,6 +280,29 @@ function parseForkedFrom(content: string): { id: string; title: string; rest: st
     return { id, title, rest: content.slice(match[0].length) };
 }
 
+/** Extract display-only prefixes once so rendering and copying share the same message body. */
+function extractPresentationMetadata(content: string) {
+    let rest = content;
+    let forked: ReturnType<typeof parseForkedFrom> = null;
+    let renamed: ReturnType<typeof parseChatRenamed> = null;
+    for (let index = 0; index < 2; index += 1) {
+        const nextFork = parseForkedFrom(rest);
+        if (nextFork) {
+            forked = nextFork;
+            rest = nextFork.rest;
+            continue;
+        }
+        const nextRenamed = parseChatRenamed(rest);
+        if (nextRenamed) {
+            renamed = nextRenamed;
+            rest = nextRenamed.rest;
+            continue;
+        }
+        break;
+    }
+    return { content: rest, forked, renamed };
+}
+
 function ChatMessageItemInner({
     role,
     content,
@@ -299,18 +322,13 @@ function ChatMessageItemInner({
     const [expanded, setExpanded] = React.useState(false);
     const [forkOpen, setForkOpen] = React.useState(false);
     const [menuOpen, setMenuOpen] = React.useState(false);
-    const [menuStats, setMenuStats] = React.useState(stats);
-    const [menuModel, setMenuModel] = React.useState(model);
+    const [menuStats, setMenuStats] = React.useState<typeof stats>();
+    const [menuModel, setMenuModel] = React.useState<typeof model>();
     const [advanced, setAdvanced] = React.useState(false);
     const [contextVeil, setContextVeil] = React.useState(true);
     const bodyRef = React.useRef<HTMLDivElement>(null);
     const shownStats = menuStats ?? stats;
     const shownModel = menuModel ?? model;
-
-    React.useEffect(() => {
-        setMenuStats(stats);
-        setMenuModel(model);
-    }, [stats, model]);
 
     const getCopyText = () => {
         if (role === "user") {
@@ -320,8 +338,13 @@ function ChatMessageItemInner({
             if (names) return `[${names}]`;
             return parts.text || content;
         }
-        const chunks = parseMessageContent(content);
-        if (chunks.some((chunk) => chunk.type !== "text" && chunk.type !== "openui")) {
+        const metadata = extractPresentationMetadata(content);
+        const chunks = parseMessageContent(metadata.content);
+        if (
+            metadata.forked ||
+            metadata.renamed ||
+            chunks.some((chunk) => chunk.type !== "text" && chunk.type !== "openui")
+        ) {
             const renderedText = bodyRef.current?.innerText || bodyRef.current?.textContent;
             if (renderedText?.trim()) return renderedText;
         }
@@ -332,6 +355,7 @@ function ChatMessageItemInner({
         return getMessageCopyText(chunks, openUIText);
     };
 
+    /** Prefer an explicit in-message selection; otherwise copy the normalized rendered message. */
     const handleCopy = () => {
         const sel = window.getSelection();
         const selected = sel?.toString() ?? "";
@@ -461,26 +485,12 @@ function ChatMessageItemInner({
     }
 
     const showTypingOnly = Boolean(isGenerating && !content.trim());
-    let renderContent = content;
-    let forked: ReturnType<typeof parseForkedFrom> = null;
-    let renamed: ReturnType<typeof parseChatRenamed> = null;
-    if (role === "assistant") {
-        for (let i = 0; i < 2; i++) {
-            const nextFork = parseForkedFrom(renderContent);
-            if (nextFork) {
-                forked = nextFork;
-                renderContent = nextFork.rest;
-                continue;
-            }
-            const nextRenamed = parseChatRenamed(renderContent);
-            if (nextRenamed) {
-                renamed = nextRenamed;
-                renderContent = nextRenamed.rest;
-                continue;
-            }
-            break;
-        }
-    }
+    const presentation = role === "assistant"
+        ? extractPresentationMetadata(content)
+        : { content, forked: null, renamed: null };
+    const renderContent = presentation.content;
+    const forked = presentation.forked;
+    const renamed = presentation.renamed;
 
     return (
         <>
@@ -548,6 +558,8 @@ function ChatMessageItemInner({
                         if (!open) {
                             setAdvanced(false);
                             setContextVeil(true);
+                            setMenuStats(undefined);
+                            setMenuModel(undefined);
                             return;
                         }
                         if (typeof index !== "number" || index < 0) return;

@@ -182,6 +182,21 @@ type PendingTag = {
     readingName: boolean;
 };
 
+type ActiveOpenUIFence = {
+    marker: string;
+    length: number;
+    openUI?: OpenUIFence;
+    overflow?: boolean;
+};
+
+type OpenUIFenceScannerState = {
+    fences: OpenUIFence[];
+    activeFence: ActiveOpenUIFence | null;
+    activeMessageTags: Map<string, number>;
+    pendingMessageTag: PendingTag | null;
+    overflow?: OpenUIFenceOverflow;
+};
+
 const MESSAGE_BLOCK_TAGS = [
     { type: 'edit', start: '<edit', end: '</edit>' },
     // Longer tag wins the same-index tie-break against '<edit'.
@@ -257,74 +272,78 @@ const MESSAGE_BLOCK_TAG_NAMES = new Set(
 );
 const MAX_TAG_NAME_LENGTH = 128;
 
-function isTagNameCharacter(character: string): boolean {
+/** Constrain the incremental tag scanner to XML-like name characters. */
+const isTagNameCharacter = (character: string): boolean => {
     return /^[A-Za-z0-9:_-]$/.test(character);
-}
+};
+
+/** Apply a completed structural tag to the active-tag depth map. */
+const applyCompletedTag = (completed: PendingTag, activeTags: Map<string, number>): void => {
+    if (!MESSAGE_BLOCK_TAG_NAMES.has(completed.name)) return;
+    const count = activeTags.get(completed.name) ?? 0;
+    if (completed.closing) {
+        if (count <= 1) activeTags.delete(completed.name);
+        else activeTags.set(completed.name, count - 1);
+    } else if (completed.lastNonWhitespace !== "/") {
+        activeTags.set(completed.name, count + 1);
+    }
+};
+
+type PendingTagStep = { tag: PendingTag | null; consumed: boolean };
+
+/** Consume one character of an unfinished tag while retaining quote and name state. */
+const advancePendingTag = (
+    character: string,
+    tag: PendingTag,
+    activeTags: Map<string, number>,
+): PendingTagStep => {
+    if (tag.readingName) {
+        if (isTagNameCharacter(character)) {
+            if (tag.name !== "\u0000") {
+                if (tag.name.length < MAX_TAG_NAME_LENGTH) tag.name += character;
+                else tag.name = "\u0000";
+            }
+            return { tag, consumed: true };
+        }
+        if (!tag.name) return { tag: null, consumed: false };
+        tag.readingName = false;
+    }
+    if (tag.quote) {
+        if (character === tag.quote) tag.quote = null;
+    } else if (character === "\"" || character === "'") {
+        tag.quote = character;
+    } else if (character === ">") {
+        applyCompletedTag(tag, activeTags);
+        return { tag: null, consumed: true };
+    } else if (!/\s/.test(character)) {
+        tag.lastNonWhitespace = character;
+    }
+    return { tag, consumed: true };
+};
 
 /** Update structural-block depth with a quote-aware, bounded-state tag scanner. */
-function scanStructuralTags(
+const scanStructuralTags = (
     text: string,
     activeTags: Map<string, number>,
     pending: PendingTag | null,
-): PendingTag | null {
+): PendingTag | null => {
     let index = 0;
     let tag = pending;
 
-    const finishTag = (completed: PendingTag) => {
-        if (!MESSAGE_BLOCK_TAG_NAMES.has(completed.name)) return;
-        const count = activeTags.get(completed.name) ?? 0;
-        if (completed.closing) {
-            if (count <= 1) activeTags.delete(completed.name);
-            else activeTags.set(completed.name, count - 1);
-        } else if (completed.lastNonWhitespace !== "/") {
-            activeTags.set(completed.name, count + 1);
-        }
-    };
-
     while (index < text.length) {
         if (tag) {
-            const character = text[index] ?? "";
-            if (tag.readingName) {
-                if (isTagNameCharacter(character)) {
-                    if (tag.name !== "\u0000") {
-                        if (tag.name.length < MAX_TAG_NAME_LENGTH) tag.name += character;
-                        else tag.name = "\u0000";
-                    }
-                    index += 1;
-                    continue;
-                }
-                if (!tag.name) {
-                    tag = null;
-                    continue;
-                }
-                tag.readingName = false;
-            }
-            if (tag.quote) {
-                if (character === tag.quote) tag.quote = null;
-            } else if (character === "\"" || character === "'") {
-                tag.quote = character;
-            } else if (character === ">") {
-                finishTag(tag);
-                tag = null;
-                index += 1;
-                continue;
-            } else if (!/\s/.test(character)) {
-                tag.lastNonWhitespace = character;
-            }
-            index += 1;
+            const step = advancePendingTag(text[index] ?? "", tag, activeTags);
+            tag = step.tag;
+            if (step.consumed) index += 1;
             continue;
         }
-
         if (text[index] !== "<") {
             index += 1;
             continue;
         }
-        let nameStart = index + 1;
-        let closing = false;
-        if (text[nameStart] === "/") {
-            closing = true;
-            nameStart += 1;
-        }
+        const start = index + 1;
+        const closing = text[start] === "/";
+        const nameStart = closing ? start + 1 : start;
         const first = text[nameStart] ?? "";
         if (first && !/[A-Za-z]/.test(first)) {
             index += 1;
@@ -335,15 +354,73 @@ function scanStructuralTags(
     }
     if (tag?.readingName && tag.name) tag.readingName = false;
     return tag;
-}
+};
 
-/** Finds only top-level Markdown fences, so an OpenUI example inside a code sample stays code. */
-function findOpenUIFences(text: string): OpenUIFenceScan {
-    const fences: OpenUIFence[] = [];
-    let activeFence: { marker: string; length: number; openUI?: OpenUIFence; overflow?: boolean } | null = null;
-    const activeMessageTags = new Map<string, number>();
-    let pendingMessageTag: PendingTag | null = null;
-    let overflow: OpenUIFenceOverflow | undefined;
+/** Close an active fence and report whether the overflow boundary has been reached. */
+const closeFenceOnLine = (
+    state: OpenUIFenceScannerState,
+    text: string,
+    line: string,
+    lineStart: number,
+    nextLineStart: number,
+): boolean => {
+    const active = state.activeFence;
+    if (!active) return false;
+    const closing = line.match(/^ {0,3}(`{3,}|~{3,})[ \t]*$/);
+    if (!closing || closing[1]?.[0] !== active.marker || closing[1].length < active.length) return false;
+
+    let finishedOverflow = false;
+    if (active.openUI) {
+        let sourceEnd = lineStart;
+        if (text.slice(sourceEnd - 2, sourceEnd) === "\r\n") sourceEnd -= 2;
+        else if (text[sourceEnd - 1] === "\n") sourceEnd -= 1;
+        state.fences.push({ ...active.openUI, end: nextLineStart, sourceEnd, closed: true });
+    } else if (active.overflow && state.overflow) {
+        state.overflow = { ...state.overflow, end: nextLineStart };
+        finishedOverflow = true;
+    }
+    state.activeFence = null;
+    return finishedOverflow;
+};
+
+/** Open top-level Markdown fences only when no opaque structural tag is active. */
+const openFenceOnLine = (
+    state: OpenUIFenceScannerState,
+    line: string,
+    lineStart: number,
+    nextLineStart: number,
+): void => {
+    state.pendingMessageTag = scanStructuralTags(line, state.activeMessageTags, state.pendingMessageTag);
+    if (state.activeMessageTags.size > 0 || state.pendingMessageTag !== null) return;
+
+    const opening = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+    const marker = opening?.[1];
+    const info = opening?.[2] ?? "";
+    if (!marker || (marker[0] === "`" && info.includes("`"))) return;
+
+    const language = info.trim().split(/\s+/, 1)[0]?.toLowerCase();
+    const isOpenUI = language === "openui-lang";
+    const isOverflow = isOpenUI && state.fences.length >= MAX_OPENUI_BLOCKS_PER_MESSAGE;
+    if (isOverflow && !state.overflow) state.overflow = { start: lineStart, end: lineStart };
+    const openUI = isOpenUI && !isOverflow
+        ? { start: lineStart, end: nextLineStart, sourceStart: nextLineStart, sourceEnd: nextLineStart, closed: false }
+        : undefined;
+    state.activeFence = {
+        marker: marker[0] ?? "`",
+        length: marker.length,
+        openUI,
+        overflow: isOverflow,
+    };
+};
+
+/** Find top-level Markdown fences, keeping examples inside opaque blocks as code. */
+const findOpenUIFences = (text: string): OpenUIFenceScan => {
+    const state: OpenUIFenceScannerState = {
+        fences: [],
+        activeFence: null,
+        activeMessageTags: new Map<string, number>(),
+        pendingMessageTag: null,
+    };
     let lineStart = 0;
 
     while (lineStart < text.length) {
@@ -352,61 +429,36 @@ function findOpenUIFences(text: string): OpenUIFenceScan {
         const nextLineStart = newline === -1 ? text.length : newline + 1;
         const line = text.slice(lineStart, lineEnd).replace(/\r$/, "");
 
-        if (activeFence) {
-            const closing = line.match(/^ {0,3}(`{3,}|~{3,})[ \t]*$/);
-            if (closing && closing[1]?.[0] === activeFence.marker && closing[1].length >= activeFence.length) {
-                let finishedOverflow = false;
-                if (activeFence.openUI) {
-                    let sourceEnd = lineStart;
-                    if (text.slice(sourceEnd - 2, sourceEnd) === "\r\n") sourceEnd -= 2;
-                    else if (text[sourceEnd - 1] === "\n") sourceEnd -= 1;
-                    fences.push({ ...activeFence.openUI, end: nextLineStart, sourceEnd, closed: true });
-                } else if (activeFence.overflow && overflow) {
-                    overflow = { ...overflow, end: nextLineStart };
-                    finishedOverflow = true;
-                }
-                activeFence = null;
-                if (finishedOverflow) return { fences, overflow };
+        if (state.activeFence) {
+            if (closeFenceOnLine(state, text, line, lineStart, nextLineStart)) {
+                return { fences: state.fences, overflow: state.overflow };
             }
         } else {
-            pendingMessageTag = scanStructuralTags(line, activeMessageTags, pendingMessageTag);
-            if (activeMessageTags.size === 0 && pendingMessageTag === null) {
-                const opening = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
-                const marker = opening?.[1];
-                const info = opening?.[2] ?? "";
-                if (marker && !(marker[0] === "`" && info.includes("`"))) {
-                    const language = info.trim().split(/\s+/, 1)[0]?.toLowerCase();
-                    const isOpenUI = language === "openui-lang";
-                    const isOverflow = isOpenUI && fences.length >= MAX_OPENUI_BLOCKS_PER_MESSAGE;
-                    if (isOverflow && !overflow) overflow = { start: lineStart, end: text.length };
-                    const openUI = isOpenUI && !isOverflow
-                        ? { start: lineStart, end: text.length, sourceStart: nextLineStart, sourceEnd: text.length, closed: false }
-                        : undefined;
-                    activeFence = {
-                        marker: marker[0] ?? "`",
-                        length: marker.length,
-                        openUI,
-                        overflow: isOverflow,
-                    };
-                }
-            }
+            openFenceOnLine(state, line, lineStart, nextLineStart);
         }
 
         if (newline === -1) break;
         lineStart = nextLineStart;
     }
 
-    if (activeFence?.openUI) fences.push(activeFence.openUI);
-    return { fences, overflow };
-}
+    if (state.activeFence?.openUI) {
+        state.fences.push({
+            ...state.activeFence.openUI,
+            end: text.length,
+            sourceEnd: text.length,
+        });
+    }
+    if (state.overflow) state.overflow = { ...state.overflow, end: text.length };
+    return { fences: state.fences, overflow: state.overflow };
+};
 
 /** Parse assistant text into structural UI chunks and bounded OpenUI visual blocks. */
-export function parseMessageContent(text: string): Chunk[] {
+export const parseMessageContent = (text: string): Chunk[] => {
     return parseMessageContentWithOpenUI(text);
-}
+};
 
 /** Plain-text copy keeps prose and includes rendered visual text rather than raw OpenUI source. */
-export function getMessageCopyText(chunks: readonly Chunk[], openUIText: readonly string[] = []): string {
+export const getMessageCopyText = (chunks: readonly Chunk[], openUIText: readonly string[] = []): string => {
     let visualIndex = 0;
     return chunks
         .map((chunk) => {
@@ -416,10 +468,369 @@ export function getMessageCopyText(chunks: readonly Chunk[], openUIText: readonl
         })
         .filter(Boolean)
         .join("\n\n");
-}
+};
+
+/** Extract the inner text for a well-formed or streaming structural tag. */
+const getInnerTagContent = (block: string, tag: string) => {
+    const startTag = `<${tag}>`;
+    const endTag = `</${tag}>`;
+    const start = block.indexOf(startTag);
+    if (start === -1) return undefined;
+    const end = block.indexOf(endTag, start);
+    if (end === -1) return block.slice(start + startTag.length).replace(/^\n|\n$/g, '');
+    return block.slice(start + startTag.length, end).replace(/^\n|\n$/g, '');
+};
+
+/** Convert an edit wrapper into a typed message chunk. */
+const parseEditBlock = (block: string, isGenerating: boolean): Chunk => {
+    const fileMatch = block.match(/<edit\s+file="([^"]*)"/);
+    const file = fileMatch ? fileMatch[1] : undefined;
+    return {
+        type: 'edit',
+        file,
+        original: getInnerTagContent(block, 'original') || '',
+        replacement: getInnerTagContent(block, 'replacement') || '',
+        isGenerating,
+    };
+};
+
+/** Edit staged for user approval (require-edit-approval mode). */
+const parseEditPendingBlock = (block: string, isGenerating: boolean): Chunk => {
+    const idMatch = block.match(/\bid="([^"]*)"/);
+    const fileMatch = block.match(/\bfile="([^"]*)"/);
+    const statusMatch = block.match(/\bstatus="([^"]*)"/);
+    return {
+        type: 'edit_pending',
+        file: fileMatch ? fileMatch[1] : undefined,
+        commandId: idMatch ? idMatch[1] : undefined,
+        commandStatus: statusMatch ? statusMatch[1] : 'pending',
+        original: getInnerTagContent(block, 'original') || '',
+        replacement: getInnerTagContent(block, 'replacement') || '',
+        isGenerating,
+    };
+};
+
+/** Build a saved-plan chunk from its attributes and optional body. */
+const parsePlanSavedBlock = (block: string, innerContent?: string): Chunk => {
+    const pathMatch = block.match(/path="([^"]*)"/);
+    const titleMatch = block.match(/title="([^"]*)"/);
+    const body =
+        innerContent?.trim()
+        || getInnerTagContent(block, "plan_saved")
+        || undefined;
+    return {
+        type: 'plan_saved',
+        file: pathMatch ? pathMatch[1] : undefined,
+        content: titleMatch ? titleMatch[1] : 'Implementation Plan',
+        planMarkdown: body,
+    };
+};
+
+/** Convert an implementation-plan wrapper into its display chunk. */
+const parsePlanBlock = (block: string): Chunk => {
+    const titleMatch = block.match(/<plan\s+title="([^"]*)"/);
+    const title = titleMatch ? titleMatch[1] : 'Plan';
+    return {
+        type: 'plan',
+        content: block,
+        file: title,
+    };
+};
+
+/** Parse todo entries and normalize provider status names. */
+const parseTodosBlock = (block: string): Chunk => {
+    const titleMatch = block.match(/<todos\s+title="([^"]*)"/);
+    const title = titleMatch ? titleMatch[1] : 'Todos';
+    const todoMatches = [...block.matchAll(/<todo\s+([^>]*)>([\s\S]*?)<\/todo>/g)];
+    const todos = todoMatches.map((m) => {
+        const attrs = m[1] ?? '';
+        const id = attrs.match(/id="([^"]*)"/)?.[1] ?? '';
+        const statusRaw = (attrs.match(/status="([^"]*)"/)?.[1] ?? 'pending').toLowerCase();
+        const status: "done" | "active" | "pending" | "cancelled" =
+            statusRaw === 'completed' || statusRaw === 'done' || statusRaw === 'complete'
+                ? 'done'
+                : statusRaw === 'in_progress' || statusRaw === 'active'
+                    ? 'active'
+                    : statusRaw === 'cancelled' || statusRaw === 'canceled'
+                        ? 'cancelled'
+                        : 'pending';
+        return { id, label: (m[2] ?? '').trim(), status };
+    });
+    return {
+        type: 'todos',
+        content: title,
+        todos,
+    };
+};
+
+/** Keep only the newest todo snapshot in a message chunk list. */
+const pushOrReplaceTodos = (chunks: Chunk[], chunk: Chunk): void => {
+    const idx = chunks.findIndex((c) => c.type === 'todos');
+    if (idx >= 0) chunks[idx] = chunk;
+    else chunks.push(chunk);
+};
+
+/** Parse a subagent result and its visible metadata. */
+const parseSubagentBlock = (tagFull: string, inner: string, isGenerating: boolean): Chunk => {
+    const getAttr = (name: string) => {
+        const m = tagFull.match(new RegExp(`${name}="([^"]*)"`));
+        return m ? m[1] : '';
+    };
+    return {
+        type: 'subagent',
+        file: getAttr('id'),
+        query: getAttr('agent') || getAttr('name'),
+        command: getAttr('model'),
+        content: inner.trim(),
+        commandStatus: getAttr('status') || (isGenerating ? 'running' : 'done'),
+        isGenerating,
+    };
+};
+
+/** Parse a subagent reference without requiring a result body. */
+const parseSubagentRefBlock = (tagFull: string, isGenerating: boolean): Chunk => {
+    const getAttr = (name: string) => {
+        const m = tagFull.match(new RegExp(`${name}="([^"]*)"`));
+        return m ? m[1] : '';
+    };
+    return {
+        type: 'subagent_ref',
+        file: getAttr('id'),
+        query: getAttr('agent'),
+        command: getAttr('model'),
+        content: getAttr('task'),
+        commandStatus: getAttr('status') || (isGenerating ? 'running' : 'done'),
+        isGenerating,
+    };
+};
+
+/** Parse a git operation and its lifecycle status. */
+const parseGitOperationBlock = (tagFull: string, content: string, isGenerating: boolean): Chunk => {
+    const opMatch = tagFull.match(/op="([^"]+)"/);
+    const statusMatch = tagFull.match(/status="([^"]+)"/);
+    return {
+        type: 'git_operation',
+        content,
+        gitOp: opMatch ? opMatch[1] : undefined,
+        gitStatus: statusMatch ? statusMatch[1] : (isGenerating ? 'running' : 'completed'),
+        isGenerating,
+    };
+};
+
+/** Parse a file-read chunk and its optional line range. */
+const parseCatBlock = (tagFull: string, content: string, isGenerating: boolean): Chunk => {
+    const getAttr = (name: string) => {
+        const m = tagFull.match(new RegExp(`${name}="([^"]*)"`));
+        return m ? m[1] : undefined;
+    };
+    const path = getAttr('path') || content.trim();
+    const start = getAttr('start') || getAttr('startLine');
+    const end = getAttr('end') || getAttr('endLine');
+    return {
+        type: 'cat',
+        content: path,
+        catStartLine: start ? Number.parseInt(start, 10) : undefined,
+        catEndLine: end ? Number.parseInt(end, 10) : undefined,
+        isGenerating,
+    };
+};
+
+/** Decode the XML entities supported by structural message attributes. */
+const unescapeXml = (s: string): string => {
+return s
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, "&");
+};
+
+/** Parse and deduplicate the available design previews. */
+const parseDesignPreviewsBlock = (block: string): Chunk => {
+    const selectedMatch = block.match(/\bselected="([^"]*)"/);
+    const selected = selectedMatch?.[1] ?? "";
+    const id = block.match(/<design_previews\b[^>]*\bid="([^"]*)"/)?.[1];
+    const status = block.match(/<design_previews\b[^>]*\bstatus="([^"]*)"/)?.[1];
+    const previews: DesignPreviewItem[] = [];
+    const pushPreview = (attrs: string, inner: string) => {
+        const get = (name: string) => attrs.match(new RegExp(`${name}="([^"]*)"`))?.[1] ?? "";
+        const kindAttr = get("kind");
+        const previewId = get("id");
+        const path = get("path");
+        const source = unescapeXml(inner).trim() || unescapeXml(get("source")).trim();
+        if (!previewId.trim()) return;
+        if (!path.trim() && !source) return;
+        if (previews.some((p) => p.id === previewId)) return;
+        previews.push({
+            id: previewId,
+            name: get("name"),
+            style: get("style"),
+            path,
+            source: source || undefined,
+            width: Number.parseInt(get("width"), 10) || 1280,
+            height: Number.parseInt(get("height"), 10) || 800,
+            renderMs: Number.parseInt(get("render_ms"), 10) || undefined,
+            kind: kindAttr === "html" || kindAttr === "png" || kindAttr === "react" ? kindAttr : undefined,
+        });
+    };
+    const paired = /<design_preview\s+([^>]*)>([\s\S]*?)<\/design_preview>/g;
+    let match: RegExpExecArray | null;
+    while ((match = paired.exec(block)) !== null) {
+        pushPreview(match[1] ?? "", match[2] ?? "");
+    }
+    const selfClosing = /<design_preview\s+([^>]+)\/>/g;
+    while ((match = selfClosing.exec(block)) !== null) {
+        pushPreview(match[1] ?? "", "");
+    }
+    return {
+        type: "design_previews",
+        designPreviews: previews,
+        selectedConcept: selected,
+        commandId: id,
+        commandStatus: status,
+    };
+};
+
+/** Extract a review debate body and model label. */
+const parseReviewDebateBlock = (block: string): Chunk => {
+    const modelMatch = block.match(/<review_debate[^>]*\bmodel="([^"]*)"/i);
+    const inner = block
+        .replace(/^<review_debate[^>]*>\s*/i, "")
+        .replace(/\s*<\/review_debate>$/i, "")
+        .trim();
+    return {
+        type: "review_debate",
+        content: inner,
+        reviewModel: modelMatch?.[1],
+    };
+};
+
+/** Extract a persona review body and its command metadata. */
+const parsePersonaReviewBlock = (block: string): Chunk => {
+    const open = block.match(/^<persona_review\b[^>]*>/i)?.[0] || "";
+    const inner = block
+        .replace(/^<persona_review[^>]*>\s*/i, "")
+        .replace(/\s*<\/persona_review>$/i, "")
+        .trim();
+    return {
+        type: "persona_review",
+        content: inner,
+        commandId: open.match(/\bid="([^"]*)"/)?.[1],
+        commandStatus: open.match(/\bstatus="([^"]*)"/)?.[1],
+        visitUrl: open.match(/\burl="([^"]*)"/)?.[1],
+    };
+};
+
+/** Parse a question wrapper into prompts and submitted answers. */
+const parseQuestionBlock = (block: string): Chunk => {
+    const id = block.match(/\bid="([^"]*)"/)?.[1];
+    const status = block.match(/\bstatus="([^"]*)"/)?.[1];
+    const inner = block
+        .replace(/^<questions?[^>]*>/i, "")
+        .replace(/<\/questions?>\s*$/i, "")
+        .trim();
+    const { questions, answers } = parseQuestionsPayload(inner);
+    return {
+        type: "question",
+        content: inner,
+        commandId: id,
+        commandStatus: status,
+        questions,
+        answers,
+    };
+};
+
+/** Convert a plugin invocation wrapper into a display chunk. */
+const parsePluginCallBlock = (tagFull: string, content: string, isGenerating: boolean): Chunk => {
+    const get = (name: string) => tagFull.match(new RegExp(`${name}="([^"]*)"`))?.[1] ?? "";
+    const status = get("status") || "ok";
+    return {
+        type: "plugin_call",
+        content,
+        pluginToolkit: get("toolkit") || undefined,
+        pluginSlug: get("slug") || undefined,
+        pluginLabel: get("label") || undefined,
+        commandId: get("id") || undefined,
+        commandStatus: status,
+        isGenerating,
+    };
+};
+
+/** Convert a sent-file wrapper into a display chunk. */
+const parseSentFileBlock = (tagFull: string, content: string): Chunk => {
+    const get = (name: string) => tagFull.match(new RegExp(`${name}="([^"]*)"`))?.[1] ?? "";
+    return {
+        type: "sent_file",
+        file: decodeXml(get("name")) || "File",
+        query: get("type") || "application/octet-stream",
+        mediaPrompt: decodeXml(get("title")) || undefined,
+        content: content.trim(),
+    };
+};
+
+/** Convert generated media markup into a typed display chunk. */
+const parseGeneratedMediaBlock = (
+    type: "generated_svg" | "generated_image" | "generated_audio",
+    tagFull: string,
+    content: string,
+    isGenerating: boolean,
+): Chunk => {
+    const get = (name: string) => tagFull.match(new RegExp(`${name}="([^"]*)"`))?.[1] ?? "";
+    return {
+        type,
+        content: content.trim(),
+        mediaPrompt: get("prompt") || undefined,
+        mediaCredits: get("credits") || undefined,
+        query: get("prompt") || undefined,
+        isGenerating,
+    };
+};
+
+/** Convert a rich-card wrapper and its attributes into a display chunk. */
+const parseRichCard = (type: string, tagFull: string, content: string, isGenerating: boolean): Chunk => {
+    const get = (name: string) => tagFull.match(new RegExp(`${name}="([^"]*)"`))?.[1] ?? "";
+    return {
+        type: type as Chunk["type"],
+        content,
+        visitUrl: decodeXml(get("url")) || undefined,
+        visitTitle: decodeXml(get("title")) || undefined,
+        commandId: get("id") || undefined,
+        commandStatus: get("status") || undefined,
+        isGenerating,
+    };
+};
+
+/** Build a web-visit card from URL and status attributes. */
+const parseWebVisitBlock = (tagFull: string, isGenerating: boolean): Chunk => {
+    const get = (name: string) => tagFull.match(new RegExp(`${name}="([^"]*)"`))?.[1] ?? "";
+    const url = get("url");
+    const host = get("host") || hostnameFromUrl(url);
+    const title = get("title") || host;
+    return {
+        type: "web_visit",
+        visitUrl: url,
+        visitHost: host,
+        visitTitle: title,
+        content: host,
+        isGenerating,
+    };
+};
+
+/** Build a runtime-inspection card from its wrapper. */
+const parseInspectRuntimeBlock = (tagFull: string, content: string, isGenerating: boolean): Chunk => {
+    const url = tagFull.match(/\burl="([^"]*)"/)?.[1] ?? "";
+    const kind = tagFull.match(/\bkind="([^"]*)"/)?.[1] ?? "";
+    return {
+        type: "inspect_runtime",
+        query: url,
+        inspectKind: kind,
+        content,
+        isGenerating,
+    };
+};
+
 
 /** Split eligible visual fences before handing the remaining text to the structural parser. */
-function parseMessageContentWithOpenUI(text: string, detectOpenUI = true): Chunk[] {
+const parseMessageContentWithOpenUI = (text: string, detectOpenUI = true): Chunk[] => {
     const scan = detectOpenUI ? findOpenUIFences(text) : { fences: [] };
     if (scan.fences.length || scan.overflow) {
         const chunks: Chunk[] = [];
@@ -449,7 +860,9 @@ function parseMessageContentWithOpenUI(text: string, detectOpenUI = true): Chunk
             // Keep excess visual source as ordinary Markdown, then resume structural block parsing.
             chunks.push({
                 type: "text",
-                content: stripLeakedToolCode(text.slice(scan.overflow.start, scan.overflow.end)),
+                content: stripLeakedToolCode(text.slice(scan.overflow.start, scan.overflow.end), {
+                    includeFencedCode: true,
+                }),
             });
             cursor = scan.overflow.end;
         }
@@ -462,343 +875,6 @@ function parseMessageContentWithOpenUI(text: string, detectOpenUI = true): Chunk
     text = stripLeakedToolCode(text);
     const chunks: Chunk[] = [];
     let currentIndex = 0;
-
-    const getInnerTagContent = (block: string, tag: string) => {
-        const startTag = `<${tag}>`;
-        const endTag = `</${tag}>`;
-        const start = block.indexOf(startTag);
-        if (start === -1) return undefined;
-        const end = block.indexOf(endTag, start);
-        if (end === -1) return block.slice(start + startTag.length).replace(/^\n|\n$/g, '');
-        return block.slice(start + startTag.length, end).replace(/^\n|\n$/g, '');
-    };
-
-    const parseEditBlock = (block: string, isGenerating: boolean): Chunk => {
-        const fileMatch = block.match(/<edit\s+file="([^"]*)"/);
-        const file = fileMatch ? fileMatch[1] : undefined;
-        return {
-            type: 'edit',
-            file,
-            original: getInnerTagContent(block, 'original') || '',
-            replacement: getInnerTagContent(block, 'replacement') || '',
-            isGenerating,
-        };
-    };
-
-    /** Edit staged for user approval (require-edit-approval mode). */
-    const parseEditPendingBlock = (block: string, isGenerating: boolean): Chunk => {
-        const idMatch = block.match(/\bid="([^"]*)"/);
-        const fileMatch = block.match(/\bfile="([^"]*)"/);
-        const statusMatch = block.match(/\bstatus="([^"]*)"/);
-        return {
-            type: 'edit_pending',
-            file: fileMatch ? fileMatch[1] : undefined,
-            commandId: idMatch ? idMatch[1] : undefined,
-            commandStatus: statusMatch ? statusMatch[1] : 'pending',
-            original: getInnerTagContent(block, 'original') || '',
-            replacement: getInnerTagContent(block, 'replacement') || '',
-            isGenerating,
-        };
-    };
-
-    const parsePlanSavedBlock = (block: string, innerContent?: string): Chunk => {
-        const pathMatch = block.match(/path="([^"]*)"/);
-        const titleMatch = block.match(/title="([^"]*)"/);
-        const body =
-            innerContent?.trim()
-            || getInnerTagContent(block, "plan_saved")
-            || undefined;
-        return {
-            type: 'plan_saved',
-            file: pathMatch ? pathMatch[1] : undefined,
-            content: titleMatch ? titleMatch[1] : 'Implementation Plan',
-            planMarkdown: body,
-        };
-    };
-
-    const parsePlanBlock = (block: string): Chunk => {
-        const titleMatch = block.match(/<plan\s+title="([^"]*)"/);
-        const title = titleMatch ? titleMatch[1] : 'Plan';
-        return {
-            type: 'plan',
-            content: block,
-            file: title,
-        };
-    };
-
-    const parseTodosBlock = (block: string): Chunk => {
-        const titleMatch = block.match(/<todos\s+title="([^"]*)"/);
-        const title = titleMatch ? titleMatch[1] : 'Todos';
-        const todoMatches = [...block.matchAll(/<todo\s+([^>]*)>([\s\S]*?)<\/todo>/g)];
-        const todos = todoMatches.map((m) => {
-            const attrs = m[1] ?? '';
-            const id = attrs.match(/id="([^"]*)"/)?.[1] ?? '';
-            const statusRaw = (attrs.match(/status="([^"]*)"/)?.[1] ?? 'pending').toLowerCase();
-            const status: "done" | "active" | "pending" | "cancelled" =
-                statusRaw === 'completed' || statusRaw === 'done' || statusRaw === 'complete'
-                    ? 'done'
-                    : statusRaw === 'in_progress' || statusRaw === 'active'
-                        ? 'active'
-                        : statusRaw === 'cancelled' || statusRaw === 'canceled'
-                            ? 'cancelled'
-                            : 'pending';
-            return { id, label: (m[2] ?? '').trim(), status };
-        });
-        return {
-            type: 'todos',
-            content: title,
-            todos,
-        };
-    };
-
-    const pushOrReplaceTodos = (chunk: Chunk) => {
-        const idx = chunks.findIndex((c) => c.type === 'todos');
-        if (idx >= 0) chunks[idx] = chunk;
-        else chunks.push(chunk);
-    };
-
-    const parseSubagentBlock = (tagFull: string, inner: string, isGenerating: boolean): Chunk => {
-        const getAttr = (name: string) => {
-            const m = tagFull.match(new RegExp(`${name}="([^"]*)"`));
-            return m ? m[1] : '';
-        };
-        return {
-            type: 'subagent',
-            file: getAttr('id'),
-            query: getAttr('agent') || getAttr('name'),
-            command: getAttr('model'),
-            content: inner.trim(),
-            commandStatus: getAttr('status') || (isGenerating ? 'running' : 'done'),
-            isGenerating,
-        };
-    };
-
-    const parseSubagentRefBlock = (tagFull: string, isGenerating: boolean): Chunk => {
-        const getAttr = (name: string) => {
-            const m = tagFull.match(new RegExp(`${name}="([^"]*)"`));
-            return m ? m[1] : '';
-        };
-        return {
-            type: 'subagent_ref',
-            file: getAttr('id'),
-            query: getAttr('agent'),
-            command: getAttr('model'),
-            content: getAttr('task'),
-            commandStatus: getAttr('status') || (isGenerating ? 'running' : 'done'),
-            isGenerating,
-        };
-    };
-
-    const parseGitOperationBlock = (tagFull: string, content: string, isGenerating: boolean): Chunk => {
-        const opMatch = tagFull.match(/op="([^"]+)"/);
-        const statusMatch = tagFull.match(/status="([^"]+)"/);
-        return {
-            type: 'git_operation',
-            content,
-            gitOp: opMatch ? opMatch[1] : undefined,
-            gitStatus: statusMatch ? statusMatch[1] : (isGenerating ? 'running' : 'completed'),
-            isGenerating,
-        };
-    };
-
-    const parseCatBlock = (tagFull: string, content: string, isGenerating: boolean): Chunk => {
-        const getAttr = (name: string) => {
-            const m = tagFull.match(new RegExp(`${name}="([^"]*)"`));
-            return m ? m[1] : undefined;
-        };
-        const path = getAttr('path') || content.trim();
-        const start = getAttr('start') || getAttr('startLine');
-        const end = getAttr('end') || getAttr('endLine');
-        return {
-            type: 'cat',
-            content: path,
-            catStartLine: start ? Number.parseInt(start, 10) : undefined,
-            catEndLine: end ? Number.parseInt(end, 10) : undefined,
-            isGenerating,
-        };
-    };
-
-function unescapeXml(s: string): string {
-    return s
-        .replace(/&lt;/g, "<")
-        .replace(/&gt;/g, ">")
-        .replace(/&quot;/g, '"')
-        .replace(/&amp;/g, "&");
-}
-
-    const parseDesignPreviewsBlock = (block: string): Chunk => {
-        const selectedMatch = block.match(/\bselected="([^"]*)"/);
-        const selected = selectedMatch?.[1] ?? "";
-        const id = block.match(/<design_previews\b[^>]*\bid="([^"]*)"/)?.[1];
-        const status = block.match(/<design_previews\b[^>]*\bstatus="([^"]*)"/)?.[1];
-        const previews: DesignPreviewItem[] = [];
-        const pushPreview = (attrs: string, inner: string) => {
-            const get = (name: string) => attrs.match(new RegExp(`${name}="([^"]*)"`))?.[1] ?? "";
-            const kindAttr = get("kind");
-            const previewId = get("id");
-            const path = get("path");
-            const source = unescapeXml(inner).trim() || unescapeXml(get("source")).trim();
-            if (!previewId.trim()) return;
-            if (!path.trim() && !source) return;
-            if (previews.some((p) => p.id === previewId)) return;
-            previews.push({
-                id: previewId,
-                name: get("name"),
-                style: get("style"),
-                path,
-                source: source || undefined,
-                width: Number.parseInt(get("width"), 10) || 1280,
-                height: Number.parseInt(get("height"), 10) || 800,
-                renderMs: Number.parseInt(get("render_ms"), 10) || undefined,
-                kind: kindAttr === "html" || kindAttr === "png" || kindAttr === "react" ? kindAttr : undefined,
-            });
-        };
-        const paired = /<design_preview\s+([^>]*)>([\s\S]*?)<\/design_preview>/g;
-        let match: RegExpExecArray | null;
-        while ((match = paired.exec(block)) !== null) {
-            pushPreview(match[1] ?? "", match[2] ?? "");
-        }
-        const selfClosing = /<design_preview\s+([^>]+)\/>/g;
-        while ((match = selfClosing.exec(block)) !== null) {
-            pushPreview(match[1] ?? "", "");
-        }
-        return {
-            type: "design_previews",
-            designPreviews: previews,
-            selectedConcept: selected,
-            commandId: id,
-            commandStatus: status,
-        };
-    };
-
-    const parseReviewDebateBlock = (block: string): Chunk => {
-        const modelMatch = block.match(/<review_debate[^>]*\bmodel="([^"]*)"/i);
-        const inner = block
-            .replace(/^<review_debate[^>]*>\s*/i, "")
-            .replace(/\s*<\/review_debate>$/i, "")
-            .trim();
-        return {
-            type: "review_debate",
-            content: inner,
-            reviewModel: modelMatch?.[1],
-        };
-    };
-
-    const parsePersonaReviewBlock = (block: string): Chunk => {
-        const open = block.match(/^<persona_review\b[^>]*>/i)?.[0] || "";
-        const inner = block
-            .replace(/^<persona_review[^>]*>\s*/i, "")
-            .replace(/\s*<\/persona_review>$/i, "")
-            .trim();
-        return {
-            type: "persona_review",
-            content: inner,
-            commandId: open.match(/\bid="([^"]*)"/)?.[1],
-            commandStatus: open.match(/\bstatus="([^"]*)"/)?.[1],
-            visitUrl: open.match(/\burl="([^"]*)"/)?.[1],
-        };
-    };
-
-    const parseQuestionBlock = (block: string): Chunk => {
-        const id = block.match(/\bid="([^"]*)"/)?.[1];
-        const status = block.match(/\bstatus="([^"]*)"/)?.[1];
-        const inner = block
-            .replace(/^<questions?[^>]*>/i, "")
-            .replace(/<\/questions?>\s*$/i, "")
-            .trim();
-        const { questions, answers } = parseQuestionsPayload(inner);
-        return {
-            type: "question",
-            content: inner,
-            commandId: id,
-            commandStatus: status,
-            questions,
-            answers,
-        };
-    };
-
-    const parsePluginCallBlock = (tagFull: string, content: string, isGenerating: boolean): Chunk => {
-        const get = (name: string) => tagFull.match(new RegExp(`${name}="([^"]*)"`))?.[1] ?? "";
-        const status = get("status") || "ok";
-        return {
-            type: "plugin_call",
-            content,
-            pluginToolkit: get("toolkit") || undefined,
-            pluginSlug: get("slug") || undefined,
-            pluginLabel: get("label") || undefined,
-            commandId: get("id") || undefined,
-            commandStatus: status,
-            isGenerating,
-        };
-    };
-
-    const parseSentFileBlock = (tagFull: string, content: string): Chunk => {
-        const get = (name: string) => tagFull.match(new RegExp(`${name}="([^"]*)"`))?.[1] ?? "";
-        return {
-            type: "sent_file",
-            file: decodeXml(get("name")) || "File",
-            query: get("type") || "application/octet-stream",
-            mediaPrompt: decodeXml(get("title")) || undefined,
-            content: content.trim(),
-        };
-    };
-
-    const parseGeneratedMediaBlock = (
-        type: "generated_svg" | "generated_image" | "generated_audio",
-        tagFull: string,
-        content: string,
-        isGenerating: boolean,
-    ): Chunk => {
-        const get = (name: string) => tagFull.match(new RegExp(`${name}="([^"]*)"`))?.[1] ?? "";
-        return {
-            type,
-            content: content.trim(),
-            mediaPrompt: get("prompt") || undefined,
-            mediaCredits: get("credits") || undefined,
-            query: get("prompt") || undefined,
-            isGenerating,
-        };
-    };
-
-    const parseRichCard = (type: string, tagFull: string, content: string, isGenerating: boolean): Chunk => {
-        const get = (name: string) => tagFull.match(new RegExp(`${name}="([^"]*)"`))?.[1] ?? "";
-        return {
-            type: type as Chunk["type"],
-            content,
-            visitUrl: decodeXml(get("url")) || undefined,
-            visitTitle: decodeXml(get("title")) || undefined,
-            commandId: get("id") || undefined,
-            commandStatus: get("status") || undefined,
-            isGenerating,
-        };
-    };
-
-    const parseWebVisitBlock = (tagFull: string, isGenerating: boolean): Chunk => {
-        const get = (name: string) => tagFull.match(new RegExp(`${name}="([^"]*)"`))?.[1] ?? "";
-        const url = get("url");
-        const host = get("host") || hostnameFromUrl(url);
-        const title = get("title") || host;
-        return {
-            type: "web_visit",
-            visitUrl: url,
-            visitHost: host,
-            visitTitle: title,
-            content: host,
-            isGenerating,
-        };
-    };
-
-    const parseInspectRuntimeBlock = (tagFull: string, content: string, isGenerating: boolean): Chunk => {
-        const url = tagFull.match(/\burl="([^"]*)"/)?.[1] ?? "";
-        const kind = tagFull.match(/\bkind="([^"]*)"/)?.[1] ?? "";
-        return {
-            type: "inspect_runtime",
-            query: url,
-            inspectKind: kind,
-            content,
-            isGenerating,
-        };
-    };
 
     while (currentIndex < text.length) {
         const searchTags = MESSAGE_BLOCK_TAGS;
@@ -860,7 +936,7 @@ function unescapeXml(s: string): string {
             } else if (firstMatch.type === 'plan_saved') {
                 chunks.push(parsePlanSavedBlock(tagFull, content));
             } else if (firstMatch.type === 'todos') {
-                pushOrReplaceTodos(parseTodosBlock(tagFull));
+                pushOrReplaceTodos(chunks, parseTodosBlock(tagFull));
             } else if (firstMatch.type === 'terminal_command') {
                 const statusMatch = tagFull.match(/status="([^"]+)"/);
                 const idMatch = tagFull.match(/id="([^"]+)"/);
@@ -935,7 +1011,7 @@ function unescapeXml(s: string): string {
             } else if (firstMatch.type === 'plan_saved') {
                 chunks.push(parsePlanSavedBlock(fullTag, content));
             } else if (firstMatch.type === 'todos') {
-                pushOrReplaceTodos(parseTodosBlock(fullTag));
+                pushOrReplaceTodos(chunks, parseTodosBlock(fullTag));
             } else if (firstMatch.type === 'terminal_command') {
                 const tagFull = text.slice(firstMatch.index, contentStartIndex);
                 const statusMatch = tagFull.match(/status="([^"]+)"/);
@@ -1032,7 +1108,7 @@ function unescapeXml(s: string): string {
             } else if (firstMatch.type === 'plan_saved') {
                 chunks.push(parsePlanSavedBlock(fullBlock, content));
             } else if (firstMatch.type === 'todos') {
-                pushOrReplaceTodos(parseTodosBlock(fullBlock));
+                pushOrReplaceTodos(chunks, parseTodosBlock(fullBlock));
             } else if (firstMatch.type === 'terminal_command') {
                 const tagFull = text.slice(firstMatch.index, contentStartIndex);
                 const statusMatch = tagFull.match(/status="([^"]+)"/);
@@ -1121,7 +1197,7 @@ function unescapeXml(s: string): string {
     }
 
     return dedupeTerminalChunks(chunks);
-}
+};
 
 /** Merge consecutive plain-text segments so markdown renders as one block. */
 function mergeAdjacentTextChunks(chunks: Chunk[]): Chunk[] {
