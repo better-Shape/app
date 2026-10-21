@@ -598,11 +598,13 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
                 const { stats, model, error, conversationId, content, turnId } =
                     event.payload ?? {};
                 if (isForeignConversation(conversationId)) return;
+                // Record this exact turn even when it is stale for the visible conversation.
+                // Delayed tokens for it must not append into a newer live turn.
+                if (turnId) finishedTurns.add(turnId);
                 if (conversationId && turnId) {
                     const currentLive = liveTurnsRef.current.get(conversationId);
                     if (currentLive && currentLive.turnId !== turnId) return;
                 }
-                if (turnId) finishedTurns.add(turnId);
                 if (!error && stats) {
                     void import("@/lib/chat/last-turn-usage").then(({ setLastTurnUsage }) => {
                         setLastTurnUsage({

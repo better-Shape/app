@@ -286,15 +286,34 @@ const isTagNameCharacter = (character: string): boolean => {
     return /^[A-Za-z0-9:_-]$/.test(character);
 };
 
+/** Find a structural tag without accepting a longer unknown tag-name prefix. */
+const structuralTagPatterns = new Map<string, RegExp>();
+const findStructuralTagIndex = (text: string, from: number, marker: string): number => {
+    let pattern = structuralTagPatterns.get(marker);
+    if (!pattern) {
+        const escapedMarker = marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        pattern = new RegExp(escapedMarker, "ig");
+        structuralTagPatterns.set(marker, pattern);
+    }
+    pattern.lastIndex = from;
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(text)) !== null) {
+        const boundary = text[match.index + marker.length];
+        if (marker.endsWith(">") || !boundary || !/[A-Za-z0-9:_-]/.test(boundary)) return match.index;
+    }
+    return -1;
+};
+
 /** Apply a completed structural tag to the active-tag depth map. */
 const applyCompletedTag = (completed: PendingTag, activeTags: Map<string, number>): void => {
-    if (!MESSAGE_BLOCK_TAG_NAMES.has(completed.name)) return;
-    const count = activeTags.get(completed.name) ?? 0;
+    const name = completed.name.toLowerCase();
+    if (!MESSAGE_BLOCK_TAG_NAMES.has(name)) return;
+    const count = activeTags.get(name) ?? 0;
     if (completed.closing) {
-        if (count <= 1) activeTags.delete(completed.name);
-        else activeTags.set(completed.name, count - 1);
+        if (count <= 1) activeTags.delete(name);
+        else activeTags.set(name, count - 1);
     } else if (completed.lastNonWhitespace !== "/") {
-        activeTags.set(completed.name, count + 1);
+        activeTags.set(name, count + 1);
     }
 };
 
@@ -309,7 +328,7 @@ const advancePendingTag = (
     if (tag.readingName) {
         if (isTagNameCharacter(character)) {
             if (tag.name.length >= MAX_TAG_NAME_LENGTH) return { tag: null, consumed: true };
-            const candidateName = tag.name + character;
+            const candidateName = (tag.name + character).toLowerCase();
             if (!MESSAGE_BLOCK_TAG_NAME_PREFIXES.has(candidateName)) return { tag: null, consumed: true };
             tag.name = candidateName;
             return { tag, consumed: true };
@@ -1028,7 +1047,7 @@ const isEarlierMessageBlock = (candidate: MessageBlockMatch, current: MessageBlo
 const findNextMessageBlock = (text: string, start: number): MessageBlockMatch | null => {
     let firstMatch: MessageBlockMatch | null = null;
     for (const tag of MESSAGE_BLOCK_TAGS) {
-        const index = text.indexOf(tag.start, start);
+        const index = findStructuralTagIndex(text, start, tag.start);
         if (index === -1) continue;
         const candidate = { type: tag.type, index, startTag: tag.start, endTag: tag.end };
         if (isEarlierMessageBlock(candidate, firstMatch)) firstMatch = candidate;
@@ -1044,7 +1063,9 @@ const findMessageBlockSpan = (text: string, match: MessageBlockMatch): MessageBl
     if (tagEnd > match.index && text[tagEnd - 1] === "/") {
         return { mode: "selfClosing", contentStart, endIndex: -2 };
     }
-    const endIndex = text.indexOf(match.endTag, contentStart);
+    const endIndex = match.endTag.startsWith("<")
+        ? findStructuralTagIndex(text, contentStart, match.endTag)
+        : text.indexOf(match.endTag, contentStart);
     return endIndex === -1
         ? { mode: "streaming", contentStart, endIndex }
         : { mode: "complete", contentStart, endIndex };
@@ -1663,6 +1684,9 @@ type MessageRendererProps = {
     skipSubagentSync?: boolean;
 };
 
+/** Limit full-message streaming rescans to ten per second; completed text is parsed immediately. */
+const STREAMING_PARSE_INTERVAL_MS = 100;
+
 /** Render parsed assistant chunks with their workflow rails and streaming status. */
 export const MessageRenderer = ({
     content,
@@ -1671,9 +1695,24 @@ export const MessageRenderer = ({
     durationMs,
     skipSubagentSync,
 }: MessageRendererProps) => {
+    const [parsedContent, setParsedContent] = React.useState(content);
+    const latestContent = React.useRef(content);
+    useEffect(() => {
+        latestContent.current = content;
+    }, [content]);
+    useEffect(() => {
+        const updateParsedContent = () => setParsedContent(latestContent.current);
+        if (!isGenerating) {
+            const timeout = globalThis.setTimeout(updateParsedContent, 0);
+            return () => globalThis.clearTimeout(timeout);
+        }
+        const interval = globalThis.setInterval(updateParsedContent, STREAMING_PARSE_INTERVAL_MS);
+        return () => globalThis.clearInterval(interval);
+    }, [isGenerating]);
+    const contentToParse = isGenerating ? parsedContent : content;
     const chunks = useMemo(
-        () => normalizeChunkGeneration(parseMessageContent(content), isGenerating),
-        [content, isGenerating],
+        () => normalizeChunkGeneration(parseMessageContent(contentToParse), isGenerating),
+        [contentToParse, isGenerating],
     );
 
     useEffect(() => {

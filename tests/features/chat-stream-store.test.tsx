@@ -293,6 +293,15 @@ describe("a chat that runs in the background stays in the background", () => {
         expect(api.activityLabel).toBe("Thinking");
         expect(api.messages.map(({ role, content, timestamp }) => ({ role, content, timestamp })))
             .toEqual(transcriptBeforeStaleCompletion);
+
+        emit("chat_token", {
+            chunk: "late stale token",
+            conversationId: "A",
+            turnId: "old-turn",
+        });
+        expect(api.messages.map(({ role, content, timestamp }) => ({ role, content, timestamp })))
+            .toEqual(transcriptBeforeStaleCompletion);
+        expect(api.turnId).toBe("new-turn");
     });
 
     it("sends approval notifications only for accepted live-turn events", async () => {
