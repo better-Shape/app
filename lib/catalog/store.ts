@@ -9,34 +9,20 @@
  */
 
 import { useMemo, useSyncExternalStore } from "react";
-import { AUTO_MODEL } from "@/lib/catalog";
-import type { ModelInfo } from "@/lib/settings/models";
+import { modelsFromProviders, type ModelInfo } from "@/lib/settings/models";
 import { getSettings, subscribeSettings, useSettings } from "@/lib/settings";
 import {
   availableModels,
   hasAnyConfiguredConnection,
   resolveActiveDefaultModelId,
-  type ProvidersSettings,
 } from "@/lib/ai/providers";
-
-function toModelInfo(settings: ProvidersSettings): ModelInfo[] {
-  return availableModels(settings).map((option) => ({
-    id: option.id,
-    name: option.name,
-    description: `${option.provider}${option.contextWindow ? ` · ${option.contextWindow} context` : ""}`,
-    provider: option.provider,
-    inputCost: 0,
-    cachedInputCost: 0,
-    outputCost: 0,
-    contextWindow: option.contextWindow,
-    releaseDate: "Rolling",
-    vision: option.capabilities.vision,
-  }));
-}
 
 /** Every model the user can currently reach (Auto always included). */
 export function getCatalogModels(): ModelInfo[] {
-  return [AUTO_MODEL, ...toModelInfo(getSettings().ai.providers)];
+  return modelsFromProviders(
+    getSettings().ai.providers,
+    availableModels(getSettings().ai.providers).map((m) => m.id),
+  );
 }
 
 /** Concrete model that `"auto"` currently resolves to, or `null` when unconfigured. */
@@ -44,7 +30,8 @@ export const getCatalogResolvedAutoModel = (): ModelInfo | null => {
   const providers = getSettings().ai.providers;
   const activeId = resolveActiveDefaultModelId(providers);
   if (!activeId) return null;
-  const list = toModelInfo(providers);
+  // `getCatalogModels()` leads with the Auto entry; resolve to a concrete model.
+  const list = getCatalogModels().filter((m) => m.id !== "auto");
   return list.find((m) => m.id === activeId) ?? list[0] ?? null;
 };
 
@@ -56,9 +43,7 @@ export const hasCatalogConnectionMissingModels = (): boolean => {
 
 /** Models offered by one provider id. */
 export function getCatalogModelsForProvider(providerId: string): ModelInfo[] {
-  return toModelInfo(getSettings().ai.providers).filter(
-    (model) => model.id.split("/")[0] === providerId,
-  );
+  return getCatalogModels().filter((model) => model.id.split("/")[0] === providerId);
 }
 
 export function getCatalogProviderOrder(): readonly string[] {
@@ -81,7 +66,10 @@ export function getBetterShapeCatalog(): { models: ModelInfo[] } | null {
 export function useBetterShapeCatalog() {
   const settings = useSettings();
   const providers = settings.ai.providers;
-  const models = useMemo(() => [AUTO_MODEL, ...toModelInfo(providers)], [providers]);
+  const models = useMemo(
+    () => modelsFromProviders(providers, availableModels(providers).map((m) => m.id)),
+    [providers],
+  );
   // A stable object identity per provider set keeps consumer effects honest.
   return useMemo(
     () => ({ catalog: { models } as { models: ModelInfo[] } | null, loading: false, error: null, models }),
