@@ -107,6 +107,28 @@ const cases: string[] = [
     "<invoke name=\"a\"></invoke>done",
     "text with print( but no call",
     "some { \"tool_code\": \"render_design_previews(...)\" }",
+    // Adversarial shapes for the index-based tag scanner that replaced the
+    // per-tag RegExp passes: bare `<`, closers inside attributes, casing, word
+    // boundaries, nesting, crossed pairs, missing `>` and extra brackets.
+    "a < b </tool_call>",
+    "<tool_call a=\"</tool_call>\">x",
+    "<TOOL_CALL>x</TOOL_CALL>",
+    "</tool_call >kept",
+    "<tool_call",
+    "<tool_calls>x</tool_calls>",
+    "<tool_call><tool_call>x</tool_call></tool_call>",
+    "<invoke><tool_code>x</invoke></tool_code>",
+    "<tool_call x='1'>a</tool_call>tail",
+    "<tool_call/>",
+    "<tool_call />",
+    "<minimax:tool_call>z</minimax:tool_call>",
+    "<tool_call\u00e9>x</tool_call\u00e9>",
+    "text < tool_call>x</tool_call>",
+    "```\n<tool_result>x</tool_result>\n```",
+    "<analysis>a</analysis><tool_call>b</tool_call>",
+    "<tool_call>unclosed opener only",
+    "<<tool_call>>x</tool_call>",
+    "<list_terminals>x</list_terminals><tool_code>y</tool_code>",
 ];
 
 describe("strip equivalence", () => {
@@ -120,6 +142,28 @@ describe("strip equivalence", () => {
             expect(stripLeakedToolCode(c), c).toBe(referenceCode(c));
         }
     });
+    it("matches reference on tag-heavy random input", () => {
+        let seed = 7;
+        const rand = () => {
+            seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+            return seed / 0x100000000;
+        };
+        const fragments = [
+            "<", ">", "/", " ", "\n", "x", "a", "```",
+            "<tool_call>", "</tool_call>", "<tool_call ", "<tool_calls>", "</tool_calls>",
+            "<invoke>", "</invoke>", "<tool_code>", "</tool_code>", "<analysis>", "</analysis>",
+            "<parameter name=\"p\">", "</parameter>", "<function_calls>", "</function_calls>",
+            "<tool_result>", "</tool_result>", "<|tool_call_begin|>", "[TOOL_CALLS]", "print(foo(",
+        ];
+        for (let i = 0; i < 2000; i++) {
+            const parts: string[] = [];
+            const count = 1 + Math.floor(rand() * 12);
+            for (let j = 0; j < count; j++) parts.push(fragments[Math.floor(rand() * fragments.length)]!);
+            const text = parts.join("");
+            expect(stripLeakedToolMarkup(text), text).toBe(referenceMarkup(text));
+        }
+    });
+
     it("random combinations", () => {
         let seed = 99;
         const rand = () => {

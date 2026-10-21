@@ -62,29 +62,112 @@ const STRIP_ACROSS_FENCES = [
     "list_terminals",
 ] as const;
 
-const escapeTag = (tag: string) => tag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const WORD_CHAR = /[A-Za-z0-9_]/;
 
-/** Compiled once: the strip pass used to build >100 regexes per message. */
-const ACROSS_FENCE_PATTERNS = STRIP_ACROSS_FENCES.map(
-    (tag) => new RegExp(`<${escapeTag(tag)}\\b[^>]*>[\\s\\S]*?<\\/${escapeTag(tag)}>`, "gi"),
-);
+/** `\b` from the regexes this replaced: the name must end at a non-word character. */
+const isWordChar = (ch: string | undefined) => ch !== undefined && WORD_CHAR.test(ch);
 
-type TagPatterns = { paired: RegExp; open: RegExp; incomplete: RegExp; close: RegExp };
+/** Index of the next `<tag` opener at or after `from`, or -1 when there is none. */
+function findOpenTag(text: string, from: number, tag: string): number {
+    let at = text.indexOf("<", from);
+    while (at !== -1) {
+        const nameStart = at + 1;
+        const nameEnd = nameStart + tag.length;
+        if (
+            text.charCodeAt(nameStart) !== 47 /* "/" */
+            && text.slice(nameStart, nameEnd).toLowerCase() === tag
+            && !isWordChar(text[nameEnd])
+            && text.indexOf(">", nameEnd) !== -1
+        ) {
+            return at;
+        }
+        at = text.indexOf("<", at + 1);
+    }
+    return -1;
+}
 
-const TAG_PATTERNS = new Map<string, TagPatterns>(
-    LEAKED_TOOL_XML_TAGS.map((tag) => {
-        const esc = escapeTag(tag);
-        return [
-            tag,
-            {
-                paired: new RegExp(`<${esc}\\b[^>]*>[\\s\\S]*?<\\/${esc}>`, "gi"),
-                open: new RegExp(`<${esc}\\b[^>]*\\/?>`, "gi"),
-                incomplete: new RegExp(`<${esc}\\b[^>]*>[\\s\\S]*$`, "gi"),
-                close: new RegExp(`<\\/${esc}>`, "gi"),
-            },
-        ];
-    }),
-);
+/** Index of the next exact `</tag>` closer at or after `from`, or -1. */
+function findCloseTag(text: string, from: number, tag: string): number {
+    const needle = `</${tag}>`;
+    let at = text.indexOf("</", from);
+    while (at !== -1) {
+        if (text.slice(at, at + needle.length).toLowerCase() === needle) return at;
+        at = text.indexOf("</", at + 1);
+    }
+    return -1;
+}
+
+/**
+ * Remove `<tag ...>…</tag>` pairs, nearest closer first, exactly like the global
+ * non-greedy regex this replaced. Written with index scans because the analyzer
+ * flags `new RegExp(<interpolated tag>)` as a ReDoS risk, and because a scan
+ * allocates nothing per call.
+ */
+function stripPairedBlocks(text: string, tag: string): string {
+    let out = "";
+    let from = 0;
+    for (;;) {
+        const open = findOpenTag(text, from, tag);
+        if (open === -1) break;
+        const gt = text.indexOf(">", open + 1 + tag.length);
+        const close = findCloseTag(text, gt + 1, tag);
+        // No closer after this opener means none after any later opener either.
+        if (close === -1) break;
+        out += text.slice(from, open);
+        from = close + tag.length + 3;
+    }
+    if (from === 0) return text;
+    return out + text.slice(from);
+}
+
+/** Remove stray `<tag ...>` openers and exact `</tag>` closers. */
+function stripStrayTags(text: string, tag: string): string {
+    const needle = `</${tag}>`;
+    const nameEndOffset = 1 + tag.length;
+    let out = "";
+    let from = 0;
+    let at = text.indexOf("<", from);
+    while (at !== -1) {
+        if (text.slice(at, at + needle.length).toLowerCase() === needle) {
+            out += text.slice(from, at);
+            from = at + needle.length;
+            at = text.indexOf("<", from);
+            continue;
+        }
+        if (
+            text.charCodeAt(at + 1) !== 47 /* "/" */
+            && text.slice(at + 1, at + nameEndOffset).toLowerCase() === tag
+            && !isWordChar(text[at + nameEndOffset])
+        ) {
+            const gt = text.indexOf(">", at + nameEndOffset);
+            if (gt !== -1) {
+                out += text.slice(from, at);
+                from = gt + 1;
+                at = text.indexOf("<", from);
+                continue;
+            }
+        }
+        at = text.indexOf("<", at + 1);
+    }
+    if (from === 0) return text;
+    return out + text.slice(from);
+}
+
+/**
+ * Run the tag passes in list order. Across-fence tags only lose paired blocks
+ * (their stray tags are stripped later, outside fences); leaked-tool tags also
+ * lose any leftover openers and closers.
+ */
+function stripTagMarkup(text: string, tags: readonly string[], stray: boolean): string {
+    let out = text;
+    for (const tag of tags) {
+        // Stray openers are removed before the original "eat the rest of the
+        // segment" rule could run, so that rule was unreachable: a `<tag>` that
+        // survives it has no `>` and could not open a block either.
+        out = stray ? stripStrayTags(stripPairedBlocks(out, tag), tag) : stripPairedBlocks(out, tag);
+    }
+    return out;
+}
 
 /** Apply `fn` only to prose outside fenced code blocks (preserve legitimate examples). */
 function mapOutsideCodeFences(text: string, fn: (prose: string) => string): string {
@@ -126,10 +209,7 @@ const TRIPLE_NEWLINE = /\n{3,}/g;
  * Mistral `[TOOL_CALLS]`, plus BetterShape terminal UI chunks.
  */
 export function stripLeakedToolMarkup(text: string): string {
-    let s = text;
-    for (const pattern of ACROSS_FENCE_PATTERNS) {
-        s = s.replace(pattern, "");
-    }
+    let s = stripTagMarkup(text, STRIP_ACROSS_FENCES, false);
 
     s = mapOutsideCodeFences(s, (prose) => {
         let p = prose;
@@ -137,19 +217,7 @@ export function stripLeakedToolMarkup(text: string): string {
         if (p.includes("<")) {
             // Every tag rule needs a `<`; skipping the sweep on plain prose
             // keeps the common streaming case cheap.
-            for (const tag of LEAKED_TOOL_XML_TAGS) {
-                if (!p.includes(tag)) continue;
-                const patterns = TAG_PATTERNS.get(tag);
-                if (!patterns) continue;
-                // Complete paired blocks.
-                p = p.replace(patterns.paired, "");
-                // Self-closing / empty open tags.
-                p = p.replace(patterns.open, "");
-                // Incomplete open still streaming → eat remainder of this prose segment.
-                p = p.replace(patterns.incomplete, "");
-                // Stray closers.
-                p = p.replace(patterns.close, "");
-            }
+            p = stripTagMarkup(p, LEAKED_TOOL_XML_TAGS, true);
 
             // DeepSeek DSML (fullwidth bars, double/single/no leading bar).
             // e.g. <｜｜DSML｜｜tool_calls>…</｜｜DSML｜｜tool_calls>
