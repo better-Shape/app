@@ -92,6 +92,10 @@ pub struct PendingEdit {
     pub id: String,
     pub path: String,
     pub is_new_file: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conversation_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -178,6 +182,15 @@ pub struct PendingCommand {
     pub command: String,
     pub safety: String,
     pub reason: String,
+    /// Turn identity for the transient approval chrome; omitted by legacy callers.
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "turnId")]
+    pub turn_id: Option<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "conversationId"
+    )]
+    pub conversation_id: Option<String>,
     /// When set, approval runs this internal action instead of a shell command.
     /// e.g. `"git_commit"` with `payload` = commit message.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -493,23 +506,16 @@ impl AgentState {
         let _ = self.try_begin_in_flight(turn_id, conversation_id);
     }
 
-    pub fn set_in_flight_activity_label(&self, label: Option<&str>) {
-        let current = self
-            .current_conversation_id
-            .lock()
-            .ok()
-            .and_then(|g| g.clone());
+    pub fn set_in_flight_activity_label(
+        &self,
+        conversation_id: &str,
+        turn_id: &str,
+        label: Option<&str>,
+    ) {
         if let Ok(mut guard) = self.in_flight.lock() {
-            let target = current.or_else(|| {
-                if guard.len() == 1 {
-                    guard.keys().next().cloned()
-                } else {
-                    None
-                }
-            });
-            if let Some(key) = target {
-                if let Some(in_flight) = guard.get_mut(&key) {
-                    in_flight.activity_label = label.map(|s| s.to_string());
+            if let Some(in_flight) = guard.get_mut(conversation_id) {
+                if in_flight.turn_id == turn_id {
+                    in_flight.activity_label = label.map(str::to_string);
                 }
             }
         }
@@ -1072,6 +1078,34 @@ impl AgentState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pending_approval_events_serialize_turn_identity_in_camel_case() {
+        let command = PendingCommand {
+            id: "cmd-1".to_string(),
+            command: "git status".to_string(),
+            safety: "needs_approval".to_string(),
+            reason: "Confirm command".to_string(),
+            turn_id: Some("turn-a".to_string()),
+            conversation_id: Some("conversation-a".to_string()),
+            action: None,
+            payload: None,
+        };
+        let command_json = serde_json::to_value(command).unwrap();
+        assert_eq!(command_json["turnId"], "turn-a");
+        assert_eq!(command_json["conversationId"], "conversation-a");
+
+        let edit = PendingEdit {
+            id: "edit-1".to_string(),
+            path: "src/app.ts".to_string(),
+            is_new_file: false,
+            turn_id: Some("turn-b".to_string()),
+            conversation_id: Some("conversation-b".to_string()),
+        };
+        let edit_json = serde_json::to_value(edit).unwrap();
+        assert_eq!(edit_json["turnId"], "turn-b");
+        assert_eq!(edit_json["conversationId"], "conversation-b");
+    }
 
     #[test]
     fn auto_run_mode_from_setting_aliases() {

@@ -247,6 +247,8 @@ async fn approve_stdio_server(cfg: &McpServerConfig, ctx: &ToolCtx<'_>) -> Resul
         command: preview.clone(),
         safety: "needs_approval".to_string(),
         reason: format!("Starts the MCP server '{}' as a local process.", cfg.id),
+        turn_id: ctx.turn_id.clone(),
+        conversation_id: ctx.conversation_id.clone(),
         action: None,
         payload: None,
     };
@@ -262,6 +264,8 @@ async fn approve_stdio_server(cfg: &McpServerConfig, ctx: &ToolCtx<'_>) -> Resul
     let _ = ctx.app_handle.emit("agent-command-pending", pending);
     streaming::emit_chat_status(
         ctx.app_handle,
+        ctx.turn_id.as_deref(),
+        ctx.conversation_id.as_deref(),
         json!({ "phase": "approval", "label": "Waiting for approval" }),
     );
 
@@ -1232,6 +1236,8 @@ pub(super) async fn tool_render_design_previews(args: &Value, ctx: &ToolCtx<'_>)
 
     streaming::emit_chat_status(
         ctx.app_handle,
+        ctx.turn_id.as_deref(),
+        ctx.conversation_id.as_deref(),
         json!({
             "phase": "tool",
             "tool": "render_design_previews",
@@ -1340,11 +1346,18 @@ pub(super) async fn tool_render_design_previews(args: &Value, ctx: &ToolCtx<'_>)
     ctx.emit_ui_token(&pending_ui);
     streaming::emit_chat_status(
         ctx.app_handle,
+        ctx.turn_id.as_deref(),
+        ctx.conversation_id.as_deref(),
         json!({ "phase": "approval", "label": "Waiting for you to pick a design" }),
     );
-    let _ = ctx
-        .app_handle
-        .emit("agent-design-pick-pending", json!({ "id": pick_id }));
+    let _ = ctx.app_handle.emit(
+        "agent-design-pick-pending",
+        json!({
+            "id": pick_id,
+            "turnId": ctx.turn_id,
+            "conversationId": ctx.conversation_id,
+        }),
+    );
 
     let answer = wait_for_design_pick(&pick_id, ctx).await;
     cleanup_pending_design_pick(&pick_id, ctx);
@@ -1623,11 +1636,18 @@ pub(super) async fn tool_ask_user(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutcom
     ctx.emit_ui_token(&pending_ui);
     streaming::emit_chat_status(
         ctx.app_handle,
+        ctx.turn_id.as_deref(),
+        ctx.conversation_id.as_deref(),
         json!({ "phase": "approval", "label": "Waiting for your answers" }),
     );
-    let _ = ctx
-        .app_handle
-        .emit("agent-ask-pending", json!({ "id": ask_id }));
+    let _ = ctx.app_handle.emit(
+        "agent-ask-pending",
+        json!({
+            "id": ask_id,
+            "turnId": ctx.turn_id,
+            "conversationId": ctx.conversation_id,
+        }),
+    );
 
     let answer = wait_for_ask_answer(&ask_id, ctx).await;
     cleanup_pending_ask(&ask_id, ctx);

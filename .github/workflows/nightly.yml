@@ -67,7 +67,8 @@ jobs:
           cache-key: nightly-${{ matrix.arch }}
 
       - run: npm ci
-
+        env:
+          DO_NOT_TRACK: "1"
       - name: Generate nightly version (for build)
         id: nightly-version
         shell: bash
@@ -187,7 +188,8 @@ jobs:
           cache: npm
 
       - run: npm ci
-
+        env:
+          DO_NOT_TRACK: "1"
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:

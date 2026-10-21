@@ -73,6 +73,33 @@ function mapOutsideCodeFences(text: string, fn: (prose: string) => string): stri
         .join("");
 }
 
+function stripUnclosedToolTag(text: string, tag: string): string {
+    const escapedTag = tag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const openingTag = new RegExp(`<${escapedTag}\\b`, "gi");
+    let match: RegExpExecArray | null;
+    while ((match = openingTag.exec(text)) !== null) {
+        let quote: "'" | '"' | null = null;
+        let end = -1;
+        for (let index = openingTag.lastIndex; index < text.length; index++) {
+            const character = text[index];
+            if (quote) {
+                if (character === quote) quote = null;
+            } else if (character === "'" || character === '"') {
+                quote = character;
+            } else if (character === ">") {
+                end = index;
+                break;
+            }
+        }
+        if (end === -1) return text.slice(0, match.index);
+        if (!text.slice(openingTag.lastIndex, end).trimEnd().endsWith("/")) {
+            return text.slice(0, match.index);
+        }
+        openingTag.lastIndex = end + 1;
+    }
+    return text;
+}
+
 /**
  * Strip provider/model tool-call grammars that leaked into assistant text.
  * Surveyed shapes: DeepSeek DSML, Qwen/Hermes/GLM `<tool_call>`, MiniMax,
@@ -86,6 +113,7 @@ export function stripLeakedToolMarkup(text: string): string {
     for (const tag of STRIP_ACROSS_FENCES) {
         const esc = tag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
         s = s.replace(new RegExp(`<${esc}\\b[^>]*>[\\s\\S]*?<\\/${esc}>`, "gi"), "");
+        s = stripUnclosedToolTag(s, tag);
     }
 
     s = mapOutsideCodeFences(s, (prose) => {
@@ -93,13 +121,9 @@ export function stripLeakedToolMarkup(text: string): string {
 
         for (const tag of LEAKED_TOOL_XML_TAGS) {
             const esc = tag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-            // Complete paired blocks.
             p = p.replace(new RegExp(`<${esc}\\b[^>]*>[\\s\\S]*?<\\/${esc}>`, "gi"), "");
-            // Self-closing / empty open tags.
+            p = stripUnclosedToolTag(p, tag);
             p = p.replace(new RegExp(`<${esc}\\b[^>]*\\/?>`, "gi"), "");
-            // Incomplete open still streaming → eat remainder of this prose segment.
-            p = p.replace(new RegExp(`<${esc}\\b[^>]*>[\\s\\S]*$`, "gi"), "");
-            // Stray closers.
             p = p.replace(new RegExp(`<\\/${esc}>`, "gi"), "");
         }
 

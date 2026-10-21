@@ -15,6 +15,7 @@ import { isBrowserTab } from "@/lib/window/browser-tab";
 import { WorkspaceTabs } from "./tabs";
 import { FileBar } from "./file-bar";
 import type { CSSProperties } from "react";
+import workspaceLayout from "./workspace-layout.module.css";
 
 const SIDEBAR_SURFACE = {
     "--panel": "var(--sidebar)",
@@ -266,7 +267,7 @@ export function AgentWorkspace({
     }
 
     return (
-        <aside className="flex h-full w-full min-w-0 flex-col overflow-hidden bg-sidebar">
+        <aside className={`flex h-full w-full min-w-0 flex-col overflow-hidden bg-sidebar ${workspaceLayout.workspaceViewport}`}>
             <div className="flex h-titlebar shrink-0 items-stretch">
                 <WorkspaceTabs
                     className="min-w-0 flex-1 bg-transparent"
@@ -310,7 +311,7 @@ export function AgentWorkspace({
                                         <div className="min-h-0 min-w-0 flex-1 bg-sidebar" style={SIDEBAR_SURFACE}>
                                             <FileEditor path={active.path} />
                                         </div>
-                                        <div className="w-64 shrink-0">
+                                        <div role="region" aria-label="File explorer" className={workspaceLayout.fileExplorer}>
                                             <FileTree
                                                 projectPath={projectPath}
                                                 activePath={active.path}

@@ -53,6 +53,8 @@ jobs:
 
       - name: Manual build fallback (Next.js)
         if: always() && matrix.language == 'javascript-typescript'
+        env:
+          DO_NOT_TRACK: "1"
         run: |
           set -euo pipefail
           echo "Autobuild outcome: ${{ steps.autobuild.outcome }}"
@@ -194,7 +196,8 @@ jobs:
           install-system-deps: "false"
 
       - run: npm ci
-
+        env:
+          DO_NOT_TRACK: "1"
       - name: npm audit (high and above)
         run: |
           set -o pipefail

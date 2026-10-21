@@ -21,6 +21,7 @@ import { ReviewDebatePanel } from '../blocks/debate';
 import { PersonaReviewPanel } from '../blocks/persona-review';
 import { BrowseChatCard } from '../blocks/browse-frame';
 import { ChartBlock, InsightCard } from '../blocks/chart';
+import { OpenUIBlock } from '../blocks/openui';
 import { QuestionsCard, parseQuestionsPayload, type AgentQuestion, type QuestionAnswers } from '../blocks/questions';
 import { hostnameOf } from '@/lib/ui/favicon';
 
@@ -119,7 +120,7 @@ export function dedupeTerminalChunks(chunks: Chunk[]): Chunk[] {
 }
 
 export type Chunk = {
-    type: 'text' | 'edit' | 'edit_pending' | 'search' | 'grep' | 'status' | 'web_search' | 'think' | 'thought' | 'search_result' | 'web_result' | 'web_visit' | 'inspect_runtime' | 'terminal_command' | 'git_operation' | 'run' | 'ls' | 'cat' | 'create_file' | 'mkdir' | 'delete_file' | 'rename_file' | 'rename_chat' | 'tool_result' | 'plan' | 'plan_saved' | 'todos' | 'attached_image' | 'sent_file' | 'subagent' | 'subagent_ref' | 'design_previews' | 'review_debate' | 'persona_review' | 'question' | 'questions' | 'plugin_call' | 'generated_svg' | 'generated_image' | 'generated_audio' | 'browse_session' | 'chart' | 'insight_card';
+    type: 'text' | 'openui' | 'edit' | 'edit_pending' | 'search' | 'grep' | 'status' | 'web_search' | 'think' | 'thought' | 'search_result' | 'web_result' | 'web_visit' | 'inspect_runtime' | 'terminal_command' | 'git_operation' | 'run' | 'ls' | 'cat' | 'create_file' | 'mkdir' | 'delete_file' | 'rename_file' | 'rename_chat' | 'tool_result' | 'plan' | 'plan_saved' | 'todos' | 'attached_image' | 'sent_file' | 'subagent' | 'subagent_ref' | 'design_previews' | 'review_debate' | 'persona_review' | 'question' | 'questions' | 'plugin_call' | 'generated_svg' | 'generated_image' | 'generated_audio' | 'browse_session' | 'chart' | 'insight_card';
     content?: string;
     file?: string;
     query?: string;
@@ -156,9 +157,219 @@ export type Chunk = {
     mediaCredits?: string;
     questions?: AgentQuestion[];
     answers?: QuestionAnswers | null;
+    openuiTruncated?: boolean;
 };
 
+const MAX_OPENUI_SOURCE_LENGTH = 32_000;
+const MAX_OPENUI_BLOCKS_PER_MESSAGE = 3;
+
+type OpenUIFence = {
+    start: number;
+    end: number;
+    sourceStart: number;
+    sourceEnd: number;
+    closed: boolean;
+};
+
+type OpenUIFenceScan = { fences: OpenUIFence[]; overflowStart?: number };
+
+const MESSAGE_BLOCK_TAGS = [
+    { type: 'edit', start: '<edit', end: '</edit>' },
+    // Longer tag wins the same-index tie-break against '<edit'.
+    { type: 'edit_pending', start: '<edit_pending', end: '</edit_pending>' },
+    { type: 'design_previews', start: '<design_previews', end: '</design_previews>' },
+    { type: 'review_debate', start: '<review_debate', end: '</review_debate>' },
+    { type: 'persona_review', start: '<persona_review', end: '</persona_review>' },
+    { type: 'questions', start: '<questions', end: '</questions>' },
+    { type: 'question', start: '<question', end: '</question>' },
+    { type: 'inspect_runtime', start: '<inspect_runtime', end: '</inspect_runtime>' },
+    { type: 'search_result', start: '<search_result', end: '</search_result>' },
+    { type: 'search', start: '<search', end: '</search>' },
+    { type: 'grep', start: '<grep', end: '</grep>' },
+    { type: 'web_search', start: '<web_search', end: '</web_search>' },
+    { type: 'status', start: '<status', end: '</status>' },
+    { type: 'think', start: '<think>', end: '</think>' },
+    { type: 'think', start: '<think', end: '</think>' },
+    { type: 'thought', start: '<thought', end: '</thought>' },
+    { type: 'plan', start: '<plan', end: '</plan>' },
+    { type: 'plan_saved', start: '<plan_saved', end: '</plan_saved>' },
+    { type: 'todos', start: '<todos', end: '</todos>' },
+    { type: 'web_result', start: '<web_result', end: '</web_result>' },
+    { type: 'web_visit', start: '<web_visit', end: '</web_visit>' },
+    { type: 'generated_svg', start: '<generated_svg', end: '</generated_svg>' },
+    { type: 'generated_svg', start: '<recraft_svg', end: '</recraft_svg>' },
+    { type: 'generated_image', start: '<generated_image', end: '</generated_image>' },
+    { type: 'generated_audio', start: '<generated_audio', end: '</generated_audio>' },
+    { type: 'plugin_call', start: '<plugin_call', end: '</plugin_call>' },
+    { type: 'browse_session', start: '<browse_session', end: '</browse_session>' },
+    { type: 'chart', start: '<chart', end: '</chart>' },
+    { type: 'insight_card', start: '<insight_card', end: '</insight_card>' },
+    { type: 'ls', start: '<ls', end: '</ls>' },
+    { type: 'cat', start: '<cat', end: '</cat>' },
+    { type: 'run', start: '<run', end: '</run>' },
+    { type: 'create_file', start: '<create_file', end: '</create_file>' },
+    { type: 'mkdir', start: '<mkdir', end: '</mkdir>' },
+    { type: 'delete_file', start: '<delete_file', end: '</delete_file>' },
+    { type: 'rename_file', start: '<rename_file', end: '</rename_file>' },
+    { type: 'rename_chat', start: '<rename_chat', end: '</rename_chat>' },
+    { type: 'subagent_ref', start: '<subagent_ref', end: '/>' },
+    { type: 'subagent', start: '<subagent', end: '</subagent>' },
+    { type: 'terminal_command', start: '<terminal_command', end: '</terminal_command>' },
+    { type: 'git_operation', start: '<git_operation', end: '</git_operation>' },
+    // Hidden tool/result scaffolding (BetterShape UI + cross-model leak grammars).
+    // Defense-in-depth with stripLeakedToolCode — never render as prose.
+    { type: 'tool_result', start: '<tool_result', end: '</tool_result>' },
+    { type: 'tool_result', start: '<terminal_read', end: '</terminal_read>' },
+    { type: 'tool_result', start: '<terminal_input', end: '</terminal_input>' },
+    { type: 'tool_result', start: '<list_terminals', end: '</list_terminals>' },
+    { type: 'tool_result', start: '<tool_code', end: '</tool_code>' },
+    { type: 'tool_result', start: '<tool_call', end: '</tool_call>' },
+    { type: 'tool_result', start: '<tool_calls', end: '</tool_calls>' },
+    { type: 'tool_result', start: '<tool_response', end: '</tool_response>' },
+    { type: 'tool_result', start: '<function_call', end: '</function_call>' },
+    { type: 'tool_result', start: '<function_calls', end: '</function_calls>' },
+    { type: 'tool_result', start: '<function_response', end: '</function_response>' },
+    { type: 'tool_result', start: '<minimax:tool_call', end: '</minimax:tool_call>' },
+    { type: 'tool_result', start: '<invoke', end: '</invoke>' },
+    { type: 'tool_result', start: '<parameter', end: '</parameter>' },
+    { type: 'tool_result', start: '<arg_key', end: '</arg_key>' },
+    { type: 'tool_result', start: '<arg_value', end: '</arg_value>' },
+    { type: 'tool_result', start: '<pre_dispatch_explanation', end: '</pre_dispatch_explanation>' },
+    { type: 'tool_result', start: '<tools', end: '</tools>' },
+    { type: 'tool_result', start: '<new_path', end: '</new_path>' },
+    { type: 'tool_result', start: '<content', end: '</content>' },
+    { type: 'tool_result', start: '<analysis', end: '</analysis>' },
+    { type: 'tool_result', start: '<file_content', end: '</file_content>' },
+    { type: 'attached_image', start: '<attached_image', end: '</attached_image>' },
+    { type: 'sent_file', start: '<sent_file', end: '</sent_file>' },
+];
+const MESSAGE_BLOCK_TAG_NAMES = new Set(
+    MESSAGE_BLOCK_TAGS.map(({ start }) => /^<([^\s>]+)/.exec(start)?.[1]).filter((name): name is string => Boolean(name)),
+);
+
+/** Finds only top-level Markdown fences, so an OpenUI example inside a code sample stays code. */
+function findOpenUIFences(text: string): OpenUIFenceScan {
+    const fences: OpenUIFence[] = [];
+    let activeFence: { marker: string; length: number; openUI?: OpenUIFence } | null = null;
+    const activeMessageTags = new Map<string, number>();
+    let pendingMessageTag: string | null = null;
+    let lineStart = 0;
+
+    while (lineStart < text.length) {
+        const newline = text.indexOf("\n", lineStart);
+        const lineEnd = newline === -1 ? text.length : newline;
+        const nextLineStart = newline === -1 ? text.length : newline + 1;
+        const line = text.slice(lineStart, lineEnd).replace(/\r$/, "");
+
+        if (activeFence) {
+            const closing = line.match(/^ {0,3}(`{3,}|~{3,})[ \t]*$/);
+            if (
+                closing
+                && closing[1]?.[0] === activeFence.marker
+                && closing[1].length >= activeFence.length
+            ) {
+                if (activeFence.openUI) {
+                    let sourceEnd = lineStart;
+                    if (text.slice(sourceEnd - 2, sourceEnd) === "\r\n") sourceEnd -= 2;
+                    else if (text[sourceEnd - 1] === "\n") sourceEnd -= 1;
+                    fences.push({ ...activeFence.openUI, end: nextLineStart, sourceEnd, closed: true });
+                }
+                activeFence = null;
+            }
+        } else {
+            const tagSource: string = pendingMessageTag ? `${pendingMessageTag}\n${line}` : line;
+            pendingMessageTag = null;
+            const tagPattern = /<\/?([A-Za-z][\w:-]*)\b[^>]*>/g;
+            let tagMatch: RegExpExecArray | null;
+            while ((tagMatch = tagPattern.exec(tagSource)) !== null) {
+                const tagName = tagMatch[1];
+                if (!tagName || !MESSAGE_BLOCK_TAG_NAMES.has(tagName)) continue;
+                const fullTag = tagMatch[0];
+                const count = activeMessageTags.get(tagName) ?? 0;
+                if (fullTag.startsWith("</")) {
+                    if (count <= 1) activeMessageTags.delete(tagName);
+                    else activeMessageTags.set(tagName, count - 1);
+                } else if (!/\/\s*>$/.test(fullTag)) {
+                    activeMessageTags.set(tagName, count + 1);
+                }
+            }
+            const unfinishedTag = /<\/?([A-Za-z][\w:-]*)\b[^>]*$/.exec(tagSource);
+            if (unfinishedTag?.[1] && MESSAGE_BLOCK_TAG_NAMES.has(unfinishedTag[1])) {
+                pendingMessageTag = tagSource.slice(unfinishedTag.index).slice(0, 2_048);
+            }
+
+            // BetterShape's structural blocks are parsed as opaque chunks; do not extract Markdown from their payloads.
+            if (activeMessageTags.size === 0 && pendingMessageTag === null) {
+                const opening = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+                const marker = opening?.[1];
+                const info = opening?.[2] ?? "";
+                if (marker && !(marker[0] === "`" && info.includes("`"))) {
+                    const language = info.trim().split(/\s+/, 1)[0]?.toLowerCase();
+                    const isOpenUI = language === "openui-lang";
+                    if (isOpenUI && fences.length >= MAX_OPENUI_BLOCKS_PER_MESSAGE) {
+                        return { fences, overflowStart: lineStart };
+                    }
+                    const openUI = isOpenUI
+                        ? { start: lineStart, end: text.length, sourceStart: nextLineStart, sourceEnd: text.length, closed: false }
+                        : undefined;
+                    activeFence = { marker: marker[0] ?? "`", length: marker.length, openUI };
+                }
+            }
+        }
+
+        if (newline === -1) break;
+        lineStart = nextLineStart;
+    }
+
+    if (activeFence?.openUI) fences.push(activeFence.openUI);
+    return { fences };
+}
+
 export function parseMessageContent(text: string): Chunk[] {
+    return parseMessageContentWithOpenUI(text);
+}
+
+/** Plain-text copy keeps prose and includes rendered visual text rather than raw OpenUI source. */
+export function getMessageCopyText(chunks: readonly Chunk[], openUIText: readonly string[] = []): string {
+    let visualIndex = 0;
+    return chunks
+        .map((chunk) => {
+            if (chunk.type === "text") return chunk.content?.trim() ?? "";
+            if (chunk.type === "openui") return openUIText[visualIndex++]?.trim() ?? "";
+            return "";
+        })
+        .filter(Boolean)
+        .join("\n\n");
+}
+
+function parseMessageContentWithOpenUI(text: string, detectOpenUI = true): Chunk[] {
+    const scan = detectOpenUI ? findOpenUIFences(text) : { fences: [] };
+    if (scan.fences.length || scan.overflowStart !== undefined) {
+        const chunks: Chunk[] = [];
+        let cursor = 0;
+        for (const fence of scan.fences) {
+            if (fence.start > cursor) chunks.push(...parseMessageContentWithOpenUI(text.slice(cursor, fence.start), false));
+            const source = stripLeakedToolCode(text.slice(fence.sourceStart, fence.sourceEnd));
+            chunks.push({
+                type: "openui",
+                content: source.slice(0, MAX_OPENUI_SOURCE_LENGTH),
+                isGenerating: !fence.closed,
+                openuiTruncated: source.length > MAX_OPENUI_SOURCE_LENGTH,
+            });
+            cursor = fence.end;
+        }
+        if (scan.overflowStart !== undefined) {
+            if (scan.overflowStart > cursor) {
+                chunks.push(...parseMessageContentWithOpenUI(text.slice(cursor, scan.overflowStart), false));
+            }
+            // Render the untrusted overflow as Markdown source; do not parse it as BetterShape blocks.
+            chunks.push({ type: "text", content: stripLeakedToolCode(text.slice(scan.overflowStart)) });
+        } else if (cursor < text.length) {
+            chunks.push(...parseMessageContentWithOpenUI(text.slice(cursor), false));
+        }
+        return mergeAdjacentTextChunks(chunks);
+    }
+
     text = stripLeakedToolCode(text);
     const chunks: Chunk[] = [];
     let currentIndex = 0;
@@ -501,76 +712,7 @@ function unescapeXml(s: string): string {
     };
 
     while (currentIndex < text.length) {
-        const searchTags = [
-            { type: 'edit', start: '<edit', end: '</edit>' },
-            // Longer tag wins the same-index tie-break against '<edit'.
-            { type: 'edit_pending', start: '<edit_pending', end: '</edit_pending>' },
-            { type: 'design_previews', start: '<design_previews', end: '</design_previews>' },
-            { type: 'review_debate', start: '<review_debate', end: '</review_debate>' },
-            { type: 'persona_review', start: '<persona_review', end: '</persona_review>' },
-            { type: 'questions', start: '<questions', end: '</questions>' },
-            { type: 'question', start: '<question', end: '</question>' },
-            { type: 'inspect_runtime', start: '<inspect_runtime', end: '</inspect_runtime>' },
-            { type: 'search_result', start: '<search_result', end: '</search_result>' },
-            { type: 'search', start: '<search', end: '</search>' },
-            { type: 'grep', start: '<grep', end: '</grep>' },
-            { type: 'web_search', start: '<web_search', end: '</web_search>' },
-            { type: 'status', start: '<status', end: '</status>' },
-            { type: 'think', start: '<think>', end: '</think>' },
-            { type: 'think', start: '<think', end: '</think>' },
-            { type: 'thought', start: '<thought', end: '</thought>' },
-            { type: 'plan', start: '<plan', end: '</plan>' },
-            { type: 'plan_saved', start: '<plan_saved', end: '</plan_saved>' },
-            { type: 'todos', start: '<todos', end: '</todos>' },
-            { type: 'web_result', start: '<web_result', end: '</web_result>' },
-            { type: 'web_visit', start: '<web_visit', end: '</web_visit>' },
-            { type: 'generated_svg', start: '<generated_svg', end: '</generated_svg>' },
-            { type: 'generated_svg', start: '<recraft_svg', end: '</recraft_svg>' },
-            { type: 'generated_image', start: '<generated_image', end: '</generated_image>' },
-            { type: 'generated_audio', start: '<generated_audio', end: '</generated_audio>' },
-            { type: 'plugin_call', start: '<plugin_call', end: '</plugin_call>' },
-            { type: 'browse_session', start: '<browse_session', end: '</browse_session>' },
-            { type: 'chart', start: '<chart', end: '</chart>' },
-            { type: 'insight_card', start: '<insight_card', end: '</insight_card>' },
-            { type: 'ls', start: '<ls', end: '</ls>' },
-            { type: 'cat', start: '<cat', end: '</cat>' },
-            { type: 'run', start: '<run', end: '</run>' },
-            { type: 'create_file', start: '<create_file', end: '</create_file>' },
-            { type: 'mkdir', start: '<mkdir', end: '</mkdir>' },
-            { type: 'delete_file', start: '<delete_file', end: '</delete_file>' },
-            { type: 'rename_file', start: '<rename_file', end: '</rename_file>' },
-            { type: 'rename_chat', start: '<rename_chat', end: '</rename_chat>' },
-            { type: 'subagent_ref', start: '<subagent_ref', end: '/>' },
-            { type: 'subagent', start: '<subagent', end: '</subagent>' },
-            { type: 'terminal_command', start: '<terminal_command', end: '</terminal_command>' },
-            { type: 'git_operation', start: '<git_operation', end: '</git_operation>' },
-            // Hidden tool/result scaffolding (BetterShape UI + cross-model leak grammars).
-            // Defense-in-depth with stripLeakedToolCode — never render as prose.
-            { type: 'tool_result', start: '<tool_result', end: '</tool_result>' },
-            { type: 'tool_result', start: '<terminal_read', end: '</terminal_read>' },
-            { type: 'tool_result', start: '<terminal_input', end: '</terminal_input>' },
-            { type: 'tool_result', start: '<list_terminals', end: '</list_terminals>' },
-            { type: 'tool_result', start: '<tool_code', end: '</tool_code>' },
-            { type: 'tool_result', start: '<tool_call', end: '</tool_call>' },
-            { type: 'tool_result', start: '<tool_calls', end: '</tool_calls>' },
-            { type: 'tool_result', start: '<tool_response', end: '</tool_response>' },
-            { type: 'tool_result', start: '<function_call', end: '</function_call>' },
-            { type: 'tool_result', start: '<function_calls', end: '</function_calls>' },
-            { type: 'tool_result', start: '<function_response', end: '</function_response>' },
-            { type: 'tool_result', start: '<minimax:tool_call', end: '</minimax:tool_call>' },
-            { type: 'tool_result', start: '<invoke', end: '</invoke>' },
-            { type: 'tool_result', start: '<parameter', end: '</parameter>' },
-            { type: 'tool_result', start: '<arg_key', end: '</arg_key>' },
-            { type: 'tool_result', start: '<arg_value', end: '</arg_value>' },
-            { type: 'tool_result', start: '<pre_dispatch_explanation', end: '</pre_dispatch_explanation>' },
-            { type: 'tool_result', start: '<tools', end: '</tools>' },
-            { type: 'tool_result', start: '<new_path', end: '</new_path>' },
-            { type: 'tool_result', start: '<content', end: '</content>' },
-            { type: 'tool_result', start: '<analysis', end: '</analysis>' },
-            { type: 'tool_result', start: '<file_content', end: '</file_content>' },
-            { type: 'attached_image', start: '<attached_image', end: '</attached_image>' },
-            { type: 'sent_file', start: '<sent_file', end: '</sent_file>' },
-        ];
+        const searchTags = MESSAGE_BLOCK_TAGS;
 
         let firstMatch: { type: string, index: number, startTag: string, endTag: string } | null = null;
         for (const tag of searchTags) {
@@ -1111,6 +1253,16 @@ export function MessageRenderer({
         }
 
         const chunk = segment.chunk;
+        if (chunk.type === "openui") {
+            return (
+                <OpenUIBlock
+                    key={`openui-${index}`}
+                    response={chunk.content || ""}
+                    isStreaming={Boolean(isGenerating && isLastSegment)}
+                    truncated={chunk.openuiTruncated}
+                />
+            );
+        }
         if (chunk.type === 'text') {
             const text = chunk.content;
             if (!text?.trim()) return null;

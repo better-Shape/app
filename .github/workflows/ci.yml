@@ -32,14 +32,11 @@ jobs:
           install-system-deps: "false"
 
       - run: npm ci
-
+        env:
+          DO_NOT_TRACK: "1"
       - name: ESLint
-        # Now 0 errors, 148 warnings. The remaining 148 are react-hooks/*
-        # (set-state-in-effect, refs, preserve-manual-memoization, purity,
-        # immutability), which this config deliberately downgrades to warnings
-        # with a TODO to re-enable as errors after cleanup. Fixing them is a
-        # cross-app refactor, not a lint change.
-        # This step gates merges on errors only.
+        # This step gates merges on errors. Existing warnings stay visible but
+        # remain non-blocking until the cross-app hooks cleanup is complete.
         run: |
           set -o pipefail
           npm run lint 2>&1 | tee eslint-report.txt
@@ -87,7 +84,8 @@ jobs:
           install-system-deps: "false"
 
       - run: npm ci
-
+        env:
+          DO_NOT_TRACK: "1"
       - name: Build preview runtime
         run: npm run build:runtime
 
@@ -125,7 +123,8 @@ jobs:
           install-system-deps: "false"
 
       - run: npm ci --ignore-scripts
-
+        env:
+          DO_NOT_TRACK: "1"
       - name: Build Browser Preview bundle
         run: npm run build:preview
 
@@ -171,7 +170,8 @@ jobs:
           install-system-deps: "false"
 
       - run: npm ci
-
+        env:
+          DO_NOT_TRACK: "1"
       - name: Build preview runtime
         run: npm run build:runtime
 
@@ -215,7 +215,8 @@ jobs:
           install-system-deps: "true"
 
       - run: npm ci
-
+        env:
+          DO_NOT_TRACK: "1"
       - name: Build preview runtime
         run: npm run build:runtime
 
@@ -342,7 +343,8 @@ jobs:
           install-system-deps: "false"
 
       - run: npm ci
-
+        env:
+          DO_NOT_TRACK: "1"
       - name: Build preview runtime
         run: npm run build:runtime
 
@@ -384,7 +386,8 @@ jobs:
           install-system-deps: "false"
 
       - run: npm ci
-
+        env:
+          DO_NOT_TRACK: "1"
       - name: Check version files are in sync
         run: node scripts/release/version.mjs --check
 
@@ -405,7 +408,8 @@ jobs:
           install-system-deps: "false"
 
       - run: npm ci
-
+        env:
+          DO_NOT_TRACK: "1"
       - name: npm audit (high+)
         run: npm audit --audit-level=high || (echo "::warning::npm audit found high severity issues"; exit 0)
 

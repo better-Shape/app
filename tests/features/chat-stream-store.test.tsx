@@ -213,6 +213,138 @@ describe("a chat that runs in the background stays in the background", () => {
         expect(api.messages.map((m) => m.content)).toEqual(["streamed"]);
     });
 
+    it("routes chat status only to the matching live conversation and turn", async () => {
+        await mount("A");
+        await answerMessages("A", [msg("user", "A question")]);
+
+        emit("chat_started", { conversationId: "A", turnId: "t-a", model: "m" });
+        emit("chat_started", { conversationId: "B", turnId: "t-b", model: "m" });
+        act(() => api.showConversation("B"));
+        expect(api.activityLabel).toBe("Thinking");
+
+        // Legacy/unscoped and stale-turn statuses must never fall back to the viewed chat.
+        emit("chat_status", { phase: "tool", tool: "run_terminal", label: "Wrong chat" });
+        emit("chat_status", {
+            conversationId: "A",
+            turnId: "old-turn",
+            phase: "tool",
+            tool: "run_terminal",
+            label: "Stale turn",
+        });
+        expect(api.activityLabel).toBe("Thinking");
+
+        // A's event arrives while B is visible: it updates A's live state only.
+        emit("chat_status", {
+            conversationId: "A",
+            turnId: "t-a",
+            phase: "tool",
+            tool: "run_terminal",
+            label: "A terminal command",
+        });
+        expect(api.activityLabel).toBe("Thinking");
+
+        emit("chat_status", {
+            conversationId: "B",
+            turnId: "t-b",
+            phase: "tool",
+            tool: "run_terminal",
+            label: "B terminal command",
+        });
+        expect(api.activityLabel).toBe("B terminal command");
+
+        act(() => api.showConversation("A"));
+        expect(api.activityLabel).toBe("A terminal command");
+    });
+
+    it("routes approval pending and resolved events to their owning live turn", async () => {
+        await mount("A");
+        await answerMessages("A", [msg("user", "A question")]);
+        emit("chat_started", { conversationId: "A", turnId: "t-a", model: "m" });
+        emit("chat_started", { conversationId: "B", turnId: "t-b", model: "m" });
+        act(() => api.showConversation("B"));
+        expect(api.activityLabel).toBe("Thinking");
+
+        // Events without ownership and events for another chat cannot take over B's chrome.
+        emit("agent-command-pending", { id: "unscoped", command: "git status" });
+        emit("agent-ask-pending", { id: "stale", conversationId: "A", turnId: "old-turn" });
+        expect(api.activityLabel).toBe("Thinking");
+
+        emit("agent-command-pending", {
+            id: "cmd-a",
+            command: "git status",
+            conversationId: "A",
+            turnId: "t-a",
+        });
+        expect(api.activityLabel).toBe("Thinking");
+        act(() => api.showConversation("A"));
+        expect(api.activityLabel).toBe("Waiting for approval");
+
+        emit("agent-command-resolved", {
+            id: "cmd-a",
+            approved: true,
+            conversationId: "A",
+            turnId: "t-a",
+        });
+        expect(api.activityLabel).toBe("Running command");
+
+        emit("agent-command-pending", {
+            id: "cmd-rejected",
+            command: "git push",
+            conversationId: "A",
+            turnId: "t-a",
+        });
+        expect(api.activityLabel).toBe("Waiting for approval");
+        emit("agent-command-resolved", {
+            id: "cmd-rejected",
+            approved: false,
+            conversationId: "A",
+            turnId: "t-a",
+        });
+        expect(api.activityLabel).toBe("Thinking");
+
+        emit("agent-edit-pending", {
+            id: "edit-b",
+            file: "src/app.ts",
+            conversationId: "B",
+            turnId: "t-b",
+        });
+        expect(api.activityLabel).toBe("Thinking");
+        act(() => api.showConversation("B"));
+        expect(api.activityLabel).toBe("Waiting for edit approval");
+
+        emit("agent-edit-resolved", {
+            id: "edit-b",
+            approved: true,
+            conversationId: "B",
+            turnId: "t-b",
+        });
+        expect(api.activityLabel).toBe("Editing file");
+
+        emit("agent-edit-pending", {
+            id: "edit-rejected",
+            path: "src/other.ts",
+            conversationId: "B",
+            turnId: "t-b",
+        });
+        expect(api.activityLabel).toBe("Waiting for edit approval");
+        emit("agent-edit-resolved", {
+            id: "edit-rejected",
+            approved: false,
+            conversationId: "B",
+            turnId: "t-b",
+        });
+        expect(api.activityLabel).toBe("Thinking");
+
+        emit("agent-ask-pending", {
+            id: "ask-a",
+            conversationId: "A",
+            turnId: "t-a",
+        });
+        expect(api.activityLabel).toBe("Thinking");
+        act(() => api.showConversation("A"));
+        expect(api.activityLabel).toBe("Waiting for your answers");
+    });
+
     it("binds a draft's first turn to its new id, and moves the draft view onto it", async () => {
         await mount(null);
         const adopted: string[] = [];

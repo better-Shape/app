@@ -121,6 +121,8 @@ pub(super) async fn tool_visit_url(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutco
     };
     streaming::emit_chat_status(
         ctx.app_handle,
+        ctx.turn_id.as_deref(),
+        ctx.conversation_id.as_deref(),
         json!({
             "phase": "tool",
             "tool": "visit_url",
@@ -464,6 +466,8 @@ pub(super) async fn tool_plugin_run(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutc
         command: format!("{toolkit}: {label}"),
         safety: "needs_approval".to_string(),
         reason: format!("Plugin action on {toolkit}"),
+        turn_id: ctx.turn_id.clone(),
+        conversation_id: ctx.conversation_id.clone(),
         action: Some("plugin_run".to_string()),
         payload: None,
     };
@@ -481,6 +485,8 @@ pub(super) async fn tool_plugin_run(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutc
     let _ = ctx.app_handle.emit("agent-command-pending", pending);
     streaming::emit_chat_status(
         ctx.app_handle,
+        ctx.turn_id.as_deref(),
+        ctx.conversation_id.as_deref(),
         json!({ "phase": "approval", "label": "Waiting for approval" }),
     );
 

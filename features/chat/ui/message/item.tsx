@@ -11,7 +11,7 @@ import React from "react";
 import { useChatStreamOptional } from "@/features/chat/lib/chat-stream-store";
 import { cn } from "@/lib/utils";
 import { toTimestampMs } from "@/lib/ui/timestamp";
-import { MessageRenderer, parseMessageContent, extractWebSearchResults } from "../md/renderer";
+import { MessageRenderer, parseMessageContent, getMessageCopyText, extractWebSearchResults } from "../md/renderer";
 import { Icon } from "@/components/ui/icon";
 
 
@@ -320,10 +320,11 @@ function ChatMessageItemInner({
             if (names) return `[${names}]`;
             return parts.text || content;
         }
-        return parseMessageContent(content)
-            .filter(c => c.type === "text" && c.content?.trim())
-            .map(c => c.content!.trim())
-            .join("\n\n");
+        const openUIText = Array.from(
+            bodyRef.current?.querySelectorAll<HTMLElement>("[data-openui-block]") ?? [],
+            (element) => element.innerText || element.textContent || "",
+        );
+        return getMessageCopyText(parseMessageContent(content), openUIText);
     };
 
     const handleCopy = () => {

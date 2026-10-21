@@ -71,7 +71,8 @@ jobs:
           cache-key: installers-${{ matrix.arch }}
 
       - run: npm ci
-
+        env:
+          DO_NOT_TRACK: "1"
       - name: Build runtime
         run: npm run build:runtime
 

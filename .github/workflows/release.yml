@@ -42,7 +42,8 @@ jobs:
           cache-key: "release"
 
       - run: npm ci
-
+        env:
+          DO_NOT_TRACK: "1"
       - name: Build runtime
         run: npm run build:runtime
 
@@ -173,7 +174,8 @@ jobs:
           cache-key: ${{ matrix.arch }}
 
       - run: npm ci
-
+        env:
+          DO_NOT_TRACK: "1"
       - name: Sync version
         run: npm run sync-version
 
@@ -301,7 +303,8 @@ jobs:
           cache: npm
 
       - run: npm ci
-
+        env:
+          DO_NOT_TRACK: "1"
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:

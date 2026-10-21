@@ -107,6 +107,8 @@ pub(super) async fn execute_terminal_session(
 
     streaming::emit_chat_status(
         ctx.app_handle,
+        ctx.turn_id.as_deref(),
+        ctx.conversation_id.as_deref(),
         json!({
             "phase": "tool",
             "tool": "run_terminal",
@@ -563,6 +565,8 @@ pub(super) async fn run_git_commit_with_approval(
         command: preview.to_string(),
         safety: "needs_approval".to_string(),
         reason: "Creates a git commit with your currently staged changes.".to_string(),
+        turn_id: ctx.turn_id.clone(),
+        conversation_id: ctx.conversation_id.clone(),
         action: Some("git_commit".to_string()),
         payload: Some(message.to_string()),
     };
@@ -578,6 +582,8 @@ pub(super) async fn run_git_commit_with_approval(
     let _ = ctx.app_handle.emit("agent-command-pending", pending);
     streaming::emit_chat_status(
         ctx.app_handle,
+        ctx.turn_id.as_deref(),
+        ctx.conversation_id.as_deref(),
         json!({ "phase": "approval", "label": "Waiting for approval" }),
     );
 
@@ -646,6 +652,8 @@ pub(super) async fn run_with_approval(
         command: command.to_string(),
         safety: "needs_approval".to_string(),
         reason: reason.to_string(),
+        turn_id: ctx.turn_id.clone(),
+        conversation_id: ctx.conversation_id.clone(),
         action: None,
         payload: None,
     };
@@ -661,6 +669,8 @@ pub(super) async fn run_with_approval(
     let _ = ctx.app_handle.emit("agent-command-pending", pending);
     streaming::emit_chat_status(
         ctx.app_handle,
+        ctx.turn_id.as_deref(),
+        ctx.conversation_id.as_deref(),
         json!({ "phase": "approval", "label": "Waiting for approval" }),
     );
 

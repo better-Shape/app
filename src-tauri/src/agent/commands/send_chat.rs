@@ -544,6 +544,8 @@ pub async fn send_chat_message(
     if super::caption::should_caption(&model_concrete, has_images) {
         streaming::emit_chat_status(
             &app_handle,
+            Some(turn_id.as_str()),
+            conversation_id.as_deref(),
             json!({ "phase": "tool", "label": "Looking at image…" }),
         );
         let _ = super::caption::caption_history_images(
@@ -566,6 +568,10 @@ pub async fn send_chat_message(
     if !mode_prompt.is_empty() {
         turn_context.push_str("\n\n");
         turn_context.push_str(mode_prompt);
+    }
+    if mode_to_use.eq_ignore_ascii_case("ask") {
+        turn_context.push_str("\n\n");
+        turn_context.push_str(prompts::OPENUI_MD);
     }
     turn_context.push_str("\n\nCURRENT CONTEXT:\n");
     turn_context.push_str(&context_string);

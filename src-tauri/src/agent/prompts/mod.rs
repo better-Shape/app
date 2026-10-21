@@ -11,6 +11,7 @@ pub const CI_EXPLAIN_MD: &str = include_str!("CI_EXPLAIN.MD");
 pub const RELEASE_SUMMARY_MD: &str = include_str!("RELEASE_SUMMARY.MD");
 pub const EXPLAIN_GIT_MD: &str = include_str!("EXPLAIN_GIT.MD");
 pub const DESIGN_MD: &str = include_str!("DESIGN.md");
+pub const OPENUI_MD: &str = include_str!("OPENUI.MD");
 
 pub const FAMILY_ANTHROPIC_MD: &str = include_str!("FAMILY_ANTHROPIC.MD");
 pub const FAMILY_OPENAI_MD: &str = include_str!("FAMILY_OPENAI.MD");
@@ -53,5 +54,21 @@ mod tests {
         assert!(SYSTEM_MD.contains("Never delete, skip, ignore, or weaken tests"));
         assert!(SYSTEM_MD.contains("Do not create a git branch unprompted"));
         assert!(SYSTEM_MD.contains("Never `Stop-Process -Name node`"));
+    }
+
+    #[test]
+    fn openui_prompt_limits_visual_answers_to_registered_components() {
+        assert!(OPENUI_MD.contains("Surface(children, title?, subtitle?)"));
+        assert!(OPENUI_MD.contains("Stack(children, direction?)"));
+        assert!(OPENUI_MD.contains("Text(value, variant?)"));
+        assert!(OPENUI_MD.contains("Metric(label, value, detail?)"));
+        assert!(OPENUI_MD.contains("Callout(title, body, tone?)"));
+        assert!(OPENUI_MD.contains("Progress(label, value, detail?)"));
+        assert!(OPENUI_MD.contains("BarChart(labels, values, title?)"));
+        assert!(OPENUI_MD.contains("DataTable(columns, rows, title?)"));
+        assert!(OPENUI_MD.contains("Do not include queries, mutations, actions, forms"));
+        assert!(OPENUI_MD.contains("Never invent measurements"));
+        assert!(OPENUI_MD.contains("no more than 24 child components"));
+        assert!(OPENUI_MD.contains("avoid deeply nested stacks"));
     }
 }
