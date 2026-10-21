@@ -32,7 +32,7 @@ const SKIP_DIRS = new Set([
 ]);
 
 function joinPath(a: string, b: string): string {
-    const left = a.replace(/[/\\]+$/, "");
+    const left = a.replace(/(?<![/\\])[/\\]+$/, "");
     const right = b.replace(/^[/\\]+/, "");
     const sep = a.includes("\\") ? "\\" : "/";
     return `${left}${sep}${right}`;
@@ -59,7 +59,7 @@ function titleFromSegment(seg: string): string {
     if (!seg || seg === "/") return "Home";
     const clean = seg
         .replace(/^\[+\.?\.?\.?/, "")
-        .replace(/\]+$/, "")
+        .replace(/(?<!\])\]+$/, "")
         .replace(/^_+/, "");
     if (!clean) return seg;
     return clean

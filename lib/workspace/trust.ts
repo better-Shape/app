@@ -1,7 +1,7 @@
 const STORAGE_KEY = "bettershape-trusted-workspaces";
 
 function normalizeWorkspacePath(path: string): string {
-    const trimmed = path.trim().replace(/[\\/]+$/, "");
+    const trimmed = path.trim().replace(/(?<![\\/])[\\/]+$/, "");
     const slashed = trimmed.replace(/\\/g, "/");
     return /^[a-zA-Z]:[\\/]/.test(path) || path.includes("\\") ? slashed.toLowerCase() : slashed;
 }

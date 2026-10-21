@@ -189,7 +189,7 @@ export function LiveTerminalOutput({
 
     if (!text.trim()) return null;
 
-    const lines = text.replace(/\s+$/, "").split("\n");
+    const lines = text.replace(/(?<!\s)\s+$/, "").split("\n");
 
     return (
         <div

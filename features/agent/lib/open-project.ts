@@ -7,8 +7,8 @@ const isWinPath = (p: string) => /^[a-zA-Z]:[\\/]/.test(p) || p.startsWith("\\\\
 export function normalizeProjectPath(path: string): string {
     if (!path.trim()) return "";
     const t = path.startsWith("/") ? path : path.trim();
-    if (!isWinPath(t)) return t.replace(/\/+$/, "") || "/";
-    const s = t.replace(/[\\/]+$/, "");
+    if (!isWinPath(t)) return t.replace(/(?<!\/)\/+$/, "") || "/";
+    const s = t.replace(/(?<![\\/])[\\/]+$/, "");
     return /^[a-zA-Z]:$/.test(s) ? `${s}\\` : s.replace(/\//g, "\\");
 }
 
@@ -23,7 +23,7 @@ export function projectPathsEqual(
 
 export function projectLeaf(path: string | null | undefined): string {
     if (!path) return "Project";
-    const parts = path.replace(/[\\/]+$/, "").split(/[\\/]/);
+    const parts = path.replace(/(?<![\\/])[\\/]+$/, "").split(/[\\/]/);
     return parts[parts.length - 1] || path;
 }
 

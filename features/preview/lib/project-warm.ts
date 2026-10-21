@@ -39,7 +39,7 @@ async function fingerprintProject(projectPath: string): Promise<string> {
     const parts: string[] = [];
     try {
         const pkg = await commands.readFile(
-            projectPath.replace(/[/\\]+$/, "") +
+            projectPath.replace(/(?<![/\\])[/\\]+$/, "") +
                 (projectPath.includes("\\") ? "\\package.json" : "/package.json"),
         );
         parts.push(`pkg:${pkg.length}:${hashStr(pkg)}`);
@@ -49,7 +49,7 @@ async function fingerprintProject(projectPath: string): Promise<string> {
     for (const rel of ["app", "src/app", "pages", "src/pages"]) {
         try {
             const dir =
-                projectPath.replace(/[/\\]+$/, "") +
+                projectPath.replace(/(?<![/\\])[/\\]+$/, "") +
                 (projectPath.includes("\\") ? `\\${rel.replace(/\//g, "\\")}` : `/${rel}`);
             const entries = await commands.lsDir(dir);
             parts.push(`${rel}:${entries.length}`);

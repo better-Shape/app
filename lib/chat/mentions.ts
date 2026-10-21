@@ -65,7 +65,7 @@ function unslugMentionLabel(value: string): string {
 }
 
 function pathBasename(path: string): string {
-    const norm = path.replace(/\\/g, "/").replace(/\/+$/, "");
+    const norm = path.replace(/\\/g, "/").replace(/(?<!\/)\/+$/, "");
     const parts = norm.split("/").filter(Boolean);
     return parts[parts.length - 1] || path;
 }
@@ -572,7 +572,7 @@ async function readMentionContext(
 
     const sep = projectPath.includes("\\") ? "\\" : "/";
     const rel = mention.path?.replace(/\//g, sep) ?? "";
-    const fullPath = `${projectPath.replace(/[\\/]+$/, "")}${sep}${rel}`;
+    const fullPath = `${projectPath.replace(/(?<![\\/])[\\/]+$/, "")}${sep}${rel}`;
 
     if (mention.kind === "folder") {
         try {

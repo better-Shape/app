@@ -208,7 +208,7 @@ export function insertCssVariableInContent(content: string, name: string, value:
             return `${content.slice(0, open + 1)}\n${decl}${content.slice(open + 1)}`;
         }
     }
-    const trimmed = content.replace(/\s+$/, "");
+    const trimmed = content.replace(/(?<!\s)\s+$/, "");
     return `${trimmed}${trimmed ? "\n\n" : ""}:root {\n${decl}\n}\n`;
 }
 

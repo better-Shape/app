@@ -79,8 +79,8 @@ export function PlanTabView({ path, markdown }: { path: string; markdown?: strin
         let disposed = false;
         let unlisten: (() => void) | undefined;
         const samePath = (a: string, b: string) =>
-            a.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase()
-            === b.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+            a.replace(/\\/g, "/").replace(/(?<!\/)\/+$/, "").toLowerCase()
+            === b.replace(/\\/g, "/").replace(/(?<!\/)\/+$/, "").toLowerCase();
         void import("@tauri-apps/api/event")
             .then(({ listen }) =>
                 listen<{ path?: string; absolutePath?: string }>("bettershape-plan-saved", (event) => {

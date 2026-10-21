@@ -255,7 +255,7 @@ function SymbolSubMenu({ symbol, filePath, isSelected }: { symbol: OutlineSymbol
 
 function joinProjectFolder(projectPath: string, parts: string[], upToIndex: number): string | null {
     const separator = projectPath.includes("\\") ? "\\" : "/";
-    const root = projectPath.replace(/[\\/]+$/, "");
+    const root = projectPath.replace(/(?<![\\/])[\\/]+$/, "");
     if (!root) return null;
     const segments = parts.slice(0, upToIndex + 1).filter((p) => p && p !== "." && p !== "..");
     if (segments.length === 0) return root;

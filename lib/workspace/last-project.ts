@@ -12,7 +12,7 @@ export function loadLastProject(): string | null {
         if (legacy && legacy.trim()) {
             saveLastProject(legacy);
             window.localStorage.removeItem(LEGACY_LAST_PROJECT_KEY);
-            return legacy.trim().replace(/[\\/]+$/, "");
+            return legacy.trim().replace(/(?<![\\/])[\\/]+$/, "");
         }
         return null;
     } catch {
@@ -27,7 +27,7 @@ export function saveLastProject(path: string | null) {
             window.localStorage.removeItem(LAST_PROJECT_KEY);
             return;
         }
-        window.localStorage.setItem(LAST_PROJECT_KEY, path.trim().replace(/[\\/]+$/, ""));
+        window.localStorage.setItem(LAST_PROJECT_KEY, path.trim().replace(/(?<![\\/])[\\/]+$/, ""));
     } catch {
         /* ignore quota / private mode */
     }

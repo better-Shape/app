@@ -3,7 +3,7 @@ let initialSynced = false;
 let syncQueue = Promise.resolve();
 
 function normalizePath(path: string): string {
-    return path.replace(/\\/g, "/").replace(/\/+$/, "");
+    return path.replace(/\\/g, "/").replace(/(?<!\/)\/+$/, "");
 }
 
 export function getExtraWorkspaceFolders(): string[] {

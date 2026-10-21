@@ -69,7 +69,7 @@ function CanvasLoadBar() {
 
 function joinProjectPath(root: string, relative: string) {
     const separator = root.includes("\\") ? "\\" : "/";
-    return `${root.replace(/[/\\]+$/, "")}${separator}${relative.replace(/[/\\]/g, separator)}`;
+    return `${root.replace(/(?<![/\\])[/\\]+$/, "")}${separator}${relative.replace(/[/\\]/g, separator)}`;
 }
 
 let persistQueue: Promise<void> = Promise.resolve();

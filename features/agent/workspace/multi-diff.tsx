@@ -34,7 +34,7 @@ async function loadSides(
     repo: string,
     file: GitFileParams,
 ): Promise<{ original: string; current: string }> {
-    const abs = `${repo.replace(/[\\/]+$/, "")}/${file.path.replace(/\\/g, "/")}`;
+    const abs = `${repo.replace(/(?<![\\/])[\\/]+$/, "")}/${file.path.replace(/\\/g, "/")}`;
     let current = "";
     try {
         current = await commands.readFile(abs);
@@ -129,7 +129,7 @@ function LazyFileDiff({
     };
 
     const openFile = async () => {
-        const abs = `${repo.replace(/[\\/]+$/, "")}/${file.path.replace(/\\/g, "/")}`;
+        const abs = `${repo.replace(/(?<![\\/])[\\/]+$/, "")}/${file.path.replace(/\\/g, "/")}`;
         await openProjectFile(abs, name);
     };
 

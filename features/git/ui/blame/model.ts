@@ -190,7 +190,7 @@ export function blameBlockedReason(filePath: string | null, projectPath: string 
  */
 export function isOutsideProject(filePath: string, projectPath: string): boolean {
     const full = String(filePath ?? "").replace(/\\/g, "/");
-    const base = String(projectPath ?? "").replace(/\\/g, "/").replace(/\/+$/, "");
+    const base = String(projectPath ?? "").replace(/\\/g, "/").replace(/(?<!\/)\/+$/, "");
     if (!full || !base) return false;
     return !full.toLowerCase().startsWith(`${base.toLowerCase()}/`);
 }
@@ -198,7 +198,7 @@ export function isOutsideProject(filePath: string, projectPath: string): boolean
 export function relativeLabel(projectPath: string | null, filePath: string): string {
     const full = String(filePath ?? "").replace(/\\/g, "/");
     if (!full) return "unknown file";
-    const base = String(projectPath ?? "").replace(/\\/g, "/").replace(/\/+$/, "");
+    const base = String(projectPath ?? "").replace(/\\/g, "/").replace(/(?<!\/)\/+$/, "");
     if (!base) return full;
     return full.toLowerCase().startsWith(`${base.toLowerCase()}/`)
         ? full.slice(base.length + 1)

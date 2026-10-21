@@ -74,7 +74,7 @@ async function loadSides(
         return { original, current };
     }
 
-    const abs = `${repo.replace(/[\\/]+$/, "")}/${filePath.replace(/\\/g, "/")}`;
+    const abs = `${repo.replace(/(?<![\\/])[\\/]+$/, "")}/${filePath.replace(/\\/g, "/")}`;
     let current = "";
     try {
         current = await commands.readFile(abs);
@@ -196,7 +196,7 @@ export function SingleFileDiffEditor({ tab }: { tab: FileDiffTabInfo }) {
                 <button
                     type="button"
                     onClick={() => {
-                        const abs = `${tab.repo.replace(/[\\/]+$/, "")}/${tab.path.replace(/\\/g, "/")}`;
+                        const abs = `${tab.repo.replace(/(?<![\\/])[\\/]+$/, "")}/${tab.path.replace(/\\/g, "/")}`;
                         void openProjectFile(abs);
                     }}
                     className="rounded-md px-2 py-1 text-xs text-text-secondary hover:bg-[var(--btn-hover)] hover:text-text-primary"

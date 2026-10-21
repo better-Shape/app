@@ -30,7 +30,7 @@ export async function ensureGlobalsCssLoaded(projectPath: string): Promise<strin
 }
 
 async function discoverGlobalsCss(projectPath: string): Promise<ResolvedCss> {
-    const root = projectPath.replace(/[\\/]+$/, "");
+    const root = projectPath.replace(/(?<![\\/])[\\/]+$/, "");
     for (const relative of GLOBALS_CSS_CANDIDATES) {
         try {
             const path = `${root}/${relative}`.replace(/\\/g, "/");

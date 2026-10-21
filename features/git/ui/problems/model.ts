@@ -125,7 +125,7 @@ export function selectLintTargets(paths: string[], limit: number): { targets: st
 export function relativeLabel(projectPath: string | null, filePath: string): string {
     const full = String(filePath ?? "").replace(/\\/g, "/");
     if (!full) return "unknown file";
-    const base = String(projectPath ?? "").replace(/\\/g, "/").replace(/\/+$/, "");
+    const base = String(projectPath ?? "").replace(/\\/g, "/").replace(/(?<!\/)\/+$/, "");
     if (!base) return full;
     const lowerFull = full.toLowerCase();
     const lowerBase = base.toLowerCase();

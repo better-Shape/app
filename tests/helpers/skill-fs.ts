@@ -22,7 +22,7 @@ export type SkillFsOptions = {
  * `/proj/.claude/skills`. Reads outside the tree reject, as the real backend does.
  */
 export function serveSkillFs(mocks: SkillFsMocks, files: Record<string, string>, options: SkillFsOptions = {}) {
-    const normalize = (path: string) => path.replace(/\\/g, "/").replace(/\/+$/, "");
+    const normalize = (path: string) => path.replace(/\\/g, "/").replace(/(?<!\/)\/+$/, "");
     const normalized = new Map(Object.entries(files).map(([path, body]) => [normalize(path), body]));
     const directories = new Set<string>();
     for (const path of normalized.keys()) {

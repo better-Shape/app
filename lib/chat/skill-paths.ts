@@ -2,7 +2,7 @@
 
 /** Normalize a directory path: forward slashes, no trailing separator. */
 export function normalizeSkillPath(path: string): string {
-    return path.replace(/\\/g, "/").replace(/\/+$/, "");
+    return path.replace(/\\/g, "/").replace(/(?<!\/)\/+$/, "");
 }
 
 /** Path separator used by the given directory. */
@@ -14,7 +14,7 @@ export function skillPathSep(dir: string): string {
 export function joinSkillPath(dir: string, relativePath: string): string {
     const sep = skillPathSep(dir);
     const relative = relativePath.replace(/^[\\/]+/, "").replace(/[\\/]+/g, sep);
-    return `${dir.replace(/[\\/]+$/, "")}${sep}${relative}`;
+    return `${dir.replace(/(?<![\\/])[\\/]+$/, "")}${sep}${relative}`;
 }
 
 /** True when `child` is `parent` or lives inside it, ignoring case like the FS does. */

@@ -64,32 +64,32 @@ export function clearFileClipboard(): void {
 
 /** A path's parent directory, tolerating either separator. */
 export function parentDir(path: string): string {
-    const trimmed = path.replace(/[\\/]+$/, "");
+    const trimmed = path.replace(/(?<![\\/])[\\/]+$/, "");
     const cut = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
     return cut > 0 ? trimmed.slice(0, cut) : trimmed;
 }
 
 /** A path's final segment. */
 export function baseName(path: string): string {
-    const trimmed = path.replace(/[\\/]+$/, "");
+    const trimmed = path.replace(/(?<![\\/])[\\/]+$/, "");
     const cut = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
     return cut >= 0 ? trimmed.slice(cut + 1) : trimmed;
 }
 
 /** Join using whichever separator the directory already uses. */
 export function joinPath(dir: string, name: string): string {
-    const trimmed = dir.replace(/[\\/]+$/, "");
+    const trimmed = dir.replace(/(?<![\\/])[\\/]+$/, "");
     const separator = trimmed.includes("\\") && !trimmed.includes("/") ? "\\" : "/";
     return `${trimmed}${separator}${name}`;
 }
 
 function isSamePath(a: string, b: string): boolean {
-    const norm = (value: string) => value.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+    const norm = (value: string) => value.replace(/\\/g, "/").replace(/(?<!\/)\/+$/, "").toLowerCase();
     return norm(a) === norm(b);
 }
 
 function isInside(child: string, parent: string): boolean {
-    const norm = (value: string) => value.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+    const norm = (value: string) => value.replace(/\\/g, "/").replace(/(?<!\/)\/+$/, "").toLowerCase();
     return norm(child).startsWith(`${norm(parent)}/`);
 }
 

@@ -5,7 +5,7 @@ const RULES_DIR = ".bettershape/rules";
 
 async function readRulesFile(relativePath: string, projectPath: string): Promise<string | null> {
     const sep = projectPath.includes("\\") ? "\\" : "/";
-    const fullPath = `${projectPath.replace(/[\\/]+$/, "")}${sep}${relativePath.replace(/\//g, sep)}`;
+    const fullPath = `${projectPath.replace(/(?<![\\/])[\\/]+$/, "")}${sep}${relativePath.replace(/\//g, sep)}`;
     try {
         const content = await commands.readFile(fullPath);
         return content.trim() || null;
@@ -16,7 +16,7 @@ async function readRulesFile(relativePath: string, projectPath: string): Promise
 
 async function collectRulesFromDir(projectPath: string): Promise<string[]> {
     const sep = projectPath.includes("\\") ? "\\" : "/";
-    const dirPath = `${projectPath.replace(/[\\/]+$/, "")}${sep}${RULES_DIR.replace(/\//g, sep)}`;
+    const dirPath = `${projectPath.replace(/(?<![\\/])[\\/]+$/, "")}${sep}${RULES_DIR.replace(/\//g, sep)}`;
     try {
         const entries = await commands.lsDir(dirPath);
         const parts: string[] = [];
@@ -41,7 +41,7 @@ export async function listProjectRuleFiles(projectPath: string | null): Promise<
     const root = await readRulesFile(RULES_FILE, projectPath);
     if (root) names.push(RULES_FILE);
     const sep = projectPath.includes("\\") ? "\\" : "/";
-    const dirPath = `${projectPath.replace(/[\\/]+$/, "")}${sep}${RULES_DIR.replace(/\//g, sep)}`;
+    const dirPath = `${projectPath.replace(/(?<![\\/])[\\/]+$/, "")}${sep}${RULES_DIR.replace(/\//g, sep)}`;
     try {
         const entries = await commands.lsDir(dirPath);
         for (const entry of entries) {
@@ -76,7 +76,7 @@ export async function ensureProjectRulesScaffold(projectPath: string): Promise<v
     const existing = await loadProjectRules(projectPath);
     if (existing) return;
     const sep = projectPath.includes("\\") ? "\\" : "/";
-    const rulesPath = `${projectPath.replace(/[\\/]+$/, "")}${sep}${RULES_FILE.replace(/\//g, sep)}`;
+    const rulesPath = `${projectPath.replace(/(?<![\\/])[\\/]+$/, "")}${sep}${RULES_FILE.replace(/\//g, sep)}`;
     const template = `# Project rules
 
 Add conventions, stack notes, and patterns for the agent to follow in this repo.

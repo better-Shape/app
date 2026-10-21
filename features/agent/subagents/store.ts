@@ -146,7 +146,7 @@ function parseReadsFromActivity(activity: string): SubagentRead[] {
     const reads: SubagentRead[] = [];
     const re = /(?:read(?:ing)?|reviewing)\s+(\S+?)(?::(\d+)(?:-(\d+))?)?(?:\s|$)/gi;
     for (const match of activity.matchAll(re)) {
-        const path = match[1]?.replace(/[.,;]+$/, "");
+        const path = match[1]?.replace(/(?<![.,;])[.,;]+$/, "");
         if (!path) continue;
         reads.push({
             path,

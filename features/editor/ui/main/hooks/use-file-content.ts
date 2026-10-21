@@ -226,7 +226,7 @@ export function useFileContent(
             }
         });
 
-        const norm = (r: string) => { const s = r.replace(/\\/g, "/").replace(/\/+$/, ""); return /^[a-zA-Z]:[\\/]/.test(r) || r.includes("\\") ? s.toLowerCase() : s; };
+        const norm = (r: string) => { const s = r.replace(/\\/g, "/").replace(/(?<!\/)\/+$/, ""); return /^[a-zA-Z]:[\\/]/.test(r) || r.includes("\\") ? s.toLowerCase() : s; };
         const unlistenChangedPromise = listen<string[]>("bettershape-files-changed", (event) => {
             if (cancelled) return;
             commands.invalidateAllFileCaches();

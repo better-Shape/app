@@ -42,7 +42,7 @@ function emitState() {
 function pathsEqual(a: string | null | undefined, b: string | null | undefined): boolean {
     if (a == null && b == null) return true;
     if (a == null || b == null) return false;
-    const [na, nb] = [a.replace(/\\/g, "/").replace(/\/+$/, ""), b.replace(/\\/g, "/").replace(/\/+$/, "")];
+    const [na, nb] = [a.replace(/\\/g, "/").replace(/(?<!\/)\/+$/, ""), b.replace(/\\/g, "/").replace(/(?<!\/)\/+$/, "")];
     return /^[a-zA-Z]:[\\/]/.test(a) || a.includes("\\") || /^[a-zA-Z]:[\\/]/.test(b) || b.includes("\\") ? na.toLowerCase() === nb.toLowerCase() : na === nb;
 }
 

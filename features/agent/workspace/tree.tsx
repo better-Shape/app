@@ -37,11 +37,11 @@ function gitMark(status: string | undefined): { letter: string; className: strin
 
 /** Normalize for path comparisons (case-insensitive, slash-agnostic). */
 function pathKey(filePath: string): string {
-    return filePath.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+    return filePath.replace(/\\/g, "/").replace(/(?<!\/)\/+$/, "").toLowerCase();
 }
 
 function parentDir(filePath: string): string {
-    const normalized = filePath.replace(/\\/g, "/").replace(/\/+$/, "");
+    const normalized = filePath.replace(/\\/g, "/").replace(/(?<!\/)\/+$/, "");
     const idx = normalized.lastIndexOf("/");
     return idx <= 0 ? "" : normalized.slice(0, idx);
 }
@@ -272,7 +272,7 @@ export function FileTree({
     const [error, setError] = useState<string | null>(null);
     const [query, setQuery] = useState("");
     const [statusByPath, setStatusByPath] = useState<Map<string, string>>(() => new Map());
-    const title = projectPath.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || projectPath;
+    const title = projectPath.replace(/(?<![\\/])[\\/]+$/, "").split(/[\\/]/).pop() || projectPath;
     const shown = useMemo(() => {
         const needle = query.trim().toLowerCase();
         if (!needle) return roots;
@@ -374,7 +374,7 @@ export function FileTree({
         void commands.gitStatus(projectPath).then((files) => {
             if (cancelled) return;
             const next = new Map<string, string>();
-            const root = projectPath.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+            const root = projectPath.replace(/\\/g, "/").replace(/(?<!\/)\/+$/, "").toLowerCase();
             for (const file of files) {
                 const rel = file.path.replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase();
                 next.set(rel, file.status);

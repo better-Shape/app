@@ -38,7 +38,7 @@ function parsePx(value: string | undefined): number {
 
 function joinProjectPath(root: string, relative: string) {
     const separator = root.includes("\\") ? "\\" : "/";
-    return `${root.replace(/[/\\]+$/, "")}${separator}${relative.replace(/[/\\]/g, separator)}`;
+    return `${root.replace(/(?<![/\\])[/\\]+$/, "")}${separator}${relative.replace(/[/\\]/g, separator)}`;
 }
 
 function IcoPath({ d }: { d: string }) {
