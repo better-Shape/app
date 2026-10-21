@@ -227,7 +227,7 @@ fn mcp_config_from_args(
 /// launched. Same card as `run_terminal`, same escape hatch: the turn policy
 /// can say "stop asking".
 async fn approve_stdio_server(cfg: &McpServerConfig, ctx: &ToolCtx<'_>) -> Result<(), String> {
-    use crate::agent::models::{AutoRunMode, PendingCommand};
+    use crate::agent::models::AutoRunMode;
 
     let policy = ctx
         .agent_state
@@ -236,41 +236,23 @@ async fn approve_stdio_server(cfg: &McpServerConfig, ctx: &ToolCtx<'_>) -> Resul
         return Ok(());
     }
 
-    let cmd_id = format!("cmd-{}", uuid::Uuid::new_v4());
     let preview = if cfg.args.is_empty() {
         cfg.command.clone()
     } else {
         format!("{} {}", cfg.command, cfg.args.join(" "))
     };
-    let pending = PendingCommand {
-        id: cmd_id.clone(),
-        command: preview.clone(),
-        safety: "needs_approval".to_string(),
-        reason: format!("Starts the MCP server '{}' as a local process.", cfg.id),
-        turn_id: ctx.turn_id.clone(),
-        conversation_id: ctx.conversation_id.clone(),
-        action: None,
-        payload: None,
-    };
-    if let Ok(mut pendings) = ctx.agent_state.pending_commands.lock() {
-        pendings.insert(cmd_id.clone(), pending.clone());
-    }
-    // Same shape as `run_terminal`'s card: the body's first line is the
-    // command the chat renders, followed by why it is waiting.
-    let _ = ctx.emit_ui_token(format!(
-        "\n<terminal_command status=\"pending\" id=\"{}\" mcp=\">{}\nAwaiting approval: {}</terminal_command>\n",
-        cmd_id, preview, pending.reason
-    ));
-    let _ = ctx.app_handle.emit("agent-command-pending", pending);
-    streaming::emit_chat_status(
-        ctx.app_handle,
-        ctx.turn_id.as_deref(),
-        ctx.conversation_id.as_deref(),
-        json!({ "phase": "approval", "label": "Waiting for approval" }),
-    );
-
-    let decision = super::common::wait_for_command_decision(&cmd_id, ctx).await;
-    super::common::cleanup_pending_command(&cmd_id, ctx);
+    let reason = format!("Starts the MCP server '{}' as a local process.", cfg.id);
+    let (cmd_id, decision) = super::common::request_command_approval(
+        preview.clone(),
+        reason.clone(),
+        None,
+        None,
+        |id| format!(
+            "\n<terminal_command status=\"pending\" id=\"{id}\" mcp=\">{preview}\nAwaiting approval: {reason}</terminal_command>\n"
+        ),
+        ctx,
+    )
+    .await;
     match decision {
         super::common::ApprovalDecision::Approved => {
             super::common::emit_command_resolved(ctx, &cmd_id, true, Some("Starting MCP server"));

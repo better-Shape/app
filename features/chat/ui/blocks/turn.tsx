@@ -8,6 +8,7 @@ import { Edit20Regular } from "@fluentui/react-icons/headless/svg/edit";
 import React, { useCallback, useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { Icon } from "@/components/ui/icon";
+import { Button } from "@/components/ui/button";
 
 
 import { cn } from "@/lib/utils";
@@ -281,13 +282,19 @@ const resolvedEditStatus = (current: string | null, approved: boolean): string =
 function EditApprovalRow({ block }: { block: Chunk }) {
     const [localStatus, setLocalStatus] = useState<string | null>(null);
     const [isProcessing, setIsProcessing] = useState(false);
+    const [registeredCommandId, setRegisteredCommandId] = useState<string | null>(null);
+    const [failedListenerCommandId, setFailedListenerCommandId] = useState<string | null>(null);
+    const [listenerRetryCount, setListenerRetryCount] = useState(0);
+    const [retryingListenerCommandId, setRetryingListenerCommandId] = useState<string | null>(null);
     const [diffOpen, setDiffOpen] = useState(true);
     const { add, del } = editDelta(block);
     const file = block.file || "";
+    const listenersReady = Boolean(block.commandId && registeredCommandId === block.commandId);
+    const listenerSetupFailed = Boolean(block.commandId && failedListenerCommandId === block.commandId);
 
     const resolve = useCallback(
         (approved: boolean) => {
-            if (!block.commandId || isProcessing) return;
+            if (!block.commandId || !listenersReady || isProcessing) return;
             setIsProcessing(true);
             void commands
                 .resolveEditApproval(block.commandId, approved)
@@ -295,33 +302,56 @@ function EditApprovalRow({ block }: { block: Chunk }) {
                 .catch(() => { /* backend upsert corrects the card */ })
                 .finally(() => setIsProcessing(false));
         },
-        [block.commandId, isProcessing],
+        [block.commandId, isProcessing, listenersReady],
     );
 
-    // Backend resolution (or another window) flips the card instantly.
+    // Do not allow resolution until both outcome listeners are installed.
     useEffect(() => {
-        if (!block.commandId) return;
+        const commandId = block.commandId;
+        if (!commandId) return;
         let disposed = false;
-        const unlistenPromise = listen<{ id?: string; approved?: boolean }>(
+        let registrationFailed = false;
+        const unlisteners: Array<() => void> = [];
+        const retainUnlistener = (promise: Promise<() => void>): Promise<void> =>
+            promise.then((unlisten) => {
+                if (disposed || registrationFailed) unlisten();
+                else unlisteners.push(unlisten);
+            });
+        const resolvedListenerPromise = retainUnlistener(listen<{ id?: string; approved?: boolean }>(
             "agent-edit-resolved",
             (event) => {
-                if (disposed || event.payload?.id !== block.commandId) return;
+                if (disposed || event.payload?.id !== commandId) return;
                 setLocalStatus((current) => resolvedEditStatus(current, event.payload?.approved === true));
             },
-        );
-        const failureListenerPromise = listen<{ id?: string }>(
+        ));
+        const failureListenerPromise = retainUnlistener(listen<{ id?: string }>(
             "agent-edit-application-failed",
             (event) => {
-                if (disposed || event.payload?.id !== block.commandId) return;
+                if (disposed || event.payload?.id !== commandId) return;
                 setLocalStatus("failed");
             },
-        );
+        ));
+        void Promise.all([resolvedListenerPromise, failureListenerPromise])
+            .then(() => {
+                if (!disposed) {
+                    setRegisteredCommandId(commandId);
+                    setFailedListenerCommandId(null);
+                    setRetryingListenerCommandId(null);
+                }
+            })
+            .catch(() => {
+                registrationFailed = true;
+                unlisteners.splice(0).forEach((unlisten) => unlisten());
+                if (!disposed) {
+                    setFailedListenerCommandId(commandId);
+                    setRetryingListenerCommandId(null);
+                }
+            });
         return () => {
             disposed = true;
-            unlistenPromise.then((unlisten) => unlisten()).catch(() => undefined);
-            failureListenerPromise.then((unlisten) => unlisten()).catch(() => undefined);
+            unlisteners.splice(0).forEach((unlisten) => unlisten());
         };
-    }, [block.commandId]);
+    }, [block.commandId, listenerRetryCount]);
 
     const terminalStatus = ["applied", "rejected", "cancelled"].includes(block.commandStatus ?? "")
         ? block.commandStatus
@@ -332,6 +362,30 @@ function EditApprovalRow({ block }: { block: Chunk }) {
     }
     if (status === "failed") {
         return <ActionLine action="Edit failed" detail={fileName(file)} />;
+    }
+    if (listenerSetupFailed) {
+        const isRetrying = retryingListenerCommandId === block.commandId;
+        return (
+            <ActionLine
+                action="Approval unavailable"
+                detail={isRetrying ? "Retrying approval setup..." : "Approval listeners could not be registered."}
+                extra={(
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        size="xs"
+                        disabled={isRetrying}
+                        onClick={() => {
+                            if (!block.commandId) return;
+                            setRetryingListenerCommandId(block.commandId);
+                            setListenerRetryCount((count) => count + 1);
+                        }}
+                    >
+                        Retry
+                    </Button>
+                )}
+            />
+        );
     }
     if (status !== "pending") {
         return (
@@ -369,6 +423,7 @@ function EditApprovalRow({ block }: { block: Chunk }) {
                 </button>
             }
             isProcessing={isProcessing}
+            isDisabled={!listenersReady}
             onSkip={() => resolve(false)}
             onAccept={() => resolve(true)}
             skipLabel="Skip"

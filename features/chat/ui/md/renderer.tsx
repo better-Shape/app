@@ -578,24 +578,23 @@ export const getMessageCopyText = (
 
 /** Read a quoted attribute from a structural tag without repeating capture boilerplate. */
 const readTagAttribute = (source: string, name: string): string | undefined => {
-    const match = source.match(new RegExp(`(?:^|\\s)${name}="([^"]*)"`));
+    const match = source.match(new RegExp(`(?:^|\\s)${name}="([^"]*)"`, "i"));
     return match ? match[1] : undefined;
 };
 
 /** Extract the inner text for a well-formed or streaming structural tag. */
 const getInnerTagContent = (block: string, tag: string) => {
-    const startTag = `<${tag}>`;
-    const endTag = `</${tag}>`;
-    const start = block.indexOf(startTag);
-    if (start === -1) return undefined;
-    const end = block.indexOf(endTag, start);
-    if (end === -1) return block.slice(start + startTag.length).replace(/^\n|\n$/g, '');
-    return block.slice(start + startTag.length, end).replace(/^\n|\n$/g, '');
+    const startTag = new RegExp(`<${tag}>`, "i").exec(block);
+    if (!startTag || startTag.index === undefined) return undefined;
+    const contentStart = startTag.index + startTag[0].length;
+    const endTag = new RegExp(`</${tag}>`, "i").exec(block.slice(contentStart));
+    const contentEnd = endTag ? contentStart + endTag.index : undefined;
+    return block.slice(contentStart, contentEnd).replace(/^\n|\n$/g, '');
 };
 
 /** Convert an edit wrapper into a typed message chunk. */
 const parseEditBlock = (block: string, isGenerating: boolean): Chunk => {
-    const fileMatch = block.match(/<edit\s+file="([^"]*)"/);
+    const fileMatch = block.match(/<edit\s+file="([^"]*)"/i);
     const file = fileMatch ? fileMatch[1] : undefined;
     return {
         type: 'edit',

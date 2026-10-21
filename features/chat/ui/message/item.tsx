@@ -480,17 +480,7 @@ const ChatMessageItemInner = ({
             </div>
             </ContextMenuTrigger>
             <ContextMenuContent>
-                <ContextMenuItem onClick={handleCopy}>
-                    <Icon icon={Clipboard20Regular} />
-                    Copy
-                    <ContextMenuShortcut>Ctrl+C</ContextMenuShortcut>
-                </ContextMenuItem>
-                <ContextMenuSeparator />
-                <ContextMenuItem onClick={handleSelectAll}>
-                    <Icon icon={SelectAllOn20Regular} />
-                    Select All
-                    <ContextMenuShortcut>Ctrl+A</ContextMenuShortcut>
-                </ContextMenuItem>
+                <MessageContextMenuItems onCopy={handleCopy} onSelectAll={handleSelectAll} />
             </ContextMenuContent>
             </ContextMenu>
         );
@@ -686,17 +676,7 @@ const ChatMessageItemInner = ({
         </div>
         </ContextMenuTrigger>
         <ContextMenuContent>
-            <ContextMenuItem onClick={handleCopy}>
-                <Icon icon={Clipboard20Regular} />
-                Copy
-                <ContextMenuShortcut>Ctrl+C</ContextMenuShortcut>
-            </ContextMenuItem>
-            <ContextMenuSeparator />
-            <ContextMenuItem onClick={handleSelectAll}>
-                <Icon icon={SelectAllOn20Regular} />
-                Select All
-                <ContextMenuShortcut>Ctrl+A</ContextMenuShortcut>
-            </ContextMenuItem>
+            <MessageContextMenuItems onCopy={handleCopy} onSelectAll={handleSelectAll} />
         </ContextMenuContent>
         </ContextMenu>
         <AlertDialog open={forkOpen} onOpenChange={setForkOpen}>
@@ -723,6 +703,24 @@ const ChatMessageItemInner = ({
         </>
     );
 };
+
+function MessageContextMenuItems({ onCopy, onSelectAll }: { onCopy: () => void; onSelectAll: () => void }) {
+    return (
+        <>
+            <ContextMenuItem onClick={onCopy}>
+                <Icon icon={Clipboard20Regular} />
+                Copy
+                <ContextMenuShortcut>Ctrl+C</ContextMenuShortcut>
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem onClick={onSelectAll}>
+                <Icon icon={SelectAllOn20Regular} />
+                Select All
+                <ContextMenuShortcut>Ctrl+A</ContextMenuShortcut>
+            </ContextMenuItem>
+        </>
+    );
+}
 
 function DetailRow({ label, value }: { label: string; value: string }) {
     return (

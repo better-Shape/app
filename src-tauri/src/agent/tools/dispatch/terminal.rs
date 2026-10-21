@@ -1,17 +1,14 @@
 //! Terminal session tools and command approval.
 
-use serde_json::{json, Value};
-use tauri::Emitter;
-
 use crate::agent::commands::{logging, streaming, terminal};
-use crate::agent::models::PendingCommand;
 use crate::agent::security::{self, commands::CommandSafety};
 use crate::agent::tools::files;
 use crate::commands::pty::SessionKind;
+use serde_json::{json, Value};
 
 use super::common::{
-    blocked_outcome, cleanup_pending_command, clip, emit_command_resolved, error_outcome,
-    escape_xml_text, get_str, is_read_only_mode, wait_for_command_decision, ApprovalDecision,
+    blocked_outcome, clip, emit_command_resolved, error_outcome, escape_xml_text, get_str,
+    is_read_only_mode, request_command_approval, ApprovalDecision,
 };
 use super::discover::tool_grep;
 use super::files::{cat_ui_chunk, tool_list_dir, tool_read_file};
@@ -559,36 +556,17 @@ pub(super) async fn run_git_commit_with_approval(
     message: &str,
     ctx: &ToolCtx<'_>,
 ) -> ToolOutcome {
-    let cmd_id = format!("cmd-{}", uuid::Uuid::new_v4());
-    let pending = PendingCommand {
-        id: cmd_id.clone(),
-        command: preview.to_string(),
-        safety: "needs_approval".to_string(),
-        reason: "Creates a git commit with your currently staged changes.".to_string(),
-        turn_id: ctx.turn_id.clone(),
-        conversation_id: ctx.conversation_id.clone(),
-        action: Some("git_commit".to_string()),
-        payload: Some(message.to_string()),
-    };
-
-    if let Ok(mut pendings) = ctx.agent_state.pending_commands.lock() {
-        pendings.insert(cmd_id.clone(), pending.clone());
-    }
-
-    let _ = ctx.emit_ui_token(format!(
-        "\n<terminal_command status=\"pending\" id=\"{}\">{}\nAwaiting approval: {}</terminal_command>\n",
-        cmd_id, preview, pending.reason
-    ));
-    let _ = ctx.app_handle.emit("agent-command-pending", pending);
-    streaming::emit_chat_status(
-        ctx.app_handle,
-        ctx.turn_id.as_deref(),
-        ctx.conversation_id.as_deref(),
-        json!({ "phase": "approval", "label": "Waiting for approval" }),
-    );
-
-    let decision = wait_for_command_decision(&cmd_id, ctx).await;
-    cleanup_pending_command(&cmd_id, ctx);
+    let (cmd_id, decision) = request_command_approval(
+        preview.to_string(),
+        "Creates a git commit with your currently staged changes.".to_string(),
+        Some("git_commit".to_string()),
+        Some(message.to_string()),
+        |id| format!(
+            "\n<terminal_command status=\"pending\" id=\"{id}\">{preview}\nAwaiting approval: Creates a git commit with your currently staged changes.</terminal_command>\n"
+        ),
+        ctx,
+    )
+    .await;
 
     match decision {
         ApprovalDecision::Approved => {
@@ -646,36 +624,17 @@ pub(super) async fn run_with_approval(
     reason: &str,
     ctx: &ToolCtx<'_>,
 ) -> ToolOutcome {
-    let cmd_id = format!("cmd-{}", uuid::Uuid::new_v4());
-    let pending = PendingCommand {
-        id: cmd_id.clone(),
-        command: command.to_string(),
-        safety: "needs_approval".to_string(),
-        reason: reason.to_string(),
-        turn_id: ctx.turn_id.clone(),
-        conversation_id: ctx.conversation_id.clone(),
-        action: None,
-        payload: None,
-    };
-
-    if let Ok(mut pendings) = ctx.agent_state.pending_commands.lock() {
-        pendings.insert(cmd_id.clone(), pending.clone());
-    }
-
-    let _ = ctx.emit_ui_token(format!(
-        "\n<terminal_command status=\"pending\" id=\"{}\">{}\nAwaiting approval: {}</terminal_command>\n",
-        cmd_id, command, reason
-    ));
-    let _ = ctx.app_handle.emit("agent-command-pending", pending);
-    streaming::emit_chat_status(
-        ctx.app_handle,
-        ctx.turn_id.as_deref(),
-        ctx.conversation_id.as_deref(),
-        json!({ "phase": "approval", "label": "Waiting for approval" }),
-    );
-
-    let decision = wait_for_command_decision(&cmd_id, ctx).await;
-    cleanup_pending_command(&cmd_id, ctx);
+    let (cmd_id, decision) = request_command_approval(
+        command.to_string(),
+        reason.to_string(),
+        None,
+        None,
+        |id| format!(
+            "\n<terminal_command status=\"pending\" id=\"{id}\">{command}\nAwaiting approval: {reason}</terminal_command>\n"
+        ),
+        ctx,
+    )
+    .await;
 
     match decision {
         ApprovalDecision::Approved => {

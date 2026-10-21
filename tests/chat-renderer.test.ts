@@ -272,6 +272,19 @@ describe("parseMessageContent", () => {
         expect(q?.questions?.[0]?.options[0]?.recommended).toBe(true);
     });
 
+    it("parses uppercase edit tags and attributes consistently", () => {
+        const [edit] = parseMessageContent(
+            '<EDIT FILE="src/a.ts"><ORIGINAL>before</ORIGINAL><REPLACEMENT>after</REPLACEMENT></EDIT>',
+        );
+
+        expect(edit).toMatchObject({
+            type: "edit",
+            file: "src/a.ts",
+            original: "before",
+            replacement: "after",
+        });
+    });
+
     it("dedupes edit_pending chunks for the same id, keeping applied over pending", () => {
         const text = [
             '<edit_pending id="e1" file="src/a.ts" status="pending"><original>a</original><replacement>b</replacement></edit_pending>',

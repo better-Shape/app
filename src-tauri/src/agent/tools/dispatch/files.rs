@@ -4,13 +4,12 @@ use serde_json::{json, Value};
 use tauri::{Emitter, Manager};
 
 use crate::agent::commands::{checkpoints, logging, streaming};
-use crate::agent::models::PendingEdit;
 use crate::agent::security;
 use crate::agent::tools::files;
 
 use super::common::{
     blocked_outcome, error_outcome, escape_xml_attr, escape_xml_text, get_str, is_read_only_mode,
-    ApprovalDecision,
+    pending_edit, ApprovalDecision,
 };
 use super::{SideEffect, ToolCtx, ToolOutcome};
 
@@ -517,13 +516,12 @@ pub(super) async fn gate_edit_approval(
     ctx: &ToolCtx<'_>,
 ) -> Result<String, ToolOutcome> {
     let edit_id = format!("edit-{}", uuid::Uuid::new_v4());
-    let pending = PendingEdit {
-        id: edit_id.clone(),
-        path: target.to_string(),
-        is_new_file: resolved.is_new_file,
-        turn_id: ctx.turn_id.clone(),
-        conversation_id: ctx.conversation_id.clone(),
-    };
+    let pending = pending_edit(
+        ctx,
+        edit_id.clone(),
+        target.to_string(),
+        resolved.is_new_file,
+    );
     if let Ok(mut pendings) = ctx.agent_state.pending_edits.lock() {
         pendings.insert(edit_id.clone(), pending.clone());
     }

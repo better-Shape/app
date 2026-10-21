@@ -3,12 +3,104 @@
 use serde_json::{json, Value};
 use tauri::Emitter;
 
+use crate::agent::commands::streaming;
+use crate::agent::models::{PendingCommand, PendingEdit};
+
 use super::{ToolCtx, ToolOutcome};
 
 pub(super) enum ApprovalDecision {
     Approved,
     Rejected,
     Cancelled,
+}
+
+fn pending_edit_for_turn(
+    id: String,
+    path: String,
+    is_new_file: bool,
+    turn_id: Option<String>,
+    conversation_id: Option<String>,
+) -> PendingEdit {
+    PendingEdit {
+        id,
+        path,
+        is_new_file,
+        turn_id,
+        conversation_id,
+    }
+}
+
+pub(super) fn pending_edit(
+    ctx: &ToolCtx<'_>,
+    id: String,
+    path: String,
+    is_new_file: bool,
+) -> PendingEdit {
+    pending_edit_for_turn(
+        id,
+        path,
+        is_new_file,
+        ctx.turn_id.clone(),
+        ctx.conversation_id.clone(),
+    )
+}
+
+fn pending_command_for_turn(
+    id: String,
+    command: String,
+    reason: String,
+    turn_id: Option<String>,
+    conversation_id: Option<String>,
+    action: Option<String>,
+    payload: Option<String>,
+) -> PendingCommand {
+    PendingCommand {
+        id,
+        command,
+        safety: "needs_approval".to_string(),
+        reason,
+        turn_id,
+        conversation_id,
+        action,
+        payload,
+    }
+}
+
+pub(super) async fn request_command_approval<F>(
+    command: String,
+    reason: String,
+    action: Option<String>,
+    payload: Option<String>,
+    pending_ui: F,
+    ctx: &ToolCtx<'_>,
+) -> (String, ApprovalDecision)
+where
+    F: FnOnce(&str) -> String,
+{
+    let cmd_id = format!("cmd-{}", uuid::Uuid::new_v4());
+    let pending = pending_command_for_turn(
+        cmd_id.clone(),
+        command,
+        reason,
+        ctx.turn_id.clone(),
+        ctx.conversation_id.clone(),
+        action,
+        payload,
+    );
+    if let Ok(mut pendings) = ctx.agent_state.pending_commands.lock() {
+        pendings.insert(cmd_id.clone(), pending.clone());
+    }
+    ctx.emit_ui_token(pending_ui(&cmd_id));
+    let _ = ctx.app_handle.emit("agent-command-pending", pending);
+    streaming::emit_chat_status(
+        ctx.app_handle,
+        ctx.turn_id.as_deref(),
+        ctx.conversation_id.as_deref(),
+        json!({ "phase": "approval", "label": "Waiting for approval" }),
+    );
+    let decision = wait_for_command_decision(&cmd_id, ctx).await;
+    cleanup_pending_command(&cmd_id, ctx);
+    (cmd_id, decision)
 }
 
 pub(super) async fn wait_for_command_decision(cmd_id: &str, ctx: &ToolCtx<'_>) -> ApprovalDecision {
@@ -280,6 +372,33 @@ pub(super) fn record_tool_event(name: &str, outcome: &ToolOutcome, project_path:
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pending_approval_payload_builders_preserve_turn_identity() {
+        let command = pending_command_for_turn(
+            "cmd-1".into(),
+            "git status".into(),
+            "Review the command".into(),
+            Some("turn-a".into()),
+            Some("conversation-a".into()),
+            None,
+            None,
+        );
+        let command = serde_json::to_value(command).unwrap();
+        assert_eq!(command["turnId"], "turn-a");
+        assert_eq!(command["conversationId"], "conversation-a");
+
+        let edit = pending_edit_for_turn(
+            "edit-1".into(),
+            "src/app.ts".into(),
+            false,
+            Some("turn-b".into()),
+            Some("conversation-b".into()),
+        );
+        let edit = serde_json::to_value(edit).unwrap();
+        assert_eq!(edit["turnId"], "turn-b");
+        assert_eq!(edit["conversationId"], "conversation-b");
+    }
 
     #[test]
     fn error_outcome_ui_drops_fenced_file_dump() {

@@ -100,16 +100,36 @@ const matchingArrayEnd = (source: string, openIndex: number): number => {
     return -1;
 };
 
-type OpenUIDefinition = { component: string; children: string[] };
+type OpenUIDefinition = { component?: string; children: string[]; inlineComponents: string[] };
 type OpenUIDefinitions = Map<string, OpenUIDefinition>;
 
-/** Find the first child-array argument while excluding arrays in later scalar arguments. */
+/** Find the first argument boundary without treating nested calls as separators. */
+const firstArgumentRange = (source: string, argsStart: number): [number, number] => {
+    let arrayDepth = 0;
+    let callDepth = 0;
+    for (let index = argsStart; index < source.length; index += 1) {
+        const character = source[index];
+        if (character === "[") arrayDepth += 1;
+        else if (character === "]") arrayDepth -= 1;
+        else if (character === "(") callDepth += 1;
+        else if (character === ")") {
+            if (callDepth === 0 && arrayDepth === 0) return [argsStart, index];
+            callDepth -= 1;
+        } else if (character === "," && arrayDepth === 0 && callDepth === 0) {
+            return [argsStart, index];
+        }
+    }
+    return [argsStart, source.length];
+};
+
+/** Find a literal child array only when it is the component's first argument. */
 const firstChildArrayRange = (source: string, argsStart: number): [number, number] | null => {
-    const arrayStart = source.indexOf("[", argsStart);
-    const firstClose = source.indexOf(")", argsStart);
-    if (arrayStart === -1 || (firstClose !== -1 && arrayStart >= firstClose)) return null;
+    const [argumentStart, argumentEnd] = firstArgumentRange(source, argsStart);
+    let arrayStart = argumentStart;
+    while (arrayStart < argumentEnd && /\s/.test(source[arrayStart] ?? "")) arrayStart += 1;
+    if (source[arrayStart] !== "[") return null;
     const arrayEnd = matchingArrayEnd(source, arrayStart);
-    return arrayEnd === -1 ? null : [arrayStart, arrayEnd];
+    return arrayEnd === -1 || arrayEnd > argumentEnd ? null : [arrayStart, arrayEnd];
 };
 
 /** Extract non-component identifiers from a bounded child-array source range. */
@@ -118,26 +138,66 @@ const childIdentifiersInRange = (source: string, start: number, end: number): st
         .match(/[A-Za-z_][\w-]*/g)
         ?.filter((identifier) => !OPENUI_COMPONENTS.has(identifier)) ?? [];
 
-/** Extract referenced child names only for components that structurally own children. */
-const definitionChildren = (source: string, component: string, argsStart: number): string[] => {
-    if (component !== "Surface" && component !== "Stack") return [];
-    const range = firstChildArrayRange(source, argsStart);
-    return range ? childIdentifiersInRange(source, ...range) : [];
+/** Count inline component calls as part of their containing definition's expansion cost. */
+const inlineComponentsInRange = (source: string, start: number, end: number): string[] => {
+    const calls = /\b(Surface|Stack|Text|Metric|Callout|Progress|BarChart|DataTable)\s*\(/g;
+    const components: string[] = [];
+    calls.lastIndex = start + 1;
+    let match: RegExpExecArray | null;
+    while ((match = calls.exec(source)) !== null && match.index < end) {
+        if (match[1]) components.push(match[1]);
+    }
+    return components;
 };
 
-/** Parse named DSL definitions, stopping if their count alone exceeds the render budget. */
+/** Record child references and inline calls from a container's first child argument. */
+const definitionChildren = (
+    source: string,
+    component: string,
+    argsStart: number,
+): Pick<OpenUIDefinition, "children" | "inlineComponents"> => {
+    if (component !== "Surface" && component !== "Stack") {
+        return { children: [], inlineComponents: [] };
+    }
+    const range = firstChildArrayRange(source, argsStart);
+    if (range) {
+        return {
+            children: childIdentifiersInRange(source, ...range),
+            inlineComponents: inlineComponentsInRange(source, ...range),
+        };
+    }
+    const [argumentStart, argumentEnd] = firstArgumentRange(source, argsStart);
+    const childName = source.slice(argumentStart, argumentEnd).trim();
+    const reference = /^[A-Za-z_][A-Za-z0-9_-]*$/.exec(childName)?.[0];
+    return { children: reference ? [reference] : [], inlineComponents: [] };
+};
+
+/** Parse component and child-array definitions within the bounded response. */
 const parseOpenUIDefinitions = (source: string): OpenUIDefinitions | null => {
     const definitions: OpenUIDefinitions = new Map();
-    const assignment = /^[ \t]*([A-Za-z_][A-Za-z0-9_-]*)[ \t]*=[ \t]*(Surface|Stack|Text|Metric|Callout|Progress|BarChart|DataTable)[ \t]*\(/gm;
+    const assignment = /^[ \t]*([A-Za-z_][A-Za-z0-9_-]*)[ \t]*=[ \t]*/gm;
+    const componentCall = /^(Surface|Stack|Text|Metric|Callout|Progress|BarChart|DataTable)[ \t]*\(/;
     let match: RegExpExecArray | null;
     while ((match = assignment.exec(source)) !== null) {
         const name = match[1];
-        const component = match[2];
-        if (!name || !component) continue;
-        definitions.set(name, {
-            component,
-            children: definitionChildren(source, component, assignment.lastIndex),
-        });
+        if (!name) continue;
+        const valueStart = assignment.lastIndex;
+        const call = componentCall.exec(source.slice(valueStart));
+        if (call?.[1]) {
+            const component = call[1];
+            const argsStart = valueStart + call[0].length;
+            definitions.set(name, {
+                component,
+                ...definitionChildren(source, component, argsStart),
+            });
+        } else if (source[valueStart] === "[") {
+            const arrayEnd = matchingArrayEnd(source, valueStart);
+            if (arrayEnd === -1) return null;
+            definitions.set(name, {
+                children: childIdentifiersInRange(source, valueStart, arrayEnd),
+                inlineComponents: inlineComponentsInRange(source, valueStart, arrayEnd),
+            });
+        }
         if (definitions.size > MAX_OPENUI_EXPANDED_NODES) return null;
     }
     return definitions;
@@ -156,39 +216,25 @@ type OpenUIWorkBudget = { nodes: number; renderCost: number };
 /** Return the rejection sentinel used for cycles, excessive depth, and either work limit. */
 const rejectedExpansionCount = (): number => MAX_OPENUI_EXPANDED_NODES + 1;
 
-/** Reserve one definition's expansion against both independent work limits. */
+/** Reserve one definition's own and inline component work against both limits. */
 const reserveDefinitionBudget = (
     definition: OpenUIDefinition | undefined,
     budget: OpenUIWorkBudget,
 ): boolean => {
-    const renderCost = definition ? componentRenderCost(definition.component) : 1;
-    if (budget.nodes < 1 || budget.renderCost < renderCost) return false;
-    budget.nodes -= 1;
+    const nodes = definition
+        ? Number(Boolean(definition.component)) + definition.inlineComponents.length
+        : 1;
+    const renderCost = definition
+        ? (definition.component ? componentRenderCost(definition.component) : 0)
+            + definition.inlineComponents.reduce((total, component) => total + componentRenderCost(component), 0)
+        : 1;
+    if (budget.nodes < nodes || budget.renderCost < renderCost) return false;
+    budget.nodes -= nodes;
     budget.renderCost -= renderCost;
     return true;
 };
 
-/** Recursively account for a parent's children after the parent's own budget is reserved. */
-const countDefinitionChildren = (
-    definitions: OpenUIDefinitions,
-    name: string,
-    children: string[],
-    depth: number,
-    budget: OpenUIWorkBudget,
-    ancestors: Set<string>,
-): number => {
-    ancestors.add(name);
-    let total = 1;
-    for (const child of children) {
-        const expandedChildCount = countDefinitionTree(definitions, child, depth + 1, budget, ancestors);
-        if (expandedChildCount > MAX_OPENUI_EXPANDED_NODES) return expandedChildCount;
-        total += expandedChildCount;
-    }
-    ancestors.delete(name);
-    return total;
-};
-
-/** Count a referenced definition while reserving both component count and estimated DOM work. */
+/** Count a referenced definition while reserving component and estimated DOM work. */
 const countDefinitionTree = (
     definitions: OpenUIDefinitions,
     name: string,
@@ -199,11 +245,23 @@ const countDefinitionTree = (
     if (ancestors.has(name)) return rejectedExpansionCount();
     const definition = definitions.get(name);
     if (!reserveDefinitionBudget(definition, budget)) return rejectedExpansionCount();
+    if (!definition) return 1;
 
-    const children = definition?.children ?? [];
-    if (children.length === 0) return 1;
-    if (depth >= MAX_OPENUI_NESTING) return rejectedExpansionCount();
-    return countDefinitionChildren(definitions, name, children, depth, budget, ancestors);
+    let total = Number(Boolean(definition.component)) + definition.inlineComponents.length;
+    if (definition.component && definition.children.length > 0 && depth >= MAX_OPENUI_NESTING) {
+        return rejectedExpansionCount();
+    }
+    if (definition.children.length === 0) return total;
+
+    ancestors.add(name);
+    const childDepth = depth + Number(Boolean(definition.component));
+    for (const child of definition.children) {
+        const expandedChildCount = countDefinitionTree(definitions, child, childDepth, budget, ancestors);
+        if (expandedChildCount > MAX_OPENUI_EXPANDED_NODES) return expandedChildCount;
+        total += expandedChildCount;
+    }
+    ancestors.delete(name);
+    return total;
 };
 
 /** Count repeated child references as expanded work, not just unique definitions. */
