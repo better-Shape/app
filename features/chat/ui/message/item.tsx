@@ -719,8 +719,8 @@ function ChatMessageItemInner({
                         if (!open) {
                             setAdvanced(false);
                             setContextVeil(true);
-                            setMenuStats(undefined);
-                            setMenuModel(undefined);
+                            setMenuStats(() => undefined);
+                            setMenuModel(() => undefined);
                             return;
                         }
                         if (index < 0) return;

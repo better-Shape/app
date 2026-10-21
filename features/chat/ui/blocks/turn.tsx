@@ -499,6 +499,7 @@ const resolvedEditStatus = (current: string | null, approved: boolean): string =
     return approved ? "approved" : "rejected";
 };
 
+/** Render an edit's pending, approved, failed, or terminal state with its approval controls. */
 function EditApprovalRow({ block }: { block: Chunk }) {
     const [localStatus, setLocalStatus] = useState<string | null>(null);
     const [isProcessing, setIsProcessing] = useState(false);
@@ -540,8 +541,8 @@ function EditApprovalRow({ block }: { block: Chunk }) {
         );
         return () => {
             disposed = true;
-            void unlistenPromise.then((unlisten) => unlisten()).catch(() => { /* ignore */ });
-            void failureListenerPromise.then((unlisten) => unlisten()).catch(() => { /* ignore */ });
+            unlistenPromise.then((unlisten) => unlisten()).catch(() => undefined);
+            failureListenerPromise.then((unlisten) => unlisten()).catch(() => undefined);
         };
     }, [block.commandId]);
 
