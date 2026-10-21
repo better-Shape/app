@@ -203,7 +203,12 @@ pub(super) async fn tool_create_file(args: &Value, ctx: &ToolCtx<'_>) -> ToolOut
                 side_effect: Some(SideEffect::FileWritten { path, content }),
             }
         }
-        Err(e) => error_outcome("create_file", &e.to_string()),
+        Err(e) => {
+            if let Some(edit_id) = approved_edit_id.as_deref() {
+                emit_edit_application_failed(edit_id, ctx);
+            }
+            error_outcome("create_file", &e.to_string())
+        }
     }
 }
 
@@ -492,6 +497,18 @@ pub(super) fn edit_pending_chunk(
     )
 }
 
+/// Tell approval cards that the approved write failed before it was applied.
+fn emit_edit_application_failed(edit_id: &str, ctx: &ToolCtx<'_>) {
+    let _ = ctx.app_handle.emit(
+        "agent-edit-application-failed",
+        json!({
+            "id": edit_id,
+            "turnId": ctx.turn_id,
+            "conversationId": ctx.conversation_id,
+        }),
+    );
+}
+
 /// Stage a resolved edit for user approval. Returns `Ok(edit_id)` when approved
 /// (caller writes the file) or `Err(outcome)` when rejected/cancelled.
 pub(super) async fn gate_edit_approval(
@@ -704,6 +721,9 @@ pub(super) async fn tool_edit_file(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutco
             "dispatch",
             &format!("edit_file write failed for {}: {}", target, e),
         );
+        if let Some(edit_id) = approved_edit_id.as_deref() {
+            emit_edit_application_failed(edit_id, ctx);
+        }
         return error_outcome("edit_file", &e.to_string());
     }
 
@@ -947,11 +967,17 @@ pub(super) async fn tool_apply_patch(args: &Value, ctx: &ToolCtx<'_>) -> ToolOut
 
         if change.is_new_file {
             if let Err(e) = files::create_file(&change.path, &change.merged, ctx.project_path) {
+                if let Some(edit_id) = approved_edit_id.as_deref() {
+                    emit_edit_application_failed(edit_id, ctx);
+                }
                 return error_outcome("apply_patch", &e.to_string());
             }
         } else if let Err(e) =
             crate::agent::editing::write_resolved_edit(ctx.app_handle, &abs_path, &resolved).await
         {
+            if let Some(edit_id) = approved_edit_id.as_deref() {
+                emit_edit_application_failed(edit_id, ctx);
+            }
             return error_outcome("apply_patch", &e.to_string());
         }
 

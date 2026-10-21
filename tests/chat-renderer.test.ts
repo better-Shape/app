@@ -36,6 +36,19 @@ describe("parseMessageContent", () => {
         expect(chunks.find((chunk) => chunk.type === "openui")?.content).toContain("Still rendered");
     });
 
+    it("matches hidden wrappers case-insensitively without treating tag prefixes as wrappers", () => {
+        const hidden = parseMessageContent(
+            "<TOOL_RESULT>\n```openui-lang\nroot = Surface([])\n```\n</TOOL_RESULT>\nVisible prose",
+        );
+        expect(hidden.some((chunk) => chunk.type === "openui")).toBe(false);
+        expect(hidden.map((chunk) => chunk.content ?? "").join("")).toContain("Visible prose");
+        expect(hidden.map((chunk) => chunk.content ?? "").join("")).not.toContain("root = Surface");
+
+        const prefixed = parseMessageContent("<editor>ordinary prose without an edit wrapper");
+        expect(prefixed.map((chunk) => chunk.type)).toEqual(["text"]);
+        expect(prefixed[0]?.content).toContain("<editor>");
+    });
+
     it("does not route ordinary or nested code fences through the OpenUI renderer", () => {
         const ordinary = parseMessageContent("```typescript\nconst answer = 42;\n```");
         const nested = parseMessageContent(
@@ -371,16 +384,13 @@ describe("preprocessChatMarkdown", () => {
 
         const unclosed = stripLeakedToolCode("Before <tool_result>hidden trailing");
         expect(unclosed.trim()).toBe("Before");
-    });
 
-    it("keeps a stray angle bracket from swallowing a later hidden wrapper or trailing prose", () => {
-        const sanitized = stripLeakedToolCode(
+        const strayAngle = stripLeakedToolCode(
             "Before <value <tool_result>hidden payload</tool_result> After",
         );
-
-        expect(sanitized).toContain("Before <value");
-        expect(sanitized).toContain("After");
-        expect(sanitized).not.toContain("hidden payload");
+        expect(strayAngle).toContain("Before <value");
+        expect(strayAngle).toContain("After");
+        expect(strayAngle).not.toContain("hidden payload");
     });
 
     it("hides Gemini function_calls / tool_code XML (Auto + Gemini)", () => {

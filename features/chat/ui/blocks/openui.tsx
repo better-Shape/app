@@ -8,6 +8,7 @@ import { createContext, useCallback, useContext, useState, type ReactNode } from
 const childrenSchema = z.array(z.any()).max(24);
 const MAX_OPENUI_NESTING = 16;
 const MAX_OPENUI_EXPANDED_NODES = 128;
+const MAX_OPENUI_RENDER_COST = 4096;
 const OPENUI_COMPONENTS = new Set([
     "Surface", "Stack", "Text", "Metric", "Callout", "Progress", "BarChart", "DataTable",
 ]);
@@ -105,7 +106,8 @@ const matchingArrayEnd = (source: string, openIndex: number): number => {
     return -1;
 };
 
-type OpenUIDefinitions = Map<string, string[]>;
+type OpenUIDefinition = { component: string; children: string[] };
+type OpenUIDefinitions = Map<string, OpenUIDefinition>;
 
 /** Find the first child-array argument while excluding arrays in later scalar arguments. */
 const firstChildArrayRange = (source: string, argsStart: number): [number, number] | null => {
@@ -138,32 +140,54 @@ const parseOpenUIDefinitions = (source: string): OpenUIDefinitions | null => {
         const name = match[1];
         const component = match[2];
         if (!name || !component) continue;
-        definitions.set(name, definitionChildren(source, component, assignment.lastIndex));
+        definitions.set(name, {
+            component,
+            children: definitionChildren(source, component, assignment.lastIndex),
+        });
         if (definitions.size > MAX_OPENUI_EXPANDED_NODES) return null;
     }
     return definitions;
 };
 
-/** Count every expanded reference against one budget while rejecting recursion cycles. */
+/** Estimate each allowlisted component's maximum bounded DOM fan-out. */
+const componentRenderCost = (component: string): number => {
+    if (component === "DataTable") return 300; // 30 rows × 8 cells, headings and table structure.
+    if (component === "BarChart") return 128; // 12 bars plus the accessible data table.
+    if (component === "Surface" || component === "Stack") return 2;
+    return 8;
+};
+
+type OpenUIWorkBudget = { nodes: number; renderCost: number };
+
+/** Return the rejection sentinel used for cycles, excessive depth, and either work limit. */
+const rejectedExpansionCount = (): number => MAX_OPENUI_EXPANDED_NODES + 1;
+
+/** Count a referenced definition while reserving both component count and estimated DOM work. */
 const countDefinitionTree = (
     definitions: OpenUIDefinitions,
     name: string,
     depth: number,
-    remainingNodes: { value: number },
+    budget: OpenUIWorkBudget,
     ancestors: Set<string>,
 ): number => {
-    if (ancestors.has(name) || remainingNodes.value === 0) return MAX_OPENUI_EXPANDED_NODES + 1;
-    remainingNodes.value -= 1;
+    if (ancestors.has(name) || budget.nodes < 1) return rejectedExpansionCount();
 
-    const children = definitions.get(name) ?? [];
+    const definition = definitions.get(name);
+    const renderCost = definition ? componentRenderCost(definition.component) : 1;
+    if (budget.renderCost < renderCost) return rejectedExpansionCount();
+    budget.nodes -= 1;
+    budget.renderCost -= renderCost;
+
+    const children = definition?.children ?? [];
     if (children.length === 0) return 1;
-    if (depth >= MAX_OPENUI_NESTING) return MAX_OPENUI_EXPANDED_NODES + 1;
+    if (depth >= MAX_OPENUI_NESTING) return rejectedExpansionCount();
 
     ancestors.add(name);
     let total = 1;
     for (const child of children) {
-        total += countDefinitionTree(definitions, child, depth + 1, remainingNodes, ancestors);
-        if (total > MAX_OPENUI_EXPANDED_NODES) break;
+        const expandedChildCount = countDefinitionTree(definitions, child, depth + 1, budget, ancestors);
+        if (expandedChildCount > MAX_OPENUI_EXPANDED_NODES) return expandedChildCount;
+        total += expandedChildCount;
     }
     ancestors.delete(name);
     return total;
@@ -178,7 +202,7 @@ const countExpandedNodes = (response: string): number => {
         definitions,
         "root",
         0,
-        { value: MAX_OPENUI_EXPANDED_NODES },
+        { nodes: MAX_OPENUI_EXPANDED_NODES, renderCost: MAX_OPENUI_RENDER_COST },
         new Set(),
     );
 };

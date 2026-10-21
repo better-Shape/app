@@ -268,6 +268,23 @@ describe("OpenUIBlock", () => {
         expect(host.querySelector("section")).toBeNull();
     });
 
+    it("budgets large component fan-out as well as the number of OpenUI definitions", async () => {
+        host = document.createElement("div");
+        document.body.appendChild(host);
+        root = createRoot(host);
+        const response = [
+            `root = Surface([${Array(14).fill("table").join(", ")}])`,
+            'table = DataTable(["Name"], [["Row"]])',
+        ].join("\n");
+
+        await act(async () => {
+            root?.render(<OpenUIBlock response={response} />);
+        });
+
+        expect(host.textContent).toContain("too complex to display safely");
+        expect(host.querySelector("section")).toBeNull();
+    });
+
     it("shows a safe fallback when a generated program references an unknown component", async () => {
         host = document.createElement("div");
         document.body.appendChild(host);

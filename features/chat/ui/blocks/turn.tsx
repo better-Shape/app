@@ -494,7 +494,12 @@ const useBackendResolutionStatus = (
  * Approval card for a staged file edit (require-edit-approval mode):
  * header with filename and +/− counts, expandable diff preview, Skip / Accept.
  */
-const EditApprovalRow = ({ block }: { block: Chunk }) => {
+const resolvedEditStatus = (current: string | null, approved: boolean): string => {
+    if (current === "failed") return current;
+    return approved ? "approved" : "rejected";
+};
+
+function EditApprovalRow({ block }: { block: Chunk }) {
     const [localStatus, setLocalStatus] = useState<string | null>(null);
     const [isProcessing, setIsProcessing] = useState(false);
     const [diffOpen, setDiffOpen] = useState(true);
@@ -508,22 +513,48 @@ const EditApprovalRow = ({ block }: { block: Chunk }) => {
             setIsProcessing(true);
             commands
                 .resolveEditApproval(block.commandId, approved)
-                .then(() => setLocalStatus(approved ? "applied" : "rejected"))
+                .then(() => setLocalStatus((current) => resolvedEditStatus(current, approved)))
                 .catch(() => { /* backend upsert corrects the card */ })
                 .finally(() => setIsProcessing(false)).catch(() => undefined);
         },
         [block.commandId, isProcessing],
     );
 
-    useBackendResolutionStatus(
-        "agent-edit-resolved",
-        block.commandId,
-        Boolean(block.commandId),
-        "applied",
-        setLocalStatus,
-    );
+    // Backend resolution (or another window) flips the card instantly.
+    useEffect(() => {
+        if (!block.commandId) return;
+        let disposed = false;
+        const unlistenPromise = listen<{ id?: string; approved?: boolean }>(
+            "agent-edit-resolved",
+            (event) => {
+                if (disposed || event.payload?.id !== block.commandId) return;
+                setLocalStatus((current) => resolvedEditStatus(current, event.payload?.approved === true));
+            },
+        );
+        const failureListenerPromise = listen<{ id?: string }>(
+            "agent-edit-application-failed",
+            (event) => {
+                if (disposed || event.payload?.id !== block.commandId) return;
+                setLocalStatus("failed");
+            },
+        );
+        return () => {
+            disposed = true;
+            void unlistenPromise.then((unlisten) => unlisten()).catch(() => { /* ignore */ });
+            void failureListenerPromise.then((unlisten) => unlisten()).catch(() => { /* ignore */ });
+        };
+    }, [block.commandId]);
 
-    const status = localStatus ?? block.commandStatus ?? "pending";
+    const terminalStatus = ["applied", "rejected", "cancelled"].includes(block.commandStatus ?? "")
+        ? block.commandStatus
+        : null;
+    const status = terminalStatus ?? localStatus ?? block.commandStatus ?? "pending";
+    if (status === "approved") {
+        return <ActionLine action="Approved" detail={`${fileName(file)} · Applying…`} />;
+    }
+    if (status === "failed") {
+        return <ActionLine action="Edit failed" detail={fileName(file)} />;
+    }
     if (status !== "pending") {
         return (
             <ActionLine
