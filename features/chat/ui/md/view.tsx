@@ -52,9 +52,13 @@ function pathExists(resolved: string): Promise<boolean> {
         .catch(() => commands.lsDir(resolved).then(() => true).catch(() => false));
     const entry = { promise: probe, at: now };
     pathExistsCache.set(resolved, entry);
-    probe.then((found) => {
-        if (!found && pathExistsCache.get(resolved) === entry) pathExistsCache.delete(resolved);
-    });
+    probe
+        .then((found) => {
+            if (!found && pathExistsCache.get(resolved) === entry) pathExistsCache.delete(resolved);
+        })
+        // `probe` maps every rejection to `false`, so this only marks the
+        // chain as handled for the promise linters.
+        .catch(() => {});
     return probe;
 }
 
@@ -65,9 +69,11 @@ function ProjectPathLink({ path }: { path: string }) {
     useEffect(() => {
         let cancelled = false;
         const resolved = resolveProjectFilePath(path, getProjectPath());
-        pathExists(resolved).then((found) => {
-            if (!cancelled) setExists(found);
-        });
+        pathExists(resolved)
+            .then((found) => {
+                if (!cancelled) setExists(found);
+            })
+            .catch(() => { /* see pathExists: it never rejects */ });
         return () => {
             cancelled = true;
         };

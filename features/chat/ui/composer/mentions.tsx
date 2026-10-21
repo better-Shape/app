@@ -156,7 +156,7 @@ export function MentionPicker({
                     } catch {
                         if (!cancelled) setFiles([]);
                     }
-                })();
+                })().catch(() => { /* failures already land in the empty-list branch */ });
             },
             filter ? 120 : 0,
         );
@@ -183,7 +183,7 @@ export function MentionPicker({
             } catch {
                 if (!cancelled) setChats([]);
             }
-        })();
+        })().catch(() => { /* same: surfaced as an empty chat list */ });
         return () => {
             cancelled = true;
         };
