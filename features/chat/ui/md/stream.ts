@@ -336,6 +336,7 @@ function adjacentDuplicate(text: string, maxLen: number): { start: number; len: 
     for (let i = 1; i <= maxLen; i++) {
         power[i] = Math.imul(power[i - 1] ?? 0, HASH_BASE) >>> 0;
     }
+    /** Rolling hash of `text[at..at+len)` from the prefix table. */
     const windowHash = (at: number, len: number) => {
         const head = prefix[at + len] ?? 0;
         const tail = prefix[at] ?? 0;

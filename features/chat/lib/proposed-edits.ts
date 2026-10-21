@@ -108,6 +108,7 @@ function saveResolvedFilesStore(store: ResolvedStore) {
     }
 }
 
+/** Reads a stored entry from any older format, or `null` when it is not a decision. */
 function normalizeEntry(
     raw: ResolvedEntry | "applied" | "rejected" | undefined,
 ): ResolvedEntry | null {

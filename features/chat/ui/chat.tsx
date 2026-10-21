@@ -196,6 +196,7 @@ export default function Chat({
     });
 
     React.useEffect(() => {
+        /** Menu command: start a new chat in this window. */
         const onNewChat = () => {
             newChatRef.current();
         };

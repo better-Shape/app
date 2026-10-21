@@ -141,7 +141,7 @@ export function MentionPicker({
     }, [open]);
 
     useEffect(() => {
-        if (!open || !project_path) return;
+        if (!open || !project_path) return undefined;
         let cancelled = false;
         // Each keystroke used to trigger its own project scan; typing `@file` fired
         // one per letter. An empty query (menu just opened) still searches at once.

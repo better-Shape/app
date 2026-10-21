@@ -58,7 +58,7 @@ function pathExists(resolved: string): Promise<boolean> {
         })
         // `probe` maps every rejection to `false`, so this only marks the
         // chain as handled for the promise linters.
-        .catch(() => {});
+        .catch(() => undefined);
     return probe;
 }
 

@@ -27,6 +27,7 @@ function pathMatches(pathname: string | null, base: string) {
     return pathname === base || pathname === `${base}/` || pathname.startsWith(`${base}/`);
 }
 
+/** App shell: window-level effects, keyboard bindings and the shell the routes mount into. */
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
     const pathname = usePathname();
     // One window-level instance per window. The titlebar used to own this, which
@@ -68,7 +69,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
 
     // Dev-only performance overlay; a no-op in production builds.
     useEffect(() => {
-        if (process.env.NODE_ENV === "production") return;
+        if (process.env.NODE_ENV === "production") return undefined;
         let unmount: (() => void) | undefined;
         let cancelled = false;
         import("@/lib/dev/perf-hud-overlay")
@@ -76,7 +77,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
                 if (!cancelled) unmount = mountPerfHud();
             })
             // A missing chunk only costs the overlay, never the app shell.
-            .catch(() => {});
+            .catch(() => undefined);
         return () => {
             cancelled = true;
             unmount?.();
