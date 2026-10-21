@@ -128,3 +128,17 @@ no feedback. The match counter (`1/2`, `0/0`) is now `aria-live="polite"`.
   `preview:browser` serves `out/` as built; a plain `npm run build` leaves the
   Browser Preview runtime out of the export, so run `build:preview` before
   probing it or every `invoke` fails with "reading 'transformCallback'".
+
+## UI capture (ui-capture skill)
+
+`.qa-artifacts/capture/` — storyboard `shortcut-cheatsheet`, 11.8 s, 217 frames,
+354 gif frames at 1100x688, min delay 30 ms (33.3 fps). Watched:
+palette opens on F1, "Keyboard Shortcuts" runs, the sheet shows
+`2 of 40 bound` while filtered to "terminal", Esc closes it, and the HUD stays
+in the bottom-right corner throughout. Cursor lands on the filter field.
+
+Sandbox note: `ffmpeg` is absent and the vendored Playwright ffmpeg is a
+decode-only build (`--disable-everything`, no `palettegen`/`gif`). A working
+ffmpeg came from `pip install imageio-ffmpeg` into a throwaway venv; `ffprobe`
+is still unavailable, so `validate.mjs` could not run. Its mechanical checks
+were reproduced by parsing the GIF: 354 frames, min 30 ms delay, 11.80 s total.
