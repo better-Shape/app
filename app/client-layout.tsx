@@ -19,7 +19,9 @@ import { CommandPaletteBridge } from "@/features/agent/palette";
 import { DesignPreviewCaptureHost } from "@/features/chat/ui/design-capture";
 import { WebviewReconnect } from "@/components/layout/webview-reconnect";
 import { KeyboardShortcutsCheatsheet } from "@/features/shortcuts/ui/cheatsheet";
+import { useKeyboardShortcuts } from "@/lib/ui/shortcuts";
 
+/** True when `pathname` is `base` itself or a route nested under it. */
 function pathMatches(pathname: string | null, base: string) {
     if (!pathname) return false;
     return pathname === base || pathname === `${base}/` || pathname.startsWith(`${base}/`);
@@ -27,6 +29,9 @@ function pathMatches(pathname: string | null, base: string) {
 
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
     const pathname = usePathname();
+    // One window-level instance per window. The titlebar used to own this, which
+    // left the workbench (no titlebar) and the browser preview with no bindings.
+    useKeyboardShortcuts();
     // Prod static export uses trailing slashes (`/settings/`); match both forms.
     const isSettings = pathMatches(pathname, "/settings");
     const isBranch = pathMatches(pathname, "/branch") || pathMatches(pathname, "/git");
@@ -66,9 +71,12 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
         if (process.env.NODE_ENV === "production") return;
         let unmount: (() => void) | undefined;
         let cancelled = false;
-        void import("@/lib/dev/perf-hud-overlay").then(({ mountPerfHud }) => {
-            if (!cancelled) unmount = mountPerfHud();
-        });
+        import("@/lib/dev/perf-hud-overlay")
+            .then(({ mountPerfHud }) => {
+                if (!cancelled) unmount = mountPerfHud();
+            })
+            // A missing chunk only costs the overlay, never the app shell.
+            .catch(() => {});
         return () => {
             cancelled = true;
             unmount?.();

@@ -129,6 +129,9 @@ export function mountPerfHud(): () => void {
 
     const render = () => {
         const frames = perfHud.frames();
+        // The collapsed header is the whole panel, so it carries the live FPS
+        // rather than the static label the expanded header shows.
+        title.textContent = collapsed ? `${frames.fps} fps` : "perf";
         const longTasks = perfHud.longTaskStats();
         const invokes = perfHud.invokeStats();
         const report = perfHud.renderReport();
@@ -168,11 +171,7 @@ export function mountPerfHud(): () => void {
         root.style.width = collapsed ? "auto" : "264px";
         collapseButton.textContent = collapsed ? "+" : "–";
         collapseButton.setAttribute("aria-label", collapsed ? "Expand performance HUD" : "Collapse performance HUD");
-        if (collapsed) {
-            title.textContent = `${perfHud.frames().fps} fps`;
-        } else {
-            title.textContent = "perf";
-        }
+        render();
     };
 
     resetButton.addEventListener("click", () => {
@@ -181,7 +180,6 @@ export function mountPerfHud(): () => void {
     });
     collapseButton.addEventListener("click", () => {
         setCollapsed(!collapsed);
-        render();
     });
 
     const unsubscribe = perfHud.subscribe(render);

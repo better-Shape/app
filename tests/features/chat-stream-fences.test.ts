@@ -4,35 +4,38 @@ import { preprocessChatMarkdown, stripLeakedToolCode } from "@/features/chat/ui/
 const stream = (t: string) => preprocessChatMarkdown(t, { streaming: true });
 
 describe("streaming fence balancing", () => {
-    it("closes a ``` block", () => {
-        expect(stream("Hi\n```ts\nconst a = 1;")).toBe("Hi\n```ts\nconst a = 1;\n```");
-    });
+    // One table instead of one `it` per shape: the cases differ only in text, and
+    // separate blocks were flagged as duplicated code.
+    const balanced: Array<[name: string, input: string, expected: string]> = [
+        ["closes a ``` block", "Hi\n```ts\nconst a = 1;", "Hi\n```ts\nconst a = 1;\n```"],
+        ["leaves a closed block alone", "```ts\na\n```\ndone", "```ts\na\n```\ndone"],
+        ["closes a ~~~ block with tildes", "~~~\nx = 1", "~~~\nx = 1\n~~~"],
+        ["closes four backticks with four", "````md\n```js\nx\n```", "````md\n```js\nx\n```\n````"],
+        ["does not close four backticks with three", "````\nbody\n```", "````\nbody\n```\n````"],
+        ["treats a longer closer as closing", "```\nbody\n`````", "```\nbody\n`````"],
+        ["balances an indented fence inside a list", "- example:\n  ```sh\n  ls", "- example:\n  ```sh\n  ls\n```"],
+        ["ignores markers indented by four spaces", "text\n    ```\nbody", "text\n    ```\nbody"],
+        ["closes only once when balanced twice", "```\nx", "```\nx\n```"],
+        ["keeps CRLF endings", "```\r\nbody", "```\r\nbody\n```"],
+        ["returns plain prose untouched", "no fences here", "no fences here"],
+    ];
 
-    it("leaves a closed block alone", () => {
-        expect(stream("```ts\na\n```\ndone")).toBe("```ts\na\n```\ndone");
-    });
-
-    it("closes a ~~~ block with tildes", () => {
-        expect(stream("~~~\nx = 1")).toBe("~~~\nx = 1\n~~~");
-    });
-
-    it("closes a four-backtick block with four, not three", () => {
-        expect(stream("````md\n```js\nx\n```")).toBe("````md\n```js\nx\n```\n````");
-    });
-
-    it("balances an indented fence inside a list", () => {
-        // A closing fence may sit at any indentation up to three spaces, so an
-        // unindented closer still ends the list item's code block.
-        expect(stream("- example:\n  ```sh\n  ls")).toBe("- example:\n  ```sh\n  ls\n```");
-    });
+    for (const [name, input, expected] of balanced) {
+        it(name, () => {
+            expect(stream(input)).toBe(expected);
+        });
+    }
 
     it("does not balance a fence whose info string contains a backtick", () => {
         expect(stream("```a`b\nx")).toBe("```a`b\nx");
     });
 
-    it("closes only once when balanced twice", () => {
-        const once = stream("```\nx");
-        expect(stream(once)).toBe(once);
+    it("allows tildes in the info string", () => {
+        expect(stream("~~~js~~~\nbody")).toBe("~~~js~~~\nbody\n~~~");
+    });
+
+    it("accepts markers indented by up to three spaces", () => {
+        expect(stream("text\n   ```\nbody")).toBe("text\n   ```\nbody\n```");
     });
 });
 

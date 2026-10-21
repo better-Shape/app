@@ -708,6 +708,7 @@ function turnMarks(blocks: Chunk[]) {
     };
 }
 
+/** Renders one turn's workflow steps; `TurnWorkflowSummary` memoises it. */
 function TurnWorkflowSummaryInner({
     blocks,
     isActive,

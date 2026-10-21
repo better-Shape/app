@@ -40,6 +40,7 @@ const subagentScanCache = new WeakMap<
     }
 >();
 
+/** Subagents mentioned in a message, memoised per message object. */
 function scannedSubagents(message: ChatMessage, parentId: string | undefined) {
     const content = message.content || "";
     const cached = subagentScanCache.get(message);
@@ -51,6 +52,7 @@ function scannedSubagents(message: ChatMessage, parentId: string | undefined) {
     return items;
 }
 
+/** One-line prompt preview for the sticky header (attachments removed, clamped). */
 function stickyPromptText(content: string): string {
     const cleaned = content
         .replace(/<attached_(?:image|file|asset)\b[^>]*>[\s\S]*?<\/attached_(?:image|file|asset)>\n*/g, "")
@@ -195,7 +197,7 @@ export default function Chat({
 
     React.useEffect(() => {
         const onNewChat = () => {
-            void newChatRef.current();
+            newChatRef.current();
         };
         const onRestoreLast = () => {
             // Read the live transcript on demand: keeping `session.messages` in the
@@ -203,7 +205,7 @@ export default function Chat({
             const msgs = session.messagesRef.current;
             for (let i = msgs.length - 1; i >= 0; i--) {
                 if (msgs[i]?.role === "user") {
-                    void restoreRef.current(i);
+                    restoreRef.current(i);
                     return;
                 }
             }

@@ -96,6 +96,7 @@ const ChatTurn = React.memo(function ChatTurn({
 });
 ChatTurn.displayName = "ChatTurn";
 
+/** Virtualised transcript: renders only the turns near the viewport. */
 export function ChatMessageList({
     messageGroups,
     messages,

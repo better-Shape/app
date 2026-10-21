@@ -40,6 +40,7 @@ const PATH_PROBE_TTL_MS = 60_000;
 const PATH_PROBE_CACHE_MAX = 500;
 const pathExistsCache = new Map<string, { promise: Promise<boolean>; at: number }>();
 
+/** Cached existence probe: one file+`ls` round trip per path per TTL window. */
 function pathExists(resolved: string): Promise<boolean> {
     const now = Date.now();
     const cached = pathExistsCache.get(resolved);
@@ -51,19 +52,20 @@ function pathExists(resolved: string): Promise<boolean> {
         .catch(() => commands.lsDir(resolved).then(() => true).catch(() => false));
     const entry = { promise: probe, at: now };
     pathExistsCache.set(resolved, entry);
-    void probe.then((found) => {
+    probe.then((found) => {
         if (!found && pathExistsCache.get(resolved) === entry) pathExistsCache.delete(resolved);
     });
     return probe;
 }
 
+/** Project-relative path that only becomes a link once the file is known to exist. */
 function ProjectPathLink({ path }: { path: string }) {
     const [exists, setExists] = useState<boolean | null>(null);
 
     useEffect(() => {
         let cancelled = false;
         const resolved = resolveProjectFilePath(path, getProjectPath());
-        void pathExists(resolved).then((found) => {
+        pathExists(resolved).then((found) => {
             if (!cancelled) setExists(found);
         });
         return () => {
@@ -112,6 +114,7 @@ function linkifyChildren(children: React.ReactNode): React.ReactNode {
     });
 }
 
+/** Fenced code block with a copy button that survives streaming remounts. */
 function CodeBlock({ language, code, ...rest }: { language: string; code: string; [k: string]: unknown }) {
     const [copied, setCopied] = useState(false);
     // Code blocks remount constantly while text streams in; a pending reset
@@ -123,8 +126,9 @@ function CodeBlock({ language, code, ...rest }: { language: string; code: string
         };
     }, []);
 
+    /** Copies the block; a denied clipboard leaves the label unchanged. */
     const copy = () => {
-        void navigator.clipboard
+        navigator.clipboard
             .writeText(code)
             .then(() => {
                 setCopied(true);

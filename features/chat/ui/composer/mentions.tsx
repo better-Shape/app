@@ -147,7 +147,7 @@ export function MentionPicker({
         // one per letter. An empty query (menu just opened) still searches at once.
         const timer = window.setTimeout(
             () => {
-                void (async () => {
+                (async () => {
                     try {
                         const results = await commands.searchProjectFiles(filter || "", 40);
                         if (!cancelled) {
@@ -167,9 +167,9 @@ export function MentionPicker({
     }, [open, project_path, filter]);
 
     useEffect(() => {
-        if (!open) return;
+        if (!open) return undefined;
         let cancelled = false;
-        void (async () => {
+        (async () => {
             try {
                 const list = await commands.getConversations(project_path ?? undefined);
                 if (!cancelled) {

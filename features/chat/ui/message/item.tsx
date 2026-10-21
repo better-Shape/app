@@ -82,6 +82,7 @@ type ChatMessageItemProps = {
     messagesRef?: React.RefObject<ChatMessage[]>;
 };
 
+/** One attachment bubble on a sent user message (image inline, others as a chip). */
 function SentAttachment({ att }: { att: ParsedUserAttachment }) {
     if (att.kind === "image" && att.dataUrl) {
         return (

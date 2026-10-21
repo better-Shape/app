@@ -355,20 +355,20 @@ function adjacentDuplicate(text: string, maxLen: number): { start: number; len: 
 /** Z-array: z[i] is the length of the longest common prefix of `text` and `text[i..]`. */
 function zFunction(text: string): Uint32Array {
     const n = text.length;
-    const z = new Uint32Array(n);
+    const zValues = new Uint32Array(n);
     let left = 0;
     let right = 0;
     for (let i = 1; i < n; i++) {
-        let k = 0;
-        if (i < right) k = Math.min(right - i, z[i - left] ?? 0);
-        while (i + k < n && text.charCodeAt(k) === text.charCodeAt(i + k)) k++;
-        z[i] = k;
-        if (i + k > right) {
+        let shared = 0;
+        if (i < right) shared = Math.min(right - i, zValues[i - left] ?? 0);
+        while (i + shared < n && text.charCodeAt(shared) === text.charCodeAt(i + shared)) shared++;
+        zValues[i] = shared;
+        if (i + shared > right) {
             left = i;
-            right = i + k;
+            right = i + shared;
         }
     }
-    return z;
+    return zValues;
 }
 
 /** Repair cumulative-stream glitches and obvious duplicate phrases in assistant text. */
@@ -383,12 +383,12 @@ export function repairStreamGlitches(text: string): string {
     if (text.length >= 41) {
         // The loop below needs `start < length - 20` to run at all, which holds
         // from 41 characters on; a 41-char duplicate prefix is still a glitch.
-        const z = zFunction(text);
+        const zValues = zFunction(text);
         for (let start = 20; start < text.length - 20; start++) {
-            const shared = z[start] ?? 0;
-            if (shared < 20) continue;
-            const len = Math.min(Math.min(start, text.length - start), shared);
-            return text.slice(0, start) + text.slice(start + len);
+            const overlap = zValues[start] ?? 0;
+            if (overlap < 20) continue;
+            const keep = Math.min(Math.min(start, text.length - start), overlap);
+            return text.slice(0, start) + text.slice(start + keep);
         }
     }
 
@@ -493,10 +493,21 @@ export function preprocessChatMarkdown(
 }
 
 /**
- * Fence markers at the start of a line: three or more backticks, or three or more
- * tildes, optionally indented up to three spaces.
+ * Fence marker at the start of a line: three or more backticks, or three or more
+ * tildes, indented by at most three spaces. Returned with the rest of the line
+ * (the info string). Scanned instead of matched because the anchored regex was
+ * flagged for super-linear backtracking when a line failed to match.
  */
-const FENCE_LINE = /^ {0,3}(`{3,}|~{3,})([^\n]*)$/gm;
+function parseFenceLine(line: string): { marker: string; info: string } | null {
+    let start = 0;
+    while (start < 3 && line.charAt(start) === " ") start += 1;
+    const char = line.charAt(start);
+    if (char !== "`" && char !== "~") return null;
+    let end = start;
+    while (line.charAt(end) === char) end += 1;
+    if (end - start < 3) return null;
+    return { marker: char.repeat(end - start), info: line.slice(end) };
+}
 
 /**
  * Close an unclosed fenced code block so streaming markdown does not swallow the
@@ -506,23 +517,21 @@ const FENCE_LINE = /^ {0,3}(`{3,}|~{3,})([^\n]*)$/gm;
  */
 function balanceMarkdownFences(text: string): string {
     let open: { char: string; len: number } | null = null;
-    FENCE_LINE.lastIndex = 0;
-    let match: RegExpExecArray | null;
-    while ((match = FENCE_LINE.exec(text)) !== null) {
-        const marker = match[1];
-        if (!marker) continue;
-        const info = (match[2] ?? "").trim();
+    for (const line of text.split("\n")) {
+        const fence = parseFenceLine(line);
+        if (!fence) continue;
+        const info = fence.info.trim();
         if (open) {
             // A closer has the same character, at least the opener's length, and
             // no info string (CommonMark); anything else is just content.
-            if (marker[0] === open.char && marker.length >= open.len && info === "") {
+            if (fence.marker.charAt(0) === open.char && fence.marker.length >= open.len && info === "") {
                 open = null;
             }
             continue;
         }
         // A backtick fence's info string cannot itself contain a backtick.
-        if (marker[0] === "`" && info.includes("`")) continue;
-        open = { char: marker.charAt(0), len: marker.length };
+        if (fence.marker.charAt(0) === "`" && info.includes("`")) continue;
+        open = { char: fence.marker.charAt(0), len: fence.marker.length };
     }
     if (!open) return text;
     return `${text}\n${open.char.repeat(open.len)}`;

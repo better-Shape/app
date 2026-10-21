@@ -644,7 +644,13 @@ export function CodeMirrorEditor({
     return (
         <ContextMenu>
             <ContextMenuTrigger asChild>
-                <div ref={hostRef} className="h-full min-h-0 w-full overflow-hidden bg-panel" />
+                <div
+                    ref={hostRef}
+                    className="h-full min-h-0 w-full overflow-hidden bg-panel"
+                    // CodeMirror saves/formats the buffer itself; the window
+                    // handler must not run the same chord a second time.
+                    data-shortcut-owner="Ctrl+S,Ctrl+Shift+S,Alt+Shift+F"
+                />
             </ContextMenuTrigger>
             <ContextMenuContent className="min-w-44">
                 <ContextMenuItem

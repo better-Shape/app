@@ -66,6 +66,7 @@ export function subagentsForParent(parentId: string): SubagentCard[] {
 /** `<attr="value">` readers, compiled once per attribute name. */
 const ATTR_PATTERNS = new Map<string, RegExp>();
 
+/** Pulls `<subagent …>` blocks out of assistant text, de-duplicated by id or title. */
 export function extractSubagentsFromText(text: string, parentId?: string): Array<{
     id: string;
     title: string;
@@ -93,6 +94,7 @@ export function extractSubagentsFromText(text: string, parentId?: string): Array
         }
         return tag.match(re)?.[1] ?? "";
     };
+    /** Adds one parsed subagent, skipping blank keys and repeats. */
     const push = (id: string, title: string, task: string, model?: string, transcript?: string, statusRaw?: string) => {
         const key = id || title;
         if (!key || seen.has(key)) return;

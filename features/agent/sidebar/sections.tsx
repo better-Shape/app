@@ -91,6 +91,7 @@ export const SORT_OPTIONS: { value: ChatSort; label: string }[] = [
 /** One collator for every title comparison; `localeCompare` built a new one per call. */
 const titleCollator = new Intl.Collator(undefined, { sensitivity: "base" });
 
+/** Orders a shelf of conversations for the given sort mode (pure, stable). */
 export const sortShelf = (chats: readonly Conversation[], sort: ChatSort): Conversation[] => {
     const nameSign = sort === "name-desc" ? -1 : 1;
     /** Title order for the name sorts, with the id as a stable tiebreak. */

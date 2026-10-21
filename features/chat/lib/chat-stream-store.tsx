@@ -135,6 +135,7 @@ const ChatStreamMetaContext = React.createContext<ChatStreamMeta | null>(null);
 
 const PENDING_KEY = "__pending__";
 
+/** Appends a streamed delta to the last assistant message, or starts a new one. */
 function appendAssistantChunk(prev: ChatMessage[], chunk: string): ChatMessage[] {
     const latest = prev[prev.length - 1];
     if (latest && latest.role === "assistant") {
