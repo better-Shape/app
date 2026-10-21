@@ -412,7 +412,7 @@ export function patchHtmlOpening(source: string, byteStart: number, byteEnd: num
         if (/\sclass(Name)?\s*=\s*\{/.test(opening) || /\bclass:list\b/.test(opening)) {
             throw new Error("This element uses a dynamic class. BetterShape will not overwrite it.");
         }
-        const insert = opening.search(/\s*\/?>$/);
+        const insert = opening.search(/(?<!\s)\s*\/?>$/);
         const at = insert >= 0 ? insert : opening.length;
         next = `${opening.slice(0, at)} class="${add}"${opening.slice(at)}`;
     }

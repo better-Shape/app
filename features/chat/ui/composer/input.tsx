@@ -131,7 +131,7 @@ type ChatInputProps = {
 function formatContextWindow(raw?: string): string {
     const t = (raw ?? "").trim();
     if (!t) return "";
-    return t.replace(/([0-9.]+)\s*K\b/i, "$1k").replace(/([0-9.]+)\s*M\b/i, "$1m");
+    return t.replace(/(?<![0-9.])([0-9.]+)\s*K\b/i, "$1k").replace(/(?<![0-9.])([0-9.]+)\s*M\b/i, "$1m");
 }
 
 const ModelTooltip = ({

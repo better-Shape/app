@@ -75,7 +75,7 @@ export function formatCommandError(raw: unknown, fallbackTitle = "Error"): Forma
         || lower.includes("would be overwritten by merge")
         || (lower.includes("checkout") && lower.includes("conflict"))
     ) {
-        const count = text.match(/(\d+)\s+conflicts? prevent checkout/i)?.[1];
+        const count = text.match(/(?<!\d)(\d+)\s+conflicts? prevent checkout/i)?.[1];
         return {
             title: "Uncommitted changes",
             message: count

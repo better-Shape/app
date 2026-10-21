@@ -375,7 +375,7 @@ function unescapeXml(s: string): string {
         const modelMatch = block.match(/<review_debate[^>]*\bmodel="([^"]*)"/i);
         const inner = block
             .replace(/^<review_debate[^>]*>\s*/i, "")
-            .replace(/\s*<\/review_debate>$/i, "")
+            .replace(/(?<!\s)\s*<\/review_debate>$/i, "")
             .trim();
         return {
             type: "review_debate",
@@ -388,7 +388,7 @@ function unescapeXml(s: string): string {
         const open = block.match(/^<persona_review\b[^>]*>/i)?.[0] || "";
         const inner = block
             .replace(/^<persona_review[^>]*>\s*/i, "")
-            .replace(/\s*<\/persona_review>$/i, "")
+            .replace(/(?<!\s)\s*<\/persona_review>$/i, "")
             .trim();
         return {
             type: "persona_review",

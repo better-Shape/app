@@ -100,8 +100,8 @@ export function sameProjectPath(a: string, b: string): boolean {
 export function sameDevCommand(a: string, b: string): boolean {
     const strip = (s: string) =>
         s
-            .replace(/\s+--\s+--hostname\s+\S+/gi, "")
-            .replace(/\s+--hostname\s+\S+/gi, "")
+            .replace(/(?<!\s)\s+--\s+--hostname\s+\S+/gi, "")
+            .replace(/(?<!\s)\s+--hostname\s+\S+/gi, "")
             .replace(/\s+/g, " ")
             .trim();
     return strip(a) === strip(b);
