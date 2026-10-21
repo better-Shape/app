@@ -569,10 +569,10 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
         };
 
         /** Apply an event only to the exact live turn and conversation that owns it. */
-        const patchLiveForTurn = (
+        function patchLiveForTurn(
             identity: { conversationId?: string; turnId?: string },
             update: (live: LiveTurn) => void,
-        ): boolean => {
+        ): boolean {
             const { conversationId, turnId } = identity;
             if (!conversationId || !turnId) return false;
             if (isForeignConversation(conversationId)) return false;

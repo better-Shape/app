@@ -18,60 +18,45 @@ afterEach(() => {
     clipboardDescriptor = undefined;
 });
 
+/** Mount an assistant message and expose its public copy action and clipboard spy. */
+const renderAssistantMessageForCopy = async (content: string) => {
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    root = createRoot(host);
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    clipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: { writeText },
+    });
+    await act(async () => {
+        root?.render(<ChatMessageItem role="assistant" content={content} timestamp={0} />);
+    });
+    const copyButton = host.querySelector<HTMLButtonElement>('button[aria-label="Copy message"]');
+    if (!copyButton) throw new Error("Assistant copy action was not rendered");
+    return {
+        writeText,
+        copyMessage: () => act(async () => copyButton.click()),
+    };
+};
+
 describe("OpenUIBlock", () => {
     it("copies rendered visual text through the assistant message action", async () => {
-        host = document.createElement("div");
-        document.body.appendChild(host);
-        root = createRoot(host);
-        const writeText = vi.fn().mockResolvedValue(undefined);
-        clipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, "clipboard");
-        Object.defineProperty(navigator, "clipboard", {
-            configurable: true,
-            value: { writeText },
-        });
-
-        await act(async () => {
-            root?.render(
-                <ChatMessageItem
-                    role="assistant"
-                    content={'```openui-lang\nroot = Surface([label])\nlabel = Text("Visual summary")\n```'}
-                    timestamp={0}
-                />,
-            );
-        });
-
-        expect(host.querySelector("[data-openui-block]")?.textContent).toContain("Visual summary");
-        const copyButton = host.querySelector<HTMLButtonElement>('button[aria-label="Copy message"]');
-        expect(copyButton).toBeTruthy();
-        await act(async () => copyButton?.click());
+        const { writeText, copyMessage } = await renderAssistantMessageForCopy(
+            '```openui-lang\nroot = Surface([label])\nlabel = Text("Visual summary")\n```',
+        );
+        expect(host?.querySelector("[data-openui-block]")?.textContent).toContain("Visual summary");
+        await copyMessage();
 
         expect(writeText).toHaveBeenCalledWith("Visual summary");
     });
 
     it("copies rendered metadata labels instead of protocol prefixes", async () => {
-        host = document.createElement("div");
-        document.body.appendChild(host);
-        root = createRoot(host);
-        const writeText = vi.fn().mockResolvedValue(undefined);
-        clipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, "clipboard");
-        Object.defineProperty(navigator, "clipboard", {
-            configurable: true,
-            value: { writeText },
-        });
-
-        await act(async () => {
-            root?.render(
-                <ChatMessageItem
-                    role="assistant"
-                    content={'<forked_from id="source" title="Earlier chat"/>Answer from the earlier conversation.'}
-                    timestamp={0}
-                />,
-            );
-        });
-
-        expect(host.textContent).toContain("Forked from");
-        const copyButton = host.querySelector<HTMLButtonElement>('button[aria-label="Copy message"]');
-        await act(async () => copyButton?.click());
+        const { writeText, copyMessage } = await renderAssistantMessageForCopy(
+            '<forked_from id="source" title="Earlier chat"/>Answer from the earlier conversation.',
+        );
+        expect(host?.textContent).toContain("Forked from");
+        await copyMessage();
 
         const copied = writeText.mock.calls[0]?.[0] ?? "";
         expect(copied).toContain("Forked from");
@@ -80,34 +65,34 @@ describe("OpenUIBlock", () => {
     });
 
     it("copies rendered chart text instead of dropping structured message blocks", async () => {
-        host = document.createElement("div");
-        document.body.appendChild(host);
-        root = createRoot(host);
-        const writeText = vi.fn().mockResolvedValue(undefined);
-        clipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, "clipboard");
-        Object.defineProperty(navigator, "clipboard", {
-            configurable: true,
-            value: { writeText },
-        });
-
-        await act(async () => {
-            root?.render(
-                <ChatMessageItem
-                    role="assistant"
-                    content={'A chart:\n<chart>{"title":"Test results","points":[{"label":"Passed","value":42}]}</chart>'}
-                    timestamp={0}
-                />,
-            );
-        });
-
-        expect(host.textContent).toContain("Test results");
-        expect(host.textContent).toContain("Passed");
-        const copyButton = host.querySelector<HTMLButtonElement>('button[aria-label="Copy message"]');
-        await act(async () => copyButton?.click());
+        const { writeText, copyMessage } = await renderAssistantMessageForCopy(
+            'A chart:\n<chart>{"title":"Test results","points":[{"label":"Passed","value":42}]}</chart>',
+        );
+        expect(host?.textContent).toContain("Test results");
+        expect(host?.textContent).toContain("Passed");
+        await copyMessage();
 
         expect(writeText.mock.calls[0]?.[0]).toContain("A chart:");
         expect(writeText.mock.calls[0]?.[0]).toContain("Test results");
         expect(writeText.mock.calls[0]?.[0]).toContain("Passed");
+    });
+
+    it("copies rendered question content instead of omitting structured prompts", async () => {
+        const payload = JSON.stringify({
+            questions: [{ id: "goal", prompt: "What should the report emphasize?", options: [{ id: "risks", label: "Risks first" }] }],
+        });
+        const { writeText, copyMessage } = await renderAssistantMessageForCopy(
+            `Question for you:\n<questions id="ask-1" status="pending">${payload}</questions>`,
+        );
+
+        expect(host?.textContent).toContain("What should the report emphasize?");
+        await copyMessage();
+
+        const copied = writeText.mock.calls[0]?.[0] ?? "";
+        expect(copied).toContain("Question for you:");
+        expect(copied).toContain("What should the report emphasize?");
+        expect(copied).toContain("Risks first");
+        expect(copied).not.toContain("<questions");
     });
 
     it("disables OpenUI runtime telemetry and the remote development inspector", () => {

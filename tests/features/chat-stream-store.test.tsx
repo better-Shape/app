@@ -241,8 +241,13 @@ describe("a chat that runs in the background stays in the background", () => {
         act(() => api.showConversation("B"));
         expect(api.activityLabel).toBe("Thinking");
 
-        // Legacy/unscoped and stale-turn statuses must never fall back to the viewed chat.
+        // Legacy/unscoped and stale-turn statuses must not mutate either hidden conversation.
         emit("chat_status", { phase: "tool", tool: "run_terminal", label: "Wrong chat" });
+        expect(api.activityLabel).toBe("Thinking");
+        act(() => api.showConversation("A"));
+        expect(api.activityLabel).toBe("Thinking");
+        act(() => api.showConversation("B"));
+
         emit("chat_status", {
             conversationId: "A",
             turnId: "old-turn",

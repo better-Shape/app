@@ -4,12 +4,12 @@ import { preprocessChatMarkdown, repairStreamGlitches, stripLeakedToolCode } fro
 
 describe("parseMessageContent", () => {
     it("parses fenced OpenUI programs separately from surrounding prose", () => {
-        const chunks = parseMessageContent(
-            'A compact view:\n```openui-lang\nroot = Surface([label], "Summary")\nlabel = Text("Ready")\n```\nThat is the result.',
-        );
+        const message = 'A compact view:\n```openui-lang\nroot = Surface([label], "Summary")\nlabel = Text("Ready")\n```\nThat is the result.';
+        const chunks = parseMessageContent(message);
         expect(chunks.map((chunk) => chunk.type)).toEqual(["text", "openui", "text"]);
         expect(chunks[1]?.content).toContain('root = Surface([label], "Summary")');
         expect(chunks[1]?.isGenerating).toBe(false);
+        expect(chunks[1]?.openuiSourceStart).toBe(message.indexOf("```openui-lang"));
         expect(chunks[0]?.content).toContain("A compact view");
         expect(chunks[2]?.content).toContain("That is the result.");
     });
@@ -517,6 +517,6 @@ it("renders the submitted image body when a filename contains a tag delimiter", 
         file: new File(["hello"], 'a>b".png', { type: "image/png" }),
     }], new AbortController().signal);
     expect(parseMessageContent(body).filter(chunk => chunk.type === "attached_image")).toEqual([
-        { type: "attached_image", content: dataUrl, command: undefined, isGenerating: false },
+        { type: "attached_image", content: dataUrl, isGenerating: false, sourceStart: 0 },
     ]);
 });

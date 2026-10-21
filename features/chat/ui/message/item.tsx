@@ -406,7 +406,7 @@ function ChatMessageItemInner({
     };
 
     /** Prefer an explicit in-message selection; otherwise copy the normalized rendered message. */
-    const handleCopy = () => {
+    const handleCopy = (): void => {
         const sel = window.getSelection();
         const selected = sel?.toString() ?? "";
         const targetText = selected && selectionContainedInBody(sel) ? selected : getCopyText();
