@@ -53,19 +53,26 @@ const maskQuotedValue = (source: string, start: number, quote: "\"" | "'", maske
     return index;
 };
 
+/** Mask one comment or quoted token and return its exclusive end position, if present. */
+const maskTokenAt = (source: string, index: number, masked: string[]): number | null => {
+    if (source[index] === "/" && source[index + 1] === "/") {
+        return maskLineComment(source, index, masked);
+    }
+    const quote = source[index];
+    if (quote === "\"" || quote === "'") {
+        return maskQuotedValue(source, index, quote, masked);
+    }
+    return null;
+};
+
 /** Mask literals/comments before counting references, so prose cannot inflate the render budget. */
 const maskOpenUIStringsAndComments = (source: string): string => {
     const masked = source.split("");
     let maskedUntil = 0;
     for (let index = 0; index < source.length; index += 1) {
         if (index < maskedUntil) continue;
-        const character = source[index] ?? "";
-        const next = source[index + 1] ?? "";
-        if (character === "/" && next === "/") {
-            maskedUntil = maskLineComment(source, index, masked);
-        } else if (character === "\"" || character === "'") {
-            maskedUntil = maskQuotedValue(source, index, character, masked);
-        }
+        const tokenEnd = maskTokenAt(source, index, masked);
+        if (tokenEnd !== null) maskedUntil = tokenEnd;
     }
     return masked.join("");
 };
@@ -152,13 +159,23 @@ const BoundedChildren = ({ children, renderNode }: BoundedChildrenProps) => {
     );
 };
 
+/** Render an optional title inside the surface heading. */
+const SurfaceTitle = ({ title }: { title?: string }) => title
+    ? <h3 className="text-md font-semibold text-text-primary">{title}</h3>
+    : null;
+
+/** Render an optional subtitle with spacing that follows the title naturally. */
+const SurfaceSubtitle = ({ title, subtitle }: { title?: string; subtitle?: string }) => subtitle
+    ? <p className={`${title ? "mt-1 " : ""}text-xs leading-relaxed text-text-secondary`}>{subtitle}</p>
+    : null;
+
 /** Render optional surface heading content without adding wrapper logic to the host component. */
 const SurfaceHeader = ({ title, subtitle }: { title?: string; subtitle?: string }) => {
     if (!title && !subtitle) return null;
     return (
         <header className="min-w-0">
-            {title ? <h3 className="text-md font-semibold text-text-primary">{title}</h3> : null}
-            {subtitle ? <p className={`${title ? "mt-1 " : ""}text-xs leading-relaxed text-text-secondary`}>{subtitle}</p> : null}
+            <SurfaceTitle title={title} />
+            <SurfaceSubtitle title={title} subtitle={subtitle} />
         </header>
     );
 };
