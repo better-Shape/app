@@ -87,11 +87,15 @@ const eslintConfig = defineConfig([
     // `RangeError: Invalid string length` on any machine that had run QA.
     "playwright-report/**",
     "test-results/**",
-      "blob-report/**",
-      "playwright/.cache/**",
-      // Generated QA output: screenshots, GIF frames, probe scripts and manifests.
-      // They are artifacts of a run, not application source, and they are not tracked.
-      ".dump/app/qa/**",
+    "blob-report/**",
+    "playwright/.cache/**",
+    // Generated QA output: screenshots, GIF frames, probe scripts and manifests.
+    // They are artifacts of a run, not application source, and they are not tracked.
+    ".dump/app/qa/**",
+    // Agent capture and probe output, also gitignored. Same class as the two
+    // above: local QA artifacts must not change the lint result.
+    ".qa-artifacts/**",
+>>>>>>> d4514a5a (lint: ignore agent capture output, count only bound rows while filtering):eslint.config.mjs
   ]),
   {
     // Every CommonJS file, not only the ones under `scripts`: the Next.js config

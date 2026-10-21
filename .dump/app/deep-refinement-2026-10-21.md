@@ -1,4 +1,4 @@
-# Deep refinement pass — 2026-10-21
+# Deep refinement pass, 2026-10-21
 
 Durable conclusions from the review-and-debug turn on `draft/mega-absorb-all`
 (+ the four deep-refinement features). Evidence, not narrative.
@@ -131,7 +131,7 @@ no feedback. The match counter (`1/2`, `0/0`) is now `aria-live="polite"`.
 
 ## UI capture (ui-capture skill)
 
-`.qa-artifacts/capture/` — storyboard `shortcut-cheatsheet`, 11.8 s, 217 frames,
+`.qa-artifacts/capture/`: storyboard `shortcut-cheatsheet`, 11.8 s, 217 frames,
 354 gif frames at 1100x688, min delay 30 ms (33.3 fps). Watched:
 palette opens on F1, "Keyboard Shortcuts" runs, the sheet shows
 `2 of 40 bound` while filtered to "terminal", Esc closes it, and the HUD stays
