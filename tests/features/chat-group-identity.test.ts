@@ -24,21 +24,31 @@ describe("groupChatMessages", () => {
 
     it("keeps earlier turns by identity when only the last message streams", () => {
         const first = [msg("user", "hi", 1), msg("assistant", "hello", 2)];
-        const before = groupChatMessages(first);
-        expect(before).toHaveLength(1);
+        expect(groupChatMessages(first)).toHaveLength(1);
+
+        // Two turns, so a stream into the last one can prove that the earlier
+        // turn keeps its identity rather than being rebuilt with it.
+        const withSecond = [...first, msg("user", "again", 3), msg("assistant", "sure", 4)];
+        const twoTurns = groupChatMessages(withSecond);
+        expect(twoTurns).toHaveLength(2);
 
         // Streaming rewrites the last message object only.
-        const streaming = [first[0]!, { ...first[1]!, content: "hello world" } as ChatMessage];
+        const streaming = [
+            ...withSecond.slice(0, 3),
+            { ...withSecond[3]!, content: "sure thing" } as ChatMessage,
+        ];
         const after = groupChatMessages(streaming);
-        expect(after).toHaveLength(1);
-        expect(after[0]).not.toBe(before[0]);
+        expect(after).toHaveLength(2);
+        expect(after[0]).toBe(twoTurns[0]);
+        expect(after[1]).not.toBe(twoTurns[1]);
 
-        // A new user turn invalidates only the new turn; the older one is reused.
-        const extended = [...streaming, msg("user", "again", 3)];
+        // A new user turn invalidates only the new turn; the older ones are reused.
+        const extended = [...streaming, msg("user", "third", 5)];
         const third = groupChatMessages(extended);
-        expect(third).toHaveLength(2);
-        expect(third[0]).toBe(after[0]);
-        expect(third[1]).not.toBe(third[0]);
+        expect(third).toHaveLength(3);
+        expect(third[0]).toBe(twoTurns[0]);
+        expect(third[1]).toBe(after[1]);
+        expect(third[2]).not.toBe(third[1]);
     });
 
     it("reuses every turn when the same array is grouped twice", () => {
