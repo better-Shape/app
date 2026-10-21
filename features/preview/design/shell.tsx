@@ -61,7 +61,7 @@ type SourceTarget = {
 };
 
 function CanvasLoadBar() {
-    return <div className="pointer-events-none absolute inset-x-0 top-0 z-20 h-0.5 bg-accent animate-pulse" />;
+    return <div role="progressbar" aria-label="Loading preview" className="bettershape-loading-progress pointer-events-none absolute left-0 top-0 z-20 h-0.5 bg-accent" />;
 }
 
 function joinProjectPath(root: string, relative: string) {
@@ -1238,7 +1238,7 @@ export function DesignStudio({
                 onModeChange={setToolMode}
             />
             <div className="flex min-h-0 flex-1">
-                <main className={cn("relative min-h-0 min-w-0 flex-1 overflow-hidden", iframeSrc && "bg-white")}>
+                <main className={cn("relative min-h-0 min-w-0 flex-1 overflow-hidden", iframeSrc && "bg-white")} aria-busy={canvasBusy || undefined}>
                     <div className="relative h-full overflow-hidden">
                             {iframeSrc ? (
                                 <iframe

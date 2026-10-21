@@ -35,11 +35,14 @@ export function ThinkingBlock({ content, isActive }: { content: string; isActive
             </button>
 
             {isOpen && (
-                <div className="mt-1 flex w-full min-w-0 flex-col gap-1 text-sm leading-relaxed text-text-muted">
+                <div
+                    aria-busy={isActive || undefined}
+                    className="mt-1 flex w-full min-w-0 flex-col gap-1 text-sm leading-relaxed text-text-muted"
+                >
                     {lines.map((line, i) => (
                         <span key={i} className={cn(
                             "block",
-                            isActive && i === lines.length - 1 && "animate-pulse text-text-secondary"
+                            isActive && i === lines.length - 1 && "text-text-secondary"
                         )}>
                             {line}
                         </span>

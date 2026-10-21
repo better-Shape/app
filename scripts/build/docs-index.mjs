@@ -6,7 +6,7 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import matter from "gray-matter";
+import { load as parseYaml } from "js-yaml";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SHAPE_ROOT = path.resolve(__dirname, "../..");
@@ -129,11 +129,23 @@ function chunkByHeadings(slug, content) {
   return chunks;
 }
 
+function parseFrontmatter(raw, filePath) {
+  const source = raw.replace(/^\uFEFF/, "");
+  const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(source);
+  if (!match) return { data: {}, content: source };
+
+  const data = parseYaml(match[1]) ?? {};
+  if (typeof data !== "object" || Array.isArray(data)) {
+    throw new TypeError(`Front matter must be a YAML mapping: ${filePath}`);
+  }
+  return { data, content: source.slice(match[0].length) };
+}
+
 function loadDoc(slug) {
   const filePath = path.join(DOCS_ROOT, ...slug) + ".mdx";
   if (!fs.existsSync(filePath)) return null;
   const raw = fs.readFileSync(filePath, "utf-8");
-  const { data, content } = matter(raw);
+  const { data, content } = parseFrontmatter(raw, filePath);
   return {
     slug,
     title: data.title ?? slug[slug.length - 1],

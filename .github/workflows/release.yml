@@ -30,7 +30,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -55,7 +55,7 @@ jobs:
         run: |
           set -euo pipefail
           # Determine expected tag: GITHUB_REF_NAME for tag push, INPUT_TAG for manual dispatch
-          # Use env var INPUT_TAG to avoid injection via direct ${{ inputs.tag }} expansion in shell
+          # Keep the dispatch input in INPUT_TAG; never interpolate it into shell source, including comments.
           if [[ "${GITHUB_REF:-}" == refs/tags/* ]]; then
             TAG="${GITHUB_REF_NAME#v}"
             echo "Tag push: $TAG from $GITHUB_REF_NAME"
@@ -132,16 +132,15 @@ jobs:
             arch: aarch64
             target: aarch64-pc-windows-msvc
             bundles: nsis
-          # macOS: `macos-13` (the last Intel macOS label) is no longer published in
-          # actions/runner-images. Intel is cross-compiled from the arm64 runner: the
-          # macOS SDK ships x86_64 slices, so --target x86_64-apple-darwin links.
+          # Use native runners for both architectures; SDK slices alone do not
+          # cross-compile native dependencies such as OpenSSL.
           - runner: macos-latest
             os: macos
             arch: aarch64
             experimental: true
             target: aarch64-apple-darwin
             bundles: dmg
-          - runner: macos-latest
+          - runner: macos-26-intel
             os: macos
             arch: x86_64
             experimental: true
@@ -153,6 +152,12 @@ jobs:
             experimental: true
             target: x86_64-unknown-linux-gnu
             bundles: deb,appimage,rpm
+          - runner: ubuntu-24.04-arm
+            os: linux
+            arch: aarch64
+            experimental: true
+            target: aarch64-unknown-linux-gnu
+            bundles: deb,appimage,rpm
 
     runs-on: ${{ matrix.runner }}
     env:
@@ -160,7 +165,7 @@ jobs:
       # Not every runner image has it; extracting instead is the documented fallback.
       APPIMAGE_EXTRACT_AND_RUN: "1"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -219,39 +224,19 @@ jobs:
           npm run tauri -- build --bundles "${{ matrix.bundles }}" --target "${{ matrix.target }}"
 
       - name: Prepare release assets
-        # assets.mjs is Windows-only: it looks for bundle/nsis/*-setup.exe, requires
-        # the updater .sig next to it, looks for BetterShape.exe, and shells out to
-        # PowerShell's Compress-Archive. On macOS/Linux the bundles are copied as-is.
-        if: runner.os == 'Windows'
-        run: node scripts/release/assets.mjs --arch ${{ matrix.arch }} --out-dir dist/release
-
-      - name: Collect bundles (macOS/Linux)
-        if: runner.os != 'Windows'
         shell: bash
         run: |
           set -euo pipefail
-          BUNDLE_DIR="src-tauri/target/${{ matrix.target }}/release/bundle"
-          if [ ! -d "$BUNDLE_DIR" ]; then
-            echo "::error::No bundle directory at $BUNDLE_DIR"
-            exit 1
-          fi
-          mkdir -p dist/release
-          # Files only - a macOS .app is a directory and must not land in dist/release
-          # (upload.mjs and attest-build-provenance both expect a flat set of files).
-          find "$BUNDLE_DIR" -maxdepth 2 -type f \( -name '*.dmg' -o -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' -o -name '*.sig' \) \
-            -exec cp {} dist/release/ \;
-          if [ -z "$(find dist/release -mindepth 1 -print -quit)" ]; then
-            echo "::error::No installers collected from $BUNDLE_DIR"
-            find "$BUNDLE_DIR" -type f | head -n 20 || true
-            exit 1
-          fi
+          ARGS=(--arch "${{ matrix.arch }}" --out-dir dist/release --bundles "${{ matrix.bundles }}")
+          if [ -n "${{ matrix.target }}" ]; then ARGS+=(--target "${{ matrix.target }}"); fi
+          node scripts/release/assets.mjs "${ARGS[@]}"
 
       - name: List assets
         shell: bash
         run: find dist/release -type f -exec ls -lh {} \;
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.os }}-${{ matrix.arch }}
           path: dist/release/*
@@ -270,7 +255,7 @@ jobs:
 
       - name: Upload SBOM
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: sbom-${{ matrix.os }}-${{ matrix.arch }}
           path: dist/release/sbom-${{ matrix.arch }}.cyclonedx.json
@@ -290,12 +275,12 @@ jobs:
       id-token: write
       attestations: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
@@ -303,7 +288,7 @@ jobs:
       - run: npm ci
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: dist/release
           merge-multiple: true

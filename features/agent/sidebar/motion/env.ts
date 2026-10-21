@@ -35,28 +35,7 @@ export function isMovingSize(value: number): boolean {
     return Number.isFinite(value) && Math.abs(value) > MOVE_EPS_PX;
 }
 
-function viewOf(node: Node | null | undefined): Window | null {
-    if (node) {
-        const doc = node.nodeType === 9 ? (node as Document) : node.ownerDocument;
-        if (doc?.defaultView) return doc.defaultView;
-    }
-    return typeof window === "undefined" ? null : window;
-}
-
-/**
- * Read live rather than caching at construction the way t3code does. A user who
- * turns reduced motion on in the OS settings app should get the next sidebar
- * update to jump, not the next process restart.
- */
-export function prefersReducedMotion(node?: Node | null): boolean {
-    const view = viewOf(node);
-    if (!view || typeof view.matchMedia !== "function") return false;
-    try {
-        return view.matchMedia("(prefers-reduced-motion: reduce)").matches === true;
-    } catch {
-        return false;
-    }
-}
+export { prefersReducedMotion } from "@/lib/ui/motion";
 
 /** `Element.animate` is absent in jsdom and in pre-Chromium WebViews. */
 export function canAnimate(element: Element | null | undefined): boolean {

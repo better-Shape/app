@@ -5,6 +5,7 @@ import { Color20Regular } from "@fluentui/react-icons/headless/svg/color";
 
 import React from "react";
 import { Icon } from "@/components/ui/icon";
+import { GeneratingIndicator } from "./generating";
 
 
 export function StyleAnalysis({ label, isActive }: { label: string; isActive?: boolean }) {
@@ -15,12 +16,9 @@ export function StyleAnalysis({ label, isActive }: { label: string; isActive?: b
                     <Icon icon={Color20Regular} />
                 </div>
                 {isActive ? (
-                    <span className="font-medium text-sm animate-pulse text-text-secondary">{label}...</span>
+                    <GeneratingIndicator label={`${label}...`} />
                 ) : (
                     <span className="font-medium text-sm">Inacted {label.toLowerCase()}</span>
-                )}
-                {isActive && (
-                    <div className="w-2.5 h-2.5 border border-accent border-t-transparent rounded-full animate-spin ml-1" />
                 )}
             </div>
         </div>

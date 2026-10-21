@@ -33,6 +33,7 @@ import {
     MAX_CONTEXT_PRESETS,
 } from "../shared/controls";
 import { WorkflowsEditor } from "./workflows";
+import { IndexingProgressBar } from "./index-progress";
 import { notify } from "@/features/notifications";
 
 function CompactionEditor({ value }: { value: string }) {
@@ -634,7 +635,7 @@ export function AiSettingsPanel({
                                             ? "Scanning files…"
                                             : indexPhase === "persisting"
                                               ? "Saving index…"
-                                              : `Indexing… ${indexPercent}%`
+                                              : `Indexing… ${Math.min(indexPercent, 99)}%`
                                         : indexStatus
                                           ? "Indexed"
                                           : "Not indexed yet"}
@@ -653,19 +654,12 @@ export function AiSettingsPanel({
                                 {indexing ? "Indexing…" : "Re-index"}
                             </Button>
                         </div>
-                        <div className="mt-3 h-0.5 w-full overflow-hidden rounded-full bg-white/10">
-                            <div
-                                className={cn(
-                                    "h-full rounded-full bg-success",
-                                    indexing && indexPhase === "scanning" && "w-1/3 animate-pulse",
-                                )}
-                                style={
-                                    indexing && indexPhase === "scanning"
-                                        ? undefined
-                                        : { width: `${indexing ? Math.max(indexPercent, 4) : indexStatus ? Math.max(indexPercent, indexStatus.filesIndexed ? 100 : 0) : 0}%` }
-                                }
-                            />
-                        </div>
+                        <IndexingProgressBar
+                            indexing={indexing}
+                            phase={indexPhase}
+                            percent={indexPercent}
+                            status={indexStatus}
+                        />
                     </div>
                 </SettingCard>
             </SettingSection>

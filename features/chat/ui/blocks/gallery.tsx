@@ -222,11 +222,9 @@ export function DesignPreviewGallery({
 
     const frame = (ref: React.RefObject<HTMLIFrameElement | null>, className: string) =>
         framed ? (
-            <div className="relative size-full">
+            <div className="relative size-full" aria-busy={!frameReady || undefined}>
                 {!frameReady ? (
-                    <div className="preview-shimmer absolute inset-0 z-10" aria-hidden>
-                        <span className="preview-shimmer-blob" />
-                    </div>
+                    <div className="preview-placeholder absolute inset-0 z-10" aria-hidden />
                 ) : null}
                 <iframe
                     ref={ref}
@@ -279,7 +277,7 @@ export function DesignPreviewGallery({
                                 <span
                                     key={p.id}
                                     className={cn(
-                                        "h-1.5 rounded-full bg-white/70",
+                                        "h-1.5 rounded-full bg-white/70 transition-[width,opacity] duration-[var(--transition-fast)] ease-[var(--ease-out)]",
                                         i === index ? "w-4" : "w-1.5 opacity-50",
                                     )}
                                 />
@@ -288,12 +286,12 @@ export function DesignPreviewGallery({
                     </>
                 ) : null}
 
-                <div className="absolute inset-x-0 top-2 z-2 flex justify-center gap-1 opacity-0 translate-y-1 transition duration-150 group-hover/screen:translate-y-0 group-hover/screen:opacity-100">
+                <div className="pointer-events-none absolute inset-x-0 top-2 z-2 flex translate-y-1 justify-center gap-1 opacity-0 transition-[opacity,translate] duration-[var(--transition-fast)] ease-[var(--ease-out)] group-hover/screen:pointer-events-auto group-hover/screen:translate-y-0 group-hover/screen:opacity-100 group-focus-within/screen:pointer-events-auto group-focus-within/screen:translate-y-0 group-focus-within/screen:opacity-100">
                     <div className="flex items-center gap-0.5 rounded-full border border-border-subtle bg-surface-1/95 px-1 py-0.5 shadow-[0_8px_28px_rgba(0,0,0,0.18)]">
                         <Tooltip content="Open">
                             <button
                                 type="button"
-                                className="flex size-7 items-center justify-center rounded-full text-text-muted hover:bg-panel-hover hover:text-text-primary"
+                                className="flex size-7 items-center justify-center rounded-full text-text-muted transition-colors duration-[var(--transition-fast)] ease-[var(--ease-out)] hover:bg-panel-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus"
                                 onClick={() => setOpen(true)}
                             >
                                 <Icon icon={ArrowMaximize20Regular} />
@@ -304,7 +302,7 @@ export function DesignPreviewGallery({
                                 <button
                                     type="button"
                                     disabled={!canPick}
-                                    className="flex size-7 items-center justify-center rounded-full text-text-muted hover:bg-panel-hover hover:text-text-primary disabled:opacity-40"
+                                    className="flex size-7 items-center justify-center rounded-full text-text-muted transition-colors duration-[var(--transition-fast)] ease-[var(--ease-out)] hover:bg-panel-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus disabled:opacity-40"
                                     onClick={() => choose(item.id)}
                                 >
                                     <Icon icon={Checkmark20Regular} />

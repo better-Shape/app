@@ -5,20 +5,22 @@
   --goo-fancy-alpha: 19;
   --goo-fancy-bias: -9;
 
-  --dropdown-open-dur: 140ms;
-  --dropdown-close-dur: 90ms;
+  --dropdown-open-dur: var(--transition-base);
+  --dropdown-close-dur: var(--transition-fast);
+  --toast-enter-dur: var(--transition-base);
+  --toast-exit-dur: var(--transition-fast);
   --dropdown-pre-scale: 0.97;
   --dropdown-closing-scale: 0.99;
-  --dropdown-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --dropdown-ease: var(--ease-out);
 
-  --morph-open-dur: 320ms;
-  --morph-close-dur: 240ms;
-  --morph-ease: cubic-bezier(0.22, 1, 0.36, 1);
-  --morph-close-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --morph-open-dur: var(--transition-spatial);
+  --morph-close-dur: var(--transition-base);
+  --morph-ease: var(--ease-out);
+  --morph-close-ease: var(--ease-out);
   --morph-r-closed: 16px;
   --morph-r-open: 16px;
-  --morph-fade-dur: 180ms;
-  --morph-fade-delay: 40ms;
+  --morph-fade-dur: var(--transition-fast);
+  --morph-fade-delay: 0ms;
   --morph-slide: 0px;
   --morph-rotate: 45deg;
   --morph-scale: 1;
@@ -28,60 +30,49 @@
   --morph-w-open: 260px;
   --morph-h-open: 180px;
 
-  --toggle-dur: 350ms;
+  --toggle-dur: var(--transition-base);
   --toggle-travel: 14.66px;
-  --toggle-ov1: 1px;
-  --toggle-ov2: 0px;
-  --toggle-track: 0ms;
-  --toggle-ease: cubic-bezier(0.34, 1.35, 0.64, 1);
+  --toggle-track: var(--transition-fast);
+  --toggle-ease: var(--ease-out);
 
-  --think-hold: 2000ms;
-  --think-swap: 150ms;
-  --think-gap: 50ms;
-  --think-distance: 8px;
-  --think-blur: 2px;
-  --think-shimmer: 2000ms;
-  --think-base: var(--text-muted);
-  --think-highlight: var(--text-primary);
-  --think-ease: ease-in-out;
-
-  --reason-hold: 840ms;
-  --reason-step: 500ms;
-  --reason-lines: 2;
-  --reason-fade: 28px;
-  --reason-ease: cubic-bezier(0.22, 1, 0.36, 1);
-
-  --stream-fade: 350ms;
-  --stream-gap: 60ms;
-  --stream-blur: 1px;
-  --stream-ease: cubic-bezier(0.22, 1, 0.36, 1);
-
-  --hint-swap: 380ms;
-  --hint-distance: 10px;
-  --hint-blur: 6px;
-  --hint-ease: cubic-bezier(0.22, 1, 0.36, 1);
-
-  --check-opacity-dur: 400ms;
-  --check-rotate-dur: 400ms;
-  --check-rotate-from: 80deg;
-  --check-bob-dur: 400ms;
-  --check-y-amount: 8px;
-  --check-blur-dur: 400ms;
-  --check-blur-from: 4px;
-  --check-path-dur: 400ms;
-  --check-path-delay: 60ms;
-  --check-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
-  --check-ease-opacity: cubic-bezier(0.22, 1, 0.36, 1);
-  --check-ease-rotate: cubic-bezier(0.22, 1, 0.36, 1);
-  --check-ease-bob: cubic-bezier(0.34, 1.35, 0.64, 1);
-  --check-ease-path: cubic-bezier(0.22, 1, 0.36, 1);
+  --hint-swap: var(--transition-base);
+  --hint-distance: 4px;
+  --hint-ease: var(--ease-out);
 
   /* Subtle press: snap in, soft settle out (no spring overshoot). */
   --press-in-dur: 80ms;
   --press-in-ease: cubic-bezier(0.3, 0.0, 0.2, 1);
-  --press-out-dur: 220ms;
-  --press-out-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --press-out-dur: var(--transition-base);
+  --press-out-ease: var(--ease-out);
   --press-scale: 0.985;
+}
+
+/* Indeterminate global loading bar; motion only runs while work is active. */
+@keyframes bettershape-loading-progress {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    /* A 30%-wide segment must travel 333.333% of its own width to cross the track. */
+    transform: translateX(333.333%);
+  }
+}
+
+.bettershape-loading-progress {
+  width: 30% !important;
+  animation: bettershape-loading-progress 1.5s infinite var(--ease-out);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bettershape-loading-progress {
+    animation: none !important;
+    transform: translateX(0) !important;
+  }
+}
+
+:root[data-motion-preference="reduced"] .bettershape-loading-progress {
+  animation: none !important;
+  transform: translateX(0) !important;
 }
 
 @keyframes bettershape-popover-in {
@@ -112,17 +103,22 @@
   animation: bettershape-popover-out var(--dropdown-close-dur) var(--dropdown-ease);
 }
 
-/* Apple-style press: fast ease-out into the squash, spring with overshoot on release. */
+.bettershape-menu-content[data-state="open"],
+.bettershape-menu-content[data-state="closed"] {
+  animation: none !important;
+}
+
+/* Small, fast press feedback; settle cleanly without a spring or overshoot. */
 .press-spring {
   transform: scale(1);
   transform-origin: center;
   transition:
     transform var(--press-out-dur) var(--press-out-ease),
     filter var(--press-out-dur) var(--press-out-ease),
-    background-color 160ms var(--ease-out),
-    color 160ms var(--ease-out),
-    border-color 160ms var(--ease-out),
-    opacity 160ms var(--ease-out);
+    background-color var(--transition-fast) var(--ease-out),
+    color var(--transition-fast) var(--ease-out),
+    border-color var(--transition-fast) var(--ease-out),
+    opacity var(--transition-fast) var(--ease-out);
 }
 .press-spring:hover:not(:disabled):not([aria-disabled="true"]):not([data-pressed="true"]) {
   filter: brightness(1.05);
@@ -168,7 +164,6 @@
   /* Inset ring avoids border-box width fighting the measured trigger. */
   box-shadow: inset 0 0 0 1px var(--border-subtle);
   transform-origin: bottom left;
-  will-change: width, height;
   transition:
     width var(--morph-close-dur) var(--morph-close-ease),
     height var(--morph-close-dur) var(--morph-close-ease);
@@ -266,244 +261,19 @@
 }
 
 .t-toggle {
-  transition: background var(--toggle-track) var(--toggle-ease);
+  transition: background-color var(--toggle-track) var(--toggle-ease);
 }
 
 .t-toggle-thumb {
   translate: 0 0;
-  will-change: translate;
+}
+
+.t-toggle.is-init .t-toggle-thumb {
+  transition: translate var(--toggle-dur) var(--toggle-ease);
 }
 
 .t-toggle[data-on="true"] .t-toggle-thumb {
   translate: var(--toggle-travel) 0;
-}
-
-.t-toggle.is-init[data-on="true"] .t-toggle-thumb {
-  animation: t-toggle-on var(--toggle-dur) var(--toggle-ease) both;
-}
-
-.t-toggle.is-init[data-on="false"] .t-toggle-thumb {
-  animation: t-toggle-off var(--toggle-dur) var(--toggle-ease) both;
-}
-
-@keyframes t-toggle-on {
-  0% {
-    translate: 0 0;
-  }
-  55% {
-    translate: calc(var(--toggle-travel) + var(--toggle-ov1)) 0;
-  }
-  80% {
-    translate: calc(var(--toggle-travel) - var(--toggle-ov2)) 0;
-  }
-  100% {
-    translate: var(--toggle-travel) 0;
-  }
-}
-
-@keyframes t-toggle-off {
-  0% {
-    translate: var(--toggle-travel) 0;
-  }
-  55% {
-    translate: calc(0px - var(--toggle-ov1)) 0;
-  }
-  80% {
-    translate: var(--toggle-ov2) 0;
-  }
-  100% {
-    translate: 0 0;
-  }
-}
-
-.t-think {
-  position: relative;
-  display: inline-block;
-  text-align: left;
-}
-
-.t-think-sizer {
-  display: block;
-  visibility: hidden;
-  white-space: nowrap;
-}
-
-.t-think-text {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  display: block;
-  color: var(--think-base);
-  white-space: nowrap;
-  transform: translateY(0);
-  filter: blur(0);
-  opacity: 1;
-  transition:
-    transform var(--think-swap) var(--think-ease),
-    filter var(--think-swap) var(--think-ease),
-    opacity var(--think-swap) var(--think-ease);
-  will-change: transform, filter, opacity;
-}
-
-.t-think-text::before {
-  content: attr(data-text);
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background-image: linear-gradient(
-    90deg,
-    transparent 0%,
-    transparent 40%,
-    var(--think-highlight) 50%,
-    transparent 60%,
-    transparent 100%
-  );
-  background-size: 400% 100%;
-  background-repeat: no-repeat;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  -webkit-text-fill-color: transparent;
-  animation: t-think-shimmer var(--think-shimmer) linear infinite;
-}
-
-@keyframes t-think-shimmer {
-  0% {
-    background-position: 100% 0;
-  }
-  100% {
-    background-position: 0% 0;
-  }
-}
-
-.t-think-text.is-exit {
-  transform: translateY(calc(var(--think-distance) * -1));
-  filter: blur(var(--think-blur));
-  opacity: 0;
-}
-
-.t-think-text.is-enter-start {
-  transition: none;
-  transform: translateY(var(--think-distance));
-  filter: blur(var(--think-blur));
-  opacity: 0;
-}
-
-.t-reason {
-  position: relative;
-  overflow: hidden;
-}
-
-.t-reason-viewport {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-  -webkit-mask-image: linear-gradient(
-    transparent 0,
-    black var(--reason-fade),
-    black calc(100% - var(--reason-fade)),
-    transparent 100%
-  );
-  mask-image: linear-gradient(
-    transparent 0,
-    black var(--reason-fade),
-    black calc(100% - var(--reason-fade)),
-    transparent 100%
-  );
-}
-
-.t-reason-scroll {
-  position: absolute;
-  left: 0;
-  right: 0;
-  transform: translateY(0);
-  will-change: transform;
-}
-
-.t-stream-w {
-  opacity: 0;
-  filter: blur(var(--stream-blur));
-  transition:
-    opacity var(--stream-fade) var(--stream-ease),
-    filter var(--stream-fade) var(--stream-ease);
-}
-
-.t-stream-w.is-in {
-  opacity: 1;
-  filter: blur(0);
-}
-
-.t-success-check {
-  display: inline-block;
-  transform-origin: center;
-  opacity: 0;
-  will-change: transform, opacity, filter;
-}
-
-.t-success-check svg {
-  display: block;
-  overflow: visible;
-}
-
-.t-success-check svg path {
-  stroke-dasharray: 20;
-  stroke-dashoffset: 20;
-}
-
-.t-success-check[data-state="in"] {
-  animation:
-    t-check-fade var(--check-opacity-dur) var(--check-ease-opacity) forwards,
-    t-check-rotate var(--check-rotate-dur) var(--check-ease-rotate) forwards,
-    t-check-blur var(--check-blur-dur) var(--check-ease-out) forwards,
-    t-check-bob var(--check-bob-dur) var(--check-ease-bob) forwards;
-}
-
-.t-success-check[data-state="in"] svg path {
-  animation: t-check-draw var(--check-path-dur) var(--check-ease-path)
-    var(--check-path-delay, 0ms) forwards;
-}
-
-@keyframes t-check-fade {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-@keyframes t-check-rotate {
-  from {
-    transform: rotate(var(--check-rotate-from));
-  }
-  to {
-    transform: rotate(0deg);
-  }
-}
-
-@keyframes t-check-blur {
-  from {
-    filter: blur(var(--check-blur-from));
-  }
-  to {
-    filter: blur(0);
-  }
-}
-
-@keyframes t-check-bob {
-  from {
-    translate: 0 var(--check-y-amount);
-  }
-  to {
-    translate: 0 0;
-  }
-}
-
-@keyframes t-check-draw {
-  to {
-    stroke-dashoffset: 0;
-  }
 }
 
 .t-spin-check {
@@ -523,7 +293,7 @@
   border-top-color: transparent;
   animation: t-spin-check-spin 0.7s linear infinite;
   opacity: 1;
-  transition: opacity 120ms var(--dropdown-ease);
+  transition: opacity var(--transition-fast) var(--ease-out);
 }
 
 .t-spin-check[data-state="done"] .t-spin-check__ring {
@@ -540,17 +310,8 @@
   opacity: 1;
   transform: scale(1);
   transition:
-    opacity 160ms var(--dropdown-ease),
-    transform 220ms var(--morph-ease);
-}
-
-@keyframes t-wave-bar {
-  0%, 100% { transform: scaleY(0.35); }
-  50% { transform: scaleY(1); }
-}
-.t-wave-bar {
-  transform-origin: center;
-  animation: t-wave-bar 0.9s ease-in-out infinite;
+    opacity var(--transition-base) var(--ease-out),
+    transform var(--transition-base) var(--ease-out);
 }
 
 @keyframes t-spin-check-spin {
@@ -610,7 +371,7 @@
   mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 20px), transparent);
 }
 .t-swap[data-ready="true"]:not(.t-swap--block) {
-  transition: width 80ms var(--ease-out);
+  transition: width var(--transition-fast) var(--ease-out);
 }
 .t-swap--block {
   display: grid;
@@ -650,19 +411,16 @@
   to {
     opacity: 0;
     transform: translateY(calc(var(--hint-distance) * -1));
-    filter: blur(var(--hint-blur));
   }
 }
 @keyframes t-swap-in {
   from {
     opacity: 0;
     transform: translateY(var(--hint-distance));
-    filter: blur(var(--hint-blur));
   }
   to {
     opacity: 1;
     transform: translateY(0);
-    filter: blur(0);
   }
 }
 
@@ -679,7 +437,9 @@
   .t-composer-hint__text {
     transition: none !important;
   }
-  .t-swap__layer--out,
+  .t-swap__layer--out {
+    display: none !important;
+  }
   .t-swap__layer--in {
     animation: none !important;
     filter: none !important;
@@ -687,32 +447,7 @@
     opacity: 1 !important;
   }
   .t-toggle-thumb {
-    animation: none !important;
-  }
-  .t-think-text {
     transition: none !important;
-    transform: none !important;
-    filter: none !important;
-  }
-  .t-think-text::before {
-    display: none !important;
-  }
-  .t-reason-scroll {
-    transition: none !important;
-    transform: none !important;
-  }
-  .t-stream-w {
-    transition: none !important;
-    filter: none !important;
-    opacity: 1 !important;
-  }
-  .t-success-check {
-    animation: none !important;
-    opacity: 1;
-  }
-  .t-success-check svg path {
-    animation: none !important;
-    stroke-dashoffset: 0 !important;
   }
   .t-spin-check__ring {
     animation: none !important;

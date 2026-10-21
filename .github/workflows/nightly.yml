@@ -35,14 +35,14 @@ jobs:
             arch: aarch64
             target: aarch64-pc-windows-msvc
             bundles: nsis
-          # `macos-13` is retired from actions/runner-images; Intel is cross-compiled
-          # from the arm64 runner because the macOS SDK ships x86_64 slices.
+          # Use native runners for both architectures; SDK slices alone do not
+          # cross-compile native dependencies such as OpenSSL.
           - runner: macos-latest
             os: macos
             arch: aarch64
             target: aarch64-apple-darwin
             bundles: dmg
-          - runner: macos-latest
+          - runner: macos-26-intel
             os: macos
             arch: x86_64
             target: x86_64-apple-darwin
@@ -52,11 +52,16 @@ jobs:
             arch: x86_64
             target: x86_64-unknown-linux-gnu
             bundles: deb,appimage,rpm
+          - runner: ubuntu-24.04-arm
+            os: linux
+            arch: aarch64
+            target: aarch64-unknown-linux-gnu
+            bundles: deb,appimage,rpm
     env:
       # AppImage bundling runs the downloaded linuxdeploy AppImages, which need FUSE2.
       APPIMAGE_EXTRACT_AND_RUN: "1"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup
         uses: ./.github/actions/setup
@@ -140,26 +145,14 @@ jobs:
           else
             BUNDLE_DIR="src-tauri/target/release/bundle"
           fi
-          # Check for the expected installer for this platform
-          if ! find "$BUNDLE_DIR" -maxdepth 2 -type f \
-                \( -name '*.exe' -o -name '*.dmg' -o -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' \) \
-                -print -quit 2>/dev/null | grep -q .; then
-            echo "::error::No installer found after build under $BUNDLE_DIR"
-            find "$BUNDLE_DIR" -type f 2>/dev/null | head -n 20 || true
-            exit 1
-          fi
-          echo "✓ Installer found"
+          node scripts/build/collect-installers.mjs "$BUNDLE_DIR" dist/nightly-install "${{ matrix.bundles }}"
 
       - name: Upload nightly artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: nightly-${{ matrix.os }}-${{ matrix.arch }}
           path: |
-            src-tauri/target/**/bundle/nsis/*.exe
-            src-tauri/target/**/bundle/dmg/*.dmg
-            src-tauri/target/**/bundle/deb/*.deb
-            src-tauri/target/**/bundle/rpm/*.rpm
-            src-tauri/target/**/bundle/appimage/*.AppImage
+            dist/nightly-install/*
             dist/nightly-placeholder/
             dist/version.txt
             dist/nightly-version.txt
@@ -176,12 +169,12 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
@@ -189,7 +182,7 @@ jobs:
       - run: npm ci
 
       - name: Download artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: dist/nightly
           merge-multiple: true

@@ -44,6 +44,7 @@ import type { RefInfo } from "./ref-pill";
 import { Panel } from "@/features/panels";
 import { GitManagerTrigger } from "@/features/git/ui/manager/git-manager-trigger";
 import { GitChromeActions } from "@/features/git/ui/manager/chrome";
+import { GraphLoadingStatus } from "./graph-loading-status";
 
 // ── VIRTUAL SCROLL CONSTANTS ──
 const OVERSCAN_PX = GRAPH_OVERSCAN_PX;
@@ -571,8 +572,8 @@ export default function Graph({
         });
     }, [rich, selectedHash, gitLogs]);
 
-    // Keyboard: j/k or arrows move selection among matches; Tab next; Enter expands; n/N; H → HEAD.
-    // Search fields (in-graph + manager titlebar) also accept arrows/Tab for match nav.
+    // Keyboard: j/k or arrows move selection among matches; Enter expands; n/N; H → HEAD.
+    // Keep Tab native so keyboard users can reach graph controls in the normal tab order.
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
             const target = e.target as HTMLElement | null;
@@ -581,15 +582,20 @@ export default function Graph({
             const inGraphSearch = !!target.closest("[data-graph-search]");
             const inTitlebarSearch = !!target.closest("[data-git-titlebar-search]");
             const inThisGraph = !!(rootRef.current && rootRef.current.contains(target));
+            const isInteractiveControl = !!target.closest(
+                'button, a[href], select, summary, [role="button"], [role="link"], [role="checkbox"], [role="radio"], [role="switch"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"]',
+            );
             const inField = !!target.closest("input, textarea, [contenteditable=true]");
 
             if (!inThisGraph && !inTitlebarSearch) return;
+            // Interactive controls own their keyboard activation and selection keys.
+            if (isInteractiveControl) return;
             if (inField && !inGraphSearch && !inTitlebarSearch) return;
             // Titlebar search is shared — only steal keys while Git Graph is the active manager surface.
             if (inTitlebarSearch && !rich) return;
 
             const isNav =
-                e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Tab"
+                e.key === "ArrowDown" || e.key === "ArrowUp"
                 || e.key.toLowerCase() === "j" || e.key.toLowerCase() === "k"
                 || (e.key.toLowerCase() === "n" && !e.ctrlKey && !e.metaKey)
                 || e.key === "Enter"
@@ -599,10 +605,10 @@ export default function Graph({
             if ((inGraphSearch || inTitlebarSearch) && (e.key.toLowerCase() === "j" || e.key.toLowerCase() === "k")) return;
 
             const key = e.key.toLowerCase();
-            if (key === "j" || e.key === "ArrowDown" || (e.key === "Tab" && !e.shiftKey)) {
+            if (key === "j" || e.key === "ArrowDown") {
                 e.preventDefault();
                 jumpToNextMatch(1);
-            } else if (key === "k" || e.key === "ArrowUp" || (e.key === "Tab" && e.shiftKey)) {
+            } else if (key === "k" || e.key === "ArrowUp") {
                 e.preventDefault();
                 jumpToNextMatch(-1);
             } else if (key === "n" && !e.ctrlKey && !e.metaKey) {
@@ -636,7 +642,7 @@ export default function Graph({
             }}
         >
             {gitLogs.length > 0 ? (
-                <div style={{ height: totalHeight, position: "relative" }} role="listbox" aria-label="Commit graph">
+                <div style={{ height: totalHeight, position: "relative" }} role="list" aria-label="Commit graph">
                     {gitLogs.slice(startIdx, endIdx + 1).map((log, relIdx) => {
                         const idx = startIdx + relIdx;
                         const top = rowTop(rowLayout, idx);
@@ -645,7 +651,14 @@ export default function Graph({
                         const prevMuted = idx > 0 ? (mutedHashes?.has(gitLogs[idx - 1].hash) ?? false) : true;
                         const nextMuted = idx < gitLogs.length - 1 ? (mutedHashes?.has(gitLogs[idx + 1].hash) ?? false) : true;
                         return (
-                            <div key={log.hash} style={{ position: "absolute", top, left: 0, right: 0 }}>
+                            <div
+                                key={log.hash}
+                                role="listitem"
+                                aria-posinset={idx + 1}
+                                aria-setsize={gitLogs.length}
+                                aria-current={selectedHash === log.hash ? "true" : undefined}
+                                style={{ position: "absolute", top, left: 0, right: 0 }}
+                            >
                                 <GraphCommitRow
                                     log={log}
                                     node={node}
@@ -676,14 +689,7 @@ export default function Graph({
                     })}
                 </div>
             ) : isInitialLoading ? (
-                <div className="flex flex-col gap-2 px-3 py-3" aria-hidden>
-                    {Array.from({ length: 8 }, (_, i) => (
-                        <div key={i} className="flex items-center gap-2">
-                            <span className="size-5 shrink-0 animate-pulse rounded-full bg-panel-hover" />
-                            <span className="h-3 flex-1 animate-pulse rounded-md bg-panel-hover" style={{ maxWidth: `${70 - (i % 3) * 12}%` }} />
-                        </div>
-                    ))}
-                </div>
+                <GraphLoadingStatus />
             ) : (
                 <div className="flex h-full flex-1 items-center justify-center text-xs text-text-muted">
                     No commits found
@@ -935,7 +941,7 @@ export default function Graph({
             ) : null}
 
             <div
-                className="shrink-0 pointer-events-none relative z-10 transition-opacity duration-200"
+                className="shrink-0 pointer-events-none relative z-10 transition-opacity duration-[var(--transition-fast)] ease-[var(--ease-out)]"
                 style={{
                     height: 30,
                     marginBottom: -30,

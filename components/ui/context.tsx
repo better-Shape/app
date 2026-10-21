@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
 const itemClasses =
     "group relative flex cursor-default select-none items-center gap-3 rounded-lg px-1.5 py-1 text-sm outline-none focus:bg-panel-hover focus:text-text-primary data-disabled:pointer-events-none data-disabled:opacity-50 transition-colors duration-[var(--transition-fast)] ease-[var(--ease-out)]";
 const containerClasses =
-    "bettershape-popover-content z-dropdown overflow-hidden squircle-2xl border border-border bg-surface-4 p-2 text-text-primary shadow-md";
+    "bettershape-popover-content bettershape-menu-content z-dropdown overflow-hidden squircle-2xl border border-border bg-surface-4 p-2 text-text-primary shadow-md";
 const shortcutClasses = "ml-auto shrink-0 pr-2 text-sm text-text-muted group-focus:text-text-primary";
 
 const ContextMenu = ContextMenuPrimitive.Root;

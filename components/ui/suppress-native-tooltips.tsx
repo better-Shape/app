@@ -3,9 +3,9 @@
 import { useEffect } from "react";
 
 /**
- * Strip native `title` tooltips app-wide. Custom BetterShape tooltips stay;
- * bare `title=` attributes otherwise show the browser bubble.
- * Original text is kept on `data-native-title` if something needs it later.
+ * Strip incidental native `title` tooltips app-wide. Controls marked
+ * `data-preserve-native-title` keep an intentional browser tooltip; other title
+ * text is retained on `data-native-title` if something needs it later.
  *
  * Also clears `title` on mouseenter as a fallback for elements that re-set
  * it after our observer runs (third-party widgets, Monaco, etc.).
@@ -13,7 +13,7 @@ import { useEffect } from "react";
 export function SuppressNativeTooltips() {
     useEffect(() => {
         const stripEl = (el: Element) => {
-            if (!el.hasAttribute("title")) return;
+            if (el.hasAttribute("data-preserve-native-title") || !el.hasAttribute("title")) return;
             const value = el.getAttribute("title");
             if (value == null) return;
             el.setAttribute("data-native-title", value);

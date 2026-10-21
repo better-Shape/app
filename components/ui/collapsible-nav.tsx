@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -16,19 +16,25 @@ export function CollapsibleNavGroup({
     onToggle: () => void;
     children: ReactNode;
 }) {
+    const contentId = useId();
+
     return (
         <div>
             <button
                 type="button"
                 onClick={onToggle}
                 aria-expanded={open}
-                className="flex h-8 w-full items-center gap-3 rounded-md px-1.5 text-left text-xs font-semibold text-text-muted hover:bg-panel-hover/40 hover:text-text-primary"
+                aria-controls={contentId}
+                className="flex h-8 w-full items-center gap-3 rounded-md px-1.5 text-left text-xs font-semibold text-text-muted transition-colors duration-[var(--transition-fast)] ease-[var(--ease-out)] hover:bg-panel-hover/40 hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus"
             >
                 <span className="min-w-0 truncate">{label}</span>
             </button>
             <div
+                id={contentId}
+                aria-hidden={!open}
+                inert={!open}
                 className={cn(
-                    "grid transition-[grid-template-rows,opacity] duration-200 ease-[var(--ease-out)]",
+                    "grid transition-[grid-template-rows,opacity] duration-[var(--transition-base)] ease-[var(--ease-out)]",
                     open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
                 )}
             >

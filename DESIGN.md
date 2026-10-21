@@ -184,23 +184,26 @@ Shell structure:
 
 ## 6. Motion
 
-Timing is in `app/transitions.css` and the `--transition-*` and `--ease-*` tokens in `app/globals.css`. Do not write timings inline.
+Read `engineering/motion-design.md` before changing motion. Timing is in `app/transitions.css` and the `--transition-*` and `--ease-*` tokens in `app/globals.css`. Use those tokens rather than inventing a duration per component.
 
-| Token | Value |
-| --- | --- |
-| `--transition-fast` | 90ms |
-| `--transition-base` | 140ms |
-| `--ease-out` / `--ease-spring` | `cubic-bezier(0.16, 1, 0.3, 1)` |
-| `--ease-in` | `cubic-bezier(0.7, 0, 0.84, 0)` |
+| Token | Value | Use |
+| --- | --- | --- |
+| `--transition-fast` | 90ms | Small state and color feedback; chevrons and indicators |
+| `--transition-base` | 140ms | Compact content changes, press release, and fades |
+| `--transition-spatial` | 180ms | Larger pane or sidebar movement where location helps orientation |
+| `--ease-out` / `--ease-spring` | `cubic-bezier(0.16, 1, 0.3, 1)` | Decelerating motion; `--ease-spring` is retained as a legacy alias, not a bounce |
+| `--ease-in` | `cubic-bezier(0.7, 0, 0.84, 0)` | Short exits |
 
-Specific systems:
+Motion rules:
 
-- Dropdown: open 140ms, close 90ms. Pre-scale 0.97, closing scale 0.99. Ease `cubic-bezier(0.22, 1, 0.36, 1)`.
-- Morph (the expanding menu): open 320ms, close 240ms. Fade 180ms with a 40ms delay. Closed size 40px square, open size 260 by 180px, radius 16px.
-- Press: `.press-spring` scales to `--press-scale` 0.985. Press-in 80ms with `cubic-bezier(0.3, 0, 0.2, 1)`. Press-out 220ms with `cubic-bezier(0.22, 1, 0.36, 1)`. Hover brightens to 1.05, pressed darkens to 0.94.
-- Loading: the `ButtonSpinner` in `components/ui/button.tsx` uses three iMessage-style dots (`imsg-typing`). `LoadingGlyph` uses `Arc` from `loading-dev`.
+- Keep high-frequency and keyboard-driven actions immediate: command surfaces, menu selection, tab/content switching, direct manipulation, and repeated controls should not wait for an entrance animation. The tab indicator may move briefly; tab content does not animate in. Menus can use a jump cut.
+- Use motion only when it clarifies state, gives a small acknowledgement, or preserves spatial orientation. Prefer transform and opacity; do not add continuous decorative motion to a dense work surface.
+- Use `--transition-spatial` for pane geometry, `--transition-base` for compact changes, and `--transition-fast` for small feedback. Direct manipulation bypasses transitions while dragging. Let CSS transitions retarget naturally when the state changes again; cancel WAAPI work before starting a replacement.
+- A closing disclosure must become `aria-hidden` and `inert` immediately, even if its visual exit remains mounted briefly.
+- `.press-spring` scales to `--press-scale` 0.985. Press-in is 80ms; release is 140ms with an ease-out, without bounce or overshoot.
+- Popovers may use the dedicated 140ms open / 90ms close tokens. Menu and command-palette surfaces remain jump cuts. `ButtonSpinner` uses three iMessage-style dots (`imsg-typing`); `LoadingGlyph` uses `Arc` from `loading-dev`.
 
-Reduced motion: `app/transitions.css` and `app/globals.css` contain `prefers-reduced-motion: reduce` blocks, and 8 files in `app`, `components`, `features` and `lib` reference it. A new animation needs the same guard.
+Reduced motion: the default is to follow the OS. `Settings → Application → Motion` can override it with “Reduce motion.” The preference is applied before hydration to `data-motion-preference`; `app/globals.css` reduces both CSS transitions and keyframes for the OS or app preference. JavaScript/WAAPI/timed sequences must use `prefersReducedMotion` from `lib/ui/motion.ts` and jump directly to their final state. Do not make a timed intro or loading flourish delay access to the app.
 
 ## 7. Components
 
@@ -215,7 +218,7 @@ The shared set lives in `components/ui/`. Extend these before you write a new pr
 | Slider | `slider.tsx` | Radix slider |
 | Tabs | `tabs.tsx` | Radix tabs |
 | Dropdown, context | `dropdown.tsx`, `context.tsx` | Radix dropdown and context menus. Tokens `--menu-*` |
-| Morph menu | `morph-menu.tsx` | Expanding menu, `--morph-*` tokens |
+| Morph menu | `morph-menu.tsx` | Legacy opt-in with no in-repo consumer. Do not use for command or keyboard menus. See `engineering/motion-design.md` |
 | Tooltip | `tooltip.tsx` | Radix tooltip, `--z-tooltip` 1200 |
 | Dialog and alert | `alert-dialog.tsx` | Radix alert dialog |
 | Notification | `notification.tsx` | Custom toast stack. `--z-notification` 1300 |

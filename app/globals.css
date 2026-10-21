@@ -194,6 +194,7 @@
   /* ── Motion ────────────────────────────────────────────── */
   --transition-fast: 90ms;
   --transition-base: 140ms;
+  --transition-spatial: 180ms;
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
   --ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
@@ -1032,9 +1033,9 @@ body[data-resizing] .xterm {
   opacity: 0;
   transform: translate3d(0, 14px, 0) scale(0.96);
   transition:
-    transform 400ms cubic-bezier(0.16, 1, 0.3, 1),
-    opacity 280ms cubic-bezier(0.16, 1, 0.3, 1);
-  will-change: opacity, transform;
+    transform var(--toast-enter-dur) var(--ease-out),
+    opacity var(--toast-enter-dur) var(--ease-out),
+    filter var(--toast-enter-dur) var(--ease-out);
 }
 
 .bettershape-toast[data-mounted="true"] {
@@ -1045,6 +1046,7 @@ body[data-resizing] .xterm {
 .bettershape-toast[data-leaving="true"] {
   opacity: 0;
   transform: translate3d(0, 10px, 0) scale(0.96);
+  transition-duration: var(--toast-exit-dur);
   pointer-events: none;
 }
 
@@ -1083,7 +1085,6 @@ body[data-resizing] .xterm {
 
 .bettershape-modal-panel {
   transform-origin: center center;
-  will-change: opacity, scale;
 }
 
 .bettershape-modal-panel[data-state="open"],
@@ -1093,6 +1094,12 @@ body[data-resizing] .xterm {
 
 .bettershape-modal-panel[data-state="closed"] {
   animation: bettershape-modal-out var(--transition-fast) var(--ease-in);
+}
+
+.bettershape-instant-panel,
+.bettershape-instant-overlay {
+  animation: none !important;
+  transition: none !important;
 }
 
 .bettershape-popover-content--from-right {
@@ -1337,197 +1344,22 @@ body[data-resizing] .xterm {
   );
 }
 
-/* Send-button spiral loader (CSS port of Spiral; ease matches bubble dots) */
-.send-spiral {
-  flex-shrink: 0;
-}
-
-.send-spiral-dot {
-  width: 18.75%;
-  height: 18.75%;
-  translate: -50% -50%;
-  /* Soft ease matching bubble dots — avoid flat linear scale */
-  animation: send-spiral-pulse 1.8s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
-  animation-delay: calc(var(--spiral-i, 0) * 0.225s);
-}
-
-.send-spiral-dot:nth-child(1) { left: 81.25%; top: 50%; }
-.send-spiral-dot:nth-child(2) { left: 72.1%; top: 72.1%; }
-.send-spiral-dot:nth-child(3) { left: 50%; top: 81.25%; }
-.send-spiral-dot:nth-child(4) { left: 27.9%; top: 72.1%; }
-.send-spiral-dot:nth-child(5) { left: 18.75%; top: 50%; }
-.send-spiral-dot:nth-child(6) { left: 27.9%; top: 27.9%; }
-.send-spiral-dot:nth-child(7) { left: 50%; top: 18.75%; }
-.send-spiral-dot:nth-child(8) { left: 72.1%; top: 27.9%; }
-
-@keyframes send-spiral-pulse {
-  0%,
-  100% {
-    opacity: 0;
-    transform: scale(0);
-  }
-  40% {
-    opacity: 1;
-    transform: scale(1);
-  }
-  60% {
-    opacity: 0.85;
-    transform: scale(0.92);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .send-spiral-dot {
-    animation: none;
-    opacity: 0.7;
-    transform: scale(0.85);
-  }
-}
-
 /* Streaming assistant text: soft top→bottom reveal while typing. */
 .chat-stream-fade-in {
   -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 78%, transparent 100%);
   mask-image: linear-gradient(to bottom, #000 0%, #000 78%, transparent 100%);
 }
 
-/* Commit / PR title while AI is writing into the field. */
-@keyframes git-generate-shimmer {
-  0% {
-    background-position: 100% 0;
-  }
-  100% {
-    background-position: -100% 0;
-  }
-}
-
-.git-generate-shimmer {
-  background-image: linear-gradient(
-    90deg,
-    transparent 0%,
-    color-mix(in srgb, var(--color-accent) 18%, transparent) 45%,
-    transparent 90%
-  );
-  background-size: 200% 100%;
-  animation: git-generate-shimmer 1.1s linear infinite;
-}
-
-/* Soft morphing gradient for image/SVG generation placeholders. */
-@keyframes preview-blob-a {
-  0%, 100% { transform: translate(-12%, -18%) scale(1); }
-  33% { transform: translate(28%, 8%) scale(1.18); }
-  66% { transform: translate(6%, 32%) scale(0.92); }
-}
-@keyframes preview-blob-b {
-  0%, 100% { transform: translate(42%, 18%) scale(1.05); }
-  40% { transform: translate(-8%, 36%) scale(1.22); }
-  70% { transform: translate(18%, -14%) scale(0.88); }
-}
-@keyframes preview-blob-c {
-  0%, 100% { transform: translate(8%, 48%) scale(1.1); }
-  50% { transform: translate(36%, -6%) scale(0.95); }
-}
-
-.preview-shimmer {
+/* Static fallback while generated media or preview frames load. Keep the
+   activity state in text/aria-busy; this surface is not an ambient animation. */
+.preview-placeholder {
   overflow: hidden;
-  background: var(--color-surface-2, #1c1c1f);
-}
-.preview-shimmer::before,
-.preview-shimmer::after,
-.preview-shimmer > .preview-shimmer-blob {
-  content: "";
-  position: absolute;
-  border-radius: 9999px;
-  filter: blur(28px);
-  opacity: 0.85;
-  will-change: transform;
-}
-.preview-shimmer::before {
-  inset: -20% auto auto -15%;
-  width: 70%;
-  height: 70%;
-  background: color-mix(in srgb, var(--color-accent, #7c6af0) 55%, transparent);
-  animation: preview-blob-a 7s ease-in-out infinite;
-}
-.preview-shimmer::after {
-  inset: auto -18% -22% auto;
-  width: 65%;
-  height: 65%;
-  background: color-mix(in srgb, #56c4ff 50%, transparent);
-  animation: preview-blob-b 8.5s ease-in-out infinite;
-}
-.preview-shimmer > .preview-shimmer-blob {
-  inset: 30% -10% auto 35%;
-  width: 55%;
-  height: 55%;
-  background: color-mix(in srgb, #ff7ab8 45%, transparent);
-  animation: preview-blob-c 6.5s ease-in-out infinite;
-}
-@media (prefers-reduced-motion: reduce) {
-  .preview-shimmer::before,
-  .preview-shimmer::after,
-  .preview-shimmer > .preview-shimmer-blob {
-    animation: none;
-  }
-  .preview-shimmer {
-    background: linear-gradient(
-      135deg,
-      color-mix(in srgb, var(--color-accent, #7c6af0) 35%, var(--color-surface-2, #1c1c1f)),
-      color-mix(in srgb, #56c4ff 25%, var(--color-surface-2, #1c1c1f)),
-      color-mix(in srgb, #ff7ab8 20%, var(--color-surface-2, #1c1c1f))
-    );
-  }
-}
-
-.agent-progress-loading-text {
-  background-image: linear-gradient(
-    90deg,
-    var(--text-muted) 0%,
-    var(--text-primary) 42%,
-    var(--text-muted) 84%
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--color-accent, #7c6af0) 18%, var(--color-surface-2, #1c1c1f)) 0%,
+    var(--color-surface-2, #1c1c1f) 52%,
+    color-mix(in srgb, #56c4ff 12%, var(--color-surface-2, #1c1c1f)) 100%
   );
-  background-size: 220% 100%;
-  background-clip: text;
-  -webkit-background-clip: text;
-  color: transparent;
-  -webkit-text-fill-color: transparent;
-  animation: git-generate-shimmer 3.4s linear infinite;
-}
-
-@keyframes status-wipe-in {
-  from {
-    clip-path: inset(0 100% 0 0);
-    opacity: 0.35;
-  }
-  to {
-    clip-path: inset(0 0 0 0);
-    opacity: 1;
-  }
-}
-
-@keyframes status-wipe-out {
-  from {
-    clip-path: inset(0 0 0 0);
-    opacity: 1;
-  }
-  to {
-    clip-path: inset(0 0 0 100%);
-    opacity: 0;
-  }
-}
-
-.status-wipe-in {
-  animation: status-wipe-in 420ms var(--ease-out, ease-out) both;
-}
-
-.status-wipe-out {
-  animation: status-wipe-out 420ms var(--ease-out, ease-out) both;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .status-wipe-in,
-  .status-wipe-out {
-    animation: none;
-  }
 }
 
 /* ── Pixel grid loader (LoadingState) ── */
@@ -1558,7 +1390,7 @@ body[data-resizing] .xterm {
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: 0fr;
   width: 100%;
-  transition: grid-template-rows 180ms var(--ease-out);
+  transition: grid-template-rows var(--transition-base) var(--ease-out);
 }
 
 .chat-collapse[data-open="true"] {
@@ -1590,23 +1422,35 @@ body[data-resizing] .xterm {
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
+    scroll-behavior: auto !important;
   }
+}
+
+:root[data-motion-preference="reduced"],
+:root[data-motion-preference="reduced"] *,
+:root[data-motion-preference="reduced"] *::before,
+:root[data-motion-preference="reduced"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-delay: 0ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  transition-delay: 0ms !important;
+  scroll-behavior: auto !important;
 }
 
 
 /* -- Git graph (inspired by mhutchie/vscode-git-graph) -- */
 @keyframes graph-commit-flash {
-  0% { }
-  20% { background-color: color-mix(in srgb, var(--color-accent) 35%, transparent); }
-  40% { background-color: color-mix(in srgb, var(--color-accent) 18%, transparent); }
-  60% { background-color: color-mix(in srgb, var(--color-accent) 28%, transparent); }
-  100% { }
+  from { background-color: color-mix(in srgb, var(--color-accent) 22%, transparent); }
+  to { background-color: transparent; }
 }
 
 .graph-commit-flash {
-  animation: graph-commit-flash 0.75s linear;
+  animation: graph-commit-flash var(--transition-base) var(--ease-out);
   border-radius: 8px;
 }
 
@@ -1704,64 +1548,6 @@ body[data-resizing] .xterm {
 
 .graph-diff-panel .monaco-editor .cursors-layer > .cursor {
   display: none !important;
-}
-
-/* ── Tab appear (chat / editor / terminal) ───────────────── */
-@keyframes bettershape-tab-appear {
-  from {
-    opacity: 0;
-    transform: translateY(3px) scale(0.96);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-
-.workbench-tab-item,
-.chat-tab-item {
-  /* Do not retain the animation's final transform; sortable tabs need their
-     inline transform while dragging. */
-  animation: bettershape-tab-appear 160ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
-}
-
-/* Panel / overlay fade */
-@keyframes bettershape-fade-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-.animate-in {
-  animation: bettershape-fade-in var(--transition-base) var(--ease-out) both;
-}
-
-@keyframes bettershape-orb-breathe {
-  0%,
-  100% {
-    transform: translateX(-50%) scale(1);
-    opacity: 0.42;
-  }
-  50% {
-    transform: translateX(-50%) scale(1.18);
-    opacity: 0.72;
-  }
-}
-
-.onboard-orb {
-  position: absolute;
-  left: 50%;
-  bottom: -38%;
-  width: min(92vw, 720px);
-  height: min(92vw, 720px);
-  border-radius: 9999px;
-  pointer-events: none;
-  background: radial-gradient(circle, color-mix(in srgb, var(--accent) 85%, white) 0%, transparent 68%);
-  filter: blur(72px);
-  animation: bettershape-orb-breathe 5.2s ease-in-out infinite;
 }
 
 /* Smooth editor scrolling (textarea + synced overlays) */

@@ -19,7 +19,6 @@ import {
     GenerateStarButton,
     streamTextInto,
 } from "@/features/git/ui/shared/generate-star";
-import { cn } from "@/lib/utils";
 
 function parseDraft(raw: string): { title: string; body: string } {
     const text = raw.trim();
@@ -151,12 +150,7 @@ export function CreatePullRequestDialog({
                             <Input value={head} onChange={(e) => setHead(e.target.value)} className="h-8" />
                         </label>
                     </div>
-                    <div
-                        className={cn(
-                            "relative",
-                            drafting && "git-generate-shimmer rounded-md",
-                        )}
-                    >
+                    <div className="relative" aria-busy={drafting || undefined}>
                         <Input
                             value={title}
                             onChange={(e) => setTitle(e.target.value)}

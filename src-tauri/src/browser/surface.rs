@@ -9,7 +9,7 @@
 use std::sync::Mutex;
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 const FRAME_NAME: &str = "bettershape-browser";
 const TOOLS_NAME: &str = "bettershape-devtools";

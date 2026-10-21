@@ -2,7 +2,6 @@ import { Branch20Regular } from "@fluentui/react-icons/headless/svg/branch";
 import { Circle20Filled } from "@fluentui/react-icons/headless/svg/circle";
 import { Tag20Regular } from "@fluentui/react-icons/headless/svg/tag";
 import { Icon } from "@/components/ui/icon";
-
 import { cn } from "@/lib/utils";
 import { Tooltip } from "@/components/ui/tooltip";
 
@@ -13,10 +12,7 @@ export type RefInfo = {
     isTag: boolean;
 };
 
-/**
- * Ref chips styled after vscode-git-graph `.gitRef`:
- * coloured icon strip + name, active border uses lane colour.
- */
+/** Ref chips styled after vscode-git-graph's colored icon strip and name. */
 function RefPillVisual({
     refInfo,
     color,
@@ -77,28 +73,41 @@ export function RefPill({
 }) {
     const raw = refInfo.label.replace(/^tag:\s*/i, "");
     const kind = refInfo.isTag ? "Tag" : refInfo.isRemote ? "Remote branch" : refInfo.isHead ? "HEAD" : "Branch";
+    const visual = <RefPillVisual refInfo={refInfo} color={color} emphasized={emphasized} />;
+
+    if (onActivate) {
+        return (
+            <button
+                type="button"
+                aria-label={`Filter graph to ${kind}: ${raw}`}
+                title={`${kind}: ${raw}`}
+                data-preserve-native-title=""
+                className="inline-flex shrink-0 cursor-pointer rounded-sm transition-[filter,transform] duration-[var(--transition-fast)] ease-[var(--ease-out)] hover:brightness-110 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus"
+                onClick={(event) => {
+                    event.stopPropagation();
+                    onActivate(refInfo);
+                }}
+                onPointerDown={(event) => event.stopPropagation()}
+            >
+                {visual}
+            </button>
+        );
+    }
 
     const pill = (
         <span
             className={cn(
-                "inline-flex shrink-0 transition-[filter,transform] duration-150",
-                onActivate && "cursor-pointer hover:brightness-110 active:scale-[0.98]",
-                hoverOnly && !onActivate && "cursor-default hover:brightness-110",
+                "inline-flex shrink-0",
+                hoverOnly && "transition-[filter,transform] duration-[var(--transition-fast)] ease-[var(--ease-out)] hover:brightness-110",
             )}
-            onClick={(e) => {
-                e.stopPropagation();
-                onActivate?.(refInfo);
-            }}
-            onPointerDown={(e) => e.stopPropagation()}
-            title={hoverOnly || onActivate ? `${kind}: ${raw}` : undefined}
+            title={hoverOnly ? `${kind}: ${raw}` : undefined}
+            data-preserve-native-title={hoverOnly ? "" : undefined}
         >
-            <RefPillVisual refInfo={refInfo} color={color} emphasized={emphasized} />
+            {visual}
         </span>
     );
 
-    if (hoverOnly || onActivate) {
-        return pill;
-    }
+    if (hoverOnly) return pill;
 
     return (
         <Tooltip
@@ -107,16 +116,16 @@ export function RefPill({
             delayDuration={250}
             sideOffset={6}
             content={
-                <div className="flex flex-col gap-1.5 py-0.5 px-0.5 max-w-[280px]">
+                <div className="flex max-w-[280px] flex-col gap-1.5 px-0.5 py-0.5">
                     <RefPillVisual
                         refInfo={refInfo}
                         color={color}
                         emphasized={emphasized}
-                        className="max-w-none h-5"
+                        className="h-5 max-w-none"
                     />
                     <div className="flex flex-col gap-0.5 px-0.5">
                         <span className="text-xs text-text-muted">{kind}</span>
-                        <span className="text-sm text-text-primary break-all">{raw}</span>
+                        <span className="break-all text-sm text-text-primary">{raw}</span>
                     </div>
                 </div>
             }

@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import * as React from "react";
 import * as TabsPrimitive from "@radix-ui/react-tabs";
@@ -76,7 +76,7 @@ export const TabsList = React.forwardRef<
                 aria-hidden
                 className={cn(
                     "pointer-events-none absolute top-0.5 bottom-0.5 rounded-md bg-panel-active",
-                    "transition-[transform,width,opacity] duration-200 ease-[cubic-bezier(0.16,1,0.3,1)]",
+                    "transition-[transform,width,opacity] duration-[var(--transition-fast)] ease-[var(--ease-out)]",
                     indicator.ready ? "opacity-100" : "opacity-0",
                 )}
                 style={{
@@ -98,7 +98,7 @@ export const TabsTrigger = React.forwardRef<
         ref={ref}
         className={cn(
             "relative z-10 inline-flex items-center justify-center whitespace-nowrap rounded-md px-2 py-1 text-sm font-normal",
-            "transition-colors duration-200 ease-[cubic-bezier(0.16,1,0.3,1)]",
+            "transition-colors duration-[var(--transition-fast)] ease-[var(--ease-out)]",
             "data-[state=active]:text-text-primary data-[state=active]:bg-transparent",
             "text-text-secondary hover:text-text-primary",
             className,
@@ -116,8 +116,6 @@ export const TabsContent = React.forwardRef<
         ref={ref}
         className={cn(
             "outline-none",
-            "data-[state=active]:animate-in data-[state=active]:fade-in-0 data-[state=active]:slide-in-from-bottom-1",
-            "data-[state=active]:duration-200",
             className,
         )}
         {...props}

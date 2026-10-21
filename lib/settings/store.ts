@@ -1,6 +1,8 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
+import type { Store } from "@tauri-apps/plugin-store";
+import { SETTINGS_STORAGE_KEY } from "./constants";
 import { isWindows } from "@/lib/platform";
 import { normalizeColorTheme, type ColorThemeId } from "./themes";
 import type { AgentWorkflow } from "@/lib/chat/workflows";
@@ -30,6 +32,11 @@ export function normalizeUpdateChannel(value: unknown): UpdateChannel {
     return "stable";
 }
 export type ColorThemeSetting = ColorThemeId;
+export type MotionPreferenceSetting = "system" | "reduced";
+
+export function normalizeMotionPreference(value: unknown): MotionPreferenceSetting {
+    return value === "reduced" ? "reduced" : "system";
+}
 /** How agent terminal commands are approved: ask for everything, safe-list
  * auto-runs (default), or run everything except hard-blocked commands. */
 export type AutoRunModeSetting = "ask" | "auto" | "always";
@@ -228,6 +235,7 @@ export interface BetterShapeSettings {
     appearance: {
         /** Color theme. */
         colorTheme: ColorThemeSetting;
+        motionPreference: MotionPreferenceSetting;
     };
     skills: {
         /** Extra folders scanned for skill files, in the order the user added them. */
@@ -380,10 +388,35 @@ export const DEFAULT_SETTINGS: BetterShapeSettings = {
     },
     appearance: {
         colorTheme: "dark",
+        motionPreference: "system",
     },
 };
 
-const STORAGE_KEY = "bettershape-settings-v1";
+let currentSettings: BetterShapeSettings = {
+    ...DEFAULT_SETTINGS,
+    editor: { ...DEFAULT_SETTINGS.editor },
+    terminal: { ...DEFAULT_SETTINGS.terminal },
+    voice: { ...DEFAULT_SETTINGS.voice },
+    git: { ...DEFAULT_SETTINGS.git },
+    ai: { ...DEFAULT_SETTINGS.ai },
+    files: { ...DEFAULT_SETTINGS.files },
+    eslint: { ...DEFAULT_SETTINGS.eslint },
+    prettier: { ...DEFAULT_SETTINGS.prettier },
+    lsp: { ...DEFAULT_SETTINGS.lsp },
+    node: { ...DEFAULT_SETTINGS.node },
+    python: { ...DEFAULT_SETTINGS.python },
+    designAutocomplete: { ...DEFAULT_SETTINGS.designAutocomplete },
+    designDiagnostics: { ...DEFAULT_SETTINGS.designDiagnostics },
+    tailwindControls: { ...DEFAULT_SETTINGS.tailwindControls },
+    designBlame: { ...DEFAULT_SETTINGS.designBlame },
+    spacingRefactor: { ...DEFAULT_SETTINGS.spacingRefactor },
+    developer: { ...DEFAULT_SETTINGS.developer },
+    privacy: { ...DEFAULT_SETTINGS.privacy },
+    notifications: { ...DEFAULT_SETTINGS.notifications },
+    workspace: { ...DEFAULT_SETTINGS.workspace },
+    updates: { ...DEFAULT_SETTINGS.updates },
+    appearance: { ...DEFAULT_SETTINGS.appearance },
+};
 
 /**
  * True once the OS keychain has been confirmed usable. Keys are then stripped
@@ -475,34 +508,22 @@ export function applyVaultSecrets(secrets: Record<string, string>): void {
     emit();
 }
 
-let currentSettings: BetterShapeSettings = {
-    ...DEFAULT_SETTINGS,
-    editor: { ...DEFAULT_SETTINGS.editor },
-    terminal: { ...DEFAULT_SETTINGS.terminal },
-    voice: { ...DEFAULT_SETTINGS.voice },
-    git: { ...DEFAULT_SETTINGS.git },
-    ai: { ...DEFAULT_SETTINGS.ai },
-    files: { ...DEFAULT_SETTINGS.files },
-    eslint: { ...DEFAULT_SETTINGS.eslint },
-    prettier: { ...DEFAULT_SETTINGS.prettier },
-    lsp: { ...DEFAULT_SETTINGS.lsp },
-    node: { ...DEFAULT_SETTINGS.node },
-    python: { ...DEFAULT_SETTINGS.python },
-    designAutocomplete: { ...DEFAULT_SETTINGS.designAutocomplete },
-    designDiagnostics: { ...DEFAULT_SETTINGS.designDiagnostics },
-    tailwindControls: { ...DEFAULT_SETTINGS.tailwindControls },
-    designBlame: { ...DEFAULT_SETTINGS.designBlame },
-    spacingRefactor: { ...DEFAULT_SETTINGS.spacingRefactor },
-    developer: { ...DEFAULT_SETTINGS.developer },
-    privacy: { ...DEFAULT_SETTINGS.privacy },
-    notifications: { ...DEFAULT_SETTINGS.notifications },
-    workspace: { ...DEFAULT_SETTINGS.workspace },
-    updates: { ...DEFAULT_SETTINGS.updates },
-    appearance: { ...DEFAULT_SETTINGS.appearance },
-};
-let hydrated = false;
+let localSettingsHydrated = false;
+let tauriSettingsHydrated = false;
 let settingsBridgeInitialized = false;
+let settingsInitialization: Promise<void> | null = null;
+let settingsRevision = 0;
+let settingsHydrationRevision = 0;
+let settingsHydrationPending = false;
+let settingsHydrationPatches: Partial<BetterShapeSettings>[] = [];
+let tauriSettingsStorePromise: Promise<Store> | null = null;
+let tauriSettingsSaveQueue: Promise<void> = Promise.resolve();
 const listeners = new Set<() => void>();
+
+function recordSettingsChange(patch: Partial<BetterShapeSettings>): void {
+    settingsRevision += 1;
+    if (settingsHydrationPending) settingsHydrationPatches.push(patch);
+}
 
 function mergeAiSettings(
     base: BetterShapeSettings["ai"] | undefined,
@@ -649,6 +670,11 @@ function mergeSettings(
                     base.appearance?.colorTheme ??
                     DEFAULT_SETTINGS.appearance.colorTheme,
             ),
+            motionPreference: normalizeMotionPreference(
+                patch.appearance?.motionPreference ??
+                    base.appearance?.motionPreference ??
+                    DEFAULT_SETTINGS.appearance.motionPreference,
+            ),
         },
     };
 }
@@ -688,7 +714,8 @@ export function getFileExcludePatterns(): string {
 
 function applySettingsFromPayload(next: Partial<BetterShapeSettings> | BetterShapeSettings) {
     currentSettings = mergeSettings(DEFAULT_SETTINGS, next, { preserveSecrets: true });
-    hydrated = true;
+    recordSettingsChange(next);
+    localSettingsHydrated = true;
     applyAppearanceSettings(currentSettings);
 }
 
@@ -716,7 +743,7 @@ export function initSettingsBridge(): void {
     settingsBridgeInitialized = true;
 
     window.addEventListener("storage", (event) => {
-        if (event.key !== STORAGE_KEY || !event.newValue) return;
+        if (event.key !== SETTINGS_STORAGE_KEY || !event.newValue) return;
         try {
             applySettingsFromPayload(JSON.parse(event.newValue) as Partial<BetterShapeSettings>);
             emitLocal();
@@ -730,7 +757,7 @@ export function initSettingsBridge(): void {
             void listen<BetterShapeSettings>("bettershape-settings-changed", (event) => {
                 applySettingsFromPayload(event.payload);
                 try {
-                    localStorage.setItem(STORAGE_KEY, JSON.stringify(forStorage(currentSettings)));
+                    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(forStorage(currentSettings)));
                 } catch { /* ignore */ }
                 emitLocal();
             });
@@ -741,7 +768,7 @@ export function initSettingsBridge(): void {
 function loadFromLocalStorage() {
     if (typeof window === "undefined") return;
     try {
-        const raw = localStorage.getItem(STORAGE_KEY);
+        const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
         if (raw) {
             const parsed = JSON.parse(raw) as Partial<BetterShapeSettings>;
             const rawChannel = parsed.updates?.channel;
@@ -756,60 +783,97 @@ function loadFromLocalStorage() {
 function persist() {
     if (typeof window === "undefined") return;
     try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(forStorage(currentSettings)));
+        localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(forStorage(currentSettings)));
     } catch { /* ignore */ }
 }
 
-/** Mirror the settings into the Tauri store file (redacted when vaulted). */
-async function persistToTauriStore(): Promise<void> {
-    try {
-        const { load } = await import("@tauri-apps/plugin-store");
-        const store = await load("settings.json", { autoSave: true, defaults: {} });
-        await store.set("settings", forStorage(currentSettings));
-        await store.save();
-    } catch { /* ignore */ }
-}
-
-export async function initSettings(): Promise<void> {
-    initSettingsBridge();
-    if (hydrated) return;
-    loadFromLocalStorage();
-    try {
-        const { load } = await import("@tauri-apps/plugin-store");
-        const store = await load("settings.json", { autoSave: true, defaults: {} });
-        const stored = await store.get<Partial<BetterShapeSettings>>("settings");
-        if (stored) {
-            currentSettings = mergeSettings(DEFAULT_SETTINGS, stored, { preserveSecrets: true });
-            persist();
-            // Rewrite through the redaction path so a pre-keychain build's keys
-            // do not survive in the store file.
-            await store.set("settings", forStorage(currentSettings));
-            await store.save();
-        } else {
-            await store.set("settings", forStorage(currentSettings));
-            await store.save();
-        }
-    } catch {
-        // Browser dev or store unavailable — localStorage is enough
+function getTauriSettingsStore(): Promise<Store> {
+    if (!tauriSettingsStorePromise) {
+        tauriSettingsStorePromise = import("@tauri-apps/plugin-store")
+            .then(({ load }) => load("settings.json", { autoSave: true, defaults: {} }))
+            .catch((error: unknown) => {
+                tauriSettingsStorePromise = null;
+                throw error;
+            });
     }
-    hydrated = true;
-    applyAppearanceSettings(currentSettings);
-    emit();
-    // Keep the Rust indexer embeddings flag in sync with persisted settings.
-    void import("@/lib/backend").then(({ commands }) => {
-        commands.setIndexEmbeddings(currentSettings.ai.indexEmbeddings).catch(() => {
-            /* desktop bridge may not be ready yet */
-        });
-        commands.setChatMemoryEnabled(currentSettings.ai.chatMemoryEnabled).catch(() => {
-            /* desktop bridge may not be ready yet */
-        });
-    });
+    return tauriSettingsStorePromise;
+}
+
+/** Mirror immutable settings snapshots through one ordered Tauri-store write queue. */
+function persistToTauriStore(snapshot: BetterShapeSettings = currentSettings): Promise<void> {
+    const serialized = JSON.stringify(forStorage(snapshot));
+    const save = tauriSettingsSaveQueue
+        .catch(() => undefined)
+        .then(async () => {
+            const store = await getTauriSettingsStore();
+            await store.set("settings", JSON.parse(serialized) as BetterShapeSettings);
+            await store.save();
+        })
+        .catch(() => undefined);
+    tauriSettingsSaveQueue = save;
+    return save;
+}
+
+export function initSettings(): Promise<void> {
+    initSettingsBridge();
+    if (settingsInitialization) return settingsInitialization;
+    if (tauriSettingsHydrated) return Promise.resolve();
+
+    if (!localSettingsHydrated && typeof window !== "undefined") {
+        loadFromLocalStorage();
+        localSettingsHydrated = true;
+        applyAppearanceSettings(currentSettings);
+    }
+    settingsHydrationRevision = settingsRevision;
+    settingsHydrationPatches = [];
+    settingsHydrationPending = true;
+
+    settingsInitialization = (async () => {
+        try {
+            const store = await getTauriSettingsStore();
+            const stored = await store.get<Partial<BetterShapeSettings>>("settings");
+            if (stored) {
+                let nextSettings = mergeSettings(DEFAULT_SETTINGS, stored, { preserveSecrets: true });
+                if (settingsRevision !== settingsHydrationRevision) {
+                    for (const patch of settingsHydrationPatches) {
+                        nextSettings = mergeSettings(nextSettings, patch, { preserveSecrets: true });
+                    }
+                }
+                currentSettings = nextSettings;
+                persist();
+            }
+
+            // Rewrites through the redaction path and runs after any user update queued during hydration.
+            await persistToTauriStore(currentSettings);
+        } catch {
+            // Browser dev or store unavailable — localStorage is enough
+        } finally {
+            settingsHydrationPending = false;
+            settingsHydrationPatches = [];
+            localSettingsHydrated = true;
+            tauriSettingsHydrated = true;
+            applyAppearanceSettings(currentSettings);
+            emit();
+            // Keep the Rust indexer embeddings flag in sync with persisted settings.
+            void import("@/lib/backend").then(({ commands }) => {
+                commands.setIndexEmbeddings(currentSettings.ai.indexEmbeddings).catch(() => {
+                    /* desktop bridge may not be ready yet */
+                });
+                commands.setChatMemoryEnabled(currentSettings.ai.chatMemoryEnabled).catch(() => {
+                    /* desktop bridge may not be ready yet */
+                });
+            });
+            settingsInitialization = null;
+        }
+    })();
+
+    return settingsInitialization;
 }
 
 export function getSettings(): BetterShapeSettings {
-    if (!hydrated && typeof window !== "undefined") {
+    if (!localSettingsHydrated && typeof window !== "undefined") {
         loadFromLocalStorage();
-        hydrated = true;
+        localSettingsHydrated = true;
         applyAppearanceSettings(currentSettings);
     }
     return currentSettings;
@@ -817,6 +881,7 @@ export function getSettings(): BetterShapeSettings {
 
 export function updateSettings(patch: Partial<BetterShapeSettings>): void {
     currentSettings = mergeSettings(currentSettings, patch);
+    recordSettingsChange(patch);
     persist();
     applyAppearanceSettings(currentSettings);
     void persistToTauriStore();
@@ -851,7 +916,7 @@ export function updateSettingSection<K extends keyof BetterShapeSettings>(
     section: K,
     patch: Partial<BetterShapeSettings[K]>
 ): void {
-    updateSettings({ [section]: { ...currentSettings[section], ...patch } } as Partial<BetterShapeSettings>);
+    updateSettings({ [section]: patch } as Partial<BetterShapeSettings>);
 }
 
 export function useSettings(): BetterShapeSettings {
@@ -881,6 +946,11 @@ export function applyAppearanceSettings(settings: BetterShapeSettings) {
     document.documentElement.style.setProperty("--editor-font-family", settings.editor.fontFamily);
     document.documentElement.style.setProperty("--editor-font-size", `${settings.editor.fontSize}px`);
     document.documentElement.style.setProperty("--font-mono", settings.editor.fontFamily);
+    if (settings.appearance.motionPreference === "reduced") {
+        document.documentElement.dataset.motionPreference = "reduced";
+    } else {
+        delete document.documentElement.dataset.motionPreference;
+    }
     paintDarkTheme();
 }
 

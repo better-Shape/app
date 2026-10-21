@@ -21,8 +21,8 @@ detail, a theme or token change, and a README screenshot or landing page. If the
 task touches no UI, say so and skip the set.
 
 1. `DESIGN.md`, then `engineering/design-system-baseline.md`. Direction and the exact
-   values. Every rule the skills below add is applied against these two, not in
-   place of them.
+   values. Read `engineering/motion-design.md` for any motion change. Every rule the
+   skills below add is applied against these docs, not in place of them.
 2. `.agents/skills/antislop/SKILL.md`, the core filter, plus the task skill:
    `antislop-ui` for visual work, `antislop-copywriting` for text, `antislop-human`
    for accessibility, `antislop-layoutmobile` for reflow, `antislop-code` for
@@ -157,8 +157,7 @@ For any UI or design change, before you call it done:
 3. **unslop pass on copy.** Every string a user can see, checked against the
    writing rules, including `...` rather than the ellipsis character, and sentence
    case.
-4. **Motion check.** New or changed timing lives in `app/transitions.css`, which holds the `--transition-*` and `--ease-*` values,
-   not inline, and respects `prefers-reduced-motion` where the app already does.
+4. **Motion check.** Apply `engineering/motion-design.md`. Use shared fast, base, or spatial tokens, keep keyboard surfaces immediate, and make transitions reversible. Cover both the OS media query and app preference; one-shot JavaScript motion uses `lib/ui/motion.ts`, while timed or repeated sequences use `lib/ui/use-reduced-motion.ts` to observe preference changes live. Do not add inline timings.
 5. **Accessibility pass.** Focus visible on every new control, `aria-label` on
    icon-only buttons, `aria-pressed` on toggles, contrast for any text on an accent
    or a wash.

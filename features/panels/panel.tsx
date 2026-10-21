@@ -376,7 +376,7 @@ export function Panel({
                                 >
                                     {/* The Actual Line */}
                                     <div className={cn(
-                                        "transition-colors duration-200 pointer-events-none",
+                                        "transition-colors duration-[var(--transition-fast)] ease-[var(--ease-out)] pointer-events-none",
                                         isCollapsed ? "absolute" : "",
                                         isVertical ? "w-full h-px" : "h-full w-px",
                                         isResizing && draggingIdx === idx ? "bg-accent opacity-100" : "bg-transparent group-hover:bg-accent/40",

@@ -85,7 +85,7 @@ function Card({ card }: { card: SubagentCard }) {
                         <span className="shrink-0 tabular-nums text-text-muted">{clockLabel(card)}</span>
                         <Icon
                             icon={ChevronRight20Regular}
-                            className={cn("shrink-0 opacity-50 transition-transform duration-200", open && "rotate-90")}
+                            className={cn("shrink-0 opacity-50 transition-transform duration-[var(--transition-fast)] ease-[var(--ease-out)]", open && "rotate-90")}
                         />
                     </button>
                     {open ? (

@@ -25,6 +25,7 @@ import { Icon } from "@/components/ui/icon";
 
 
 import { cn } from "@/lib/utils";
+import { useReducedMotion } from "@/lib/ui/use-reduced-motion";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -325,6 +326,7 @@ function SwapText({
     const [ready, setReady] = React.useState(false);
     const [clipping, setClipping] = React.useState(false);
     const shownRef = React.useRef(value);
+    const reducedMotion = useReducedMotion();
 
     const fitWidth = React.useCallback(() => {
         const wrap = wrapRef.current;
@@ -385,11 +387,19 @@ function SwapText({
         if (value === shownRef.current) return;
         const from = shownRef.current;
         shownRef.current = value;
-        setLeaving(from || null);
         setShown(value);
+        if (reducedMotion) {
+            setLeaving(null);
+            return;
+        }
+        setLeaving(from || null);
         const t = window.setTimeout(() => setLeaving(null), 400);
         return () => window.clearTimeout(t);
-    }, [value]);
+    }, [value, reducedMotion]);
+
+    React.useEffect(() => {
+        if (reducedMotion) setLeaving(null);
+    }, [reducedMotion]);
 
     return (
         <span
@@ -420,13 +430,14 @@ function SwapText({
     );
 }
 
-function RotatingComposerHint({ paused }: { paused: boolean }) {
+function RotatingComposerHint() {
     const [index, setIndex] = React.useState(0);
     const [phase, setPhase] = React.useState<"in" | "out" | "enter">("in");
     const indexRef = React.useRef(0);
+    const reducedMotion = useReducedMotion();
 
     React.useEffect(() => {
-        if (paused) {
+        if (reducedMotion) {
             setPhase("in");
             return;
         }
@@ -446,7 +457,7 @@ function RotatingComposerHint({ paused }: { paused: boolean }) {
             if (exitTimer) clearTimeout(exitTimer);
             if (enterTimer) clearTimeout(enterTimer);
         };
-    }, [paused]);
+    }, [reducedMotion]);
 
     return (
         <div className="t-composer-hint pl-3" aria-hidden>
@@ -1211,7 +1222,7 @@ export function ChatInput({
                         </DropdownMenu>
                         <div className="relative min-h-6 min-w-0 flex-1">
                         {!needsSignIn && !inputValue ? (
-                            <RotatingComposerHint paused={false} />
+                            <RotatingComposerHint />
                         ) : needsSignIn && !inputValue ? (
                             <div className="pointer-events-none absolute inset-0 z-0 flex items-center pl-3 text-sm font-medium leading-6 text-text-muted">
                                 Add an API key in Settings → Providers to chat

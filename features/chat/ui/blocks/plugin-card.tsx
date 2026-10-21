@@ -15,7 +15,7 @@ import { People20Regular } from "@fluentui/react-icons/headless/svg/people";
 import { Person20Regular } from "@fluentui/react-icons/headless/svg/person";
 import { Search20Regular } from "@fluentui/react-icons/headless/svg/search";
 
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { type IconGlyph, Icon } from "@/components/ui/icon";
 import { Button } from "@/components/ui/button";
 import { PluginLogo } from "@/components/ui/plugin-logo";
@@ -210,6 +210,7 @@ export function PluginActivityCard({
     onReject?: () => void;
 }) {
     const [open, setOpen] = useState(false);
+    const collapseId = useId();
     const summary = useMemo(() => summarizePluginPayload(body), [body]);
     const title = summary.title || label;
     const toolkitName = toolkit.replace(/[_-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
@@ -235,8 +236,13 @@ export function PluginActivityCard({
                 </span>
                 <button
                     type="button"
+                    aria-expanded={canExpand ? open && !pending : undefined}
+                    aria-controls={canExpand ? collapseId : undefined}
                     onClick={() => canExpand && setOpen((v) => !v)}
-                    className={cn("flex min-w-0 flex-1 flex-col text-left", canExpand ? "cursor-pointer" : "cursor-default")}
+                    className={cn(
+                        "flex min-w-0 flex-1 flex-col text-left focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus",
+                        canExpand ? "cursor-pointer" : "cursor-default",
+                    )}
                 >
                     <span className="flex min-w-0 items-baseline gap-1.5">
                         <span className="truncate text-sm text-text-primary">{title}</span>
@@ -267,8 +273,10 @@ export function PluginActivityCard({
                 ) : (
                     <button
                         type="button"
+                        aria-expanded={canExpand ? open : undefined}
+                        aria-controls={canExpand ? collapseId : undefined}
                         onClick={() => canExpand && setOpen((v) => !v)}
-                        className="flex shrink-0 items-center gap-1.5 text-xs text-text-secondary"
+                        className="flex shrink-0 items-center gap-1.5 text-xs text-text-secondary focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus"
                     >
                         {summary.progress ? (
                             <span className="tabular-nums text-text-muted">
@@ -280,7 +288,7 @@ export function PluginActivityCard({
                         {canExpand ? (
                             <Icon
                                 icon={ChevronDown20Regular}
-                                className={cn("text-text-muted transition-transform duration-200", open && "rotate-180")}
+                                className={cn("text-text-muted transition-transform duration-[var(--transition-fast)] ease-[var(--ease-out)]", open && "rotate-180")}
                             />
                         ) : null}
                     </button>
@@ -291,7 +299,7 @@ export function PluginActivityCard({
                     <div className="h-full rounded-full bg-accent" style={{ width: `${progressPct}%` }} />
                 </div>
             ) : null}
-            <Collapse open={open && !pending}>
+            <Collapse id={collapseId} open={open && !pending}>
                 {summary.rows.length ? (
                     <div className="flex flex-col gap-1 px-3 pb-2.5">
                         {summary.rows.map((row, index) => (

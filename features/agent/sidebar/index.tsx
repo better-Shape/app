@@ -121,9 +121,10 @@ export function AgentSidebar({
     return (
         <aside
             aria-hidden={!open}
+            inert={!open}
             className={cn(
                 "relative z-20 flex h-full shrink-0 flex-col overflow-hidden bg-sidebar text-text-primary",
-                "transition-[width,border-color] duration-[var(--transition-base)] ease-[var(--ease-out)]",
+                "transition-[width,border-color] duration-[var(--transition-spatial)] ease-[var(--ease-out)]",
                 !open ? "w-0 border-r-transparent" : expanded ? "w-80" : "w-12",
             )}
         >
@@ -131,7 +132,7 @@ export function AgentSidebar({
                 className={cn(
                     "flex h-full min-h-0 shrink-0 flex-col",
                     expanded ? "w-80" : "w-12",
-                    "transition-[opacity,transform] duration-[var(--transition-base)] ease-[var(--ease-out)]",
+                    "transition-[opacity,transform] duration-[var(--transition-spatial)] ease-[var(--ease-out)]",
                     !open && "pointer-events-none -translate-x-full opacity-0",
                 )}
             >

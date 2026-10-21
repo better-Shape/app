@@ -6,6 +6,7 @@ import { ChevronDown20Regular } from "@fluentui/react-icons/headless/svg/chevron
 
 import React from "react";
 import { Icon } from "@/components/ui/icon";
+import { GeneratingIndicator } from "./generating";
 
 
 import { cn } from "@/lib/utils";
@@ -42,17 +43,17 @@ export function CodebaseAnalysis({ items, isActive }: { items: AnalysisItem[]; i
                     )}
                 />
                 {isActive ? (
-                    <span className="font-medium text-sm animate-pulse text-text-secondary">Analyzing codebase...</span>
+                    <GeneratingIndicator label="Analyzing codebase..." />
                 ) : (
                     <span className="font-medium text-sm">Analyzed {summary}</span>
-                )}
-                {isActive && (
-                    <div className="w-2.5 h-2.5 border border-accent border-t-transparent rounded-full animate-spin ml-1" />
                 )}
             </button>
 
             {isOpen && (
-                <div className="flex w-full min-w-0 flex-col gap-1.5 pb-2">
+                <div
+                    aria-busy={isActive || undefined}
+                    className="flex w-full min-w-0 flex-col gap-1.5 pb-2"
+                >
                     {items.map((item, i) => (
                         <div key={i} className="flex items-center gap-2 text-sm text-text-muted font-medium px-2 py-0.5">
                             <span className="opacity-50">

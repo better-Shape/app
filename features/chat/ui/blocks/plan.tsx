@@ -36,50 +36,37 @@ export function PlanningBlock({ steps, completedCount, totalCount, isGenerating 
     isGenerating?: boolean;
 }) {
     const [isOpen, setIsOpen] = React.useState(totalCount <= 5);
+    const collapseId = React.useId();
     const displaySteps = React.useMemo(
         () => freezeActiveSteps(steps, isGenerating),
         [steps, isGenerating],
     );
-    const active = displaySteps.find((s) => s.status === "active");
-    const visibleSteps = isOpen
-        ? displaySteps
+    const active = displaySteps.find((step) => step.status === "active");
+    const summarySteps = isOpen
+        ? []
         : active
           ? [active]
-          : displaySteps.filter((s) => s.status === "done").slice(-2);
-
-    return (
-        <div className="my-1 w-full overflow-hidden squircle-2xl bg-surface-4">
-            <button
-                type="button"
-                onClick={() => totalCount > 1 && setIsOpen((open) => !open)}
-                className={cn(
-                    "flex w-full items-center gap-2 px-2 py-2 text-left",
-                    totalCount > 1 && "hover:bg-panel-hover/40 transition-colors cursor-pointer",
-                )}
-            >
-                <span className="flex size-4 shrink-0 items-center justify-center text-text-muted">
-                    <Icon icon={TaskListSquareLtr20Regular} className="icon-sm" />
-                </span>
-                <span className="truncate text-sm font-medium text-text-primary">To-dos</span>
-                <span className="ms-auto shrink-0 text-sm tabular-nums text-text-muted">
-                    {todoCountLabel(completedCount, totalCount)}
-                </span>
-            </button>
-
-            <Collapse open={visibleSteps.length > 0}>
-                <div className="flex flex-col px-2 pb-2">
-                    {visibleSteps.map((step, i) => (
-                        <div key={`${step.label}-${i}`} className="flex h-7 items-center gap-2">
+          : displaySteps.filter((step) => step.status === "done").slice(-2);
+    const renderSteps = (items: PlanStep[]) => {
+        const labelOccurrences = new Map<string, number>();
+        return (
+            <div className="flex flex-col px-2 pb-2">
+                {items.map((step) => {
+                    const occurrence = labelOccurrences.get(step.label) ?? 0;
+                    labelOccurrences.set(step.label, occurrence + 1);
+                    const key = JSON.stringify([step.label, occurrence]);
+                    return (
+                        <div key={key} className="flex h-7 items-center gap-2">
                             <span className="flex size-4 shrink-0 items-center justify-center">
-                            {step.status === "done" ? (
-                                <Icon icon={CheckmarkCircle20Filled} className="size-4 text-success" />
-                            ) : step.status === "active" ? (
-                                <span className="size-4 rounded-full border-2 border-accent border-t-transparent animate-spin" />
-                            ) : step.status === "cancelled" ? (
-                                <Icon icon={Dismiss20Regular} className="size-4 text-text-disabled" />
-                            ) : (
-                                <span className="size-4 rounded-full border border-text-muted/55" />
-                            )}
+                                {step.status === "done" ? (
+                                    <Icon icon={CheckmarkCircle20Filled} className="size-4 text-success" />
+                                ) : step.status === "active" ? (
+                                    <span className="size-4 rounded-full border-2 border-accent border-t-transparent animate-spin" />
+                                ) : step.status === "cancelled" ? (
+                                    <Icon icon={Dismiss20Regular} className="size-4 text-text-disabled" />
+                                ) : (
+                                    <span className="size-4 rounded-full border border-text-muted/55" />
+                                )}
                             </span>
                             <span className={cn(
                                 "text-sm leading-snug",
@@ -91,9 +78,37 @@ export function PlanningBlock({ steps, completedCount, totalCount, isGenerating 
                                 {step.label}
                             </span>
                         </div>
-                    ))}
-                </div>
+                    );
+                })}
+            </div>
+        );
+    };
+
+    return (
+        <div className="my-1 w-full overflow-hidden squircle-2xl bg-surface-4">
+            <button
+                type="button"
+                aria-expanded={totalCount > 1 ? isOpen : undefined}
+                aria-controls={collapseId}
+                onClick={() => totalCount > 1 && setIsOpen((open) => !open)}
+                className={cn(
+                    "flex w-full items-center gap-2 px-2 py-2 text-left",
+                    totalCount > 1 && "hover:bg-panel-hover/40 transition-colors duration-[var(--transition-fast)] ease-[var(--ease-out)] cursor-pointer",
+                )}
+            >
+                <span className="flex size-4 shrink-0 items-center justify-center text-text-muted">
+                    <Icon icon={TaskListSquareLtr20Regular} className="icon-sm" />
+                </span>
+                <span className="truncate text-sm font-medium text-text-primary">To-dos</span>
+                <span className="ms-auto shrink-0 text-sm tabular-nums text-text-muted">
+                    {todoCountLabel(completedCount, totalCount)}
+                </span>
+            </button>
+
+            <Collapse id={collapseId} open={isOpen}>
+                {renderSteps(displaySteps)}
             </Collapse>
+            {!isOpen && summarySteps.length > 0 ? renderSteps(summarySteps) : null}
         </div>
     );
 }
@@ -123,6 +138,7 @@ export function PlanSavedBlock({
         markdown ? splitPlanDocument(markdown).body : "",
     );
     const [open, setOpen] = React.useState(true);
+    const collapseId = React.useId();
 
     const applyPlan = (content: string) => {
         setPreview(parsePlanMarkdown(content));
@@ -202,8 +218,10 @@ export function PlanSavedBlock({
         <div className="my-1 w-full overflow-hidden squircle-2xl border border-border-subtle bg-surface-2 p-2">
             <button
                 type="button"
+                aria-expanded={open}
+                aria-controls={collapseId}
                 onClick={() => setOpen((v) => !v)}
-                className="flex w-full items-center gap-2 text-left transition-colors duration-[var(--transition-fast)] ease-[var(--ease-out)]"
+                className="flex w-full items-center gap-2 text-left transition-colors duration-[var(--transition-fast)] ease-[var(--ease-out)] focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus"
             >
                 <span className="flex size-4 shrink-0 items-center justify-center text-text-muted">
                     <Icon icon={CalendarCheckmark24Filled} className="icon-sm" />
@@ -220,7 +238,7 @@ export function PlanSavedBlock({
                 />
             </button>
 
-            <Collapse open={open}>
+            <Collapse id={collapseId} open={open}>
                 <div className="flex flex-col gap-2 pt-2">
                     {body.trim() ? (
                         <div className="chat-markdown px-1 text-sm text-text-primary">

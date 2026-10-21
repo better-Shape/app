@@ -1,0 +1,31 @@
+{
+  "name": "bettershape-motion-preference",
+  "url": "http://127.0.0.1:48921/settings?category=motion",
+  "viewport": { "width": 1280, "height": 800 },
+  "deviceScaleFactor": 1,
+  "fps": 30,
+  "captureFps": 60,
+  "quality": 86,
+  "settleMs": 1000,
+  "tailMs": 900,
+  "steps": [
+    { "action": "subtitle", "text": "System preference is the default" },
+    { "action": "wait", "ms": 800 },
+    { "action": "screenshot", "label": "motion-system" },
+
+    { "action": "subtitle", "text": "Open the Motion preference" },
+    { "action": "move", "selector": "#settings-motion button[aria-label=\"Motion preference\"]", "ms": 600 },
+    { "action": "click", "selector": "#settings-motion button[aria-label=\"Motion preference\"]" },
+    { "action": "wait", "ms": 450 },
+    { "action": "screenshot", "label": "motion-options" },
+
+    { "action": "subtitle", "text": "Reduce non-essential movement" },
+    { "action": "move", "selector": "[role=\"menuitemcheckbox\"]:has-text(\"Reduce motion\")", "ms": 500 },
+    { "action": "click", "selector": "[role=\"menuitemcheckbox\"]:has-text(\"Reduce motion\")" },
+    { "action": "wait", "ms": 900 },
+    { "action": "screenshot", "label": "motion-reduced" },
+
+    { "action": "subtitle", "text": "System reduced motion is always honored" },
+    { "action": "wait", "ms": 900 }
+  ]
+}

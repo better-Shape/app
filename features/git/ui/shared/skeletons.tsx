@@ -2,12 +2,12 @@
 
 import { cn } from "@/lib/utils";
 
-/** Simple pulse block used for Git Manager loading placeholders. */
+/** Quiet static block used for Git Manager loading placeholders. */
 export function Skeleton({ className }: { className?: string }) {
     return (
         <div
             className={cn(
-                "animate-pulse rounded-md bg-panel-hover/80",
+                "rounded-md bg-panel-hover/80",
                 className,
             )}
             aria-hidden

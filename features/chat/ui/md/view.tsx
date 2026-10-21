@@ -24,6 +24,7 @@ import { ChatMermaid } from "./mermaid";
 import { ChatKeyedRowsTable, MarkdownTableShell } from "./data-table";
 import { parseKeyedRows, tableCellModelId } from "@/lib/chat/fence-tables";
 import { providerIcon } from "@/lib/ui/provider-icon";
+import { prefersReducedMotion } from "@/lib/ui/motion";
 
 const PATH_IN_PROSE =
     /(?:^|(?<=\s))((?:\.{1,2}[\\/])?(?:[\w.-]+[\\/])+[\w.-]+\.[A-Za-z0-9]{1,12})(?=$|[\s,;:)\]"'`])/g;
@@ -286,7 +287,9 @@ function createMarkdownComponents(options?: { nested?: boolean }) {
 /** Fast catch-up typewriter over the raw markdown string (survives re-parses). */
 function useRevealText(full: string, live: boolean): string {
     const len = full.length;
-    const [shown, setShown] = useState(() => (live ? Math.min(24, len) : len));
+    const [shown, setShown] = useState(() =>
+        live && !prefersReducedMotion() ? Math.min(24, len) : len,
+    );
     const shownRef = useRef(shown);
     shownRef.current = shown;
     const wasLive = useRef(live);
@@ -294,8 +297,8 @@ function useRevealText(full: string, live: boolean): string {
     const moreToShow = shown < len;
 
     useEffect(() => {
-        // Finished message that never streamed in this mount — show fully.
-        if (!live && !wasLive.current) {
+        // Skip the reveal for reduced motion and for messages that did not stream here.
+        if (prefersReducedMotion() || (!live && !wasLive.current)) {
             setShown(len);
             return;
         }
@@ -308,6 +311,10 @@ function useRevealText(full: string, live: boolean): string {
         let raf = 0;
         let last = performance.now();
         const tick = (now: number) => {
+            if (prefersReducedMotion()) {
+                setShown(len);
+                return;
+            }
             const cur = shownRef.current;
             if (cur >= len) return;
             const dt = Math.min(32, now - last);

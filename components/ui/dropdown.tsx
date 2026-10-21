@@ -21,7 +21,7 @@ import { useOverlayRoot } from "@/lib/ui/overlay-root";
 const itemClasses =
     "group relative flex cursor-default select-none items-center gap-2 squircle-2xl px-4! py-1.5 text-sm outline-none transition-[background-color,color,transform] duration-[var(--transition-fast)] ease-[var(--ease-out)] focus:bg-panel-hover focus:text-text-primary data-disabled:pointer-events-none data-disabled:opacity-50";
 const containerClasses =
-    "bettershape-popover-content z-dropdown overflow-hidden squircle-2xl border border-border-secondary bg-sidebar text-text-primary shadow-md";
+    "bettershape-popover-content bettershape-menu-content z-dropdown overflow-hidden squircle-2xl border border-border-secondary bg-sidebar text-text-primary shadow-md";
 const shortcutClasses =
     "ml-auto shrink-0 pr-1 text-sm text-text-muted group-focus:text-text-primary";
 /** Inset so rows and the panel sit off the edges. */
@@ -33,7 +33,7 @@ function DropdownScrollScrim({ side, visible }: { side: "up" | "down"; visible: 
     return (
         <div
             className={cn(
-                "pointer-events-none absolute inset-x-0 z-20 h-6 transition-opacity duration-200",
+                "pointer-events-none absolute inset-x-0 z-20 h-6 transition-opacity duration-[var(--transition-fast)] ease-[var(--ease-out)]",
                 side === "up" ? "top-0 bg-linear-to-b from-sidebar to-transparent" : "bottom-0 bg-linear-to-t from-sidebar to-transparent",
                 visible ? "opacity-100" : "opacity-0",
             )}
@@ -335,40 +335,80 @@ const DropdownMenuNested = ({ children, open, onOpenChange }: { children: React.
     );
 };
 
-const DropdownMenuNestedTrigger = React.forwardRef<
-    React.ElementRef<typeof DropdownMenuItem>,
-    React.ComponentPropsWithoutRef<typeof DropdownMenuItem> & { isOpened?: boolean, setIsOpened?: (open: boolean) => void }
->(({ className, children, isOpened, setIsOpened, ...props }, ref) => (
-    <DropdownMenuItem
-        ref={ref}
-        className={cn(className)}
-        onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            setIsOpened?.(!isOpened);
-        }}
-        {...props}
-    >
-        {children}
-        <Icon icon={ChevronRight20Regular} className={cn("ml-auto transition-transform duration-200", isOpened && "rotate-90")}  />
-    </DropdownMenuItem>
-));
-DropdownMenuNestedTrigger.displayName = "DropdownMenuNestedTrigger";
+type NestedMenuTriggerState = {
+    isOpened?: boolean;
+    setIsOpened?: (open: boolean) => void;
+};
 
-const DropdownMenuNestedContent = ({ children, isOpened }: { children: React.ReactNode, isOpened?: boolean }) => {
+type NestedMenuContentProps = {
+    children: React.ReactNode;
+    isOpened?: boolean;
+};
+
+/** Share nested trigger behavior between dropdown and menubar menu primitives. */
+const renderNestedMenuTrigger = <
+    TElement extends HTMLElement,
+    TProps extends NestedMenuTriggerState & {
+        className?: string;
+        children?: React.ReactNode;
+        onClick?: React.MouseEventHandler<TElement>;
+    },
+>(
+    Item: React.ElementType,
+    props: TProps,
+    ref: React.ForwardedRef<TElement>,
+): React.ReactElement => {
+    const { className, children, isOpened, setIsOpened, onClick, ...itemProps } = props;
+    return (
+        <Item
+            ref={ref}
+            className={cn(className)}
+            onClick={(event: React.MouseEvent<TElement>) => {
+                onClick?.(event);
+                event.stopPropagation();
+                if (event.defaultPrevented) return;
+                event.preventDefault();
+                setIsOpened?.(!isOpened);
+            }}
+            {...itemProps}
+            aria-expanded={isOpened ?? false}
+        >
+            {children}
+            <Icon
+                icon={ChevronRight20Regular}
+                className={cn(
+                    "ml-auto transition-transform duration-[var(--transition-fast)] ease-[var(--ease-out)]",
+                    isOpened && "rotate-90",
+                )}
+            />
+        </Item>
+    );
+};
+
+/** Keep nested content mounted while making closed branches inert and hidden. */
+const NestedMenuContent = ({ children, isOpened }: NestedMenuContentProps) => {
     return (
         <div
+            aria-hidden={!isOpened}
+            inert={!isOpened}
             className={cn(
-                "grid transition-[grid-template-rows,opacity] duration-200 ease-in-out",
-                isOpened ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
+                "grid transition-[grid-template-rows,opacity] duration-[var(--transition-base)] ease-[var(--ease-out)]",
+                isOpened ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
             )}
         >
-            <div className="overflow-hidden flex flex-col pl-1">
-                {children}
-            </div>
+            <div className="overflow-hidden flex flex-col pl-1">{children}</div>
         </div>
     );
 };
+
+const DropdownMenuNestedTrigger = React.forwardRef<
+    React.ElementRef<typeof DropdownMenuItem>,
+    React.ComponentPropsWithoutRef<typeof DropdownMenuItem> & NestedMenuTriggerState
+>((props, ref) => renderNestedMenuTrigger(DropdownMenuItem, props, ref));
+DropdownMenuNestedTrigger.displayName = "DropdownMenuNestedTrigger";
+
+/** Keeps the controlled submenu branch mounted while making its closed content inert. */
+const DropdownMenuNestedContent = NestedMenuContent;
 
 /**
  * Menubar Components (for Navigation/Titlebar)
@@ -661,38 +701,12 @@ const MenubarNested = ({ children, open, onOpenChange }: { children: React.React
 
 const MenubarNestedTrigger = React.forwardRef<
     React.ElementRef<typeof MenubarItem>,
-    React.ComponentPropsWithoutRef<typeof MenubarItem> & { isOpened?: boolean, setIsOpened?: (open: boolean) => void }
->(({ className, children, isOpened, setIsOpened, ...props }, ref) => (
-    <MenubarItem
-        ref={ref}
-        className={cn(className)}
-        onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            setIsOpened?.(!isOpened);
-        }}
-        {...props}
-    >
-        {children}
-        <Icon icon={ChevronRight20Regular} className={cn("ml-auto transition-transform duration-200", isOpened && "rotate-90")}  />
-    </MenubarItem>
-));
+    React.ComponentPropsWithoutRef<typeof MenubarItem> & NestedMenuTriggerState
+>((props, ref) => renderNestedMenuTrigger(MenubarItem, props, ref));
 MenubarNestedTrigger.displayName = "MenubarNestedTrigger";
 
-const MenubarNestedContent = ({ children, isOpened }: { children: React.ReactNode, isOpened?: boolean }) => {
-    return (
-        <div
-            className={cn(
-                "grid transition-[grid-template-rows,opacity] duration-200 ease-in-out",
-                isOpened ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
-            )}
-        >
-            <div className="overflow-hidden flex flex-col pl-1">
-                {children}
-            </div>
-        </div>
-    );
-};
+/** Keeps the controlled menubar branch mounted while making its closed content inert. */
+const MenubarNestedContent = NestedMenuContent;
 
 export {
     DropdownMenu,
