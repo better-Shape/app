@@ -358,22 +358,20 @@ describe("preprocessChatMarkdown", () => {
         expect(out).not.toContain("render_design_previews");
     });
 
-    it("preserves prose after a valid apostrophe-containing tag and truncates broken attributes", () => {
+    it("preserves prose around malformed tags and nested hidden wrappers", () => {
         const prose = stripLeakedToolCode("<analysis it's fine> following prose");
         const broken = stripLeakedToolCode('<analysis title="unfinished>hidden prose');
         expect(prose).toContain("following prose");
         expect(prose).not.toContain("<analysis");
         expect(broken).not.toContain("hidden prose");
-    });
 
-    it("removes the full contents of nested hidden tool-result wrappers", () => {
-        const sanitized = stripLeakedToolCode(
+        const nested = stripLeakedToolCode(
             "Before <tool_result>outer <tool_result>inner</tool_result> trailing hidden</tool_result> After",
         );
-        expect(sanitized).toContain("Before");
-        expect(sanitized).toContain("After");
-        expect(sanitized).not.toContain("inner");
-        expect(sanitized).not.toContain("trailing hidden");
+        expect(nested).toContain("Before");
+        expect(nested).toContain("After");
+        expect(nested).not.toContain("inner");
+        expect(nested).not.toContain("trailing hidden");
 
         const quotedCloseTag = stripLeakedToolCode(
             'Before <tool_result><div data-value="</tool_result>">hidden content</div></tool_result> After',
