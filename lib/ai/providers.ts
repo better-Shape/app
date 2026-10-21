@@ -1422,7 +1422,11 @@ export function embeddingsTarget(settings: ProvidersSettings): { id: ProviderId;
     const conn = settings.connections[pid];
     const preset = providerPreset(pid);
     const native = embeddingSlugFor(pid, chosen);
+    const prefixed = chosen.includes("/") ? chosen : `${pid}/${chosen}`;
     const presetEmbeds = preset.embeddingModels ?? [];
+    // Discovered ids are always stored in `provider/model` form, so compare
+    // against both the native (slashed-stripped) slug and the fully
+    // prefixed form to handle users who type a bare slug vs an aliased pick.
     const discoveredEmbeds = (conn.discoveredModels ?? [])
       .filter((m) => m.nonChat && /embed|embedding/i.test(m.id))
       .map((m) => m.id);
@@ -1430,8 +1434,8 @@ export function embeddingsTarget(settings: ProvidersSettings): { id: ProviderId;
       presetEmbeds.includes(native) ||
       presetEmbeds.includes(chosen) ||
       discoveredEmbeds.includes(native) ||
-      discoveredEmbeds.includes(chosen)
-
+      discoveredEmbeds.includes(chosen) ||
+      discoveredEmbeds.includes(prefixed)
     );
   };
 
@@ -1441,7 +1445,6 @@ export function embeddingsTarget(settings: ProvidersSettings): { id: ProviderId;
       wireIds.find(providerOffersModel) ??
       (wireIds.find((id) => id === "openai") ?? wireIds.find((id) => id === "openrouter") ?? wireIds[0]);
     return { id: owner, model: embeddingSlugFor(owner, chosen) };
-
   }
 
   const preferredOf = (ids: ProviderId[]): ProviderId | undefined =>
