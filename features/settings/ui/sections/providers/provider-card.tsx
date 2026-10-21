@@ -411,7 +411,11 @@ export function ProviderCard({
                         <span className="truncate">{wireLabel(preset.kind)}</span>
                     </div>
                 </div>
-                <span className="flex shrink-0 items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                {/* Presentation wrapper: stops clicks inside the action cluster
+                    from toggling the card's expand state. The inner buttons are
+                    the actual interactive targets and each stop propagation
+                    themselves, so this element is not itself interactive. */}
+                <span className="flex shrink-0 items-center gap-2" onClick={(e) => e.stopPropagation()} role="none">
                     {onReset ? (
                         <Tooltip content="Reset this provider — clears key, URL, headers" side="top">
                             <Button

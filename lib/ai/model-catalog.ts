@@ -585,7 +585,16 @@ export function formatModelPricing(meta: ModelMetadata): string {
     if (i === 0 && o === 0) return "Free";
     const fmt = (n: number) => {
         if (n === 0) return "$0";
-        if (n < 0.01) return `$${n.toFixed(4).replace(/0+$/, "").replace(/\.$/, "")}`;
+        if (n < 0.01) {
+            // Trim trailing zeros (and a leftover trailing dot) from the
+            // 4-decimal sub-cent price. Linear scan avoids the chained
+            // regexes Sonar flags as quadratic backtracking.
+            const s = n.toFixed(4);
+            let end = s.length;
+            while (end > 0 && s[end - 1] === "0") end--;
+            if (end > 0 && s[end - 1] === ".") end--;
+            return `$${s.slice(0, end)}`;
+        }
         if (n < 1) return `$${n.toFixed(2)}`;
         return `$${n.toFixed(2)}`;
     };
