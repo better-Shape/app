@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
     stripLeakedToolCode,
     stripLeakedToolMarkup,
+    stripNestedTagBlocks,
+    stripUnclosedToolTag,
     looksLikeLeakedToolCode,
     LEAKED_TOOL_XML_TAGS,
 } from "@/features/chat/ui/md/stream";
@@ -66,14 +68,17 @@ function referenceMarkup(text: string): string {
     const fw = "\uFF5C";
     let s = text;
     for (const tag of STRIP_ACROSS_FENCES) {
-        const esc = tag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        s = s.replace(new RegExp(`<${esc}\\b[^>]*>[\\s\\S]*?<\\/${esc}>`, "gi"), "");
+        // The hardened scanner owns wrapper nesting and unclosed payloads; the
+        // reference keeps the regex passes below for the prose-only grammars.
+        s = stripNestedTagBlocks(s, tag);
+        s = stripUnclosedToolTag(s, tag, true);
     }
     s = mapOutsideCodeFences(s, (prose) => {
         let p = prose;
         for (const tag of LEAKED_TOOL_XML_TAGS) {
             const esc = tag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
             p = p.replace(new RegExp(`<${esc}\\b[^>]*>[\\s\\S]*?<\\/${esc}>`, "gi"), "");
+            p = stripUnclosedToolTag(p, tag);
             p = p.replace(new RegExp(`<${esc}\\b[^>]*\\/?>`, "gi"), "");
             p = p.replace(new RegExp(`<${esc}\\b[^>]*>[\\s\\S]*$`, "gi"), "");
             p = p.replace(new RegExp(`<\\/${esc}>`, "gi"), "");

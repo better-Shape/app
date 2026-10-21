@@ -60,6 +60,10 @@ const eslintConfig = defineConfig([
     ".next/**",
     "out/**",
     "build/**",
+    "test-results/**",
+    "playwright-report/**",
+    "blob-report/**",
+    "playwright/.cache/**",
     "next-env.d.ts",
     "src-tauri/target/**",
     // Agent-skill bundles, not application source. `.claude/skills` is a symlink

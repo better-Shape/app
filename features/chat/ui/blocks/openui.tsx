@@ -7,13 +7,120 @@ import { createContext, useCallback, useContext, useState, type ReactNode } from
 
 const childrenSchema = z.array(z.any()).max(24);
 const MAX_OPENUI_NESTING = 16;
+const MAX_OPENUI_EXPANDED_NODES = 128;
+const OPENUI_COMPONENTS = new Set([
+    "Surface", "Stack", "Text", "Metric", "Callout", "Progress", "BarChart", "DataTable",
+]);
 const OpenUINestingContext = createContext(0);
+
+function stableKeys<T>(items: readonly T[], identityOf: (item: T) => string): string[] {
+    const occurrences = new Map<string, number>();
+    return items.map((item) => {
+        const identity = identityOf(item);
+        const occurrence = occurrences.get(identity) ?? 0;
+        occurrences.set(identity, occurrence + 1);
+        return `${identity}-${occurrence}`;
+    });
+}
+
+
+function maskOpenUIStringsAndComments(source: string): string {
+    const masked = source.split("");
+    let quote: "\"" | "'" | null = null;
+    let escaped = false;
+    let inLineComment = false;
+
+    for (let index = 0; index < source.length; index += 1) {
+        const character = source[index] ?? "";
+        const next = source[index + 1] ?? "";
+        if (inLineComment) {
+            if (character === "\n") inLineComment = false;
+            else masked[index] = " ";
+            continue;
+        }
+        if (quote) {
+            if (character !== "\n") masked[index] = " ";
+            if (escaped) escaped = false;
+            else if (character === "\\") escaped = true;
+            else if (character === quote) quote = null;
+            continue;
+        }
+        if (character === "/" && next === "/") {
+            masked[index] = " ";
+            masked[index + 1] = " ";
+            inLineComment = true;
+            index += 1;
+        } else if (character === "\"" || character === "'") {
+            quote = character;
+            masked[index] = " ";
+        }
+    }
+    return masked.join("");
+}
+
+function matchingArrayEnd(source: string, openIndex: number): number {
+    let depth = 0;
+    for (let index = openIndex; index < source.length; index += 1) {
+        if (source[index] === "[") depth += 1;
+        else if (source[index] === "]") {
+            depth -= 1;
+            if (depth === 0) return index;
+        }
+    }
+    return -1;
+}
+
+/** Count repeated child references as expanded work, not just unique definitions. */
+function countExpandedNodes(response: string): number {
+    const source = maskOpenUIStringsAndComments(response);
+    const definitions = new Map<string, string[]>();
+    const assignment = /^\s*([A-Za-z_][\w-]*)\s*=\s*(Surface|Stack|Text|Metric|Callout|Progress|BarChart|DataTable)\s*\(/gm;
+    let match: RegExpExecArray | null;
+
+    while ((match = assignment.exec(source)) !== null) {
+        const name = match[1];
+        const component = match[2];
+        if (!name || !component) continue;
+        let children: string[] = [];
+        if (component === "Surface" || component === "Stack") {
+            const argsStart = assignment.lastIndex;
+            const firstArray = source.indexOf("[", argsStart);
+            const firstClose = source.indexOf(")", argsStart);
+            if (firstArray !== -1 && (firstClose === -1 || firstArray < firstClose)) {
+                const arrayEnd = matchingArrayEnd(source, firstArray);
+                if (arrayEnd !== -1) {
+                    children = source.slice(firstArray + 1, arrayEnd)
+                        .match(/[A-Za-z_][\w-]*/g)
+                        ?.filter((identifier) => !OPENUI_COMPONENTS.has(identifier)) ?? [];
+                }
+            }
+        }
+        definitions.set(name, children);
+        if (definitions.size > MAX_OPENUI_EXPANDED_NODES) return MAX_OPENUI_EXPANDED_NODES + 1;
+    }
+
+    const root = definitions.get("root");
+    if (!root) return 0;
+    const countFrom = (name: string, depth: number): number => {
+        if (depth >= MAX_OPENUI_NESTING) return 1;
+        const children = definitions.get(name);
+        if (!children) return 1;
+        let total = 1;
+        for (const child of children) {
+            total += countFrom(child, depth + 1);
+            if (total > MAX_OPENUI_EXPANDED_NODES) return total;
+        }
+        return total;
+    };
+    return countFrom("root", 0);
+}
 
 type BoundedChildrenProps = {
     children: unknown;
     renderNode: (value: unknown) => ReactNode;
 };
 
+/** Stops recursive child expansion at the render-depth boundary. */
 function BoundedChildren({ children, renderNode }: BoundedChildrenProps) {
     const depth = useContext(OpenUINestingContext);
     if (depth >= MAX_OPENUI_NESTING) {
@@ -168,6 +275,8 @@ const BarChart = defineComponent({
         const maxMagnitude = Math.max(1, ...values.map((value) => Math.abs(value)));
         const hasNegativeValues = values.some((value) => value < 0);
         const dataLimited = props.labels.length !== props.values.length || props.labels.length > count || props.values.length > count;
+        const pairs = props.labels.slice(0, count).map((label, index) => ({ label, value: values[index] ?? 0 }));
+        const pairKeys = stableKeys(pairs, (pair) => JSON.stringify([pair.label, pair.value]));
         return (
             <figure className="min-w-0">
                 {props.title ? <figcaption className="mb-3 text-sm font-medium text-text-primary">{props.title}</figcaption> : null}
@@ -175,15 +284,14 @@ const BarChart = defineComponent({
                     <p className="text-xs text-text-secondary">No chart data was provided.</p>
                 ) : (
                     <div aria-hidden="true" className="space-y-2">
-                        {props.labels.slice(0, count).map((label, index) => {
-                            const value = values[index] ?? 0;
+                        {pairs.map(({ label, value }, index) => {
                             const magnitude = Math.min(1, Math.abs(value) / maxMagnitude);
                             const width = `${magnitude * (hasNegativeValues ? 50 : 100)}%`;
                             const left = hasNegativeValues
                                 ? value < 0 ? `${50 - magnitude * 50}%` : "50%"
                                 : "0%";
                             return (
-                                <div key={`${label}-${index}`} className="grid grid-cols-[minmax(5rem,1fr)_3fr_auto] items-center gap-2 text-xs">
+                                <div key={pairKeys[index]} className="grid grid-cols-[minmax(5rem,1fr)_3fr_auto] items-center gap-2 text-xs">
                                     <span className="truncate text-text-secondary" title={label}>{label}</span>
                                     <span className="relative h-2.5 overflow-hidden rounded-full bg-surface-3">
                                         <span className={"absolute inset-y-0 w-px bg-border-subtle " + (hasNegativeValues ? "left-1/2" : "left-0")} />
@@ -202,7 +310,7 @@ const BarChart = defineComponent({
                 <table className="sr-only">
                     <caption>{props.title || "Bar chart data"}</caption>
                     <thead><tr><th scope="col">Category</th><th scope="col">Value</th></tr></thead>
-                    <tbody>{props.labels.slice(0, count).map((label, index) => <tr key={`${label}-${index}`}><th scope="row">{label}</th><td>{values[index] ?? 0}</td></tr>)}</tbody>
+                    <tbody>{pairs.map(({ label, value }, index) => <tr key={pairKeys[index]}><th scope="row">{label}</th><td>{value}</td></tr>)}</tbody>
                 </table>
             </figure>
         );
@@ -220,16 +328,18 @@ const DataTable = defineComponent({
     component: ({ props }) => {
         const columns = props.columns.slice(0, 8);
         const rows = props.rows.slice(0, 30);
+        const columnKeys = stableKeys(columns, (column) => column);
+        const rowKeys = stableKeys(rows, (row) => JSON.stringify(row));
         const truncated = props.columns.length > columns.length || props.rows.length > rows.length;
         return (
             <div className="max-w-full overflow-x-auto">
                 {props.title ? <h4 className="mb-2 text-sm font-medium text-text-primary">{props.title}</h4> : null}
                 <table className="w-full border-collapse border-y border-border-subtle text-left text-xs">
                     <caption className="sr-only">{props.title || "Generated data table"}</caption>
-                    <thead className="bg-surface-3/70 text-text-secondary"><tr>{columns.map((column, index) => <th key={`${column}-${index}`} scope="col" className="break-words px-3 py-2 font-medium">{column}</th>)}</tr></thead>
+                    <thead className="bg-surface-3/70 text-text-secondary"><tr>{columns.map((column, index) => <th key={columnKeys[index]} scope="col" className="break-words px-3 py-2 font-medium">{column}</th>)}</tr></thead>
                     <tbody>{rows.map((row, rowIndex) => (
-                        <tr key={rowIndex} className="border-t border-border-subtle text-text-primary">
-                            {columns.map((_, columnIndex) => <td key={columnIndex} className="max-w-56 break-words px-3 py-2" title={row[columnIndex] ?? ""}>{row[columnIndex] ?? ""}</td>)}
+                        <tr key={rowKeys[rowIndex]} className="border-t border-border-subtle text-text-primary">
+                            {columns.map((_, columnIndex) => <td key={columnKeys[columnIndex]} className="max-w-56 break-words px-3 py-2" title={row[columnIndex] ?? ""}>{row[columnIndex] ?? ""}</td>)}
                         </tr>
                     ))}</tbody>
                 </table>
@@ -245,21 +355,29 @@ const library = createLibrary({
     components: [Surface, Stack, Text, Metric, Callout, Progress, BarChart, DataTable],
 });
 
+/** Render a validated visual answer only after its expanded-work budget passes. */
 export function OpenUIBlock({ response, isStreaming, truncated }: { response: string; isStreaming?: boolean; truncated?: boolean }) {
     const [renderError, setRenderError] = useState(false);
+    const exceedsWorkBudget = countExpandedNodes(response) > MAX_OPENUI_EXPANDED_NODES;
     const handleError = useCallback((errors: Array<{ severity?: "warning" }>) => {
         setRenderError(errors.some((error) => !error.severity));
     }, []);
 
     return (
         <div data-openui-block="true" className="min-w-0 max-w-full">
-            <Renderer
-                response={response}
-                library={library}
-                isStreaming={isStreaming}
-                publishObservability={false}
-                onError={handleError}
-            />
+            {exceedsWorkBudget ? (
+                <p className="text-xs text-text-secondary" role="status">
+                    This visual response is too complex to display safely. The surrounding answer is still available.
+                </p>
+            ) : (
+                <Renderer
+                    response={response}
+                    library={library}
+                    isStreaming={isStreaming}
+                    publishObservability={false}
+                    onError={handleError}
+                />
+            )}
             {renderError ? <p className="text-xs text-text-secondary" role="status">This visual response could not be rendered. The surrounding answer is still available.</p> : null}
             {truncated ? <p className="text-xs text-text-secondary" role="status">The visual response was shortened to keep rendering responsive.</p> : null}
         </div>

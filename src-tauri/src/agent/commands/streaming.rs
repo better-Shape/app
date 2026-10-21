@@ -200,16 +200,56 @@ pub(crate) fn emit_chat_status(app_handle: &tauri::AppHandle, payload: serde_jso
     payload
 }
 
+fn inferred_tool_activity_label(payload: &serde_json::Value) -> Option<String> {
+    if payload.get("phase").and_then(|value| value.as_str()) != Some("tool") {
+        return None;
+    }
+    let tool = payload.get("tool").and_then(|value| value.as_str());
+    let label = match tool {
+        Some("read_file") => "Reading file".to_string(),
+        Some("list_dir") => "Listing directory".to_string(),
+        Some("grep") => "Searching".to_string(),
+        Some("search_files") => "Finding files".to_string(),
+        Some("search_codebase") => "Searching codebase".to_string(),
+        Some("codebase_overview") => "Mapping codebase".to_string(),
+        Some("edit_file" | "create_file") => "Editing file".to_string(),
+        Some("run_terminal") => "Running command".to_string(),
+        Some("wait") => "Waiting".to_string(),
+        Some("read_terminal") => "Reading terminal".to_string(),
+        Some("list_terminals") => "Listing terminals".to_string(),
+        Some("inspect_runtime") => "Inspecting page".to_string(),
+        Some("ask_user") => "Asking a question".to_string(),
+        Some("render_design_previews") => "Creating preview".to_string(),
+        Some("update_todos") => "Updating todos".to_string(),
+        Some("save_plan") => "Saving plan".to_string(),
+        Some(name) => {
+            let words = name.replace('_', " ");
+            let mut chars = words.chars();
+            match chars.next() {
+                Some(first) => {
+                    let first = first.to_uppercase().collect::<String>();
+                    format!("{first}{}", chars.as_str())
+                }
+                None => "Working".to_string(),
+            }
+        }
+        None => "Working".to_string(),
+    };
+    Some(label)
+}
+
 pub(crate) fn emit_chat_status(
     app_handle: &tauri::AppHandle,
     turn_id: Option<&str>,
     conversation_id: Option<&str>,
     payload: serde_json::Value,
 ) {
-    let label = payload
+    let explicit_label = payload
         .get("label")
         .and_then(|v| v.as_str())
         .filter(|s| !s.trim().is_empty());
+    let inferred_label = inferred_tool_activity_label(&payload);
+    let label = explicit_label.or(inferred_label.as_deref());
     let reset_label = payload.get("phase").and_then(|v| v.as_str()) == Some("model")
         && payload.get("label").is_none();
 
@@ -1405,6 +1445,15 @@ mod tests {
 
     use super::*;
     use crate::core::ai_providers::{AiProviderConfig, ProviderEntry, ProviderKind};
+
+    #[test]
+    fn tool_status_without_a_label_gets_a_reconnect_safe_activity_label() {
+        let payload = json!({ "phase": "tool", "tool": "run_terminal" });
+        assert_eq!(
+            inferred_tool_activity_label(&payload).as_deref(),
+            Some("Running command")
+        );
+    }
 
     #[test]
     fn chat_status_payload_is_scoped_to_its_turn_and_conversation() {

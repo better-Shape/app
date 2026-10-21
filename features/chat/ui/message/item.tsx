@@ -353,11 +353,16 @@ const ChatMessageItemInner = ({
             if (names) return `[${names}]`;
             return parts.text || content;
         }
+        const chunks = parseMessageContent(content);
+        if (chunks.some((chunk) => chunk.type !== "text" && chunk.type !== "openui")) {
+            const renderedText = bodyRef.current?.innerText || bodyRef.current?.textContent;
+            if (renderedText?.trim()) return renderedText;
+        }
         const openUIText = Array.from(
             bodyRef.current?.querySelectorAll<HTMLElement>("[data-openui-block]") ?? [],
             (element) => element.innerText || element.textContent || "",
         );
-        return getMessageCopyText(parseMessageContent(content), openUIText);
+        return getMessageCopyText(chunks, openUIText);
     };
 
     const markCopied = () => {

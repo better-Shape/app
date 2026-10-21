@@ -86,11 +86,6 @@ export const STRIP_ACROSS_FENCES = [
 
 const ESCAPE_RE = /[.*+?^${}()|[\]\\]/g;
 
-const STRIP_ACROSS_FENCES_PATTERNS = STRIP_ACROSS_FENCES.map((tag) => {
-    const esc = tag.replace(ESCAPE_RE, "\\$&");
-    return new RegExp(`<${esc}\\b[^>]*>[\\s\\S]*?<\\/${esc}>`, "gi");
-});
-
 const LEAKED_TAG_PATTERNS = LEAKED_TOOL_XML_TAGS.map((tag) => {
     const esc = tag.replace(ESCAPE_RE, "\\$&");
     return {
@@ -150,7 +145,12 @@ const isClosingStreamFence = (
     );
 
 /** Apply `fn` only to prose outside CommonMark backtick or tilde fenced code blocks. */
-const mapOutsideCodeFences = (text: string, fn: (prose: string) => string): string => {
+const mapOutsideCodeFences = (
+    text: string,
+    fn: (prose: string) => string,
+    includeFencedCode = false,
+): string => {
+    if (includeFencedCode) return fn(text);
     if (!text.includes("```") && !text.includes("~~~")) return fn(text);
     const out: string[] = [];
     let proseStart = 0;
@@ -193,38 +193,101 @@ const mapOutsideCodeFences = (text: string, fn: (prose: string) => string): stri
 
 
 
-/** Truncate a leaked wrapper whose opening tag is still incomplete mid-stream. */
-export function stripUnclosedToolTag(text: string, tag: string): string {
-    const escapedTag = tag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+/** Finds a tag's closing bracket without mistaking a quoted attribute value for it. */
+const findTagEnd = (text: string, start: number): number => {
+    let quote: "'" | '"' | null = null;
+    let previousNonWhitespace = "";
+    for (let index = start; index < text.length; index += 1) {
+        const character = text[index] ?? "";
+        if (quote) {
+            if (character === quote) quote = null;
+        } else if (
+            (character === "'" || character === '"')
+            && previousNonWhitespace === "="
+        ) {
+            quote = character;
+        } else if (character === ">") {
+            return index;
+        }
+        if (!/\s/.test(character)) previousNonWhitespace = character;
+    }
+    return -1;
+};
+
+/** Remove malformed leaked-tag openers, optionally hiding the rest of a wrapper payload. */
+export function stripUnclosedToolTag(
+    text: string,
+    tag: string,
+    truncateNonSelfClosing = false,
+): string {
+    const escapedTag = tag.replace(ESCAPE_RE, "\\$&");
     const openingTag = new RegExp(`<${escapedTag}\\b`, "gi");
     let match: RegExpExecArray | null;
     while ((match = openingTag.exec(text)) !== null) {
-        let quote: "'" | '"' | null = null;
-        let end = -1;
-        for (let index = openingTag.lastIndex; index < text.length; index++) {
-            const character = text[index];
-            if (quote) {
-                if (character === quote) quote = null;
-            } else if (character === "'" || character === '"') {
-                quote = character;
-            } else if (character === ">") {
-                end = index;
-                break;
-            }
-        }
+        const end = findTagEnd(text, openingTag.lastIndex);
         if (end === -1) return text.slice(0, match.index);
-        if (!text.slice(openingTag.lastIndex, end).trimEnd().endsWith("/")) {
-            // A complete pair later in the text is handled by the paired pass.
-            if (text.indexOf(`</${tag}`, end + 1) !== -1) {
-                openingTag.lastIndex = end + 1;
-                continue;
-            }
-            return text.slice(0, match.index);
+        const selfClosing = text.slice(openingTag.lastIndex, end).trimEnd().endsWith("/");
+        if (truncateNonSelfClosing && !selfClosing) return text.slice(0, match.index);
+        if (!selfClosing) {
+            // In ordinary leaked-markup cleanup, remove a valid opener and let the
+            // normal close-tag cleanup run without discarding following prose.
+            text = text.slice(0, match.index) + text.slice(end + 1);
+            openingTag.lastIndex = match.index;
+            continue;
         }
         openingTag.lastIndex = end + 1;
     }
     return text;
 }
+
+/** Remove a tag's whole nested wrapper blocks, including stray closers and self-closing tags. */
+export const stripNestedTagBlocks = (text: string, tag: string): string => {
+    const escapedTag = tag.replace(ESCAPE_RE, "\\$&");
+    const matchingTag = new RegExp(`^<\\s*(\\/?)\\s*${escapedTag}\\b`, "i");
+    let output = "";
+    let cursor = 0;
+    let depth = 0;
+    let index = 0;
+
+    while (index < text.length) {
+        const start = text.indexOf("<", index);
+        if (start === -1) break;
+        const end = findTagEnd(text, start + 1);
+        if (end === -1) {
+            return depth > 0 ? output : output + text.slice(cursor);
+        }
+
+        const tagText = text.slice(start, end + 1);
+        const match = matchingTag.exec(tagText);
+        index = end + 1;
+        if (!match) continue;
+
+        const closing = Boolean(match[1]);
+        const selfClosing = !closing && tagText.slice(match[0].length, -1).trimEnd().endsWith("/");
+        if (closing) {
+            if (depth > 0) {
+                depth -= 1;
+                if (depth === 0) cursor = end + 1;
+            } else {
+                output += text.slice(cursor, start);
+                cursor = end + 1;
+            }
+        } else if (selfClosing) {
+            if (depth === 0) {
+                output += text.slice(cursor, start);
+                cursor = end + 1;
+            }
+        } else if (depth === 0) {
+            output += text.slice(cursor, start);
+            depth = 1;
+        } else {
+            depth += 1;
+        }
+    }
+
+    if (depth > 0) return output;
+    return output + text.slice(cursor);
+};
 
 /**
  * Strip provider/model tool-call grammars that leaked into assistant text.
@@ -232,7 +295,10 @@ export function stripUnclosedToolTag(text: string, tag: string): string {
  * Kimi/Llama/Gemma `<|…|>` sentinels, Gemini `<function_calls>` / `tool_code`,
  * Mistral `[TOOL_CALLS]`, plus BetterShape terminal UI chunks.
  */
-export const stripLeakedToolMarkup = (text: string): string => {
+export const stripLeakedToolMarkup = (
+    text: string,
+    options?: { includeFencedCode?: boolean },
+): string => {
     const hasAngle = text.includes("<");
     const hasDsml = text.includes(FW_BAR);
     const hasMistral = text.includes("[TOOL_CALLS]");
@@ -242,10 +308,9 @@ export const stripLeakedToolMarkup = (text: string): string => {
     }
 
     let s = text;
-    if (hasAngle) {
-        for (const pattern of STRIP_ACROSS_FENCES_PATTERNS) {
-            s = s.replace(pattern, "");
-        }
+    for (const tag of STRIP_ACROSS_FENCES) {
+        s = stripNestedTagBlocks(s, tag);
+        s = stripUnclosedToolTag(s, tag, true);
     }
 
     s = mapOutsideCodeFences(s, (prose) => {
@@ -258,9 +323,12 @@ export const stripLeakedToolMarkup = (text: string): string => {
         let p = prose;
 
         if (proseAngle) {
-            for (const rule of LEAKED_TAG_PATTERNS) {
+            for (const [index, rule] of LEAKED_TAG_PATTERNS.entries()) {
                 if (!p.includes("<")) break;
                 p = p.replace(rule.paired, "");
+                // A broken attribute (`title="…` with no `>`) used to leave its payload
+                // behind; truncate at the opener, then keep stripping the rest.
+                p = stripUnclosedToolTag(p, LEAKED_TOOL_XML_TAGS[index]!);
                 p = p.replace(rule.selfClosing, "");
                 p = p.replace(rule.openTail, "");
                 p = p.replace(rule.strayCloser, "");
@@ -293,7 +361,7 @@ export const stripLeakedToolMarkup = (text: string): string => {
         }
 
         return p;
-    });
+    }, options?.includeFencedCode);
 
     return s.includes("\n\n\n") ? s.replace(/\n{3,}/g, "\n\n") : s;
 };
@@ -306,7 +374,10 @@ export const stripLeakedToolMarkup = (text: string): string => {
  * ```
  * Also strips cross-model XML / sentinel tool grammars from prose.
  */
-export function stripLeakedToolCode(text: string): string {
+export function stripLeakedToolCode(
+    text: string,
+    options?: { includeFencedCode?: boolean },
+): string {
     // Fast path: no marker any rule can match, so the only work left is the
     // newline collapse the full path ends with.
     if (
@@ -371,12 +442,11 @@ export function stripLeakedToolCode(text: string): string {
         );
     }
 
-    s = stripLeakedToolMarkup(s);
+    s = stripLeakedToolMarkup(s, options);
 
     return s.includes("\n\n\n") ? s.replace(/\n{3,}/g, "\n\n") : s;
 };
 
-/** Repair cumulative-stream glitches and obvious duplicate phrases in assistant text. */
 /** Repair cumulative-stream glitches and obvious duplicate phrases in assistant text. */
 export function repairStreamGlitches(text: string): string {
     // A duplicated chunk glued to the previous one is a streaming replay even when
