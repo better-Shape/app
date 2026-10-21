@@ -812,6 +812,16 @@ function browsePlaceholder(mode: string, filter: string): string {
     return "Search agents, files, actions...";
 }
 
+/** Command that only announces an app event another surface already listens for. */
+function eventCommand(id: string, label: string, keybinding: string, type: string): EditorAction {
+    return {
+        id,
+        label,
+        shortcut: shortcut(keybinding),
+        run: () => window.dispatchEvent(new Event(type)),
+    };
+}
+
 /** App-level workbench commands for the command palette. */
 function getAppCommands(): EditorAction[] {
     const commands: EditorAction[] = [
@@ -968,24 +978,14 @@ function getAppCommands(): EditorAction[] {
             },
         },
         // ── Editor settings ────────────────────────────────────────────────────
-        {
-            id: "app.chat.new",
-            label: "Chat: New Chat",
-            shortcut: shortcut("New Chat"),
-            run: () => window.dispatchEvent(new Event("bettershape-chat-new")),
-        },
-        {
-            id: "app.chat.cycleMode",
-            label: "Chat: Cycle Chat Mode",
-            shortcut: shortcut("Cycle Chat Mode"),
-            run: () => window.dispatchEvent(new Event("bettershape-chat-cycle-mode")),
-        },
-        {
-            id: "app.help.keyboardShortcuts",
-            label: "Preferences: Keyboard Shortcuts",
-            shortcut: shortcut("Keyboard Shortcuts"),
-            run: () => window.dispatchEvent(new Event("bettershape-open-shortcuts")),
-        },
+        eventCommand("app.chat.new", "Chat: New Chat", "New Chat", "bettershape-chat-new"),
+        eventCommand("app.chat.cycleMode", "Chat: Cycle Chat Mode", "Cycle Chat Mode", "bettershape-chat-cycle-mode"),
+        eventCommand(
+            "app.help.keyboardShortcuts",
+            "Preferences: Keyboard Shortcuts",
+            "Keyboard Shortcuts",
+            "bettershape-open-shortcuts",
+        ),
         {
             id: "app.settings.open",
             label: "Preferences: Open Settings",
