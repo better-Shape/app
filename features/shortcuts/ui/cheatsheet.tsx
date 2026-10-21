@@ -43,6 +43,8 @@ export function KeyboardShortcutsCheatsheet() {
 
     const groups = useMemo(() => groupShortcuts(bindings, query), [bindings, query]);
     const total = countBoundShortcuts(bindings);
+    const visible = groups.reduce((count, group) => count + group.list.length, 0);
+    const filtered = query.trim().length > 0;
 
     return (
         <Dialog.Root open={open} onOpenChange={setOpen}>
@@ -60,7 +62,11 @@ export function KeyboardShortcutsCheatsheet() {
                             Keyboard Shortcuts
                         </Dialog.Title>
                         <div className="flex items-center gap-2">
-                            <span className="text-xs text-text-muted">{total} bound</span>
+                            {/* While filtering, the count has to describe what is on screen,
+                                otherwise a 6-row result reads "40 bound" and looks wrong. */}
+                            <span className="text-xs text-text-muted">
+                                {filtered ? `${visible} of ${total}` : total} bound
+                            </span>
                             <Dialog.Close asChild>
                                 <Button
                                     variant="ghost"
@@ -106,7 +112,6 @@ export function KeyboardShortcutsCheatsheet() {
                                             <div
                                                 key={`${binding.id}-${binding.key}`}
                                                 className="flex min-w-0 items-center justify-between gap-3 rounded px-1 py-1 hover:bg-panel-hover"
-                                                title={binding.when}
                                             >
                                                 <span className="truncate text-sm text-text-secondary">
                                                     {binding.label}
@@ -140,10 +145,10 @@ function KeyChord({ chord, source }: { chord: string; source: KeyBinding["source
     // "Ctrl+K Ctrl+S" is two chords: render each group, separated by a gap.
     const chords = chord.trim().split(/\s+/).map(splitKeyChord);
     return (
-        <span
-            className={cn("flex shrink-0 items-center gap-1", source === "user" && "text-accent")}
-            title={source === "user" ? "Custom shortcut" : undefined}
-        >
+        <span className={cn("flex shrink-0 items-center gap-1", source === "user" && "text-accent")}>
+            {/* The accent tint alone is colour-only information; say it in text for
+                assistive tech. A `title` would not survive SuppressNativeTooltips. */}
+            {source === "user" ? <span className="sr-only">Custom shortcut: </span> : null}
             {chords.map((tokens, groupIndex) => (
                 <React.Fragment key={`${tokens.join("+")}-${groupIndex}`}>
                     {groupIndex > 0 ? <span className="w-1" aria-hidden /> : null}

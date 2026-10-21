@@ -1433,7 +1433,13 @@ export default function Terminal({
                         autoComplete="off"
                         className="h-6 min-w-0 flex-1 bg-transparent text-xs text-text-primary outline-none placeholder:text-text-muted focus-visible:outline-none"
                     />
-                    <span className="shrink-0 tabular-nums text-[11px] text-text-muted">
+                    {/* Announced because Enter changes the active match without moving
+                        focus, so the counter is the only feedback a screen reader gets. */}
+                    <span
+                        aria-live="polite"
+                        aria-atomic="true"
+                        className="shrink-0 tabular-nums text-[11px] text-text-muted"
+                    >
                         {searchQuery.trim()
                             ? searchMatches.length
                                 ? `${searchActive + 1}/${searchMatches.length}`
