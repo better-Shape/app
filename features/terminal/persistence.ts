@@ -191,7 +191,9 @@ function writeStore(storage: Storage | null, store: StoredShape): boolean {
             const keys = Object.keys(store.entries).sort(
                 (a, b) => store.entries[a]!.savedAt - store.entries[b]!.savedAt,
             );
-            const keep = Math.floor(keys.length / 2);
+            // Keep at least the newest entry: `floor(1 / 2)` is 0 and used to
+            // prune the only snapshot away, turning a quota hit into data loss.
+            const keep = Math.max(1, Math.floor(keys.length / 2));
             const pruned: StoredShape = { version: 1, entries: {} };
             for (const key of keys.slice(keys.length - keep)) {
                 pruned.entries[key] = store.entries[key]!;

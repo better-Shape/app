@@ -161,6 +161,32 @@ describe("terminal snapshot store", () => {
         expect(loadTerminalSnapshot({ cwd: "/b", shell: "pwsh" }, 1_100, storage)).toBe("second");
     });
 
+    it("keeps the only snapshot when the quota retry prunes", () => {
+        // First write is rejected as too large, the pruned retry fits. With one
+        // entry the "keep the newest half" maths must not round down to zero.
+        const backing = new Map<string, string>();
+        let attempts = 0;
+        const quotaOnce: Storage = {
+            length: 0,
+            clear: () => backing.clear(),
+            getItem: (key) => backing.get(key) ?? null,
+            key: (index) => Array.from(backing.keys())[index] ?? null,
+            removeItem: (key) => {
+                backing.delete(key);
+            },
+            setItem: (key, value) => {
+                attempts += 1;
+                if (attempts === 1) throw new Error("quota");
+                backing.set(key, value);
+            },
+        };
+
+        saveTerminalSnapshot(target, "only", 1_000, quotaOnce);
+
+        expect(attempts).toBe(2);
+        expect(loadTerminalSnapshot(target, 1_100, quotaOnce)).toBe("only");
+    });
+
     it("never throws when storage rejects writes", () => {
         const hostile: Storage = {
             length: 0,
