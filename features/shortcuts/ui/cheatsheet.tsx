@@ -43,7 +43,10 @@ export function KeyboardShortcutsCheatsheet() {
 
     const groups = useMemo(() => groupShortcuts(bindings, query), [bindings, query]);
     const total = countBoundShortcuts(bindings);
-    const visible = groups.reduce((count, group) => count + group.list.length, 0);
+    // Count only rows that actually carry a chord: an unassigned command can
+    // match a filter, and "1 of 40 bound" over a row that says "Unassigned"
+    // would be wrong.
+    const visible = groups.reduce((count, group) => count + countBoundShortcuts(group.list), 0);
     const filtered = query.trim().length > 0;
 
     return (

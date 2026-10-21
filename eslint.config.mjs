@@ -87,6 +87,9 @@ const eslintConfig = defineConfig([
     // `RangeError: Invalid string length` on any machine that had run QA.
     "playwright-report/**",
     "test-results/**",
+    // Agent capture and probe output, also gitignored. Same class as the two
+    // above: local QA artifacts must not change the lint result.
+    ".qa-artifacts/**",
   ]),
   {
     // Node tooling scripts; the Next.js config never defines the React hooks
