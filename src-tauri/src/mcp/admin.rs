@@ -379,6 +379,35 @@ pub fn upsert(cfg: &McpServerConfig) -> Result<Option<McpServerConfig>, String> 
     Ok(previous)
 }
 
+/// Insert a server only if the id is free, atomically.
+///
+/// The caller checks existence before testing a server over the network, but
+/// that check and this write are far apart. Doing the test-and-set under the
+/// same write lock stops two concurrent adds from both passing the early check
+/// and the later write silently replacing the first server's configuration.
+pub fn insert_new(cfg: &McpServerConfig) -> Result<(), String> {
+    validate(cfg)?;
+    let _guard = lock_writes()?;
+    let mut doc = read_doc_unlocked()?;
+    let exists = doc
+        .get("mcpServers")
+        .and_then(|v| v.as_object())
+        .map(|m| m.contains_key(&cfg.id))
+        .unwrap_or(false);
+    if exists {
+        return Err(format!(
+            "'{}' already exists. Use action:update to change it, or action:remove first.",
+            cfg.id
+        ));
+    }
+    {
+        let servers = servers_object(&mut doc);
+        servers.insert(cfg.id.clone(), entry_json(cfg));
+    }
+    write_doc_unlocked(&doc)?;
+    Ok(())
+}
+
 /// Remove one server. Returns `true` when the entry existed.
 pub fn remove(id: &str) -> Result<bool, String> {
     let _guard = lock_writes()?;
@@ -441,9 +470,8 @@ fn redact_inline_secrets(text: &str) -> String {
     static CLI_FLAG: OnceLock<regex::Regex> = OnceLock::new();
     static KEY_PREFIX: OnceLock<regex::Regex> = OnceLock::new();
 
-    let userinfo = URL_USERINFO.get_or_init(|| {
-        regex::Regex::new(r"(?i)(https?://)[^/@\s]+@").unwrap()
-    });
+    let userinfo =
+        URL_USERINFO.get_or_init(|| regex::Regex::new(r"(?i)(https?://)[^/@\s]+@").unwrap());
     let query = QUERY_PARAM.get_or_init(|| {
         regex::Regex::new(
             r#"(?i)([?&](?:api[_-]?key|access[_-]?token|auth[_-]?token|token|key|secret|password|passwd|pwd|apikey)=)[^&\s"']+"#,
@@ -457,7 +485,8 @@ fn redact_inline_secrets(text: &str) -> String {
         .unwrap()
     });
     let prefix = KEY_PREFIX.get_or_init(|| {
-        regex::Regex::new(r"\b(?:sk|pk|ghp|gho|ghs|ghu|glpat|AKIA|xox[baprs])[-_A-Za-z0-9]{8,}").unwrap()
+        regex::Regex::new(r"\b(?:sk|pk|ghp|gho|ghs|ghu|glpat|AKIA|xox[baprs])[-_A-Za-z0-9]{8,}")
+            .unwrap()
     });
 
     let text = userinfo.replace_all(text, "$1");
@@ -470,7 +499,8 @@ fn redact_inline_secrets(text: &str) -> String {
 pub fn describe_target(cfg: &McpServerConfig) -> String {
     match cfg.transport {
         McpTransport::Stdio => {
-            let mut line = redact_inline_secrets(&format!("{} {}", cfg.command, cfg.args.join(" ")));
+            let mut line =
+                redact_inline_secrets(&format!("{} {}", cfg.command, cfg.args.join(" ")));
             line = line.trim().to_string();
             let env = redact_env(&cfg.env);
             if env.is_empty() {
@@ -546,6 +576,15 @@ pub fn test_config(cfg: &McpServerConfig) -> McpTestReport {
 mod tests {
     use super::*;
 
+    /// The file-backed tests below share one process-wide data directory, so
+    /// they take this lock rather than racing on `mcp.json`.
+    fn test_env_lock() -> MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+    }
+
     fn stdio_cfg(id: &str, command: &str) -> McpServerConfig {
         McpServerConfig {
             id: id.to_string(),
@@ -595,6 +634,18 @@ mod tests {
         assert!(validate(&cfg).is_err());
         cfg.id = "ok-id_1".to_string();
         assert!(validate(&cfg).is_ok());
+    }
+
+    #[test]
+    fn insert_new_refuses_an_existing_id() {
+        let _guard = test_env_lock();
+        let cfg = stdio_cfg("bs-insert-new", "npx");
+        let _ = remove(&cfg.id);
+        assert!(insert_new(&cfg).is_ok());
+        // The second insert must not silently replace the first.
+        let err = insert_new(&cfg).unwrap_err();
+        assert!(err.contains("already exists"), "{err}");
+        let _ = remove(&cfg.id);
     }
 
     #[test]

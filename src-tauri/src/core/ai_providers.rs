@@ -241,8 +241,10 @@ fn alias_provider_id(prefix: &str) -> &str {
         "moonshot" | "moonshotai" | "kimi" => "moonshot",
         "z-ai" | "zhipu" | "zhipuai" | "glm" => "zai",
         "alibaba" | "dashscope" => "qwen",
-        "opencode" | "opencode-zen" | "opencode-go" => "zen",
+        "opencode" | "opencode-zen" => "zen",
         "opencode-zen-messages" => "zen-messages",
+        // Go is its own gateway with its own base URL and key, not the Zen slot.
+        "opencode-go" => "zen-go",
         "nvidia-nim" | "nim" => "nvidia",
         "llm-gateway" | "llmgtwy" => "llmgateway",
         "cf-workers-ai" | "cloudflare-workers-ai" => "cloudflare",
@@ -876,6 +878,7 @@ mod tests {
         set_config(config_with(
             vec![
                 entry("zen", ProviderKind::OpenAi, "oc_sk_x"),
+                entry("zen-go", ProviderKind::OpenAi, "oc_sk_x"),
                 entry("nvidia", ProviderKind::OpenAi, "nvapi-x"),
                 entry("azure", ProviderKind::OpenAi, "az-key"),
                 entry("moonshot", ProviderKind::OpenAi, "sk-x"),
@@ -892,6 +895,13 @@ mod tests {
             let (provider, _) = resolve_model(requested).unwrap();
             assert_eq!(provider.id, expected, "{requested}");
         }
+
+        // Go is a separate gateway, so its models must not land on the Zen slot.
+        assert_eq!(alias_provider_id("opencode-go"), "zen-go");
+        assert_eq!(alias_provider_id("opencode-zen"), "zen");
+        let (provider, model) = resolve_model("opencode-go/deepseek-v4-pro").unwrap();
+        assert_eq!(provider.id, "zen-go");
+        assert_eq!(model, "deepseek-v4-pro");
 
         // A prefix nobody configured still resolves to the first usable provider
         // with the whole string as the slug, which is what self-hosted gateways

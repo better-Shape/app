@@ -95,6 +95,19 @@ import {
 let activeView: EditorView | null = null;
 const externalContentUpdate = Annotation.define<boolean>();
 
+// CodeMirror stores the document with `\n` breaks and `doc.toString()` always
+// emits `\n`, so a CRLF file would save as LF. Convert on the way out, and
+// compare against an LF-normalized baseline so a CRLF file is not reported
+// dirty the moment it opens.
+function toDiskText(text: string, eol: "LF" | "CRLF"): string {
+    const lf = text.replace(/\r\n/g, "\n");
+    return eol === "CRLF" ? lf.replace(/\n/g, "\r\n") : lf;
+}
+
+function sameIgnoringEol(a: string, b: string): boolean {
+    return a.replace(/\r\n/g, "\n") === b.replace(/\r\n/g, "\n");
+}
+
 export function CodeMirrorEditor({
     path,
     content,
@@ -139,7 +152,7 @@ export function CodeMirrorEditor({
             typeof editorOptions.tabSize === "number" && editorOptions.tabSize > 0
                 ? editorOptions.tabSize
                 : 4;
-        let eol: "LF" | "CRLF" = "LF";
+        let eol: "LF" | "CRLF" = editorOptions.defaultEol === "CRLF" ? "CRLF" : "LF";
         const applyIndent = (v: EditorView) => {
             v.dispatch({
                 effects: indentCompartment.reconfigure([
@@ -233,7 +246,10 @@ export function CodeMirrorEditor({
             }, 250);
         };
         const state = EditorState.create({
-            doc: content,
+            // CodeMirror splits the doc on the line separator, so a CRLF string
+            // would otherwise seed one giant line. The doc holds `\n` breaks and
+            // the separator only records what to write back on save.
+            doc: content.replace(/\r\n/g, "\n"),
             extensions: [
                 ...betterShapeEditorChrome(),
                 search({ top: false }),
@@ -254,7 +270,7 @@ export function CodeMirrorEditor({
                     EditorState.tabSize.of(tabSize),
                     indentUnit.of(insertSpaces ? " ".repeat(tabSize) : "\t"),
                 ]),
-                eolCompartment.of(EditorState.lineSeparator.of("\n")),
+                eolCompartment.of(EditorState.lineSeparator.of(eol === "CRLF" ? "\r\n" : "\n")),
                 indentOnInput(),
                 bracketMatching({ brackets: "()[]{}«»‹›" }),
                 closeBrackets(),
@@ -313,7 +329,7 @@ export function CodeMirrorEditor({
                     stageDirtyBuffer(pathRef.current, next, savedContentRef.current);
                     setContentRef.current(next);
                     window.dispatchEvent(new CustomEvent("bettershape-editor-changed", { detail: { path: pathRef.current } }));
-                    const dirty = next !== savedContentRef.current;
+                    const dirty = !sameIgnoringEol(toDiskText(next, eol), savedContentRef.current);
                     isDirtyRef.current = dirty;
                     bufferVersionRef.current += 1;
                     void commands.markFileDirty(pathRef.current, dirty).catch(() => undefined);
@@ -344,7 +360,7 @@ export function CodeMirrorEditor({
                             const text = view.state.doc.toString();
                             void (async () => {
                                 try {
-                                    await commands.saveFile(pathRef.current, text);
+                                    await commands.saveFile(pathRef.current, toDiskText(text, eol));
                                 } catch {
                                     /* ignore */
                                 }
@@ -614,8 +630,9 @@ export function CodeMirrorEditor({
             if (detail?.path !== pathRef.current || typeof detail.content !== "string") return;
             savedContentRef.current = detail.content;
             const current = view.state.doc.toString();
+            const savedForCompare = toDiskText(current, eol);
             saveDirtyBuffer(pathRef.current, current, detail.content);
-            const dirty = current !== detail.content;
+            const dirty = !sameIgnoringEol(savedForCompare, detail.content);
             isDirtyRef.current = dirty;
             if (dirty) void commands.markFileDirty(pathRef.current, true).catch(() => undefined);
         };
@@ -658,9 +675,10 @@ export function CodeMirrorEditor({
         const view = viewRef.current;
         if (!view) return;
         const current = view.state.doc.toString();
-        if (current === content) return;
+        const normalized = content.replace(/\r\n/g, "\n");
+        if (current === normalized) return;
         view.dispatch({
-            changes: { from: 0, to: current.length, insert: content },
+            changes: { from: 0, to: current.length, insert: normalized },
             annotations: externalContentUpdate.of(true),
         });
     }, [content]);

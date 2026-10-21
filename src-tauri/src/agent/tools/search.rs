@@ -78,6 +78,17 @@ pub async fn execute_grep(query: &str, project_path: &Option<String>, opts: Grep
         search_path.join(".")
     };
 
+    // The native fallback runs when `rg` is missing or fails. It has no glob
+    // engine, so compile the same `--glob` filter here: without it the fallback
+    // would ignore the requested file filter and return everything.
+    let fallback_glob = opts
+        .glob
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .and_then(|g| globset::Glob::new(g).ok())
+        .map(|g| g.compile_matcher());
+
     // Fast search using ripgrep (if available). Try the query as a regex first
     // (so alternations like `foo|bar` work), then fall back to a literal
     // search if the pattern doesn't parse.
@@ -169,6 +180,7 @@ pub async fn execute_grep(query: &str, project_path: &Option<String>, opts: Grep
         limits: &mut usize,
         out: &mut String,
         base: &std::path::Path,
+        glob: Option<&globset::GlobMatcher>,
     ) {
         if *limits == 0 || depth > 6 {
             return;
@@ -188,50 +200,52 @@ pub async fn execute_grep(query: &str, project_path: &Option<String>, opts: Grep
                 }
 
                 if p.is_dir() {
-                    search_recursive(&p, q, depth + 1, limits, out, base);
+                    search_recursive(&p, q, depth + 1, limits, out, base, glob);
                 } else if crate::agent::security::paths::is_sensitive_path(&p) {
                     continue;
-                } else if let Some(ext) = p.extension().and_then(|s| s.to_str()) {
-                    if matches!(
-                        ext,
-                        "rs" | "ts"
-                            | "tsx"
-                            | "js"
-                            | "jsx"
-                            | "json"
-                            | "css"
-                            | "html"
-                            | "md"
-                            | "toml"
-                            | "go"
-                            | "py"
-                            | "c"
-                            | "cpp"
-                            | "java"
-                    ) {
-                        if let Ok(file) = std::fs::File::open(&p) {
-                            use std::io::{BufRead, BufReader};
-                            let reader = BufReader::new(file);
-                            let q_lower = q.to_lowercase();
+                } else if glob.map(|g| g.is_match(&p)).unwrap_or(true) {
+                    if let Some(ext) = p.extension().and_then(|s| s.to_str()) {
+                        if matches!(
+                            ext,
+                            "rs" | "ts"
+                                | "tsx"
+                                | "js"
+                                | "jsx"
+                                | "json"
+                                | "css"
+                                | "html"
+                                | "md"
+                                | "toml"
+                                | "go"
+                                | "py"
+                                | "c"
+                                | "cpp"
+                                | "java"
+                        ) {
+                            if let Ok(file) = std::fs::File::open(&p) {
+                                use std::io::{BufRead, BufReader};
+                                let reader = BufReader::new(file);
+                                let q_lower = q.to_lowercase();
 
-                            for (i, line_res) in reader.lines().enumerate() {
-                                if let Ok(line) = line_res {
-                                    if line.to_lowercase().contains(&q_lower) {
-                                        let rel = p.strip_prefix(base).unwrap_or(&p);
-                                        out.push_str(&format!(
-                                            "{}:{}\t{}\n",
-                                            rel.display(),
-                                            i + 1,
-                                            line.trim()
-                                        ));
-                                        *limits -= 1;
-                                        if *limits == 0 {
-                                            break;
+                                for (i, line_res) in reader.lines().enumerate() {
+                                    if let Ok(line) = line_res {
+                                        if line.to_lowercase().contains(&q_lower) {
+                                            let rel = p.strip_prefix(base).unwrap_or(&p);
+                                            out.push_str(&format!(
+                                                "{}:{}\t{}\n",
+                                                rel.display(),
+                                                i + 1,
+                                                line.trim()
+                                            ));
+                                            *limits -= 1;
+                                            if *limits == 0 {
+                                                break;
+                                            }
                                         }
                                     }
-                                }
-                                if i > 10000 {
-                                    break;
+                                    if i > 10000 {
+                                        break;
+                                    }
                                 }
                             }
                         }
@@ -252,9 +266,13 @@ pub async fn execute_grep(query: &str, project_path: &Option<String>, opts: Grep
         if let Ok(content) = std::fs::read_to_string(&rg_target) {
             let q_lower = query.to_lowercase();
             let rel = rg_target.strip_prefix(&base_path).unwrap_or(&rg_target);
+            let glob_ok = fallback_glob
+                .as_ref()
+                .map(|g| g.is_match(&rg_target))
+                .unwrap_or(true);
             let mut hits = 0usize;
             for (i, line) in content.lines().enumerate() {
-                if line.to_lowercase().contains(&q_lower) {
+                if glob_ok && line.to_lowercase().contains(&q_lower) {
                     output.push_str(&format!("{}:{}\t{}\n", rel.display(), i + 1, line.trim()));
                     hits += 1;
                     if hits >= head_limit {
@@ -264,7 +282,15 @@ pub async fn execute_grep(query: &str, project_path: &Option<String>, opts: Grep
             }
         }
     } else {
-        search_recursive(&start, query, 0, &mut limits, &mut output, &base_path);
+        search_recursive(
+            &start,
+            query,
+            0,
+            &mut limits,
+            &mut output,
+            &base_path,
+            fallback_glob.as_ref(),
+        );
     }
 
     if output.is_empty() {
@@ -283,6 +309,11 @@ pub async fn execute_file_search(query: &str, project_path: &Option<String>) -> 
     let q_lower = query.to_lowercase();
 
     let walk_dir = walkdir::WalkDir::new(path).into_iter().filter_entry(|e| {
+        // The root itself is the project the user opened; skipping it because
+        // its name starts with a dot would stop the walk before it begins.
+        if e.depth() == 0 {
+            return true;
+        }
         let name = e.file_name().to_string_lossy();
         !name.starts_with('.')
             && name != "node_modules"
@@ -481,7 +512,7 @@ pub async fn execute_visit_url(url: &str, _api_key: &str) -> Result<VisitUrlResu
         .build()
         .map_err(|e| format!("Visit URL request failed: {e}"))?;
 
-    let mut current = parsed.clone();
+    let mut current = parsed;
     let mut hops = 0usize;
     let resp = loop {
         let resp = client
@@ -520,6 +551,8 @@ pub async fn execute_visit_url(url: &str, _api_key: &str) -> Result<VisitUrlResu
         return Err(format!("Visit URL error {status}"));
     }
     let final_url = resp.url().to_string();
+    // The host is the one the content actually came from, after any redirects.
+    let host = resp.url().host_str().unwrap_or("").to_string();
     let content_type = resp
         .headers()
         .get(reqwest::header::CONTENT_TYPE)
@@ -533,7 +566,11 @@ pub async fn execute_visit_url(url: &str, _api_key: &str) -> Result<VisitUrlResu
         const MAX_BODY_BYTES: usize = 2_000_000;
         let mut resp = resp;
         let mut bytes: Vec<u8> = Vec::new();
-        while let Some(chunk) = resp.chunk().await.map_err(|e| format!("Could not read page body: {e}"))? {
+        while let Some(chunk) = resp
+            .chunk()
+            .await
+            .map_err(|e| format!("Could not read page body: {e}"))?
+        {
             if bytes.len() >= MAX_BODY_BYTES {
                 break;
             }
@@ -544,21 +581,12 @@ pub async fn execute_visit_url(url: &str, _api_key: &str) -> Result<VisitUrlResu
     };
 
     let title = extract_title(&body);
-    let (formatted, host) = if content_type.contains("json") {
-        (
-            body.chars().take(60_000).collect::<String>(),
-            parsed.host_str().unwrap_or("").to_string(),
-        )
+    let formatted = if content_type.contains("json") {
+        body.chars().take(60_000).collect::<String>()
     } else if content_type.contains("html") || body.contains('<') {
-        (
-            html_to_text(&body),
-            parsed.host_str().unwrap_or("").to_string(),
-        )
+        html_to_text(&body)
     } else {
-        (
-            body.chars().take(60_000).collect::<String>(),
-            parsed.host_str().unwrap_or("").to_string(),
-        )
+        body.chars().take(60_000).collect::<String>()
     };
 
     if formatted.trim().is_empty() {
@@ -700,5 +728,21 @@ mod tests {
     fn search_without_a_key_explains_itself() {
         let text = futures::executor::block_on(execute_web_search("rust", ""));
         assert!(text.contains("Settings"));
+    }
+
+    #[test]
+    fn a_dot_named_project_still_searches_its_root() {
+        // The walk filter skips dot directories, but the opened project is the
+        // root of the walk: if the root is skipped nothing is ever found.
+        let root = std::env::temp_dir().join(format!(".bs-search-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(root.join("src").join("findme.rs"), "fn x() {}").unwrap();
+        let text = futures::executor::block_on(execute_file_search(
+            "findme",
+            &Some(root.to_string_lossy().to_string()),
+        ));
+        assert!(text.contains("findme.rs"), "{text}");
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

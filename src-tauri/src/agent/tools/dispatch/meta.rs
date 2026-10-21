@@ -432,7 +432,14 @@ pub(super) async fn tool_mcp_manage(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutc
                 }
             }
             if save {
-                if let Err(e) = admin::upsert(&cfg) {
+                // The early existence check ran before the approval prompt; use
+                // the locked insert so a concurrent add cannot be overwritten.
+                let written = if is_add {
+                    admin::insert_new(&cfg)
+                } else {
+                    admin::upsert(&cfg).map(|_| ())
+                };
+                if let Err(e) = written {
                     return fail(format!("Could not write mcp.json: {e}"));
                 }
             }
@@ -676,9 +683,27 @@ pub(super) async fn tool_mcp_manage(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutc
             if report.ok && save {
                 match admin::upsert(&cfg) {
                     Ok(_) => {
-                        let _ = mcp_state.upsert_server(cfg.clone());
-                        announce(ctx, "add", Some(&cfg.id));
-                        text.push_str("\nSaved to mcp.json and connected.");
+                        // `upsert_server` connects and can come back `Ok` carrying an
+                        // `Error` status; report that instead of claiming success.
+                        match mcp_state.upsert_server(cfg.clone()) {
+                            Ok(entry) => {
+                                announce(ctx, "add", Some(&cfg.id));
+                                if entry.status == crate::mcp::McpServerStatus::Error {
+                                    text.push_str(&format!(
+                                        "\nSaved to mcp.json, but connecting failed: {}",
+                                        entry.error.as_deref().unwrap_or("unknown error")
+                                    ));
+                                } else {
+                                    text.push_str(&format!(
+                                        "\nSaved to mcp.json and {}.",
+                                        mcp_status_word(&entry.status)
+                                    ));
+                                }
+                            }
+                            Err(e) => text.push_str(&format!(
+                                "\nSaved to mcp.json, but connecting failed: {e}"
+                            )),
+                        }
                     }
                     Err(e) => text.push_str(&format!("\nThe test passed but saving failed: {e}")),
                 }

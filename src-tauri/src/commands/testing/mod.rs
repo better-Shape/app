@@ -645,9 +645,13 @@ pub async fn run_tests(
                 },
             );
         }
-        if !out.status.success()
-            || (sum.total == 0 && pattern.as_deref().is_some_and(|p| !p.is_empty()))
-        {
+        // `cargo`, `pytest` and `go` all exit nonzero when tests fail, which is a
+        // completed run, not a failed one. Only treat a nonzero exit as an error
+        // when the runner produced no results at all, which is a compile failure
+        // or a bad invocation; a run with results is reported through `complete`
+        // so the summary (and its failed count) reaches the UI.
+        let no_tests_matched = sum.total == 0 && pattern.as_deref().is_some_and(|p| !p.is_empty());
+        if sum.total == 0 && (!out.status.success() || no_tests_matched) {
             let m = if !out.status.success() {
                 if !se.trim().is_empty() {
                     se.to_string()

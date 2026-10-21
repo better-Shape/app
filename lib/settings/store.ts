@@ -1166,6 +1166,7 @@ export function getEditorOptionsFromSettings(settings: BetterShapeSettings = get
         fontSize: settings.editor.fontSize,
         tabSize: settings.editor.tabSize,
         insertSpaces: settings.editor.insertSpaces,
+        defaultEol: settings.files.defaultEol,
         wordWrap: settings.editor.wordWrap as "off" | "on" | "wordWrapColumn" | "bounded",
         minimap: { enabled: settings.editor.minimap },
         lineNumbers: settings.editor.lineNumbers as "on" | "off" | "relative" | "interval" | (number & {}),

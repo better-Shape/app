@@ -512,8 +512,15 @@ fn openai_to_google(body: &Value) -> Value {
 
     let mut generation = Map::new();
     generation.insert("maxOutputTokens".to_string(), json!(max_tokens));
-    if reasoning_enabled(body) && supports_thinking(model, ProviderKind::Google) {
-        let budget = reasoning_budget(body, 4096);
+    if supports_thinking(model, ProviderKind::Google) {
+        // Gemini 2.5 turns thinking on by default; a budget of 0 is the only way
+        // to say "do not think" for the title, caption, and commit calls that do
+        // not ask for reasoning. Omitting the field would leave thinking billed.
+        let budget = if reasoning_enabled(body) {
+            reasoning_budget(body, 4096)
+        } else {
+            0
+        };
         generation.insert(
             "thinkingConfig".to_string(),
             json!({ "thinkingBudget": budget }),
@@ -1054,6 +1061,36 @@ mod tests {
             .get("additionalProperties")
             .is_none());
         assert_eq!(body["generationConfig"]["maxOutputTokens"], 2048);
+    }
+
+    #[test]
+    fn google_thinking_budget_is_zero_when_reasoning_is_off() {
+        // Gemini 2.5 thinks by default; a call that did not ask for reasoning
+        // (a title, a caption, a commit message) has to switch it off explicitly.
+        let plain = json!({
+            "model": "gemini-2.5-pro",
+            "max_tokens": 128,
+            "messages": [{"role": "user", "content": "hi"}]
+        });
+        let body = to_provider_body(ProviderKind::Google, &plain);
+        assert_eq!(
+            body["generationConfig"]["thinkingConfig"]["thinkingBudget"],
+            0
+        );
+
+        let thinking = json!({
+            "model": "gemini-2.5-pro",
+            "max_tokens": 128,
+            "reasoning": {"effort": "high"},
+            "messages": [{"role": "user", "content": "hi"}]
+        });
+        let body = to_provider_body(ProviderKind::Google, &thinking);
+        assert!(
+            body["generationConfig"]["thinkingConfig"]["thinkingBudget"]
+                .as_u64()
+                .unwrap()
+                > 0
+        );
     }
 
     #[test]

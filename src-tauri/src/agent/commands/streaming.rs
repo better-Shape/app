@@ -367,12 +367,17 @@ pub async fn stream_chat(
             body["cache_control"] = json!({ "type": "ephemeral" });
         }
 
-        // Routers leave Gemini/Anthropic thinking off unless requested. Without
-        // this, models dump plans into `content` instead of the reasoning channel.
-        if let Some(reasoning) =
-            reasoning_config_for_model(&provider_model, proxy_ctx.reasoning_effort.as_deref())
-        {
-            body["reasoning"] = reasoning;
+        // Routers leave Gemini/Anthropic thinking off unless requested, and their
+        // unified wire accepts the nested `reasoning` object. The direct OpenAI
+        // endpoint has no such field and rejects the request, so it is excluded;
+        // the OpenAI-compatible gateways below it in the catalog ignore unknown
+        // fields and keep the router behavior.
+        if !provider.id.eq_ignore_ascii_case("openai") {
+            if let Some(reasoning) =
+                reasoning_config_for_model(&provider_model, proxy_ctx.reasoning_effort.as_deref())
+            {
+                body["reasoning"] = reasoning;
+            }
         }
 
         // Fast mode = provider priority tier — independent of reasoning effort.
@@ -615,7 +620,10 @@ pub async fn stream_chat(
 
             // SSE permits `data:` with no space before the payload; only one
             // optional leading space is stripped.
-            let Some(data) = line.strip_prefix("data:").map(|d| d.strip_prefix(' ').unwrap_or(d)) else {
+            let Some(data) = line
+                .strip_prefix("data:")
+                .map(|d| d.strip_prefix(' ').unwrap_or(d))
+            else {
                 continue;
             };
             if data.trim() == "[DONE]" {

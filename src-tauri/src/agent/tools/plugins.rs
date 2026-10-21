@@ -232,31 +232,43 @@ pub async fn execute_plugin_search(
     }
 
     let mut candidates: Vec<Value> = Vec::new();
+    let mut failures: Vec<String> = Vec::new();
     for toolkit in connected.iter().take(6) {
         let path = format!(
             "/tools?toolkit_slug={}&search={}&limit=8",
             urlencoding::encode(toolkit),
             urlencoding::encode(query)
         );
-        if let Ok(data) = composio_request("GET", &path, None).await {
-            if let Some(items) = data.get("items").and_then(|v| v.as_array()) {
-                for item in items {
-                    let slug = item.get("slug").and_then(|s| s.as_str()).unwrap_or("");
-                    if slug.is_empty() {
-                        continue;
+        match composio_request("GET", &path, None).await {
+            Ok(data) => {
+                if let Some(items) = data.get("items").and_then(|v| v.as_array()) {
+                    for item in items {
+                        let slug = item.get("slug").and_then(|s| s.as_str()).unwrap_or("");
+                        if slug.is_empty() {
+                            continue;
+                        }
+                        candidates.push(json!({
+                            "slug": slug,
+                            "name": item.get("name").and_then(|n| n.as_str()).unwrap_or(slug),
+                            "description": item.get("description").and_then(|d| d.as_str()).unwrap_or(""),
+                            "toolkit": toolkit,
+                        }));
                     }
-                    candidates.push(json!({
-                        "slug": slug,
-                        "name": item.get("name").and_then(|n| n.as_str()).unwrap_or(slug),
-                        "description": item.get("description").and_then(|d| d.as_str()).unwrap_or(""),
-                        "toolkit": toolkit,
-                    }));
                 }
             }
+            Err(e) => failures.push(format!("{toolkit}: {e}")),
         }
     }
 
     if candidates.is_empty() {
+        // A request that failed is not the same as a request that found nothing;
+        // report the failure so the agent does not rephrase a working query.
+        if !failures.is_empty() {
+            return format!(
+                "Could not search plugin actions. {}. Check the Composio connection in Settings → Plugins.",
+                failures.join("; ")
+            );
+        }
         return format!(
             "Connected: {}. No matching actions for that request. Rephrase it with a plain verb like \"list\" or \"send\".",
             connected.join(", ")

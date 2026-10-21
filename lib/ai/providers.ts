@@ -1461,6 +1461,7 @@ export const PROVIDER_ALIASES: Record<string, ProviderId> = {
   opencode: "zen",
   "opencode-zen": "zen",
   "opencode-zen-messages": "zen-messages",
+  "opencode-go": "zen-go",
   "nvidia-nim": "nvidia",
   nim: "nvidia",
   "llm-gateway": "llmgateway",
