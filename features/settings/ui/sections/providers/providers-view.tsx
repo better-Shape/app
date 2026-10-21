@@ -61,6 +61,7 @@ import {
 import { KeyInput, TextInput } from "./inputs";
 import { ProviderCard } from "./provider-card";
 import { useVaultStatus } from "./use-vault-status";
+import { forgetSecret } from "@/lib/ai/vault";
 
 /* ------------------------------------------------------------------------ */
 /* Feature routing                                                           */
@@ -227,8 +228,12 @@ export function ProvidersSettingsView() {
         });
     };
 
-    const resetProvider = (id: ProviderId) => {
+    const resetProvider = async (id: ProviderId) => {
         const preset = providerPreset(id);
+        // Also purge the key from the OS keychain when vaulted, otherwise a
+        // vault-aware restart would hydrate the old apiKey back into the
+        // cleared field and undo the reset.
+        await forgetSecret(id);
         update({
             connections: {
                 ...providers.connections,
