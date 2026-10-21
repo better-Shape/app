@@ -95,9 +95,16 @@ describe("OpenUIBlock", () => {
         expect(copied).not.toContain("<questions");
     });
 
-    it("disables OpenUI runtime telemetry and the remote development inspector", () => {
+    it("disables OpenUI runtime telemetry and the remote development inspector", async () => {
+        delete process.env.OPENUI_TELEMETRY_DISABLED;
+        const autoMountKey = Symbol.for("openui.devtools.autoMount");
+        Reflect.set(globalThis, autoMountKey, false);
+        vi.resetModules();
+
+        await import("@/features/chat/ui/blocks/disable-openui-devtools");
+
         expect(process.env.OPENUI_TELEMETRY_DISABLED).toBe("1");
-        expect(Reflect.get(globalThis, Symbol.for("openui.devtools.autoMount"))).toBe(true);
+        expect(Reflect.get(globalThis, autoMountKey)).toBe(true);
     });
 
     it("renders registered components from a generated program", async () => {
@@ -191,7 +198,7 @@ describe("OpenUIBlock", () => {
         expect(bars[1]?.getAttribute("style")).toContain("width: 100%");
     });
 
-    it("caps pathological nested layouts with a readable fallback", async () => {
+    it("rejects definitions deeper than the expansion boundary before rendering", async () => {
         host = document.createElement("div");
         document.body.appendChild(host);
         root = createRoot(host);
@@ -208,8 +215,22 @@ describe("OpenUIBlock", () => {
             root?.render(<OpenUIBlock response={response} />);
         });
 
-        expect(host.textContent).toContain("nested too deeply to display");
+        expect(host.textContent).toContain("too complex to display safely");
         expect(host.textContent).not.toContain("Deep content");
+    });
+
+    it("rejects cyclic references before the OpenUI runtime expands them", async () => {
+        host = document.createElement("div");
+        document.body.appendChild(host);
+        root = createRoot(host);
+        const response = ["root = Surface([loop])", "loop = Stack([loop])"].join("\n");
+
+        await act(async () => {
+            root?.render(<OpenUIBlock response={response} />);
+        });
+
+        expect(host.textContent).toContain("too complex to display safely");
+        expect(host.querySelector("section")).toBeNull();
     });
 
     it("does not count definition-like text inside a string as expanded work", async () => {
@@ -258,5 +279,28 @@ describe("OpenUIBlock", () => {
 
         expect(host.textContent).toContain("This visual response could not be rendered.");
         expect(host.querySelector("script, iframe, img")).toBeNull();
+    });
+
+    it("does not keep an earlier renderer error visible after valid content arrives", async () => {
+        host = document.createElement("div");
+        document.body.appendChild(host);
+        root = createRoot(host);
+        const invalidResponse = [
+            "root = Surface([missing])",
+            'missing = NotRegistered("ignored")',
+        ].join("\n");
+        const validResponse = ["root = Surface([label])", 'label = Text("Recovered")'].join("\n");
+
+        await act(async () => {
+            root?.render(<OpenUIBlock response={invalidResponse} />);
+        });
+        expect(host.textContent).toContain("This visual response could not be rendered.");
+
+        await act(async () => {
+            root?.render(<OpenUIBlock response={validResponse} />);
+        });
+
+        expect(host.textContent).toContain("Recovered");
+        expect(host.textContent).not.toContain("This visual response could not be rendered.");
     });
 });

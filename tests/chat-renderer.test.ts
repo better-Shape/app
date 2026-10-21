@@ -22,6 +22,20 @@ describe("parseMessageContent", () => {
         expect(chunks[0]?.content).toContain("Metric");
     });
 
+    it("does not let an incomplete unknown tag hide a later OpenUI fence", () => {
+        const message = [
+            "An unfinished tag appears here: <example",
+            "```openui-lang",
+            "root = Surface([label])",
+            'label = Text("Still rendered")',
+            "```",
+        ].join("\n");
+        const chunks = parseMessageContent(message);
+
+        expect(chunks.map((chunk) => chunk.type)).toContain("openui");
+        expect(chunks.find((chunk) => chunk.type === "openui")?.content).toContain("Still rendered");
+    });
+
     it("does not route ordinary or nested code fences through the OpenUI renderer", () => {
         const ordinary = parseMessageContent("```typescript\nconst answer = 42;\n```");
         const nested = parseMessageContent(

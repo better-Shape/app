@@ -144,16 +144,28 @@ const parseOpenUIDefinitions = (source: string): OpenUIDefinitions | null => {
     return definitions;
 };
 
-/** Count a referenced subtree, returning early at either safety boundary. */
-const countDefinitionTree = (definitions: OpenUIDefinitions, name: string, depth: number): number => {
-    if (depth >= MAX_OPENUI_NESTING) return 1;
-    const children = definitions.get(name);
-    if (!children) return 1;
+/** Count every expanded reference against one budget while rejecting recursion cycles. */
+const countDefinitionTree = (
+    definitions: OpenUIDefinitions,
+    name: string,
+    depth: number,
+    remainingNodes: { value: number },
+    ancestors: Set<string>,
+): number => {
+    if (ancestors.has(name) || remainingNodes.value === 0) return MAX_OPENUI_EXPANDED_NODES + 1;
+    remainingNodes.value -= 1;
+
+    const children = definitions.get(name) ?? [];
+    if (children.length === 0) return 1;
+    if (depth >= MAX_OPENUI_NESTING) return MAX_OPENUI_EXPANDED_NODES + 1;
+
+    ancestors.add(name);
     let total = 1;
     for (const child of children) {
-        total += countDefinitionTree(definitions, child, depth + 1);
-        if (total > MAX_OPENUI_EXPANDED_NODES) return total;
+        total += countDefinitionTree(definitions, child, depth + 1, remainingNodes, ancestors);
+        if (total > MAX_OPENUI_EXPANDED_NODES) break;
     }
+    ancestors.delete(name);
     return total;
 };
 
@@ -162,7 +174,13 @@ const countExpandedNodes = (response: string): number => {
     const definitions = parseOpenUIDefinitions(maskOpenUIStringsAndComments(response));
     if (!definitions) return MAX_OPENUI_EXPANDED_NODES + 1;
     if (!definitions.has("root")) return 0;
-    return countDefinitionTree(definitions, "root", 0);
+    return countDefinitionTree(
+        definitions,
+        "root",
+        0,
+        { value: MAX_OPENUI_EXPANDED_NODES },
+        new Set(),
+    );
 };
 
 type BoundedChildrenProps = {
@@ -583,11 +601,12 @@ const OpenUIStatusMessages = ({ renderError, truncated }: { renderError: boolean
 
 /** Check expanded work before invoking the DSL renderer, then expose only a safe fallback on failure. */
 export const OpenUIBlock = ({ response, isStreaming, truncated }: { response: string; isStreaming?: boolean; truncated?: boolean }) => {
-    const [renderError, setRenderError] = useState(false);
+    const [renderErrorResponse, setRenderErrorResponse] = useState<string | null>(null);
     const exceedsWorkBudget = countExpandedNodes(response) > MAX_OPENUI_EXPANDED_NODES;
     const handleError = useCallback((errors: Array<{ severity?: "warning" }>) => {
-        setRenderError(errors.some((error) => !error.severity));
-    }, []);
+        setRenderErrorResponse(errors.some((error) => !error.severity) ? response : null);
+    }, [response]);
+    const renderError = renderErrorResponse === response;
 
     return (
         <div data-openui-block="true" className="min-w-0 max-w-full">

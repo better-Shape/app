@@ -121,6 +121,7 @@ test.describe("workbench (seeded project)", () => {
         await expect(page.locator("[data-openui-block]")).toBeVisible();
 
         await page.getByRole("button", { name: "Copy message" }).last().click();
+        await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain("Root files");
         const copied = await page.evaluate(() => navigator.clipboard.readText());
 
         expect(copied).toContain("The project tree and conversation use local fixture data.");
