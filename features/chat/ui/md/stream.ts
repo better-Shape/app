@@ -77,7 +77,7 @@ export const LEAKED_TOOL_XML_TAGS = [
 ] as const;
 
 /** BetterShape UI wrappers. Strip even when they contain markdown fences (edit_file excerpts). */
-const STRIP_ACROSS_FENCES = [
+export const STRIP_ACROSS_FENCES = [
     "tool_result",
     "terminal_read",
     "terminal_input",
@@ -191,6 +191,40 @@ const mapOutsideCodeFences = (text: string, fn: (prose: string) => string): stri
     return out.join("");
 };
 
+
+
+/** Truncate a leaked wrapper whose opening tag is still incomplete mid-stream. */
+export function stripUnclosedToolTag(text: string, tag: string): string {
+    const escapedTag = tag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const openingTag = new RegExp(`<${escapedTag}\\b`, "gi");
+    let match: RegExpExecArray | null;
+    while ((match = openingTag.exec(text)) !== null) {
+        let quote: "'" | '"' | null = null;
+        let end = -1;
+        for (let index = openingTag.lastIndex; index < text.length; index++) {
+            const character = text[index];
+            if (quote) {
+                if (character === quote) quote = null;
+            } else if (character === "'" || character === '"') {
+                quote = character;
+            } else if (character === ">") {
+                end = index;
+                break;
+            }
+        }
+        if (end === -1) return text.slice(0, match.index);
+        if (!text.slice(openingTag.lastIndex, end).trimEnd().endsWith("/")) {
+            // A complete pair later in the text is handled by the paired pass.
+            if (text.indexOf(`</${tag}`, end + 1) !== -1) {
+                openingTag.lastIndex = end + 1;
+                continue;
+            }
+            return text.slice(0, match.index);
+        }
+        openingTag.lastIndex = end + 1;
+    }
+    return text;
+}
 
 /**
  * Strip provider/model tool-call grammars that leaked into assistant text.

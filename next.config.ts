@@ -2,6 +2,9 @@ import type { NextConfig } from "next";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+process.env.NEXT_TELEMETRY_DISABLED = "1";
+process.env.OPENUI_TELEMETRY_DISABLED = "1";
+
 const isProd = process.env.NODE_ENV === "production";
 const projectRoot = path.dirname(fileURLToPath(import.meta.url));
 
@@ -25,6 +28,9 @@ const extraDevOrigins = (process.env.BETTERSHAPE_ALLOWED_DEV_ORIGINS ?? "")
   .filter((origin) => origin.length > 0 && !origin.includes("*"));
 
 const nextConfig: NextConfig = {
+  env: {
+    OPENUI_TELEMETRY_DISABLED: "1",
+  },
   output: isProd ? "export" : undefined,
   // Dev only: local Playwright uses loopback; forwarded previews and explicit dev
   // origin overrides can add exact host patterns without opening wildcard origins.

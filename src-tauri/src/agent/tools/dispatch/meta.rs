@@ -246,6 +246,8 @@ async fn approve_stdio_server(cfg: &McpServerConfig, ctx: &ToolCtx<'_>) -> Resul
         command: preview.clone(),
         safety: "needs_approval".to_string(),
         reason: format!("Starts the MCP server '{}' as a local process.", cfg.id),
+        turn_id: ctx.turn_id.clone(),
+        conversation_id: ctx.conversation_id.clone(),
         action: None,
         payload: None,
     };

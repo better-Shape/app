@@ -574,6 +574,10 @@ pub async fn send_chat_message(
         turn_context.push_str("\n\n");
         turn_context.push_str(mode_prompt);
     }
+    if mode_to_use.eq_ignore_ascii_case("ask") {
+        turn_context.push_str("\n\n");
+        turn_context.push_str(prompts::OPENUI_MD);
+    }
     turn_context.push_str("\n\nCURRENT CONTEXT:\n");
     turn_context.push_str(&context_string);
     if !steer.hint.is_empty() {

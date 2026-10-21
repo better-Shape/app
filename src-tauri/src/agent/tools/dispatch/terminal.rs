@@ -563,6 +563,8 @@ pub(super) async fn run_git_commit_with_approval(
         command: preview.to_string(),
         safety: "needs_approval".to_string(),
         reason: "Creates a git commit with your currently staged changes.".to_string(),
+        turn_id: ctx.turn_id.clone(),
+        conversation_id: ctx.conversation_id.clone(),
         action: Some("git_commit".to_string()),
         payload: Some(message.to_string()),
     };
@@ -643,6 +645,8 @@ pub(super) async fn run_with_approval(
         command: command.to_string(),
         safety: "needs_approval".to_string(),
         reason: reason.to_string(),
+        turn_id: ctx.turn_id.clone(),
+        conversation_id: ctx.conversation_id.clone(),
         action: None,
         payload: None,
     };

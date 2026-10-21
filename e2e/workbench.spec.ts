@@ -24,9 +24,10 @@ test.describe("workbench (seeded project)", () => {
 
     test("seeded files are visible and openable", async ({ page, expectNoPageErrors }) => {
         // File tree: expand the seeded src/ folder, then open App.tsx.
-        await page.getByText("src", { exact: true }).first().click();
-        await expect(page.getByText("App.tsx").first()).toBeVisible();
-        await page.getByText("App.tsx").first().click();
+        const explorer = page.getByRole("region", { name: "File explorer" });
+        await explorer.getByText("src", { exact: true }).click();
+        await expect(explorer.getByText("App.tsx", { exact: true })).toBeVisible();
+        await explorer.getByText("App.tsx", { exact: true }).click();
         // Opening a file creates a workspace tab and the editor reads the
         // file through the IPC bridge (read_file for src/App.tsx).
         await expect
@@ -50,8 +51,70 @@ test.describe("workbench (seeded project)", () => {
         expectNoPageErrors();
     });
 
-    test("seeded conversation is listed", async ({ page, expectNoPageErrors }) => {
-        await expect(page.getByText("Preview fixture chat").first()).toBeVisible();
+    test("keeps the file editor usable when the workspace narrows", async ({ page, expectNoPageErrors, expectNoConsoleErrors }) => {
+        const explorer = page.getByRole("region", { name: "File explorer" });
+        await expect(explorer).toBeVisible();
+
+        await page.setViewportSize({ width: 1000, height: 500 });
+        await expect(explorer).toBeHidden();
+        const editorText = page.getByText("bettershape-demo (preview fixture)", { exact: true });
+        await expect(editorText).toBeVisible();
+        const editorBounds = await editorText.boundingBox();
+        expect(editorBounds?.width ?? 0).toBeGreaterThan(200);
+
+        const filesTab = page.getByRole("button", { name: "Files", exact: true, pressed: false });
+        await filesTab.focus();
+        await page.keyboard.press("Enter");
+        const selectedFilesTab = page.getByRole("button", { name: "Files", exact: true, pressed: true });
+        await expect(selectedFilesTab).toBeVisible();
+        await expect(page.getByRole("textbox", { name: "Filter files" })).toBeVisible();
+        await expect
+            .poll(() =>
+                selectedFilesTab.evaluate((element) => {
+                    const style = getComputedStyle(element);
+                    return {
+                        focused: document.activeElement === element,
+                        boxShadow: style.boxShadow,
+                    };
+                }),
+            )
+            .toMatchObject({
+                focused: true,
+            });
+        await expect
+            .poll(() => selectedFilesTab.evaluate((element) => getComputedStyle(element).boxShadow))
+            .not.toBe("none");
+
+        const workspaceTabOrder = () =>
+            page.locator("#bettershape-workbench [aria-roledescription='sortable'][aria-label]").evaluateAll((elements) =>
+                elements
+                    .map((element) => element.getAttribute("aria-label"))
+                    .filter((label) => label === "Graph" || label === "Files"),
+            );
+        const originalTabOrder = await workspaceTabOrder();
+        expect(originalTabOrder).toEqual(["Graph", "Files"]);
+        await page.locator("#bettershape-workbench [aria-roledescription='sortable'][aria-label='Graph']").focus();
+        await page.keyboard.press("Space");
+        await page.keyboard.press("ArrowRight");
+        await page.keyboard.press("Enter");
+        await expect.poll(workspaceTabOrder).toEqual(["Files", "Graph"]);
+
+        await page.getByText("README.md", { exact: true }).first().click();
+        await page.setViewportSize({ width: 1440, height: 900 });
+        await expect(explorer).toBeVisible();
         expectNoPageErrors();
+        expectNoConsoleErrors();
+    });
+
+    test("seeded conversation renders a visual answer", async ({ page, expectNoPageErrors, expectNoConsoleErrors }) => {
+        await expect(page.getByText("Preview fixture chat").first()).toBeVisible();
+        await expect(page.locator("[data-openui-block]")).toBeVisible();
+        await expect(page.getByText("The project tree and conversation use local fixture data.")).toBeVisible();
+        await expect(page.getByText("Root files", { exact: true })).toBeVisible();
+        await expect(page.locator("figure figcaption")).toContainText("Files by folder");
+        await expect(page.locator("[data-openui-block] figure table.sr-only tbody tr")).toHaveCount(2);
+        await expect(page.getByRole("note")).toContainText("Local fixture");
+        expectNoPageErrors();
+        expectNoConsoleErrors();
     });
 });

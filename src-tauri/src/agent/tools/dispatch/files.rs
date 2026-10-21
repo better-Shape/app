@@ -504,6 +504,8 @@ pub(super) async fn gate_edit_approval(
         id: edit_id.clone(),
         path: target.to_string(),
         is_new_file: resolved.is_new_file,
+        turn_id: ctx.turn_id.clone(),
+        conversation_id: ctx.conversation_id.clone(),
     };
     if let Ok(mut pendings) = ctx.agent_state.pending_edits.lock() {
         pendings.insert(edit_id.clone(), pending.clone());
@@ -529,14 +531,24 @@ pub(super) async fn gate_edit_approval(
         ApprovalDecision::Approved => {
             ctx.emit_scoped_event(
                 "agent-edit-resolved",
-                json!({ "id": edit_id, "approved": true }),
+                json!({
+                    "id": edit_id,
+                    "approved": true,
+                    "turnId": ctx.turn_id,
+                    "conversationId": ctx.conversation_id,
+                }),
             );
             Ok(edit_id)
         }
         ApprovalDecision::Rejected => {
             ctx.emit_scoped_event(
                 "agent-edit-resolved",
-                json!({ "id": edit_id, "approved": false }),
+                json!({
+                    "id": edit_id,
+                    "approved": false,
+                    "turnId": ctx.turn_id,
+                    "conversationId": ctx.conversation_id,
+                }),
             );
             Err(ToolOutcome {
                 tool_result: format!(

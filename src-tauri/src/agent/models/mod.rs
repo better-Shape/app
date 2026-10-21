@@ -99,6 +99,10 @@ pub struct PendingEdit {
     pub id: String,
     pub path: String,
     pub is_new_file: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conversation_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -185,6 +189,15 @@ pub struct PendingCommand {
     pub command: String,
     pub safety: String,
     pub reason: String,
+    /// Turn identity for the transient approval chrome; omitted by legacy callers.
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "turnId")]
+    pub turn_id: Option<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "conversationId"
+    )]
+    pub conversation_id: Option<String>,
     /// When set, approval runs this internal action instead of a shell command.
     /// e.g. `"git_commit"` with `payload` = commit message.
     #[serde(default, skip_serializing_if = "Option::is_none")]

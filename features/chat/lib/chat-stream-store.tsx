@@ -551,6 +551,21 @@ export const ChatStreamProvider = ({ children }: { children: React.ReactNode }) 
             }
         };
 
+        const patchLiveForTurn = (
+            identity: { conversationId?: string; turnId?: string },
+            update: (live: LiveTurn) => void,
+        ) => {
+            const { conversationId, turnId } = identity;
+            if (!conversationId || !turnId) return;
+            if (isForeignConversation(conversationId)) return;
+            const currentLive = liveTurnsRef.current.get(conversationId);
+            if (!currentLive || currentLive.turnId !== turnId) return;
+            patchLive(conversationId, (live) => {
+                if (live.turnId !== turnId) return;
+                update(live);
+            });
+        };
+
         register(
             listen<{
                 turnId?: string;
@@ -847,10 +862,10 @@ export const ChatStreamProvider = ({ children }: { children: React.ReactNode }) 
             }>("agent-command-pending", (event) => {
                 const cmd = event.payload?.command?.trim() || "Command";
                 const reason = event.payload?.reason?.trim();
-                patchLive(event.payload?.conversationId, (live) => {
+                patchLiveForTurn(event.payload ?? {}, (live) => {
                     live.turnPhase = "awaiting_approval";
                     live.activityLabel = "Waiting for approval";
-                }, event.payload?.turnId);
+                });
                 notifyApprovalOsOnly(
                     event.payload?.id,
                     "Approval required",
@@ -865,14 +880,15 @@ export const ChatStreamProvider = ({ children }: { children: React.ReactNode }) 
                 conversationId?: string;
                 turnId?: string;
                 file?: string;
+                path?: string;
                 reason?: string;
             }>("agent-edit-pending", (event) => {
-                const file = event.payload?.file?.trim() || "file";
+                const file = event.payload?.path?.trim() || event.payload?.file?.trim() || "file";
                 const reason = event.payload?.reason?.trim();
-                patchLive(event.payload?.conversationId, (live) => {
+                patchLiveForTurn(event.payload ?? {}, (live) => {
                     live.turnPhase = "awaiting_approval";
                     live.activityLabel = "Waiting for edit approval";
-                }, event.payload?.turnId);
+                });
                 notifyApprovalOsOnly(
                     event.payload?.id,
                     "Edit approval required",

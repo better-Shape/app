@@ -3,7 +3,7 @@
 
 import React, { useEffect, useMemo } from "react";
 import { cn, createOccurrenceKeyer } from "@/lib/utils";
-import { stripLeakedToolCode, stripOrphanThinkTags } from "./stream";
+import { LEAKED_TOOL_XML_TAGS, STRIP_ACROSS_FENCES, stripLeakedToolCode, stripOrphanThinkTags, stripUnclosedToolTag } from "./stream";
 import { ChatMarkdown } from "./view";
 import { syncSubagentsFromChunks } from "@/features/agent/subagents/store";
 
@@ -21,6 +21,7 @@ import { ReviewDebatePanel } from '../blocks/debate';
 import { PersonaReviewPanel } from '../blocks/persona-review';
 import { BrowseChatCard } from '../blocks/browse-frame';
 import { ChartBlock, InsightCard } from '../blocks/chart';
+import { OpenUIBlock } from '../blocks/openui';
 import { QuestionsCard, parseQuestionsPayload, type AgentQuestion, type QuestionAnswers } from '../blocks/questions';
 import { hostnameOf } from '@/lib/ui/favicon';
 
@@ -119,7 +120,7 @@ export function dedupeTerminalChunks(chunks: Chunk[]): Chunk[] {
 }
 
 export type Chunk = {
-    type: 'text' | 'edit' | 'edit_pending' | 'search' | 'grep' | 'status' | 'web_search' | 'think' | 'thought' | 'search_result' | 'web_result' | 'web_visit' | 'inspect_runtime' | 'terminal_command' | 'git_operation' | 'run' | 'ls' | 'cat' | 'create_file' | 'mkdir' | 'delete_file' | 'rename_file' | 'rename_chat' | 'tool_result' | 'plan' | 'plan_saved' | 'todos' | 'attached_image' | 'sent_file' | 'subagent' | 'subagent_ref' | 'design_previews' | 'review_debate' | 'persona_review' | 'question' | 'questions' | 'plugin_call' | 'generated_svg' | 'generated_image' | 'generated_audio' | 'browse_session' | 'chart' | 'insight_card';
+    type: 'text' | 'openui' | 'edit' | 'edit_pending' | 'search' | 'grep' | 'status' | 'web_search' | 'think' | 'thought' | 'search_result' | 'web_result' | 'web_visit' | 'inspect_runtime' | 'terminal_command' | 'git_operation' | 'run' | 'ls' | 'cat' | 'create_file' | 'mkdir' | 'delete_file' | 'rename_file' | 'rename_chat' | 'tool_result' | 'plan' | 'plan_saved' | 'todos' | 'attached_image' | 'sent_file' | 'subagent' | 'subagent_ref' | 'design_previews' | 'review_debate' | 'persona_review' | 'question' | 'questions' | 'plugin_call' | 'generated_svg' | 'generated_image' | 'generated_audio' | 'browse_session' | 'chart' | 'insight_card';
     content?: string;
     file?: string;
     query?: string;
@@ -156,6 +157,7 @@ export type Chunk = {
     mediaCredits?: string;
     questions?: AgentQuestion[];
     answers?: QuestionAnswers | null;
+    openuiTruncated?: boolean;
 };
 
 type SearchTag = { type: string; start: string; end: string };
@@ -266,6 +268,147 @@ function findFirstTag(text: string, from: number) {
         at = text.indexOf("<", at + 1);
     }
     return null;
+}
+
+const MAX_OPENUI_SOURCE_LENGTH = 32_000;
+const MAX_OPENUI_BLOCKS_PER_MESSAGE = 3;
+
+type OpenUIFence = {
+    start: number;
+    end: number;
+    sourceStart: number;
+    sourceEnd: number;
+    closed: boolean;
+};
+
+type OpenUIFenceScan = { fences: OpenUIFence[]; overflowStart?: number };
+
+const MESSAGE_BLOCK_TAG_NAMES = new Set(
+    SEARCH_TAGS.map(({ start }) => /^<([^\s>]+)/.exec(start)?.[1]).filter((name): name is string => Boolean(name)),
+);
+
+/** Finds only top-level Markdown fences, so an OpenUI example inside a code sample stays code. */
+function findOpenUIFences(text: string): OpenUIFenceScan {
+    const fences: OpenUIFence[] = [];
+    let activeFence: { marker: string; length: number; openUI?: OpenUIFence } | null = null;
+    const activeMessageTags = new Map<string, number>();
+    let pendingMessageTag: string | null = null;
+    let lineStart = 0;
+
+    while (lineStart < text.length) {
+        const newline = text.indexOf("\n", lineStart);
+        const lineEnd = newline === -1 ? text.length : newline;
+        const nextLineStart = newline === -1 ? text.length : newline + 1;
+        const line = text.slice(lineStart, lineEnd).replace(/\r$/, "");
+
+        if (activeFence) {
+            const closing = line.match(/^ {0,3}(`{3,}|~{3,})[ \t]*$/);
+            if (
+                closing
+                && closing[1]?.[0] === activeFence.marker
+                && closing[1].length >= activeFence.length
+            ) {
+                if (activeFence.openUI) {
+                    let sourceEnd = lineStart;
+                    if (text.slice(sourceEnd - 2, sourceEnd) === "\r\n") sourceEnd -= 2;
+                    else if (text[sourceEnd - 1] === "\n") sourceEnd -= 1;
+                    fences.push({ ...activeFence.openUI, end: nextLineStart, sourceEnd, closed: true });
+                }
+                activeFence = null;
+            }
+        } else {
+            const tagSource: string = pendingMessageTag ? `${pendingMessageTag}\n${line}` : line;
+            pendingMessageTag = null;
+            const tagPattern = /<\/?([A-Za-z][\w:-]*)\b[^>]*>/g;
+            let tagMatch: RegExpExecArray | null;
+            while ((tagMatch = tagPattern.exec(tagSource)) !== null) {
+                const tagName = tagMatch[1];
+                if (!tagName || !MESSAGE_BLOCK_TAG_NAMES.has(tagName)) continue;
+                const fullTag = tagMatch[0];
+                const count = activeMessageTags.get(tagName) ?? 0;
+                if (fullTag.startsWith("</")) {
+                    if (count <= 1) activeMessageTags.delete(tagName);
+                    else activeMessageTags.set(tagName, count - 1);
+                } else if (!/\/\s*>$/.test(fullTag)) {
+                    activeMessageTags.set(tagName, count + 1);
+                }
+            }
+            const unfinishedTag = /<\/?([A-Za-z][\w:-]*)\b[^>]*$/.exec(tagSource);
+            if (unfinishedTag?.[1] && MESSAGE_BLOCK_TAG_NAMES.has(unfinishedTag[1])) {
+                pendingMessageTag = tagSource.slice(unfinishedTag.index).slice(0, 2_048);
+            }
+
+            // BetterShape's structural blocks are parsed as opaque chunks; do not extract Markdown from their payloads.
+            if (activeMessageTags.size === 0 && pendingMessageTag === null) {
+                const opening = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+                const marker = opening?.[1];
+                const info = opening?.[2] ?? "";
+                if (marker && !(marker[0] === "`" && info.includes("`"))) {
+                    const language = info.trim().split(/\s+/, 1)[0]?.toLowerCase();
+                    const isOpenUI = language === "openui-lang";
+                    if (isOpenUI && fences.length >= MAX_OPENUI_BLOCKS_PER_MESSAGE) {
+                        return { fences, overflowStart: lineStart };
+                    }
+                    const openUI = isOpenUI
+                        ? { start: lineStart, end: text.length, sourceStart: nextLineStart, sourceEnd: text.length, closed: false }
+                        : undefined;
+                    activeFence = { marker: marker[0] ?? "`", length: marker.length, openUI };
+                }
+            }
+        }
+
+        if (newline === -1) break;
+        lineStart = nextLineStart;
+    }
+
+    if (activeFence?.openUI) fences.push(activeFence.openUI);
+    return { fences };
+}
+
+/** Plain-text copy keeps prose and includes rendered visual text rather than raw OpenUI source. */
+export function getMessageCopyText(chunks: readonly Chunk[], openUIText: readonly string[] = []): string {
+    let visualIndex = 0;
+    return chunks
+        .map((chunk) => {
+            if (chunk.type === "text") return chunk.content?.trim() ?? "";
+            if (chunk.type === "openui") return openUIText[visualIndex++]?.trim() ?? "";
+            return "";
+        })
+        .filter(Boolean)
+        .join("\n\n");
+}
+
+function parseMessageContentWithOpenUI(text: string): Chunk[] {
+    const scan = findOpenUIFences(text);
+    if (scan.fences.length || scan.overflowStart !== undefined) {
+        const chunks: Chunk[] = [];
+        let cursor = 0;
+        for (const fence of scan.fences) {
+            if (fence.start > cursor) chunks.push(...parseMessageContentUncached(text.slice(cursor, fence.start)));
+            const raw = text.slice(fence.sourceStart, fence.sourceEnd);
+            const closed = [...STRIP_ACROSS_FENCES, ...LEAKED_TOOL_XML_TAGS]
+                .reduce((acc, tag) => stripUnclosedToolTag(acc, tag), raw);
+            const source = stripLeakedToolCode(closed);
+            chunks.push({
+                type: "openui",
+                content: source.slice(0, MAX_OPENUI_SOURCE_LENGTH),
+                isGenerating: !fence.closed,
+                openuiTruncated: source.length > MAX_OPENUI_SOURCE_LENGTH,
+            });
+            cursor = fence.end;
+        }
+        if (scan.overflowStart !== undefined) {
+            if (scan.overflowStart > cursor) {
+                chunks.push(...parseMessageContentUncached(text.slice(cursor, scan.overflowStart)));
+            }
+            // Render the untrusted overflow as Markdown source; do not parse it as BetterShape blocks.
+            chunks.push({ type: "text", content: stripLeakedToolCode(text.slice(scan.overflowStart)) });
+        } else if (cursor < text.length) {
+            chunks.push(...parseMessageContentUncached(text.slice(cursor)));
+        }
+        return mergeAdjacentTextChunks(chunks);
+    }
+    return parseMessageContentUncached(text);
 }
 
 /**
@@ -970,7 +1113,7 @@ export function parseMessageContent(text: string): Chunk[] {
         return cached;
     }
 
-    const chunks = parseMessageContentUncached(text);
+    const chunks = parseMessageContentWithOpenUI(text);
     if (text.length <= PARSE_CACHE_MAX_CHARS) {
         parseCache.set(text, chunks);
         parseCacheChars += text.length;
@@ -1216,6 +1359,16 @@ export const MessageRenderer = ({
         }
 
         const chunk = segment.chunk;
+        if (chunk.type === "openui") {
+            return (
+                <OpenUIBlock
+                    key={`openui-${pos}`}
+                    response={chunk.content || ""}
+                    isStreaming={Boolean(isGenerating && isLastSegment)}
+                    truncated={chunk.openuiTruncated}
+                />
+            );
+        }
         if (chunk.type === 'text') {
             const text = chunk.content;
             if (!text?.trim()) return null;

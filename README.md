@@ -64,10 +64,13 @@ Stable is the tested channel. On nightly you get the newest installer, and that 
 
 Node.js 22.13+ (or 24+), Rust, and [Tauri 2](https://v2.tauri.app/start/prerequisites/).
 
-```bash
+```powershell
+$env:DO_NOT_TRACK = "1"
 npm install
 npm run tauri:dev
 ```
+
+Use `DO_NOT_TRACK=1 npm install` on macOS or Linux. OpenUI install telemetry is disabled; the chat renderer also turns off OpenUI event publishing.
 
 [CONTRIBUTING.md](./CONTRIBUTING.md) and [local development](./docs/developing/local-development.mdx).
 

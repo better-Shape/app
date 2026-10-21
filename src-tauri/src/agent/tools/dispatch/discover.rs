@@ -460,6 +460,8 @@ pub(super) async fn tool_plugin_run(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutc
         command: format!("{toolkit}: {label}"),
         safety: "needs_approval".to_string(),
         reason: format!("Plugin action on {toolkit}"),
+        turn_id: ctx.turn_id.clone(),
+        conversation_id: ctx.conversation_id.clone(),
         action: Some("plugin_run".to_string()),
         payload: None,
     };
