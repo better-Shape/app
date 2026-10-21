@@ -292,6 +292,7 @@ const Chat = ({
     });
 
     React.useEffect(() => {
+        /** Menu command: start a new chat in this window. */
         const onNewChat = () => {
             newChatRef.current().catch(() => undefined);
         };

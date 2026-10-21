@@ -27,6 +27,7 @@ import { WindowControls } from "../ui/window-controls";
 import { TitlebarUpdateButton } from "../ui/update-button";
 import { GIT_WINDOW_TITLE_SLOT } from "@/features/git/ui/manager/chrome";
 
+/** Window chrome: drag region, window buttons and the per-window title. */
 export default function Titlebar({ onboarding, settings, focus, title, onBack }: TitlebarProps) {
     useKeyboardShortcuts();
 
