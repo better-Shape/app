@@ -133,10 +133,12 @@ export function mountPerfHud(): () => void {
         const invokes = perfHud.invokeStats();
         const report = perfHud.renderReport();
 
-        fps.value.textContent = `${frames.fps} fps · avg ${frames.avgMs}ms · worst ${frames.worstMs}ms`;
+        // The row label already says "fps", so the unit is not repeated inline;
+        // dropping it keeps "worst" from being clipped at the default width.
+        fps.value.textContent = `${frames.fps} · avg ${frames.avgMs}ms · worst ${frames.worstMs}ms`;
         long.value.textContent = `${longTasks.count} ≥50ms · ${longTasks.totalMs}ms`;
         ipc.value.textContent = invokes.count
-            ? `${invokes.count}× · avg ${invokes.avgMs} · p95 ${invokes.p95Ms}ms`
+            ? `${invokes.count}× · avg ${invokes.avgMs}ms · p95 ${invokes.p95Ms}ms`
             : "idle";
         slowest.value.textContent = invokes.slowest
             ? `max ${invokes.slowest.command} ${invokes.slowest.ms}ms`
