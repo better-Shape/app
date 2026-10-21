@@ -48,6 +48,37 @@ describe("OpenUIBlock", () => {
         expect(writeText).toHaveBeenCalledWith("Visual summary");
     });
 
+    it("copies rendered metadata labels instead of protocol prefixes", async () => {
+        host = document.createElement("div");
+        document.body.appendChild(host);
+        root = createRoot(host);
+        const writeText = vi.fn().mockResolvedValue(undefined);
+        clipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+        Object.defineProperty(navigator, "clipboard", {
+            configurable: true,
+            value: { writeText },
+        });
+
+        await act(async () => {
+            root?.render(
+                <ChatMessageItem
+                    role="assistant"
+                    content={'<forked_from id="source" title="Earlier chat"/>Answer from the earlier conversation.'}
+                    timestamp={0}
+                />,
+            );
+        });
+
+        expect(host.textContent).toContain("Forked from");
+        const copyButton = host.querySelector<HTMLButtonElement>('button[aria-label="Copy message"]');
+        await act(async () => copyButton?.click());
+
+        const copied = writeText.mock.calls[0]?.[0] ?? "";
+        expect(copied).toContain("Forked from");
+        expect(copied).toContain("Answer from the earlier conversation.");
+        expect(copied).not.toContain("<forked_from");
+    });
+
     it("copies rendered chart text instead of dropping structured message blocks", async () => {
         host = document.createElement("div");
         document.body.appendChild(host);

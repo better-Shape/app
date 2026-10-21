@@ -412,6 +412,43 @@ describe("a chat that runs in the background stays in the background", () => {
         expect(api.activityLabel).toBe("Waiting for your answers");
     });
 
+    it("uses operation-specific labels after plugin and MCP server approval", async () => {
+        await mount("A");
+        emit("chat_started", { conversationId: "A", turnId: "t-a", model: "m" });
+
+        emit("agent-command-pending", {
+            id: "plugin",
+            command: "mail: send",
+            conversationId: "A",
+            turnId: "t-a",
+        });
+        expect(api.activityLabel).toBe("Waiting for approval");
+        emit("agent-command-resolved", {
+            id: "plugin",
+            approved: true,
+            activityLabel: "Running plugin action",
+            conversationId: "A",
+            turnId: "t-a",
+        });
+        expect(api.activityLabel).toBe("Running plugin action");
+
+        emit("agent-command-pending", {
+            id: "mcp",
+            command: "npx server-package",
+            conversationId: "A",
+            turnId: "t-a",
+        });
+        expect(api.activityLabel).toBe("Waiting for approval");
+        emit("agent-command-resolved", {
+            id: "mcp",
+            approved: true,
+            activityLabel: "Starting MCP server",
+            conversationId: "A",
+            turnId: "t-a",
+        });
+        expect(api.activityLabel).toBe("Starting MCP server");
+    });
+
     it("binds a draft's first turn to its new id, and moves the draft view onto it", async () => {
         await mount(null);
         const adopted: string[] = [];

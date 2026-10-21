@@ -53,7 +53,7 @@ describe("parseMessageContent", () => {
     it("limits rendered OpenUI blocks while keeping excess source visible", () => {
         const fence = "```";
         const message = Array.from({ length: 4 }, (_, index) =>
-            `${fence}openui-lang\nroot = Surface([])\n// block ${index}${index === 3 ? "\n<tool_result>hidden tool output</tool_result>" : ""}\n${fence}`,
+            `${fence}openui-lang\nroot = Surface([])\n// block ${index}${index === 3 ? "\n<tool_result>hidden tool output</tool_result>\n<analysis>hidden reasoning</analysis>" : ""}\n${fence}`,
         ).join("\n");
         const chunks = parseMessageContent(message);
 
@@ -61,6 +61,8 @@ describe("parseMessageContent", () => {
         expect(chunks.some((chunk) => chunk.type === "text" && chunk.content?.includes("block 3"))).toBe(true);
         expect(chunks.some((chunk) => chunk.type === "tool_result")).toBe(false);
         expect(chunks.some((chunk) => chunk.type === "text" && chunk.content?.includes("hidden tool output"))).toBe(false);
+        expect(chunks.some((chunk) => chunk.type === "text" && chunk.content?.includes("hidden reasoning"))).toBe(false);
+        expect(chunks.some((chunk) => chunk.type === "text" && chunk.content?.includes("<analysis>"))).toBe(false);
     });
 
     it("copies rendered visual text instead of leaking the OpenUI DSL", () => {
@@ -113,11 +115,14 @@ describe("parseMessageContent", () => {
         expect(chunks.some((chunk) => chunk.type === "text" && chunk.content?.includes("Visible prose"))).toBe(true);
     });
 
-    it("reopens OpenUI extraction after a closed hidden tool call", () => {
-        const chunks = parseMessageContent(
-            "<tool_call>hidden call</tool_call>\n```openui-lang\nroot = Surface([])\n```",
-        );
-        expect(chunks.some((chunk) => chunk.type === "openui")).toBe(true);
+    it("reopens OpenUI extraction after closed hidden tool-call and tool-response wrappers", () => {
+        for (const tag of ["tool_call", "tool_response"]) {
+            const chunks = parseMessageContent(
+                `<${tag}>hidden payload</${tag}>\n\`\`\`openui-lang\nroot = Surface([])\n\`\`\``,
+            );
+            expect(chunks.some((chunk) => chunk.type === "openui")).toBe(true);
+            expect(chunks.some((chunk) => chunk.type === "text" && chunk.content?.includes("hidden payload"))).toBe(false);
+        }
     });
 
     it("does not treat quoted structural closing text as a real close", () => {
