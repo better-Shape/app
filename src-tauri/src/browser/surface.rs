@@ -624,8 +624,12 @@ async fn next_cdp_response(
     use tokio_tungstenite::tungstenite::Message;
 
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
-    while tokio::time::Instant::now() < deadline {
-        let next = tokio::time::timeout(std::time::Duration::from_secs(2), socket.next())
+    loop {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            return Ok(None);
+        }
+        let next = tokio::time::timeout(remaining, socket.next())
             .await
             .map_err(|_| "Developer tools didn't answer.".to_string())?;
         let Some(message) = next else {
@@ -641,7 +645,6 @@ async fn next_cdp_response(
             return Ok(Some(value));
         }
     }
-    Ok(None)
 }
 
 async fn iframe_targets() -> Result<Vec<serde_json::Value>, String> {

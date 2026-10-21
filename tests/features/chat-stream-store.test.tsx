@@ -285,8 +285,14 @@ describe("a chat that runs in the background stays in the background", () => {
 
     it("ignores a stale completion when a newer turn is live for the same conversation", async () => {
         await mount("A");
+        await answerMessages("A", [msg("assistant", "existing transcript")]);
         emit("chat_started", { conversationId: "A", turnId: "old-turn", model: "m" });
         emit("chat_started", { conversationId: "A", turnId: "new-turn", model: "m" });
+        const transcriptBeforeStaleCompletion = api.messages.map(({ role, content, timestamp }) => ({
+            role,
+            content,
+            timestamp,
+        }));
 
         emit("chat_complete", {
             conversationId: "A",
@@ -297,6 +303,8 @@ describe("a chat that runs in the background stays in the background", () => {
         expect(api.isLoading).toBe(true);
         expect(api.turnId).toBe(nativeTurnId("new-turn"));
         expect(api.activityLabel).toBe("Thinking");
+        expect(api.messages.map(({ role, content, timestamp }) => ({ role, content, timestamp })))
+            .toEqual(transcriptBeforeStaleCompletion);
     });
 
     it("sends approval notifications only for accepted live-turn events", async () => {

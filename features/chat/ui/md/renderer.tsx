@@ -283,6 +283,11 @@ const MESSAGE_BLOCK_TAGS: Array<{ type: Chunk["type"]; start: string; end: strin
 const MESSAGE_BLOCK_TAG_NAMES = new Set(
     MESSAGE_BLOCK_TAGS.map(({ start }) => /^<([^\s>]+)/.exec(start)?.[1]).filter((name): name is string => Boolean(name)),
 );
+const MESSAGE_BLOCK_TAG_NAME_PREFIXES = new Set(
+    Array.from(MESSAGE_BLOCK_TAG_NAMES).flatMap((name) =>
+        Array.from({ length: name.length }, (_, index) => name.slice(0, index + 1)),
+    ),
+);
 const MAX_TAG_NAME_LENGTH = 128;
 
 /** Constrain the incremental tag scanner to XML-like name characters. */
@@ -312,13 +317,13 @@ const advancePendingTag = (
 ): PendingTagStep => {
     if (tag.readingName) {
         if (isTagNameCharacter(character)) {
-            if (tag.name !== "\u0000") {
-                if (tag.name.length < MAX_TAG_NAME_LENGTH) tag.name += character;
-                else tag.name = "\u0000";
-            }
+            if (tag.name.length >= MAX_TAG_NAME_LENGTH) return { tag: null, consumed: true };
+            const candidateName = tag.name + character;
+            if (!MESSAGE_BLOCK_TAG_NAME_PREFIXES.has(candidateName)) return { tag: null, consumed: true };
+            tag.name = candidateName;
             return { tag, consumed: true };
         }
-        if (!tag.name) return { tag: null, consumed: false };
+        if (!tag.name || !MESSAGE_BLOCK_TAG_NAMES.has(tag.name)) return { tag: null, consumed: false };
         tag.readingName = false;
     }
     if (tag.quote) {
