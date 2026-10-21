@@ -118,3 +118,13 @@ no feedback. The match counter (`1/2`, `0/0`) is now `aria-live="polite"`.
 - terminal: `Ctrl+F` -> "HISTORY" reports `1/2`, Enter -> `2/2`, gutter text
   `0/0` for no match, Esc closes. Restore shows the old lines followed by
   `── restored from previous session ──`.
+
+## Production static export (npm run build:preview -> out/)
+
+- `/`, `/settings`, `/popout`, `/git`, `/branch` all render; every route has
+  `data-perf-hud` count 0, so the dev overlay is absent from a production
+  bundle while `F1` -> "Keyboard Shortcuts" still opens the sheet (103 keycaps).
+- One 400 in the network log was the probe requesting `//`, not the app.
+  `preview:browser` serves `out/` as built; a plain `npm run build` leaves the
+  Browser Preview runtime out of the export, so run `build:preview` before
+  probing it or every `invoke` fails with "reading 'transformCallback'".
