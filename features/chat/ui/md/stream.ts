@@ -193,19 +193,18 @@ const mapOutsideCodeFences = (
 
 
 
-/** Finds a tag's closing bracket without mistaking a quoted attribute value for it. */
+/** Find a tag's closing bracket without swallowing a later tag after stray `<` prose. */
 const findTagEnd = (text: string, start: number): number => {
     let quote: "'" | '"' | null = null;
     let previousNonWhitespace = "";
     for (let index = start; index < text.length; index += 1) {
         const character = text[index] ?? "";
-        if (quote) {
+        if (quote !== null) {
             if (character === quote) quote = null;
-        } else if (
-            (character === "'" || character === '"')
-            && previousNonWhitespace === "="
-        ) {
+        } else if ((character === "'" || character === '"') && previousNonWhitespace === "=") {
             quote = character;
+        } else if (character === "<") {
+            return -1;
         } else if (character === ">") {
             return index;
         }
@@ -253,7 +252,50 @@ export const stripUnclosedToolTag = (text: string, tag: string, truncateNonSelfC
     return text;
 };
 
-/** Remove complete nested wrapper payloads without mistaking quoted tag text for delimiters. */
+type MarkupTagCandidate = { start: number; end: number; source: string };
+
+/** Find the next complete markup token, retrying after a malformed `<` character. */
+const findNextMarkupTag = (text: string, from: number): MarkupTagCandidate | null => {
+    let searchFrom = from;
+    while (searchFrom < text.length) {
+        const start = text.indexOf("<", searchFrom);
+        if (start === -1) return null;
+        const end = findTagEnd(text, start + 1);
+        if (end !== -1) return { start, end, source: text.slice(start, end + 1) };
+        searchFrom = start + 1;
+    }
+    return null;
+};
+
+/** Apply one matching wrapper token to the nested-payload removal state. */
+const consumeNestedTag = (
+    text: string,
+    tagText: string,
+    start: number,
+    end: number,
+    matchingTag: RegExp,
+    output: string,
+    cursor: number,
+    depth: number,
+): { output: string; cursor: number; depth: number } => {
+    const match = matchingTag.exec(tagText);
+    if (!match) return { output, cursor, depth };
+
+    const closing = Boolean(match[1]);
+    const selfClosing = !closing && tagText.slice(match[0].length, -1).trimEnd().endsWith("/");
+    if (closing && depth > 0) {
+        const nextDepth = depth - 1;
+        return { output, cursor: nextDepth === 0 ? end + 1 : cursor, depth: nextDepth };
+    }
+    if (closing || (selfClosing && depth === 0)) {
+        return { output: output + text.slice(cursor, start), cursor: end + 1, depth };
+    }
+    if (selfClosing) return { output, cursor, depth };
+    if (depth === 0) return { output: output + text.slice(cursor, start), cursor, depth: 1 };
+    return { output, cursor, depth: depth + 1 };
+};
+
+/** Remove complete nested wrapper payloads without mistaking quoted or malformed tag text for delimiters. */
 export const stripNestedTagBlocks = (text: string, tag: string): string => {
     const escapedTag = tag.replace(ESCAPE_RE, "\\$&");
     const matchingTag = new RegExp(`^<\\s*(\\/?)\\s*${escapedTag}\\b`, "i");
@@ -263,39 +305,22 @@ export const stripNestedTagBlocks = (text: string, tag: string): string => {
     let index = 0;
 
     while (index < text.length) {
-        const start = text.indexOf("<", index);
-        if (start === -1) break;
-        const end = findTagEnd(text, start + 1);
-        if (end === -1) {
-            return depth > 0 ? output : output + text.slice(cursor);
-        }
-
-        const tagText = text.slice(start, end + 1);
-        const match = matchingTag.exec(tagText);
-        index = end + 1;
-        if (!match) continue;
-
-        const closing = Boolean(match[1]);
-        const selfClosing = !closing && tagText.slice(match[0].length, -1).trimEnd().endsWith("/");
-        if (closing) {
-            if (depth > 0) {
-                depth -= 1;
-                if (depth === 0) cursor = end + 1;
-            } else {
-                output += text.slice(cursor, start);
-                cursor = end + 1;
-            }
-        } else if (selfClosing) {
-            if (depth === 0) {
-                output += text.slice(cursor, start);
-                cursor = end + 1;
-            }
-        } else if (depth === 0) {
-            output += text.slice(cursor, start);
-            depth = 1;
-        } else {
-            depth += 1;
-        }
+        const candidate = findNextMarkupTag(text, index);
+        if (!candidate) break;
+        const next = consumeNestedTag(
+            text,
+            candidate.source,
+            candidate.start,
+            candidate.end,
+            matchingTag,
+            output,
+            cursor,
+            depth,
+        );
+        output = next.output;
+        cursor = next.cursor;
+        depth = next.depth;
+        index = candidate.end + 1;
     }
 
     if (depth > 0) return output;

@@ -38,6 +38,17 @@ const maskLineComment = (source: string, start: number, masked: string[]): numbe
     return index;
 };
 
+/** Classify one character inside a quoted value without mutating scanner state. */
+const quotedCharacterAction = (
+    character: string,
+    quote: "\"" | "'",
+    escaped: boolean,
+): "continue" | "escape-next" | "close" => {
+    if (escaped) return "continue";
+    if (character === "\\") return "escape-next";
+    return character === quote ? "close" : "continue";
+};
+
 /** Blank a quoted value without changing line positions or escaped-quote state. */
 const maskQuotedValue = (source: string, start: number, quote: "\"" | "'", masked: string[]): number => {
     let escaped = false;
@@ -45,9 +56,15 @@ const maskQuotedValue = (source: string, start: number, quote: "\"" | "'", maske
     while (index < source.length) {
         const character = source[index] ?? "";
         if (character !== "\n") masked[index] = " ";
-        if (escaped) escaped = false;
-        else if (character === "\\") escaped = true;
-        else if (character === quote) return index + 1;
+        switch (quotedCharacterAction(character, quote, escaped)) {
+            case "escape-next":
+                escaped = true;
+                break;
+            case "close":
+                return index + 1;
+            default:
+                escaped = false;
+        }
         index += 1;
     }
     return index;
@@ -68,11 +85,9 @@ const maskTokenAt = (source: string, index: number, masked: string[]): number | 
 /** Mask literals/comments before counting references, so prose cannot inflate the render budget. */
 const maskOpenUIStringsAndComments = (source: string): string => {
     const masked = source.split("");
-    let maskedUntil = 0;
-    for (let index = 0; index < source.length; index += 1) {
-        if (index < maskedUntil) continue;
+    for (let index = 0; index < source.length;) {
         const tokenEnd = maskTokenAt(source, index, masked);
-        if (tokenEnd !== null) maskedUntil = tokenEnd;
+        index = tokenEnd ?? index + 1;
     }
     return masked.join("");
 };
@@ -92,17 +107,26 @@ const matchingArrayEnd = (source: string, openIndex: number): number => {
 
 type OpenUIDefinitions = Map<string, string[]>;
 
+/** Find the first child-array argument while excluding arrays in later scalar arguments. */
+const firstChildArrayRange = (source: string, argsStart: number): [number, number] | null => {
+    const arrayStart = source.indexOf("[", argsStart);
+    const firstClose = source.indexOf(")", argsStart);
+    if (arrayStart === -1 || (firstClose !== -1 && arrayStart >= firstClose)) return null;
+    const arrayEnd = matchingArrayEnd(source, arrayStart);
+    return arrayEnd === -1 ? null : [arrayStart, arrayEnd];
+};
+
+/** Extract non-component identifiers from a bounded child-array source range. */
+const childIdentifiersInRange = (source: string, start: number, end: number): string[] =>
+    source.slice(start + 1, end)
+        .match(/[A-Za-z_][\w-]*/g)
+        ?.filter((identifier) => !OPENUI_COMPONENTS.has(identifier)) ?? [];
+
 /** Extract referenced child names only for components that structurally own children. */
 const definitionChildren = (source: string, component: string, argsStart: number): string[] => {
     if (component !== "Surface" && component !== "Stack") return [];
-    const firstArray = source.indexOf("[", argsStart);
-    const firstClose = source.indexOf(")", argsStart);
-    if (firstArray === -1 || (firstClose !== -1 && firstArray >= firstClose)) return [];
-    const arrayEnd = matchingArrayEnd(source, firstArray);
-    if (arrayEnd === -1) return [];
-    return source.slice(firstArray + 1, arrayEnd)
-        .match(/[A-Za-z_][\w-]*/g)
-        ?.filter((identifier) => !OPENUI_COMPONENTS.has(identifier)) ?? [];
+    const range = firstChildArrayRange(source, argsStart);
+    return range ? childIdentifiersInRange(source, ...range) : [];
 };
 
 /** Parse named DSL definitions, stopping if their count alone exceeds the render budget. */
@@ -170,15 +194,13 @@ const SurfaceSubtitle = ({ title, subtitle }: { title?: string; subtitle?: strin
     : null;
 
 /** Render optional surface heading content without adding wrapper logic to the host component. */
-const SurfaceHeader = ({ title, subtitle }: { title?: string; subtitle?: string }) => {
-    if (!title && !subtitle) return null;
-    return (
+const SurfaceHeader = ({ title, subtitle }: { title?: string; subtitle?: string }) =>
+    title || subtitle ? (
         <header className="min-w-0">
             <SurfaceTitle title={title} />
             <SurfaceSubtitle title={title} subtitle={subtitle} />
         </header>
-    );
-};
+    ) : null;
 
 const Surface = defineComponent({
     name: "Surface",
@@ -524,6 +546,41 @@ const library = createLibrary({
     components: [Surface, Stack, Text, Metric, Callout, Progress, BarChart, DataTable],
 });
 
+type OpenUIResponseProps = {
+    response: string;
+    isStreaming?: boolean;
+    exceedsWorkBudget: boolean;
+    onError: (errors: Array<{ severity?: "warning" }>) => void;
+};
+
+/** Render only bounded output; over-budget source never reaches the language renderer. */
+const OpenUIResponse = ({ response, isStreaming, exceedsWorkBudget, onError }: OpenUIResponseProps) => {
+    if (exceedsWorkBudget) {
+        return (
+            <p className="text-xs text-text-secondary" role="status">
+                This visual response is too complex to display safely. The surrounding answer is still available.
+            </p>
+        );
+    }
+    return (
+        <Renderer
+            response={response}
+            library={library}
+            isStreaming={isStreaming}
+            publishObservability={false}
+            onError={onError}
+        />
+    );
+};
+
+/** Display renderer and truncation notices as independent accessible status messages. */
+const OpenUIStatusMessages = ({ renderError, truncated }: { renderError: boolean; truncated?: boolean }) => (
+    <>
+        {renderError ? <p className="text-xs text-text-secondary" role="status">This visual response could not be rendered. The surrounding answer is still available.</p> : null}
+        {truncated ? <p className="text-xs text-text-secondary" role="status">The visual response was shortened to keep rendering responsive.</p> : null}
+    </>
+);
+
 /** Check expanded work before invoking the DSL renderer, then expose only a safe fallback on failure. */
 export const OpenUIBlock = ({ response, isStreaming, truncated }: { response: string; isStreaming?: boolean; truncated?: boolean }) => {
     const [renderError, setRenderError] = useState(false);
@@ -534,21 +591,13 @@ export const OpenUIBlock = ({ response, isStreaming, truncated }: { response: st
 
     return (
         <div data-openui-block="true" className="min-w-0 max-w-full">
-            {exceedsWorkBudget ? (
-                <p className="text-xs text-text-secondary" role="status">
-                    This visual response is too complex to display safely. The surrounding answer is still available.
-                </p>
-            ) : (
-                <Renderer
-                    response={response}
-                    library={library}
-                    isStreaming={isStreaming}
-                    publishObservability={false}
-                    onError={handleError}
-                />
-            )}
-            {renderError ? <p className="text-xs text-text-secondary" role="status">This visual response could not be rendered. The surrounding answer is still available.</p> : null}
-            {truncated ? <p className="text-xs text-text-secondary" role="status">The visual response was shortened to keep rendering responsive.</p> : null}
+            <OpenUIResponse
+                response={response}
+                isStreaming={isStreaming}
+                exceedsWorkBudget={exceedsWorkBudget}
+                onError={handleError}
+            />
+            <OpenUIStatusMessages renderError={renderError} truncated={truncated} />
         </div>
     );
 };

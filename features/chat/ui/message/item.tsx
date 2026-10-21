@@ -377,19 +377,18 @@ function ChatMessageItemInner({
         }
         const metadata = extractPresentationMetadata(content);
         const chunks = parseMessageContent(metadata.content);
-        if (
-            metadata.forked ||
-            metadata.renamed ||
-            chunks.some((chunk) => chunk.type !== "text" && chunk.type !== "openui")
-        ) {
-            const renderedText = bodyRef.current?.innerText || bodyRef.current?.textContent;
+        const renderedText = bodyRef.current?.innerText || bodyRef.current?.textContent || undefined;
+        const hasRendererOnlyChunks = chunks.some(
+            (chunk) => chunk.type !== "text" && chunk.type !== "openui",
+        );
+        if (metadata.forked || metadata.renamed || hasRendererOnlyChunks) {
             if (renderedText?.trim()) return renderedText;
         }
         const openUIText = Array.from(
             bodyRef.current?.querySelectorAll<HTMLElement>("[data-openui-block]") ?? [],
             (element) => element.innerText || element.textContent || "",
         );
-        return getMessageCopyText(chunks, openUIText);
+        return getMessageCopyText(chunks, openUIText, renderedText);
     };
 
     const markCopied = () => {
