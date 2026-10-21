@@ -875,6 +875,10 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
             ).catch(() => undefined);
         };
 
+        /** Resolve the displayed file label without branching inside the event listener. */
+        const editApprovalSubject = (payload: { path?: string; file?: string }): string =>
+            payload.path?.trim() || payload.file?.trim() || "file";
+
         /** Route pending approval chrome and alerts through the same exact-turn guard. */
         const handlePendingApproval = (
             identity: { id?: string; conversationId?: string; turnId?: string; reason?: string },
@@ -928,7 +932,7 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
                     payload,
                     "Waiting for edit approval",
                     "Edit approval required",
-                    payload.path?.trim() || payload.file?.trim() || "file",
+                    editApprovalSubject(payload),
                 );
             }),
         );
