@@ -134,7 +134,7 @@ test.describe("workbench (seeded project)", () => {
         await expect(page.getByText("The project tree and conversation use local fixture data.")).toBeVisible();
         await expect(page.getByText("Root files", { exact: true })).toBeVisible();
         await expect(page.locator("figure figcaption")).toContainText("Files by folder");
-        await expect(page.locator("[data-openui-block] figure table.sr-only tbody tr")).toHaveCount(2);
+        await expect(page.locator("[data-openui-block] table.sr-only tbody tr")).toHaveCount(2);
         await expect(page.getByRole("note")).toContainText("Local fixture");
         expectNoPageErrors();
         expectNoConsoleErrors();

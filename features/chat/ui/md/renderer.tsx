@@ -360,6 +360,43 @@ const scanStructuralTags = (
     return tag;
 };
 
+/** Count permitted indentation before a Markdown fence marker. */
+const countFenceIndent = (line: string): number => {
+    let spaces = 0;
+    while (spaces < 3 && line[spaces] === " ") spaces += 1;
+    return spaces;
+};
+
+/** Find the end of a contiguous run of identical fence marker characters. */
+const findFenceMarkerEnd = (line: string, start: number, marker: string): number => {
+    let end = start;
+    while (line[end] === marker) end += 1;
+    return end;
+};
+
+/** Read a marker run after optional indentation, rejecting non-fence characters. */
+const readFenceMarker = (line: string): { marker: string; suffix: string } | null => {
+    const start = countFenceIndent(line);
+    const character = line[start];
+    if (character !== "`" && character !== "~") return null;
+    const markerEnd = findFenceMarkerEnd(line, start, character);
+    if (markerEnd - start < 3) return null;
+    return { marker: line.slice(start, markerEnd), suffix: line.slice(markerEnd) };
+};
+
+/** Read a top-level fence opener without a backtracking-prone regular expression. */
+const parseFenceOpening = (line: string): { marker: string; info: string } | null => {
+    const parsed = readFenceMarker(line);
+    return parsed ? { marker: parsed.marker, info: parsed.suffix } : null;
+};
+
+/** Read a fence closer only when its suffix contains horizontal whitespace. */
+const parseFenceClosing = (line: string): string | null => {
+    const parsed = readFenceMarker(line);
+    if (!parsed || !/^[ \t]*$/.test(parsed.suffix)) return null;
+    return parsed.marker;
+};
+
 /** Close an active fence and report whether the overflow boundary has been reached. */
 const closeFenceOnLine = (
     state: OpenUIFenceScannerState,
@@ -385,31 +422,6 @@ const closeFenceOnLine = (
     }
     state.activeFence = null;
     return finishedOverflow;
-};
-
-/** Read the marker and suffix from a fence line using bounded linear scans. */
-const readFenceMarker = (line: string): { marker: string; suffix: string } | null => {
-    let leadingSpaces = 0;
-    while (leadingSpaces < 3 && line[leadingSpaces] === " ") leadingSpaces += 1;
-    const character = line[leadingSpaces];
-    if (character !== "`" && character !== "~") return null;
-    let markerEnd = leadingSpaces;
-    while (line[markerEnd] === character) markerEnd += 1;
-    if (markerEnd - leadingSpaces < 3) return null;
-    return { marker: line.slice(leadingSpaces, markerEnd), suffix: line.slice(markerEnd) };
-};
-
-/** Read a top-level fence opener without a backtracking-prone regular expression. */
-const parseFenceOpening = (line: string): { marker: string; info: string } | null => {
-    const parsed = readFenceMarker(line);
-    return parsed ? { marker: parsed.marker, info: parsed.suffix } : null;
-};
-
-/** Read a fence closer only when its suffix contains horizontal whitespace. */
-const parseFenceClosing = (line: string): string | null => {
-    const parsed = readFenceMarker(line);
-    if (!parsed || !/^[ \\t]*$/.test(parsed.suffix)) return null;
-    return parsed.marker;
 };
 
 /** Open top-level Markdown fences only when no opaque structural tag is active. */
@@ -479,11 +491,6 @@ const findOpenUIFences = (text: string): OpenUIFenceScan => {
     }
     if (state.overflow) state.overflow = { ...state.overflow, end: text.length };
     return { fences: state.fences, overflow: state.overflow };
-};
-
-/** Parse assistant text into structural UI chunks and bounded OpenUI visual blocks. */
-export const parseMessageContent = (text: string): Chunk[] => {
-    return parseMessageContentWithOpenUI(text);
 };
 
 /** Plain-text copy keeps prose and includes rendered visual text rather than raw OpenUI source. */
@@ -873,27 +880,50 @@ type MessageBlockParser = (context: MessageBlockContext) => Chunk;
 const generationFields = (context: MessageBlockContext): { isGenerating?: boolean } =>
     context.mode === "selfClosing" ? {} : { isGenerating: context.isGenerating };
 
+/** Read the first non-empty command line unless the tag is self-closing. */
+const terminalCommandText = (context: MessageBlockContext): string => {
+    if (context.mode === "selfClosing") return "";
+    return context.content.split("\n").filter(Boolean)[0]?.trim() || "";
+};
+
+/** Select the user-facing reason text from a terminal approval or blocked message. */
+const terminalCommandReason = (context: MessageBlockContext): string | undefined => {
+    if (context.mode === "selfClosing") return undefined;
+    const reasonLine = context.content.split("\n").find((line) =>
+        line.includes("Awaiting approval:") || line.includes("Blocked:"),
+    );
+    return reasonLine?.replace(/^.*?(Awaiting approval:|Blocked:)\s*/, "").trim();
+};
+
+/** Preserve the command's explicit status, falling back to its streaming state. */
+const terminalCommandStatus = (status: string | undefined, isGenerating: boolean): string =>
+    status || (isGenerating ? "pending" : "completed");
+
+/** Parse an optional integer metadata capture without duplicating its conversion guard. */
+const parseOptionalInteger = (match: RegExpMatchArray | null): number | undefined =>
+    match?.[1] ? Number(match[1]) : undefined;
+
+/** Omit the reason key for self-closing terminal tags, matching the legacy chunk shape. */
+const terminalReasonFields = (context: MessageBlockContext): { commandReason?: string } => {
+    if (context.mode === "selfClosing") return {};
+    return { commandReason: terminalCommandReason(context) };
+};
+
 /** Parse terminal metadata and command text consistently for complete and streaming tags. */
 const parseTerminalCommandBlock = (context: MessageBlockContext): Chunk => {
     const statusMatch = context.tagFull.match(/status="([^"]+)"/);
     const idMatch = context.tagFull.match(/id="([^"]+)"/);
     const sessionMatch = context.tagFull.match(/session="(\d+)"/);
     const exitMatch = context.tagFull.match(/exit="(-?\d+)"/);
-    const lines = context.content.split("\n").filter(Boolean);
-    const command = context.mode === "selfClosing" ? "" : lines[0]?.trim() || "";
-    const reasonLine = lines.find((line) =>
-        line.includes("Awaiting approval:") || line.includes("Blocked:"),
-    );
-    const reason = reasonLine?.replace(/^.*?(Awaiting approval:|Blocked:)\s*/, "").trim();
     return {
         type: "terminal_command",
         content: context.content,
-        command,
+        command: terminalCommandText(context),
         commandId: idMatch?.[1],
-        commandStatus: statusMatch?.[1] || (context.isGenerating ? "pending" : "completed"),
-        ...(context.mode === "selfClosing" ? {} : { commandReason: reason }),
-        sessionId: sessionMatch?.[1] ? Number(sessionMatch[1]) : undefined,
-        exitCode: exitMatch?.[1] ? Number(exitMatch[1]) : undefined,
+        commandStatus: terminalCommandStatus(statusMatch?.[1], context.isGenerating),
+        ...terminalReasonFields(context),
+        sessionId: parseOptionalInteger(sessionMatch),
+        exitCode: parseOptionalInteger(exitMatch),
         ...generationFields(context),
     };
 };
@@ -960,123 +990,184 @@ const parseMessageBlock = (context: MessageBlockContext): Chunk => {
     };
 };
 
-/** Split eligible visual fences before handing the remaining text to the structural parser. */
-const parseMessageContentWithOpenUI = (text: string, detectOpenUI = true, sourceOffset = 0): Chunk[] => {
-    const scan = detectOpenUI ? findOpenUIFences(text) : { fences: [] };
-    if (scan.fences.length || scan.overflow) {
-        const chunks: Chunk[] = [];
-        let cursor = 0;
-        for (const fence of scan.fences) {
-            if (fence.start > cursor) chunks.push(...parseMessageContentWithOpenUI(text.slice(cursor, fence.start), false, sourceOffset + cursor));
-            const sourceLength = fence.sourceEnd - fence.sourceStart;
-            const boundedSource = text.slice(
-                fence.sourceStart,
-                Math.min(fence.sourceEnd, fence.sourceStart + MAX_OPENUI_SOURCE_LENGTH),
-            );
-            // OpenUI source is executable DSL, not a code sample: scrub hidden control markup even
-            // when it is nested in Markdown fences, and never sanitize more than the accepted size.
-            const source = stripLeakedToolCode(boundedSource, { includeFencedCode: true });
-            chunks.push({
-                type: "openui",
-                content: source,
-                isGenerating: !fence.closed,
-                openuiTruncated: sourceLength > MAX_OPENUI_SOURCE_LENGTH,
-                openuiSourceStart: sourceOffset + fence.start,
-                sourceStart: sourceOffset + fence.start,
-            });
-            cursor = fence.end;
-        }
-        if (scan.overflow) {
-            if (scan.overflow.start > cursor) {
-                chunks.push(...parseMessageContentWithOpenUI(text.slice(cursor, scan.overflow.start), false, sourceOffset + cursor));
-            }
-            // Keep excess visual source as ordinary Markdown, then resume structural block parsing.
-            chunks.push({
-                type: "text",
-                content: stripLeakedToolCode(text.slice(scan.overflow.start, scan.overflow.end), {
-                    includeFencedCode: true,
-                }),
-                sourceStart: sourceOffset + scan.overflow.start,
-            });
-            cursor = scan.overflow.end;
-        }
-        if (cursor < text.length) {
-            chunks.push(...parseMessageContentWithOpenUI(text.slice(cursor), false, sourceOffset + cursor));
-        }
-        return mergeAdjacentTextChunks(chunks);
+type MessageBlockMatch = { type: Chunk["type"]; index: number; startTag: string; endTag: string };
+type MessageBlockSpan = { mode: MessageBlockMode; contentStart: number; endIndex: number };
+
+/** Append a plain-text range after removing orphaned reasoning-control tags. */
+const appendPlainTextRange = (
+    chunks: Chunk[],
+    text: string,
+    start: number,
+    end: number,
+    sourceOffset: number,
+): void => {
+    if (end <= start) return;
+    const content = stripOrphanThinkTags(text.slice(start, end));
+    if (content) chunks.push({ type: "text", content, sourceStart: sourceOffset + start });
+};
+
+/** Prefer the earliest block marker, with the longer marker winning at a shared offset. */
+const isEarlierMessageBlock = (candidate: MessageBlockMatch, current: MessageBlockMatch | null): boolean =>
+    !current
+    || candidate.index < current.index
+    || (candidate.index === current.index && candidate.startTag.length > current.startTag.length);
+
+/** Find the next recognized block wrapper without rescanning earlier message content. */
+const findNextMessageBlock = (text: string, start: number): MessageBlockMatch | null => {
+    let firstMatch: MessageBlockMatch | null = null;
+    for (const tag of MESSAGE_BLOCK_TAGS) {
+        const index = text.indexOf(tag.start, start);
+        if (index === -1) continue;
+        const candidate = { type: tag.type, index, startTag: tag.start, endTag: tag.end };
+        if (isEarlierMessageBlock(candidate, firstMatch)) firstMatch = candidate;
     }
+    return firstMatch;
+};
 
-    text = stripLeakedToolCode(text);
+/** Classify a wrapper as self-closing, complete, or still streaming. */
+const findMessageBlockSpan = (text: string, match: MessageBlockMatch): MessageBlockSpan => {
+    const tagEnd = text.indexOf(">", match.index);
+    const contentStart = tagEnd === -1 ? text.length : tagEnd + 1;
+    if (tagEnd === -1) return { mode: "streaming", contentStart, endIndex: -1 };
+    if (tagEnd > match.index && text[tagEnd - 1] === "/") {
+        return { mode: "selfClosing", contentStart, endIndex: -2 };
+    }
+    const endIndex = text.indexOf(match.endTag, contentStart);
+    return endIndex === -1
+        ? { mode: "streaming", contentStart, endIndex }
+        : { mode: "complete", contentStart, endIndex };
+};
+
+/** Return the content region for a complete or still-streaming block. */
+const messageBlockContent = (text: string, span: MessageBlockSpan): string => {
+    if (span.mode === "selfClosing") return "";
+    if (span.mode === "complete") return text.slice(span.contentStart, span.endIndex);
+    return text.slice(span.contentStart);
+};
+
+/** Find the exclusive end of the full wrapper, including its closing marker. */
+const messageBlockEnd = (text: string, match: MessageBlockMatch, span: MessageBlockSpan): number => {
+    if (span.mode === "selfClosing") return span.contentStart;
+    if (span.mode === "streaming") return text.length;
+    return span.endIndex + match.endTag.length;
+};
+
+/** Build one parsed chunk while preserving the source range and streaming state. */
+const parseMatchedMessageBlock = (
+    text: string,
+    sourceOffset: number,
+    match: MessageBlockMatch,
+): { chunk: Chunk; mode: MessageBlockMode; nextIndex: number } => {
+    const span = findMessageBlockSpan(text, match);
+    const blockEnd = messageBlockEnd(text, match, span);
+    const chunk = parseMessageBlock({
+        type: match.type,
+        mode: span.mode,
+        tagFull: text.slice(match.index, span.contentStart),
+        block: text.slice(match.index, blockEnd),
+        content: messageBlockContent(text, span),
+        isGenerating: span.mode === "streaming",
+    });
+    chunk.sourceStart = sourceOffset + match.index;
+    return { chunk, mode: span.mode, nextIndex: blockEnd };
+};
+
+/** Parse structural tool wrappers and plain text in one forward pass. */
+const parseStructuralMessageContent = (source: string, sourceOffset: number): Chunk[] => {
+    const text = stripLeakedToolCode(source);
     const chunks: Chunk[] = [];
-    let currentIndex = 0;
-
-    while (currentIndex < text.length) {
-        let firstMatch: { type: Chunk["type"]; index: number; startTag: string; endTag: string } | null = null;
-        for (const tag of MESSAGE_BLOCK_TAGS) {
-            const index = text.indexOf(tag.start, currentIndex);
-            if (index === -1) continue;
-            if (
-                !firstMatch
-                || index < firstMatch.index
-                || (index === firstMatch.index && tag.start.length > firstMatch.startTag.length)
-            ) {
-                firstMatch = { type: tag.type, index, startTag: tag.start, endTag: tag.end };
-            }
-        }
-
-        if (!firstMatch) {
-            const tail = stripOrphanThinkTags(text.slice(currentIndex));
-            if (tail) chunks.push({ type: "text", content: tail, sourceStart: sourceOffset + currentIndex });
+    let cursor = 0;
+    while (cursor < text.length) {
+        const match = findNextMessageBlock(text, cursor);
+        if (!match) {
+            appendPlainTextRange(chunks, text, cursor, text.length, sourceOffset);
             break;
         }
-
-        if (firstMatch.index > currentIndex) {
-            const segment = stripOrphanThinkTags(text.slice(currentIndex, firstMatch.index));
-            if (segment) chunks.push({
-                type: "text",
-                content: segment,
-                sourceStart: sourceOffset + currentIndex,
-            });
-        }
-
-        const gtIndex = text.indexOf(">", firstMatch.index);
-        const isSelfClosing = gtIndex !== -1 && gtIndex > firstMatch.index && text[gtIndex - 1] === "/";
-        const contentStartIndex = gtIndex === -1 ? text.length : gtIndex + 1;
-        const endIndex = gtIndex === -1 ? -1 : isSelfClosing
-            ? -2
-            : text.indexOf(firstMatch.endTag, contentStartIndex);
-        const mode: MessageBlockMode = endIndex === -2
-            ? "selfClosing"
-            : endIndex === -1
-                ? "streaming"
-                : "complete";
-        const content = mode === "selfClosing"
-            ? ""
-            : text.slice(contentStartIndex, mode === "complete" ? endIndex : undefined);
-        const tagFull = text.slice(firstMatch.index, contentStartIndex);
-        const block = mode === "selfClosing"
-            ? tagFull
-            : mode === "streaming"
-                ? text.slice(firstMatch.index)
-                : text.slice(firstMatch.index, endIndex + firstMatch.endTag.length);
-        const chunk = parseMessageBlock({
-            type: firstMatch.type,
-            mode,
-            tagFull,
-            block,
-            content,
-            isGenerating: mode === "streaming",
-        });
-        chunk.sourceStart = sourceOffset + firstMatch.index;
-        if (chunk.type === "todos") pushOrReplaceTodos(chunks, chunk);
-        else chunks.push(chunk);
-
-        if (mode === "streaming") break;
-        currentIndex = mode === "selfClosing" ? contentStartIndex : endIndex + firstMatch.endTag.length;
+        appendPlainTextRange(chunks, text, cursor, match.index, sourceOffset);
+        const parsed = parseMatchedMessageBlock(text, sourceOffset, match);
+        if (parsed.chunk.type === "todos") pushOrReplaceTodos(chunks, parsed.chunk);
+        else chunks.push(parsed.chunk);
+        if (parsed.mode === "streaming") break;
+        cursor = parsed.nextIndex;
     }
-
     return dedupeTerminalChunks(chunks);
 };
+
+/** Convert an accepted visual fence into a bounded, sanitized OpenUI chunk. */
+const openUIFenceChunk = (text: string, fence: OpenUIFence, sourceOffset: number): Chunk => {
+    const sourceLength = fence.sourceEnd - fence.sourceStart;
+    const boundedSource = text.slice(
+        fence.sourceStart,
+        Math.min(fence.sourceEnd, fence.sourceStart + MAX_OPENUI_SOURCE_LENGTH),
+    );
+    // OpenUI source is executable DSL, not a code sample: scrub hidden control markup even inside Markdown fences.
+    const content = stripLeakedToolCode(boundedSource, { includeFencedCode: true });
+    return {
+        type: "openui",
+        content,
+        isGenerating: !fence.closed,
+        openuiTruncated: sourceLength > MAX_OPENUI_SOURCE_LENGTH,
+        openuiSourceStart: sourceOffset + fence.start,
+        sourceStart: sourceOffset + fence.start,
+    };
+};
+
+/** Append an uncovered range after parsing it without starting another fence scan. */
+const appendStructuralRange = (
+    chunks: Chunk[],
+    text: string,
+    start: number,
+    end: number,
+    sourceOffset: number,
+): void => {
+    if (end > start) {
+        chunks.push(...parseStructuralMessageContent(text.slice(start, end), sourceOffset + start));
+    }
+};
+
+/** Keep over-budget visual source as sanitized Markdown rather than materializing more OpenUI nodes. */
+const overflowFenceChunk = (text: string, overflow: OpenUIFenceOverflow, sourceOffset: number): Chunk => ({
+    type: "text",
+    content: stripLeakedToolCode(text.slice(overflow.start, overflow.end), { includeFencedCode: true }),
+    sourceStart: sourceOffset + overflow.start,
+});
+
+/** Split scanned visual fences, parse intervening ranges, and preserve source offsets. */
+const parseScannedOpenUIContent = (
+    text: string,
+    scan: OpenUIFenceScan,
+    sourceOffset: number,
+): Chunk[] => {
+    const chunks: Chunk[] = [];
+    let cursor = 0;
+    for (const fence of scan.fences) {
+        appendStructuralRange(chunks, text, cursor, fence.start, sourceOffset);
+        chunks.push(openUIFenceChunk(text, fence, sourceOffset));
+        cursor = fence.end;
+    }
+    if (scan.overflow) {
+        appendStructuralRange(chunks, text, cursor, scan.overflow.start, sourceOffset);
+        chunks.push(overflowFenceChunk(text, scan.overflow, sourceOffset));
+        cursor = scan.overflow.end;
+    }
+    appendStructuralRange(chunks, text, cursor, text.length, sourceOffset);
+    return mergeAdjacentTextChunks(chunks);
+};
+
+/** Split eligible visual fences before handing the remaining text to the structural parser. */
+const parseMessageContentWithOpenUI = (text: string, detectOpenUI = true, sourceOffset = 0): Chunk[] => {
+    const scan: OpenUIFenceScan = detectOpenUI ? findOpenUIFences(text) : { fences: [] };
+    if (scan.fences.length > 0 || scan.overflow) {
+        return parseScannedOpenUIContent(text, scan, sourceOffset);
+    }
+    return parseStructuralMessageContent(text, sourceOffset);
+};
+
+/** Parse assistant text into structural UI chunks and bounded OpenUI visual blocks. */
+export const parseMessageContent = (text: string): Chunk[] => {
+    return parseMessageContentWithOpenUI(text);
+};
+
 
 /** Merge consecutive plain-text segments so markdown renders as one block. */
 function mergeAdjacentTextChunks(chunks: Chunk[]): Chunk[] {
@@ -1151,344 +1242,465 @@ type Segment =
     | { kind: 'workflow'; blocks: Chunk[]; sourceStart: number }
     | { kind: 'chunk'; chunk: Chunk };
 
+/** Add a workflow block to its adjacent rail segment or begin a new segment. */
+const appendWorkflowChunk = (segments: Segment[], chunk: Chunk): void => {
+    const previous = segments[segments.length - 1];
+    if (previous?.kind === "workflow") {
+        previous.blocks.push(chunk);
+        return;
+    }
+    segments.push({ kind: "workflow", blocks: [chunk], sourceStart: chunk.sourceStart ?? 0 });
+};
+
+/** Ignore whitespace-only chunks because they do not create visible message content. */
+const isWhitespaceOnlyText = (chunk: Chunk): boolean =>
+    chunk.type === "text" && !(chunk.content || "").trim();
+
+/** Group adjacent workflow blocks while preserving ordinary message chunks in sequence. */
 function buildSegments(chunks: Chunk[]): Segment[] {
     const segments: Segment[] = [];
     for (const chunk of chunks) {
         if (WORKFLOW_CHUNK_TYPES.has(chunk.type)) {
-            const prev = segments[segments.length - 1];
-            if (prev?.kind === 'workflow') {
-                prev.blocks.push(chunk);
-            } else {
-                segments.push({
-                    kind: 'workflow',
-                    blocks: [chunk],
-                    sourceStart: chunk.sourceStart ?? 0,
-                });
-            }
+            appendWorkflowChunk(segments, chunk);
             continue;
         }
-        if (chunk.type === 'text' && !(chunk.content || '').trim()) continue;
-        segments.push({ kind: 'chunk', chunk });
+        if (isWhitespaceOnlyText(chunk)) continue;
+        segments.push({ kind: "chunk", chunk });
     }
     return segments;
 }
 
-export function MessageRenderer({
-    content,
-    isGenerating,
-    activityLabel,
-    durationMs,
-    skipSubagentSync,
-}: {
+
+type MessageChunkRenderContext = {
+    segmentKey: string;
+    isGenerating?: boolean;
+    isLastSegment: boolean;
+    isLastBrowseSegment: boolean;
+};
+type MessageSegmentRenderContext = MessageChunkRenderContext & {
+    segment: Segment;
+    firstWorkflowSegment?: Segment;
+    lastWorkflowSegment?: Segment;
+    durationMs?: number;
+    activityLabel?: string | null;
+};
+type MessageChunkRenderer = (chunk: Chunk, context: MessageChunkRenderContext) => React.ReactNode;
+
+/** Render the stable wrapper key used by chronological message segments. */
+const getSegmentKey = (segment: Segment): string => segment.kind === "workflow"
+    ? `workflow-${segment.sourceStart}`
+    : `${segment.chunk.type}-${segment.chunk.sourceStart ?? 0}`;
+
+/** Render one bounded visual answer chunk. */
+const renderOpenUIChunk: MessageChunkRenderer = (chunk, context) => (
+    <OpenUIBlock
+        key={`openui-${chunk.openuiSourceStart ?? 0}`}
+        response={chunk.content || ""}
+        isStreaming={Boolean(context.isGenerating && context.isLastSegment)}
+        truncated={chunk.openuiTruncated}
+    />
+);
+
+/** Render one prose chunk with the existing streaming animation and markdown behavior. */
+const renderTextChunk: MessageChunkRenderer = (chunk, context) => {
+    const text = chunk.content;
+    if (!text?.trim()) return null;
+    return (
+        <div
+            key={context.segmentKey}
+            className={cn(
+                "text-sm font-medium text-text-primary leading-[var(--conversation-line-height)] mb-0 w-full overflow-hidden prose-compact chat-markdown",
+                context.isGenerating && context.isLastSegment && "animate-in fade-in duration-300",
+            )}
+        >
+            <ChatMarkdown content={text} isGenerating={context.isGenerating} isLast={context.isLastSegment} />
+        </div>
+    );
+};
+
+/** Parse explicit plan-step tags into the planning card's compact data model. */
+const parsePlanSteps = (content: string): Array<{ status: "done" | "active" | "pending" | "cancelled"; label: string }> =>
+    [...content.matchAll(/<step\s+status="([^"]*)">([\s\S]*?)<\/step>/g)].map((match) => ({
+        status: match[1] as "done" | "active" | "pending" | "cancelled",
+        label: match[2].trim(),
+    }));
+
+/** Count completed planning steps without coupling count logic to the renderer. */
+const countCompletedSteps = (steps: Array<{ status: string }>): number =>
+    steps.filter((step) => step.status === "done").length;
+
+/** Render the saved plan summary card. */
+const renderSavedPlanChunk: MessageChunkRenderer = (chunk, context) => (
+    <PlanSavedBlock
+        key={context.segmentKey}
+        title={chunk.content || "Implementation Plan"}
+        path={chunk.file || ""}
+        markdown={chunk.planMarkdown}
+    />
+);
+
+/** Render an in-progress plan with parsed step completion data. */
+const renderPlanChunk: MessageChunkRenderer = (chunk, context) => {
+    const steps = parsePlanSteps(chunk.content || "");
+    return (
+        <PlanningBlock
+            key={context.segmentKey}
+            title={chunk.file || "Plan"}
+            steps={steps}
+            completedCount={countCompletedSteps(steps)}
+            totalCount={steps.length}
+            isGenerating={context.isGenerating}
+        />
+    );
+};
+
+/** Render a todo checklist through the same planning card as explicit plan steps. */
+const renderTodosChunk: MessageChunkRenderer = (chunk, context) => {
+    const todos = chunk.todos || [];
+    if (todos.length === 0) return null;
+    const steps = todos.map((todo) => ({ status: todo.status, label: todo.label }));
+    return (
+        <PlanningBlock
+            key={context.segmentKey}
+            title={chunk.content || "Todos"}
+            steps={steps}
+            completedCount={countCompletedSteps(steps)}
+            totalCount={steps.length}
+            isGenerating={context.isGenerating}
+        />
+    );
+};
+
+/** Render a browser visit only for the newest visit segment in the message. */
+const renderBrowseChunk: MessageChunkRenderer = (chunk, context) => {
+    if (!context.isLastBrowseSegment) return null;
+    const parsed = parseCardJson<{ image?: string; x?: number; y?: number; console?: string[] }>(chunk.content);
+    return (
+        <BrowseChatCard
+            key={context.segmentKey}
+            url={chunk.visitUrl}
+            title={chunk.visitTitle}
+            status={chunk.commandStatus}
+            image={parsed?.image || ""}
+            x={parsed?.x}
+            y={parsed?.y}
+            consoleLines={parsed?.console}
+            followLive
+        />
+    );
+};
+
+/** Render a generated file card without exposing raw file content in the message body. */
+const renderSentFileChunk: MessageChunkRenderer = (chunk, context) => (
+    <SentFileCard
+        key={context.segmentKey}
+        name={chunk.file || "File"}
+        title={chunk.mediaPrompt}
+        mime={chunk.query || ""}
+        src={chunk.content || ""}
+    />
+);
+
+/** Render an attached image only when it has a usable source URL. */
+const renderAttachedImageChunk: MessageChunkRenderer = (chunk, context) => {
+    const source = chunk.content?.trim() || "";
+    if (!source) return null;
+    return (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+            key={context.segmentKey}
+            src={source}
+            alt={chunk.file || ""}
+            className="my-2 max-h-80 max-w-[420px] rounded-xl border border-border-subtle object-contain"
+        />
+    );
+};
+
+/** Render a concise label for available design concepts. */
+const renderDesignPreviewsChunk: MessageChunkRenderer = (chunk, context) => {
+    const previewCount = chunk.designPreviews?.length ?? 0;
+    if (previewCount === 0) return null;
+    const names = (chunk.designPreviews || []).map((preview) => preview.name).filter(Boolean).join(" · ");
+    return (
+        <p key={context.segmentKey} className="my-1 text-sm text-text-muted">
+            {names || `${previewCount} design concept${previewCount === 1 ? "" : "s"}`}
+        </p>
+    );
+};
+
+/** Resolve the card kind for one generated media chunk. */
+const generatedMediaKind = (type: Chunk["type"]): "svg" | "audio" | "image" =>
+    type === "generated_svg" ? "svg" : type === "generated_audio" ? "audio" : "image";
+
+/** Render generated media with its original prompt and generation state. */
+const renderGeneratedMediaChunk: MessageChunkRenderer = (chunk, context) => (
+    <GeneratedMediaCard
+        key={context.segmentKey}
+        kind={generatedMediaKind(chunk.type)}
+        src={chunk.content}
+        prompt={chunk.mediaPrompt || chunk.query}
+        credits={chunk.mediaCredits}
+        loading={Boolean(chunk.isGenerating && !chunk.content?.trim())}
+    />
+);
+
+/** Render a compact adversarial-review summary. */
+const renderReviewDebateChunk: MessageChunkRenderer = (chunk, context) => (
+    <ReviewDebatePanel key={context.segmentKey} content={chunk.content || ""} model={chunk.reviewModel} />
+);
+
+/** Render a persona-review result with its lifecycle metadata. */
+const renderPersonaReviewChunk: MessageChunkRenderer = (chunk, context) => (
+    <PersonaReviewPanel
+        key={context.segmentKey}
+        reviewId={chunk.commandId}
+        url={chunk.visitUrl}
+        status={chunk.commandStatus}
+        content={chunk.content || ""}
+    />
+);
+
+/** Render questions and any answers already attached to the chunk. */
+const renderQuestionChunk: MessageChunkRenderer = (chunk, context) => (
+    <QuestionsCard
+        key={context.segmentKey}
+        askId={chunk.commandId}
+        status={chunk.commandStatus}
+        questions={chunk.questions || []}
+        answers={chunk.answers}
+    />
+);
+
+const MESSAGE_CHUNK_RENDERERS: Partial<Record<Chunk["type"], MessageChunkRenderer>> = {
+    openui: renderOpenUIChunk,
+    text: renderTextChunk,
+    plan_saved: renderSavedPlanChunk,
+    plan: renderPlanChunk,
+    todos: renderTodosChunk,
+    chart: (chunk, context) => <ChartBlock key={context.segmentKey} content={chunk.content} />,
+    insight_card: (chunk, context) => <InsightCard key={context.segmentKey} content={chunk.content} />,
+    browse_session: renderBrowseChunk,
+    sent_file: renderSentFileChunk,
+    attached_image: renderAttachedImageChunk,
+    design_previews: renderDesignPreviewsChunk,
+    generated_svg: renderGeneratedMediaChunk,
+    generated_image: renderGeneratedMediaChunk,
+    generated_audio: renderGeneratedMediaChunk,
+    review_debate: renderReviewDebateChunk,
+    persona_review: renderPersonaReviewChunk,
+    question: renderQuestionChunk,
+};
+
+/** Render one non-workflow chunk via the small renderer registered for its type. */
+const renderMessageChunk = (chunk: Chunk, context: MessageChunkRenderContext): React.ReactNode =>
+    MESSAGE_CHUNK_RENDERERS[chunk.type]?.(chunk, context) ?? null;
+
+/** Render one workflow segment and preserve first/last segment metadata. */
+const renderWorkflowSegment = (context: MessageSegmentRenderContext): React.ReactNode => {
+    const segment = context.segment;
+    if (segment.kind !== "workflow") return null;
+    const isFirst = segment === context.firstWorkflowSegment;
+    const isLast = segment === context.lastWorkflowSegment;
+    return (
+        <TurnWorkflowSummary
+            key={context.segmentKey}
+            blocks={segment.blocks}
+            isActive={Boolean(context.isGenerating && isLast)}
+            durationMs={isFirst ? context.durationMs : undefined}
+            activityLabel={isLast ? context.activityLabel : null}
+        />
+    );
+};
+
+/** Render the workflow rail or its corresponding typed message chunk. */
+const renderMessageSegment = (context: MessageSegmentRenderContext): React.ReactNode => {
+    if (context.segment.kind === "workflow") return renderWorkflowSegment(context);
+    const chunkContext: MessageChunkRenderContext = {
+        segmentKey: context.segmentKey,
+        isGenerating: context.isGenerating,
+        isLastSegment: context.isLastSegment,
+        isLastBrowseSegment: context.isLastBrowseSegment,
+    };
+    return renderMessageChunk(context.segment.chunk, chunkContext);
+};
+
+
+type MessageStatusContext = {
+    contentChunks: Chunk[];
+    workflowSegments: Extract<Segment, { kind: "workflow" }>[];
+    isGenerating?: boolean;
+    activityLabel?: string | null;
+};
+const THINKING_CHUNK_TYPES = new Set<Chunk["type"]>(["think", "thought"]);
+const EDIT_CHUNK_TYPES = new Set<Chunk["type"]>(["edit", "edit_pending"]);
+const APPROVAL_CHUNK_TYPES = new Set<Chunk["type"]>(["terminal_command", "edit_pending", "plugin_call"]);
+
+/** Clear stale streaming flags when the assistant turn is no longer active. */
+const normalizeChunkGeneration = (chunks: Chunk[], isGenerating?: boolean): Chunk[] => {
+    if (isGenerating) return chunks;
+    return chunks.map((chunk) => (chunk.isGenerating ? { ...chunk, isGenerating: false } : chunk));
+};
+
+/** Remove in-progress persona reviews that have a later final result with the same id. */
+const removeSupersededPersonaReviews = (chunks: Chunk[]): Chunk[] =>
+    chunks.filter((chunk, index) =>
+        chunk.type !== "persona_review"
+        || !chunks.some((later, laterIndex) =>
+            laterIndex > index && later.type === "persona_review" && later.commandId === chunk.commandId,
+        ),
+    );
+
+/** Keep thought-only chunks out of browsing sessions and filter hidden workflow blocks. */
+const isVisibleMessageChunk = (chunk: Chunk, browsing: boolean, isGenerating?: boolean): boolean => {
+    if (browsing && THINKING_CHUNK_TYPES.has(chunk.type)) return false;
+    if (WORKFLOW_CHUNK_TYPES.has(chunk.type)) return isRenderableWorkflowBlock(chunk, isGenerating);
+    return true;
+};
+
+/** Detect a pending workflow approval without coupling the test to status rendering. */
+const hasPendingWorkflowApproval = (segments: Extract<Segment, { kind: "workflow" }>[]): boolean =>
+    segments.some((segment) => segment.blocks.some((block) =>
+        APPROVAL_CHUNK_TYPES.has(block.type) && block.commandStatus === "pending",
+    ));
+
+/** Detect an unanswered question among the visible chunks. */
+const hasPendingQuestion = (chunks: Chunk[]): boolean =>
+    chunks.some((chunk) => chunk.type === "question" && chunk.commandStatus === "pending");
+
+/** Detect a design-choice prompt that still needs a selection. */
+const hasPendingDesignChoice = (chunks: Chunk[]): boolean =>
+    chunks.some((chunk) => chunk.type === "design_previews" && chunk.commandStatus === "pending");
+
+/** Combine workflow and interactive prompts into one pending-approval indicator. */
+const hasPendingApproval = (segments: Extract<Segment, { kind: "workflow" }>[], chunks: Chunk[]): boolean =>
+    hasPendingWorkflowApproval(segments) || hasPendingQuestion(chunks) || hasPendingDesignChoice(chunks);
+
+/** Find the latest changed file referenced by the final workflow segment. */
+const latestEditedFileName = (segments: Extract<Segment, { kind: "workflow" }>[]): string | undefined => {
+    const blocks = segments.at(-1)?.blocks ?? [];
+    return [...blocks].reverse()
+        .find((block) => EDIT_CHUNK_TYPES.has(block.type))
+        ?.file?.split(/[\\/]/).pop();
+};
+
+/** Prefer the most actionable label for a pending approval or answer request. */
+const pendingApprovalLabel = (chunks: Chunk[]): string => {
+    if (hasPendingQuestion(chunks)) return "Waiting for your answers";
+    if (hasPendingDesignChoice(chunks)) return "Waiting for you to pick a design";
+    return "Waiting for approval";
+};
+
+/** Detect whether the final workflow block is an active reasoning step. */
+const isThinkingBlock = (block: Chunk | undefined, isGenerating?: boolean): boolean =>
+    Boolean(isGenerating && block && THINKING_CHUNK_TYPES.has(block.type) && block.isGenerating);
+
+/** Detect an active or recent edit from either its block or status text. */
+const isEditingMessage = (block: Chunk | undefined, activityLabel?: string | null): boolean =>
+    Boolean((block && EDIT_CHUNK_TYPES.has(block.type)) || /\bedit/i.test(activityLabel ?? ""));
+
+/** Select a useful non-interactive status when no approval is waiting. */
+const defaultMessageStatus = (
+    activityLabel: string | null | undefined,
+    isThinking: boolean,
+    hasWorkflow: boolean,
+): string | undefined => {
+    if (activityLabel?.trim()) return activityLabel.trim();
+    if (isThinking) return "Thinking";
+    if (hasWorkflow) return "Working";
+    return undefined;
+};
+
+/** Resolve the best status label for the current assistant turn. */
+const messageStatusLabel = (context: MessageStatusContext): string | undefined => {
+    const { contentChunks, workflowSegments, isGenerating, activityLabel } = context;
+    const lastWorkflowBlock = workflowSegments.at(-1)?.blocks.at(-1);
+    const isThinking = isThinkingBlock(lastWorkflowBlock, isGenerating);
+    const isEditing = isEditingMessage(lastWorkflowBlock, activityLabel);
+    if (hasPendingApproval(workflowSegments, contentChunks)) return pendingApprovalLabel(contentChunks);
+    if (isEditing) return `Editing ${latestEditedFileName(workflowSegments) || "file"}`;
+    return defaultMessageStatus(activityLabel, isThinking, workflowSegments.length > 0);
+};
+
+/** Check whether generated status should remain visible below the final segment. */
+const shouldShowStatusLine = (
+    isGenerating: boolean | undefined,
+    proseIsStreaming: boolean,
+    statusLabel: string | undefined,
+    hasPending: boolean,
+): boolean => Boolean(isGenerating && !proseIsStreaming && (hasPending || statusLabel));
+
+/** Find the newest browse segment without coupling lookup to the component body. */
+const latestBrowseSegment = (segments: Segment[]): Segment | undefined =>
+    [...segments].reverse().find((segment) =>
+        segment.kind === "chunk" && segment.chunk.type === "browse_session",
+    );
+
+/** Identify a final prose chunk that is still receiving streamed content. */
+const isStreamingProseSegment = (segment: Segment | undefined): boolean =>
+    segment?.kind === "chunk"
+    && segment.chunk.type === "text"
+    && Boolean(segment.chunk.content?.trim());
+
+type MessageRendererProps = {
     content: string;
     isGenerating?: boolean;
     activityLabel?: string | null;
     isFileEditResolved?: (file: string, replacement?: string) => boolean;
     durationMs?: number;
     skipSubagentSync?: boolean;
-}) {
-    const chunks = useMemo(() => {
-        const parsed = parseMessageContent(content);
-        if (isGenerating) return parsed;
-        return parsed.map((c) => (c.isGenerating ? { ...c, isGenerating: false } : c));
-    }, [content, isGenerating]);
+};
+
+/** Render parsed assistant chunks with their workflow rails and streaming status. */
+export const MessageRenderer = ({
+    content,
+    isGenerating,
+    activityLabel,
+    durationMs,
+    skipSubagentSync,
+}: MessageRendererProps) => {
+    const chunks = useMemo(
+        () => normalizeChunkGeneration(parseMessageContent(content), isGenerating),
+        [content, isGenerating],
+    );
 
     useEffect(() => {
         if (skipSubagentSync) return;
         syncSubagentsFromChunks(chunks, Boolean(isGenerating));
     }, [chunks, isGenerating, skipSubagentSync]);
 
-    const contentChunks = useMemo(() => {
-        const merged = mergeAdjacentTextChunks(chunks);
-        // A running persona review is superseded by the final block with the same id.
-        return merged.filter(
-            (c, i) =>
-                c.type !== 'persona_review'
-                || !merged.some((o, j) => j > i && o.type === 'persona_review' && o.commandId === c.commandId),
-        );
-    }, [chunks]);
-    const browsing = contentChunks.some((c) => c.type === "browse_session");
-
-    // Chronological segments so mid-turn prose sits between tool groups (Cursor-style).
+    const contentChunks = useMemo(
+        () => removeSupersededPersonaReviews(mergeAdjacentTextChunks(chunks)),
+        [chunks],
+    );
+    const browsing = contentChunks.some((chunk) => chunk.type === "browse_session");
     const segments = useMemo(
-        () =>
-            buildSegments(
-                contentChunks.filter((c) => {
-                    if (browsing && (c.type === "think" || c.type === "thought")) return false;
-                    if (WORKFLOW_CHUNK_TYPES.has(c.type)) {
-                        return isRenderableWorkflowBlock(c, isGenerating);
-                    }
-                    return true;
-                }),
-            ),
+        () => buildSegments(contentChunks.filter((chunk) => isVisibleMessageChunk(chunk, browsing, isGenerating))),
         [contentChunks, isGenerating, browsing],
     );
 
-    const workflowSegments = segments.filter((s): s is Extract<Segment, { kind: "workflow" }> => s.kind === "workflow");
+    const workflowSegments = segments.filter(
+        (segment): segment is Extract<Segment, { kind: "workflow" }> => segment.kind === "workflow",
+    );
     const firstWorkflowSegment = workflowSegments[0];
     const lastWorkflowSegment = workflowSegments.at(-1);
-    const lastBrowseSegment = segments
-        .filter((segment) => segment.kind === "chunk" && segment.chunk.type === "browse_session")
-        .at(-1);
+    const lastBrowseSegment = latestBrowseSegment(segments);
+    const lastSegment = segments.at(-1);
+    const proseIsStreaming = isStreamingProseSegment(lastSegment);
+    const hasPending = hasPendingApproval(workflowSegments, contentChunks);
+    const statusLabel = messageStatusLabel({ contentChunks, workflowSegments, isGenerating, activityLabel });
+    const showStatusLine = shouldShowStatusLine(isGenerating, proseIsStreaming, statusLabel, hasPending);
 
-    const lastSegment = segments[segments.length - 1];
-    const proseIsStreaming =
-        lastSegment?.kind === 'chunk'
-        && lastSegment.chunk.type === 'text'
-        && !!lastSegment.chunk.content?.trim();
-    const hasPendingApproval =
-        workflowSegments.some((s) =>
-            s.blocks.some(
-                (b) =>
-                    (b.type === 'terminal_command' || b.type === 'edit_pending' || b.type === 'plugin_call')
-                    && b.commandStatus === 'pending',
-            ),
-        )
-        || contentChunks.some((b) => b.type === 'question' && b.commandStatus === 'pending')
-        || contentChunks.some((b) => b.type === 'design_previews' && b.commandStatus === 'pending');
-    const lastWorkflowBlock = workflowSegments.at(-1)?.blocks.at(-1);
-    const isThinking = !!isGenerating
-        && (lastWorkflowBlock?.type === 'think' || lastWorkflowBlock?.type === 'thought')
-        && !!lastWorkflowBlock.isGenerating;
-    const lastIsEdit = lastWorkflowBlock?.type === "edit" || lastWorkflowBlock?.type === "edit_pending";
-    const activityIsEdit = /\bedit/i.test(activityLabel ?? "");
-    const editFileName = [...(workflowSegments.at(-1)?.blocks ?? [])]
-        .reverse()
-        .find((b) => b.type === "edit" || b.type === "edit_pending")
-        ?.file?.split(/[\\/]/).pop();
-    const statusLabel = hasPendingApproval
-        ? (contentChunks.some((b) => b.type === 'question' && b.commandStatus === 'pending')
-            ? "Waiting for your answers"
-            : contentChunks.some((b) => b.type === 'design_previews' && b.commandStatus === 'pending')
-              ? "Waiting for you to pick a design"
-              : "Waiting for approval")
-        : lastIsEdit || activityIsEdit
-          ? `Editing ${editFileName || "file"}`
-          : (activityLabel?.trim() || (isThinking ? "Thinking" : (workflowSegments.length > 0 ? "Working" : undefined)));
-    const showStatusLine =
-        !!isGenerating
-        && !proseIsStreaming
-        && (
-            hasPendingApproval
-            || !!statusLabel
-        );
-
-    const renderedSegments = segments.map((segment) => {
-        const isLastSegment = segment === segments.at(-1);
-        const segmentKey = segment.kind === "workflow"
-            ? `workflow-${segment.sourceStart}`
-            : `${segment.chunk.type}-${segment.chunk.sourceStart ?? 0}`;
-
-        if (segment.kind === 'workflow') {
-            const isFirst = segment === firstWorkflowSegment;
-            const isLastWf = segment === lastWorkflowSegment;
-            return (
-                <TurnWorkflowSummary
-                    key={segmentKey}
-                    blocks={segment.blocks}
-                    isActive={!!isGenerating && isLastWf}
-                    durationMs={isFirst ? durationMs : undefined}
-                    activityLabel={isLastWf ? activityLabel : null}
-                />
-            );
-        }
-
-        const chunk = segment.chunk;
-        if (chunk.type === "openui") {
-            return (
-                <OpenUIBlock
-                    key={`openui-${chunk.openuiSourceStart ?? 0}`}
-                    response={chunk.content || ""}
-                    isStreaming={Boolean(isGenerating && isLastSegment)}
-                    truncated={chunk.openuiTruncated}
-                />
-            );
-        }
-        if (chunk.type === 'text') {
-            const text = chunk.content;
-            if (!text?.trim()) return null;
-            return (
-                <div
-                    key={segmentKey}
-                    className={cn(
-                        "text-sm font-medium text-text-primary leading-[var(--conversation-line-height)] mb-0 w-full overflow-hidden prose-compact chat-markdown",
-                        isGenerating && isLastSegment && "animate-in fade-in duration-300",
-                    )}
-                >
-                    <ChatMarkdown content={text} isGenerating={isGenerating} isLast={isLastSegment} />
-                </div>
-            );
-        }
-        if (chunk.type === 'plan_saved') {
-            const title = chunk.content || 'Implementation Plan';
-            const path = chunk.file || '';
-            return (
-                <PlanSavedBlock
-                    key={segmentKey}
-                    title={title}
-                    path={path}
-                    markdown={chunk.planMarkdown}
-                />
-            );
-        }
-        if (chunk.type === 'plan') {
-            const blockContent = chunk.content || '';
-            const title = chunk.file || 'Plan';
-            const stepMatches = [...blockContent.matchAll(/<step\s+status="([^"]*)">([\s\S]*?)<\/step>/g)];
-            const steps = stepMatches.map((m) => ({
-                status: m[1] as "done" | "active" | "pending" | "cancelled",
-                label: m[2].trim(),
-            }));
-            const completedCount = steps.filter((s) => s.status === 'done').length;
-            return (
-                <PlanningBlock
-                    key={segmentKey}
-                    title={title}
-                    steps={steps}
-                    completedCount={completedCount}
-                    totalCount={steps.length}
-                    isGenerating={isGenerating}
-                />
-            );
-        }
-        if (chunk.type === 'todos' && chunk.todos?.length) {
-            const steps = chunk.todos.map((t) => ({
-                status: t.status,
-                label: t.label,
-            }));
-            const completedCount = steps.filter((s) => s.status === 'done').length;
-            return (
-                <PlanningBlock
-                    key={segmentKey}
-                    title={chunk.content || 'Todos'}
-                    steps={steps}
-                    completedCount={completedCount}
-                    totalCount={steps.length}
-                    isGenerating={isGenerating}
-                />
-            );
-        }
-        if (chunk.type === 'chart') {
-            return <ChartBlock key={segmentKey} content={chunk.content} />;
-        }
-        if (chunk.type === 'insight_card') {
-            return <InsightCard key={segmentKey} content={chunk.content} />;
-        }
-        if (chunk.type === 'browse_session') {
-            if (segment !== lastBrowseSegment) return null;
-            let image = "";
-            let x: number | undefined;
-            let y: number | undefined;
-            let consoleLines: string[] | undefined;
-            const parsed = parseCardJson<{ image?: string; x?: number; y?: number; console?: string[] }>(chunk.content);
-            if (parsed) {
-                image = parsed.image || "";
-                x = parsed.x;
-                y = parsed.y;
-                consoleLines = parsed.console;
-            }
-            return (
-                <BrowseChatCard
-                    key={segmentKey}
-                    url={chunk.visitUrl}
-                    title={chunk.visitTitle}
-                    status={chunk.commandStatus}
-                    image={image}
-                    x={x}
-                    y={y}
-                    consoleLines={consoleLines}
-                    followLive={segment === lastBrowseSegment}
-                />
-            );
-        }
-        if (chunk.type === 'sent_file') {
-            return (
-                <SentFileCard
-                    key={segmentKey}
-                    name={chunk.file || "File"}
-                    title={chunk.mediaPrompt}
-                    mime={chunk.query || ""}
-                    src={chunk.content || ""}
-                />
-            );
-        }
-        if (chunk.type === 'attached_image') {
-            const src = chunk.content?.trim() || "";
-            if (!src) return null;
-            return (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                    key={segmentKey}
-                    src={src}
-                    alt={chunk.file || ""}
-                    className="my-2 max-h-80 max-w-[420px] rounded-xl border border-border-subtle object-contain"
-                />
-            );
-        }
-        if (chunk.type === 'design_previews') {
-            const n = chunk.designPreviews?.length ?? 0;
-            if (n === 0) return null;
-            const names = (chunk.designPreviews || [])
-                .map((p) => p.name)
-                .filter(Boolean)
-                .join(" · ");
-            return (
-                <p key={segmentKey} className="my-1 text-sm text-text-muted">
-                    {names || `${n} design concept${n === 1 ? "" : "s"}`}
-                </p>
-            );
-        }
-        if (chunk.type === 'generated_svg' || chunk.type === 'generated_image' || chunk.type === 'generated_audio') {
-            return (
-                <GeneratedMediaCard
-                    key={segmentKey}
-                    kind={
-                        chunk.type === "generated_svg"
-                            ? "svg"
-                            : chunk.type === "generated_audio"
-                              ? "audio"
-                              : "image"
-                    }
-                    src={chunk.content}
-                    prompt={chunk.mediaPrompt || chunk.query}
-                    credits={chunk.mediaCredits}
-                    loading={!!chunk.isGenerating && !chunk.content?.trim()}
-                />
-            );
-        }
-        if (chunk.type === 'review_debate') {
-            return (
-                <ReviewDebatePanel
-                    key={segmentKey}
-                    content={chunk.content || ''}
-                    model={chunk.reviewModel}
-                />
-            );
-        }
-        if (chunk.type === 'persona_review') {
-            return (
-                <PersonaReviewPanel
-                    key={segmentKey}
-                    reviewId={chunk.commandId}
-                    url={chunk.visitUrl}
-                    status={chunk.commandStatus}
-                    content={chunk.content || ''}
-                />
-            );
-        }
-        if (chunk.type === 'question') {
-            return (
-                <QuestionsCard
-                    key={segmentKey}
-                    askId={chunk.commandId}
-                    status={chunk.commandStatus}
-                    questions={chunk.questions || []}
-                    answers={chunk.answers}
-                />
-            );
-        }
-        return null;
-    });
+    const renderedSegments = segments.map((segment) => renderMessageSegment({
+        segment,
+        segmentKey: getSegmentKey(segment),
+        isGenerating,
+        isLastSegment: segment === lastSegment,
+        isLastBrowseSegment: segment === lastBrowseSegment,
+        firstWorkflowSegment,
+        lastWorkflowSegment,
+        durationMs,
+        activityLabel,
+    }));
 
     return (
         <div className="flex flex-col gap-0 overflow-hidden">
@@ -1498,6 +1710,6 @@ export function MessageRenderer({
             )}
         </div>
     );
-}
+};
 
 export { ChatMarkdown as StreamingMarkdown } from "./view";

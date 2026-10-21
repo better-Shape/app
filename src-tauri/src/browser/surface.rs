@@ -692,6 +692,37 @@ pub(crate) fn best_target(list: &[serde_json::Value], want: &str) -> Option<serd
         .map(|(_, item)| item)
 }
 
+/// Await a matching CDP response while preserving unmatched events for the caller.
+async fn next_cdp_response(
+    socket: &mut tokio_tungstenite::WebSocketStream<
+        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+    >,
+    id: i64,
+) -> Result<Option<serde_json::Value>, String> {
+    use futures::StreamExt;
+    use tokio_tungstenite::tungstenite::Message;
+
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
+    while tokio::time::Instant::now() < deadline {
+        let next = tokio::time::timeout(std::time::Duration::from_secs(2), socket.next())
+            .await
+            .map_err(|_| "Developer tools didn't answer.".to_string())?;
+        let Some(message) = next else {
+            return Ok(None);
+        };
+        let text = match message.map_err(|error| error.to_string())? {
+            Message::Text(text) => text,
+            _ => continue,
+        };
+        let value: serde_json::Value =
+            serde_json::from_str(&text).unwrap_or(serde_json::Value::Null);
+        if value.get("id").and_then(|value| value.as_i64()) == Some(id) {
+            return Ok(Some(value));
+        }
+    }
+    Ok(None)
+}
+
 async fn iframe_targets() -> Result<Vec<serde_json::Value>, String> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(2))
@@ -736,7 +767,7 @@ async fn iframe_targets() -> Result<Vec<serde_json::Value>, String> {
     let (mut socket, _) = tokio_tungstenite::connect_async(&ws)
         .await
         .map_err(|e| e.to_string())?;
-    use futures::{SinkExt, StreamExt};
+    use futures::SinkExt;
     use tokio_tungstenite::tungstenite::Message;
     socket
         .send(Message::Text(
@@ -744,38 +775,24 @@ async fn iframe_targets() -> Result<Vec<serde_json::Value>, String> {
         ))
         .await
         .map_err(|e| e.to_string())?;
-    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
-    while tokio::time::Instant::now() < deadline {
-        let next = tokio::time::timeout(std::time::Duration::from_secs(2), socket.next())
-            .await
-            .map_err(|_| "Developer tools didn't answer.".to_string())?;
-        let Some(msg) = next else { break };
-        let text = match msg.map_err(|e| e.to_string())? {
-            Message::Text(text) => text,
-            _ => continue,
-        };
-        let value: serde_json::Value =
-            serde_json::from_str(&text).unwrap_or(serde_json::Value::Null);
-        if value.get("id").and_then(|v| v.as_i64()) != Some(1) {
-            continue;
-        }
-        let infos = value
-            .pointer("/result/targetInfos")
-            .and_then(|v| v.as_array())
-            .cloned()
-            .unwrap_or_default();
-        return Ok(infos
-            .into_iter()
-            .map(|info| {
-                serde_json::json!({
-                    "url": info.get("url").cloned().unwrap_or(serde_json::Value::Null),
-                    "type": info.get("type").cloned().unwrap_or(serde_json::Value::Null),
-                    "id": info.get("targetId").cloned().unwrap_or(serde_json::Value::Null),
-                })
+    let Some(value) = next_cdp_response(&mut socket, 1).await? else {
+        return Ok(list);
+    };
+    let infos = value
+        .pointer("/result/targetInfos")
+        .and_then(|value| value.as_array())
+        .cloned()
+        .unwrap_or_default();
+    Ok(infos
+        .into_iter()
+        .map(|info| {
+            serde_json::json!({
+                "url": info.get("url").cloned().unwrap_or(serde_json::Value::Null),
+                "type": info.get("type").cloned().unwrap_or(serde_json::Value::Null),
+                "id": info.get("targetId").cloned().unwrap_or(serde_json::Value::Null),
             })
-            .collect());
-    }
-    Ok(list)
+        })
+        .collect())
 }
 
 #[cfg(windows)]
@@ -879,28 +896,9 @@ async fn next_cdp(
     >,
     id: i64,
 ) -> Result<serde_json::Value, String> {
-    use futures::StreamExt;
-    use tokio_tungstenite::tungstenite::Message;
-
-    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
-    while tokio::time::Instant::now() < deadline {
-        let next = tokio::time::timeout(std::time::Duration::from_secs(2), socket.next())
-            .await
-            .map_err(|_| "Developer tools didn't answer.".to_string())?;
-        let Some(msg) = next else {
-            break;
-        };
-        let text = match msg.map_err(|e| e.to_string())? {
-            Message::Text(text) => text,
-            _ => continue,
-        };
-        let value: serde_json::Value =
-            serde_json::from_str(&text).unwrap_or(serde_json::Value::Null);
-        if value.get("id").and_then(|v| v.as_i64()) == Some(id) {
-            return Ok(value);
-        }
-    }
-    Err("Developer tools didn't answer.".into())
+    next_cdp_response(socket, id)
+        .await?
+        .ok_or_else(|| "Developer tools didn't answer.".to_string())
 }
 
 #[tauri::command]

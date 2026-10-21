@@ -429,15 +429,18 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
             }
         };
 
+        /** Confirm that a turn is still live and not excluded by any conversation guard. */
+        const isCurrentUnfinishedTurn = (conversationId: string, turnId: string): boolean => {
+            if (finishedTurns.has(turnId)) return false;
+            if (ignoredIdsRef.current.has(conversationId)) return false;
+            if (isForeignConversation(conversationId)) return false;
+            return liveTurnsRef.current.get(conversationId)?.turnId === turnId;
+        };
+
         /** Confirm that an event still belongs to the current, unfinished conversation turn. */
         const isEligibleTurnIdentity = (conversationId?: string, turnId?: string): boolean => {
             if (!conversationId || !turnId) return false;
-            if (
-                finishedTurns.has(turnId)
-                || ignoredIdsRef.current.has(conversationId)
-                || isForeignConversation(conversationId)
-            ) return false;
-            return liveTurnsRef.current.get(conversationId)?.turnId === turnId;
+            return isCurrentUnfinishedTurn(conversationId, turnId);
         };
 
         /** Apply an event only to the exact live turn and conversation that owns it. */
