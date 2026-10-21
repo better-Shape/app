@@ -494,7 +494,14 @@ const findOpenUIFences = (text: string): OpenUIFenceScan => {
 };
 
 /** Plain-text copy keeps prose and includes rendered visual text rather than raw OpenUI source. */
-export const getMessageCopyText = (chunks: readonly Chunk[], openUIText: readonly string[] = []): string => {
+export const getMessageCopyText = (
+    chunks: readonly Chunk[],
+    openUIText: readonly string[] = [],
+    renderedText?: string,
+): string => {
+    if (chunks.some((chunk) => chunk.type !== "text" && chunk.type !== "openui") && renderedText?.trim()) {
+        return renderedText;
+    }
     let visualIndex = 0;
     return chunks
         .map((chunk) => {
@@ -504,6 +511,12 @@ export const getMessageCopyText = (chunks: readonly Chunk[], openUIText: readonl
         })
         .filter(Boolean)
         .join("\n\n");
+};
+
+/** Read a quoted attribute from a structural tag without repeating capture boilerplate. */
+const readTagAttribute = (source: string, name: string): string | undefined => {
+    const match = source.match(new RegExp(`(?:^|\\s)${name}="([^"]*)"`));
+    return match ? match[1] : undefined;
 };
 
 /** Extract the inner text for a well-formed or streaming structural tag. */
@@ -532,14 +545,11 @@ const parseEditBlock = (block: string, isGenerating: boolean): Chunk => {
 
 /** Edit staged for user approval (require-edit-approval mode). */
 const parseEditPendingBlock = (block: string, isGenerating: boolean): Chunk => {
-    const idMatch = block.match(/\bid="([^"]*)"/);
-    const fileMatch = block.match(/\bfile="([^"]*)"/);
-    const statusMatch = block.match(/\bstatus="([^"]*)"/);
     return {
         type: 'edit_pending',
-        file: fileMatch ? fileMatch[1] : undefined,
-        commandId: idMatch ? idMatch[1] : undefined,
-        commandStatus: statusMatch ? statusMatch[1] : 'pending',
+        file: readTagAttribute(block, "file"),
+        commandId: readTagAttribute(block, "id"),
+        commandStatus: readTagAttribute(block, "status") ?? 'pending',
         original: getInnerTagContent(block, 'original') || '',
         replacement: getInnerTagContent(block, 'replacement') || '',
         isGenerating,
@@ -608,34 +618,26 @@ const pushOrReplaceTodos = (chunks: Chunk[], chunk: Chunk): void => {
 
 /** Parse a subagent result and its visible metadata. */
 const parseSubagentBlock = (tagFull: string, inner: string, isGenerating: boolean): Chunk => {
-    const getAttr = (name: string) => {
-        const m = tagFull.match(new RegExp(`${name}="([^"]*)"`));
-        return m ? m[1] : '';
-    };
     return {
         type: 'subagent',
-        file: getAttr('id'),
-        query: getAttr('agent') || getAttr('name'),
-        command: getAttr('model'),
+        file: readTagAttribute(tagFull, 'id'),
+        query: readTagAttribute(tagFull, 'agent') || readTagAttribute(tagFull, 'name'),
+        command: readTagAttribute(tagFull, 'model'),
         content: inner.trim(),
-        commandStatus: getAttr('status') || (isGenerating ? 'running' : 'done'),
+        commandStatus: readTagAttribute(tagFull, 'status') || (isGenerating ? 'running' : 'done'),
         isGenerating,
     };
 };
 
 /** Parse a subagent reference without requiring a result body. */
 const parseSubagentRefBlock = (tagFull: string, isGenerating: boolean): Chunk => {
-    const getAttr = (name: string) => {
-        const m = tagFull.match(new RegExp(`${name}="([^"]*)"`));
-        return m ? m[1] : '';
-    };
     return {
         type: 'subagent_ref',
-        file: getAttr('id'),
-        query: getAttr('agent'),
-        command: getAttr('model'),
-        content: getAttr('task'),
-        commandStatus: getAttr('status') || (isGenerating ? 'running' : 'done'),
+        file: readTagAttribute(tagFull, 'id'),
+        query: readTagAttribute(tagFull, 'agent'),
+        command: readTagAttribute(tagFull, 'model'),
+        content: readTagAttribute(tagFull, 'task'),
+        commandStatus: readTagAttribute(tagFull, 'status') || (isGenerating ? 'running' : 'done'),
         isGenerating,
     };
 };
@@ -655,13 +657,9 @@ const parseGitOperationBlock = (tagFull: string, content: string, isGenerating: 
 
 /** Parse a file-read chunk and its optional line range. */
 const parseCatBlock = (tagFull: string, content: string, isGenerating: boolean): Chunk => {
-    const getAttr = (name: string) => {
-        const m = tagFull.match(new RegExp(`${name}="([^"]*)"`));
-        return m ? m[1] : undefined;
-    };
-    const path = getAttr('path') || content.trim();
-    const start = getAttr('start') || getAttr('startLine');
-    const end = getAttr('end') || getAttr('endLine');
+    const path = readTagAttribute(tagFull, 'path') || content.trim();
+    const start = readTagAttribute(tagFull, 'start') || readTagAttribute(tagFull, 'startLine');
+    const end = readTagAttribute(tagFull, 'end') || readTagAttribute(tagFull, 'endLine');
     return {
         type: 'cat',
         content: path,
@@ -680,42 +678,50 @@ return s
     .replace(/&amp;/g, "&");
 };
 
+/** Parse one preview's attributes and optional source into the UI data model. */
+const parseDesignPreview = (attributes: string, inner: string): DesignPreviewItem | undefined => {
+    const attribute = (name: string) => readTagAttribute(attributes, name) ?? "";
+    const previewId = attribute("id");
+    const path = attribute("path");
+    const source = unescapeXml(inner).trim() || unescapeXml(attribute("source")).trim();
+    if (!previewId.trim() || (!path.trim() && !source)) return undefined;
+
+    const kindAttribute = attribute("kind");
+    const kind = ["html", "png", "react"].includes(kindAttribute)
+        ? kindAttribute as DesignPreviewItem["kind"]
+        : undefined;
+    return {
+        id: previewId,
+        name: attribute("name"),
+        style: attribute("style"),
+        path,
+        source: source || undefined,
+        width: Number.parseInt(attribute("width"), 10) || 1280,
+        height: Number.parseInt(attribute("height"), 10) || 800,
+        renderMs: Number.parseInt(attribute("render_ms"), 10) || undefined,
+        kind,
+    };
+};
+
+/** Add a parsed preview only when it has not already appeared in this payload. */
+const appendUniquePreview = (previews: DesignPreviewItem[], preview: DesignPreviewItem | undefined): void => {
+    if (!preview || previews.some((item) => item.id === preview.id)) return;
+    previews.push(preview);
+};
+
 /** Parse and deduplicate the available design previews. */
 const parseDesignPreviewsBlock = (block: string): Chunk => {
-    const selectedMatch = block.match(/\bselected="([^"]*)"/);
-    const selected = selectedMatch?.[1] ?? "";
+    const selected = block.match(/\bselected="([^"]*)"/)?.[1] ?? "";
     const id = block.match(/<design_previews\b[^>]*\bid="([^"]*)"/)?.[1];
     const status = block.match(/<design_previews\b[^>]*\bstatus="([^"]*)"/)?.[1];
     const previews: DesignPreviewItem[] = [];
-    const pushPreview = (attrs: string, inner: string) => {
-        const get = (name: string) => attrs.match(new RegExp(`${name}="([^"]*)"`))?.[1] ?? "";
-        const kindAttr = get("kind");
-        const previewId = get("id");
-        const path = get("path");
-        const source = unescapeXml(inner).trim() || unescapeXml(get("source")).trim();
-        if (!previewId.trim()) return;
-        if (!path.trim() && !source) return;
-        if (previews.some((p) => p.id === previewId)) return;
-        previews.push({
-            id: previewId,
-            name: get("name"),
-            style: get("style"),
-            path,
-            source: source || undefined,
-            width: Number.parseInt(get("width"), 10) || 1280,
-            height: Number.parseInt(get("height"), 10) || 800,
-            renderMs: Number.parseInt(get("render_ms"), 10) || undefined,
-            kind: kindAttr === "html" || kindAttr === "png" || kindAttr === "react" ? kindAttr : undefined,
-        });
-    };
     const paired = /<design_preview\s+([^>]*)>([\s\S]*?)<\/design_preview>/g;
-    let match: RegExpExecArray | null;
-    while ((match = paired.exec(block)) !== null) {
-        pushPreview(match[1] ?? "", match[2] ?? "");
+    for (const match of block.matchAll(paired)) {
+        appendUniquePreview(previews, parseDesignPreview(match[1] ?? "", match[2] ?? ""));
     }
     const selfClosing = /<design_preview\s+([^>]+)\/>/g;
-    while ((match = selfClosing.exec(block)) !== null) {
-        pushPreview(match[1] ?? "", "");
+    for (const match of block.matchAll(selfClosing)) {
+        appendUniquePreview(previews, parseDesignPreview(match[1] ?? "", ""));
     }
     return {
         type: "design_previews",
@@ -777,15 +783,14 @@ const parseQuestionBlock = (block: string): Chunk => {
 
 /** Convert a plugin invocation wrapper into a display chunk. */
 const parsePluginCallBlock = (tagFull: string, content: string, isGenerating: boolean): Chunk => {
-    const get = (name: string) => tagFull.match(new RegExp(`${name}="([^"]*)"`))?.[1] ?? "";
-    const status = get("status") || "ok";
+    const status = readTagAttribute(tagFull, "status") || "ok";
     return {
         type: "plugin_call",
         content,
-        pluginToolkit: get("toolkit") || undefined,
-        pluginSlug: get("slug") || undefined,
-        pluginLabel: get("label") || undefined,
-        commandId: get("id") || undefined,
+        pluginToolkit: readTagAttribute(tagFull, "toolkit"),
+        pluginSlug: readTagAttribute(tagFull, "slug"),
+        pluginLabel: readTagAttribute(tagFull, "label"),
+        commandId: readTagAttribute(tagFull, "id"),
         commandStatus: status,
         isGenerating,
     };
@@ -793,12 +798,11 @@ const parsePluginCallBlock = (tagFull: string, content: string, isGenerating: bo
 
 /** Convert a sent-file wrapper into a display chunk. */
 const parseSentFileBlock = (tagFull: string, content: string): Chunk => {
-    const get = (name: string) => tagFull.match(new RegExp(`${name}="([^"]*)"`))?.[1] ?? "";
     return {
         type: "sent_file",
-        file: decodeXml(get("name")) || "File",
-        query: get("type") || "application/octet-stream",
-        mediaPrompt: decodeXml(get("title")) || undefined,
+        file: decodeXml(readTagAttribute(tagFull, "name") ?? "") || "File",
+        query: readTagAttribute(tagFull, "type") || "application/octet-stream",
+        mediaPrompt: decodeXml(readTagAttribute(tagFull, "title") ?? "") || undefined,
         content: content.trim(),
     };
 };
@@ -810,37 +814,34 @@ const parseGeneratedMediaBlock = (
     content: string,
     isGenerating: boolean,
 ): Chunk => {
-    const get = (name: string) => tagFull.match(new RegExp(`${name}="([^"]*)"`))?.[1] ?? "";
     return {
         type,
         content: content.trim(),
-        mediaPrompt: get("prompt") || undefined,
-        mediaCredits: get("credits") || undefined,
-        query: get("prompt") || undefined,
+        mediaPrompt: readTagAttribute(tagFull, "prompt"),
+        mediaCredits: readTagAttribute(tagFull, "credits"),
+        query: readTagAttribute(tagFull, "prompt"),
         isGenerating,
     };
 };
 
 /** Convert a rich-card wrapper and its attributes into a display chunk. */
 const parseRichCard = (type: string, tagFull: string, content: string, isGenerating: boolean): Chunk => {
-    const get = (name: string) => tagFull.match(new RegExp(`${name}="([^"]*)"`))?.[1] ?? "";
     return {
         type: type as Chunk["type"],
         content,
-        visitUrl: decodeXml(get("url")) || undefined,
-        visitTitle: decodeXml(get("title")) || undefined,
-        commandId: get("id") || undefined,
-        commandStatus: get("status") || undefined,
+        visitUrl: decodeXml(readTagAttribute(tagFull, "url") ?? "") || undefined,
+        visitTitle: decodeXml(readTagAttribute(tagFull, "title") ?? "") || undefined,
+        commandId: readTagAttribute(tagFull, "id"),
+        commandStatus: readTagAttribute(tagFull, "status"),
         isGenerating,
     };
 };
 
 /** Build a web-visit card from URL and status attributes. */
 const parseWebVisitBlock = (tagFull: string, isGenerating: boolean): Chunk => {
-    const get = (name: string) => tagFull.match(new RegExp(`${name}="([^"]*)"`))?.[1] ?? "";
-    const url = get("url");
-    const host = get("host") || hostnameFromUrl(url);
-    const title = get("title") || host;
+    const url = readTagAttribute(tagFull, "url") ?? "";
+    const host = readTagAttribute(tagFull, "host") || hostnameFromUrl(url);
+    const title = readTagAttribute(tagFull, "title") || host;
     return {
         type: "web_visit",
         visitUrl: url,
@@ -899,9 +900,15 @@ const terminalCommandReason = (context: MessageBlockContext): string | undefined
 const terminalCommandStatus = (status: string | undefined, isGenerating: boolean): string =>
     status || (isGenerating ? "pending" : "completed");
 
+/** Extract the first regex capture when a tag attribute is present. */
+const firstMatchGroup = (match: RegExpMatchArray | null): string | undefined =>
+    match ? match[1] : undefined;
+
 /** Parse an optional integer metadata capture without duplicating its conversion guard. */
-const parseOptionalInteger = (match: RegExpMatchArray | null): number | undefined =>
-    match?.[1] ? Number(match[1]) : undefined;
+const parseOptionalInteger = (match: RegExpMatchArray | null): number | undefined => {
+    const value = firstMatchGroup(match);
+    return value ? Number(value) : undefined;
+};
 
 /** Omit the reason key for self-closing terminal tags, matching the legacy chunk shape. */
 const terminalReasonFields = (context: MessageBlockContext): { commandReason?: string } => {
@@ -919,8 +926,8 @@ const parseTerminalCommandBlock = (context: MessageBlockContext): Chunk => {
         type: "terminal_command",
         content: context.content,
         command: terminalCommandText(context),
-        commandId: idMatch?.[1],
-        commandStatus: terminalCommandStatus(statusMatch?.[1], context.isGenerating),
+        commandId: firstMatchGroup(idMatch),
+        commandStatus: terminalCommandStatus(firstMatchGroup(statusMatch), context.isGenerating),
         ...terminalReasonFields(context),
         sessionId: parseOptionalInteger(sessionMatch),
         exitCode: parseOptionalInteger(exitMatch),
@@ -1257,18 +1264,19 @@ const isWhitespaceOnlyText = (chunk: Chunk): boolean =>
     chunk.type === "text" && !(chunk.content || "").trim();
 
 /** Group adjacent workflow blocks while preserving ordinary message chunks in sequence. */
-function buildSegments(chunks: Chunk[]): Segment[] {
+const appendStandaloneChunk = (segments: Segment[], chunk: Chunk): void => {
+    if (!isWhitespaceOnlyText(chunk)) segments.push({ kind: "chunk", chunk });
+};
+
+/** Group adjacent workflow blocks while preserving ordinary message chunks in sequence. */
+const buildSegments = (chunks: Chunk[]): Segment[] => {
     const segments: Segment[] = [];
     for (const chunk of chunks) {
-        if (WORKFLOW_CHUNK_TYPES.has(chunk.type)) {
-            appendWorkflowChunk(segments, chunk);
-            continue;
-        }
-        if (isWhitespaceOnlyText(chunk)) continue;
-        segments.push({ kind: "chunk", chunk });
+        if (WORKFLOW_CHUNK_TYPES.has(chunk.type)) appendWorkflowChunk(segments, chunk);
+        else appendStandaloneChunk(segments, chunk);
     }
     return segments;
-}
+};
 
 
 type MessageChunkRenderContext = {

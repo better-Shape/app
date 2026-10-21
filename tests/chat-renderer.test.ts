@@ -72,6 +72,13 @@ describe("parseMessageContent", () => {
         );
     });
 
+    it("uses rendered text when a structured chunk has no plain-text representation", () => {
+        const payload = JSON.stringify({ questions: [{ id: "q1", prompt: "Pick a layout", options: [] }] });
+        const chunks = parseMessageContent(`<questions>${payload}</questions>`);
+
+        expect(getMessageCopyText(chunks, [], "Pick a layout")).toBe("Pick a layout");
+    });
+
     it("keeps OpenUI source out of the embedded-block parser and strips leaked tool output", () => {
         const chunks = parseMessageContent('```openui-lang\nroot = Surface([label])\nlabel = Text("visible <tool_result>hidden tool output</tool_result> text")\n```');
         expect(chunks).toHaveLength(1);
@@ -350,6 +357,16 @@ describe("preprocessChatMarkdown", () => {
 
         const unclosed = stripLeakedToolCode("Before <tool_result>hidden trailing");
         expect(unclosed.trim()).toBe("Before");
+    });
+
+    it("keeps a stray angle bracket from swallowing a later hidden wrapper or trailing prose", () => {
+        const sanitized = stripLeakedToolCode(
+            "Before <value <tool_result>hidden payload</tool_result> After",
+        );
+
+        expect(sanitized).toContain("Before <value");
+        expect(sanitized).toContain("After");
+        expect(sanitized).not.toContain("hidden payload");
     });
 
     it("hides Gemini function_calls / tool_code XML (Auto + Gemini)", () => {
