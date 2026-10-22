@@ -106,8 +106,23 @@ function SentAttachment({ att }: { att: ParsedUserAttachment }) {
     return <MessageAttachmentPill name={att.name} />;
 }
 
-/** Renders the MentionRichText UI component. */
-const MentionRichText = ({ text }: { text: string }) => {
+/** Preserve attachment identity across reordering while disambiguating exact duplicates. */
+const withStableAttachmentKeys = (attachments: ParsedUserAttachment[]) => {
+    const occurrences = new Map<string, number>();
+    return attachments.map((attachment) => {
+        const identity = JSON.stringify([
+            attachment.kind,
+            attachment.name,
+            attachment.mimeType,
+            attachment.size,
+        ]);
+        const occurrence = occurrences.get(identity) ?? 0;
+        occurrences.set(identity, occurrence + 1);
+        return { attachment, key: `${identity}:${occurrence}` };
+    });
+};
+
+function MentionRichText({ text }: { text: string }) {
     const workflows = useSettings().ai.workflows ?? [];
     const mentionRs = mentionRanges(text);
     const slashRs = slashCommandRanges(text, workflows);
@@ -469,6 +484,10 @@ const ChatMessageItemInner = ({
         () => (isUser ? parseUserAttachments(content) : null),
         [isUser, content],
     );
+    const keyedAttachments = React.useMemo(
+        () => withStableAttachmentKeys(userParts?.attachments ?? []),
+        [userParts],
+    );
 
     const continueAction = React.useMemo(
         () => (isUser ? parseBetterShapeContinueAction(userParts?.text ?? content) : null),
@@ -508,12 +527,9 @@ const ChatMessageItemInner = ({
                             >
                                 {userParts.attachments.length > 0 && (
                                     <div className="mb-2 flex flex-wrap items-end gap-1.5">
-                                        {(() => {
-                                            const attKey = createOccurrenceKeyer();
-                                            return userParts.attachments.map((att) => (
-                                                <SentAttachment key={attKey(att.name)} att={att} />
-                                            ));
-                                        })()}
+                                        {keyedAttachments.map(({ attachment, key }) => (
+                                            <SentAttachment key={key} att={attachment} />
+                                        ))}
                                     </div>
                                 )}
                                 {userQuotes.length > 0 ? (

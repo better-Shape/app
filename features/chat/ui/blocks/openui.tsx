@@ -12,6 +12,8 @@ const MAX_OPENUI_RENDER_COST = 4096;
 const OPENUI_COMPONENTS = new Set([
     "Surface", "Stack", "Text", "Metric", "Callout", "Progress", "BarChart", "DataTable",
 ]);
+const OPENUI_COMPONENT_NAMES = Array.from(OPENUI_COMPONENTS).join("|");
+const OPENUI_COMPONENT_CALL_PATTERN = new RegExp(String.raw`^(${OPENUI_COMPONENT_NAMES})[ \t]*\(`);
 const OpenUINestingContext = createContext(0);
 
 /** Attach occurrence-suffixed stable keys so duplicate rendered values remain distinct. */
@@ -100,7 +102,7 @@ const matchingArrayEnd = (source: string, openIndex: number): number => {
     return -1;
 };
 
-type OpenUIDefinition = { component?: string; children: string[]; inlineComponents: string[] };
+type OpenUIDefinition = { component?: string; children: string[]; inlineComponents: string[]; unsafe?: boolean };
 type OpenUIDefinitions = Map<string, OpenUIDefinition>;
 
 /** Find the first argument boundary without treating nested calls as separators. */
@@ -140,7 +142,7 @@ const childIdentifiersInRange = (source: string, start: number, end: number): st
 
 /** Count inline component calls as part of their containing definition's expansion cost. */
 const inlineComponentsInRange = (source: string, start: number, end: number): string[] => {
-    const calls = /\b(Surface|Stack|Text|Metric|Callout|Progress|BarChart|DataTable)\s*\(/g;
+    const calls = new RegExp(String.raw`\b(${OPENUI_COMPONENT_NAMES})\s*\(`, "g");
     const components: string[] = [];
     calls.lastIndex = start + 1;
     let match: RegExpExecArray | null;
@@ -155,7 +157,7 @@ const definitionChildren = (
     source: string,
     component: string,
     argsStart: number,
-): Pick<OpenUIDefinition, "children" | "inlineComponents"> => {
+): Pick<OpenUIDefinition, "children" | "inlineComponents"> | null => {
     if (component !== "Surface" && component !== "Stack") {
         return { children: [], inlineComponents: [] };
     }
@@ -168,28 +170,28 @@ const definitionChildren = (
     }
     const [argumentStart, argumentEnd] = firstArgumentRange(source, argsStart);
     const childName = source.slice(argumentStart, argumentEnd).trim();
+    if (!childName) return { children: [], inlineComponents: [] };
     const reference = /^[A-Za-z_][A-Za-z0-9_-]*$/.exec(childName)?.[0];
-    return { children: reference ? [reference] : [], inlineComponents: [] };
+    return reference ? { children: [reference], inlineComponents: [] } : null;
 };
 
 /** Parse component and child-array definitions within the bounded response. */
 const parseOpenUIDefinitions = (source: string): OpenUIDefinitions | null => {
+    if (/@Each\s*\(/i.test(source)) return null;
     const definitions: OpenUIDefinitions = new Map();
     const assignment = /^[ \t]*([A-Za-z_][A-Za-z0-9_-]*)[ \t]*=[ \t]*/gm;
-    const componentCall = /^(Surface|Stack|Text|Metric|Callout|Progress|BarChart|DataTable)[ \t]*\(/;
     let match: RegExpExecArray | null;
     while ((match = assignment.exec(source)) !== null) {
         const name = match[1];
         if (!name) continue;
         const valueStart = assignment.lastIndex;
-        const call = componentCall.exec(source.slice(valueStart));
+        const call = OPENUI_COMPONENT_CALL_PATTERN.exec(source.slice(valueStart));
         if (call?.[1]) {
             const component = call[1];
             const argsStart = valueStart + call[0].length;
-            definitions.set(name, {
-                component,
-                ...definitionChildren(source, component, argsStart),
-            });
+            const children = definitionChildren(source, component, argsStart);
+            if (!children) return null;
+            definitions.set(name, { component, ...children });
         } else if (source[valueStart] === "[") {
             const arrayEnd = matchingArrayEnd(source, valueStart);
             if (arrayEnd === -1) return null;
@@ -197,6 +199,12 @@ const parseOpenUIDefinitions = (source: string): OpenUIDefinitions | null => {
                 children: childIdentifiersInRange(source, valueStart, arrayEnd),
                 inlineComponents: inlineComponentsInRange(source, valueStart, arrayEnd),
             });
+        } else {
+            const lineEnd = source.indexOf("\n", valueStart);
+            const expression = source.slice(valueStart, lineEnd === -1 ? source.length : lineEnd);
+            if (expression.includes("(")) {
+                definitions.set(name, { children: [], inlineComponents: [], unsafe: true });
+            }
         }
         if (definitions.size > MAX_OPENUI_EXPANDED_NODES) return null;
     }
@@ -244,7 +252,7 @@ const countDefinitionTree = (
 ): number => {
     if (ancestors.has(name)) return rejectedExpansionCount();
     const definition = definitions.get(name);
-    if (!reserveDefinitionBudget(definition, budget)) return rejectedExpansionCount();
+    if (definition?.unsafe || !reserveDefinitionBudget(definition, budget)) return rejectedExpansionCount();
     if (!definition) return 1;
 
     let total = Number(Boolean(definition.component)) + definition.inlineComponents.length;

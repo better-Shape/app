@@ -154,7 +154,7 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
-  # Manual dispatch always creates a nightly prerelease draft.
+  # Manual dispatch attempts a draft publish; artifact guards may skip it.
   publish-nightly:
     name: Publish Nightly Prerelease
     if: github.event_name == 'workflow_dispatch'

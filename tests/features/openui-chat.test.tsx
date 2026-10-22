@@ -415,6 +415,26 @@ describe("OpenUIBlock", () => {
         expect(host.querySelector("section")).toBeNull();
     });
 
+    it("fails closed on data-dependent child expansion and unsupported container expressions", async () => {
+        host = document.createElement("div");
+        document.body.appendChild(host);
+        root = createRoot(host);
+        const unsafeResponses = [
+            'root = Surface(@Each([1, 2], "item", Text("Item")))',
+            'kids = @Each([1, 2], "item", Text("Item"))\nroot = Surface(kids)',
+            'root = Surface([Stack(@Each([1, 2], "item", Text("Item"))]))',
+            'root = Surface(Stack("unsupported children expression"))',
+        ];
+
+        for (const response of unsafeResponses) {
+            await act(async () => {
+                root?.render(<OpenUIBlock response={response} />);
+            });
+            expect(host.textContent).toContain("too complex to display safely");
+            expect(host.querySelector("section")).toBeNull();
+        }
+    });
+
     it("shows a safe fallback when a generated program references an unknown component", async () => {
         host = document.createElement("div");
         document.body.appendChild(host);
@@ -424,8 +444,8 @@ describe("OpenUIBlock", () => {
             root?.render(<OpenUIBlock response={'root = Surface([missing])\nmissing = NotRegistered("ignored")'} />);
         });
 
-        expect(host.textContent).toContain("This visual response could not be rendered.");
-        expect(host.querySelector("script, iframe, img")).toBeNull();
+        expect(host.textContent).toContain("too complex to display safely");
+        expect(host.querySelector("section, script, iframe, img")).toBeNull();
     });
 
     it("does not keep an earlier renderer error visible after valid content arrives", async () => {
@@ -433,8 +453,8 @@ describe("OpenUIBlock", () => {
         document.body.appendChild(host);
         root = createRoot(host);
         const invalidResponse = [
-            "root = Surface([missing])",
-            'missing = NotRegistered("ignored")',
+            "root = Surface([label])",
+            "label = Text(123)",
         ].join("\n");
         const validResponse = ["root = Surface([label])", 'label = Text("Recovered")'].join("\n");
 
