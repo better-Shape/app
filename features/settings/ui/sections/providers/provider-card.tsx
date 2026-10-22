@@ -30,6 +30,7 @@ import {
     enrichDiscovered,
     formatHeaderLines,
     parseHeaderLines,
+    canonicalProviderId,
 } from "@/lib/ai/providers";
 import type { AuthStyle, ProviderId, ProvidersSettings } from "@/lib/ai/providers";
 import { formatModelPricing, getModelMetadata } from "@/lib/ai/model-catalog";
@@ -360,7 +361,33 @@ export function ProviderCard({
     const addExtraModel = () => {
         const raw = extraModelInput.trim();
         if (!raw) return;
-        const id = raw.includes("/") ? raw : `${preset.id}/${raw}`;
+        // Normalize to `${preset.id}/${slug}`. An input is already in
+        // BetterShape-canonical form when:
+        //   (a) it starts with this card's own id (e.g. "openai/gpt-4o" on
+        //       the OpenAI card), or
+        //   (b) its first segment is a *different* known provider id and
+        //       it contains two or more slashes (cross-card references
+        //       like "openrouter/anthropic/claude-sonnet", or HF-style
+        //       multi-segment ids on a gateway that carries its own
+        //       vendor/model slug).
+        // A single-slash id whose first segment is a different known
+        // provider (e.g. "anthropic/claude-sonnet" typed on the OpenRouter
+        // card) is an *unqualified* vendor/model slug for this gateway
+        // and must be prefixed with this card's id.
+        // A single-slash id whose first segment is NOT a known provider
+        // (e.g. "BAAI/bge-m3" on DeepInfra/vLLM/Ollama) is likewise a
+        // native vendor/model slug for this connection.
+        const firstSlash = raw.indexOf("/");
+        const slashCount = raw.split("/").length - 1;
+        const prefix = firstSlash > 0 ? raw.slice(0, firstSlash) : "";
+        const isOwnPrefix = prefix === preset.id;
+        const isOtherKnownAndQualified =
+            firstSlash > 0 &&
+            canonicalProviderId(prefix) !== null &&
+            prefix !== preset.id &&
+            slashCount >= 2;
+        const alreadyPrefixed = isOwnPrefix || isOtherKnownAndQualified;
+        const id = alreadyPrefixed ? raw : `${preset.id}/${raw}`;
         if (connection.extraModels.includes(id) || allModels.includes(id)) {
             setExtraModelInput("");
             return;
