@@ -162,7 +162,7 @@ function fuzzyScore(query: string, text: string): number {
 
 function ShortcutBadge({ shortcut }: { shortcut: string }) {
     if (!shortcut) return null;
-    const parts = shortcut.split(/\s*\+\s*/);
+    const parts = shortcut.split(/(?:(?<!\s)\s*\+|\+)\s*/);
     return (
         <span className="ml-2 flex shrink-0 items-center gap-0.5">
             {parts.map((part) => (
