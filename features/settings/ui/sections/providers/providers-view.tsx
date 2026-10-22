@@ -40,6 +40,7 @@ import {
     modelForFeature,
     withFeatureModel,
     setChatMode,
+    headerSecretId,
 } from "@/lib/ai/providers";
 import type { ChatMode, FeatureModel, ModelOption, ProviderId, ProviderPreset, ProvidersSettings } from "@/lib/ai/providers";
 import { updateSettingSection, useSettings } from "@/lib/settings";
@@ -230,10 +231,13 @@ export function ProvidersSettingsView() {
 
     const resetProvider = async (id: ProviderId) => {
         const preset = providerPreset(id);
-        // Also purge the key from the OS keychain when vaulted, otherwise a
-        // vault-aware restart would hydrate the old apiKey back into the
-        // cleared field and undo the reset.
+        const existing = providers.connections[id];
+        // Also purge the key and any header secrets from the OS keychain when
+        // vaulted; otherwise a vault-aware restart would hydrate them back
+        // into the cleared fields and undo the reset.
         await forgetSecret(id);
+        const headerNames = Object.keys(existing?.headers ?? {});
+        await Promise.all(headerNames.map((name) => forgetSecret(headerSecretId(id, name))));
         update({
             connections: {
                 ...providers.connections,

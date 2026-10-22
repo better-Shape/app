@@ -348,7 +348,8 @@ function buildIndex(entries: CatalogModel[]): {
     const seenIds = new Set<string>();
     let count = 0;
     for (const entry of entries) {
-        if (!entry?.id || count >= MAX_CATALOG_MODELS) break;
+        if (!entry?.id) continue;
+        if (count >= MAX_CATALOG_MODELS) break;
         const meta = inferModelMeta(entry);
         if (seenIds.has(meta.id)) continue;
         seenIds.add(meta.id);
