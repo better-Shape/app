@@ -133,16 +133,15 @@ jobs:
             arch: aarch64
             target: aarch64-pc-windows-msvc
             bundles: nsis
-          # macOS: `macos-13` (the last Intel macOS label) is no longer published in
-          # actions/runner-images. Intel is cross-compiled from the arm64 runner: the
-          # macOS SDK ships x86_64 slices, so --target x86_64-apple-darwin links.
+          # macos-13 is retired. Build Intel natively on macos-15-intel because
+          # cross-compiling OpenSSL on arm64 lacks target libraries/pkg-config data.
           - runner: macos-latest
             os: macos
             arch: aarch64
             experimental: true
             target: aarch64-apple-darwin
             bundles: dmg
-          - runner: macos-latest
+          - runner: macos-15-intel
             os: macos
             arch: x86_64
             experimental: true

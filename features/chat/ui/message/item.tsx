@@ -94,6 +94,22 @@ function SentAttachment({ att }: { att: ParsedUserAttachment }) {
     return <MessageAttachmentPill name={att.name} />;
 }
 
+/** Preserve attachment identity across reordering while disambiguating exact duplicates. */
+const withStableAttachmentKeys = (attachments: ParsedUserAttachment[]) => {
+    const occurrences = new Map<string, number>();
+    return attachments.map((attachment) => {
+        const identity = JSON.stringify([
+            attachment.kind,
+            attachment.name,
+            attachment.mimeType,
+            attachment.size,
+        ]);
+        const occurrence = occurrences.get(identity) ?? 0;
+        occurrences.set(identity, occurrence + 1);
+        return { attachment, key: `${identity}:${occurrence}` };
+    });
+};
+
 function MentionRichText({ text }: { text: string }) {
     const workflows = useSettings().ai.workflows ?? [];
     const mentionRs = mentionRanges(text);
@@ -407,6 +423,10 @@ const ChatMessageItemInner = ({
         () => (isUser ? parseUserAttachments(content) : null),
         [isUser, content],
     );
+    const keyedAttachments = React.useMemo(
+        () => withStableAttachmentKeys(userParts?.attachments ?? []),
+        [userParts],
+    );
 
     const continueAction = React.useMemo(
         () => (isUser ? parseBetterShapeContinueAction(userParts?.text ?? content) : null),
@@ -451,8 +471,8 @@ const ChatMessageItemInner = ({
                                 <div ref={bodyRef} className="min-w-0 wrap-break-word select-text">
                                     {userParts.attachments.length > 0 && (
                                         <div className="mb-2 flex flex-wrap items-end gap-1.5">
-                                            {userParts.attachments.map((att, i) => (
-                                                <SentAttachment key={`${att.name}-${i}`} att={att} />
+                                            {keyedAttachments.map(({ attachment, key }) => (
+                                                <SentAttachment key={key} att={attachment} />
                                             ))}
                                         </div>
                                     )}
