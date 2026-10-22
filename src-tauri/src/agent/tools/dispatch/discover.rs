@@ -1,15 +1,13 @@
 //! Search and web discovery tools.
 
-use serde_json::{json, Value};
-use tauri::Emitter;
-
 use crate::agent::commands::{logging, streaming};
-use crate::agent::models::{AutoRunMode, PendingCommand};
+use crate::agent::models::AutoRunMode;
 use crate::agent::tools::search;
+use serde_json::{json, Value};
 
 use super::common::{
-    cleanup_pending_command, clip, emit_command_resolved, error_outcome, escape_xml_attr,
-    escape_xml_text, get_str, latest_user_task, wait_for_command_decision, ApprovalDecision,
+    clip, emit_command_resolved, error_outcome, escape_xml_attr, escape_xml_text, get_str,
+    latest_user_task, request_command_approval, ApprovalDecision,
 };
 use super::{ToolCtx, ToolOutcome};
 
@@ -121,6 +119,8 @@ pub(super) async fn tool_visit_url(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutco
     };
     streaming::emit_chat_status(
         ctx.app_handle,
+        ctx.turn_id.as_deref(),
+        ctx.conversation_id.as_deref(),
         json!({
             "phase": "tool",
             "tool": "visit_url",
@@ -458,38 +458,28 @@ pub(super) async fn tool_plugin_run(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutc
         return execute_plugin_run_ui(&toolkit, &slug, &label, &arguments, ctx, None).await;
     }
 
-    let cmd_id = format!("cmd-{}", uuid::Uuid::new_v4());
-    let pending = PendingCommand {
-        id: cmd_id.clone(),
-        command: format!("{toolkit}: {label}"),
-        safety: "needs_approval".to_string(),
-        reason: format!("Plugin action on {toolkit}"),
-        action: Some("plugin_run".to_string()),
-        payload: None,
-    };
-    if let Ok(mut pendings) = ctx.agent_state.pending_commands.lock() {
-        pendings.insert(cmd_id.clone(), pending.clone());
-    }
-    let _ = ctx.emit_ui_token(plugin_call_ui(
-        &toolkit,
-        &slug,
-        &label,
-        "pending",
-        Some(&cmd_id),
-        "Awaiting approval",
-    ));
-    let _ = ctx.app_handle.emit("agent-command-pending", pending);
-    streaming::emit_chat_status(
-        ctx.app_handle,
-        json!({ "phase": "approval", "label": "Waiting for approval" }),
-    );
-
-    let decision = wait_for_command_decision(&cmd_id, ctx).await;
-    cleanup_pending_command(&cmd_id, ctx);
+    let (cmd_id, decision) = request_command_approval(
+        format!("{toolkit}: {label}"),
+        format!("Plugin action on {toolkit}"),
+        Some("plugin_run".to_string()),
+        None,
+        |id| {
+            plugin_call_ui(
+                &toolkit,
+                &slug,
+                &label,
+                "pending",
+                Some(id),
+                "Awaiting approval",
+            )
+        },
+        ctx,
+    )
+    .await;
 
     match decision {
         ApprovalDecision::Approved => {
-            emit_command_resolved(ctx, &cmd_id, true);
+            emit_command_resolved(ctx, &cmd_id, true, Some("Running plugin action"));
             let mut outcome =
                 execute_plugin_run_ui(&toolkit, &slug, &label, &arguments, ctx, Some(&cmd_id))
                     .await;
@@ -497,7 +487,7 @@ pub(super) async fn tool_plugin_run(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutc
             outcome
         }
         ApprovalDecision::Rejected => {
-            emit_command_resolved(ctx, &cmd_id, false);
+            emit_command_resolved(ctx, &cmd_id, false, None);
             ToolOutcome {
                 tool_result: format!(
                     "Plugin action '{}' was rejected by the user. Do NOT retry it. Continue without it, or ask how to proceed.",

@@ -149,11 +149,11 @@ Triggers: PR opened/edited/sync
 
 ### 6. Nightly (`nightly.yml`) - New
 
-Triggers: daily 02:00 UTC, manual with prerelease bool
-Concurrency: nightly-${ref} cancel true
+Triggers: manual `workflow_dispatch` only; there is no schedule or prerelease input.
+Concurrency: `nightly-${ref}`, cancel in progress
 
-- **build-check**: Matrix Windows x86_64 + aarch64, 60m, builds Tauri NSIS (warn if secrets missing), uploads nightly artifact 3d
-- **publish-nightly**: If manual + prerelease, generates nightly version `BASE-nightly.YYYYMMDD.RUN_NUMBER`, downloads artifacts, creates draft prerelease via gh CLI
+- **build-check**: Matrix Windows x86_64 + aarch64, macOS arm64 + x86_64, and Linux x86_64; builds installers with a 90-minute job timeout. Forks without signing secrets upload a placeholder artifact.
+- **publish-nightly**: Runs after a successful manual build and derives `BASE-nightly.YYYYMMDD.RUN_NUMBER` from the artifacts. It creates a draft prerelease when non-placeholder installer artifacts are present and the tag does not already exist; placeholder, empty, or already-published artifacts are skipped.
 
 ### 7. Auto-merge (`auto-merge.yml`) - New
 
@@ -300,7 +300,7 @@ npm run release -- 1.0.3 --commit --tag --push
 - `.github/workflows/release.yml` - hardened, timeouts, concurrency false, secret check, SBOM, provenance, summary
 - `.github/workflows/security.yml` - new, CodeQL + Dependency Review + Audit + Zizmor + Scorecard
 - `.github/workflows/pr.yml` - new, title lint + large file + secret heuristic + size
-- `.github/workflows/nightly.yml` - new, daily build check + optional prerelease publish
+- `.github/workflows/nightly.yml` - manual build check + guarded draft prerelease publish
 - `.github/workflows/auto-merge.yml` - new, dependabot patch/minor auto-merge
 - `.github/workflows/README.md` - new, docs for workflows
 - `.github/actions/setup/action.yml` - new, composite for Node + Rust + system deps + caches

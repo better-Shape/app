@@ -161,6 +161,33 @@ function labelForPhase(phase: TurnPhase, tool?: string, label?: string): string 
     }
 }
 
+type ChatStatusUpdate = { turnPhase?: TurnPhase; activityLabel?: string };
+
+type FixedStatusPhase = { turnPhase: TurnPhase; fallbackLabel: string };
+const FIXED_STATUS_PHASES: Record<string, FixedStatusPhase> = {
+    approval: { turnPhase: "awaiting_approval", fallbackLabel: "Waiting for approval" },
+    model: { turnPhase: "thinking", fallbackLabel: "Thinking" },
+};
+
+/** Translate a backend status event into the single UI update it represents. */
+const resolveChatStatusUpdate = (
+    phase: string | undefined,
+    tool: string | undefined,
+    label: string | undefined,
+): ChatStatusUpdate | null => {
+    const fixedPhase = phase ? FIXED_STATUS_PHASES[phase] : undefined;
+    if (fixedPhase) {
+        return { turnPhase: fixedPhase.turnPhase, activityLabel: label?.trim() || fixedPhase.fallbackLabel };
+    }
+    if (phase === "tool") {
+        const turnPhase = phaseFromTool(tool);
+        return { turnPhase, activityLabel: labelForPhase(turnPhase, tool, label) ?? undefined };
+    }
+    const activityLabel = label?.trim();
+    return activityLabel ? { activityLabel } : null;
+};
+
+/** Bridge backend chat events into turn-scoped state shared by chat descendants. */
 export function ChatStreamProvider({ children }: { children: React.ReactNode }) {
     const [isLoading, setIsLoading] = React.useState(defaultState.isLoading);
     const [messages, setMessages] = React.useState<ChatMessage[]>(defaultState.messages);
@@ -407,6 +434,30 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
             }
         };
 
+        /** Confirm that a turn is still live and not excluded by any conversation guard. */
+        const isCurrentUnfinishedTurn = (conversationId: string, turnId: string): boolean => {
+            if (finishedTurns.has(turnId)) return false;
+            if (ignoredIdsRef.current.has(conversationId)) return false;
+            if (isForeignConversation(conversationId)) return false;
+            return liveTurnsRef.current.get(conversationId)?.turnId === turnId;
+        };
+
+        /** Confirm that an event still belongs to the current, unfinished conversation turn. */
+        const isEligibleTurnIdentity = (conversationId?: string, turnId?: string): boolean =>
+            Boolean(conversationId && turnId && isCurrentUnfinishedTurn(conversationId, turnId));
+
+        /** Apply an event only to the exact live turn and conversation that owns it. */
+        function patchLiveForTurn(
+            identity: { conversationId?: string; turnId?: string },
+            update: (live: LiveTurn) => void,
+        ): boolean {
+            const { conversationId, turnId } = identity;
+            if (!conversationId) return false;
+            if (!isEligibleTurnIdentity(conversationId, turnId)) return false;
+            patchLive(conversationId, update);
+            return true;
+        }
+
         register(
             listen<{
                 turnId?: string;
@@ -550,7 +601,15 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
                 const { stats, model, error, conversationId, content, turnId } =
                     event.payload ?? {};
                 if (isForeignConversation(conversationId)) return;
+                // Ignore duplicate completions before they can overwrite the settled transcript.
+                if (turnId && finishedTurns.has(turnId)) return;
+                // Record this exact turn even when it is stale for the visible conversation.
+                // Delayed tokens for it must not append into a newer live turn.
                 if (turnId) finishedTurns.add(turnId);
+                if (conversationId && turnId) {
+                    const currentLive = liveTurnsRef.current.get(conversationId);
+                    if (currentLive && currentLive.turnId !== turnId) return;
+                }
                 if (!error && stats) {
                     void import("@/lib/chat/last-turn-usage").then(({ setLastTurnUsage }) => {
                         setLastTurnUsage({
@@ -644,23 +703,45 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
             );
         };
 
+        /** Resolve the displayed file label without branching inside the event listener. */
+        const editApprovalSubject = (payload: { path?: string; file?: string }): string =>
+            payload.path?.trim() || payload.file?.trim() || "file";
+
+        /** Route pending approval chrome and alerts through the same exact-turn guard. */
+        const handlePendingApproval = (
+            identity: { id?: string; conversationId?: string; turnId?: string; reason?: string },
+            activityLabel: string,
+            notificationTitle: string,
+            subject: string,
+        ) => {
+            const accepted = patchLiveForTurn(identity, (live) => {
+                live.turnPhase = "awaiting_approval";
+                live.activityLabel = activityLabel;
+            });
+            if (!accepted) return;
+            const reason = identity.reason?.trim();
+            notifyApprovalOsOnly(
+                identity.id,
+                notificationTitle,
+                reason ? `${subject}: ${reason}` : subject,
+            );
+        };
+
         register(
             listen<{
                 id?: string;
+                turnId?: string;
+                conversationId?: string;
                 command?: string;
                 reason?: string;
                 safety?: string;
             }>("agent-command-pending", (event) => {
-                const cmd = event.payload?.command?.trim() || "Command";
-                const reason = event.payload?.reason?.trim();
-                patchLive(undefined, (live) => {
-                    live.turnPhase = "awaiting_approval";
-                    live.activityLabel = "Waiting for approval";
-                });
-                notifyApprovalOsOnly(
-                    event.payload?.id,
+                const payload = event.payload ?? {};
+                handlePendingApproval(
+                    payload,
+                    "Waiting for approval",
                     "Approval required",
-                    reason ? `${cmd}: ${reason}` : cmd,
+                    payload.command?.trim() || "Command",
                 );
             }),
         );
@@ -668,26 +749,25 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
         register(
             listen<{
                 id?: string;
+                turnId?: string;
+                conversationId?: string;
                 file?: string;
+                path?: string;
                 reason?: string;
             }>("agent-edit-pending", (event) => {
-                const file = event.payload?.file?.trim() || "file";
-                const reason = event.payload?.reason?.trim();
-                patchLive(undefined, (live) => {
-                    live.turnPhase = "awaiting_approval";
-                    live.activityLabel = "Waiting for edit approval";
-                });
-                notifyApprovalOsOnly(
-                    event.payload?.id,
+                const payload = event.payload ?? {};
+                handlePendingApproval(
+                    payload,
+                    "Waiting for edit approval",
                     "Edit approval required",
-                    reason ? `${file}: ${reason}` : file,
+                    editApprovalSubject(payload),
                 );
             }),
         );
 
         register(
-            listen<{ id?: string }>("agent-ask-pending", () => {
-                patchLive(undefined, (live) => {
+            listen<{ id?: string; turnId?: string; conversationId?: string }>("agent-ask-pending", (event) => {
+                patchLiveForTurn(event.payload ?? {}, (live) => {
                     live.turnPhase = "awaiting_approval";
                     live.activityLabel = "Waiting for your answers";
                 });
@@ -696,45 +776,63 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
 
         // Clear sticky approval labels once the user resolves the gate.
         register(
-            listen<{ id?: string; approved?: boolean }>("agent-command-resolved", () => {
-                patchLive(undefined, (live) => {
-                    live.turnPhase = "running_command";
-                    live.activityLabel = "Running command";
+            listen<{
+                id?: string;
+                approved?: boolean;
+                activityLabel?: string;
+                turnId?: string;
+                conversationId?: string;
+            }>("agent-command-resolved", (event) => {
+                patchLiveForTurn(event.payload ?? {}, (live) => {
+                    const approved = event.payload?.approved === true;
+                    live.turnPhase = approved ? "running_command" : "thinking";
+                    live.activityLabel = approved
+                        ? event.payload?.activityLabel?.trim() || "Running command"
+                        : "Thinking";
                 });
             }),
         );
         register(
-            listen<{ id?: string; approved?: boolean }>("agent-edit-resolved", () => {
-                patchLive(undefined, (live) => {
-                    live.turnPhase = "editing";
-                    live.activityLabel = "Editing file";
+            listen<{
+                id?: string;
+                approved?: boolean;
+                turnId?: string;
+                conversationId?: string;
+            }>("agent-edit-resolved", (event) => {
+                patchLiveForTurn(event.payload ?? {}, (live) => {
+                    const approved = event.payload?.approved === true;
+                    live.turnPhase = approved ? "editing" : "thinking";
+                    live.activityLabel = approved ? "Editing file" : "Thinking";
                 });
             }),
         );
 
+        /** Apply a translated status update to its matching live turn. */
+        function applyChatStatus(payload: {
+            phase?: string;
+            tool?: string;
+            label?: string;
+            turnId?: string;
+            conversationId?: string;
+        }): void {
+            const { phase, tool, label, turnId, conversationId } = payload;
+            if (!conversationId || !turnId) return;
+            const update = resolveChatStatusUpdate(phase, tool, label);
+            if (!update) return;
+            patchLiveForTurn({ conversationId, turnId }, (live) => {
+                if (update.turnPhase) live.turnPhase = update.turnPhase;
+                if (update.activityLabel) live.activityLabel = update.activityLabel;
+            });
+        }
+
         register(
-            listen<{ phase?: string; tool?: string; label?: string }>("chat_status", (event) => {
-                const { phase, tool, label } = event.payload ?? {};
-                let nextPhase: TurnPhase | null = null;
-                let nextLabel: string | null = null;
-                if (phase === "approval") {
-                    nextPhase = "awaiting_approval";
-                    nextLabel = label?.trim() || "Waiting for approval";
-                } else if (phase === "model") {
-                    nextPhase = "thinking";
-                    nextLabel = label?.trim() || "Thinking";
-                } else if (phase === "tool") {
-                    nextPhase = phaseFromTool(tool);
-                    nextLabel = labelForPhase(nextPhase, tool, label);
-                } else if (label?.trim()) {
-                    nextLabel = label.trim();
-                }
-                if (!nextPhase && !nextLabel) return;
-                patchLive(undefined, (live) => {
-                    if (nextPhase) live.turnPhase = nextPhase;
-                    if (nextLabel) live.activityLabel = nextLabel;
-                });
-            }),
+            listen<{
+                phase?: string;
+                tool?: string;
+                label?: string;
+                turnId?: string;
+                conversationId?: string;
+            }>("chat_status", (event) => applyChatStatus(event.payload ?? {})),
         );
 
         register(

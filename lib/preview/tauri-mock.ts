@@ -152,7 +152,21 @@ const asSeedMode = (value: string | null | undefined): PreviewSeedMode | null =>
 
 const PREVIEW_MESSAGES = [
     { role: "user", content: "What does this fixture do?", timestamp: Date.now() - 60_000 },
-    { role: "assistant", content: "It seeds a deterministic project so the workbench can be audited in a browser.", timestamp: Date.now() - 59_000 },
+    {
+        role: "assistant",
+        content: `The browser preview opens a small project so the workbench can be explored without the Tauri runtime.
+
+\`\`\`openui-lang
+root = Surface([summary, counts, chart, note], "Seeded project", "Four fixture files across the root and src folder")
+summary = Text("The project tree and conversation use local fixture data.", "body")
+counts = Stack([rootFiles, sourceFiles], "row")
+rootFiles = Metric("Root files", "2")
+sourceFiles = Metric("src files", "2")
+chart = BarChart(["Project root", "src"], [2, 2], "Files by folder")
+note = Callout("Local fixture", "This saved conversation does not contact an AI provider.", "neutral")
+\`\`\``,
+        timestamp: Date.now() - 59_000,
+    },
 ];
 
 /** Seeded Git history, newest first, in the backend's wire shape. */

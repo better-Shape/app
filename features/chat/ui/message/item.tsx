@@ -11,7 +11,7 @@ import React from "react";
 import { useChatStreamOptional } from "@/features/chat/lib/chat-stream-store";
 import { cn } from "@/lib/utils";
 import { toTimestampMs } from "@/lib/ui/timestamp";
-import { MessageRenderer, parseMessageContent, extractWebSearchResults } from "../md/renderer";
+import { MessageRenderer, parseMessageContent, getMessageCopyText, extractWebSearchResults } from "../md/renderer";
 import { Icon } from "@/components/ui/icon";
 
 
@@ -93,6 +93,22 @@ function SentAttachment({ att }: { att: ParsedUserAttachment }) {
     }
     return <MessageAttachmentPill name={att.name} />;
 }
+
+/** Preserve attachment identity across reordering while disambiguating exact duplicates. */
+const withStableAttachmentKeys = (attachments: ParsedUserAttachment[]) => {
+    const occurrences = new Map<string, number>();
+    return attachments.map((attachment) => {
+        const identity = JSON.stringify([
+            attachment.kind,
+            attachment.name,
+            attachment.mimeType,
+            attachment.size,
+        ]);
+        const occurrence = occurrences.get(identity) ?? 0;
+        occurrences.set(identity, occurrence + 1);
+        return { attachment, key: `${identity}:${occurrence}` };
+    });
+};
 
 function MentionRichText({ text }: { text: string }) {
     const workflows = useSettings().ai.workflows ?? [];
@@ -280,7 +296,63 @@ function parseForkedFrom(content: string): { id: string; title: string; rest: st
     return { id, title, rest: content.slice(match[0].length) };
 }
 
-function ChatMessageItemInner({
+/** Extract display-only prefixes once so rendering and copying share the same message body. */
+function extractPresentationMetadata(content: string) {
+    let rest = content;
+    let forked: ReturnType<typeof parseForkedFrom> = null;
+    let renamed: ReturnType<typeof parseChatRenamed> = null;
+    for (let index = 0; index < 2; index += 1) {
+        const nextFork = parseForkedFrom(rest);
+        if (nextFork) {
+            forked = nextFork;
+            rest = nextFork.rest;
+            continue;
+        }
+        const nextRenamed = parseChatRenamed(rest);
+        if (nextRenamed) {
+            renamed = nextRenamed;
+            rest = nextRenamed.rest;
+            continue;
+        }
+        break;
+    }
+    return { content: rest, forked, renamed };
+}
+
+/** Format user text and attachment names for the message copy action. */
+function userMessageCopyText(content: string): string {
+    const parts = parseUserAttachments(content);
+    const names = parts.attachments.map((attachment) => attachment.name).join(", ");
+    if (names && parts.text) return `${parts.text}\n\n[${names}]`;
+    if (names) return `[${names}]`;
+    return parts.text || content;
+}
+
+/** Copy rendered text for rich assistant chunks when its visible DOM is available. */
+function assistantMessageCopyText(content: string, body: HTMLDivElement | null): string {
+    const metadata = extractPresentationMetadata(content);
+    const chunks = parseMessageContent(metadata.content);
+    const renderedText = body?.innerText || body?.textContent || undefined;
+    const hasRendererOnlyChunks = chunks.some(
+        (chunk) => chunk.type !== "text" && chunk.type !== "openui",
+    );
+    if ((metadata.forked || metadata.renamed || hasRendererOnlyChunks) && renderedText?.trim()) {
+        return renderedText;
+    }
+    const openUIText = Array.from(
+        body?.querySelectorAll<HTMLElement>("[data-openui-block]") ?? [],
+        (element) => element.innerText || element.textContent || "",
+    );
+    return getMessageCopyText(chunks, openUIText, renderedText);
+}
+
+/** Select the role-specific text fallback used by clipboard and context-menu actions. */
+function messageCopyText(role: string, content: string, body: HTMLDivElement | null): string {
+    return role === "user" ? userMessageCopyText(content) : assistantMessageCopyText(content, body);
+}
+
+/** Render the user or assistant message body and its available actions. */
+const ChatMessageItemInner = ({
     role,
     content,
     timestamp,
@@ -294,39 +366,24 @@ function ChatMessageItemInner({
     onRestore,
     onFork,
     isFileEditResolved,
-}: ChatMessageItemProps) {
+}: ChatMessageItemProps) => {
     const viewedMessages = useChatStreamOptional().messages;
     const [expanded, setExpanded] = React.useState(false);
     const [forkOpen, setForkOpen] = React.useState(false);
     const [menuOpen, setMenuOpen] = React.useState(false);
-    const [menuStats, setMenuStats] = React.useState(stats);
-    const [menuModel, setMenuModel] = React.useState(model);
+    const [menuStats, setMenuStats] = React.useState<typeof stats>();
+    const [menuModel, setMenuModel] = React.useState<typeof model>();
     const [advanced, setAdvanced] = React.useState(false);
     const [contextVeil, setContextVeil] = React.useState(true);
     const bodyRef = React.useRef<HTMLDivElement>(null);
     const shownStats = menuStats ?? stats;
     const shownModel = menuModel ?? model;
 
-    React.useEffect(() => {
-        setMenuStats(stats);
-        setMenuModel(model);
-    }, [stats, model]);
+    /** Resolve a role-aware clipboard fallback from the current rendered message. */
+    const getCopyText = () => messageCopyText(role, content, bodyRef.current);
 
-    const getCopyText = () => {
-        if (role === "user") {
-            const parts = parseUserAttachments(content);
-            const names = parts.attachments.map((a) => a.name).join(", ");
-            if (names && parts.text) return `${parts.text}\n\n[${names}]`;
-            if (names) return `[${names}]`;
-            return parts.text || content;
-        }
-        return parseMessageContent(content)
-            .filter(c => c.type === "text" && c.content?.trim())
-            .map(c => c.content!.trim())
-            .join("\n\n");
-    };
-
-    const handleCopy = () => {
+    /** Prefer an explicit in-message selection; otherwise copy the normalized rendered message. */
+    function handleCopy(): void {
         const sel = window.getSelection();
         const selected = sel?.toString() ?? "";
         if (selected && bodyRef.current?.contains(sel?.anchorNode ?? null)) {
@@ -334,8 +391,9 @@ function ChatMessageItemInner({
             return;
         }
         void navigator.clipboard.writeText(getCopyText());
-    };
+    }
 
+    /** Select only the text rendered in this message body. */
     const handleSelectAll = () => {
         selectNodeContents(bodyRef.current);
     };
@@ -364,6 +422,10 @@ function ChatMessageItemInner({
     const userParts = React.useMemo(
         () => (isUser ? parseUserAttachments(content) : null),
         [isUser, content],
+    );
+    const keyedAttachments = React.useMemo(
+        () => withStableAttachmentKeys(userParts?.attachments ?? []),
+        [userParts],
     );
 
     const continueAction = React.useMemo(
@@ -409,8 +471,8 @@ function ChatMessageItemInner({
                                 <div ref={bodyRef} className="min-w-0 wrap-break-word select-text">
                                     {userParts.attachments.length > 0 && (
                                         <div className="mb-2 flex flex-wrap items-end gap-1.5">
-                                            {userParts.attachments.map((att, i) => (
-                                                <SentAttachment key={`${att.name}-${i}`} att={att} />
+                                            {keyedAttachments.map(({ attachment, key }) => (
+                                                <SentAttachment key={key} att={attachment} />
                                             ))}
                                         </div>
                                     )}
@@ -423,7 +485,7 @@ function ChatMessageItemInner({
                         <div className="flex w-fit items-center gap-0.5 self-end select-none opacity-0 transition-opacity group-hover:opacity-100">
                             <MessageSentTime timestamp={timestamp} />
                             <Tooltip content="Copy Message" side="top">
-                                <Button variant="ghost" size="icon" onClick={handleCopy}>
+                                <Button variant="ghost" size="icon" aria-label="Copy message" onClick={handleCopy}>
                                     <Icon icon={Clipboard20Regular} className="icon-md" />
                                 </Button>
                             </Tooltip>
@@ -438,43 +500,19 @@ function ChatMessageItemInner({
             </div>
             </ContextMenuTrigger>
             <ContextMenuContent>
-                <ContextMenuItem onClick={handleCopy}>
-                    <Icon icon={Clipboard20Regular} />
-                    Copy
-                    <ContextMenuShortcut>Ctrl+C</ContextMenuShortcut>
-                </ContextMenuItem>
-                <ContextMenuSeparator />
-                <ContextMenuItem onClick={handleSelectAll}>
-                    <Icon icon={SelectAllOn20Regular} />
-                    Select All
-                    <ContextMenuShortcut>Ctrl+A</ContextMenuShortcut>
-                </ContextMenuItem>
+                <MessageContextMenuItems onCopy={handleCopy} onSelectAll={handleSelectAll} />
             </ContextMenuContent>
             </ContextMenu>
         );
     }
 
     const showTypingOnly = Boolean(isGenerating && !content.trim());
-    let renderContent = content;
-    let forked: ReturnType<typeof parseForkedFrom> = null;
-    let renamed: ReturnType<typeof parseChatRenamed> = null;
-    if (role === "assistant") {
-        for (let i = 0; i < 2; i++) {
-            const nextFork = parseForkedFrom(renderContent);
-            if (nextFork) {
-                forked = nextFork;
-                renderContent = nextFork.rest;
-                continue;
-            }
-            const nextRenamed = parseChatRenamed(renderContent);
-            if (nextRenamed) {
-                renamed = nextRenamed;
-                renderContent = nextRenamed.rest;
-                continue;
-            }
-            break;
-        }
-    }
+    const presentation = role === "assistant"
+        ? extractPresentationMetadata(content)
+        : { content, forked: null, renamed: null };
+    const renderContent = presentation.content;
+    const forked = presentation.forked;
+    const renamed = presentation.renamed;
 
     return (
         <>
@@ -529,7 +567,7 @@ function ChatMessageItemInner({
             {!isGenerating && (
                 <div className="flex w-fit items-center gap-0.5 self-start select-none">
                     <Tooltip content="Copy Message" side="bottom">
-                        <Button variant="ghost" size="icon" onClick={handleCopy}>
+                        <Button variant="ghost" size="icon" aria-label="Copy message" onClick={handleCopy}>
                             <Icon icon={Clipboard20Regular} />
                         </Button>
                     </Tooltip>
@@ -542,6 +580,8 @@ function ChatMessageItemInner({
                         if (!open) {
                             setAdvanced(false);
                             setContextVeil(true);
+                            setMenuStats(() => undefined);
+                            setMenuModel(() => undefined);
                             return;
                         }
                         if (typeof index !== "number" || index < 0) return;
@@ -656,17 +696,7 @@ function ChatMessageItemInner({
         </div>
         </ContextMenuTrigger>
         <ContextMenuContent>
-            <ContextMenuItem onClick={handleCopy}>
-                <Icon icon={Clipboard20Regular} />
-                Copy
-                <ContextMenuShortcut>Ctrl+C</ContextMenuShortcut>
-            </ContextMenuItem>
-            <ContextMenuSeparator />
-            <ContextMenuItem onClick={handleSelectAll}>
-                <Icon icon={SelectAllOn20Regular} />
-                Select All
-                <ContextMenuShortcut>Ctrl+A</ContextMenuShortcut>
-            </ContextMenuItem>
+            <MessageContextMenuItems onCopy={handleCopy} onSelectAll={handleSelectAll} />
         </ContextMenuContent>
         </ContextMenu>
         <AlertDialog open={forkOpen} onOpenChange={setForkOpen}>
@@ -690,6 +720,24 @@ function ChatMessageItemInner({
                 </AlertDialogFooter>
             </AlertDialogContent>
         </AlertDialog>
+        </>
+    );
+};
+
+function MessageContextMenuItems({ onCopy, onSelectAll }: { onCopy: () => void; onSelectAll: () => void }) {
+    return (
+        <>
+            <ContextMenuItem onClick={onCopy}>
+                <Icon icon={Clipboard20Regular} />
+                Copy
+                <ContextMenuShortcut>Ctrl+C</ContextMenuShortcut>
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem onClick={onSelectAll}>
+                <Icon icon={SelectAllOn20Regular} />
+                Select All
+                <ContextMenuShortcut>Ctrl+A</ContextMenuShortcut>
+            </ContextMenuItem>
         </>
     );
 }

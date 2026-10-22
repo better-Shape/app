@@ -83,8 +83,22 @@ function SortableWorkspaceTab({
                     style={style}
                     {...attributes}
                     {...listeners}
+                    aria-label={tab.title}
+                    aria-pressed={isActive}
                     onClick={() => onSelect(tab.id)}
-                    className={cn(workbenchTabItemClass(isActive, isDragging), "max-w-44")}
+                    onKeyDown={(event) => {
+                        if (event.target !== event.currentTarget) return;
+                        if (event.key === "Enter" && !isDragging) {
+                            event.preventDefault();
+                            onSelect(tab.id);
+                            return;
+                        }
+                        listeners?.onKeyDown?.(event);
+                    }}
+                    className={cn(
+                        workbenchTabItemClass(isActive, isDragging),
+                        "max-w-44 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-text",
+                    )}
                 >
                     <div className={cn(WORKBENCH_TAB_CONTENT_CLASS, isActive && WORKBENCH_TAB_CONTENT_ACTIVE_CLASS)}>
                     <div className="relative flex h-4 w-4 shrink-0 items-center justify-center">

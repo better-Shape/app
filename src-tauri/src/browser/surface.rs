@@ -9,7 +9,7 @@
 use std::sync::Mutex;
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 const FRAME_NAME: &str = "bettershape-browser";
 const TOOLS_NAME: &str = "bettershape-devtools";
@@ -692,6 +692,62 @@ pub(crate) fn best_target(list: &[serde_json::Value], want: &str) -> Option<serd
         .map(|(_, item)| item)
 }
 
+/// Await a matching CDP response while preserving unmatched events for the caller.
+async fn next_cdp_response(
+    socket: &mut tokio_tungstenite::WebSocketStream<
+        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+    >,
+    id: i64,
+) -> Result<Option<serde_json::Value>, String> {
+    use futures::StreamExt;
+    use tokio_tungstenite::tungstenite::Message;
+
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
+    loop {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            return Ok(None);
+        }
+        let next = tokio::time::timeout(remaining, socket.next())
+            .await
+            .map_err(|_| "Developer tools didn't answer.".to_string())?;
+        let Some(message) = next else {
+            return Ok(None);
+        };
+        let text = match message.map_err(|error| error.to_string())? {
+            Message::Text(text) => text,
+            _ => continue,
+        };
+        let value: serde_json::Value =
+            serde_json::from_str(&text).unwrap_or(serde_json::Value::Null);
+        if value.get("id").and_then(|value| value.as_i64()) == Some(id) {
+            return Ok(Some(value));
+        }
+    }
+}
+
+async fn fetch_debugger_websocket_url(
+    client: &reqwest::Client,
+    on_request_error: impl FnOnce(reqwest::Error) -> String,
+) -> Result<Option<String>, String> {
+    let version = client
+        .get(format!(
+            "{}/json/version",
+            crate::browser::webview_debug::base_url()
+        ))
+        .send()
+        .await
+        .map_err(on_request_error)?
+        .json::<serde_json::Value>()
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok(version
+        .get("webSocketDebuggerUrl")
+        .and_then(serde_json::Value::as_str)
+        .filter(|url| !url.is_empty())
+        .map(str::to_owned))
+}
+
 async fn iframe_targets() -> Result<Vec<serde_json::Value>, String> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(2))
@@ -714,29 +770,13 @@ async fn iframe_targets() -> Result<Vec<serde_json::Value>, String> {
     }) {
         return Ok(list);
     }
-    let version = client
-        .get(format!(
-            "{}/json/version",
-            crate::browser::webview_debug::base_url()
-        ))
-        .send()
-        .await
-        .map_err(|e| e.to_string())?
-        .json::<serde_json::Value>()
-        .await
-        .map_err(|e| e.to_string())?;
-    let ws = version
-        .get("webSocketDebuggerUrl")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-    if ws.is_empty() {
+    let Some(ws) = fetch_debugger_websocket_url(&client, |error| error.to_string()).await? else {
         return Ok(list);
-    }
+    };
     let (mut socket, _) = tokio_tungstenite::connect_async(&ws)
         .await
         .map_err(|e| e.to_string())?;
-    use futures::{SinkExt, StreamExt};
+    use futures::SinkExt;
     use tokio_tungstenite::tungstenite::Message;
     socket
         .send(Message::Text(
@@ -744,38 +784,24 @@ async fn iframe_targets() -> Result<Vec<serde_json::Value>, String> {
         ))
         .await
         .map_err(|e| e.to_string())?;
-    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
-    while tokio::time::Instant::now() < deadline {
-        let next = tokio::time::timeout(std::time::Duration::from_secs(2), socket.next())
-            .await
-            .map_err(|_| "Developer tools didn't answer.".to_string())?;
-        let Some(msg) = next else { break };
-        let text = match msg.map_err(|e| e.to_string())? {
-            Message::Text(text) => text,
-            _ => continue,
-        };
-        let value: serde_json::Value =
-            serde_json::from_str(&text).unwrap_or(serde_json::Value::Null);
-        if value.get("id").and_then(|v| v.as_i64()) != Some(1) {
-            continue;
-        }
-        let infos = value
-            .pointer("/result/targetInfos")
-            .and_then(|v| v.as_array())
-            .cloned()
-            .unwrap_or_default();
-        return Ok(infos
-            .into_iter()
-            .map(|info| {
-                serde_json::json!({
-                    "url": info.get("url").cloned().unwrap_or(serde_json::Value::Null),
-                    "type": info.get("type").cloned().unwrap_or(serde_json::Value::Null),
-                    "id": info.get("targetId").cloned().unwrap_or(serde_json::Value::Null),
-                })
+    let Some(value) = next_cdp_response(&mut socket, 1).await? else {
+        return Ok(list);
+    };
+    let infos = value
+        .pointer("/result/targetInfos")
+        .and_then(|value| value.as_array())
+        .cloned()
+        .unwrap_or_default();
+    Ok(infos
+        .into_iter()
+        .map(|info| {
+            serde_json::json!({
+                "url": info.get("url").cloned().unwrap_or(serde_json::Value::Null),
+                "type": info.get("type").cloned().unwrap_or(serde_json::Value::Null),
+                "id": info.get("targetId").cloned().unwrap_or(serde_json::Value::Null),
             })
-            .collect());
-    }
-    Ok(list)
+        })
+        .collect())
 }
 
 #[cfg(windows)]
@@ -821,25 +847,11 @@ async fn session_call(target_id: &str, method: &str, params: &str) -> Result<(),
         .timeout(std::time::Duration::from_secs(2))
         .build()
         .map_err(|e| e.to_string())?;
-    let version = client
-        .get(format!(
-            "{}/json/version",
-            crate::browser::webview_debug::base_url()
-        ))
-        .send()
-        .await
-        .map_err(|_| "Restart BetterShape, then try again.".to_string())?
-        .json::<serde_json::Value>()
-        .await
-        .map_err(|e| e.to_string())?;
-    let ws = version
-        .get("webSocketDebuggerUrl")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-    if ws.is_empty() {
-        return Err("Restart BetterShape, then try again.".into());
-    }
+    let ws = fetch_debugger_websocket_url(&client, |_| {
+        "Restart BetterShape, then try again.".to_string()
+    })
+    .await?
+    .ok_or_else(|| "Restart BetterShape, then try again.".to_string())?;
     let (mut socket, _) = tokio_tungstenite::connect_async(&ws)
         .await
         .map_err(|e| e.to_string())?;
@@ -879,28 +891,9 @@ async fn next_cdp(
     >,
     id: i64,
 ) -> Result<serde_json::Value, String> {
-    use futures::StreamExt;
-    use tokio_tungstenite::tungstenite::Message;
-
-    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
-    while tokio::time::Instant::now() < deadline {
-        let next = tokio::time::timeout(std::time::Duration::from_secs(2), socket.next())
-            .await
-            .map_err(|_| "Developer tools didn't answer.".to_string())?;
-        let Some(msg) = next else {
-            break;
-        };
-        let text = match msg.map_err(|e| e.to_string())? {
-            Message::Text(text) => text,
-            _ => continue,
-        };
-        let value: serde_json::Value =
-            serde_json::from_str(&text).unwrap_or(serde_json::Value::Null);
-        if value.get("id").and_then(|v| v.as_i64()) == Some(id) {
-            return Ok(value);
-        }
-    }
-    Err("Developer tools didn't answer.".into())
+    next_cdp_response(socket, id)
+        .await?
+        .ok_or_else(|| "Developer tools didn't answer.".to_string())
 }
 
 #[tauri::command]

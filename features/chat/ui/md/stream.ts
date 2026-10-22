@@ -63,7 +63,8 @@ const STRIP_ACROSS_FENCES = [
 ] as const;
 
 /** Apply `fn` only to prose outside fenced code blocks (preserve legitimate examples). */
-function mapOutsideCodeFences(text: string, fn: (prose: string) => string): string {
+function mapOutsideCodeFences(text: string, fn: (prose: string) => string, includeFencedCode = false): string {
+    if (includeFencedCode) return fn(text);
     const parts = text.split(/(```[\s\S]*?```)/g);
     return parts
         .map((part, index) => {
@@ -73,19 +74,153 @@ function mapOutsideCodeFences(text: string, fn: (prose: string) => string): stri
         .join("");
 }
 
+/** Find a tag's closing bracket without swallowing a later tag after stray `<` prose. */
+const findTagEnd = (text: string, start: number): number => {
+    let quote: "'" | '"' | null = null;
+    let previousNonWhitespace = "";
+    for (let index = start; index < text.length; index += 1) {
+        const character = text[index] ?? "";
+        if (quote !== null) {
+            if (character === quote) quote = null;
+        } else if ((character === "'" || character === '"') && previousNonWhitespace === "=") {
+            quote = character;
+        } else if (character === "<") {
+            return -1;
+        } else if (character === ">") {
+            return index;
+        }
+        if (!/\s/.test(character)) previousNonWhitespace = character;
+    }
+    return -1;
+};
+
+type UnclosedTagAction =
+    | { type: "truncate"; from: number }
+    | { type: "remove"; from: number; nextIndex: number }
+    | { type: "skip"; nextIndex: number };
+
+/** Decide whether one matching opener must be hidden, removed, or skipped. */
+const inspectToolTagOpener = (
+    text: string,
+    match: RegExpExecArray,
+    afterName: number,
+    truncateNonSelfClosing: boolean,
+): UnclosedTagAction => {
+    const end = findTagEnd(text, afterName);
+    if (end === -1) return { type: "truncate", from: match.index };
+    const selfClosing = text.slice(afterName, end).trimEnd().endsWith("/");
+    if (truncateNonSelfClosing && !selfClosing) return { type: "truncate", from: match.index };
+    if (selfClosing) return { type: "skip", nextIndex: end + 1 };
+    return { type: "remove", from: match.index, nextIndex: end + 1 };
+};
+
+/** Remove malformed leaked-tag openers, optionally hiding the rest of a wrapper payload. */
+const stripUnclosedToolTag = (text: string, tag: string, truncateNonSelfClosing = false): string => {
+    const escapedTag = tag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const openingTag = new RegExp(`<${escapedTag}\\b`, "gi");
+    let match: RegExpExecArray | null;
+    while ((match = openingTag.exec(text)) !== null) {
+        const action = inspectToolTagOpener(text, match, openingTag.lastIndex, truncateNonSelfClosing);
+        if (action.type === "truncate") return text.slice(0, action.from);
+        if (action.type === "remove") {
+            // Preserve following prose; the normal closing-tag pass handles the companion token.
+            text = text.slice(0, action.from) + text.slice(action.nextIndex);
+            openingTag.lastIndex = action.from;
+            continue;
+        }
+        openingTag.lastIndex = action.nextIndex;
+    }
+    return text;
+};
+
+type MarkupTagCandidate = { start: number; end: number; source: string };
+
+/** Find the next complete markup token, retrying after a malformed `<` character. */
+const findNextMarkupTag = (text: string, from: number): MarkupTagCandidate | null => {
+    let searchFrom = from;
+    while (searchFrom < text.length) {
+        const start = text.indexOf("<", searchFrom);
+        if (start === -1) return null;
+        const end = findTagEnd(text, start + 1);
+        if (end !== -1) return { start, end, source: text.slice(start, end + 1) };
+        searchFrom = start + 1;
+    }
+    return null;
+};
+
+/** Apply one matching wrapper token to the nested-payload removal state. */
+const consumeNestedTag = (
+    text: string,
+    tagText: string,
+    start: number,
+    end: number,
+    matchingTag: RegExp,
+    output: string,
+    cursor: number,
+    depth: number,
+): { output: string; cursor: number; depth: number } => {
+    const match = matchingTag.exec(tagText);
+    if (!match) return { output, cursor, depth };
+
+    const closing = Boolean(match[1]);
+    const selfClosing = !closing && tagText.slice(match[0].length, -1).trimEnd().endsWith("/");
+    if (closing && depth > 0) {
+        const nextDepth = depth - 1;
+        return { output, cursor: nextDepth === 0 ? end + 1 : cursor, depth: nextDepth };
+    }
+    if (closing || (selfClosing && depth === 0)) {
+        return { output: output + text.slice(cursor, start), cursor: end + 1, depth };
+    }
+    if (selfClosing) return { output, cursor, depth };
+    if (depth === 0) return { output: output + text.slice(cursor, start), cursor, depth: 1 };
+    return { output, cursor, depth: depth + 1 };
+};
+
+/** Remove complete nested wrapper payloads without mistaking quoted or malformed tag text for delimiters. */
+const stripNestedTagBlocks = (text: string, tag: string): string => {
+    const escapedTag = tag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const matchingTag = new RegExp(`^<\\s*(\\/?)\\s*${escapedTag}\\b`, "i");
+    let output = "";
+    let cursor = 0;
+    let depth = 0;
+    let index = 0;
+
+    while (index < text.length) {
+        const candidate = findNextMarkupTag(text, index);
+        if (!candidate) break;
+        const next = consumeNestedTag(
+            text,
+            candidate.source,
+            candidate.start,
+            candidate.end,
+            matchingTag,
+            output,
+            cursor,
+            depth,
+        );
+        output = next.output;
+        cursor = next.cursor;
+        depth = next.depth;
+        index = candidate.end + 1;
+    }
+
+    if (depth > 0) return output;
+    return output + text.slice(cursor);
+};
+
 /**
  * Strip provider/model tool-call grammars that leaked into assistant text.
  * Surveyed shapes: DeepSeek DSML, Qwen/Hermes/GLM `<tool_call>`, MiniMax,
  * Kimi/Llama/Gemma `<|…|>` sentinels, Gemini `<function_calls>` / `tool_code`,
  * Mistral `[TOOL_CALLS]`, plus BetterShape terminal UI chunks.
  */
-export function stripLeakedToolMarkup(text: string): string {
+export function stripLeakedToolMarkup(text: string, options?: { includeFencedCode?: boolean }): string {
     const fw = "\uFF5C"; // fullwidth ｜ used by DeepSeek DSML
 
     let s = text;
     for (const tag of STRIP_ACROSS_FENCES) {
-        const esc = tag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        s = s.replace(new RegExp(`<${esc}\\b[^>]*>[\\s\\S]*?<\\/${esc}>`, "gi"), "");
+        s = stripNestedTagBlocks(s, tag);
+        s = stripUnclosedToolTag(s, tag, true);
     }
 
     s = mapOutsideCodeFences(s, (prose) => {
@@ -93,13 +228,9 @@ export function stripLeakedToolMarkup(text: string): string {
 
         for (const tag of LEAKED_TOOL_XML_TAGS) {
             const esc = tag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-            // Complete paired blocks.
             p = p.replace(new RegExp(`<${esc}\\b[^>]*>[\\s\\S]*?<\\/${esc}>`, "gi"), "");
-            // Self-closing / empty open tags.
+            p = stripUnclosedToolTag(p, tag);
             p = p.replace(new RegExp(`<${esc}\\b[^>]*\\/?>`, "gi"), "");
-            // Incomplete open still streaming → eat remainder of this prose segment.
-            p = p.replace(new RegExp(`<${esc}\\b[^>]*>[\\s\\S]*$`, "gi"), "");
-            // Stray closers.
             p = p.replace(new RegExp(`<\\/${esc}>`, "gi"), "");
         }
 
@@ -137,7 +268,7 @@ export function stripLeakedToolMarkup(text: string): string {
         p = p.replace(/<\/?parameter\s*=[^>]*>/gi, "");
 
         return p;
-    });
+    }, options?.includeFencedCode);
 
     return s.replace(/\n{3,}/g, "\n\n");
 }
@@ -150,7 +281,7 @@ export function stripLeakedToolMarkup(text: string): string {
  * ```
  * Also strips cross-model XML / sentinel tool grammars from prose.
  */
-export function stripLeakedToolCode(text: string): string {
+export function stripLeakedToolCode(text: string, options?: { includeFencedCode?: boolean }): string {
     let s = text;
 
     // Complete fenced blocks whose body looks like a tool leak.
@@ -175,7 +306,7 @@ export function stripLeakedToolCode(text: string): string {
     // MiniMax-Text-01 style: functions.name({...}) after a function_call fence remnant.
     s = s.replace(/(?:^|\n)\s*functions\.[a-zA-Z_][\w.]*\s*\(\{[\s\S]*$/g, "\n");
 
-    s = stripLeakedToolMarkup(s);
+    s = stripLeakedToolMarkup(s, options);
 
     return s.replace(/\n{3,}/g, "\n\n");
 }

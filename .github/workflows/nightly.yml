@@ -2,12 +2,7 @@ name: Nightly
 
 # Manual only: no schedule, so a nightly build never runs unattended.
 on:
-  workflow_dispatch:
-    inputs:
-      prerelease:
-        description: "Publish as prerelease?"
-        type: boolean
-        default: true
+  workflow_dispatch: {}
 
 permissions:
   contents: read
@@ -35,14 +30,14 @@ jobs:
             arch: aarch64
             target: aarch64-pc-windows-msvc
             bundles: nsis
-          # `macos-13` is retired from actions/runner-images; Intel is cross-compiled
-          # from the arm64 runner because the macOS SDK ships x86_64 slices.
+          # Build Intel natively: cross-compiling OpenSSL on arm64 lacks the
+          # target libraries/pkg-config metadata required by openssl-sys.
           - runner: macos-latest
             os: macos
             arch: aarch64
             target: aarch64-apple-darwin
             bundles: dmg
-          - runner: macos-latest
+          - runner: macos-15-intel
             os: macos
             arch: x86_64
             target: x86_64-apple-darwin
@@ -67,7 +62,8 @@ jobs:
           cache-key: nightly-${{ matrix.arch }}
 
       - run: npm ci
-
+        env:
+          DO_NOT_TRACK: "1"
       - name: Generate nightly version (for build)
         id: nightly-version
         shell: bash
@@ -166,10 +162,10 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
-  # Optional: Create nightly prerelease if manually triggered
+  # Manual dispatch attempts a draft publish; artifact guards may skip it.
   publish-nightly:
     name: Publish Nightly Prerelease
-    if: github.event_name == 'workflow_dispatch' && inputs.prerelease
+    if: github.event_name == 'workflow_dispatch'
     needs: build-check
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -187,7 +183,8 @@ jobs:
           cache: npm
 
       - run: npm ci
-
+        env:
+          DO_NOT_TRACK: "1"
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:

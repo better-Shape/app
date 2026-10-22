@@ -24,6 +24,7 @@ export function ApprovalCard({
     skipLabel = "Skip",
     acceptLabel = "Allow",
     isProcessing,
+    isDisabled = false,
     onSkip,
     onAccept,
     className,
@@ -36,13 +37,14 @@ export function ApprovalCard({
     skipLabel?: string;
     acceptLabel?: string;
     isProcessing?: boolean;
+    isDisabled?: boolean;
     onSkip: () => void;
     onAccept: () => void;
     className?: string;
 }) {
     React.useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
-            if (isProcessing) return;
+            if (isProcessing || isDisabled) return;
             const t = e.target as HTMLElement | null;
             if (t?.closest("textarea, input, [contenteditable='true']")) return;
             if ((e.metaKey || e.ctrlKey) && e.key === "Enter" && !e.shiftKey) {
@@ -53,7 +55,7 @@ export function ApprovalCard({
         };
         window.addEventListener("keydown", onKey, true);
         return () => window.removeEventListener("keydown", onKey, true);
-    }, [isProcessing, onAccept]);
+    }, [isProcessing, isDisabled, onAccept]);
 
     return (
         <div
@@ -75,10 +77,10 @@ export function ApprovalCard({
             <div className="flex items-center justify-between gap-2 px-2 py-2">
                 <div className="min-w-0">{footerLeft}</div>
                 <div className="flex shrink-0 items-center gap-1.5">
-                    <Button type="button" variant="ghost" size="sm" disabled={isProcessing} onClick={onSkip}>
+                    <Button type="button" variant="ghost" size="sm" disabled={isProcessing || isDisabled} onClick={onSkip}>
                         {skipLabel}
                     </Button>
-                    <Button type="button" variant="default" size="sm" disabled={isProcessing} onClick={onAccept}>
+                    <Button type="button" variant="default" size="sm" disabled={isProcessing || isDisabled} onClick={onAccept}>
                         {acceptLabel}
                         <Icon icon={ArrowEnter20Filled} />
                     </Button>

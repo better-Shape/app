@@ -65,6 +65,7 @@
     "@fontsource/ibm-plex-mono": "^5.2.7",
     "@internationalized/date": "^3.12.4",
     "@lezer/highlight": "^1.2.3",
+    "@openuidev/react-lang": "^1.0.1",
     "@radix-ui/react-alert-dialog": "^1.1.15",
     "@radix-ui/react-context-menu": "^2.2.16",
     "@radix-ui/react-dialog": "^1.1.15",
@@ -107,7 +108,8 @@
     "tailwind-merge": "^3.4.1",
     "thesvg": "^3.3.12",
     "transform-to-tailwindcss-core": "^0.0.43",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",

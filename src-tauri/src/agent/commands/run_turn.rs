@@ -823,7 +823,12 @@ pub async fn run_agent_turn(mut config: AgentTurnConfig<'_>) -> Result<AgentTurn
         }
 
         // Reset the UI activity label: we're back in the model, not a tool.
-        streaming::emit_chat_status(config.app_handle, json!({ "phase": "model" }));
+        streaming::emit_chat_status(
+            config.app_handle,
+            config.proxy_ctx.turn_id.as_deref(),
+            config.proxy_ctx.conversation_id.as_deref(),
+            json!({ "phase": "model" }),
+        );
 
         let outcome = match streaming::stream_chat_with_retry(
             config.client,
@@ -876,6 +881,8 @@ pub async fn run_agent_turn(mut config: AgentTurnConfig<'_>) -> Result<AgentTurn
                 );
                 streaming::emit_chat_status(
                     config.app_handle,
+                    config.proxy_ctx.turn_id.as_deref(),
+                    config.proxy_ctx.conversation_id.as_deref(),
                     json!({ "phase": "model", "label": "Retrying after model error" }),
                 );
                 continue;
@@ -956,6 +963,8 @@ pub async fn run_agent_turn(mut config: AgentTurnConfig<'_>) -> Result<AgentTurn
                 }));
                 streaming::emit_chat_status(
                     config.app_handle,
+                    config.proxy_ctx.turn_id.as_deref(),
+                    config.proxy_ctx.conversation_id.as_deref(),
                     json!({ "phase": "model", "label": "Continuing" }),
                 );
                 continue;
@@ -1047,6 +1056,8 @@ pub async fn run_agent_turn(mut config: AgentTurnConfig<'_>) -> Result<AgentTurn
             if tool_calls[0].name != "decide" {
                 streaming::emit_chat_status(
                     config.app_handle,
+                    config.proxy_ctx.turn_id.as_deref(),
+                    config.proxy_ctx.conversation_id.as_deref(),
                     json!({ "phase": "tool", "tool": tool_calls[0].name }),
                 );
             }
@@ -1259,7 +1270,12 @@ pub async fn run_agent_turn(mut config: AgentTurnConfig<'_>) -> Result<AgentTurn
                 } else {
                     json!({ "phase": "tool", "tool": call.name })
                 };
-                streaming::emit_chat_status(config.app_handle, tool_status);
+                streaming::emit_chat_status(
+                    config.app_handle,
+                    config.proxy_ctx.turn_id.as_deref(),
+                    config.proxy_ctx.conversation_id.as_deref(),
+                    tool_status,
+                );
             }
 
             if call.name == "read_file" {
