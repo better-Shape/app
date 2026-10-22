@@ -37,6 +37,8 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
             void initSettings();
             initGitHubAuth();
             void import("@/lib/ai/sync").then(({ initAiConfigSync }) => initAiConfigSync());
+            // Warm the public model catalog (models.dev) in the background.
+            void import("@/lib/ai/model-catalog").then(({ primeModelCatalog }) => primeModelCatalog());
 
             // MCP: sync user mcp.json so the agent sees tools without visiting Settings.
             void (async () => {
