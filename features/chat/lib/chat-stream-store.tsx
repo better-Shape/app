@@ -601,6 +601,8 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
                 const { stats, model, error, conversationId, content, turnId } =
                     event.payload ?? {};
                 if (isForeignConversation(conversationId)) return;
+                // Ignore duplicate completions before they can overwrite the settled transcript.
+                if (turnId && finishedTurns.has(turnId)) return;
                 // Record this exact turn even when it is stale for the visible conversation.
                 // Delayed tokens for it must not append into a newer live turn.
                 if (turnId) finishedTurns.add(turnId);

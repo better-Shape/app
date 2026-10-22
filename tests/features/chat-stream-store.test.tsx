@@ -271,6 +271,30 @@ describe("a chat that runs in the background stays in the background", () => {
         expect(api.activityLabel).toBe("A terminal command");
     });
 
+    it("ignores a duplicate completion instead of replacing the settled assistant answer", async () => {
+        await mount("A");
+        await answerMessages("A", [msg("user", "A question"), msg("assistant", "streaming answer")]);
+        emit("chat_started", { conversationId: "A", turnId: "turn-a", model: "m" });
+
+        emit("chat_complete", {
+            conversationId: "A",
+            turnId: "turn-a",
+            content: "final answer",
+        });
+        expect(api.isLoading).toBe(false);
+        expect(api.turnId).toBeNull();
+        expect(api.messages.at(-1)?.content).toBe("final answer");
+
+        emit("chat_complete", {
+            conversationId: "A",
+            turnId: "turn-a",
+            content: "duplicate stale payload",
+        });
+        expect(api.isLoading).toBe(false);
+        expect(api.turnId).toBeNull();
+        expect(api.messages.at(-1)?.content).toBe("final answer");
+    });
+
     it("ignores a stale completion when a newer turn is live for the same conversation", async () => {
         await mount("A");
         await answerMessages("A", [msg("assistant", "existing transcript")]);
