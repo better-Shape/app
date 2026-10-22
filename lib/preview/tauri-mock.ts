@@ -743,6 +743,7 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
             providers: [],
             defaultModel: "auto",
             embeddingModel: "",
+            embeddingProvider: "",
             search: { provider: "", apiKey: "" },
             composio: { apiKey: "", userId: "" },
         }),

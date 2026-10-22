@@ -826,6 +826,7 @@ export const commands = {
         }[];
         defaultModel: string;
         embeddingModel: string;
+        embeddingProvider: string;
         search: { provider: string; apiKey: string };
         composio: { apiKey: string; userId: string };
     }) => invokeCommand<void>("set_ai_config", { config }),
@@ -848,6 +849,7 @@ export const commands = {
         }[];
             defaultModel: string;
             embeddingModel: string;
+            embeddingProvider: string;
             search: { provider: string; apiKey: string };
             composio: { apiKey: string; userId: string };
         }>("get_ai_config"),

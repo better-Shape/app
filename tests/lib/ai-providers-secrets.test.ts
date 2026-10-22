@@ -165,6 +165,29 @@ describe("embeddings routing", () => {
         groq.embeddingModel = "my-embed";
         expect(embeddingsTarget(groq)).toEqual({ id: "groq", model: "my-embed" });
     });
+
+    it("routes a vendor model to the connection that advertises it", () => {
+        // OpenAI and Mistral are both usable, and the user picked Mistral's own
+        // slug. Sending it to OpenAI 404s, so the pick must own the request.
+        const settings = withKey("openai", "sk-live");
+        settings.connections.mistral = { ...settings.connections.mistral, apiKey: "ms-live" };
+        settings.embeddingModel = "mistral-embed";
+
+        expect(embeddingsTarget(settings)).toEqual({ id: "mistral", model: "mistral-embed" });
+        const payload = toRustAiConfig(settings);
+        expect(payload.embeddingProvider).toBe("mistral");
+        expect(payload.embeddingModel).toBe("mistral-embed");
+    });
+
+    it("keeps a shared model on the preferred provider", () => {
+        // text-embedding-3-small is advertised by OpenAI and OpenRouter. With
+        // both usable the pick stays OpenAI, which is the cheaper direct route.
+        const settings = withKey("openai", "sk-live");
+        settings.connections.openrouter = { ...settings.connections.openrouter, apiKey: "sk-or-live" };
+        settings.embeddingModel = "text-embedding-3-small";
+
+        expect(embeddingsTarget(settings)).toEqual({ id: "openai", model: "text-embedding-3-small" });
+    });
 });
 
 describe("model discovery helpers", () => {

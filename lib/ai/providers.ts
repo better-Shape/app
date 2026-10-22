@@ -1083,14 +1083,25 @@ export function embeddingsTarget(settings: ProvidersSettings): { id: ProviderId;
   const chosen = settings.embeddingModel.trim();
   const preferredOf = (ids: ProviderId[]): ProviderId | undefined =>
     ids.find((id) => id === "openai") ?? ids.find((id) => id === "openrouter") ?? ids[0];
+  // A connection advertises a model only if its preset or the user pinned it.
+  // Routing a vendor slug such as `mistral-embed` to OpenAI 404s, so a named
+  // model goes to the connection that actually serves it.
+  const advertises = (id: ProviderId, model: string): boolean => {
+    const connection = settings.connections[id];
+    return (
+      (providerPreset(id).embeddingModels ?? []).includes(model) ||
+      (connection?.models ?? []).includes(model) ||
+      (connection?.extraModels ?? []).includes(model)
+    );
+  };
 
   if (chosen) {
     // Any OpenAI-wire connection can embed when the user names the model.
     const wire = PROVIDER_PRESETS.filter(
       (preset) => preset.kind === "openai" && isConnectionUsable(preset.id, settings.connections),
     ).map((preset) => preset.id);
-    const preferred = preferredOf(wire);
-    return preferred ? { id: preferred, model: chosen } : null;
+    const owner = wire.find((id) => advertises(id, chosen)) ?? preferredOf(wire);
+    return owner ? { id: owner, model: chosen } : null;
   }
 
   const known = embeddingProviders(settings);
@@ -1126,6 +1137,8 @@ export type RustAiConfig = {
   providers: RustAiProviderEntry[];
   defaultModel: string;
   embeddingModel: string;
+  /** Provider that serves `embeddingModel`; Rust routes to it, not to a guess. */
+  embeddingProvider: string;
   search: { provider: string; apiKey: string };
   composio: { apiKey: string; userId: string };
 };
@@ -1160,6 +1173,7 @@ export function toRustAiConfig(settings: ProvidersSettings): RustAiConfig {
     providers,
     defaultModel,
     embeddingModel: embeddingTarget?.model ?? "",
+    embeddingProvider: embeddingTarget?.id ?? "",
     search: {
       provider: settings.services.search.provider,
       apiKey: settings.services.search.apiKey.trim(),

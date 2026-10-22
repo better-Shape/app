@@ -115,6 +115,11 @@ pub struct AiProviderConfig {
     /// Embedding model for the semantic codebase index (OpenAI wire only).
     #[serde(default)]
     pub embedding_model: String,
+    /// Provider that serves `embedding_model`. The frontend routes a named model
+    /// to the connection that advertises it; without this, a vendor slug such as
+    /// `mistral-embed` would be re-routed to OpenAI and rejected.
+    #[serde(default)]
+    pub embedding_provider: String,
     #[serde(default)]
     pub search: SearchConfig,
     #[serde(default)]
@@ -422,15 +427,30 @@ pub fn embeddings_target() -> Option<(ResolvedProvider, String)> {
     if !config.embeddings_enabled() {
         return None;
     }
-    let candidate = config
-        .providers
-        .iter()
-        .filter(|p| p.kind == ProviderKind::OpenAi && entry_usable(p))
-        .min_by_key(|p| match p.id.as_str() {
-            "openai" => 0,
-            "openrouter" => 1,
-            _ => 2,
-        })?;
+    let usable = |p: &&ProviderEntry| p.kind == ProviderKind::OpenAi && entry_usable(p);
+    // The frontend already routed the model to the connection that advertises
+    // it, so honour that pick rather than re-deriving one here.
+    let named = config.embedding_provider.trim();
+    let candidate = if named.is_empty() {
+        None
+    } else {
+        config
+            .providers
+            .iter()
+            .filter(usable)
+            .find(|p| p.id.eq_ignore_ascii_case(named))
+    };
+    let candidate = candidate.or_else(|| {
+        config
+            .providers
+            .iter()
+            .filter(usable)
+            .min_by_key(|p| match p.id.as_str() {
+                "openai" => 0,
+                "openrouter" => 1,
+                _ => 2,
+            })
+    })?;
     let model = if !config.embedding_model.trim().is_empty() {
         config.embedding_model.trim().to_string()
     } else if candidate.id.eq_ignore_ascii_case("openrouter") {
@@ -1224,6 +1244,43 @@ mod tests {
         let (provider, model) = embeddings_target().expect("explicit model");
         assert_eq!(provider.id, "groq");
         assert_eq!(model, "nomic-embed-text");
+    }
+
+    #[test]
+    fn a_named_embedding_provider_wins_over_the_preferred_default() {
+        let _guard = config_lock();
+        // OpenAI is usable and would win the preference order, but the frontend
+        // routed the vendor slug to Mistral. Sending `mistral-embed` to OpenAI
+        // 404s, so the named provider has to own the request.
+        let mut config = config_with(
+            vec![
+                entry("openai", ProviderKind::OpenAi, "k"),
+                entry("mistral", ProviderKind::OpenAi, "k"),
+            ],
+            "openai/gpt-5",
+        );
+        config.embedding_model = "mistral-embed".to_string();
+        config.embedding_provider = "mistral".to_string();
+        set_config(config);
+
+        let (provider, model) = embeddings_target().expect("mistral embeds");
+        assert_eq!(provider.id, "mistral");
+        assert_eq!(model, "mistral-embed");
+
+        // An unusable named provider falls back to the preference order instead
+        // of disabling the index.
+        let mut config = config_with(
+            vec![
+                entry("openai", ProviderKind::OpenAi, "k"),
+                entry("mistral", ProviderKind::OpenAi, ""),
+            ],
+            "openai/gpt-5",
+        );
+        config.embedding_model = "mistral-embed".to_string();
+        config.embedding_provider = "mistral".to_string();
+        set_config(config);
+        let (provider, _) = embeddings_target().expect("falls back to openai");
+        assert_eq!(provider.id, "openai");
     }
 
     #[test]
