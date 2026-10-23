@@ -221,9 +221,9 @@ Before you write prose for the human, in documentation, commit text or UI copy, 
 Run every gate that applies to your diff, then report each one as passed, failed or not run. Never call a gate green when you did not run it, and a clean run from before your last edit proves nothing.
 
 ```bash
-npm ci --ignore-scripts           # the install CI runs
+npm ci                            # the install CI runs
 npm run lint                      # ESLint, the CI lint gate
-npm run typecheck                # TypeScript, app and tests, zero errors
+npx tsc --noEmit                  # TypeScript, app and tests, zero errors
 npm run test                      # Vitest, after build:runtime
 npm run test:rust                 # Cargo tests for src-tauri
 npm run skills:verify             # every vendored skill matches skills-lock.json
@@ -237,9 +237,9 @@ Run the gate the way CI runs it. A piped command reports the exit code of the pi
 Preflight checklist (required before any push)
 
 - Run these locally and paste the head SHA plus results in the PR verification block:
-  - npm ci --ignore-scripts
+  - npm ci
   - npm run lint
-  - npm run typecheck
+  - npx tsc --noEmit
   - npm run build:runtime
   - npm run test:all
   - npm run test:rust (if touched src-tauri)
@@ -500,7 +500,7 @@ These preferences come from the user's standing instructions across many session
 - Port concepts, not architecture, from upstream projects whose stack differs from ours. Read the upstream implementation before you port anything, and write the port against this repository's stack.
 - Do not claim a platform is supported until an installer for it is produced by CI. Record the real support matrix in the docs, and name each platform's verification source.
 - On Linux, `cargo clippy` does not compile code behind `#[cfg(windows)]` or `#[cfg(target_os = "macos")]`. Say that a platform-gated Rust change was checked only by CI for that platform.
-- Vitest does not typecheck. Run `npm run typecheck` after your last edit, and report the result from that run.
+- Vitest does not typecheck. Run `npx tsc --noEmit` after your last edit, and report the result from that run.
 - Keep telemetry removed. Before you add any outbound call, follow the network rule above and confirm that the user asked for it.
 - Finish the work the task scopes. When a blocker stops you, name the blocker, the evidence and the next step in your report. Do not silently defer work. Do not silently invent or execute follow-up tasks the user did not confirm. You MUST proactively identify broader scope and offer a comprehensive solution, but you MUST get explicit confirmation before acting on it per the Proactive Problem Solving Protocol below.
 - Record a mistake's root cause, the corrected understanding, and the change in behaviour in `.dump/`, not in the chat or the pull request. Never write secrets or raw provider output there.
