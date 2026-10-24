@@ -15,6 +15,7 @@ import { FrameworkMark } from "@/features/chat/ui/shell/brand-marks";
 import {
     CHAT_COPY_MARKDOWN_EVENT,
     CHAT_EXPORT_MARKDOWN_EVENT,
+    dispatchToChatSurface,
     openChatFindBar,
 } from "@/features/chat/ui/shell/find-bar";
 import { prefetchChatConversation } from "@/features/chat/lib/chat-stream-store";
@@ -63,7 +64,7 @@ interface EditorAction {
 type PaletteGroup = Pick<EditorAction, "id" | "label" | "section" | "model" | "meta"> & { group: true };
 type PaletteRow = EditorAction | PaletteGroup;
 
-type PaletteFilter = "all" | "files";
+type PaletteFilter = "all" | "files" | "agents";
 
 const PALETTE_TAB_QUERIES = new Set(["all", "agents", "files", "actions", "settings"]);
 
@@ -169,7 +170,7 @@ function fuzzyScore(query: string, text: string): number {
 
 function HighlightedLabel({ text, query }: { text: string; query: string }) {
     const q = query.trim().toLowerCase();
-    if (!q || !text) return <>{text}</>;
+    if (!q || !text) return text;
     const lower = text.toLowerCase();
     const subIdx = lower.indexOf(q);
     if (subIdx !== -1) {
@@ -191,7 +192,7 @@ function HighlightedLabel({ text, query }: { text: string; query: string }) {
             qi += 1;
         }
     }
-    if (qi < q.length) return <>{text}</>;
+    if (qi < q.length) return text;
     const nodes: React.ReactNode[] = [];
     let runStart = 0;
     let runHighlighted = matched.has(0);
@@ -212,7 +213,7 @@ function HighlightedLabel({ text, query }: { text: string; query: string }) {
             runHighlighted = nextHighlighted;
         }
     }
-    return <>{nodes}</>;
+    return <span>{nodes}</span>;
 }
 
 function ShortcutBadge({ shortcut }: { shortcut: string }) {
@@ -258,8 +259,19 @@ export function CommandPalette() {
             setMode(openMode);
             setRecentFiles(Boolean(detail?.recent));
             setActiveFileBias(detail?.activeFile || null);
-            setFilterTab(openMode === "files" ? "files" : "all");
-            setPlaceholder(detail?.placeholder || browsePlaceholder(openMode, openMode === "files" ? "files" : "all"));
+            const initialFilterTab: PaletteFilter =
+                openMode === "files"
+                    ? "files"
+                    : detail?.filter?.trim().toLowerCase() === "agents"
+                      ? "agents"
+                      : "all";
+            setFilterTab(initialFilterTab);
+            setPlaceholder(
+                detail?.placeholder
+                || (initialFilterTab === "agents"
+                    ? "Search chat history..."
+                    : browsePlaceholder(openMode, initialFilterTab === "files" ? "files" : "all")),
+            );
 
             if (openMode === "goto_line") {
                 setActions([]);
@@ -325,8 +337,8 @@ export function CommandPalette() {
                 const live = sub.getSubagents();
                 const actions: PaletteRow[] = [];
                 const ordered = [
-                    ...convs.filter((c) => !c.archived).slice(0, 12),
-                    ...convs.filter((c) => c.archived).slice(0, 8),
+                    ...convs.filter((c) => !c.archived),
+                    ...convs.filter((c) => c.archived),
                 ];
                 for (const conv of ordered) {
                     const project = projectNameFromPath(conv.project_path);
@@ -559,16 +571,24 @@ export function CommandPalette() {
         let pool: PaletteRow[] = [];
         if (filterTab === "all") {
             const fileSlice = fileActions.slice(0, activeFileBias ? 6 : 8);
+            const agentSlice = query.trim()
+                ? agentActions
+                : [
+                      ...agentActions.filter((a) => !("muted" in a && a.muted)).slice(0, 12),
+                      ...agentActions.filter((a) => "muted" in a && a.muted).slice(0, 8),
+                  ];
             const actionSlice = query.trim()
                 ? actionCommands
                 : actionCommands.slice(0, 48);
             pool = [
                 ...currentFileActions,
-                ...agentActions,
+                ...agentSlice,
                 ...fileSlice,
                 ...actionSlice,
                 ...settingsCommands.slice(0, 8),
             ];
+        } else if (filterTab === "agents") {
+            pool = agentActions;
         } else if (filterTab === "files") {
             pool = activeFileBias ? [...currentFileActions, ...fileActions] : fileActions;
         }
@@ -604,7 +624,7 @@ export function CommandPalette() {
 
     const fallbackAskAction = useMemo<EditorAction | null>(() => {
         const trimmed = query.trim();
-        if (!trimmed || mode === "files" || (browse && filterTab !== "all")) return null;
+        if (!trimmed || !browse || mode === "files" || filterTab !== "all") return null;
         return {
             id: "agent:ask-fallback",
             label: `Ask Agent: "${trimmed}"`,
@@ -1493,11 +1513,6 @@ function getAppCommands(): EditorAction[] {
             label: "Chat: Find in Conversation",
             shortcut: "Ctrl+F",
             run: () => {
-                window.dispatchEvent(
-                    new CustomEvent("bettershape-center-view", {
-                        detail: "chat",
-                    }),
-                );
                 openChatFindBar();
             },
         },
@@ -1505,13 +1520,19 @@ function getAppCommands(): EditorAction[] {
             id: "app.chat.copyMarkdown",
             label: "Chat: Copy Chat as Markdown",
             shortcut: "",
-            run: () => window.dispatchEvent(new Event(CHAT_COPY_MARKDOWN_EVENT)),
+            run: () =>
+                dispatchToChatSurface(() =>
+                    window.dispatchEvent(new Event(CHAT_COPY_MARKDOWN_EVENT)),
+                ),
         },
         {
             id: "app.chat.exportMarkdown",
             label: "Chat: Export Chat as Markdown",
             shortcut: "",
-            run: () => window.dispatchEvent(new Event(CHAT_EXPORT_MARKDOWN_EVENT)),
+            run: () =>
+                dispatchToChatSurface(() =>
+                    window.dispatchEvent(new Event(CHAT_EXPORT_MARKDOWN_EVENT)),
+                ),
         },
         {
             id: "app.file.closeFolder",

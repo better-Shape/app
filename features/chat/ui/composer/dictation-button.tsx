@@ -43,17 +43,25 @@ function safeListen<T>(
 export const DictationButton = memo(function DictationButton() {
     const settings = useSettings();
     const [state, setState] = useState<DictationState>("idle");
+    const [isStarting, setIsStarting] = useState(false);
     const [level, setLevel] = useState(0);
     const [elapsedSec, setElapsedSec] = useState(0);
     const session = useRef<DictationSession | null>(null);
+    const startingRef = useRef(false);
+    const cancelledStartRef = useRef(false);
 
     const dispose = useCallback(() => {
-        const hadActiveSession = session.current !== null;
+        const hadActiveOrPending = session.current !== null || startingRef.current;
+        if (startingRef.current) {
+            cancelledStartRef.current = true;
+            startingRef.current = false;
+            setIsStarting(false);
+        }
         session.current?.dispose();
         session.current = null;
         setLevel(0);
         setElapsedSec(0);
-        if (hadActiveSession) {
+        if (hadActiveOrPending) {
             setState("idle");
         }
     }, []);
@@ -93,13 +101,16 @@ export const DictationButton = memo(function DictationButton() {
     }, [dispose]);
 
     useEffect(() => {
-        if (state !== "listening") return undefined;
+        if (state !== "listening" && !isStarting) return undefined;
         const started = Date.now();
-        const timer = window.setInterval(() => {
-            setElapsedSec(Math.floor((Date.now() - started) / 1000));
-        }, 500);
+        const timer =
+            state === "listening"
+                ? window.setInterval(() => {
+                      setElapsedSec(Math.floor((Date.now() - started) / 1000));
+                  }, 500)
+                : null;
         const onKey = (e: KeyboardEvent) => {
-            if (e.key === "Escape" && session.current) {
+            if (e.key === "Escape" && (session.current || startingRef.current)) {
                 e.preventDefault();
                 e.stopPropagation();
                 dispose();
@@ -107,10 +118,10 @@ export const DictationButton = memo(function DictationButton() {
         };
         window.addEventListener("keydown", onKey, true);
         return () => {
-            window.clearInterval(timer);
+            if (timer !== null) window.clearInterval(timer);
             window.removeEventListener("keydown", onKey, true);
         };
-    }, [state, dispose]);
+    }, [state, isStarting, dispose]);
 
     const toggle = useCallback(async () => {
         if (session.current) {
@@ -120,7 +131,14 @@ export const DictationButton = memo(function DictationButton() {
             setElapsedSec(0);
             return;
         }
+        if (startingRef.current) {
+            dispose();
+            return;
+        }
         setElapsedSec(0);
+        startingRef.current = true;
+        cancelledStartRef.current = false;
+        setIsStarting(true);
         try {
             const active = await startDictation(
                 {
@@ -132,8 +150,12 @@ export const DictationButton = memo(function DictationButton() {
                         );
                     },
                     onError: (message) => notificationStore.add(message, "error"),
-                    onState: setState,
-                    onLevel: setLevel,
+                    onState: (next) => {
+                        if (!cancelledStartRef.current) setState(next);
+                    },
+                    onLevel: (next) => {
+                        if (!cancelledStartRef.current) setLevel(next);
+                    },
                 },
                 microphoneConstraints(settings.voice.deviceId),
                 {
@@ -142,11 +164,22 @@ export const DictationButton = memo(function DictationButton() {
                     push: (wav) => commands.dictationPush(wav),
                 },
             );
+            startingRef.current = false;
+            setIsStarting(false);
+            if (cancelledStartRef.current) {
+                cancelledStartRef.current = false;
+                active.dispose();
+                setState("idle");
+                setLevel(0);
+                return;
+            }
             session.current = active;
         } catch {
+            startingRef.current = false;
+            setIsStarting(false);
             // `startDictation` has already surfaced the reason; the state is "error".
         }
-    }, [settings.voice.deviceId]);
+    }, [dispose, settings.voice.deviceId]);
 
     const isListening = state === "listening";
     const isProcessing = state === "processing";

@@ -45,6 +45,7 @@ function getHighlightApi(): {
     return { registry: cssObj.highlights, HighlightCtor };
 }
 
+/** Returns true when the browser supports the CSS Custom Highlight API. */
 export function isCssHighlightsSupported(): boolean {
     return getHighlightApi() !== null;
 }
@@ -62,6 +63,7 @@ function deleteOwnedHighlight(
     registry.delete(name);
 }
 
+/** Removes owned chat transcript highlight entries without disturbing other highlights. */
 export function clearChatDomHighlights(): void {
     const api = getHighlightApi();
     if (!api) {

@@ -8,9 +8,14 @@ import { tableCellModelId } from "@/lib/chat/fence-tables";
 import styles from "./data-table.module.css";
 
 function escapeMdCell(cell: string): string {
-    return cell.replace(/\r?\n/g, " ").replace(/\|/g, "\\|").trim();
+    return cell
+        .replace(/\r?\n/g, " ")
+        .replace(/\\/g, "\\\\")
+        .replace(/\|/g, "\\|")
+        .trim();
 }
 
+/** Formats header and body cells into an escaped GFM pipe table. */
 export function formatRowsAsMarkdownTable(headers: string[], rows: string[][]): string {
     const colCount = Math.max(
         headers.length,
@@ -135,6 +140,10 @@ export function MarkdownTableShell({ children }: { children?: React.ReactNode })
         const next = extractDomTableAsMarkdown(wrapRef.current);
         setMdText((prev) => (prev === next ? prev : next));
     }, []);
+
+    React.useEffect(() => {
+        syncTableMarkdown();
+    }, [children, syncTableMarkdown]);
 
     return (
         <div

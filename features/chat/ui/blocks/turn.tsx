@@ -689,14 +689,15 @@ function StepRow({ block }: { block: Chunk }) {
                 </ActionLine>
             );
         }
-        const summary = raw.replace(/\s+/g, " ").trim().slice(0, 72);
+        const collapsed = raw.replace(/\s+/g, " ").trim();
+        const summary = collapsed.slice(0, 72);
         return (
             <ActionLine
                 action="Ran"
-                detail={summary ? `${summary}${raw.length > 72 ? "..." : ""}` : "tool"}
+                detail={summary ? `${summary}${collapsed.length > 72 ? "..." : ""}` : "tool"}
                 icon={<Icon icon={Wrench20Regular} className="size-3.5 text-text-muted/80" />}
             >
-                {raw.trim().length > 72 ? (
+                {collapsed.length > 72 ? (
                     <pre className="mt-1 mb-1 max-h-48 overflow-auto rounded-lg border border-border-subtle bg-surface-2/50 px-2.5 py-2 font-mono text-2xs text-text-secondary whitespace-pre-wrap custom-scrollbar">
                         {raw.trim()}
                     </pre>

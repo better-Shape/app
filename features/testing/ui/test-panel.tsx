@@ -36,6 +36,7 @@ function relativeSuitePath(filePath: string, projectPath: string | null): string
     return cleanFile;
 }
 
+/** Builds a targeted prompt asking the agent to fix one or more failing tests. */
 export function buildFailingTestPrompt(
     failures: ReadonlyArray<{ suiteFile: string; testName: string; error?: string }>,
     projectPath: string | null,
@@ -79,9 +80,6 @@ function StatusIcon({ status }: { status: TestStatus }) {
             return <Icon icon={DismissCircle20Filled} className="shrink-0 text-error" />;
         case "running":
             return <Icon icon={ArrowSync20Regular} className="shrink-0 animate-spin text-info" />;
-        case "skipped":
-        case "pending":
-            return <Icon icon={Circle20Regular} className="shrink-0 text-text-muted" />;
         default:
             return <Icon icon={Circle20Regular} className="shrink-0 text-text-muted" />;
     }

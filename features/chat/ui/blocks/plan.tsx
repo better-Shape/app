@@ -43,7 +43,8 @@ export function PlanningBlock({ steps, completedCount, totalCount, isGenerating 
     isGenerating?: boolean;
 }) {
     const rootRef = useRef<HTMLDivElement>(null);
-    const [isOpen, setIsOpen] = React.useState(totalCount <= 5);
+    const [manualOpen, setManualOpen] = React.useState<boolean | null>(null);
+    const isOpen = manualOpen ?? totalCount <= 5;
     const displaySteps = React.useMemo(
         () => freezeActiveSteps(steps, isGenerating),
         [steps, isGenerating],
@@ -80,7 +81,7 @@ export function PlanningBlock({ steps, completedCount, totalCount, isGenerating 
             const matched = detail.caseSensitive
                 ? haystack.includes(q)
                 : haystack.toLowerCase().includes(q.toLowerCase());
-            if (matched) setIsOpen(true);
+            if (matched) setManualOpen(true);
         };
         window.addEventListener(CHAT_EXPAND_FOR_FIND_EVENT, onExpandForFind as EventListener);
         return () => {
@@ -91,7 +92,7 @@ export function PlanningBlock({ steps, completedCount, totalCount, isGenerating 
     const handleToggle = () => {
         if (!canToggle) return;
         notifyTranscriptDisclosureToggle(rootRef.current);
-        setIsOpen((open) => !open);
+        setManualOpen((prev) => !(prev ?? totalCount <= 5));
     };
 
     return (

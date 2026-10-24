@@ -13,6 +13,7 @@ type ProjectStateStore = {
     currentState: ProjectState;
     subscribers: Set<() => void>;
     initialized: boolean;
+    eventRevision: number;
 };
 
 /**
@@ -29,6 +30,7 @@ function getStore(): ProjectStateStore {
             currentState: initialState,
             subscribers: new Set(),
             initialized: false,
+            eventRevision: 0,
         };
     }
     return g.__bettershapeProjectState;
@@ -50,10 +52,12 @@ function initializeStateBridge() {
     const store = getStore();
     if (store.initialized || typeof window === "undefined") return;
     store.initialized = true;
+    const snapshotRevision = store.eventRevision;
 
     commands
         .getProjectState()
         .then((next) => {
+            if (store.eventRevision !== snapshotRevision) return;
             store.currentState = next;
             emitState();
         })
@@ -70,6 +74,7 @@ function initializeStateBridge() {
 
     try {
         listen<ProjectState>("project-state-update", (event) => {
+            store.eventRevision += 1;
             const next = event.payload;
             const current = store.currentState;
 

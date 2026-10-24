@@ -15,15 +15,68 @@ export const CHAT_EXPAND_FOR_FIND_EVENT = "bettershape-chat-expand-for-find";
 export const CHAT_COPY_MARKDOWN_EVENT = "bettershape-chat-copy-markdown";
 export const CHAT_EXPORT_MARKDOWN_EVENT = "bettershape-chat-export-markdown";
 
-export function openChatFindBar(initialQuery?: string) {
-    if (typeof window === "undefined") return;
-    window.dispatchEvent(
-        new CustomEvent(CHAT_FIND_OPEN_EVENT, {
-            detail: initialQuery ? { query: initialQuery } : undefined,
-        }),
-    );
+let mountedChatSurfaceCount = 0;
+const pendingChatSurfaceActions: Array<{ run: () => void; timer: number }> = [];
+
+/**
+ * Registers an active `<Chat />` listener mount and flushes any palette/menu
+ * actions that dismissed an overlay to reach the chat surface.
+ */
+export function registerMountedChatSurface(): () => void {
+    mountedChatSurfaceCount += 1;
+    if (pendingChatSurfaceActions.length > 0 && typeof window !== "undefined") {
+        const queued = pendingChatSurfaceActions.splice(0, pendingChatSurfaceActions.length);
+        queueMicrotask(() => {
+            for (const entry of queued) {
+                window.clearTimeout(entry.timer);
+                entry.run();
+            }
+        });
+    }
+    return () => {
+        mountedChatSurfaceCount = Math.max(0, mountedChatSurfaceCount - 1);
+    };
 }
 
+/**
+ * Runs `action` immediately if `<Chat />` is mounted; otherwise switches center
+ * view to `"chat"` and runs `action` as soon as `<Chat />` mounts its listeners.
+ */
+export function dispatchToChatSurface(action: () => void) {
+    if (typeof window === "undefined") return;
+    if (mountedChatSurfaceCount > 0) {
+        action();
+        return;
+    }
+    window.dispatchEvent(new CustomEvent("bettershape-center-view", { detail: "chat" }));
+    const entry = {
+        run: action,
+        timer: window.setTimeout(() => {
+            const idx = pendingChatSurfaceActions.indexOf(entry);
+            if (idx !== -1) pendingChatSurfaceActions.splice(idx, 1);
+        }, 2000),
+    };
+    pendingChatSurfaceActions.push(entry);
+}
+
+/** Opens the in-conversation Find bar, switching back from overlays if needed. */
+export function openChatFindBar(initialQuery?: string) {
+    if (typeof window === "undefined") return;
+    const fire = () => {
+        window.dispatchEvent(
+            new CustomEvent(CHAT_FIND_OPEN_EVENT, {
+                detail: initialQuery ? { query: initialQuery } : undefined,
+            }),
+        );
+    };
+    if (mountedChatSurfaceCount > 0) {
+        fire();
+        return;
+    }
+    dispatchToChatSurface(fire);
+}
+
+/** Signals that a transcript disclosure toggled so Stick-to-Bottom preserves scroll anchor. */
 export function notifyTranscriptDisclosureToggle(element?: HTMLElement | null) {
     if (typeof window === "undefined") return;
     window.dispatchEvent(
@@ -33,6 +86,7 @@ export function notifyTranscriptDisclosureToggle(element?: HTMLElement | null) {
     );
 }
 
+/** Compact floating search bar for finding text within the active chat transcript. */
 export function ChatFindBar({
     open,
     query,

@@ -49,6 +49,41 @@ export function extractCleanUserPrompts(
     return out;
 }
 
+/**
+ * Merges already newest-first prompt history with chronological in-session
+ * sent prompts (where `extraChronological[last]` is most recent), deduplicating
+ * while preserving newest-first recall order.
+ */
+export function mergeNewestFirstPrompts(
+    newestFirstPrompts: ReadonlyArray<string>,
+    extraChronological: ReadonlyArray<string> = [],
+    maxCount = 50,
+): string[] {
+    const out: string[] = [];
+    const seen = new Set<string>();
+
+    const pushClean = (raw: string | undefined) => {
+        if (!raw) return;
+        const cleaned = raw
+            .replace(/<attached_(?:image|file|asset)\b[^>]*>[\s\S]*?<\/attached_(?:image|file|asset)>\n*/gi, "")
+            .trim();
+        if (!cleaned || seen.has(cleaned)) return;
+        seen.add(cleaned);
+        out.push(cleaned);
+    };
+
+    for (let i = extraChronological.length - 1; i >= 0 && out.length < maxCount; i--) {
+        pushClean(extraChronological[i]);
+    }
+
+    for (let i = 0; i < newestFirstPrompts.length && out.length < maxCount; i++) {
+        pushClean(newestFirstPrompts[i]);
+    }
+
+    return out;
+}
+
+/** Returns true when a collapsed caret sits on the first logical line of `value`. */
 export function isCaretOnFirstLogicalLine(
     value: string,
     selectionStart: number | null | undefined,
@@ -60,6 +95,7 @@ export function isCaretOnFirstLogicalLine(
     return value.lastIndexOf("\n", Math.max(0, start - 1)) === -1 || start === 0;
 }
 
+/** Returns true when a collapsed caret sits on the last logical line of `value`. */
 export function isCaretOnLastLogicalLine(
     value: string,
     selectionStart: number | null | undefined,
@@ -106,6 +142,7 @@ export function isUnmodifiedHistoryRecall(
     return cursor !== null && currentValue === cursor.recalledValue;
 }
 
+/** Steps one entry older in `prompts`, stashing `currentValue` on initial entry. */
 export function stepPromptHistoryUp(
     cursor: PromptHistoryCursor | null,
     currentValue: string,
@@ -130,18 +167,19 @@ export function stepPromptHistoryUp(
     };
 }
 
+/** Steps one entry newer in `prompts`, restoring `stashedDraft` past index `0`. */
 export function stepPromptHistoryDown(
     cursor: PromptHistoryCursor | null,
     prompts: ReadonlyArray<string>,
 ): { cursor: PromptHistoryCursor | null; value: string } | null {
     if (!cursor) return null;
-    if (cursor.index <= 0) {
+    if (cursor.index <= 0 || prompts.length === 0) {
         return {
             cursor: null,
             value: cursor.stashedDraft,
         };
     }
-    const nextIndex = cursor.index - 1;
+    const nextIndex = Math.min(cursor.index - 1, prompts.length - 1);
     const value = prompts[nextIndex] ?? cursor.stashedDraft;
     return {
         cursor: { index: nextIndex, stashedDraft: cursor.stashedDraft, recalledValue: value },

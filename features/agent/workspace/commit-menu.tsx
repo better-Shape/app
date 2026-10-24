@@ -256,6 +256,7 @@ export function CommitMenu({ projectPath }: { projectPath: string }) {
     const [busy, setBusy] = useState(false);
     const [title, setTitle] = useState("");
     const [description, setDescription] = useState("");
+    const [descriptionOpen, setDescriptionOpen] = useState(false);
     const [lastMessage, setLastMessage] = useState("");
     const [hasRemote, setHasRemote] = useState(false);
     const [ahead, setAhead] = useState(0);
@@ -402,6 +403,7 @@ export function CommitMenu({ projectPath }: { projectPath: string }) {
             notify.success("Git", amend ? "Commit amended" : "Committed");
             setTitle("");
             setDescription("");
+            setDescriptionOpen(false);
             await refresh();
         } catch (err) {
             notify.gitError(err);
@@ -582,6 +584,11 @@ export function CommitMenu({ projectPath }: { projectPath: string }) {
                                     if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
                                         event.preventDefault();
                                         commitAll();
+                                        return;
+                                    }
+                                    if (event.key === "Enter" && event.shiftKey) {
+                                        event.preventDefault();
+                                        setDescriptionOpen(true);
                                     }
                                 }}
                             />
@@ -592,14 +599,24 @@ export function CommitMenu({ projectPath }: { projectPath: string }) {
                                 onClick={() => void suggest()}
                             />
                         </div>
-                        {description ? (
+                        {description || descriptionOpen ? (
                             <textarea
                                 value={description}
+                                placeholder="Description (optional)"
                                 disabled={busy}
                                 rows={2}
-                                onChange={(event) => setDescription(event.target.value)}
-                                onKeyDown={(event) => event.stopPropagation()}
-                                className="w-full resize-none border-t border-border-subtle bg-transparent px-3 py-2 text-xs leading-relaxed text-text-secondary outline-none"
+                                onChange={(event) => {
+                                    setDescriptionOpen(true);
+                                    setDescription(event.target.value);
+                                }}
+                                onKeyDown={(event) => {
+                                    event.stopPropagation();
+                                    if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+                                        event.preventDefault();
+                                        commitAll();
+                                    }
+                                }}
+                                className="w-full resize-none border-t border-border-subtle bg-transparent px-3 py-2 text-xs leading-relaxed text-text-secondary outline-none placeholder:text-text-disabled"
                             />
                         ) : null}
                     </div>

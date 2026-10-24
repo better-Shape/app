@@ -364,6 +364,7 @@ export function ComposerAttachments({
     onInsertInline?: (id: string, text: string) => void;
 }) {
     const overlayRoot = useOverlayRoot();
+    const previewReqIdRef = React.useRef(0);
     const [previewing, setPreviewing] = React.useState<{
         id: string;
         name: string;
@@ -373,9 +374,11 @@ export function ComposerAttachments({
     } | null>(null);
 
     const handleOpenPreview = React.useCallback((att: ComposerAttachment) => {
+        const reqId = ++previewReqIdRef.current;
         void att.file
             .text()
             .then((raw) => {
+                if (previewReqIdRef.current !== reqId) return;
                 const normalized = raw.replace(/\r\n/g, "\n");
                 const lineCount = normalized.length === 0 ? 0 : normalized.split("\n").length;
                 setPreviewing({
@@ -405,7 +408,15 @@ export function ComposerAttachments({
                     />
                 ))}
             </div>
-            <Dialog.Root open={Boolean(previewing)} onOpenChange={(open) => !open && setPreviewing(null)}>
+            <Dialog.Root
+                open={Boolean(previewing)}
+                onOpenChange={(open) => {
+                    if (!open) {
+                        previewReqIdRef.current += 1;
+                        setPreviewing(null);
+                    }
+                }}
+            >
                 <Dialog.Portal container={overlayRoot}>
                     <Dialog.Overlay className={BETTERSHAPE_OVERLAY_CLASS} />
                     <Dialog.Content

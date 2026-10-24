@@ -149,6 +149,7 @@ function MentionRichText({ text }: { text: string }) {
                     <Tooltip key={`${keyPrefix}-p-${i}`} content={path}>
                         <button
                             type="button"
+                            data-chat-find-text
                             onClick={() => void openProjectFile(path, name)}
                             className="inline cursor-pointer font-mono text-[0.9em] text-accent-text underline-offset-2 transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:underline"
                         >
@@ -347,20 +348,24 @@ function ChatMessageItemInner({
         copyResetRef.current = setTimeout(() => setCopied(false), 1400);
     };
 
+    const selectionContainedInBody = (sel: Selection | null): boolean => {
+        const root = bodyRef.current;
+        if (!sel || !root || sel.rangeCount === 0) return false;
+        const range = sel.getRangeAt(0);
+        return root.contains(range.startContainer) && root.contains(range.endContainer);
+    };
+
     const handleCopy = () => {
         const sel = window.getSelection();
         const selected = sel?.toString() ?? "";
-        const targetText =
-            selected && bodyRef.current?.contains(sel?.anchorNode ?? null)
-                ? selected
-                : getCopyText();
+        const targetText = selected && selectionContainedInBody(sel) ? selected : getCopyText();
         void navigator.clipboard?.writeText(targetText).then(markCopied).catch(() => {});
     };
 
     const handleQuoteMessage = () => {
         const sel = window.getSelection();
         const selected = sel?.toString().trim() ?? "";
-        if (selected && bodyRef.current?.contains(sel?.anchorNode ?? null)) {
+        if (selected && selectionContainedInBody(sel)) {
             dispatchChatQuote(selected);
             sel?.removeAllRanges();
             return;
@@ -446,7 +451,7 @@ function ChatMessageItemInner({
                                     <div className="mb-2 flex flex-col gap-1.5">
                                         {userQuotes.map((qText, qi) => (
                                             <blockquote
-                                                key={qi}
+                                                key={`quote-${qi}-${qText.slice(0, 16)}`}
                                                 className="flex items-start gap-2 rounded-xl border border-border-subtle bg-surface-2 px-3 py-2 text-xs leading-relaxed text-text-secondary whitespace-pre-wrap"
                                             >
                                                 <Icon

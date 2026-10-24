@@ -126,12 +126,15 @@ function brandForStep(query: string, sources: WebSearchResult[]): Brand | null {
 function SiteMark({ url, brand, size = 14 }: { url?: string; brand?: Brand | null; size?: number }) {
     const resolved = brand ?? (url ? brandFromText(memoizedHostname(url)) : null);
     const slug = resolved?.slug ?? null;
-    const [failed, setFailed] = useState(() => (slug ? failedBrandSlugs.has(slug) : false));
+    const [failedSlug, setFailedSlug] = useState<string | null>(() =>
+        slug && failedBrandSlugs.has(slug) ? slug : null,
+    );
+    const failed = Boolean(slug && (failedSlug === slug || failedBrandSlugs.has(slug)));
 
     useEffect(() => {
         if (!slug || failed) return undefined;
-        const onSlugFailed = (failedSlug: string) => {
-            if (failedSlug === slug) setFailed(true);
+        const onSlugFailed = (nextFailedSlug: string) => {
+            if (nextFailedSlug === slug) setFailedSlug(slug);
         };
         failedBrandListeners.add(onSlugFailed);
         return () => {
@@ -139,7 +142,7 @@ function SiteMark({ url, brand, size = 14 }: { url?: string; brand?: Brand | nul
         };
     }, [slug, failed]);
 
-    if (resolved && !failed && !failedBrandSlugs.has(resolved.slug)) {
+    if (resolved && !failed) {
         return (
             <span className={cn("inline-flex shrink-0", resolved.invert && "dark:invert")}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -153,7 +156,7 @@ function SiteMark({ url, brand, size = 14 }: { url?: string; brand?: Brand | nul
                     draggable={false}
                     onError={() => {
                         markBrandSlugFailed(resolved.slug);
-                        setFailed(true);
+                        setFailedSlug(resolved.slug);
                     }}
                 />
             </span>

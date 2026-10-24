@@ -134,7 +134,7 @@ export function ChatErrorDialog({
                                 </AlertDialogAction>
                             ) : (
                                 <AlertDialogAction asChild>
-                                    <Button type="button" size="lg" className="w-full" onClick={onDismiss}>
+                                    <Button type="button" size="lg" className="w-full">
                                         OK
                                     </Button>
                                 </AlertDialogAction>

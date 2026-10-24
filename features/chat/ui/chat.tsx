@@ -25,6 +25,7 @@ import {
     CHAT_EXPORT_MARKDOWN_EVENT,
     CHAT_FIND_OPEN_EVENT,
     ChatFindBar,
+    registerMountedChatSurface,
 } from "./shell/find-bar";
 import { findTranscriptMatches } from "@/lib/chat/transcript-search";
 import { clearChatDomHighlights, syncChatDomHighlights } from "@/lib/chat/dom-highlights";
@@ -53,6 +54,7 @@ function stickyPromptText(content: string): string {
     return `${cleaned.slice(0, 117)}...`;
 }
 
+/** Detects pending human-in-the-loop approval or question blocks in the transcript. */
 export function detectPendingHitl(
     messages: readonly { role?: string; content?: string }[],
     isLoading: boolean,
@@ -615,6 +617,7 @@ export default function Chat({
             if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== "f") {
                 return;
             }
+            if (getActiveSubagent()) return;
             const target = e.target instanceof HTMLElement ? e.target : null;
             if (target?.closest(".cm-editor, .xterm, [role='dialog']")) return;
             const shell = chatShellRef.current;
@@ -658,7 +661,9 @@ export default function Chat({
         window.addEventListener("keydown", onKeyDown);
         window.addEventListener(CHAT_COPY_MARKDOWN_EVENT, onCopyMarkdown);
         window.addEventListener(CHAT_EXPORT_MARKDOWN_EVENT, onExportMarkdown);
+        const unregisterSurface = registerMountedChatSurface();
         return () => {
+            unregisterSurface();
             window.removeEventListener(CHAT_FIND_OPEN_EVENT, onOpenFind as EventListener);
             window.removeEventListener("keydown", onKeyDown);
             window.removeEventListener(CHAT_COPY_MARKDOWN_EVENT, onCopyMarkdown);

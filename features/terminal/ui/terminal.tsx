@@ -463,7 +463,7 @@ function TerminalInstance({ tab, isActive }: { tab: TerminalTab, isActive: boole
                 xtermRef.current = term;
                 fitAddonRef.current = fitAddon;
                 if (tab.shell !== "ai") {
-                    const pendingCmd = globalTerminalStore.takePendingCommandInsert();
+                    const pendingCmd = globalTerminalStore.takePendingCommandInsert(tab.id);
                     const attachedTerm = term;
                     if (pendingCmd && attachedTerm) {
                         setTimeout(() => {
@@ -482,6 +482,9 @@ function TerminalInstance({ tab, isActive }: { tab: TerminalTab, isActive: boole
                     term.scrollToBottom();
                 }
             } catch (e) {
+                if (tab.shell !== "ai") {
+                    globalTerminalStore.clearPendingCommandInsertForTab(tab.id);
+                }
                 unlistenOutput?.();
                 if (term) term.write(`\r\n\x1b[31mError spawning terminal: ${e}\x1b[0m\r\n`);
                 void import("@/features/notifications").then(({ notify }) => {

@@ -45,6 +45,7 @@ class TerminalSessionStore {
     ptyScrollback = new Map<number, string>();
     /** Shell snippet queued when `Insert in terminal` triggers before xterm attaches. */
     pendingCommandInsert: string | null = null;
+    pendingCommandTargetTabId: string | null = null;
     /**
      * Tabs that produced output while the user was looking at something else.
      * One meaning, no second colour: a dot means "there is output on this tab you
@@ -163,10 +164,31 @@ class TerminalSessionStore {
         this.ptyScrollback.delete(ptyId);
     }
 
-    takePendingCommandInsert(): string | null {
+    takePendingCommandInsert(tabId?: string): string | null {
         const next = this.pendingCommandInsert;
+        if (!next) return null;
+        if (
+            this.pendingCommandTargetTabId
+            && tabId
+            && this.pendingCommandTargetTabId !== tabId
+            && this.tabs.some((t) => t.id === this.pendingCommandTargetTabId)
+        ) {
+            return null;
+        }
         this.pendingCommandInsert = null;
+        this.pendingCommandTargetTabId = null;
         return next;
+    }
+
+    clearPendingCommandInsertForTab(tabId?: string) {
+        if (
+            !tabId
+            || !this.pendingCommandTargetTabId
+            || this.pendingCommandTargetTabId === tabId
+        ) {
+            this.pendingCommandInsert = null;
+            this.pendingCommandTargetTabId = null;
+        }
     }
 }
 
@@ -205,6 +227,7 @@ export function insertCommandIntoWorkspaceTerminal(rawCommand: string): boolean 
     }
 
     terminalSessionStore.pendingCommandInsert = cleaned;
+    terminalSessionStore.pendingCommandTargetTabId = targetTab?.id ?? null;
     return true;
 }
 

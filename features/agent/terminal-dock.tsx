@@ -20,6 +20,7 @@ function clearBodyResize() {
     document.body.classList.remove("resizing-vertical");
 }
 
+/** Resizable bottom terminal dock scoped to the active project surface. */
 export function TerminalDock({ suppressed = false }: { suppressed?: boolean } = {}) {
     const { project_path } = useProjectState();
     const cwdRef = useRef(project_path);

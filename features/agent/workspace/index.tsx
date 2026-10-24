@@ -222,6 +222,7 @@ export function AgentWorkspace({
         window.addEventListener("bettershape-open-workspace-plan", onOpenPlan as EventListener);
         window.addEventListener("bettershape-open-workspace-file", onOpenFile as EventListener);
         window.addEventListener("bettershape-open-file-diff", onOpenDiff as EventListener);
+        let disposed = false;
         let stopRustTab: (() => void) | undefined;
         void import("@tauri-apps/api/event")
             .then(({ listen }) => {
@@ -238,10 +239,15 @@ export function AgentWorkspace({
                 }
             })
             .then((stop) => {
+                if (disposed) {
+                    stop?.();
+                    return;
+                }
                 stopRustTab = stop;
             })
             .catch(() => {});
         return () => {
+            disposed = true;
             stopRustTab?.();
             window.removeEventListener("bettershape-set-active-tab", onTab as EventListener);
             window.removeEventListener("bettershape-set-panel-tab", onTab as EventListener);

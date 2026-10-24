@@ -451,11 +451,18 @@ export function MentionPicker({
 
         const saved: SlashEntry[] = workflows
             .map((w) => {
-                const triggerKey = w.trigger.trim().replace(/^\/+/, "").toLowerCase();
+                const triggerKey = w.trigger
+                    .trim()
+                    .replace(/^\/+/, "")
+                    .replace(/\s+/g, "-")
+                    .toLowerCase();
                 return {
                     kind: "workflow" as const,
                     w,
-                    score: scoreToken(triggerKey, w.name.toLowerCase()),
+                    score: Math.max(
+                        scoreToken(triggerKey, w.name.toLowerCase()),
+                        scoreToken(w.trigger.trim().replace(/^\/+/, "").toLowerCase(), w.name.toLowerCase()),
+                    ),
                 };
             })
             .filter((entry) => entry.score > 0);

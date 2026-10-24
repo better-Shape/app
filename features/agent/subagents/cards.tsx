@@ -45,6 +45,7 @@ function Card({ card }: { card: SubagentCard }) {
             tabIndex={0}
             onClick={() => openSubagent(card.id)}
             onKeyDown={(e) => {
+                if (e.target !== e.currentTarget) return;
                 if (e.key === "Enter" || e.key === " ") {
                     e.preventDefault();
                     openSubagent(card.id);

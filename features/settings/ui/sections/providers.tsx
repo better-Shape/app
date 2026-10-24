@@ -264,14 +264,6 @@ function ProviderCard({ id, providers }: { id: ProviderId; providers: ProvidersS
         }
     };
 
-    /** Adopt the models the provider actually reported for this key. */
-    const importModels = () => {
-        if (!testResult || testResult.models.length === 0) return;
-        const ids = modelsWithProviderPrefix(id, testResult.models);
-        update({ models: ids });
-        setImported(ids.length);
-    };
-
     const update = (patch: Partial<typeof connection>) => {
         if ("apiKey" in patch || "baseUrl" in patch || "authStyle" in patch) {
             setTestResult((prev) => (prev && !prev.ok ? null : prev));
@@ -286,6 +278,14 @@ function ProviderCard({ id, providers }: { id: ProviderId; providers: ProvidersS
                 },
             },
         });
+    };
+
+    /** Adopt the models the provider actually reported for this key. */
+    const importModels = () => {
+        if (!testResult || testResult.models.length === 0) return;
+        const ids = modelsWithProviderPrefix(id, testResult.models);
+        update({ models: ids });
+        setImported(ids.length);
     };
 
     return (
@@ -357,7 +357,7 @@ function ProviderCard({ id, providers }: { id: ProviderId; providers: ProvidersS
                         size="sm"
                         variant="secondary"
                         className={SETTING_CONTROL_BTN}
-                        disabled={testing || (!usable && id !== "custom")}
+                        disabled={testing}
                         onClick={() => void testConnection()}
                     >
                         {testing ? "Testing…" : "Test connection"}

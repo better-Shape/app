@@ -82,10 +82,10 @@ import {
 } from "@/lib/chat/composer-scroll";
 import {
     canStepPromptHistoryUp,
-    extractCleanUserPrompts,
     insertTextareaRangeWithUndo,
     isCaretOnLastLogicalLine,
     isUnmodifiedHistoryRecall,
+    mergeNewestFirstPrompts,
     stepPromptHistoryDown,
     stepPromptHistoryUp,
     tryWrapMarkdownLinkOnPaste,
@@ -625,7 +625,7 @@ export const ChatInput = React.memo(function ChatInput({
     const historyCursorRef = React.useRef<PromptHistoryCursor | null>(null);
     const [sessionSentPrompts, setSessionSentPrompts] = React.useState<string[]>([]);
     const recallablePrompts = React.useMemo(
-        () => extractCleanUserPrompts(promptHistory.map((content) => ({ role: "user", content })), sessionSentPrompts),
+        () => mergeNewestFirstPrompts(promptHistory, sessionSentPrompts),
         [promptHistory, sessionSentPrompts],
     );
     const [mentionOpen, setMentionOpen] = React.useState(false);
@@ -634,16 +634,28 @@ export const ChatInput = React.memo(function ChatInput({
     const [slashOpen, setSlashOpen] = React.useState(false);
     const [slashQuery, setSlashQuery] = React.useState("");
 
+    const canRecordPromptHistory = React.useCallback(
+        (trimmed: string) => {
+            if (!trimmed) return false;
+            if (needsSignIn) return false;
+            if (uploadedFiles.some((a) => a.status === "processing")) return false;
+            if (isLoading && uploadedFiles.length > 0) return false;
+            if (isLoading && /^\/compact\b/i.test(trimmed)) return false;
+            return true;
+        },
+        [isLoading, needsSignIn, uploadedFiles],
+    );
+
     const handleSendWithHistory = React.useCallback(() => {
         const trimmed = inputValue.trim();
-        if (trimmed) {
+        if (canRecordPromptHistory(trimmed)) {
             setSessionSentPrompts((prev) =>
                 prev[prev.length - 1] === trimmed ? prev : [...prev.slice(-49), trimmed],
             );
         }
         historyCursorRef.current = null;
         onSendMessage();
-    }, [inputValue, onSendMessage]);
+    }, [canRecordPromptHistory, inputValue, onSendMessage]);
 
     const handleInputChangeWithMentions = React.useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
         historyCursorRef.current = null;
@@ -918,7 +930,7 @@ export const ChatInput = React.memo(function ChatInput({
         }
         if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
             const trimmed = inputValue.trim();
-            if (trimmed) {
+            if (canRecordPromptHistory(trimmed)) {
                 setSessionSentPrompts((prev) =>
                     prev[prev.length - 1] === trimmed ? prev : [...prev.slice(-49), trimmed],
                 );
@@ -928,6 +940,7 @@ export const ChatInput = React.memo(function ChatInput({
         onKeyDown(e);
     }, [
         canExpandComposer,
+        canRecordPromptHistory,
         composerTall,
         inputValue,
         isExpanded,
@@ -1575,13 +1588,20 @@ export const ChatInput = React.memo(function ChatInput({
         projectRuleFiles.length > 0 ||
         taskItems.length > 0;
 
-    const canStop = isPreparing || (isLoading && !inputValue.trim());
+    const canStop = isPreparing || (isLoading && !inputValue.trim() && activeQuotes.length === 0);
     const attachmentsProcessing = uploadedFiles.some((a) => a.status === "processing");
+    const queueBlockedByAttachments = isLoading && uploadedFiles.length > 0;
     const hasSendablePayload =
         Boolean(inputValue.trim()) || uploadedFiles.length > 0 || activeQuotes.length > 0;
-    const sendDisabled = !canStop && (needsSignIn || attachmentsProcessing || !hasSendablePayload);
+    const sendDisabled =
+        !canStop
+        && (needsSignIn || attachmentsProcessing || queueBlockedByAttachments || !hasSendablePayload);
     const sendActive =
-        canStop || (!needsSignIn && (hasSendablePayload || isLoading) && !attachmentsProcessing);
+        canStop
+        || (!needsSignIn
+            && !queueBlockedByAttachments
+            && (hasSendablePayload || isLoading)
+            && !attachmentsProcessing);
     const hasContextAttachments = uploadedFiles.length > 0 || activeQuotes.length > 0;
     const isExpandedLayout = composerTall || isExpanded || hasContextAttachments;
     const showExpandButton = canExpandComposer || isExpanded;
@@ -2063,63 +2083,79 @@ export const ChatInput = React.memo(function ChatInput({
                                     </ContextMenuItem>
                                     <ContextMenuItem
                                         onClick={() => {
-                                            void navigator.clipboard.readText().then((text) => {
-                                                const el = textareaRef.current;
-                                                if (!el || !text) return;
-                                                if (pasteIsLarge(text)) {
-                                                    const file = pastedTextFile(text);
-                                                    addUploadedFiles([file]);
-                                                    notify.info(
-                                                        "Pasted as attachment",
-                                                        `${formatPasteSizeLabel(text)} attached to keep the composer tidy.`,
-                                                        text.length <= 24_000
-                                                            ? {
-                                                                  action: {
-                                                                      label: "Insert inline",
-                                                                      onClick: () =>
-                                                                          swapAttachmentInline(file, text),
-                                                                  },
-                                                              }
-                                                            : undefined,
-                                                    );
-                                                    return;
-                                                }
-                                                const start = el.selectionStart;
-                                                const end = el.selectionEnd;
-                                                const wrapped = tryWrapMarkdownLinkOnPaste(
-                                                    inputValue,
-                                                    start,
-                                                    end,
-                                                    text,
-                                                );
-                                                if (wrapped) {
-                                                    onInputChange({
-                                                        target: { value: wrapped.nextValue },
-                                                    } as React.ChangeEvent<HTMLTextAreaElement>);
-                                                    notify.info(
-                                                        "Formatted as Markdown link",
-                                                        "Press Ctrl/Cmd+Z to keep the raw URL.",
-                                                    );
-                                                    requestAnimationFrame(() => {
-                                                        el.focus();
-                                                        el.setSelectionRange(
-                                                            wrapped.nextCaret,
-                                                            wrapped.nextCaret,
+                                            void navigator.clipboard
+                                                .readText()
+                                                .then((text) => {
+                                                    const el = textareaRef.current;
+                                                    if (!el || !text) return;
+                                                    if (pasteIsLarge(text)) {
+                                                        const file = pastedTextFile(text);
+                                                        addUploadedFiles([file]);
+                                                        notify.info(
+                                                            "Pasted as attachment",
+                                                            `${formatPasteSizeLabel(text)} attached to keep the composer tidy.`,
+                                                            text.length <= 24_000
+                                                                ? {
+                                                                      action: {
+                                                                          label: "Insert inline",
+                                                                          onClick: () =>
+                                                                              swapAttachmentInline(file, text),
+                                                                      },
+                                                                  }
+                                                                : undefined,
                                                         );
-                                                    });
-                                                    return;
-                                                }
-                                                const next =
-                                                    inputValue.slice(0, start) + text + inputValue.slice(end);
-                                                onInputChange({
-                                                    target: { value: next },
-                                                } as React.ChangeEvent<HTMLTextAreaElement>);
-                                                requestAnimationFrame(() => {
+                                                        return;
+                                                    }
+                                                    const start = el.selectionStart;
+                                                    const end = el.selectionEnd;
+                                                    const wrapped = tryWrapMarkdownLinkOnPaste(
+                                                        inputValue,
+                                                        start,
+                                                        end,
+                                                        text,
+                                                    );
+                                                    const replacement = wrapped
+                                                        ? `[${inputValue.slice(start, end)}](${text.trim()})`
+                                                        : text;
                                                     el.focus();
-                                                    const pos = start + text.length;
-                                                    el.setSelectionRange(pos, pos);
+                                                    el.setSelectionRange(start, end);
+                                                    let insertedNatively = false;
+                                                    try {
+                                                        insertedNatively = document.execCommand(
+                                                            "insertText",
+                                                            false,
+                                                            replacement,
+                                                        );
+                                                    } catch {
+                                                        insertedNatively = false;
+                                                    }
+                                                    if (!insertedNatively) {
+                                                        const nextValue = wrapped
+                                                            ? wrapped.nextValue
+                                                            : inputValue.slice(0, start) +
+                                                              text +
+                                                              inputValue.slice(end);
+                                                        const nextCaret = wrapped
+                                                            ? wrapped.nextCaret
+                                                            : start + text.length;
+                                                        onInputChange({
+                                                            target: { value: nextValue },
+                                                        } as React.ChangeEvent<HTMLTextAreaElement>);
+                                                        requestAnimationFrame(() => {
+                                                            el.focus();
+                                                            el.setSelectionRange(nextCaret, nextCaret);
+                                                        });
+                                                    }
+                                                    if (wrapped) {
+                                                        notify.info(
+                                                            "Formatted as Markdown link",
+                                                            "Press Ctrl/Cmd+Z to keep the raw URL.",
+                                                        );
+                                                    }
+                                                })
+                                                .catch(() => {
+                                                    /* clipboard read denied or unavailable */
                                                 });
-                                            });
                                         }}
                                     >
                                         Paste

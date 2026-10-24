@@ -488,6 +488,74 @@ function unescapeXml(s: string): string {
         };
     };
 
+    const decodeXmlAttr = (raw: string): string =>
+        raw
+            .replace(/&quot;/g, '"')
+            .replace(/&apos;/g, "'")
+            .replace(/&lt;/g, "<")
+            .replace(/&gt;/g, ">")
+            .replace(/&amp;/g, "&");
+
+    const parseTerminalCommandBlock = (
+        tagFull: string,
+        content: string,
+        defaultStatus: string,
+        isGenerating?: boolean,
+    ): Chunk => {
+        const statusMatch = tagFull.match(/status="([^"]+)"/);
+        const idMatch = tagFull.match(/id="([^"]+)"/);
+        const sessionMatch = tagFull.match(/session="(\d+)"/);
+        const exitMatch = tagFull.match(/(?:exit|exit_code)="(-?\d+)"/);
+        const cmdAttrMatch = tagFull.match(/command="([^"]+)"/);
+        const reasonAttrMatch = tagFull.match(/reason="([^"]+)"/);
+        const commandStatus = statusMatch ? statusMatch[1] : defaultStatus;
+        const rawLines = content.split("\n");
+        const reasonIdx = rawLines.findIndex(
+            (l) => l.includes("Awaiting approval:") || l.includes("Blocked:"),
+        );
+        const reasonLine = reasonIdx !== -1 ? rawLines[reasonIdx] : undefined;
+        const reason =
+            (reasonAttrMatch ? decodeXmlAttr(reasonAttrMatch[1]).trim() : "")
+            || reasonLine?.replace(/^.*?(Awaiting approval:|Blocked:)\s*/, "").trim();
+
+        let cmd = "";
+        if (cmdAttrMatch) {
+            cmd = decodeXmlAttr(cmdAttrMatch[1]).trim();
+        } else if (commandStatus === "pending" || commandStatus === "blocked") {
+            const cmdSlice = reasonIdx === -1 ? rawLines : rawLines.slice(0, reasonIdx);
+            cmd = cmdSlice.join("\n").trim();
+        } else if (
+            commandStatus === "running"
+            || commandStatus === "rejected"
+            || commandStatus === "cancelled"
+        ) {
+            cmd = content.trim();
+        } else {
+            const nonEmptyStart = rawLines.findIndex((l) => l.trim().length > 0);
+            if (nonEmptyStart !== -1) {
+                const collected: string[] = [];
+                for (let idx = nonEmptyStart; idx < rawLines.length; idx++) {
+                    const line = rawLines[idx] ?? "";
+                    collected.push(line);
+                    if (!/\\\s*$/.test(line)) break;
+                }
+                cmd = collected.join("\n").trim();
+            }
+        }
+
+        return {
+            type: "terminal_command",
+            content,
+            command: cmd,
+            commandId: idMatch ? idMatch[1] : undefined,
+            commandStatus,
+            commandReason: reason,
+            sessionId: sessionMatch ? Number(sessionMatch[1]) : undefined,
+            exitCode: exitMatch ? Number(exitMatch[1]) : undefined,
+            ...(isGenerating !== undefined ? { isGenerating } : {}),
+        };
+    };
+
     const parseInspectRuntimeBlock = (tagFull: string, content: string, isGenerating: boolean): Chunk => {
         const url = tagFull.match(/\burl="([^"]*)"/)?.[1] ?? "";
         const kind = tagFull.match(/\bkind="([^"]*)"/)?.[1] ?? "";
@@ -631,26 +699,7 @@ function unescapeXml(s: string): string {
             } else if (firstMatch.type === 'todos') {
                 pushOrReplaceTodos(parseTodosBlock(tagFull));
             } else if (firstMatch.type === 'terminal_command') {
-                const statusMatch = tagFull.match(/status="([^"]+)"/);
-                const idMatch = tagFull.match(/id="([^"]+)"/);
-                const sessionMatch = tagFull.match(/session="(\d+)"/);
-                const exitMatch = tagFull.match(/(?:exit|exit_code)="(-?\d+)"/);
-                const cmdAttrMatch = tagFull.match(/command="([^"]+)"/);
-                const reasonAttrMatch = tagFull.match(/reason="([^"]+)"/);
-                const lines = content.split('\n').filter(Boolean);
-                const cmd = cmdAttrMatch ? cmdAttrMatch[1].trim() : (lines[0]?.trim() || '');
-                const reasonLine = lines.find(l => l.includes('Awaiting approval:') || l.includes('Blocked:'));
-                const reason = reasonAttrMatch?.[1]?.trim() || reasonLine?.replace(/^.*?(Awaiting approval:|Blocked:)\s*/, '').trim();
-                chunks.push({
-                    type: 'terminal_command',
-                    content,
-                    command: cmd,
-                    commandId: idMatch ? idMatch[1] : undefined,
-                    commandStatus: statusMatch ? statusMatch[1] : 'completed',
-                    commandReason: reason,
-                    sessionId: sessionMatch ? Number(sessionMatch[1]) : undefined,
-                    exitCode: exitMatch ? Number(exitMatch[1]) : undefined,
-                });
+                chunks.push(parseTerminalCommandBlock(tagFull, content, 'completed'));
             } else if (firstMatch.type === 'git_operation') {
                 chunks.push(parseGitOperationBlock(tagFull, content, false));
             } else if (firstMatch.type === 'browse_session') {
@@ -677,7 +726,7 @@ function unescapeXml(s: string): string {
                 chunks.push({
                     type: firstMatch.type as Chunk['type'],
                     content,
-                    query: queryMatch ? queryMatch[1] : undefined,
+                    query: queryMatch ? decodeXmlAttr(queryMatch[1]) : undefined,
                 });
             } else if (firstMatch.type === 'web_visit') {
                 chunks.push(parseWebVisitBlock(tagFull, false));
@@ -714,27 +763,7 @@ function unescapeXml(s: string): string {
                 pushOrReplaceTodos(parseTodosBlock(fullTag));
             } else if (firstMatch.type === 'terminal_command') {
                 const tagFull = text.slice(firstMatch.index, contentStartIndex);
-                const statusMatch = tagFull.match(/status="([^"]+)"/);
-                const idMatch = tagFull.match(/id="([^"]+)"/);
-                const sessionMatch = tagFull.match(/session="(\d+)"/);
-                const exitMatch = tagFull.match(/(?:exit|exit_code)="(-?\d+)"/);
-                const cmdAttrMatch = tagFull.match(/command="([^"]+)"/);
-                const reasonAttrMatch = tagFull.match(/reason="([^"]+)"/);
-                const lines = content.split('\n').filter(Boolean);
-                const cmd = cmdAttrMatch ? cmdAttrMatch[1].trim() : (lines[0]?.trim() || '');
-                const reasonLine = lines.find(l => l.includes('Awaiting approval:') || l.includes('Blocked:'));
-                const reason = reasonAttrMatch?.[1]?.trim() || reasonLine?.replace(/^.*?(Awaiting approval:|Blocked:)\s*/, '').trim();
-                chunks.push({
-                    type: 'terminal_command',
-                    content,
-                    command: cmd,
-                    commandId: idMatch ? idMatch[1] : undefined,
-                    commandStatus: statusMatch ? statusMatch[1] : 'pending',
-                    commandReason: reason,
-                    sessionId: sessionMatch ? Number(sessionMatch[1]) : undefined,
-                    exitCode: exitMatch ? Number(exitMatch[1]) : undefined,
-                    isGenerating: true,
-                });
+                chunks.push(parseTerminalCommandBlock(tagFull, content, 'pending', true));
             } else if (firstMatch.type === 'git_operation') {
                 const tagFull = text.slice(firstMatch.index, contentStartIndex);
                 chunks.push(parseGitOperationBlock(tagFull, content, true));
@@ -768,7 +797,7 @@ function unescapeXml(s: string): string {
                 chunks.push({
                     type: firstMatch.type as Chunk['type'],
                     content,
-                    query: queryMatch ? queryMatch[1] : undefined,
+                    query: queryMatch ? decodeXmlAttr(queryMatch[1]) : undefined,
                     isGenerating: true
                 });
             } else if (firstMatch.type === 'web_visit') {
@@ -813,27 +842,7 @@ function unescapeXml(s: string): string {
                 pushOrReplaceTodos(parseTodosBlock(fullBlock));
             } else if (firstMatch.type === 'terminal_command') {
                 const tagFull = text.slice(firstMatch.index, contentStartIndex);
-                const statusMatch = tagFull.match(/status="([^"]+)"/);
-                const idMatch = tagFull.match(/id="([^"]+)"/);
-                const sessionMatch = tagFull.match(/session="(\d+)"/);
-                const exitMatch = tagFull.match(/(?:exit|exit_code)="(-?\d+)"/);
-                const cmdAttrMatch = tagFull.match(/command="([^"]+)"/);
-                const reasonAttrMatch = tagFull.match(/reason="([^"]+)"/);
-                const lines = content.split('\n').filter(Boolean);
-                const cmd = cmdAttrMatch ? cmdAttrMatch[1].trim() : (lines[0]?.trim() || '');
-                const reasonLine = lines.find(l => l.includes('Awaiting approval:') || l.includes('Blocked:'));
-                const reason = reasonAttrMatch?.[1]?.trim() || reasonLine?.replace(/^.*?(Awaiting approval:|Blocked:)\s*/, '').trim();
-                chunks.push({
-                    type: 'terminal_command',
-                    content,
-                    command: cmd,
-                    commandId: idMatch ? idMatch[1] : undefined,
-                    commandStatus: statusMatch ? statusMatch[1] : 'completed',
-                    commandReason: reason,
-                    sessionId: sessionMatch ? Number(sessionMatch[1]) : undefined,
-                    exitCode: exitMatch ? Number(exitMatch[1]) : undefined,
-                    isGenerating: false,
-                });
+                chunks.push(parseTerminalCommandBlock(tagFull, content, 'completed', false));
             } else if (firstMatch.type === 'git_operation') {
                 const tagFull = text.slice(firstMatch.index, contentStartIndex);
                 chunks.push(parseGitOperationBlock(tagFull, content, false));
@@ -867,7 +876,7 @@ function unescapeXml(s: string): string {
                 chunks.push({
                     type: firstMatch.type as Chunk['type'],
                     content,
-                    query: queryMatch ? queryMatch[1] : undefined,
+                    query: queryMatch ? decodeXmlAttr(queryMatch[1]) : undefined,
                     isGenerating: false
                 });
             } else if (firstMatch.type === 'web_visit') {

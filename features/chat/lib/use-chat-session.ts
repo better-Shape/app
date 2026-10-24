@@ -612,6 +612,20 @@ export function useChatSession(
         });
     }, [pendingEdits, conversationId, resolvedFiles]);
 
+    const isLoadingRef = React.useRef(false);
+    React.useEffect(() => {
+        isLoadingRef.current = isLoading;
+    }, [isLoading]);
+
+    const conversationIdRef = React.useRef(conversationId);
+    React.useEffect(() => {
+        conversationIdRef.current = conversationId;
+    }, [conversationId]);
+
+    const handleSendMessageRef = React.useRef<(overrideContent?: string) => Promise<boolean>>(
+        async () => false,
+    );
+
     const handleAcceptAll = async () => {
         for (const edit of pendingEdits) {
             await markEditResolved(edit.file, "applied", edit.replacement);
@@ -723,11 +737,6 @@ export function useChatSession(
         prevPendingCountRef.current = pendingEdits.length;
     }, [pendingEdits, handleAcceptEdit]);
 
-    const isLoadingRef = React.useRef(false);
-    React.useEffect(() => {
-        isLoadingRef.current = isLoading;
-    }, [isLoading]);
-
     const activeChatTabIdRef = React.useRef(activeChatTabId);
     React.useEffect(() => {
         activeChatTabIdRef.current = activeChatTabId;
@@ -760,11 +769,6 @@ export function useChatSession(
     }, [project_path, syncOpenTabs, getViewedConversationId]);
 
     React.useLayoutEffect(() => { refreshMetadataRef.current = refreshMetadata; }, [refreshMetadata]);
-
-    const conversationIdRef = React.useRef(conversationId);
-    React.useEffect(() => {
-        conversationIdRef.current = conversationId;
-    }, [conversationId]);
 
     const refreshHistory = React.useCallback(
         () => commands.getConversations(project_path ?? undefined).then(async convs => {
@@ -939,7 +943,6 @@ export function useChatSession(
         [sendError, setInputValue, setSendError],
     );
 
-    const handleSendMessageRef = React.useRef<(overrideContent?: string) => Promise<boolean>>(async () => false);
     const handleNewChatRef = React.useRef<() => Promise<void>>(async () => {});
     const sendToChatRef = React.useRef<(content: string, target: string) => Promise<boolean>>(
         async () => false,

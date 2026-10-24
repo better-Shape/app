@@ -870,13 +870,10 @@
   from {
     opacity: 0;
   }
-  to {
-    opacity: 1;
-  }
 }
 
 .t-diff-reveal {
-  animation: t-diff-reveal var(--spring-quick-dur) var(--spring-quick) both;
+  animation: t-diff-reveal var(--spring-quick-dur) var(--spring-quick) backwards;
 }
 
 @media (prefers-reduced-motion: reduce) {

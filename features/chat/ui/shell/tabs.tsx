@@ -108,7 +108,8 @@ function SortableChatTab({
                     }}
                     onClick={() => onSelect(tab.id)}
                     onKeyDown={(e) => {
-                        if (e.target !== e.currentTarget) return;
+                        listeners?.onKeyDown?.(e);
+                        if (e.defaultPrevented || isDragging || e.target !== e.currentTarget) return;
                         if (e.key === "Enter" || e.key === " ") {
                             e.preventDefault();
                             onSelect(tab.id);

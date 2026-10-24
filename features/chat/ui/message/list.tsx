@@ -56,57 +56,55 @@ function ChatMessageListInner({
                     {emptyState ?? null}
                 </div>
             ) : (
-                <>
-                    {messageGroups.map((group, groupIdx) => {
-                        const isLiveTurn = isLoading && groupIdx === lastGroupIdx;
-                        return (
-                            <div
-                                key={`turn-${group[0]?.msg.timestamp ?? groupIdx}`}
-                                data-chat-turn={groupIdx}
-                                style={isLiveTurn ? undefined : SETTLED_TURN_STYLE}
-                                className="relative mb-3 flex flex-col gap-2 first:mt-2 last:mb-10 scroll-mt-4"
-                            >
-                                {group.map(({ msg, msgIdx }) => {
-                                    const isGen =
-                                        isLoading
-                                        && msg.role === "assistant"
-                                        && msgIdx === messages.length - 1;
-                                    const isFindTarget = highlightedMessageIndex === msgIdx;
-                                    const showFallbackBoxHighlight =
-                                        isFindTarget && !isCssHighlightsSupported();
-                                    return (
-                                        <div
-                                            key={`${msg.role}-${msg.timestamp}-${msgIdx}`}
-                                            data-chat-message-index={msgIdx}
-                                            data-chat-find-active={isFindTarget ? "true" : undefined}
-                                            className={cn(
-                                                "rounded-lg transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
-                                                showFallbackBoxHighlight &&
-                                                    "bg-surface-3 px-1.5 -mx-1.5 ring-1 ring-border-secondary",
-                                            )}
-                                        >
-                                            <ChatMessageItem
-                                                role={msg.role}
-                                                content={msg.content}
-                                                timestamp={msg.timestamp}
-                                                stats={msg.stats}
-                                                model={msg.model}
-                                                isGenerating={isGen}
-                                                activityLabel={isGen ? activityLabel : null}
-                                                index={msgIdx}
-                                                onRedo={onRedo}
-                                                onRestore={onRestore}
-                                                onFork={onFork}
-                                                isFileEditResolved={isFileEditResolved}
-                                                fullWidthBubbles={fullWidthBubbles}
-                                            />
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        );
-                    })}
-                </>
+                messageGroups.map((group, groupIdx) => {
+                    const isLiveTurn = isLoading && groupIdx === lastGroupIdx;
+                    return (
+                        <div
+                            key={`turn-${group[0]?.msg.timestamp ?? groupIdx}`}
+                            data-chat-turn={groupIdx}
+                            style={isLiveTurn ? undefined : SETTLED_TURN_STYLE}
+                            className="relative mb-3 flex flex-col gap-2 first:mt-2 last:mb-10 scroll-mt-4"
+                        >
+                            {group.map(({ msg, msgIdx }) => {
+                                const isGen =
+                                    isLoading
+                                    && msg.role === "assistant"
+                                    && msgIdx === messages.length - 1;
+                                const isFindTarget = highlightedMessageIndex === msgIdx;
+                                const showFallbackBoxHighlight =
+                                    isFindTarget && !isCssHighlightsSupported();
+                                return (
+                                    <div
+                                        key={`${msg.role}-${msg.timestamp}-${msgIdx}`}
+                                        data-chat-message-index={msgIdx}
+                                        data-chat-find-active={isFindTarget ? "true" : undefined}
+                                        className={cn(
+                                            "rounded-lg transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
+                                            showFallbackBoxHighlight &&
+                                                "bg-surface-3 px-1.5 -mx-1.5 ring-1 ring-border-secondary",
+                                        )}
+                                    >
+                                        <ChatMessageItem
+                                            role={msg.role}
+                                            content={msg.content}
+                                            timestamp={msg.timestamp}
+                                            stats={msg.stats}
+                                            model={msg.model}
+                                            isGenerating={isGen}
+                                            activityLabel={isGen ? activityLabel : null}
+                                            index={msgIdx}
+                                            onRedo={onRedo}
+                                            onRestore={onRestore}
+                                            onFork={onFork}
+                                            isFileEditResolved={isFileEditResolved}
+                                            fullWidthBubbles={fullWidthBubbles}
+                                        />
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    );
+                })
             )}
             {contextSummarized ? (
                 <div className="mx-auto mt-1 flex w-full max-w-xl items-center justify-center gap-1.5 px-1 pb-1 text-[11px] leading-4 text-text-muted">
