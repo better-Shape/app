@@ -15,11 +15,16 @@ import { People20Regular } from "@fluentui/react-icons/headless/svg/people";
 import { Person20Regular } from "@fluentui/react-icons/headless/svg/person";
 import { Search20Regular } from "@fluentui/react-icons/headless/svg/search";
 
-import { useId, useMemo, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import { type IconGlyph, Icon } from "@/components/ui/icon";
 import { Button } from "@/components/ui/button";
 import { PluginLogo } from "@/components/ui/plugin-logo";
-import { cn } from "@/lib/utils";
+import { cn, createOccurrenceKeyer } from "@/lib/utils";
+import {
+    notifyTranscriptDisclosureToggle,
+    useExpandForChatFind,
+} from "../shell/find-bar";
+import { useApprovalKeyboardShortcut } from "./approval";
 import { Collapse } from "./collapse";
 
 type Fact = { label: string; value: string };
@@ -188,7 +193,21 @@ function factIcon(label: string): IconGlyph | null {
     return null;
 }
 
-export function PluginActivityCard({
+/** Format inspectable body. */
+const formatInspectableBody = (raw: string): string | null => {
+    const trimmed = raw.trim();
+    if (!trimmed || trimmed === "Awaiting approval" || /^(Rejected|Cancelled)$/i.test(trimmed)) {
+        return null;
+    }
+    try {
+        return JSON.stringify(JSON.parse(trimmed), null, 2);
+    } catch {
+        return trimmed;
+    }
+};
+
+/** Renders the PluginActivityCard UI component. */
+export const PluginActivityCard = ({
     toolkit,
     slug,
     label,
@@ -208,25 +227,62 @@ export function PluginActivityCard({
     busy?: boolean;
     onAllow?: () => void;
     onReject?: () => void;
-}) {
+}) => {
+    const cardRef = useRef<HTMLDivElement>(null);
     const [open, setOpen] = useState(false);
     const collapseId = useId();
     const summary = useMemo(() => summarizePluginPayload(body), [body]);
+    const rawDetail = useMemo(() => formatInspectableBody(body), [body]);
     const title = summary.title || label;
-    const toolkitName = toolkit.replace(/[_-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+    const toolkitName = (toolkit || "Plugin")
+        .replace(/[_-]+/g, " ")
+        .replace(/\b\w/g, (c) => c.toUpperCase());
     const failed = status === "error" || status === "rejected" || status === "cancelled";
     const statusWord =
-        status === "rejected" ? "Rejected" : status === "cancelled" ? "Cancelled" : status === "error" ? "Failed" : null;
-    const canExpand = summary.rows.length > 0 || summary.facts.length > 0;
+        status === "rejected"
+            ? "Rejected"
+            : status === "cancelled"
+              ? "Cancelled"
+              : status === "error"
+                ? "Failed"
+                : null;
+    const canExpand =
+        summary.rows.length > 0 || summary.facts.length > 0 || Boolean(rawDetail);
     const attention = summary.attention || (summary.rows.length > 2 ? summary.rows.length : 0);
-    const progressPct = summary.progress
-        ? Math.max(0, Math.min(100, Math.round((summary.progress.done / summary.progress.total) * 100)))
-        : null;
-
     const meta = summary.facts.slice(0, 3);
 
+    useApprovalKeyboardShortcut({
+        enabled: Boolean(pending && onAllow && onReject),
+        isProcessing: Boolean(busy),
+        cardRef,
+        onAccept: onAllow,
+        onSkip: onReject,
+    });
+
+    useExpandForChatFind({
+        enabled: canExpand && !open,
+        rootRef: cardRef,
+        getSearchText: () => body,
+        onExpand: () => setOpen(true),
+    });
+
+    const handleToggle = () => {
+        if (!canExpand) return;
+        notifyTranscriptDisclosureToggle(cardRef.current);
+        setOpen((v) => !v);
+    };
+
     return (
-        <div className={cn("my-1 overflow-hidden squircle-[20px] bg-surface-3", failed && "opacity-80")}>
+        <div
+            ref={cardRef}
+            data-approval-card={pending ? "true" : undefined}
+            data-pending-approval={pending && !busy ? "true" : undefined}
+            data-pending-approval-kind={pending && !busy ? "approval" : undefined}
+            className={cn(
+                "my-1 overflow-hidden rounded-xl border border-border-subtle bg-surface-3",
+                failed && "opacity-80",
+            )}
+        >
             <div className="flex items-center gap-3 px-3 py-2.5">
                 <span className="relative shrink-0">
                     <PluginLogo toolkit={toolkit} name={toolkitName} slug={slug} size={28} />
@@ -236,9 +292,9 @@ export function PluginActivityCard({
                 </span>
                 <button
                     type="button"
-                    aria-expanded={canExpand ? open && !pending : undefined}
+                    aria-expanded={canExpand ? open : undefined}
                     aria-controls={canExpand ? collapseId : undefined}
-                    onClick={() => canExpand && setOpen((v) => !v)}
+                    onClick={handleToggle}
                     className={cn(
                         "flex min-w-0 flex-1 flex-col text-left focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus",
                         canExpand ? "cursor-pointer" : "cursor-default",
@@ -247,6 +303,15 @@ export function PluginActivityCard({
                     <span className="flex min-w-0 items-baseline gap-1.5">
                         <span className="truncate text-sm text-text-primary">{title}</span>
                         {statusWord ? <span className="shrink-0 text-xs text-error">{statusWord}</span> : null}
+                        {canExpand && pending ? (
+                            <Icon
+                                icon={ChevronDown20Regular}
+                                className={cn(
+                                    "shrink-0 text-text-muted transition-transform duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
+                                    open && "rotate-180",
+                                )}
+                            />
+                        ) : null}
                     </span>
                     <span className="mt-0.5 flex min-w-0 items-center gap-2 text-xs text-text-muted">
                         <span className="shrink-0 truncate">{toolkitName}</span>
@@ -262,7 +327,7 @@ export function PluginActivityCard({
                     </span>
                 </button>
                 {pending ? (
-                    <span className="flex shrink-0 items-center gap-1">
+                    <span data-find-skip className="flex shrink-0 items-center gap-1.5">
                         <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={onReject}>
                             Skip
                         </Button>
@@ -275,42 +340,61 @@ export function PluginActivityCard({
                         type="button"
                         aria-expanded={canExpand ? open : undefined}
                         aria-controls={canExpand ? collapseId : undefined}
-                        onClick={() => canExpand && setOpen((v) => !v)}
-                        className="flex shrink-0 items-center gap-1.5 text-xs text-text-secondary focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus"
+                        onClick={handleToggle}
+                        className={cn(
+                            "flex min-h-[24px] shrink-0 items-center gap-1.5 text-xs text-text-secondary focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus",
+                            canExpand ? "cursor-pointer" : "cursor-default",
+                        )}
                     >
                         {summary.progress ? (
                             <span className="tabular-nums text-text-muted">
                                 {summary.progress.done}/{summary.progress.total}
                             </span>
                         ) : attention > 0 ? (
-                            <span>{attention} need attention</span>
+                            <span className="tabular-nums">{attention} need attention</span>
                         ) : null}
                         {canExpand ? (
                             <Icon
                                 icon={ChevronDown20Regular}
-                                className={cn("text-text-muted transition-transform duration-[var(--transition-fast)] ease-[var(--ease-out)]", open && "rotate-180")}
+                                className={cn(
+                                    "text-text-muted transition-transform duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
+                                    open && "rotate-180",
+                                )}
                             />
                         ) : null}
                     </button>
                 )}
             </div>
-            {progressPct != null ? (
-                <div className="mx-3 mb-2.5 h-1 overflow-hidden rounded-full bg-surface-4">
-                    <div className="h-full rounded-full bg-accent" style={{ width: `${progressPct}%` }} />
+            <Collapse id={collapseId} open={open}>
+                <div className="max-h-48 overflow-y-auto px-3 pb-2.5 custom-scrollbar">
+                    {summary.rows.length > 0 ? (
+                        <div className="flex flex-col gap-1">
+                            {(() => {
+                                const keyFor = createOccurrenceKeyer();
+                                return summary.rows.map((row) => (
+                                    <div key={keyFor(`${row.title}:${row.meta}`)} className="flex min-w-0 items-baseline gap-2 text-xs">
+                                        <span className="min-w-0 flex-1 truncate text-text-primary">{row.title}</span>
+                                        {row.meta ? <span className="shrink-0 truncate text-text-muted">{row.meta}</span> : null}
+                                    </div>
+                                ));
+                            })()}
+                        </div>
+                    ) : summary.facts.length > 0 ? (
+                        <div className="flex flex-col gap-1">
+                            {summary.facts.map((fact) => (
+                                <div key={fact.label} className="flex min-w-0 items-baseline gap-2 text-xs">
+                                    <span className="shrink-0 text-text-muted">{fact.label}</span>
+                                    <span className="min-w-0 flex-1 truncate text-text-primary">{fact.value}</span>
+                                </div>
+                            ))}
+                        </div>
+                    ) : rawDetail ? (
+                        <pre className="font-mono text-2xs leading-relaxed text-text-secondary whitespace-pre-wrap break-words">
+                            {rawDetail}
+                        </pre>
+                    ) : null}
                 </div>
-            ) : null}
-            <Collapse id={collapseId} open={open && !pending}>
-                {summary.rows.length ? (
-                    <div className="flex flex-col gap-1 px-3 pb-2.5">
-                        {summary.rows.map((row, index) => (
-                            <div key={`${row.title}-${index}`} className="flex min-w-0 items-baseline gap-2 text-xs">
-                                <span className="min-w-0 flex-1 truncate text-text-primary">{row.title}</span>
-                                {row.meta ? <span className="shrink-0 truncate text-text-muted">{row.meta}</span> : null}
-                            </div>
-                        ))}
-                    </div>
-                ) : null}
             </Collapse>
         </div>
     );
-}
+};

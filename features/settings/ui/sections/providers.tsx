@@ -158,10 +158,40 @@ function ProviderCard({ id, providers }: { id: ProviderId; providers: ProvidersS
     const usable = isConnectionUsable(id, providers.connections);
     const presetHeaders = Object.entries(preset.headers ?? {});
 
+    /** Model to check with: the first one this connection offers. */
+    const checkModel =
+        models[0] ??
+        (providers.defaultModel.startsWith(`${id}/`) ? providers.defaultModel : "");
+
+    const validateDiagnosticsInput = (mode: "test" | "check"): string | null => {
+        const effectiveBaseUrl = (connection.baseUrl || preset.baseUrl || "").trim();
+        if (preset.needsBaseUrl && !effectiveBaseUrl) {
+            return `Enter a base URL for ${preset.label} before ${mode === "test" ? "testing the connection" : "checking chat"}.`;
+        }
+        const authStyle = providerAuthStyle(id, connection);
+        const requiresApiKey = !preset.keyless && authStyle !== "none";
+        if (requiresApiKey && !connection.apiKey.trim()) {
+            return `Enter an API key for ${preset.label} before ${mode === "test" ? "testing the connection" : "checking chat"}.`;
+        }
+        if (mode === "check" && !checkModel.trim()) {
+            return `Add or import a model ID for ${preset.label} before checking chat.`;
+        }
+        return null;
+    };
+
     const testConnection = async () => {
-        setTesting(true);
         setTestResult(null);
         setImported(0);
+        const validationError = validateDiagnosticsInput("test");
+        if (validationError) {
+            setTestResult({
+                ok: false,
+                message: validationError,
+                models: [],
+            });
+            return;
+        }
+        setTesting(true);
         try {
             const report = await commands.aiTestProvider(
                 id,
@@ -169,10 +199,15 @@ function ProviderCard({ id, providers }: { id: ProviderId; providers: ProvidersS
                 connection.apiKey,
                 connection.baseUrl || preset.baseUrl,
             );
+            if (!report || typeof report.ok !== "boolean") {
+                throw new Error(
+                    `Could not reach ${preset.label} diagnostics. Verify your API key and base URL, then try again.`,
+                );
+            }
             setTestResult({
                 ok: report.ok,
                 message: report.ok ? `${report.message} (${report.latencyMs} ms)` : report.message,
-                models: report.models,
+                models: Array.isArray(report.models) ? report.models : [],
             });
         } catch (error) {
             setTestResult({
@@ -191,8 +226,16 @@ function ProviderCard({ id, providers }: { id: ProviderId; providers: ProvidersS
      * still rejects completions).
      */
     const checkConnection = async () => {
-        setChecking(true);
         setCheckResult(null);
+        const validationError = validateDiagnosticsInput("check");
+        if (validationError) {
+            setCheckResult({
+                ok: false,
+                message: validationError,
+            });
+            return;
+        }
+        setChecking(true);
         try {
             const report = await commands.aiCheckProvider(id, {
                 kind: preset.kind,
@@ -202,6 +245,11 @@ function ProviderCard({ id, providers }: { id: ProviderId; providers: ProvidersS
                 headers: providerHeaders(id, connection),
                 authStyle: providerAuthStyle(id, connection),
             });
+            if (!report || typeof report.ok !== "boolean") {
+                throw new Error(
+                    `Could not complete chat check for ${preset.label}. Verify your API key and model selection, then try again.`,
+                );
+            }
             setCheckResult({
                 ok: report.ok,
                 message: report.ok ? `${report.message} (${report.latencyMs} ms)` : report.message,
@@ -224,12 +272,11 @@ function ProviderCard({ id, providers }: { id: ProviderId; providers: ProvidersS
         setImported(ids.length);
     };
 
-    /** Model to check with: the first one this connection offers. */
-    const checkModel =
-        models[0] ??
-        (providers.defaultModel.startsWith(`${id}/`) ? providers.defaultModel : "");
-
     const update = (patch: Partial<typeof connection>) => {
+        if ("apiKey" in patch || "baseUrl" in patch || "authStyle" in patch) {
+            setTestResult((prev) => (prev && !prev.ok ? null : prev));
+            setCheckResult((prev) => (prev && !prev.ok ? null : prev));
+        }
         updateSettingSection("ai", {
             providers: {
                 ...providers,
@@ -319,7 +366,7 @@ function ProviderCard({ id, providers }: { id: ProviderId; providers: ProvidersS
                         size="sm"
                         variant="secondary"
                         className={SETTING_CONTROL_BTN}
-                        disabled={checking || !checkModel}
+                        disabled={checking}
                         title={
                             checkModel
                                 ? `Sends one short completion with ${checkModel}`
@@ -343,10 +390,11 @@ function ProviderCard({ id, providers }: { id: ProviderId; providers: ProvidersS
                     ) : null}
                     {testResult ? (
                         <span
+                            role={testResult.ok ? "status" : "alert"}
                             className={
                                 testResult.ok
                                     ? "text-xs text-text-muted"
-                                    : "text-xs whitespace-pre-line text-amber-500"
+                                    : "text-xs whitespace-pre-line text-error"
                             }
                         >
                             {testResult.message}
@@ -356,10 +404,11 @@ function ProviderCard({ id, providers }: { id: ProviderId; providers: ProvidersS
 
                 {checkResult ? (
                     <div
+                        role={checkResult.ok ? "status" : "alert"}
                         className={
                             checkResult.ok
                                 ? "text-xs text-text-muted"
-                                : "text-xs whitespace-pre-line text-amber-500"
+                                : "text-xs whitespace-pre-line text-error"
                         }
                     >
                         {checkResult.message}

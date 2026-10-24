@@ -12,7 +12,12 @@ import { useMemo, useSyncExternalStore } from "react";
 import { AUTO_MODEL } from "@/lib/catalog";
 import type { ModelInfo } from "@/lib/settings/models";
 import { getSettings, subscribeSettings, useSettings } from "@/lib/settings";
-import { availableModels, type ProvidersSettings } from "@/lib/ai/providers";
+import {
+  availableModels,
+  hasAnyConfiguredConnection,
+  resolveActiveDefaultModelId,
+  type ProvidersSettings,
+} from "@/lib/ai/providers";
 
 function toModelInfo(settings: ProvidersSettings): ModelInfo[] {
   return availableModels(settings).map((option) => ({
@@ -32,6 +37,21 @@ function toModelInfo(settings: ProvidersSettings): ModelInfo[] {
 /** Every model the user can currently reach (Auto always included). */
 export function getCatalogModels(): ModelInfo[] {
   return [AUTO_MODEL, ...toModelInfo(getSettings().ai.providers)];
+}
+
+/** Concrete model that `"auto"` currently resolves to, or `null` when unconfigured. */
+export function getCatalogResolvedAutoModel(): ModelInfo | null {
+  const providers = getSettings().ai.providers;
+  const activeId = resolveActiveDefaultModelId(providers);
+  if (!activeId) return null;
+  const list = toModelInfo(providers);
+  return list.find((m) => m.id === activeId) ?? list[0] ?? null;
+}
+
+/** True when a connection is enabled & credentialed, but still has zero model IDs configured. */
+export function hasCatalogConnectionMissingModels(): boolean {
+  const providers = getSettings().ai.providers;
+  return hasAnyConfiguredConnection(providers) && availableModels(providers).length === 0;
 }
 
 /** Models offered by one provider id. */

@@ -19,11 +19,18 @@ const forwardedDevOrigins = (process.env.NEXT_DEV_ALLOWED_ORIGINS ?? "")
   .map((origin) => origin.trim())
   .filter(Boolean);
 
+const extraDevOrigins = (process.env.BETTERSHAPE_ALLOWED_DEV_ORIGINS ?? "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter((origin) => origin.length > 0 && !origin.includes("*"));
+
 const nextConfig: NextConfig = {
   output: isProd ? "export" : undefined,
-  // Dev only: local Playwright uses loopback; forwarded previews can add their
-  // own host patterns without opening every development origin by default.
-  allowedDevOrigins: ["127.0.0.1", "localhost", ...forwardedDevOrigins],
+  // Dev only: Playwright and browser-preview workflows drive the dev server
+  // via 127.0.0.1 (see playwright.config.ts). Forwarded previews may name
+  // their own exact origins through NEXT_DEV_ALLOWED_ORIGINS or
+  // BETTERSHAPE_ALLOWED_DEV_ORIGINS, so neither list opens every origin.
+  allowedDevOrigins: ["127.0.0.1", "localhost", ...forwardedDevOrigins, ...extraDevOrigins],
   // Use root-absolute asset URLs so secondary windows (/settings/, /git/, etc.)
   // load CSS/JS from /_next/... instead of broken nested /_next/... paths.
   trailingSlash: isProd ? true : undefined,

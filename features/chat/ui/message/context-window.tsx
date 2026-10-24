@@ -1,5 +1,6 @@
 "use client";
 
+import { Tooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 export type ContextBreakdown = {
@@ -84,28 +85,36 @@ export function ContextWindowMenu({
         <div className="flex flex-col gap-2.5">
             <div className="flex items-baseline justify-between gap-3">
                 <span className="text-md font-medium text-text-primary">Context</span>
-                <span className="text-md font-medium text-text-muted">
+                <span className="text-md font-medium tabular-nums text-text-muted">
                     {formatTokens(windowUsed)}
                     {limit > 0 ? ` / ${formatTokens(limit)}` : ""}
                     {limit > 0 ? ` (${pct}%)` : ""}
                 </span>
             </div>
-            <div className="flex h-2 w-full overflow-hidden rounded-[2px] bg-panel-hover">
+            <div className="flex h-2 w-full overflow-hidden rounded-[3px] bg-panel-hover">
                 {rows.map((seg) => (
-                    <div
+                    <Tooltip
                         key={String(seg.key)}
-                        className={cn(seg.color, "h-full min-w-px")}
-                        style={{ width: `${Math.max(0.8, (seg.tokens / barDenom) * 100)}%` }}
-                        title={`${seg.label}: ${seg.tokens.toLocaleString()}`}
-                    />
+                        content={`${seg.label}: ${seg.tokens.toLocaleString()} tokens`}
+                    >
+                        <div
+                            className={cn(
+                                seg.color,
+                                "h-full min-w-px transition-[width] duration-[var(--spring-quick-dur)] ease-[var(--spring-quick)]",
+                            )}
+                            style={{ width: `${Math.max(0.8, (seg.tokens / barDenom) * 100)}%` }}
+                        />
+                    </Tooltip>
                 ))}
             </div>
             <div className="flex flex-col gap-1">
                 {rows.map((seg) => (
-                    <div key={String(seg.key)} className="flex items-center gap-2 text-sm">
-                        <span className={cn("size-3 shrink-0 squircle-2xl", seg.color)} />
-                        <span className="min-w-0 text-md! text-text-primary">{seg.label}</span>
-                        <span className="text-md font-medium text-text-muted">
+                    <div key={String(seg.key)} className="flex items-center justify-between gap-2 text-sm">
+                        <div className="flex min-w-0 items-center gap-2">
+                            <span className={cn("size-2.5 shrink-0 rounded-[3px]", seg.color)} />
+                            <span className="min-w-0 truncate text-md! text-text-primary">{seg.label}</span>
+                        </div>
+                        <span className="shrink-0 text-md font-medium tabular-nums text-text-muted">
                             {formatTokens(seg.tokens)}
                             {listed > 0 ? ` · ${Math.round((seg.tokens / listed) * 100)}%` : ""}
                         </span>

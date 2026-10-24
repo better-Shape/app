@@ -11,10 +11,11 @@ import {
 function DiffRows({ rows }: { rows: UnifiedDiffRow[] }) {
     if (rows.length === 0) return null;
     return (
-        <div className="relative mt-1 mb-1 max-h-56 w-full overflow-auto squircle-2xl border border-border-subtle bg-transparent px-1.5 py-2 font-mono text-sm leading-6">
+        <div className="custom-scrollbar relative mt-1 mb-1 max-h-56 w-full overflow-auto rounded-xl border border-border-subtle bg-transparent px-1.5 py-2 font-mono text-sm leading-6">
             {rows.map((row, i) => {
                 if (row.type === "hunk") return null;
                 const num = row.type === "remove" ? row.oldNum : row.newNum ?? row.oldNum;
+                const marker = row.type === "add" ? "+" : row.type === "remove" ? "-" : " ";
                 return (
                     <div
                         key={`${row.type}-${i}`}
@@ -28,7 +29,18 @@ function DiffRows({ rows }: { rows: UnifiedDiffRow[] }) {
                         <span className="w-8 shrink-0 select-none px-1 text-right tabular-nums text-text-disabled">
                             {num ?? ""}
                         </span>
-                        <span className="min-w-0 flex-1 whitespace-pre px-2">{row.line || " "}</span>
+                        <span
+                            aria-hidden
+                            className={cn(
+                                "w-4 shrink-0 select-none text-center",
+                                row.type === "add" && "text-success/80",
+                                row.type === "remove" && "text-error/80",
+                                row.type === "context" && "text-text-disabled",
+                            )}
+                        >
+                            {marker}
+                        </span>
+                        <span className="min-w-0 flex-1 whitespace-pre pr-2">{row.line || " "}</span>
                     </div>
                 );
             })}

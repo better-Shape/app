@@ -1,13 +1,11 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { Tooltip } from "@/components/ui/tooltip";
 
 const MAX_TICKS = 40;
 const LOCK_MS = 480;
-const W_IDLE = 8;
-const W_ACTIVE = 14;
 
 function truncateTurnLabel(raw: string, maxChars = 90): string {
     const one = raw.replace(/\s+/g, " ").trim();
@@ -16,7 +14,7 @@ function truncateTurnLabel(raw: string, maxChars = 90): string {
     const cut = one.slice(0, maxChars);
     const lastSpace = cut.lastIndexOf(" ");
     const base = (lastSpace > 40 ? cut.slice(0, lastSpace) : cut).trimEnd();
-    return `${base}…`;
+    return `${base}...`;
 }
 
 /** One tick per turn, capped at MAX_TICKS (evenly sampled when over). */
@@ -33,7 +31,7 @@ function turnTicks(turnCount: number, activeIndex: number): number[] {
     return [...out].sort((a, b) => a - b).slice(0, MAX_TICKS);
 }
 
-export function ChatHistoryStepper({
+export const ChatHistoryStepper = memo(function ChatHistoryStepper({
     turnCount,
     activeIndex,
     onSelect,
@@ -56,7 +54,7 @@ export function ChatHistoryStepper({
     return (
         <div
             className={cn(
-                "flex h-full min-h-0 w-4 flex-col items-end justify-center gap-2.5 select-none",
+                "flex h-full min-h-0 w-[24px] flex-col items-end justify-center gap-0.5 select-none",
                 className,
             )}
             role="navigation"
@@ -66,20 +64,21 @@ export function ChatHistoryStepper({
                 const active = turnIdx === activeIndex;
                 const label = truncateTurnLabel(turnLabels?.[turnIdx] || `Turn ${turnIdx + 1}`);
                 return (
-                    <Tooltip key={turnIdx} content={label} shortcut="" side="left" delayDuration={180}>
+                    <Tooltip key={turnIdx} content={label} shortcut="" side="left" delayDuration={160}>
                         <button
                             type="button"
                             aria-label={label}
                             aria-current={active ? "true" : undefined}
                             onClick={() => onSelect(turnIdx)}
-                            className="flex h-1 w-4 shrink-0 items-center justify-end"
+                            className="group/tick flex min-h-[24px] min-w-[24px] shrink-0 items-center justify-end rounded-sm transition-transform duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] motion-reduce:transform-none motion-reduce:transition-none active:scale-[0.94] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus"
                         >
                             <span
                                 className={cn(
-                                    "block h-px rounded-full",
-                                    active ? "bg-text-primary" : "bg-text-muted/45 hover:bg-text-muted",
+                                    "block h-[1.5px] rounded-full transition-[width,background-color] duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] motion-reduce:transition-none",
+                                    active
+                                        ? "w-[14px] bg-text-primary"
+                                        : "w-[8px] bg-text-muted/45 group-hover/tick:w-[11px] group-hover/tick:bg-text-secondary group-focus-visible/tick:w-[11px] group-focus-visible/tick:bg-text-secondary",
                                 )}
-                                style={{ width: active ? W_ACTIVE : W_IDLE }}
                             />
                         </button>
                     </Tooltip>
@@ -87,7 +86,7 @@ export function ChatHistoryStepper({
             })}
         </div>
     );
-}
+});
 
 /**
  * Discrete active turn from scroll position.

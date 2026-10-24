@@ -15,12 +15,14 @@ export function FileBar({ path }: { path: string }) {
 
     return (
         <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border-subtle px-2">
-            <Breadcrumbs
-                path={path}
-                projectPath={project_path}
-                compact
-                className="h-7 min-w-0 flex-1 !pt-0"
-            />
+            <div className="min-w-0 flex-1 overflow-hidden">
+                <Breadcrumbs
+                    path={path}
+                    projectPath={project_path}
+                    compact
+                    className="h-7 min-w-0 w-full !pt-0"
+                />
+            </div>
             <div className="flex shrink-0 items-center gap-1">
                 {/* Used to be a bare glyph that gave no sign it had done anything.
                     The check now draws over the clipboard, and the toast only fires

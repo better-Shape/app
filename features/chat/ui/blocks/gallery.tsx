@@ -290,12 +290,13 @@ export function DesignPreviewGallery({
                     </>
                 ) : null}
 
-                <div className="pointer-events-none absolute inset-x-0 top-2 z-2 flex translate-y-1 justify-center gap-1 opacity-0 transition-[opacity,translate] duration-[var(--transition-fast)] ease-[var(--ease-out)] group-hover/screen:pointer-events-auto group-hover/screen:translate-y-0 group-hover/screen:opacity-100 group-focus-within/screen:pointer-events-auto group-focus-within/screen:translate-y-0 group-focus-within/screen:opacity-100">
+                <div className="pointer-events-none absolute inset-x-0 top-2 z-2 flex translate-y-1 justify-center gap-1 opacity-0 transition-[opacity,translate] duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] group-hover/screen:pointer-events-auto group-hover/screen:translate-y-0 group-hover/screen:opacity-100 group-focus-within/screen:pointer-events-auto group-focus-within/screen:translate-y-0 group-focus-within/screen:opacity-100">
                     <div className="flex items-center gap-0.5 rounded-full border border-border-subtle bg-surface-1/95 px-1 py-0.5 shadow-[0_8px_28px_rgba(0,0,0,0.18)]">
                         <Tooltip content="Open">
                             <button
                                 type="button"
-                                className="flex size-7 items-center justify-center rounded-full text-text-muted transition-colors duration-[var(--transition-fast)] ease-[var(--ease-out)] hover:bg-panel-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus"
+                                aria-label="Open preview"
+                                className="flex size-7 items-center justify-center rounded-full text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus"
                                 onClick={() => setOpen(true)}
                             >
                                 <Icon icon={ArrowMaximize20Regular} />
@@ -305,8 +306,9 @@ export function DesignPreviewGallery({
                             <Tooltip content="Use this">
                                 <button
                                     type="button"
+                                    aria-label="Use this variant"
                                     disabled={!canPick}
-                                    className="flex size-7 items-center justify-center rounded-full text-text-muted transition-colors duration-[var(--transition-fast)] ease-[var(--ease-out)] hover:bg-panel-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus disabled:opacity-40"
+                                    className="flex size-7 items-center justify-center rounded-full text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus disabled:opacity-40"
                                     onClick={() => choose(item.id)}
                                 >
                                     <Icon icon={Checkmark20Regular} />

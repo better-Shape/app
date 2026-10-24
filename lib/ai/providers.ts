@@ -932,8 +932,11 @@ export function isConnectionUsable(id: ProviderId, connections: Record<ProviderI
   if (!connection?.enabled) return false;
   const preset = providerPreset(id);
   if (preset.needsBaseUrl && !connection.baseUrl.trim()) return false;
-  // Local runtimes, and gateways with a free tier, accept requests without a key.
-  if (!connection.apiKey.trim()) return preset.keyless === true;
+  // Local runtimes, gateways with a free tier, and self-hosted endpoints
+  // configured with `authStyle: "none"` accept requests without an API key.
+  if (!connection.apiKey.trim()) {
+    return preset.keyless === true || providerAuthStyle(id, connection) === "none";
+  }
   return true;
 }
 
@@ -1004,7 +1007,23 @@ export function formatHeaderLines(headers: Record<string, string> | undefined): 
 }
 
 export function hasAnyUsableProvider(settings: ProvidersSettings): boolean {
+  return availableModels(settings).length > 0;
+}
+
+/** True when a connection is enabled & credentialed, even if it still needs model IDs added. */
+export function hasAnyConfiguredConnection(settings: ProvidersSettings): boolean {
   return PROVIDER_PRESETS.some((preset) => isConnectionUsable(preset.id, settings.connections));
+}
+
+/** Concrete model ID that `"auto"` routes to right now, or `null` when none is routable. */
+export function resolveActiveDefaultModelId(settings: ProvidersSettings): string | null {
+  const models = availableModels(settings);
+  if (models.length === 0) return null;
+  const wanted = settings.defaultModel.trim();
+  if (wanted && wanted !== "auto" && models.some((m) => m.id === wanted)) {
+    return wanted;
+  }
+  return models[0]?.id ?? null;
 }
 
 /** Model ids offered by a connection: preset list plus anything the user added. */
@@ -1012,7 +1031,17 @@ export function modelIdsFor(id: ProviderId, connections: Record<ProviderId, Prov
   const connection = connections[id];
   const preset = providerPreset(id);
   const pinned = connection.models.length > 0 ? connection.models : preset.models.map((m) => m.id);
-  const extra = connection.extraModels.map((raw) => (raw.includes("/") ? raw : `${id}/${raw}`));
+  const extra = connection.extraModels
+    .map((raw) => raw.trim())
+    .filter(Boolean)
+    .map((raw) => {
+      if (raw.startsWith(`${id}/`)) return raw;
+      const head = raw.includes("/") ? raw.split("/")[0] ?? "" : "";
+      if (head && canonicalProviderId(head) === id) {
+        return `${id}/${raw.slice(head.length + 1)}`;
+      }
+      return `${id}/${raw}`;
+    });
   return [...new Set([...pinned, ...extra])];
 }
 

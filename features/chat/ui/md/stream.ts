@@ -1,5 +1,6 @@
 /** Remove stray thinking tags that leaked into plain text. */
 export function stripOrphanThinkTags(text: string): string {
+    if (!text.includes("<")) return text;
     return text
         .replace(/<\/?redacted_thinking[^>]*>\s*/gi, "")
         .replace(/<\/?thinking[^>]*>\s*/gi, "")
@@ -62,9 +63,35 @@ const STRIP_ACROSS_FENCES = [
     "list_terminals",
 ] as const;
 
-/** Apply `fn` only to prose outside fenced code blocks (preserve legitimate examples). */
+const ESCAPE_RE = /[.*+?^${}()|[\]\\]/g;
+
+const STRIP_ACROSS_FENCES_PATTERNS = STRIP_ACROSS_FENCES.map((tag) => {
+    const esc = tag.replace(ESCAPE_RE, "\\$&");
+    return new RegExp(`<${esc}\\b[^>]*>[\\s\\S]*?<\\/${esc}>`, "gi");
+});
+
+const LEAKED_TAG_PATTERNS = LEAKED_TOOL_XML_TAGS.map((tag) => {
+    const esc = tag.replace(ESCAPE_RE, "\\$&");
+    return {
+        paired: new RegExp(`<${esc}\\b[^>]*>[\\s\\S]*?<\\/${esc}>`, "gi"),
+        selfClosing: new RegExp(`<${esc}\\b[^>]*\\/?>`, "gi"),
+        openTail: new RegExp(`<${esc}\\b[^>]*>[\\s\\S]*$`, "gi"),
+        strayCloser: new RegExp(`<\\/${esc}>`, "gi"),
+    };
+});
+
+const FW_BAR = "\uFF5C";
+const DSML_PAIRED_RE = new RegExp(
+    `<${FW_BAR}{0,2}DSML${FW_BAR}{1,2}[\\w.]*?>[\\s\\S]*?<\\/${FW_BAR}{0,2}DSML${FW_BAR}{1,2}[\\w.]*?>`,
+    "gi",
+);
+const DSML_OPEN_TAIL_RE = new RegExp(`<${FW_BAR}{0,2}DSML${FW_BAR}{1,2}[\\w.]*?>[\\s\\S]*$`, "gi");
+const DSML_STRAY_RE = new RegExp(`<\\/?${FW_BAR}{0,2}DSML${FW_BAR}{1,2}[\\w.]*?>`, "gi");
+
+/** Apply `fn` only to prose outside fenced code blocks (including an open trailing streaming fence). */
 function mapOutsideCodeFences(text: string, fn: (prose: string) => string): string {
-    const parts = text.split(/(```[\s\S]*?```)/g);
+    if (!text.includes("```")) return fn(text);
+    const parts = text.split(/(```[\s\S]*?(?:```|$))/g);
     return parts
         .map((part, index) => {
             if (index % 2 === 1) return part;
@@ -80,66 +107,69 @@ function mapOutsideCodeFences(text: string, fn: (prose: string) => string): stri
  * Mistral `[TOOL_CALLS]`, plus BetterShape terminal UI chunks.
  */
 export function stripLeakedToolMarkup(text: string): string {
-    const fw = "\uFF5C"; // fullwidth ｜ used by DeepSeek DSML
+    const hasAngle = text.includes("<");
+    const hasDsml = text.includes(FW_BAR);
+    const hasMistral = text.includes("[TOOL_CALLS]");
+    const hasExecute = text.includes("_execute");
+    if (!hasAngle && !hasDsml && !hasMistral && !hasExecute) {
+        return text.includes("\n\n\n") ? text.replace(/\n{3,}/g, "\n\n") : text;
+    }
 
     let s = text;
-    for (const tag of STRIP_ACROSS_FENCES) {
-        const esc = tag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        s = s.replace(new RegExp(`<${esc}\\b[^>]*>[\\s\\S]*?<\\/${esc}>`, "gi"), "");
+    if (hasAngle) {
+        for (const pattern of STRIP_ACROSS_FENCES_PATTERNS) {
+            s = s.replace(pattern, "");
+        }
     }
 
     s = mapOutsideCodeFences(s, (prose) => {
+        const proseAngle = prose.includes("<");
+        const proseDsml = prose.includes(FW_BAR);
+        const proseMistral = prose.includes("[TOOL_CALLS]");
+        const proseExecute = prose.includes("_execute");
+        if (!proseAngle && !proseDsml && !proseMistral && !proseExecute) return prose;
+
         let p = prose;
 
-        for (const tag of LEAKED_TOOL_XML_TAGS) {
-            const esc = tag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-            // Complete paired blocks.
-            p = p.replace(new RegExp(`<${esc}\\b[^>]*>[\\s\\S]*?<\\/${esc}>`, "gi"), "");
-            // Self-closing / empty open tags.
-            p = p.replace(new RegExp(`<${esc}\\b[^>]*\\/?>`, "gi"), "");
-            // Incomplete open still streaming → eat remainder of this prose segment.
-            p = p.replace(new RegExp(`<${esc}\\b[^>]*>[\\s\\S]*$`, "gi"), "");
-            // Stray closers.
-            p = p.replace(new RegExp(`<\\/${esc}>`, "gi"), "");
+        if (proseAngle) {
+            for (const rule of LEAKED_TAG_PATTERNS) {
+                if (!p.includes("<")) break;
+                p = p.replace(rule.paired, "");
+                p = p.replace(rule.selfClosing, "");
+                p = p.replace(rule.openTail, "");
+                p = p.replace(rule.strayCloser, "");
+            }
         }
 
-        // DeepSeek DSML (fullwidth bars, double/single/no leading bar).
-        // e.g. <｜｜DSML｜｜tool_calls>…</｜｜DSML｜｜tool_calls>
-        //      <｜DSML｜invoke name="x">…</｜DSML｜invoke>
-        const dsmlOpen = new RegExp(
-            `<${fw}{0,2}DSML${fw}{1,2}[\\w.]*?>[\\s\\S]*?<\\/${fw}{0,2}DSML${fw}{1,2}[\\w.]*?>`,
-            "gi",
-        );
-        p = p.replace(dsmlOpen, "");
-        p = p.replace(new RegExp(`<${fw}{0,2}DSML${fw}{1,2}[\\w.]*?>[\\s\\S]*$`, "gi"), "");
-        p = p.replace(new RegExp(`<\\/?${fw}{0,2}DSML${fw}{1,2}[\\w.]*?>`, "gi"), "");
-        // ASCII-pipe proxy variant: < | DSML | tool_calls>
-        p = p.replace(/<\s*\|\s*DSML\s*\|\s*[\w.]*?>[\s\S]*?<\/\s*\|\s*DSML\s*\|\s*[\w.]*?>/gi, "");
-        p = p.replace(/<\/?\s*\|\s*DSML\s*\|\s*[\w.]*?>/gi, "");
+        if (proseAngle || proseDsml) {
+            p = p.replace(DSML_PAIRED_RE, "");
+            p = p.replace(DSML_OPEN_TAIL_RE, "");
+            p = p.replace(DSML_STRAY_RE, "");
+            p = p.replace(/<\s*\|\s*DSML\s*\|\s*[\w.]*?>[\s\S]*?<\/\s*\|\s*DSML\s*\|\s*[\w.]*?>/gi, "");
+            p = p.replace(/<\/?\s*\|\s*DSML\s*\|\s*[\w.]*?>/gi, "");
 
-        // Kimi / Llama / Gemma / OpenAI-compat special tokens.
-        p = p.replace(
-            /<\|(?:tool_calls_section_begin|tool_calls_section_end|tool_call_section_begin|tool_call_section_end|tool_call_begin|tool_call_end|tool_call_argument_begin|tool_call|tool_response|python_tag)\|>/gi,
-            "",
-        );
-        // Broader catch for unknown <|…tool…|> sentinels (keep short).
-        p = p.replace(/<\|[^|]{0,48}tool[^|]{0,48}\|>/gi, "");
+            p = p.replace(
+                /<\|(?:tool_calls_section_begin|tool_calls_section_end|tool_call_section_begin|tool_call_section_end|tool_call_begin|tool_call_end|tool_call_argument_begin|tool_call|tool_response|python_tag)\|>/gi,
+                "",
+            );
+            p = p.replace(/<\|[^|]{0,48}tool[^|]{0,48}\|>/gi, "");
+            p = p.replace(/<\/?function\s*=[^>]*>/gi, "");
+            p = p.replace(/<\/?parameter\s*=[^>]*>/gi, "");
+        }
 
-        // Mistral sentinel + JSON payload on the same/following lines.
-        p = p.replace(/\[TOOL_CALLS\]\s*\[[\s\S]*?\](?=\s*(?:\n|$))/g, "");
-        p = p.replace(/\[TOOL_CALLS\][^\n]*(?:\n\[(?:ARGS|CALL_ID)\][^\n]*)*/g, "");
+        if (proseMistral) {
+            p = p.replace(/\[TOOL_CALLS\]\s*\[[\s\S]*?\](?=\s*(?:\n|$))/g, "");
+            p = p.replace(/\[TOOL_CALLS\][^\n]*(?:\n\[(?:ARGS|CALL_ID)\][^\n]*)*/g, "");
+        }
 
-        // DeepSeek / Hermes `_execute` textual tool dumps.
-        p = p.replace(/(?:^|\n)_execute\s*\n(?:tool_name|name)\s*:[^\n]*(?:\n[a-z_]+\s*:[^\n]*)*/gi, "\n");
-
-        // Qwen Hermes bare function= / parameter= lines without outer wrapper.
-        p = p.replace(/<\/?function\s*=[^>]*>/gi, "");
-        p = p.replace(/<\/?parameter\s*=[^>]*>/gi, "");
+        if (proseExecute) {
+            p = p.replace(/(?:^|\n)_execute\s*\n(?:tool_name|name)\s*:[^\n]*(?:\n[a-z_]+\s*:[^\n]*)*/gi, "\n");
+        }
 
         return p;
     });
 
-    return s.replace(/\n{3,}/g, "\n\n");
+    return s.includes("\n\n\n") ? s.replace(/\n{3,}/g, "\n\n") : s;
 }
 
 /**
@@ -153,54 +183,74 @@ export function stripLeakedToolMarkup(text: string): string {
 export function stripLeakedToolCode(text: string): string {
     let s = text;
 
-    // Complete fenced blocks whose body looks like a tool leak.
-    s = s.replace(/```[\w-]*\s*\n([\s\S]*?)```/g, (full, body: string) =>
-        looksLikeLeakedToolCode(body) ? "" : full,
-    );
+    if (s.includes("```")) {
+        // Complete fenced blocks whose body looks like a tool leak.
+        s = s.replace(/```[\w-]*\s*\n([\s\S]*?)```/g, (full, body: string) =>
+            looksLikeLeakedToolCode(body) ? "" : full,
+        );
 
-    // Incomplete fence still streaming (common mid-tool-arg dump).
-    s = s.replace(/```[\w-]*\s*\n([\s\S]*)$/g, (full, body: string) =>
-        looksLikeLeakedToolCode(body) ? "" : full,
-    );
+        // Incomplete fence still streaming (common mid-tool-arg dump).
+        s = s.replace(/```[\w-]*\s*\n([\s\S]*)$/g, (full, body: string) =>
+            looksLikeLeakedToolCode(body) ? "" : full,
+        );
+    }
 
-    // Bare JSON objects: { "tool_code": "..." }
-    s = s.replace(/\{\s*"tool_code"\s*:[\s\S]*$/g, (match) => {
-        // Only strip if it looks like the start of a tool dump (not normal prose).
-        return /print\s*\(|render_design_previews|concepts\s*=/.test(match) ? "" : match;
-    });
+    if (s.includes("tool_code")) {
+        // Bare JSON objects: { "tool_code": "..." }
+        s = s.replace(/\{\s*"tool_code"\s*:[\s\S]*$/g, (match) => {
+            return /print\s*\(|render_design_previews|concepts\s*=/.test(match) ? "" : match;
+        });
+    }
 
-    // Bare print(tool_name(...)) dumps without JSON wrapper (Gemini).
-    s = s.replace(/(?:^|\n)\s*print\s*\(\s*[a-zA-Z_][\w]*\s*\([\s\S]*$/g, "\n");
+    if (s.includes("print")) {
+        s = s.replace(/(?:^|\n)\s*print\s*\(\s*[a-zA-Z_][\w]*\s*\([\s\S]*$/g, "\n");
+    }
 
-    // MiniMax-Text-01 style: functions.name({...}) after a function_call fence remnant.
-    s = s.replace(/(?:^|\n)\s*functions\.[a-zA-Z_][\w.]*\s*\(\{[\s\S]*$/g, "\n");
+    if (s.includes("functions.")) {
+        s = s.replace(/(?:^|\n)\s*functions\.[a-zA-Z_][\w.]*\s*\(\{[\s\S]*$/g, "\n");
+    }
 
     s = stripLeakedToolMarkup(s);
 
-    return s.replace(/\n{3,}/g, "\n\n");
+    return s.includes("\n\n\n") ? s.replace(/\n{3,}/g, "\n\n") : s;
 }
 
 /** Repair cumulative-stream glitches and obvious duplicate phrases in assistant text. */
 export function repairStreamGlitches(text: string): string {
-    if (text.length < 24) return text;
+    if (text.length < 40) return text;
 
-    for (let len = Math.min(120, Math.floor(text.length / 2)); len >= 20; len--) {
-        for (let i = 0; i + len * 2 <= text.length; i++) {
-            const a = text.slice(i, i + len);
-            const b = text.slice(i + len, i + len * 2);
-            if (a === b) {
+    const maxAdjLen = Math.min(120, Math.floor(text.length / 2));
+    for (let len = maxAdjLen; len >= 20; len--) {
+        const limit = text.length - len * 2;
+        const midOffset = len >> 1;
+        for (let i = 0; i <= limit; i++) {
+            if (
+                text.charCodeAt(i) === text.charCodeAt(i + len)
+                && text.charCodeAt(i + len - 1) === text.charCodeAt(i + len * 2 - 1)
+                && text.charCodeAt(i + midOffset) === text.charCodeAt(i + len + midOffset)
+                && text.startsWith(text.slice(i, i + len), i + len)
+            ) {
                 return text.slice(0, i + len) + text.slice(i + len * 2);
             }
         }
     }
 
-    for (let start = 20; start < text.length - 20; start++) {
+    // Prefix re-emission check: `text.slice(0, len) === text.slice(start, start + len)` for `len >= 20`
+    // can only occur at positions `start` where `text.slice(0, 20)` appears again!
+    const prefix20 = text.slice(0, 20);
+    let searchFrom = 20;
+    while (searchFrom <= text.length - 20) {
+        const start = text.indexOf(prefix20, searchFrom);
+        if (start === -1 || start > text.length - 20) break;
         const maxLen = Math.min(start, text.length - start);
-        for (let len = maxLen; len >= 20; len--) {
-            if (text.slice(0, len) === text.slice(start, start + len)) {
-                return text.slice(0, start) + text.slice(start + len);
-            }
+        let matched = 20;
+        while (matched < maxLen && text.charCodeAt(matched) === text.charCodeAt(start + matched)) {
+            matched++;
         }
+        if (matched >= 20) {
+            return text.slice(0, start) + text.slice(start + matched);
+        }
+        searchFrom = start + 1;
     }
 
     const glued = text.match(/([a-z])([A-Z][a-z]{4,})/);
@@ -227,6 +277,7 @@ export function looksLikeProseMarkdown(text: string): boolean {
 }
 
 function demoteIndentedMarkdown(text: string): string {
+    if (!text.includes("    ") && !text.includes("\t")) return text;
     return text
         .split("\n")
         .map((line) => {
@@ -241,6 +292,7 @@ function demoteIndentedMarkdown(text: string): string {
 
 function unwrapOuterProseFence(text: string): string {
     const trimmed = text.trim();
+    if (!trimmed.startsWith("```")) return text;
     const outer = /^```(?:[\w-]*)?\s*\n([\s\S]*?)\n```\s*$/.exec(trimmed);
     if (outer && looksLikeProseMarkdown(outer[1])) {
         return outer[1];
@@ -249,17 +301,18 @@ function unwrapOuterProseFence(text: string): string {
 }
 
 function stripRawHtml(text: string): string {
-    const parts = text.split(/(```[\s\S]*?```)/g);
+    if (!text.includes("<")) return text;
+    const replaceHtml = (part: string) =>
+        part
+            .replace(/<img[^>]*>/gi, "")
+            .replace(/<br\s*\/?>/gi, "\n")
+            .replace(/<\/?(h[1-6]|p|div|span|a|ul|ol|li|strong|em|b|i|section|article|header|footer)[^>]*>/gi, (tag) =>
+                tag.startsWith("</") ? "\n" : "",
+            );
+    if (!text.includes("```")) return replaceHtml(text);
+    const parts = text.split(/(```[\s\S]*?(?:```|$))/g);
     return parts
-        .map((part, index) => {
-            if (index % 2 === 1) return part;
-            return part
-                .replace(/<img[^>]*>/gi, "")
-                .replace(/<br\s*\/?>/gi, "\n")
-                .replace(/<\/?(h[1-6]|p|div|span|a|ul|ol|li|strong|em|b|i|section|article|header|footer)[^>]*>/gi, (tag) =>
-                    tag.startsWith("</") ? "\n" : "",
-                );
-        })
+        .map((part, index) => (index % 2 === 1 ? part : replaceHtml(part)))
         .join("");
 }
 
@@ -267,7 +320,7 @@ const MAX_DISPLAY_CHARS = 48_000;
 
 function truncateForDisplay(text: string): string {
     if (text.length <= MAX_DISPLAY_CHARS) return text;
-    return `${text.slice(0, MAX_DISPLAY_CHARS)}\n\n… (response truncated for display)`;
+    return `${text.slice(0, MAX_DISPLAY_CHARS)}\n\n... (response truncated for display)`;
 }
 
 /** Normalize assistant markdown before ReactMarkdown. */
@@ -286,11 +339,14 @@ export function preprocessChatMarkdown(
     }
     s = s.replace(/^[•●▪◦]\s+/gm, "- ");
     s = s.replace(/^\s*[-*_]{3,}\s*$/gm, "");
-    s = s.replace(/\n{3,}/g, "\n\n");
+    if (s.includes("\n\n\n")) {
+        s = s.replace(/\n{3,}/g, "\n\n");
+    }
     if (options?.streaming) {
-        s = balanceMarkdownFences(s);
-        // Re-strip after fence balancing in case a closed fence still looks like a leak.
-        s = stripLeakedToolCode(s);
+        const balanced = balanceMarkdownFences(s);
+        if (balanced !== s) {
+            s = stripLeakedToolCode(balanced);
+        }
     }
     if (options?.trim !== false) {
         s = s.trim();
@@ -300,6 +356,7 @@ export function preprocessChatMarkdown(
 
 /** Close an unclosed fenced code block so streaming markdown does not swallow the rest as mono code. */
 function balanceMarkdownFences(text: string): string {
+    if (!text.includes("```")) return text;
     const fenceCount = (text.match(/^```/gm) || []).length;
     if (fenceCount % 2 !== 0) {
         return `${text}\n\`\`\``;

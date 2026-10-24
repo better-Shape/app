@@ -26,16 +26,29 @@ import { FileIcon } from "@/components/ui/file-icon";
 import { Favicon } from "@/components/ui/favicon";
 import { SearchInput } from "@/components/ui/search";
 import { cn } from "@/lib/utils";
-import { commands, useProjectState } from "@/lib/backend";
+import { useProjectState } from "@/lib/backend";
 import { formatMentionToken, type ChatMention } from "@/lib/chat/mentions";
 import { DESIGN_TOKEN_MENTIONS, designTokenById } from "@/lib/chat/design-mentions";
-import { workflowSlashToken, type AgentWorkflow } from "@/lib/chat/workflows";
+import {
+    BUILTIN_SLASH_COMMANDS,
+    workflowSlashToken,
+    type AgentWorkflow,
+    type BuiltinSlashCommand,
+} from "@/lib/chat/workflows";
 import { listDesignPreviewSessions, trySelectPendingDesignConcept } from "@/lib/agent-preview/store";
 import { hostnameOf } from "@/lib/ui/favicon";
 import { getPreviewCurrentUrl } from "@/features/preview/store";
 import { fetchPlugins, peekPluginsCache, type PluginRow } from "@/lib/plugins/api";
 import { listSkills, skillIdFromName, subscribeSkills, type Skill } from "@/lib/chat/skills";
 import { ensureFreshScan, useSkillIndex } from "@/lib/chat/skill-index";
+import {
+    fetchWarmMcpServers,
+    fetchWarmProjectFiles,
+    fetchWarmRecentChats,
+    peekWarmMcpServers,
+    peekWarmProjectFiles,
+    peekWarmRecentChats,
+} from "@/lib/chat/mention-warm-cache";
 import { PluginLogo } from "@/components/ui/plugin-logo";
 
 type CategoryId = "files" | "code" | "docs" | "terminals" | "chats" | "branch" | "browser" | "mcp" | "plugins" | "skills" | "design" | null;
@@ -62,7 +75,7 @@ function pathDir(path: string): string {
     if (parts.length <= 1) return "";
     const dir = parts.slice(0, -1).join("/");
     if (dir.length <= 28) return dir;
-    return `…${dir.slice(-26)}`;
+    return `...${dir.slice(-26)}`;
 }
 
 export function MentionPicker({
@@ -90,15 +103,19 @@ export function MentionPicker({
     workflows?: AgentWorkflow[];
 }) {
     const { project_path } = useProjectState();
-    const [files, setFiles] = useState<string[]>([]);
-    const [chats, setChats] = useState<{ id: string; title: string }[]>([]);
-    const [mcpServers, setMcpServers] = useState<{ id: string; name: string }[]>([]);
+    const [files, setFiles] = useState<string[]>(() => peekWarmProjectFiles(project_path) ?? []);
+    const [chats, setChats] = useState<{ id: string; title: string }[]>(
+        () => peekWarmRecentChats(project_path) ?? [],
+    );
+    const [mcpServers, setMcpServers] = useState<{ id: string; name: string }[]>(
+        () => peekWarmMcpServers() ?? [],
+    );
     const [plugins, setPlugins] = useState<PluginRow[]>(() => peekPluginsCache()?.plugins ?? []);
     const [skills, setSkills] = useState<Skill[]>(() => listSkills());
     const { scan } = useSkillIndex();
     const [activeCategory, setActiveCategory] = useState<CategoryId>(null);
     const [highlight, setHighlight] = useState(0);
-    const [pos, setPos] = useState<{ left: number; top: number; width: number } | null>(null);
+    const [pos, setPos] = useState<{ left: number; top: number; width: number; maxListHeight?: number } | null>(null);
     const [menuEl, setMenuEl] = useState<HTMLDivElement | null>(null);
     const [filter, setFilter] = useState("");
 
@@ -117,12 +134,35 @@ export function MentionPicker({
         const update = () => {
             if (!box) return;
             const rect = box.getBoundingClientRect();
+            const vw = typeof window !== "undefined" ? window.innerWidth : 1024;
+            const vh = typeof window !== "undefined" ? window.innerHeight : 768;
             const measured = menuEl?.offsetHeight;
-            const menuHeight = measured && measured > 0 ? measured : 280;
-            const width = rect.width;
+            const menuHeight = measured && measured > 0 ? measured : 260;
+            const maxAllowedWidth = Math.max(200, vw - 16);
+            const width = rect.width > 0 ? Math.min(rect.width, maxAllowedWidth) : Math.min(320, maxAllowedWidth);
+            const left = rect.width > 0 ? Math.max(8, Math.min(rect.left, vw - width - 8)) : rect.left;
+
+            if (rect.height === 0 && rect.top === 0) {
+                setPos({ left, top: 8, width });
+                return;
+            }
+
+            const spaceAbove = rect.top - 12;
+            const spaceBelow = vh - rect.bottom - 12;
             let top = rect.top - menuHeight - 6;
-            if (top < 8) top = 8;
-            setPos({ left: rect.left, top, width });
+            let maxListHeight: number | undefined;
+
+            if (top >= 8) {
+                maxListHeight = Math.min(288, Math.max(120, spaceAbove - 44));
+            } else if (spaceBelow > spaceAbove && spaceBelow >= 140) {
+                top = rect.bottom + 6;
+                maxListHeight = Math.min(288, Math.max(120, spaceBelow - 44));
+            } else {
+                top = 8;
+                maxListHeight = Math.min(288, Math.max(110, rect.top - 52));
+            }
+
+            setPos({ left, top: Math.max(8, top), width, maxListHeight });
         };
         update();
         window.addEventListener("resize", update);
@@ -146,39 +186,46 @@ export function MentionPicker({
     useEffect(() => {
         if (!open || !project_path) return;
         let cancelled = false;
-        void (async () => {
-            try {
-                const results = await commands.searchProjectFiles(filter || "", 40);
-                if (!cancelled) {
-                    setFiles(results.map((r) => (r.relative_path || r.path).replace(/\\/g, "/")));
-                }
-            } catch {
-                if (!cancelled) setFiles([]);
+        const trimmed = filter.trim();
+        const warmRoot = peekWarmProjectFiles(project_path);
+
+        if (!trimmed) {
+            if (warmRoot) {
+                const t = window.setTimeout(() => {
+                    if (!cancelled) setFiles(warmRoot);
+                }, 0);
+                return () => {
+                    cancelled = true;
+                    window.clearTimeout(t);
+                };
             }
-        })();
+            void fetchWarmProjectFiles(project_path, "", 40).then((rows) => {
+                if (!cancelled) setFiles(rows);
+            });
+            return () => {
+                cancelled = true;
+            };
+        }
+
+        // Seed immediate client-side matches from warm root while debouncing IPC search.
+        const timer = window.setTimeout(() => {
+            void fetchWarmProjectFiles(project_path, trimmed, 40).then((rows) => {
+                if (!cancelled) setFiles(rows);
+            });
+        }, 55);
+
         return () => {
             cancelled = true;
+            window.clearTimeout(timer);
         };
     }, [open, project_path, filter]);
 
     useEffect(() => {
         if (!open) return;
         let cancelled = false;
-        void (async () => {
-            try {
-                const list = await commands.getConversations(project_path ?? undefined);
-                if (!cancelled) {
-                    setChats(
-                        list.slice(0, 20).map((c) => ({
-                            id: c.id,
-                            title: c.title || "Chat",
-                        })),
-                    );
-                }
-            } catch {
-                if (!cancelled) setChats([]);
-            }
-        })();
+        void fetchWarmRecentChats(project_path).then((rows) => {
+            if (!cancelled) setChats(rows);
+        });
         return () => {
             cancelled = true;
         };
@@ -187,22 +234,9 @@ export function MentionPicker({
     useEffect(() => {
         if (!open) return;
         let cancelled = false;
-        void (async () => {
-            try {
-                const statuses = await commands.getMcpStatus();
-                if (cancelled) return;
-                setMcpServers(
-                    statuses
-                        .filter((s) => String(s.status || "").toLowerCase() === "connected")
-                        .map((s) => ({
-                            id: s.id,
-                            name: s.name || s.id,
-                        })),
-                );
-            } catch {
-                if (!cancelled) setMcpServers([]);
-            }
-        })();
+        void fetchWarmMcpServers().then((rows) => {
+            if (!cancelled) setMcpServers(rows);
+        });
         return () => {
             cancelled = true;
         };
@@ -390,23 +424,44 @@ export function MentionPicker({
         return fileMentions.slice(0, 8);
     }, [activeCategory, categoryItems, fileMentions]);
 
-    const slashItems = useMemo(() => {
+    const slashEntries = useMemo(() => {
         const needle = q.replace(/^\//, "").toLowerCase();
-        return workflows
+        type SlashEntry =
+            | { kind: "builtin"; cmd: BuiltinSlashCommand; score: number }
+            | { kind: "workflow"; w: AgentWorkflow; score: number };
+
+        const scoreToken = (tokenKey: string, titleLower: string, descLower = ""): number => {
+            if (!needle) return 1;
+            if (tokenKey === needle) return 4;
+            if (tokenKey.startsWith(needle) || titleLower.startsWith(needle)) return 3;
+            if (tokenKey.includes(needle) || titleLower.includes(needle)) return 2;
+            if (descLower && descLower.includes(needle)) return 1;
+            return 0;
+        };
+
+        const builtins: SlashEntry[] = BUILTIN_SLASH_COMMANDS.map((cmd) => ({
+            kind: "builtin" as const,
+            cmd,
+            score: scoreToken(
+                cmd.token.replace(/^\/+/, "").toLowerCase(),
+                cmd.name.toLowerCase(),
+                cmd.description.toLowerCase(),
+            ),
+        })).filter((entry) => entry.score > 0);
+
+        const saved: SlashEntry[] = workflows
             .map((w) => {
-                const trigger = w.trigger.trim();
-                const triggerKey = trigger.replace(/^\/+/, "").toLowerCase();
-                const name = w.name.toLowerCase();
-                let score = 0;
-                if (!needle) score = 1;
-                else if (triggerKey === needle || trigger.toLowerCase() === `/${needle}`) score = 3;
-                else if (triggerKey.startsWith(needle) || name.startsWith(needle)) score = 2;
-                else if (triggerKey.includes(needle) || name.includes(needle)) score = 1;
-                return { w, score };
+                const triggerKey = w.trigger.trim().replace(/^\/+/, "").toLowerCase();
+                return {
+                    kind: "workflow" as const,
+                    w,
+                    score: scoreToken(triggerKey, w.name.toLowerCase()),
+                };
             })
-            .filter((x) => x.score > 0)
+            .filter((entry) => entry.score > 0);
+
+        return [...saved, ...builtins]
             .sort((a, b) => b.score - a.score)
-            .map((x) => x.w)
             .slice(0, 20);
     }, [workflows, q]);
 
@@ -417,18 +472,18 @@ export function MentionPicker({
     }, [activeCategory, q]);
 
     const showCategories = mode === "mention" && !activeCategory;
-    const listLen = mode === "slash" ? slashItems.length : rootItems.length;
+    const mentionNavLen = rootItems.length + (showCategories ? visibleCategories.length : 0);
+    const listLen = mode === "slash" ? slashEntries.length : mentionNavLen;
 
     const [highlightScope, setHighlightScope] = useState<readonly [typeof activeCategory, typeof filter, unknown, unknown, typeof mode] | null>(null);
     if (highlightScope === null
         || !Object.is(highlightScope[0], activeCategory)
         || !Object.is(highlightScope[1], filter)
-        || !Object.is(highlightScope[2], rootItems.length)
-        || !Object.is(highlightScope[3], slashItems.length)
+        || !Object.is(highlightScope[2], mentionNavLen)
+        || !Object.is(highlightScope[3], slashEntries.length)
         || !Object.is(highlightScope[4], mode)) {
-        setHighlightScope([activeCategory, filter, rootItems.length, slashItems.length, mode]);
+        setHighlightScope([activeCategory, filter, mentionNavLen, slashEntries.length, mode]);
         setHighlight(0);
-
     }
 
     const pickItem = useCallback(
@@ -442,13 +497,21 @@ export function MentionPicker({
         [onPick, onClose],
     );
 
-    const pickSlash = useCallback(
-        (w: AgentWorkflow) => {
-            onPick(`${workflowSlashToken(w)} `);
+    const pickSlashToken = useCallback(
+        (token: string) => {
+            onPick(`${token} `);
             onClose();
         },
         [onPick, onClose],
     );
+
+    useEffect(() => {
+        if (!open || !menuEl) return;
+        const activeRow = menuEl.querySelector<HTMLElement>('[data-mention-highlighted="true"]');
+        if (activeRow && typeof activeRow.scrollIntoView === "function") {
+            activeRow.scrollIntoView({ block: "nearest" });
+        }
+    }, [open, menuEl, highlight]);
 
     useEffect(() => {
         if (!open) return;
@@ -460,44 +523,73 @@ export function MentionPicker({
                 return;
             }
             if (e.key === "ArrowDown") {
+                if (listLen <= 0) return;
                 e.preventDefault();
                 setHighlight((h) => Math.min(h + 1, Math.max(listLen - 1, 0)));
             } else if (e.key === "ArrowUp") {
+                if (listLen <= 0) return;
                 e.preventDefault();
                 setHighlight((h) => Math.max(h - 1, 0));
-            } else if (e.key === "Enter") {
+            } else if (e.key === "Enter" || (e.key === "Tab" && !e.shiftKey)) {
+                if (listLen <= 0) {
+                    if (e.key === "Enter") {
+                        onClose();
+                    }
+                    return;
+                }
                 e.preventDefault();
                 if (mode === "slash") {
-                    if (slashItems[highlight]) pickSlash(slashItems[highlight]);
-                } else if (rootItems[highlight]) {
-                    pickItem(rootItems[highlight]);
+                    const entry = slashEntries[highlight];
+                    if (entry) {
+                        pickSlashToken(
+                            entry.kind === "builtin" ? entry.cmd.token : workflowSlashToken(entry.w),
+                        );
+                    }
+                } else if (highlight < rootItems.length) {
+                    if (rootItems[highlight]) pickItem(rootItems[highlight]);
+                } else if (showCategories) {
+                    const cat = visibleCategories[highlight - rootItems.length];
+                    if (cat) setActiveCategory(cat.id);
                 }
             }
         };
         window.addEventListener("keydown", onKey, true);
         return () => window.removeEventListener("keydown", onKey, true);
-    }, [open, activeCategory, rootItems, slashItems, highlight, onClose, pickItem, pickSlash, mode, listLen]);
+    }, [
+        open,
+        activeCategory,
+        rootItems,
+        slashEntries,
+        visibleCategories,
+        showCategories,
+        highlight,
+        onClose,
+        pickItem,
+        pickSlashToken,
+        mode,
+        listLen,
+    ]);
 
     if (!open || !pos) return null;
 
     return createPortal(
         <div
             ref={setMenuEl}
-            className="bettershape-popover-content bettershape-menu-content fixed z-dropdown overflow-hidden squircle-2xl border border-border-secondary bg-surface-4/80 backdrop-blur-sm shadow-md"
+            className="bettershape-popover-content bettershape-menu-content fixed z-dropdown overflow-hidden rounded-xl border border-border-secondary bg-surface-4 shadow-lg"
             style={{ left: pos.left, top: pos.top, width: pos.width }}
         >
             <SearchInput
                 borderless
                 value={filter}
                 onChange={(e) => setFilter(e.target.value)}
-                placeholder={mode === "slash" ? "Search workflows…" : "Add files, folders, docs..."}
+                placeholder={mode === "slash" ? "Search commands & workflows..." : "Add files, folders, skills..."}
                 aria-label={mode === "slash" ? "Search workflows" : "Search mentions"}
             />
 
             {mode === "mention" && activeCategory ? (
                 <button
                     type="button"
-                    className="flex w-full items-center gap-2 px-2.5 py-1.5 text-sm text-text-secondary hover:bg-[var(--row-hover)] hover:text-text-primary"
+                    className="flex w-full items-center gap-2 px-2.5 py-1.5 text-sm text-text-secondary transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--row-hover)] hover:text-text-primary"
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => setActiveCategory(null)}
                 >
@@ -506,41 +598,64 @@ export function MentionPicker({
                 </button>
             ) : null}
 
-            <div className="max-h-72 overflow-y-auto no-scrollbar px-1 pb-1">
+            <div
+                className="overflow-y-auto no-scrollbar px-1 pb-1"
+                style={{ maxHeight: pos.maxListHeight ?? 288 }}
+            >
                 {mode === "slash" ? (
-                    slashItems.length === 0 ? (
+                    slashEntries.length === 0 ? (
                         <div className="px-2.5 py-2 text-sm text-text-muted">
                             No matching commands. Add workflows in Settings.
                         </div>
                     ) : (
-                        slashItems.map((w, idx) => (
-                            <button
-                                key={w.id}
-                                type="button"
-                                className={cn(
-                                    "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm",
-                                    idx === highlight
-                                        ? "bg-panel-hover text-text-primary"
-                                        : "text-text-primary hover:bg-[var(--row-hover)]",
-                                )}
-                                onMouseDown={(e) => e.preventDefault()}
-                                onMouseEnter={() => setHighlight(idx)}
-                                onClick={() => pickSlash(w)}
-                            >
-                                {w.pluginToolkit ? (
-                                    <PluginLogo
-                                        toolkit={w.pluginToolkit}
-                                        name={w.name}
-                                        size={14}
-                                        className="rounded-sm"
-                                    />
-                                ) : (
-                                    <Icon icon={Code20Regular} className="shrink-0 text-text-muted" />
-                                )}
-                                <span className="min-w-0 flex-1 truncate font-medium">{workflowSlashToken(w)}</span>
-                                <span className="ml-auto max-w-[50%] truncate text-sm text-text-muted">{w.name}</span>
-                            </button>
-                        ))
+                        slashEntries.map((entry, idx) => {
+                            const token =
+                                entry.kind === "builtin"
+                                    ? entry.cmd.token
+                                    : workflowSlashToken(entry.w);
+                            const subtitle =
+                                entry.kind === "builtin" ? entry.cmd.description : entry.w.name;
+                            const argsHint =
+                                entry.kind === "builtin" ? entry.cmd.argsHint : undefined;
+                            const key =
+                                entry.kind === "builtin" ? `builtin-${entry.cmd.token}` : entry.w.id;
+                            return (
+                                <button
+                                    key={key}
+                                    type="button"
+                                    data-mention-highlighted={idx === highlight ? "true" : undefined}
+                                    className={cn(
+                                        "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
+                                        idx === highlight
+                                            ? "bg-[var(--row-selected)] text-text-primary hover:bg-[var(--row-selected-hover)]"
+                                            : "text-text-primary hover:bg-[var(--row-hover)]",
+                                    )}
+                                    onMouseDown={(e) => e.preventDefault()}
+                                    onMouseEnter={() => setHighlight(idx)}
+                                    onClick={() => pickSlashToken(token)}
+                                >
+                                    {entry.kind === "workflow" && entry.w.pluginToolkit ? (
+                                        <PluginLogo
+                                            toolkit={entry.w.pluginToolkit}
+                                            name={entry.w.name}
+                                            size={14}
+                                            className="rounded-sm"
+                                        />
+                                    ) : (
+                                        <Icon icon={Code20Regular} className="shrink-0 text-text-muted" />
+                                    )}
+                                    <span className="flex min-w-0 shrink-0 items-center gap-1 font-medium">
+                                        <span>{token}</span>
+                                        {argsHint ? (
+                                            <span className="font-normal text-text-muted">{argsHint}</span>
+                                        ) : null}
+                                    </span>
+                                    <span className="ml-auto min-w-0 max-w-[56%] truncate text-xs text-text-muted">
+                                        {subtitle}
+                                    </span>
+                                </button>
+                            );
+                        })
                     )
                 ) : (
                     <>
@@ -552,10 +667,11 @@ export function MentionPicker({
                     <button
                         key={`${item.kind}-${item.id ?? item.path ?? item.label}-${idx}`}
                         type="button"
+                        data-mention-highlighted={idx === highlight ? "true" : undefined}
                         className={cn(
-                            "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm",
+                            "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
                             idx === highlight
-                                ? "bg-panel-hover text-text-primary"
+                                ? "bg-[var(--row-selected)] text-text-primary hover:bg-[var(--row-selected-hover)]"
                                 : "text-text-primary hover:bg-[var(--row-hover)]",
                         )}
                         onMouseDown={(e) => e.preventDefault()}
@@ -611,7 +727,7 @@ export function MentionPicker({
                                 : item.label}
                         </span>
                         {item.path && item.kind !== "design" && item.kind !== "browser" && item.kind !== "chat" ? (
-                            <span className="ml-auto max-w-[48%] truncate text-sm text-text-muted">
+                            <span className="ml-auto max-w-[48%] truncate text-xs text-text-muted">
                                 {pathDir(item.path) || item.path}
                             </span>
                         ) : null}
@@ -621,19 +737,29 @@ export function MentionPicker({
                 {showCategories && visibleCategories.length > 0 ? (
                     <>
                         {rootItems.length > 0 ? <div className="my-1 h-px bg-border-subtle" /> : null}
-                        {visibleCategories.map((cat) => (
-                            <button
-                                key={cat.id}
-                                type="button"
-                                className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm text-text-primary hover:bg-[var(--row-hover)]"
-                                onMouseDown={(e) => e.preventDefault()}
-                                onClick={() => setActiveCategory(cat.id)}
-                            >
-                                <Icon icon={cat.icon} className="shrink-0 text-text-muted" />
-                                <span className="flex-1 font-medium">{cat.label}</span>
-                                <Icon icon={ChevronRight20Regular} className="text-text-muted" />
-                            </button>
-                        ))}
+                        {visibleCategories.map((cat, catOffset) => {
+                            const navIdx = rootItems.length + catOffset;
+                            return (
+                                <button
+                                    key={cat.id}
+                                    type="button"
+                                    data-mention-highlighted={navIdx === highlight ? "true" : undefined}
+                                    className={cn(
+                                        "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
+                                        navIdx === highlight
+                                            ? "bg-[var(--row-selected)] text-text-primary hover:bg-[var(--row-selected-hover)]"
+                                            : "text-text-primary hover:bg-[var(--row-hover)]",
+                                    )}
+                                    onMouseDown={(e) => e.preventDefault()}
+                                    onMouseEnter={() => setHighlight(navIdx)}
+                                    onClick={() => setActiveCategory(cat.id)}
+                                >
+                                    <Icon icon={cat.icon} className="shrink-0 text-text-muted" />
+                                    <span className="flex-1 font-medium">{cat.label}</span>
+                                    <Icon icon={ChevronRight20Regular} className="text-text-muted" />
+                                </button>
+                            );
+                        })}
                     </>
                 ) : null}
                     </>

@@ -1,4 +1,5 @@
 import { randomSuffix } from "@/lib/utils";
+import { stripShellPromptPrefix } from "@/lib/chat/prompt-history";
 
 /**
  * Shared terminal session registration (used by the always-mounted DevRunHost
@@ -42,6 +43,8 @@ class TerminalSessionStore {
     instances = new Map<string, Instance>();
     /** Output captured while no xterm is attached (background Run). */
     ptyScrollback = new Map<number, string>();
+    /** Shell snippet queued when `Insert in terminal` triggers before xterm attaches. */
+    pendingCommandInsert: string | null = null;
     /**
      * Tabs that produced output while the user was looking at something else.
      * One meaning, no second colour: a dot means "there is output on this tab you
@@ -159,10 +162,51 @@ class TerminalSessionStore {
     clearPtyScrollback(ptyId: number) {
         this.ptyScrollback.delete(ptyId);
     }
+
+    takePendingCommandInsert(): string | null {
+        const next = this.pendingCommandInsert;
+        this.pendingCommandInsert = null;
+        return next;
+    }
 }
 
 /** Singleton, Terminal UI and DevRunHost share this. */
 export const terminalSessionStore = new TerminalSessionStore();
+
+/**
+ * Opens the workspace Terminal dock and safely inserts `rawCommand` into the
+ * active interactive shell tab using xterm's bracketed-paste-aware `paste()`
+ * (stripping leading `$ ` prompt prefixes and never auto-executing raw newlines).
+ */
+export function insertCommandIntoWorkspaceTerminal(rawCommand: string): boolean {
+    const cleaned = stripShellPromptPrefix(rawCommand);
+    if (!cleaned) return false;
+
+    if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("bettershape-open-workspace-terminal"));
+    }
+
+    const cwd = terminalSessionStore.panel.cwd;
+    const preferredTabId = cwd ? terminalSessionStore.activeProjectTabs[cwd] : null;
+    const preferredTab = preferredTabId
+        ? terminalSessionStore.tabs.find((t) => t.id === preferredTabId && t.shell !== "ai")
+        : undefined;
+    const fallbackTab = terminalSessionStore.tabs.find(
+        (t) => t.shell !== "ai" && terminalSessionStore.instances.has(t.id),
+    );
+    const targetTab = preferredTab ?? fallbackTab;
+    const inst = targetTab ? terminalSessionStore.instances.get(targetTab.id) : undefined;
+
+    if (inst?.term && typeof inst.term.paste === "function") {
+        inst.term.paste(cleaned);
+        inst.term.focus?.();
+        inst.term.scrollToBottom?.();
+        return true;
+    }
+
+    terminalSessionStore.pendingCommandInsert = cleaned;
+    return true;
+}
 
 export function registerBoundTerminalTab(opts: {
     title: string;

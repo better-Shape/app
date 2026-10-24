@@ -1,6 +1,7 @@
 "use client";
 
 import { Eclipse } from "loading-dev";
+import { Tooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { providerIcon } from "@/lib/ui/provider-icon";
 import { formatMessageModelLabel, isAutoModelId } from "@/lib/chat/usage-display";
@@ -19,7 +20,7 @@ export function UserMessageCard({
     return (
         <div
             className={cn(
-                "relative w-full max-w-none squircle-2xl border border-border-subtle bg-surface-3 p-3 chat-text text-text-primary",
+                "relative w-full max-w-none rounded-xl border border-border-subtle bg-surface-3 px-3.5 py-2.5 chat-text text-text-primary",
                 className,
             )}
         >
@@ -59,15 +60,16 @@ export function ModelAvatarStack({
     const id = isAuto ? AUTO_DISPLAY_MODEL : raw[0]!;
 
     return (
-        <span
-            className={cn(
-                "inline-flex shrink-0 items-center justify-center overflow-visible",
-                className,
-            )}
-            title={isAuto ? "Auto" : formatMessageModelLabel(id)}
-        >
-            {providerIcon(id, size)}
-        </span>
+        <Tooltip content={isAuto ? "Auto" : formatMessageModelLabel(id)}>
+            <span
+                className={cn(
+                    "inline-flex shrink-0 items-center justify-center overflow-visible",
+                    className,
+                )}
+            >
+                {providerIcon(id, size)}
+            </span>
+        </Tooltip>
     );
 }
 

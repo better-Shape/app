@@ -6,6 +6,7 @@ import { Dismiss20Regular } from "@fluentui/react-icons/headless/svg/dismiss";
 
 import React, { useMemo } from "react";
 import { Icon } from "@/components/ui/icon";
+import { FileIcon } from "@/components/ui/file-icon";
 import { countChangedLines } from "@/lib/ui/diff-count";
 
 import { Button } from "@/components/ui/button";
@@ -23,6 +24,13 @@ function countDiff(original: string, replacement: string): { add: number; del: n
     return countChangedLines(original, replacement);
 }
 
+function splitPathParts(file: string): { fileName: string; parentDir: string } {
+    const parts = file.split(/[\\/]/).filter(Boolean);
+    const fileName = parts[parts.length - 1] || file;
+    const parentDir = parts.length >= 2 ? parts[parts.length - 2] ?? "" : "";
+    return { fileName, parentDir };
+}
+
 export function PendingEditsPanel({
     edits,
     onAcceptAll,
@@ -37,53 +45,49 @@ export function PendingEditsPanel({
     onReject?: (id: string) => void;
     embedded?: boolean;
 }) {
-    const withStats = useMemo(
-        () =>
-            edits.map((edit) => ({
+    const withStats = useMemo(() => {
+        const baseCounts = new Map<string, number>();
+        for (const edit of edits) {
+            const { fileName } = splitPathParts(edit.file);
+            baseCounts.set(fileName, (baseCounts.get(fileName) ?? 0) + 1);
+        }
+        return edits.map((edit) => {
+            const { fileName, parentDir } = splitPathParts(edit.file);
+            return {
                 ...edit,
+                fileName,
+                parentHint: (baseCounts.get(fileName) ?? 0) > 1 ? parentDir : "",
                 ...countDiff(edit.original, edit.replacement),
-            })),
-        [edits],
-    );
+            };
+        });
+    }, [edits]);
 
-    if (edits.length === 0) {
-        return (
-            <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                    <button
-                        type="button"
-                        className="flex h-6 shrink-0 items-center gap-1.5 rounded-md px-1.5 text-sm text-text-secondary hover:bg-[var(--btn-hover)] hover:text-text-primary"
-                    >
-                        Edited files
-                    </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-72 p-1">
-                    <div className="px-2 py-2 text-sm text-text-muted">No edited files</div>
-                </DropdownMenuContent>
-            </DropdownMenu>
-        );
-    }
+    if (edits.length === 0) return null;
+
+    const pillClass =
+        "inline-flex h-6.5 shrink-0 items-center gap-1.5 rounded-full border border-border-subtle bg-surface-3/90 px-2.5 text-xs font-medium text-text-secondary transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary data-[state=open]:bg-[var(--btn-open)] data-[state=open]:hover:bg-[var(--btn-open-hover)] data-[state=open]:text-text-primary";
 
     const addTotal = withStats.reduce((s, e) => s + e.add, 0);
+    const delTotal = withStats.reduce((s, e) => s + e.del, 0);
 
     return (
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
-                <button
-                    type="button"
-                    className="flex h-6 shrink-0 items-center gap-1.5 rounded-md px-1.5 text-sm text-text-secondary hover:bg-[var(--btn-hover)] hover:text-text-primary"
-                >
-                    Changes
-                    {addTotal > 0 ? (
-                        <span className="tabular-nums text-success">+{addTotal}</span>
+                <button type="button" className={pillClass}>
+                    <span>Changes</span>
+                    {addTotal > 0 || delTotal > 0 ? (
+                        <span className="inline-flex items-center gap-1 tabular-nums">
+                            {addTotal > 0 ? <span className="text-success">+{addTotal}</span> : null}
+                            {delTotal > 0 ? <span className="text-error">-{delTotal}</span> : null}
+                        </span>
                     ) : (
                         <span className="tabular-nums text-text-muted">{edits.length}</span>
                     )}
                 </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-72 p-1">
+            <DropdownMenuContent align="start" className="w-76 p-1">
                 <div className="flex items-center justify-between gap-2 px-2 py-1.5">
-                    <span className="text-sm text-text-muted">
+                    <span className="text-xs font-medium tabular-nums text-text-muted">
                         {edits.length} file{edits.length === 1 ? "" : "s"}
                     </span>
                     <div className="flex items-center gap-1">
@@ -95,68 +99,73 @@ export function PendingEditsPanel({
                         </Button>
                     </div>
                 </div>
-                {withStats.map((edit) => {
-                    const fileName = edit.file.split(/[\\/]/).pop() || edit.file;
-                    return (
-                        <div
-                            key={edit.id}
-                            className="group flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-[var(--row-hover)]"
-                        >
-                            <button
-                                type="button"
-                                className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                                onClick={() => {
-                                    const resolved = resolveProjectFilePath(edit.file, getProjectPath());
-                                    void openProjectFile(edit.file, fileName).then((ok) => {
-                                        if (!ok) return;
-                                        setTimeout(() => {
-                                            window.dispatchEvent(
-                                                new CustomEvent("bettershape-editor-preview-diff", {
-                                                    detail: {
-                                                        path: resolved,
-                                                        original: edit.original,
-                                                        replacement: edit.replacement,
-                                                    },
-                                                }),
-                                            );
-                                        }, 150);
+                {withStats.map((edit) => (
+                    <div
+                        key={edit.id}
+                        className="group flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-sm transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--row-hover)]"
+                    >
+                        <button
+                            type="button"
+                            className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                            onClick={() => {
+                                const resolved = resolveProjectFilePath(edit.file, getProjectPath());
+                                void openProjectFile(edit.file, edit.fileName).then((ok) => {
+                                    if (!ok) return;
+                                    requestAnimationFrame(() => {
+                                        window.dispatchEvent(
+                                            new CustomEvent("bettershape-editor-preview-diff", {
+                                                detail: {
+                                                    path: resolved,
+                                                    original: edit.original,
+                                                    replacement: edit.replacement,
+                                                },
+                                            }),
+                                        );
                                     });
-                                }}
-                            >
-                                <span className="min-w-0 flex-1 truncate text-text-primary">{fileName}</span>
-                                <span className="shrink-0 tabular-nums text-xs">
-                                    {edit.add > 0 ? <span className="text-success">+{edit.add}</span> : null}
-                                    {edit.add > 0 && edit.del > 0 ? " " : null}
-                                    {edit.del > 0 ? <span className="text-error">-{edit.del}</span> : null}
-                                </span>
-                            </button>
-                            {onAccept ? (
-                                <Tooltip content="Keep">
-                                    <button
-                                        type="button"
-                                        aria-label="Keep this edit"
-                                        className="text-text-muted hover:text-success"
-                                        onClick={() => onAccept(edit.id)}
-                                    >
-                                        <Icon icon={Checkmark20Regular} />
-                                    </button>
-                                </Tooltip>
-                            ) : null}
-                            {onReject ? (
-                                <Tooltip content="Undo">
-                                    <button
-                                        type="button"
-                                        aria-label="Undo this edit"
-                                        className="text-text-muted hover:text-error"
-                                        onClick={() => onReject(edit.id)}
-                                    >
-                                        <Icon icon={Dismiss20Regular} />
-                                    </button>
-                                </Tooltip>
-                            ) : null}
-                        </div>
-                    );
-                })}
+                                });
+                            }}
+                        >
+                            <FileIcon name={edit.fileName} className="size-3.5 shrink-0" />
+                            <span className="min-w-0 flex-1 truncate text-text-primary">
+                                {edit.fileName}
+                                {edit.parentHint ? (
+                                    <span className="ml-1.5 text-xs text-text-muted">
+                                        {edit.parentHint}
+                                    </span>
+                                ) : null}
+                            </span>
+                            <span className="shrink-0 tabular-nums text-xs">
+                                {edit.add > 0 ? <span className="text-success">+{edit.add}</span> : null}
+                                {edit.add > 0 && edit.del > 0 ? " " : null}
+                                {edit.del > 0 ? <span className="text-error">-{edit.del}</span> : null}
+                            </span>
+                        </button>
+                        {onAccept ? (
+                            <Tooltip content="Keep">
+                                <button
+                                    type="button"
+                                    aria-label="Keep this edit"
+                                    className="flex size-[24px] shrink-0 items-center justify-center rounded-md text-text-muted transition-[background-color,color,transform] duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-success active:scale-[0.94]"
+                                    onClick={() => onAccept(edit.id)}
+                                >
+                                    <Icon icon={Checkmark20Regular} className="size-3.5" />
+                                </button>
+                            </Tooltip>
+                        ) : null}
+                        {onReject ? (
+                            <Tooltip content="Undo">
+                                <button
+                                    type="button"
+                                    aria-label="Undo this edit"
+                                    className="flex size-[24px] shrink-0 items-center justify-center rounded-md text-text-muted transition-[background-color,color,transform] duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-error active:scale-[0.94]"
+                                    onClick={() => onReject(edit.id)}
+                                >
+                                    <Icon icon={Dismiss20Regular} className="size-3.5" />
+                                </button>
+                            </Tooltip>
+                        ) : null}
+                    </div>
+                ))}
             </DropdownMenuContent>
         </DropdownMenu>
     );

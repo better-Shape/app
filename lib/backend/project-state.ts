@@ -57,33 +57,41 @@ function initializeStateBridge() {
             store.currentState = next;
             emitState();
         })
-        .catch(console.error);
+        .catch(() => {});
 
-    listen<string[]>("bettershape-files-changed", (event) => {
-        commands.invalidateAllFileCaches();
-        window.dispatchEvent(new CustomEvent("bettershape-files-changed", { detail: Array.isArray(event.payload) ? event.payload : [] }));
-    }).catch(() => {});
+    try {
+        listen<string[]>("bettershape-files-changed", (event) => {
+            commands.invalidateAllFileCaches();
+            window.dispatchEvent(new CustomEvent("bettershape-files-changed", { detail: Array.isArray(event.payload) ? event.payload : [] }));
+        }).catch(() => {});
+    } catch {
+        /* outside Tauri event bridge */
+    }
 
-    listen<ProjectState>("project-state-update", (event) => {
-        const next = event.payload;
-        const current = store.currentState;
+    try {
+        listen<ProjectState>("project-state-update", (event) => {
+            const next = event.payload;
+            const current = store.currentState;
 
-        let changed = false;
-        if (!pathsEqual(current.project_path, next.project_path)) changed = true;
-        if (current.active_file !== next.active_file) changed = true;
+            let changed = false;
+            if (!pathsEqual(current.project_path, next.project_path)) changed = true;
+            if (current.active_file !== next.active_file) changed = true;
 
-        const openFilesChanged =
-            JSON.stringify(current.open_files) !== JSON.stringify(next.open_files);
+            const openFilesChanged =
+                JSON.stringify(current.open_files) !== JSON.stringify(next.open_files);
 
-        if (changed || openFilesChanged) {
-            store.currentState = {
-                project_path: next.project_path,
-                active_file: next.active_file,
-                open_files: openFilesChanged ? next.open_files : current.open_files,
-            };
-            emitState();
-        }
-    }).catch(console.error);
+            if (changed || openFilesChanged) {
+                store.currentState = {
+                    project_path: next.project_path,
+                    active_file: next.active_file,
+                    open_files: openFilesChanged ? next.open_files : current.open_files,
+                };
+                emitState();
+            }
+        }).catch(() => {});
+    } catch {
+        /* outside Tauri event bridge */
+    }
 }
 
 function subscribe(listener: () => void) {

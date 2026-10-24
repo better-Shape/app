@@ -92,13 +92,14 @@ function merge(card: PersonaCard, live: PersonaLive | undefined): PersonaCard {
     };
 }
 
-function PersonaRow({ card, live }: { card: PersonaCard; live?: PersonaLive }) {
+/** Renders the PersonaRow UI component. */
+const PersonaRow = ({ card, live }: { card: PersonaCard; live?: PersonaLive }) => {
     const [open, setOpen] = useState(false);
     const collapseId = React.useId();
     const running = card.status === "running";
     const image = live?.image || card.image;
     const note = running
-        ? live?.note || "Opening the site…"
+        ? live?.note || "Opening the site..."
         : card.verdict || card.notes?.[0] || card.first_impression || "";
 
     return (
@@ -108,13 +109,16 @@ function PersonaRow({ card, live }: { card: PersonaCard; live?: PersonaLive }) {
                 aria-expanded={open}
                 aria-controls={collapseId}
                 onClick={() => setOpen((v) => !v)}
-                className="flex w-fit max-w-full min-w-0 items-center gap-1.5 py-0.5 text-left chat-text font-normal text-text-primary focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus"
+                className="flex min-h-[24px] w-fit max-w-full min-w-0 items-center gap-1.5 py-0.5 text-left chat-text font-normal text-text-primary focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus"
             >
                 <span className="shrink-0 text-text-muted">{running ? "Reviewing" : "Reviewed"}</span>
                 <span className="min-w-0 truncate">{card.name}</span>
                 <Icon
                     icon={ChevronRight20Regular}
-                    className={cn("shrink-0 text-text-muted transition-transform duration-[var(--transition-fast)] ease-[var(--ease-out)]", open && "rotate-90")}
+                    className={cn(
+                        "shrink-0 text-text-muted transition-transform duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
+                        open && "rotate-90",
+                    )}
                 />
             </button>
             <Collapse id={collapseId} open={open}>
@@ -131,9 +135,10 @@ function PersonaRow({ card, live }: { card: PersonaCard; live?: PersonaLive }) {
             </Collapse>
         </div>
     );
-}
+};
 
-export function PersonaReviewPanel({
+/** Renders the PersonaReviewPanel UI component. */
+export const PersonaReviewPanel = ({
     reviewId,
     url,
     content,
@@ -142,7 +147,7 @@ export function PersonaReviewPanel({
     url?: string;
     status?: string;
     content: string;
-}) {
+}) => {
     const [open, setOpen] = useState(true);
     const collapseId = React.useId();
     const parsed = useMemo(() => parseCards(content), [content]);
@@ -166,13 +171,16 @@ export function PersonaReviewPanel({
                 aria-expanded={open}
                 aria-controls={collapseId}
                 onClick={() => setOpen((v) => !v)}
-                className="flex w-fit max-w-full items-center gap-1.5 text-left chat-text font-normal text-text-primary focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus"
+                className="flex min-h-[24px] w-fit max-w-full items-center gap-1.5 text-left chat-text font-normal text-text-primary focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus"
             >
                 <span>Design review</span>
                 {host ? <span className="min-w-0 truncate text-text-muted">{host}</span> : null}
                 <Icon
                     icon={ChevronRight20Regular}
-                    className={cn("shrink-0 text-text-muted transition-transform duration-[var(--transition-fast)] ease-[var(--ease-out)]", open && "rotate-90")}
+                    className={cn(
+                        "shrink-0 text-text-muted transition-transform duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
+                        open && "rotate-90",
+                    )}
                 />
             </button>
             <Collapse id={collapseId} open={open}>
@@ -184,4 +192,4 @@ export function PersonaReviewPanel({
             </Collapse>
         </div>
     );
-}
+};

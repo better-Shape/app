@@ -3,12 +3,10 @@
 import { ChevronDown20Regular } from "@fluentui/react-icons/headless/svg/chevron-down";
 import { Globe20Regular } from "@fluentui/react-icons/headless/svg/globe";
 
-
-import React from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "@/components/ui/icon";
-
 import { Favicon } from "@/components/ui/favicon";
-import { cn } from "@/lib/utils";
+import { cn, createOccurrenceKeyer } from "@/lib/utils";
 import { Collapse } from "./collapse";
 import { hostnameOf } from "@/lib/ui/favicon";
 import { splitActionLabel } from "./action-line";
@@ -19,6 +17,10 @@ import {
 } from "@/components/ui/dropdown";
 import { Tooltip } from "@/components/ui/tooltip";
 import type { WebSearchResultItem } from "../md/renderer";
+import {
+    notifyTranscriptDisclosureToggle,
+    useExpandForChatFind,
+} from "../shell/find-bar";
 import { GeneratingIndicator } from "./generating";
 
 type WebSearchResult = WebSearchResultItem;
@@ -63,6 +65,35 @@ const BRANDS: Brand[] = [
     { id: "hackernews", label: "Hacker News", slug: "ycombinator", color: "FF6600", posts: true, test: /(^|\.)news\.ycombinator\.com|\bhacker news\b/i },
 ];
 
+/**
+ * Module-level cache of CDN brand slugs that failed to load (e.g. offline/sandbox),
+ * preventing broken `<img>` placeholders and repeated failed network requests.
+ */
+const failedBrandSlugs = new Set<string>();
+const failedBrandListeners = new Set<(slug: string) => void>();
+const hostMemo = new Map<string, string>();
+
+/** Mark brand slug failed. */
+const markBrandSlugFailed = (slug: string): void => {
+    if (failedBrandSlugs.has(slug)) return;
+    failedBrandSlugs.add(slug);
+    for (const listener of failedBrandListeners) {
+        listener(slug);
+    }
+};
+
+/** Memoized hostname. */
+const memoizedHostname = (url: string): string => {
+    const key = url.trim();
+    if (!key) return "";
+    const cached = hostMemo.get(key);
+    if (cached !== undefined) return cached;
+    const computed = hostnameOf(key);
+    if (hostMemo.size > 512) hostMemo.clear();
+    hostMemo.set(key, computed);
+    return computed;
+};
+
 function brandFromText(text: string): Brand | null {
     const value = text.trim();
     if (!value) return null;
@@ -73,9 +104,6 @@ function brandFromText(text: string): Brand | null {
  * A result URL is whatever the search provider wrote after `URL: `, so it is
  * untrusted text, not a vetted link. Only `http:`/`https:` may become an href;
  * a `javascript:` URI would run in the app's own origin on click.
- *
- * `hostnameOf` cannot do this job, it exists for display and coerces any
- * string into a hostname by prepending `https://`, so it never rejects.
  */
 function safeHref(url: string): string | null {
     try {
@@ -86,8 +114,9 @@ function safeHref(url: string): string | null {
     }
 }
 
-function brandForStep(query: string, sources: WebSearchResult[]): Brand | null {
-    const hosts = sources.map((source) => hostnameOf(source.url)).filter(Boolean);
+/** Brand for step. */
+const brandForStep = (query: string, sources: WebSearchResult[]): Brand | null => {
+    const hosts = sources.map((source) => memoizedHostname(source.url)).filter(Boolean);
     if (hosts.length > 0) {
         const matched = hosts.map((host) => brandFromText(host));
         const first = matched[0];
@@ -95,11 +124,29 @@ function brandForStep(query: string, sources: WebSearchResult[]): Brand | null {
         return null;
     }
     return brandFromText(query);
-}
+};
 
-function SiteMark({ url, brand, size = 14 }: { url?: string; brand?: Brand | null; size?: number }) {
-    const resolved = brand ?? (url ? brandFromText(hostnameOf(url)) : null);
-    if (resolved) {
+/** Renders the SiteMark UI component. */
+const SiteMark = ({ url, brand, size = 14 }: { url?: string; brand?: Brand | null; size?: number }) => {
+    const resolved = brand ?? (url ? brandFromText(memoizedHostname(url)) : null);
+    const slug = resolved?.slug ?? null;
+    const [failedSlug, setFailedSlug] = useState<string | null>(() =>
+        slug && failedBrandSlugs.has(slug) ? slug : null,
+    );
+    const failed = Boolean(slug && (failedSlug === slug || failedBrandSlugs.has(slug)));
+
+    useEffect(() => {
+        if (!slug || failed) return undefined;
+        const onSlugFailed = (nextFailedSlug: string) => {
+            if (nextFailedSlug === slug) setFailedSlug(slug);
+        };
+        failedBrandListeners.add(onSlugFailed);
+        return () => {
+            failedBrandListeners.delete(onSlugFailed);
+        };
+    }, [slug, failed]);
+
+    if (resolved && !failed) {
         return (
             <span className={cn("inline-flex shrink-0", resolved.invert && "dark:invert")}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -111,61 +158,77 @@ function SiteMark({ url, brand, size = 14 }: { url?: string; brand?: Brand | nul
                     className="shrink-0 object-contain"
                     style={{ width: size, height: size }}
                     draggable={false}
+                    onError={() => {
+                        markBrandSlugFailed(resolved.slug);
+                        setFailedSlug(resolved.slug);
+                    }}
                 />
             </span>
         );
     }
     if (url) return <Favicon url={url} size={size} />;
     return <Icon icon={Globe20Regular} className="shrink-0 text-text-muted" />;
-}
+};
 
-function SourceRow({ result }: { result: WebSearchResult }) {
-    const host = hostnameOf(result.url);
+/** Renders the SourceRow UI component. */
+const SourceRow = React.memo(function SourceRow({ result }: { result: WebSearchResult }) {
+    const host = memoizedHostname(result.url);
     const href = safeHref(result.url);
-    const className = "group/line flex min-w-0 items-center gap-2 py-0.5";
+    const snippet = result.snippet?.replace(/\s+/g, " ").trim() || "";
+    const className =
+        "group/line flex min-w-0 flex-col gap-0.5 rounded-md px-1 -mx-1 py-0.5 transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--row-hover)]";
     const body = (
         <>
-            <span className="flex size-4 shrink-0 items-center justify-center">
-                <SiteMark url={result.url} size={14} />
+            <span className="flex min-w-0 items-center gap-2">
+                <span className="flex size-4 shrink-0 items-center justify-center">
+                    <SiteMark url={result.url} size={14} />
+                </span>
+                <span className="min-w-0 flex-1 truncate text-sm text-text-secondary group-hover/line:text-text-primary">
+                    {result.title || host || "Source"}
+                </span>
+                {host ? (
+                    <span className="max-w-[42%] shrink-0 truncate text-xs text-text-muted">
+                        {host}
+                    </span>
+                ) : null}
             </span>
-            <span className="min-w-0 flex-1 truncate text-sm text-text-secondary group-hover/line:text-text-primary">
-                {result.title || host || "Source"}
-            </span>
-            {host ? (
-                <span className="max-w-[42%] shrink-0 truncate text-sm text-text-muted">
-                    {host}
+            {snippet ? (
+                <span className="pl-6 line-clamp-1 text-xs text-text-muted/80">
+                    {snippet}
                 </span>
             ) : null}
         </>
     );
-    if (!href) return <span className={className}>{body}</span>;
+    if (!href) return <div className={className}>{body}</div>;
     return (
         <a href={href} target="_blank" rel="noopener noreferrer" className={className}>
             {body}
         </a>
     );
-}
+});
 
 const MARK_CAP = 6;
 
-function SourceStack({ sources }: { sources: WebSearchResult[] }) {
+/** Renders the SourceStack UI component. */
+const SourceStack = ({ sources }: { sources: WebSearchResult[] }) => {
     const shown = sources.slice(0, MARK_CAP);
     const rest = sources.length - shown.length;
+    const keyFor = createOccurrenceKeyer();
     return (
         <span className="inline-flex items-center">
-            {shown.map((source, index) => {
-                const host = hostnameOf(source.url);
+            {shown.map((source, pos) => {
+                const host = memoizedHostname(source.url);
                 const href = safeHref(source.url);
                 const mark = (
                     <span
-                        className="relative flex size-4 items-center justify-center rounded-full bg-surface-2 ring-2 ring-panel transition-transform duration-[var(--transition-fast)] hover:z-20 hover:-translate-y-0.5"
-                        style={{ marginLeft: index === 0 ? 0 : -6, zIndex: shown.length - index }}
+                        className="relative flex size-4 items-center justify-center rounded-full bg-surface-2 ring-2 ring-panel transition-transform duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] motion-reduce:transform-none hover:z-20 hover:-translate-y-0.5"
+                        style={{ marginLeft: pos === 0 ? 0 : -6, zIndex: shown.length - pos }}
                     >
                         <SiteMark url={source.url} size={12} />
                     </span>
                 );
                 return (
-                    <Tooltip key={`${source.url}-${index}`} content={host ? `${source.title} · ${host}` : source.title}>
+                    <Tooltip key={keyFor(source.url || source.title)} content={host ? `${source.title} · ${host}` : source.title}>
                         {href ? (
                             <a href={href} target="_blank" rel="noopener noreferrer" className="relative">
                                 {mark}
@@ -176,22 +239,35 @@ function SourceStack({ sources }: { sources: WebSearchResult[] }) {
                     </Tooltip>
                 );
             })}
-            {rest > 0 ? <span className="ml-1.5 text-xs text-text-muted">+{rest}</span> : null}
+            {rest > 0 ? <span className="ml-1.5 text-xs tabular-nums text-text-muted">+{rest}</span> : null}
         </span>
     );
-}
+};
 
-function SourcesBranch({ sources }: { sources: WebSearchResult[] }) {
-    const [open, setOpen] = React.useState(true);
+/** Renders the SourcesBranch UI component. */
+const SourcesBranch = ({ sources }: { sources: WebSearchResult[] }) => {
+    const rootRef = useRef<HTMLDivElement>(null);
+    const [open, setOpen] = useState(true);
     const collapseId = React.useId();
+
+    useExpandForChatFind({
+        enabled: !open,
+        rootRef,
+        getSearchText: () => sources.map((s) => `${s.title} ${s.url} ${s.snippet}`).join(" "),
+        onExpand: () => setOpen(true),
+    });
+
     return (
-        <div className="mt-1 w-full min-w-0">
+        <div ref={rootRef} className="mt-1 w-full min-w-0">
             <button
                 type="button"
                 aria-expanded={open}
                 aria-controls={collapseId}
-                onClick={() => setOpen((value) => !value)}
-                className="group/line flex w-fit max-w-full items-center gap-1.5 text-left chat-text text-text-muted focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus"
+                onClick={() => {
+                    notifyTranscriptDisclosureToggle(rootRef.current);
+                    setOpen((value) => !value);
+                }}
+                className="group/line flex w-fit max-w-full items-center gap-1.5 rounded-md px-1 -mx-1 py-0.5 text-left chat-text text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--row-hover)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus"
             >
                 <span className="text-text-secondary group-hover/line:text-text-primary">Sources</span>
                 {open ? null : <SourceStack sources={sources} />}
@@ -204,15 +280,18 @@ function SourcesBranch({ sources }: { sources: WebSearchResult[] }) {
                 />
             </button>
             <Collapse id={collapseId} open={open}>
-                <div className="mt-0.5 flex flex-col">
-                    {sources.map((result, index) => (
-                        <SourceRow key={`${result.url}-${index}`} result={result} />
-                    ))}
+                <div className="mt-0.5 flex flex-col pl-3.5">
+                    {(() => {
+                        const keyFor = createOccurrenceKeyer();
+                        return sources.map((result) => (
+                            <SourceRow key={keyFor(result.url || result.title)} result={result} />
+                        ));
+                    })()}
                 </div>
             </Collapse>
         </div>
     );
-}
+};
 
 export type TrailBlock = {
     type: string;
@@ -304,7 +383,7 @@ function TrailStepRow({ step }: { step: TrailStep }) {
                     <span className="text-text-secondary">{parts.action}</span>
                     {parts.detail ? <span className="text-text-muted"> {parts.detail}</span> : null}
                 </span>
-                {meta ? <span className="shrink-0 text-text-muted">{meta}</span> : null}
+                {meta ? <span className="shrink-0 tabular-nums text-text-muted">{meta}</span> : null}
             </div>
             {step.sources.length > 0 ? <SourcesBranch sources={step.sources} /> : null}
         </div>
@@ -312,14 +391,14 @@ function TrailStepRow({ step }: { step: TrailStep }) {
 }
 
 /** Research trail: each query is a step, and a step with hits branches once into Sources. */
-export function WebSearchTrail({
+export const WebSearchTrail = ({
     blocks,
     isActive,
 }: {
     blocks: TrailBlock[];
     isActive?: boolean;
-}) {
-    const steps = buildTrailSteps(blocks);
+}) => {
+    const steps = useMemo(() => buildTrailSteps(blocks), [blocks]);
     const searches = steps.filter((step) => step.kind === "search").length;
 
     if (steps.length === 0) {
@@ -338,19 +417,23 @@ export function WebSearchTrail({
                 <div className="flex items-center gap-1.5 chat-text text-text-muted">
                     <span>
                         <span className="text-text-secondary">Ran</span>
-                        <span className="text-text-muted"> {searches} searches</span>
+                        <span className="tabular-nums text-text-muted"> {searches} searches</span>
                     </span>
                 </div>
             ) : null}
-            {steps.map((step, index) => (
-                <TrailStepRow key={`${step.kind}-${step.query}-${index}`} step={step} />
-            ))}
+            {(() => {
+                const keyFor = createOccurrenceKeyer();
+                return steps.map((step) => (
+                    <TrailStepRow key={keyFor(`${step.kind}:${step.query}`)} step={step} />
+                ));
+            })()}
             {isActive ? <GeneratingIndicator label="Searching" showTimer={false} /> : null}
         </div>
     );
-}
+};
 
-export function WebSearchBlock({
+/** Renders the WebSearchBlock UI component. */
+export const WebSearchBlock = ({
     query,
     results,
     isActive,
@@ -359,7 +442,7 @@ export function WebSearchBlock({
     results: WebSearchResult[];
     isActive?: boolean;
     searches?: number;
-}) {
+}) => {
     const hits = results
         .map((result) => `### ${result.title}\nURL: ${result.url}\n${result.snippet}`)
         .join("\n---\n");
@@ -372,10 +455,12 @@ export function WebSearchBlock({
             ]}
         />
     );
-}
+};
 
-export function WebSourcesMenu({ results }: { results: WebSearchResult[] }) {
+/** Renders the WebSourcesMenu UI component. */
+export const WebSourcesMenu = ({ results }: { results: WebSearchResult[] }) => {
     if (results.length === 0) return null;
+    const keyFor = createOccurrenceKeyer();
 
     return (
         <DropdownMenu>
@@ -383,7 +468,7 @@ export function WebSourcesMenu({ results }: { results: WebSearchResult[] }) {
                 <DropdownMenuTrigger asChild>
                     <button
                         type="button"
-                        className="rounded-md p-1 text-text-muted hover:bg-[var(--btn-hover)] hover:text-text-secondary"
+                        className="inline-flex size-[24px] items-center justify-center rounded-md text-text-muted hover:bg-[var(--btn-hover)] hover:text-text-secondary"
                         aria-label={`${results.length} web sources`}
                     >
                         <Icon icon={Globe20Regular} />
@@ -392,10 +477,10 @@ export function WebSourcesMenu({ results }: { results: WebSearchResult[] }) {
             </Tooltip>
             <DropdownMenuContent align="start" className="w-80 p-1.5">
                 <div className="px-1.5 py-1 text-xs font-medium text-text-muted">Sources</div>
-                {results.map((result, i) => (
-                    <SourceRow key={`${result.url}-${i}`} result={result} />
+                {results.map((result) => (
+                    <SourceRow key={keyFor(result.url || result.title)} result={result} />
                 ))}
             </DropdownMenuContent>
         </DropdownMenu>
     );
-}
+};

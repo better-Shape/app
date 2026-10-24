@@ -625,7 +625,7 @@ src="/logos/logo.png"
                                     {children}
                                 </div>
                             )}
-                            {project_path ? <TerminalDock /> : null}
+                            {project_path ? <TerminalDock suppressed={overlayOpen} /> : null}
                     </div>
                 </div>
                 {showWorkspace && project_path ? (

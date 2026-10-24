@@ -1,6 +1,7 @@
 "use client";
 
 import { Add20Regular } from "@fluentui/react-icons/headless/svg/add";
+import { Chat20Regular } from "@fluentui/react-icons/headless/svg/chat";
 import { ChevronDown20Regular } from "@fluentui/react-icons/headless/svg/chevron-down";
 import { ChevronUp20Regular } from "@fluentui/react-icons/headless/svg/chevron-up";
 import { Delete20Filled } from "@fluentui/react-icons/headless/svg/delete";
@@ -47,7 +48,10 @@ import {
     workbenchTabItemClass,
 } from "@/features/editor/ui/tabs/workbench-tab-styles";
 import { terminalSessionStore, type TerminalTab as SessionTab } from "@/features/terminal/session";
-import { rememberBetterShapeClip } from "@/features/chat/lib/bettershape-clip";
+import {
+    rememberBetterShapeClip,
+    terminalAttachmentFile,
+} from "@/features/chat/lib/bettershape-clip";
 type TerminalShell = SessionTab["shell"];
 type TerminalGroupId = SessionTab["group"];
 type TerminalTab = SessionTab;
@@ -272,6 +276,25 @@ function TerminalInstance({ tab, isActive }: { tab: TerminalTab, isActive: boole
 // Capture phase with `stopPropagation`: without both, the key reaches the shell
             // and Ctrl+C interrupts the running process instead of copying.
             const onCopyKey = (event: KeyboardEvent) => {
+                if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "l") {
+                    const selected = term?.hasSelection() ? term.getSelection().trim() : "";
+                    if (!selected) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    const file = terminalAttachmentFile(selected, tab.title || "Terminal");
+                    window.dispatchEvent(
+                        new CustomEvent("bettershape-layout-toggle", {
+                            detail: { id: "secondary-sidebar", value: true },
+                        }),
+                    );
+                    window.dispatchEvent(
+                        new CustomEvent("bettershape-chat-attach-files", {
+                            detail: { files: [file] },
+                        }),
+                    );
+                    window.dispatchEvent(new CustomEvent("bettershape-chat-focus-input"));
+                    return;
+                }
                 if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "c" || event.shiftKey) return;
                 const selected = term?.hasSelection() ? term.getSelection() : "";
                 if (!selected) return;
@@ -439,6 +462,21 @@ function TerminalInstance({ tab, isActive }: { tab: TerminalTab, isActive: boole
                 globalTerminalStore.instances.set(tab.id, { term, fitAddon, ptyId, unlistenOutput });
                 xtermRef.current = term;
                 fitAddonRef.current = fitAddon;
+                if (tab.shell !== "ai") {
+                    const pendingCmd = globalTerminalStore.takePendingCommandInsert();
+                    const attachedTerm = term;
+                    if (pendingCmd && attachedTerm) {
+                        setTimeout(() => {
+                            try {
+                                attachedTerm.paste(pendingCmd);
+                                attachedTerm.focus();
+                                attachedTerm.scrollToBottom();
+                            } catch {
+                                /* ignore */
+                            }
+                        }, 60);
+                    }
+                }
                 if (isActive) {
                     term.focus();
                     term.scrollToBottom();
@@ -560,6 +598,24 @@ function TerminalInstance({ tab, isActive }: { tab: TerminalTab, isActive: boole
         if (text) term.paste(text);
     };
 
+    const sendSelectionToChat = () => {
+        const term = xtermRef.current;
+        const selected = term?.getSelection()?.trim();
+        if (!term || !selected) return;
+        const file = terminalAttachmentFile(selected, tab.title || "Terminal");
+        window.dispatchEvent(
+            new CustomEvent("bettershape-layout-toggle", {
+                detail: { id: "secondary-sidebar", value: true },
+            }),
+        );
+        window.dispatchEvent(
+            new CustomEvent("bettershape-chat-attach-files", {
+                detail: { files: [file] },
+            }),
+        );
+        window.dispatchEvent(new CustomEvent("bettershape-chat-focus-input"));
+    };
+
     return (
         <ContextMenu>
             <ContextMenuTrigger asChild>
@@ -573,6 +629,11 @@ function TerminalInstance({ tab, isActive }: { tab: TerminalTab, isActive: boole
                 <ContextMenuItem onClick={() => void pasteClipboard()}>
                     Paste
                     <ContextMenuShortcut>Ctrl+Shift+V</ContextMenuShortcut>
+                </ContextMenuItem>
+                <ContextMenuItem onClick={sendSelectionToChat}>
+                    <Icon icon={Chat20Regular} />
+                    Add Selection to Chat
+                    <ContextMenuShortcut>Ctrl+Shift+L</ContextMenuShortcut>
                 </ContextMenuItem>
                 <ContextMenuSeparator />
                 <ContextMenuItem onClick={() => xtermRef.current?.selectAll()}>
@@ -653,9 +714,17 @@ export default function Terminal({
         const handleOpenBrowser = () => {
             void import("@/lib/window/browser-tab").then(({ openBrowserTab }) => openBrowserTab());
         };
+        const handleOpenWorkspaceTerminal = () => {
+            setActiveView("terminal");
+        };
         window.addEventListener("bettershape-open-preview", handleOpenBrowser);
+        window.addEventListener("bettershape-open-workspace-terminal", handleOpenWorkspaceTerminal);
         return () => {
             window.removeEventListener("bettershape-open-preview", handleOpenBrowser);
+            window.removeEventListener(
+                "bettershape-open-workspace-terminal",
+                handleOpenWorkspaceTerminal,
+            );
         };
     }, []);
 

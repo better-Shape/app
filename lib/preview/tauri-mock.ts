@@ -767,6 +767,126 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
         ensure_mcp_config: () => `${PREVIEW_PROJECT_PATH}/.preview/mcp.json`,
         sync_mcp_servers: () => [],
         set_ai_config: () => null,
+        ai_store_key: (args) => ({
+            applied: true,
+            current: {
+                apiKey: typeof args.apiKey === "string" ? args.apiKey.trim() : "",
+                revision: "preview-rev-1",
+            },
+        }),
+        ai_delete_key: () => ({
+            applied: true,
+            current: { apiKey: "", revision: "preview-rev-1" },
+        }),
+        ai_test_provider: (args) => {
+            const providerId = String(args.providerId ?? "").trim();
+            const apiKey = typeof args.apiKey === "string" ? args.apiKey.trim() : "";
+            const baseUrl = typeof args.baseUrl === "string" ? args.baseUrl.trim() : "";
+            const keyless = new Set(["ollama", "lmstudio", "vllm", "custom"]).has(providerId);
+            const needsBaseUrl = new Set([
+                "azure",
+                "cloudflare",
+                "cloudflare-gateway",
+                "databricks",
+                "custom",
+            ]).has(providerId);
+            if (!providerId) {
+                return {
+                    ok: false,
+                    status: 0,
+                    message: "Provider id is required.",
+                    models: [],
+                    latencyMs: 0,
+                };
+            }
+            if (needsBaseUrl && !baseUrl) {
+                return {
+                    ok: false,
+                    status: 0,
+                    message: `Enter a base URL for ${providerId} before testing the connection.`,
+                    models: [],
+                    latencyMs: 0,
+                };
+            }
+            if (!keyless && !apiKey) {
+                return {
+                    ok: false,
+                    status: 401,
+                    message: `Enter an API key for ${providerId} before testing the connection.`,
+                    models: [],
+                    latencyMs: 0,
+                };
+            }
+            return {
+                ok: true,
+                status: 200,
+                message: `${providerId} is reachable in preview mode.`,
+                models: [],
+                latencyMs: 28,
+            };
+        },
+        ai_check_provider: (args) => {
+            const providerId = String(args.providerId ?? "").trim();
+            const apiKey = typeof args.apiKey === "string" ? args.apiKey.trim() : "";
+            const baseUrl = typeof args.baseUrl === "string" ? args.baseUrl.trim() : "";
+            const model = typeof args.model === "string" ? args.model.trim() : "";
+            const authStyle =
+                typeof args.authStyle === "string" ? args.authStyle.trim().toLowerCase() : "";
+            const keyless =
+                authStyle === "none"
+                || new Set(["ollama", "lmstudio", "vllm", "custom"]).has(providerId);
+            const needsBaseUrl = new Set([
+                "azure",
+                "cloudflare",
+                "cloudflare-gateway",
+                "databricks",
+                "custom",
+            ]).has(providerId);
+            if (!providerId) {
+                return {
+                    ok: false,
+                    status: 0,
+                    message: "Provider id is required.",
+                    models: [],
+                    latencyMs: 0,
+                };
+            }
+            if (needsBaseUrl && !baseUrl) {
+                return {
+                    ok: false,
+                    status: 0,
+                    message: `Enter a base URL for ${providerId} before checking chat.`,
+                    models: [],
+                    latencyMs: 0,
+                };
+            }
+            if (!keyless && !apiKey) {
+                return {
+                    ok: false,
+                    status: 401,
+                    message: `Enter an API key for ${providerId} before checking chat.`,
+                    models: [],
+                    latencyMs: 0,
+                };
+            }
+            if (!model) {
+                return {
+                    ok: false,
+                    status: 0,
+                    message:
+                        "Pick a model for this connection before checking it. The check sends one real request.",
+                    models: [],
+                    latencyMs: 0,
+                };
+            }
+            return {
+                ok: true,
+                status: 200,
+                message: `${providerId} answered in 34 ms: "pong".`,
+                models: [],
+                latencyMs: 34,
+            };
+        },
         read_mcp_config: () => "{}",
         get_index_status: () => ({ state: "idle", indexed_files: 0, total_files: 0 }),
         get_project_stats: () => null,

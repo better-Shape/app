@@ -55,6 +55,8 @@ type ChatStreamContextValue = ChatStreamState & {
      * applied only while its token is still current.
      */
     showConversation: (id: string | null, cached?: ChatMessage[]) => number;
+    /** Warm `id`'s transcript into the bounded LRU cache without changing the active view. */
+    prefetchConversation: (id: string | null | undefined) => void;
     /** True while `seq` is still the view the user asked for. */
     isCurrentView: (seq: number) => boolean;
     /** Load the transcript of the conversation on screen. Returns it, or null if superseded. */
@@ -99,7 +101,41 @@ const defaultState: ChatStreamState = {
 
 const ChatStreamContext = React.createContext<ChatStreamContextValue | null>(null);
 
+export type ChatStreamStatusState = {
+    isLoading: boolean;
+    viewedConversationId: string | null;
+};
+
+const defaultStatusState: ChatStreamStatusState = {
+    isLoading: false,
+    viewedConversationId: null,
+};
+
+const ChatStreamStatusContext = React.createContext<ChatStreamStatusState>(defaultStatusState);
+const ChatStreamViewedIdContext = React.createContext<string | null>(null);
+
+type ChatStreamGettersValue = {
+    getViewedMessages: () => ChatMessage[];
+};
+
+const defaultGettersValue: ChatStreamGettersValue = {
+    getViewedMessages: () => defaultState.messages,
+};
+
+const ChatStreamGettersContext = React.createContext<ChatStreamGettersValue>(defaultGettersValue);
+
 const PENDING_KEY = "__pending__";
+const MAX_TRANSCRIPT_CACHE = 24;
+const PREFETCH_EVENT = "bettershape-chat-prefetch";
+
+/**
+ * Speculatively warm a conversation's transcript in the bounded resident LRU cache
+ * on hover/focus without requiring caller components to sit inside `ChatStreamProvider`.
+ */
+export function prefetchChatConversation(id: string | null | undefined): void {
+    if (!id || id === NEW_CHAT_TAB_ID || typeof window === "undefined") return;
+    window.dispatchEvent(new CustomEvent(PREFETCH_EVENT, { detail: { id } }));
+}
 
 function appendAssistantChunk(prev: ChatMessage[], chunk: string): ChatMessage[] {
     const latest = prev[prev.length - 1];
@@ -136,8 +172,41 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
     // Bumped on every view change, so a slow load for an earlier view is discarded.
     const viewSeqRef = React.useRef(0);
     const liveTurnsRef = React.useRef<Map<string, LiveTurn>>(new Map());
-    // Last known transcript per conversation, so a switch paints before the load lands.
+    // Last known transcript per conversation (bounded LRU), so a switch paints before the load lands.
     const transcriptCacheRef = React.useRef<Map<string, ChatMessage[]>>(new Map());
+    const prefetchInflightRef = React.useRef<Map<string, Promise<void>>>(new Map());
+    const streamFlushRafRef = React.useRef<number>(0);
+    const streamFlushDirtyRef = React.useRef<boolean>(false);
+
+    const readCachedTranscript = React.useCallback((id: string): ChatMessage[] | undefined => {
+        const hit = transcriptCacheRef.current.get(id);
+        if (hit !== undefined) {
+            transcriptCacheRef.current.delete(id);
+            transcriptCacheRef.current.set(id, hit);
+        }
+        return hit;
+    }, []);
+
+    const writeCachedTranscript = React.useCallback((id: string, transcript: ChatMessage[]) => {
+        if (!id || id === NEW_CHAT_TAB_ID) return;
+        if (transcriptCacheRef.current.has(id)) {
+            transcriptCacheRef.current.delete(id);
+        }
+        transcriptCacheRef.current.set(id, transcript);
+        while (transcriptCacheRef.current.size > MAX_TRANSCRIPT_CACHE) {
+            const oldest = transcriptCacheRef.current.keys().next().value;
+            if (oldest === undefined) break;
+            transcriptCacheRef.current.delete(oldest);
+        }
+    }, []);
+
+    const cancelPendingStreamFrame = React.useCallback(() => {
+        if (streamFlushRafRef.current) {
+            cancelAnimationFrame(streamFlushRafRef.current);
+            streamFlushRafRef.current = 0;
+        }
+        streamFlushDirtyRef.current = false;
+    }, []);
     const draftConversationIdRef = React.useRef<string | null>(null);
     const draftAdopterRef = React.useRef<((conversationId: string) => void) | null>(null);
     const messagesRef = React.useRef<ChatMessage[]>(messages);
@@ -185,9 +254,10 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
 
     const showViewInternal = React.useCallback(
         (id: string | null, cached?: ChatMessage[]): number => {
+            cancelPendingStreamFrame();
             // Keep the transcript on screen for the chat being left, so coming back is instant.
             if (viewingIdRef.current) {
-                transcriptCacheRef.current.set(viewingIdRef.current, messagesRef.current);
+                writeCachedTranscript(viewingIdRef.current, messagesRef.current);
             }
             const seq = ++viewSeqRef.current;
             setViewed(id);
@@ -198,14 +268,47 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
                 messagesRef.current = live.messages;
                 applyLive(live);
             } else {
-                const transcript = id ? (cached ?? transcriptCacheRef.current.get(id) ?? []) : [];
+                const transcript = id ? (cached ?? readCachedTranscript(id) ?? []) : [];
+                if (id && cached) writeCachedTranscript(id, cached);
                 messagesRef.current = transcript;
                 applyIdle(transcript);
             }
             return seq;
         },
-        [applyIdle, applyLive, setViewed],
+        [applyIdle, applyLive, cancelPendingStreamFrame, readCachedTranscript, setViewed, writeCachedTranscript],
     );
+
+    const prefetchConversation = React.useCallback(
+        (id: string | null | undefined) => {
+            if (!id || id === NEW_CHAT_TAB_ID || isForeignConversation(id)) return;
+            if (viewingIdRef.current === id) return;
+            if (liveTurnsRef.current.has(id) || transcriptCacheRef.current.has(id)) return;
+            if (prefetchInflightRef.current.has(id)) return;
+
+            const job = commands
+                .getConversationMessages(id)
+                .then((history) => {
+                    if (!liveTurnsRef.current.has(id) && viewingIdRef.current !== id) {
+                        writeCachedTranscript(id, history);
+                    }
+                })
+                .catch(() => {})
+                .finally(() => {
+                    prefetchInflightRef.current.delete(id);
+                });
+            prefetchInflightRef.current.set(id, job);
+        },
+        [writeCachedTranscript],
+    );
+
+    React.useEffect(() => {
+        const onPrefetch = (e: Event) => {
+            const id = (e as CustomEvent<{ id?: string }>).detail?.id;
+            if (id) prefetchConversation(id);
+        };
+        window.addEventListener(PREFETCH_EVENT, onPrefetch as EventListener);
+        return () => window.removeEventListener(PREFETCH_EVENT, onPrefetch as EventListener);
+    }, [prefetchConversation]);
 
     const showConversation = React.useCallback(
         (id: string | null, cached?: ChatMessage[]): number => {
@@ -246,7 +349,7 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
                         turnPhase: "thinking",
                     });
                 }
-                transcriptCacheRef.current.set(id, history);
+                writeCachedTranscript(id, history);
                 const live = liveTurnsRef.current.get(id);
                 if (live) applyLive(live);
                 else applyIdle(history);
@@ -256,7 +359,7 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
                 return null;
             }
         },
-        [applyIdle, applyLive, isCurrentView],
+        [applyIdle, applyLive, isCurrentView, writeCachedTranscript],
     );
 
     const bootstrapFromBackend = React.useCallback(async () => {
@@ -494,6 +597,7 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
                 if (bindsDraft && convId) bindDraft(convId);
                 const stayOnThisTurn = adoptsView || viewingIdRef.current === convId;
                 if (stayOnThisTurn) {
+                    cancelPendingStreamFrame();
                     if (adoptsView && convId) setViewed(convId);
                     turnIdRef.current = tid;
                     setIsLoading(true);
@@ -521,11 +625,52 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
                     const convId = key === PENDING_KEY ? null : key;
                     if (convId && ignoredIdsRef.current.has(convId)) return;
                     const current = liveTurnsRef.current.get(key);
-                    if (meta?.turnId && meta.turnId !== current?.turnId) return;
-                    patchLive(convId, (live) => {
-                        if (meta?.turnId) live.turnId = meta.turnId;
-                        live.messages = appendAssistantChunk(live.messages, chunk);
-                    });
+                    if (!current || (meta?.turnId && meta.turnId !== current.turnId)) return;
+
+                    if (meta?.turnId) current.turnId = meta.turnId;
+                    current.messages = appendAssistantChunk(current.messages, chunk);
+                    setChatGenerating(current.conversationId, true);
+                    setChatActivity(current.conversationId, current.turnPhase);
+
+                    const shown = viewingIdRef.current
+                        ? viewingIdRef.current === current.conversationId
+                        : key === PENDING_KEY;
+                    if (!shown) return;
+
+                    messagesRef.current = current.messages;
+
+                    // Leading-edge 0ms paint on first token of a frame; coalesce sub-frame bursts onto rAF.
+                    if (!streamFlushRafRef.current && typeof requestAnimationFrame === "function") {
+                        setMessages(current.messages);
+                        setIsLoading(true);
+                        setActivityLabel(current.activityLabel);
+                        setTurnPhase(current.turnPhase);
+                        setTurnId(current.turnId);
+                        streamFlushDirtyRef.current = false;
+                        streamFlushRafRef.current = requestAnimationFrame(() => {
+                            streamFlushRafRef.current = 0;
+                            if (!streamFlushDirtyRef.current) return;
+                            streamFlushDirtyRef.current = false;
+                            const activeKey = viewingIdRef.current ?? PENDING_KEY;
+                            const activeLive = liveTurnsRef.current.get(activeKey);
+                            if (activeLive) {
+                                messagesRef.current = activeLive.messages;
+                                setMessages(activeLive.messages);
+                                setIsLoading(true);
+                                setActivityLabel(activeLive.activityLabel);
+                                setTurnPhase(activeLive.turnPhase);
+                                setTurnId(activeLive.turnId);
+                            }
+                        });
+                    } else if (!streamFlushRafRef.current) {
+                        setMessages(current.messages);
+                        setIsLoading(true);
+                        setActivityLabel(current.activityLabel);
+                        setTurnPhase(current.turnPhase);
+                        setTurnId(current.turnId);
+                    } else {
+                        streamFlushDirtyRef.current = true;
+                    }
                 },
             ),
         );
@@ -542,8 +687,9 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
                 const { stats, model, error, conversationId, content, turnId } =
                     event.payload ?? {};
                 if (isForeignConversation(conversationId)) return;
-                if (turnId) turnOrder.finish(conversationId ?? PENDING_KEY, turnId);
-                const current = conversationId ? liveTurnsRef.current.get(conversationId) : undefined;
+                const targetKey = conversationId ?? PENDING_KEY;
+                if (turnId) turnOrder.finish(targetKey, turnId);
+                const current = liveTurnsRef.current.get(targetKey);
                 if (conversationId && turnId && stoppedTurnsRef.current.get(conversationId) === turnId) {
                     stoppedTurnsRef.current.delete(conversationId);
                     cancelledTurnsRef.current.set(conversationId, turnId);
@@ -560,6 +706,13 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
                     return;
                 }
                 if (turnId && turnId !== current?.turnId) return;
+                if (!conversationId ? viewingIdRef.current === null : viewingIdRef.current === conversationId) {
+                    if (streamFlushDirtyRef.current && current) {
+                        messagesRef.current = current.messages;
+                        setMessages(current.messages);
+                    }
+                    cancelPendingStreamFrame();
+                }
                 setChatActivity(conversationId, error === "Cancelled" ? "cancelled" : error ? "failed" : "completed", error);
                 if (!error && stats) {
                     void import("@/lib/chat/last-turn-usage").then(({ setLastTurnUsage }) => {
@@ -754,12 +907,23 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
 
         return () => {
             disposed = true;
+            cancelPendingStreamFrame();
             unlisteners.forEach((fn) => fn());
         };
-    }, [bootstrapFromBackend, reloadViewedMessages, setViewed]);
+    }, [bootstrapFromBackend, cancelPendingStreamFrame, reloadViewedMessages, setViewed]);
 
     const getViewedConversationId = React.useCallback(() => viewingIdRef.current, []);
+    const getViewedMessages = React.useCallback(() => messagesRef.current, []);
     const getDraftConversationId = React.useCallback(() => draftConversationIdRef.current, []);
+
+    const statusValue = React.useMemo<ChatStreamStatusState>(
+        () => ({ isLoading, viewedConversationId }),
+        [isLoading, viewedConversationId],
+    );
+    const gettersValue = React.useMemo<ChatStreamGettersValue>(
+        () => ({ getViewedMessages }),
+        [getViewedMessages],
+    );
     const hasLiveTurn = React.useCallback(
         (id: string | null) => liveTurnsRef.current.has(id ?? PENDING_KEY),
         [],
@@ -775,36 +939,73 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
     const ownsRequest = React.useCallback((id: string | null, requestId: string) =>
         liveTurnsRef.current.get(id ?? PENDING_KEY)?.requestId === requestId, []);
 
-    const value: ChatStreamContextValue = {
-        isLoading,
-        messages,
-        activityLabel,
-        turnPhase,
-        turnId,
-        sendError,
-        contextSummarized,
-        viewedConversationId,
-        setMessages,
-        setSendError,
-        setContextSummarized,
-        getViewedConversationId,
-        getDraftConversationId,
-        showConversation,
-        isCurrentView,
-        reloadViewedMessages,
-        bootstrapFromBackend,
-        setDraftAdopter,
-        appendUserOptimistic,
-        stopLiveTurn,
-        prepareStop,
-        startDraftChat,
-        hasLiveTurn,
-        ownsRequest,
-        getRequestOwner,
-    };
+    const value = React.useMemo<ChatStreamContextValue>(
+        () => ({
+            isLoading,
+            messages,
+            activityLabel,
+            turnPhase,
+            turnId,
+            sendError,
+            contextSummarized,
+            viewedConversationId,
+            setMessages,
+            setSendError,
+            setContextSummarized,
+            getViewedConversationId,
+            getDraftConversationId,
+            showConversation,
+            prefetchConversation,
+            isCurrentView,
+            reloadViewedMessages,
+            bootstrapFromBackend,
+            setDraftAdopter,
+            appendUserOptimistic,
+            stopLiveTurn,
+            prepareStop,
+            startDraftChat,
+            hasLiveTurn,
+            ownsRequest,
+            getRequestOwner,
+        }),
+        [
+            isLoading,
+            messages,
+            activityLabel,
+            turnPhase,
+            turnId,
+            sendError,
+            contextSummarized,
+            viewedConversationId,
+            setMessages,
+            setSendError,
+            setContextSummarized,
+            getViewedConversationId,
+            getDraftConversationId,
+            showConversation,
+            prefetchConversation,
+            isCurrentView,
+            reloadViewedMessages,
+            bootstrapFromBackend,
+            setDraftAdopter,
+            appendUserOptimistic,
+            stopLiveTurn,
+            prepareStop,
+            startDraftChat,
+            hasLiveTurn,
+            ownsRequest,
+            getRequestOwner,
+        ],
+    );
 
     return (
-        <ChatStreamContext.Provider value={value}>{children}</ChatStreamContext.Provider>
+        <ChatStreamGettersContext.Provider value={gettersValue}>
+            <ChatStreamViewedIdContext.Provider value={viewedConversationId}>
+                <ChatStreamStatusContext.Provider value={statusValue}>
+                    <ChatStreamContext.Provider value={value}>{children}</ChatStreamContext.Provider>
+                </ChatStreamStatusContext.Provider>
+            </ChatStreamViewedIdContext.Provider>
+        </ChatStreamGettersContext.Provider>
     );
 }
 
@@ -820,4 +1021,19 @@ export function useChatStream() {
 export function useChatStreamOptional(): ChatStreamState {
     const ctx = React.useContext(ChatStreamContext);
     return ctx ?? defaultState;
+}
+
+/** Subscribe only to `{ isLoading, viewedConversationId }` (never re-renders on `chat_token`). */
+export function useChatStreamStatus(): ChatStreamStatusState {
+    return React.useContext(ChatStreamStatusContext);
+}
+
+/** Subscribe only to `viewedConversationId` (never re-renders on `chat_token` or `isLoading`). */
+export function useViewedConversationId(): string | null {
+    return React.useContext(ChatStreamViewedIdContext);
+}
+
+/** Static getter accessors that never trigger context re-renders. */
+export function useChatStreamGetters(): ChatStreamGettersValue {
+    return React.useContext(ChatStreamGettersContext);
 }

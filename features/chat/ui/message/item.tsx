@@ -6,10 +6,11 @@ import { SelectAllOn20Regular } from "@fluentui/react-icons/headless/svg/select-
 import { Edit20Regular } from "@fluentui/react-icons/headless/svg/edit";
 import { Folder20Filled } from "@fluentui/react-icons/headless/svg/folder";
 import { MoreHorizontal20Regular } from "@fluentui/react-icons/headless/svg/more-horizontal";
+import { TextQuote20Regular } from "@fluentui/react-icons/headless/svg/text-quote";
 
 import React from "react";
-import { useChatStreamOptional } from "@/features/chat/lib/chat-stream-store";
-import { cn } from "@/lib/utils";
+import { useChatStreamGetters } from "@/features/chat/lib/chat-stream-store";
+import { cn, createOccurrenceKeyer } from "@/lib/utils";
 import { toTimestampMs } from "@/lib/ui/timestamp";
 import { MessageRenderer, parseMessageContent, extractWebSearchResults } from "../md/renderer";
 import { Icon } from "@/components/ui/icon";
@@ -33,6 +34,7 @@ import {
 import { Tooltip } from "@/components/ui/tooltip";
 import {
     formatMessageModelLabel,
+    isAutoModelId,
     type MessageUsageStats,
 } from "@/lib/chat/usage-display";
 import { parseBetterShapeContinueAction } from "@/lib/chat/continue-action";
@@ -42,10 +44,16 @@ import { useSettings } from "@/lib/settings";
 import { openProjectFile } from "@/lib/window/open-project-file";
 import { WebSourcesMenu } from "../blocks/search";
 import { Button } from "@/components/ui/button";
+import { DrawnCheck } from "@/components/ui/checkmark";
+import { SwapText } from "@/components/ui/swap";
 import { UserMessageCard } from "./bubble";
 import { ContextChip, MentionChipIcon, WorkflowChipIcon } from "./context-chip";
+import {
+    dispatchChatQuote,
+    extractCleanSelectionText,
+    splitLeadingQuoteBlock,
+} from "../quote-selection";
 import { GeneratingIndicator } from "../blocks/generating";
-import { isAutoModelId } from "@/lib/chat/usage-display";
 import { parseUserAttachments } from "../../lib/user-attachments";
 import type { ParsedUserAttachment } from "../../lib/user-attachments";
 import { MessageAttachmentPill } from "../composer/attachments";
@@ -80,6 +88,7 @@ type ChatMessageItemProps = {
     fullWidthBubbles?: boolean;
 };
 
+/** Renders an attached file or image thumbnail chip inside a sent user message. */
 function SentAttachment({ att }: { att: ParsedUserAttachment }) {
     if (att.kind === "image" && att.dataUrl) {
         return (
@@ -94,7 +103,8 @@ function SentAttachment({ att }: { att: ParsedUserAttachment }) {
     return <MessageAttachmentPill name={att.name} />;
 }
 
-function MentionRichText({ text }: { text: string }) {
+/** Renders the MentionRichText UI component. */
+const MentionRichText = ({ text }: { text: string }) => {
     const workflows = useSettings().ai.workflows ?? [];
     const mentionRs = mentionRanges(text);
     const slashRs = slashCommandRanges(text, workflows);
@@ -119,11 +129,10 @@ function MentionRichText({ text }: { text: string }) {
         const re = /(`[^`\n]+`)|((?<![\w.-])(?<![\w.-][\\/])(?:[A-Za-z]:)?(?:[\w.-]+[\\/])+[\w.-]+\.\w+)/g;
         let last = 0;
         let m: RegExpExecArray | null;
-        let i = 0;
         while ((m = re.exec(chunk)) !== null) {
             if (m.index > last) {
                 out.push(
-                    <span key={`${keyPrefix}-t-${i}`} className="whitespace-pre-wrap">
+                    <span key={`${keyPrefix}-t-${last}`} className="whitespace-pre-wrap">
                         {chunk.slice(last, m.index)}
                     </span>,
                 );
@@ -132,7 +141,7 @@ function MentionRichText({ text }: { text: string }) {
                 const inner = m[1].slice(1, -1);
                 out.push(
                     <code
-                        key={`${keyPrefix}-c-${i}`}
+                        key={`${keyPrefix}-c-${m.index}`}
                         className="rounded bg-panel px-1 py-0.5 font-mono text-[0.9em] text-accent-text"
                     >
                         {inner}
@@ -142,19 +151,20 @@ function MentionRichText({ text }: { text: string }) {
                 const path = m[2];
                 const name = path.split(/[\\/]/).pop() || path;
                 out.push(
-                    <button
-                        key={`${keyPrefix}-p-${i}`}
-                        type="button"
-                        title={path}
-                        onClick={() => void openProjectFile(path, name)}
-                        className="inline cursor-pointer font-mono text-[0.9em] text-accent-text underline-offset-2 hover:underline"
-                    >
-                        {path}
-                    </button>,
+                    <Tooltip key={`${keyPrefix}-p-${m.index}`} content={path}>
+                        <button
+                            type="button"
+                            data-chat-find-text
+                            data-quote-allow=""
+                            onClick={() => { openProjectFile(path, name).catch(() => undefined); }}
+                            className="inline cursor-pointer font-mono text-[0.9em] text-accent-text underline-offset-2 transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:underline"
+                        >
+                            {path}
+                        </button>
+                    </Tooltip>,
                 );
             }
             last = m.index + m[0].length;
-            i += 1;
         }
         if (last < chunk.length) {
             out.push(
@@ -171,24 +181,24 @@ function MentionRichText({ text }: { text: string }) {
     }
     const nodes: React.ReactNode[] = [];
     let cursor = 0;
-    merged.forEach((range, i) => {
+    merged.forEach((range) => {
         if (range.start > cursor) {
-            nodes.push(...paintPlain(text.slice(cursor, range.start), `pre-${i}`));
+            nodes.push(...paintPlain(text.slice(cursor, range.start), `pre-${range.start}`));
         }
         if (range.kind === "slash") {
             nodes.push(
-                <ContextChip key={`s-${i}`} icon={<WorkflowChipIcon workflow={range.workflow} />}>
+                <ContextChip key={`s-${range.start}`} icon={<WorkflowChipIcon workflow={range.workflow} />}>
                     {range.token}
                 </ContextChip>,
             );
         } else {
             const { mention } = range;
             const openable =
-                (mention.kind === "file" || mention.kind === "folder") && !!mention.path;
+                (mention.kind === "file" || mention.kind === "folder") && Boolean(mention.path);
             const label = mentionDisplayLabel(mention);
             nodes.push(
                 <ContextChip
-                    key={`m-${i}`}
+                    key={`m-${range.start}`}
                     icon={<MentionChipIcon mention={mention} />}
                     onClick={
                         openable
@@ -198,7 +208,7 @@ function MentionRichText({ text }: { text: string }) {
                                       mention.kind === "folder" && !base.endsWith("/")
                                           ? `${base}/`
                                           : base;
-                                  void openProjectFile(path, label);
+                                  openProjectFile(path, label).catch(() => undefined);
                               }
                             : undefined
                     }
@@ -213,8 +223,9 @@ function MentionRichText({ text }: { text: string }) {
         nodes.push(...paintPlain(text.slice(cursor), "end"));
     }
     return <span className="select-text">{nodes}</span>;
-}
+};
 
+/** Selects all text inside a DOM element for quick copy or inspection. */
 function selectNodeContents(el: HTMLElement | null) {
     if (!el) return;
     const range = document.createRange();
@@ -224,6 +235,7 @@ function selectNodeContents(el: HTMLElement | null) {
     sel?.addRange(range);
 }
 
+/** Decodes escaped XML attribute entities back into plain characters. */
 function decodeXmlAttr(value: string): string {
     return value
         .replace(/&quot;/g, "\"")
@@ -231,6 +243,7 @@ function decodeXmlAttr(value: string): string {
         .replace(/&amp;/g, "&");
 }
 
+/** Parses an inline `<chat_renamed>` system marker from message text. */
 function parseChatRenamed(content: string): { from: string; rest: string } | null {
     const match = content.match(/^<chat_renamed\b([^>]*)\/>\s*/);
     if (!match) return null;
@@ -238,6 +251,7 @@ function parseChatRenamed(content: string): { from: string; rest: string } | nul
     return { from, rest: content.slice(match[0].length) };
 }
 
+/** Formats a message timestamp as a short localized clock string (`HH:MM`). */
 function formatSentClock(timestamp: number): string {
     return new Date(toTimestampMs(timestamp)).toLocaleTimeString(undefined, {
         hour: "numeric",
@@ -245,6 +259,7 @@ function formatSentClock(timestamp: number): string {
     });
 }
 
+/** Formats a message timestamp as a full localized date and time tooltip. */
 function formatSentExact(timestamp: number): string {
     return new Date(toTimestampMs(timestamp)).toLocaleString(undefined, {
         weekday: "long",
@@ -257,6 +272,7 @@ function formatSentExact(timestamp: number): string {
     });
 }
 
+/** Renders a subtle message timestamp with full date-time details on hover. */
 function MessageSentTime({ timestamp }: { timestamp: number }) {
     if (!Number.isFinite(timestamp) || timestamp <= 0) return null;
     return (
@@ -271,6 +287,7 @@ function MessageSentTime({ timestamp }: { timestamp: number }) {
     );
 }
 
+/** Parses a `<forked_from>` lineage marker from the start of a conversation message. */
 function parseForkedFrom(content: string): { id: string; title: string; rest: string } | null {
     const match = content.match(/^<forked_from\b([^>]*)\/>\s*/);
     if (!match) return null;
@@ -280,7 +297,8 @@ function parseForkedFrom(content: string): { id: string; title: string; rest: st
     return { id, title, rest: content.slice(match[0].length) };
 }
 
-function ChatMessageItemInner({
+/** Renders the ChatMessageItemInner UI component. */
+const ChatMessageItemInner = ({
     role,
     content,
     timestamp,
@@ -294,9 +312,11 @@ function ChatMessageItemInner({
     onRestore,
     onFork,
     isFileEditResolved,
-}: ChatMessageItemProps) {
-    const viewedMessages = useChatStreamOptional().messages;
+}: ChatMessageItemProps) => {
+    const { getViewedMessages } = useChatStreamGetters();
     const [expanded, setExpanded] = React.useState(false);
+    const [copied, setCopied] = React.useState(false);
+    const copyResetRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
     const [forkOpen, setForkOpen] = React.useState(false);
     const [menuOpen, setMenuOpen] = React.useState(false);
     const [menuStats, setMenuStats] = React.useState(stats);
@@ -307,6 +327,12 @@ function ChatMessageItemInner({
     const bodyRef = React.useRef<HTMLDivElement>(null);
     const shownStats = menuStats ?? stats;
     const shownModel = menuModel ?? model;
+
+    React.useEffect(() => {
+        return () => {
+            if (copyResetRef.current) clearTimeout(copyResetRef.current);
+        };
+    }, []);
 
     const [messageScope, setMessageScope] = React.useState<readonly [typeof stats, typeof model] | null>(null);
     if (messageScope === null || !Object.is(messageScope[0], stats) || !Object.is(messageScope[1], model)) {
@@ -330,14 +356,39 @@ function ChatMessageItemInner({
             .join("\n\n");
     };
 
+    const markCopied = () => {
+        setCopied(true);
+        if (copyResetRef.current) clearTimeout(copyResetRef.current);
+        copyResetRef.current = setTimeout(() => setCopied(false), 1400);
+    };
+
+    const selectionContainedInBody = (sel: Selection | null): boolean => {
+        const root = bodyRef.current;
+        if (!sel || !root || sel.rangeCount === 0) return false;
+        const range = sel.getRangeAt(0);
+        return root.contains(range.startContainer) && root.contains(range.endContainer);
+    };
+
     const handleCopy = () => {
         const sel = window.getSelection();
         const selected = sel?.toString() ?? "";
-        if (selected && bodyRef.current?.contains(sel?.anchorNode ?? null)) {
-            void navigator.clipboard.writeText(selected);
-            return;
+        const targetText = selected && selectionContainedInBody(sel) ? selected : getCopyText();
+        navigator.clipboard?.writeText(targetText).then(markCopied).catch(() => undefined);
+    };
+
+    const handleQuoteMessage = () => {
+        const sel = window.getSelection();
+        const root = bodyRef.current;
+        if (sel && !sel.isCollapsed && sel.rangeCount > 0 && root && selectionContainedInBody(sel)) {
+            const cleanSelected = extractCleanSelectionText(sel.getRangeAt(0), root).trim();
+            if (cleanSelected) {
+                dispatchChatQuote(cleanSelected);
+                sel.removeAllRanges();
+                return;
+            }
         }
-        void navigator.clipboard.writeText(getCopyText());
+        const full = getCopyText().trim();
+        if (full) dispatchChatQuote(full);
     };
 
     const handleSelectAll = () => {
@@ -358,7 +409,7 @@ function ChatMessageItemInner({
             if (!selected || !bodyRef.current?.contains(sel?.anchorNode ?? null)) {
                 e.preventDefault();
                 e.stopPropagation();
-                void navigator.clipboard.writeText(getCopyText());
+                navigator.clipboard.writeText(getCopyText()).catch(() => undefined);
             }
         }
     };
@@ -382,9 +433,10 @@ function ChatMessageItemInner({
 
 
     if (role === "user" && userParts) {
-        const displayText = continueAction?.action
+        const rawDisplayText = continueAction?.action
             ? continueAction.displayText
             : userParts.text;
+        const { quotes: userQuotes, rest: displayText } = splitLeadingQuoteBlock(rawDisplayText);
         const LONG_CHARS = 280;
         const isLong = displayText.length > LONG_CHARS || displayText.split("\n").length > 5;
         return (
@@ -401,43 +453,104 @@ function ChatMessageItemInner({
                     <div className="flex w-full min-w-0 flex-col gap-1">
                         <UserMessageCard>
                             <div
-                                role={isLong ? "button" : undefined}
-                                tabIndex={isLong ? 0 : undefined}
-                                onClick={isLong ? () => setExpanded((v) => !v) : undefined}
-                                onKeyDown={isLong ? (e) => {
-                                    if (e.key === "Enter" || e.key === " ") {
-                                        e.preventDefault();
-                                        setExpanded((v) => !v);
-                                    }
-                                } : undefined}
-                                className={cn(isLong && "cursor-pointer")}
+                                ref={bodyRef}
+                                data-chat-message-body
+                                className="min-w-0 wrap-break-word select-text"
                             >
-                                <div ref={bodyRef} className="min-w-0 wrap-break-word select-text">
-                                    {userParts.attachments.length > 0 && (
-                                        <div className="mb-2 flex flex-wrap items-end gap-1.5">
-                                            {userParts.attachments.map((att, i) => (
-                                                <SentAttachment key={`${att.name}-${i}`} att={att} />
-                                            ))}
-                                        </div>
-                                    )}
+                                {userParts.attachments.length > 0 && (
+                                    <div className="mb-2 flex flex-wrap items-end gap-1.5">
+                                        {(() => {
+                                            const attKey = createOccurrenceKeyer();
+                                            return userParts.attachments.map((att) => (
+                                                <SentAttachment key={attKey(att.name)} att={att} />
+                                            ));
+                                        })()}
+                                    </div>
+                                )}
+                                {userQuotes.length > 0 ? (
+                                    <div className={cn("flex flex-col gap-1.5", displayText && "mb-2")}>
+                                        {(() => {
+                                            const quoteKey = createOccurrenceKeyer();
+                                            return userQuotes.map((qText) => (
+                                                <blockquote
+                                                    key={quoteKey(qText.slice(0, 24))}
+                                                    className="flex items-start gap-2 rounded-xl border border-border-subtle bg-surface-2 px-3 py-2 text-xs leading-relaxed text-text-secondary whitespace-pre-wrap"
+                                                >
+                                                <Icon
+                                                    icon={TextQuote20Regular}
+                                                    className="mt-0.5 size-3.5 shrink-0 text-text-muted"
+                                                />
+                                                <span className="min-w-0 flex-1 break-words line-clamp-6">
+                                                    {qText}
+                                                </span>
+                                            </blockquote>
+                                            ));
+                                        })()}
+                                    </div>
+                                ) : null}
+                                {displayText || userQuotes.length === 0 ? (
                                     <div className={cn(isLong && !expanded && "chat-message-fade-clamp")}>
                                         <MentionRichText text={displayText} />
                                     </div>
-                                </div>
+                                ) : null}
+                                {isLong ? (
+                                    <button
+                                        type="button"
+                                        data-quote-skip
+                                        aria-expanded={expanded}
+                                        onClick={() => setExpanded((v) => !v)}
+                                        className="mt-1.5 inline-flex items-center gap-1 rounded-md px-1 py-0.5 -ml-1 text-xs font-medium text-text-muted transition-[background-color,color,transform] duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] motion-reduce:transform-none motion-reduce:transition-none hover:bg-[var(--btn-hover)] hover:text-text-primary active:scale-[0.97] select-none"
+                                    >
+                                        <span>{expanded ? "Show less" : "Show more"}</span>
+                                        <Icon
+                                            icon={ChevronDown20Regular}
+                                            className={cn(
+                                                "icon-xs transition-transform duration-[var(--spring-quick-dur)] ease-[var(--spring-quick)] motion-reduce:transition-none",
+                                                expanded && "rotate-180",
+                                            )}
+                                        />
+                                    </button>
+                                ) : null}
                             </div>
                         </UserMessageCard>
-                        <div className="flex w-fit items-center gap-0.5 self-end select-none opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                        <div className="flex w-fit items-center gap-0.5 self-end select-none opacity-0 transition-opacity duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] group-hover:opacity-100 focus-within:opacity-100">
                             <MessageSentTime timestamp={timestamp} />
-                            <Tooltip content="Copy Message" side="top">
-                                <Button variant="ghost" size="icon" onClick={handleCopy}>
-                                    <Icon icon={Clipboard20Regular} className="icon-md" />
+                            <Tooltip content={copied ? "Copied" : "Copy message"} side="top">
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    aria-label={copied ? "Copied" : "Copy message"}
+                                    onClick={handleCopy}
+                                    className={cn(
+                                        "enabled:active:scale-[0.95] transition-[color,transform] duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
+                                        copied && "text-success",
+                                    )}
+                                >
+                                    <SwapText
+                                        value={copied ? "Copied" : "Copy"}
+                                        render={(face) =>
+                                            face === "Copied" ? (
+                                                <DrawnCheck motion="compact" />
+                                            ) : (
+                                                <Icon icon={Clipboard20Regular} className="icon-md" />
+                                            )
+                                        }
+                                    />
                                 </Button>
                             </Tooltip>
-                            <Tooltip content="Restore to this checkpoint" side="top">
-                                <Button variant="ghost" size="icon" onClick={() => onRestore?.(index)}>
-                                    <Icon icon={ArrowShuffle24Regular} className="icon-md" />
-                                </Button>
-                            </Tooltip>
+                            {index >= 0 && onRestore ? (
+                                <Tooltip content="Restore to this checkpoint" side="top">
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        aria-label="Restore to this checkpoint"
+                                        onClick={() => onRestore(index)}
+                                        className="enabled:active:scale-[0.95] transition-transform duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]"
+                                    >
+                                        <Icon icon={ArrowShuffle24Regular} className="icon-md" />
+                                    </Button>
+                                </Tooltip>
+                            ) : null}
                         </div>
                     </div>
                 </div>
@@ -449,6 +562,17 @@ function ChatMessageItemInner({
                     Copy
                     <ContextMenuShortcut>Ctrl+C</ContextMenuShortcut>
                 </ContextMenuItem>
+                <ContextMenuItem onClick={handleQuoteMessage}>
+                    <Icon icon={TextQuote20Regular} />
+                    Quote in reply
+                    <ContextMenuShortcut>Ctrl+Shift+.</ContextMenuShortcut>
+                </ContextMenuItem>
+                {index >= 0 && onRestore ? (
+                    <ContextMenuItem onClick={() => onRestore(index)}>
+                        <Icon icon={ArrowShuffle24Regular} />
+                        Restore to this checkpoint
+                    </ContextMenuItem>
+                ) : null}
                 <ContextMenuSeparator />
                 <ContextMenuItem onClick={handleSelectAll}>
                     <Icon icon={SelectAllOn20Regular} />
@@ -494,9 +618,14 @@ function ChatMessageItemInner({
             onKeyDown={handleKeyDown}
         >
             <div className="flex min-w-0 flex-col gap-1 pr-6">
-                <div ref={bodyRef} className="min-w-0 select-text overflow-visible chat-text text-text-primary">
+                <div
+                    ref={bodyRef}
+                    data-chat-message-body
+                    data-chat-streaming={isGenerating ? "true" : undefined}
+                    className="min-w-0 select-text overflow-visible chat-text text-text-primary"
+                >
                     {showTypingOnly ? (
-                        <GeneratingIndicator label="Thinking" />
+                        <GeneratingIndicator label={activityLabel || "Thinking"} />
                     ) : (
                         <div className="chat-markdown prose-compact max-w-none min-w-0 wrap-break-word select-text">
                             {renamed ? (
@@ -536,9 +665,27 @@ function ChatMessageItemInner({
             </div>
             {!isGenerating && (
                 <div className="flex w-fit items-center gap-0.5 self-start select-none">
-                    <Tooltip content="Copy Message" side="bottom">
-                        <Button variant="ghost" size="icon" onClick={handleCopy}>
-                            <Icon icon={Clipboard20Regular} />
+                    <Tooltip content={copied ? "Copied" : "Copy message"} side="bottom">
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            aria-label={copied ? "Copied" : "Copy message"}
+                            onClick={handleCopy}
+                            className={cn(
+                                "enabled:active:scale-[0.95] transition-[color,transform] duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
+                                copied && "text-success",
+                            )}
+                        >
+                            <SwapText
+                                value={copied ? "Copied" : "Copy"}
+                                render={(face) =>
+                                    face === "Copied" ? (
+                                        <DrawnCheck motion="compact" />
+                                    ) : (
+                                        <Icon icon={Clipboard20Regular} />
+                                    )
+                                }
+                            />
                         </Button>
                     </Tooltip>
                     {role === "assistant" ? <WebSourcesMenu results={webSources} /> : null}
@@ -552,8 +699,8 @@ function ChatMessageItemInner({
                             setContextVeil(true);
                             return;
                         }
-                        if (typeof index !== "number" || index < 0) return;
-                        const msg = viewedMessages[index];
+                        if (index < 0) return;
+                        const msg = getViewedMessages()[index];
                         if (msg && msg.role === "assistant") {
                             if (msg.stats) setMenuStats(msg.stats);
                             if (msg.model) setMenuModel(msg.model);
@@ -561,12 +708,17 @@ function ChatMessageItemInner({
                     }}
                     >
                         <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon">
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                aria-label="Message actions"
+                                className="enabled:active:scale-[0.95] data-[state=open]:bg-[var(--btn-open)] data-[state=open]:hover:bg-[var(--btn-open-hover)]"
+                            >
                                 <Icon icon={MoreHorizontal20Regular} />
                             </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="start" className="w-72 overflow-hidden p-0">
-                            {typeof index === "number" ? (
+                            {index >= 0 ? (
                                 <>
                                     <DropdownMenuItem
                                         className="text-md font-medium"
@@ -622,10 +774,10 @@ function ChatMessageItemInner({
                                             id={contextWindowId}
                                             aria-hidden={!advanced}
                                             inert={!advanced}
-                                            className="grid transition-[grid-template-rows] duration-[var(--transition-base)] ease-[var(--ease-out)]"
+                                            className="grid transition-[grid-template-rows] duration-[var(--spring-panel-dur)] ease-[var(--spring-panel)] motion-reduce:transition-none"
                                             style={{ gridTemplateRows: advanced ? "1fr" : "0fr" }}
                                         >
-                                            <div className="min-h-0 px-2 pt-1 pb-1">
+                                            <div className="min-h-0 overflow-hidden px-2 pt-1 pb-1">
                                                 <ContextWindowMenu
                                                     breakdown={shownStats?.contextBreakdown}
                                                     inputTokens={shownStats?.inputTokens}
@@ -635,8 +787,8 @@ function ChatMessageItemInner({
                                         </div>
                                         <div
                                             className={cn(
-                                                "pointer-events-none absolute inset-x-0 bottom-0 z-[1] h-30 bg-linear-to-t from-surface-4 to-transparent transition-opacity delay-200 duration-[var(--transition-fast)] ease-[var(--ease-out)]",
-                                                contextVeil ? "opacity-100" : "opacity-0",
+                                                "pointer-events-none absolute inset-x-0 bottom-0 z-[1] h-30 bg-linear-to-t from-surface-4 to-transparent transition-opacity duration-[var(--spring-quick-dur)] ease-[var(--spring-quick)]",
+                                                contextVeil && !advanced ? "opacity-100" : "opacity-0",
                                             )}
                                             aria-hidden
                                         />
@@ -645,7 +797,7 @@ function ChatMessageItemInner({
                                                 type="button"
                                                 aria-expanded={advanced}
                                                 aria-controls={contextWindowId}
-                                                className="relative z-10 mx-auto flex w-35 items-center justify-center gap-1 squircle-2xl bg-panel-hover px-1.5 py-1 text-md font-medium text-text-secondary hover:text-text-primary transition-colors duration-[var(--transition-fast)] ease-[var(--ease-out)]"
+                                                className="relative z-10 mx-auto flex w-35 items-center justify-center gap-1 rounded-lg bg-panel-hover px-1.5 py-1 text-md font-medium text-text-secondary transition-[color,transform] duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:text-text-primary active:scale-[0.97]"
                                                 onClick={() => {
                                                     setAdvanced(true);
                                                     setContextVeil(false);
@@ -672,6 +824,17 @@ function ChatMessageItemInner({
                 Copy
                 <ContextMenuShortcut>Ctrl+C</ContextMenuShortcut>
             </ContextMenuItem>
+            <ContextMenuItem onClick={handleQuoteMessage}>
+                <Icon icon={TextQuote20Regular} />
+                Quote in reply
+                <ContextMenuShortcut>Ctrl+Shift+.</ContextMenuShortcut>
+            </ContextMenuItem>
+            {!isGenerating && index >= 0 && onFork ? (
+                <ContextMenuItem onClick={() => setForkOpen(true)}>
+                    <Icon icon={BranchFork20Regular} />
+                    Fork chat from here
+                </ContextMenuItem>
+            ) : null}
             <ContextMenuSeparator />
             <ContextMenuItem onClick={handleSelectAll}>
                 <Icon icon={SelectAllOn20Regular} />
@@ -703,8 +866,9 @@ function ChatMessageItemInner({
         </AlertDialog>
         </>
     );
-}
+};
 
+/** Renders a key-value metadata row inside message inspection popovers. */
 function DetailRow({ label, value }: { label: string; value: string }) {
     return (
         <div className="flex items-start justify-between gap-4 px-1">

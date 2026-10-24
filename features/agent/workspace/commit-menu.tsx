@@ -566,42 +566,44 @@ export function CommitMenu({ projectPath }: { projectPath: string }) {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-[320px]">
                 <div
-                    className="flex flex-col gap-1.5"
+                    className="flex flex-col gap-2 p-1.5"
                     onPointerDown={(event) => event.stopPropagation()}
                 >
-                    <div className="relative">
-                        <Input
-                            value={title}
-                            placeholder="Message"
-                            className="bg-transparent border-none focus-visible:ring-0 h-11 pr-9"
-                            disabled={busy}
-                            onChange={(event) => setTitle(event.target.value)}
-                            onKeyDown={(event) => {
-                                event.stopPropagation();
-                                if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
-                                    event.preventDefault();
-                                    commitAll();
-                                }
-                            }}
-                        />
-                        <GenerateStarButton
-                            placement="inline"
-                            loading={busy}
-                            disabled={files.length === 0}
-                            onClick={() => void suggest()}
-                        />
+                    <div className="overflow-hidden rounded-lg border border-border-subtle bg-surface-2 transition-colors focus-within:border-border-secondary">
+                        <div className="relative flex items-center">
+                            <Input
+                                value={title}
+                                placeholder="Message"
+                                className="h-[34px] border-none bg-transparent px-3 pr-9 text-sm shadow-none focus-visible:ring-0"
+                                disabled={busy}
+                                onChange={(event) => setTitle(event.target.value)}
+                                onKeyDown={(event) => {
+                                    event.stopPropagation();
+                                    if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+                                        event.preventDefault();
+                                        commitAll();
+                                    }
+                                }}
+                            />
+                            <GenerateStarButton
+                                placement="inline"
+                                loading={busy}
+                                disabled={files.length === 0}
+                                onClick={() => void suggest()}
+                            />
+                        </div>
+                        {description ? (
+                            <textarea
+                                value={description}
+                                disabled={busy}
+                                rows={2}
+                                onChange={(event) => setDescription(event.target.value)}
+                                onKeyDown={(event) => event.stopPropagation()}
+                                className="w-full resize-none border-t border-border-subtle bg-transparent px-3 py-2 text-xs leading-relaxed text-text-secondary outline-none"
+                            />
+                        ) : null}
                     </div>
-                    {description ? (
-                        <textarea
-                            value={description}
-                            disabled={busy}
-                            rows={2}
-                            onChange={(event) => setDescription(event.target.value)}
-                            onKeyDown={(event) => event.stopPropagation()}
-                            className="w-full resize-none rounded-lg border border-border-subtle px-2 py-1.5 text-sm text-text-primary outline-none"
-                        />
-                    ) : null}
-                    <div className="flex overflow-hidden px-1.5 pb-1.5">
+                    <div className="flex items-center gap-1.5">
                         <Button
                             variant="default"
                             size="md"
@@ -615,7 +617,7 @@ export function CommitMenu({ projectPath }: { projectPath: string }) {
                             <DropdownMenuSubTrigger
                                 aria-label="Commit options"
                                 disabled={busy}
-                                className="bg-panel-hover ml-2"
+                                className="h-9 w-9 shrink-0 justify-center rounded-full bg-panel-hover px-0! py-0! [&>svg]:ml-0"
                             >
                             </DropdownMenuSubTrigger>
                             <DropdownMenuSubContent className="min-w-52">

@@ -331,10 +331,22 @@ fn from_entry(entry: &ProviderEntry) -> ResolvedProvider {
 
 /// True when a configured entry can serve a request.
 ///
-/// Keyless connections (local runtimes, free tiers) are usable without a key;
-/// everything else needs one before it can be routed to.
+/// Keyless connections (local runtimes, free tiers, or explicit `none` auth
+/// on self-hosted endpoints) are usable without a key; everything else needs
+/// one before it can be routed to.
 pub fn entry_usable(entry: &ProviderEntry) -> bool {
-    entry.enabled && (entry.keyless || !entry.api_key.trim().is_empty())
+    entry.enabled
+        && (entry.keyless
+            || entry.auth_style.trim().eq_ignore_ascii_case("none")
+            || !entry.api_key.trim().is_empty())
+}
+
+/// True when a provider id represents a local/custom keyless runtime by default.
+pub fn is_keyless_provider_id(id: &str) -> bool {
+    matches!(
+        id.trim().to_ascii_lowercase().as_str(),
+        "ollama" | "lmstudio" | "vllm" | "custom"
+    )
 }
 
 /// Split `anthropic/claude-sonnet-4.5` into `("anthropic", "claude-sonnet-4.5")`.

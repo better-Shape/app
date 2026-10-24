@@ -5,11 +5,10 @@ import { ChevronRight20Regular } from "@fluentui/react-icons/headless/svg/chevro
 import { DismissCircle20Filled } from "@fluentui/react-icons/headless/svg/dismiss-circle";
 import { Sparkle20Filled } from "@fluentui/react-icons/headless/svg/sparkle";
 
-
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { Collapse } from "@/components/ui/collapse";
 import { Icon } from "@/components/ui/icon";
-
 import { cn } from "@/lib/utils";
 import { providerIcon } from "@/lib/ui/provider-icon";
 import { GeneratingIndicator } from "@/features/chat/ui/blocks/generating";
@@ -17,6 +16,7 @@ import { ReadGroup } from "@/features/chat/ui/blocks/workflow";
 import {
     applySubagentEvent,
     getSubagents,
+    openSubagent,
     subscribeSubagents,
     type SubagentCard,
     type SubagentStatus,
@@ -43,16 +43,14 @@ function Card({ card }: { card: SubagentCard }) {
         <div
             role="button"
             tabIndex={0}
-            onClick={() => {
-                void import("./store").then(({ openSubagent }) => openSubagent(card.id));
-            }}
+            onClick={() => openSubagent(card.id)}
             onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === " ") {
                     e.preventDefault();
-                    void import("./store").then(({ openSubagent }) => openSubagent(card.id));
+                    openSubagent(card.id);
                 }
             }}
-            className="flex cursor-pointer flex-col gap-1 squircle-2xl bg-surface-3 p-2.5 text-left"
+            className="flex cursor-pointer flex-col gap-1 rounded-xl border border-border-subtle bg-surface-3 p-2.5 text-left transition-[background-color,border-color,transform] duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:border-border hover:bg-[var(--btn-hover)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border active:scale-[0.985]"
         >
             <div className="flex items-center gap-2">
                 <span className="flex size-4 shrink-0 items-center justify-center">
@@ -61,41 +59,58 @@ function Card({ card }: { card: SubagentCard }) {
                 <span className="min-w-0 flex-1 truncate text-sm font-medium text-text-primary">
                     {card.title}
                 </span>
+                <span className="shrink-0 text-xs tabular-nums text-text-disabled">
+                    {clockLabel(card)}
+                </span>
                 {card.status === "done" ? (
                     <Icon icon={CheckmarkCircle20Filled} className={cn("shrink-0", statusTone(card.status))} />
                 ) : card.status === "error" ? (
-                    <Icon icon={DismissCircle20Filled} className={cn("shrink-0", statusTone(card.status))} />
+                    <span className="inline-flex shrink-0 items-center gap-1 text-xs text-error">
+                        <span>Failed</span>
+                        <Icon icon={DismissCircle20Filled} className={cn("shrink-0", statusTone(card.status))} />
+                    </span>
                 ) : null}
             </div>
 
             {editing ? (
-                <GeneratingIndicator label={card.activity || "Editing file"} />
+                <GeneratingIndicator
+                    label={card.activity || "Editing file"}
+                    showTimer
+                    startedAt={card.startedAt}
+                />
             ) : reviewing ? (
                 <div className="flex flex-col gap-0.5">
                     <button
                         type="button"
+                        aria-expanded={open}
                         onClick={(e) => {
                             e.stopPropagation();
                             setOpen((v) => !v);
                         }}
-                        className="flex w-full items-center gap-2 py-0.5 text-left text-sm font-medium text-text-secondary hover:text-text-primary transition-colors"
+                        className="flex min-h-[24px] w-full items-center gap-2 py-0.5 text-left text-sm font-medium text-text-secondary transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:text-text-primary"
                     >
                         <Icon icon={Sparkle20Filled} className="shrink-0 text-text-secondary" />
                         <span className="min-w-0 flex-1 truncate">Reviewing changes...</span>
-                        <span className="shrink-0 tabular-nums text-text-muted">{clockLabel(card)}</span>
                         <Icon
                             icon={ChevronRight20Regular}
-                            className={cn("shrink-0 opacity-50 transition-transform duration-[var(--transition-fast)] ease-[var(--ease-out)]", open && "rotate-90")}
+                            className={cn(
+                                "shrink-0 opacity-50 transition-transform duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
+                                open && "rotate-90",
+                            )}
                         />
                     </button>
-                    {open ? (
+                    <Collapse open={open}>
                         <div className="flex flex-col gap-0.5 pl-0.5">
                             <ReadGroup files={card.reads ?? []} tokens={card.tokens} />
                         </div>
-                    ) : null}
+                    </Collapse>
                 </div>
             ) : live ? (
-                <GeneratingIndicator label={card.activity || "Working"} showTimer={false} />
+                <GeneratingIndicator
+                    label={card.activity || "Working"}
+                    showTimer
+                    startedAt={card.startedAt}
+                />
             ) : (
                 <p className="truncate text-sm text-text-muted">{card.activity}</p>
             )}
@@ -108,6 +123,14 @@ export function SubagentCards({ className }: { className?: string }) {
 
     useEffect(() => {
         let unlisten: (() => void) | undefined;
+        const tauri = (
+            window as unknown as {
+                __TAURI_INTERNALS__?: { invoke?: unknown; transformCallback?: unknown };
+            }
+        ).__TAURI_INTERNALS__;
+        if (typeof tauri?.invoke !== "function" || typeof tauri?.transformCallback !== "function") {
+            return undefined;
+        }
         void listen<{
             id?: string;
             title?: string;
@@ -120,6 +143,8 @@ export function SubagentCards({ className }: { className?: string }) {
         });
         return () => unlisten?.();
     }, []);
+
+    const runningCount = cards.filter((c) => c.status === "running" || c.status === "pending").length;
 
     if (cards.length === 0) {
         return (
@@ -134,7 +159,12 @@ export function SubagentCards({ className }: { className?: string }) {
 
     return (
         <div className={cn("flex flex-col gap-2 overflow-y-auto p-2", className)}>
-            <span className="px-1 text-xs font-medium text-text-muted">Agents</span>
+            <div className="flex items-center justify-between px-1">
+                <span className="text-xs font-medium text-text-muted">Agents</span>
+                <span className="text-xs tabular-nums text-text-disabled">
+                    {runningCount > 0 ? `${runningCount} active` : `${cards.length} total`}
+                </span>
+            </div>
             {cards.map((card) => (
                 <Card key={card.id} card={card} />
             ))}

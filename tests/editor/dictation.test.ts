@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
     DICTATION_SAMPLE_RATE,
     describeDictationError,
     encodeWavPcm16,
     resampleTo16k,
+    startDictation,
 } from "@/lib/editor/dictation";
 
 function ascii(bytes: Uint8Array, offset: number, length: number) {
@@ -122,5 +123,98 @@ describe("describeDictationError", () => {
         for (const input of [undefined, null, "", new Error("")]) {
             expect(describeDictationError(input).length).toBeGreaterThan(0);
         }
+    });
+});
+
+describe("startDictationCapture audio graph & RMS levels", () => {
+    it("connects MediaStreamSource -> ScriptProcessor -> silent GainNode(0) -> destination and reports RMS levels", async () => {
+        const connections: Array<[string, string]> = [];
+        const stopTrack = vi.fn();
+        type AudioProcessHandler = (e: { inputBuffer: { getChannelData: () => Float32Array } }) => void;
+        let processorHandler: AudioProcessHandler | null = null;
+
+        const destination = { name: "destination" };
+        const silentGain = {
+            name: "silentGain",
+            gain: { value: 1 },
+            connect: vi.fn((target: { name: string }) => connections.push(["silentGain", target.name])),
+            disconnect: vi.fn(),
+        };
+        const processor = {
+            name: "processor",
+            set onaudioprocess(fn: AudioProcessHandler | null) {
+                processorHandler = fn;
+            },
+            get onaudioprocess() {
+                return processorHandler;
+            },
+            connect: vi.fn((target: { name: string }) => connections.push(["processor", target.name])),
+            disconnect: vi.fn(),
+        };
+        const source = {
+            name: "source",
+            connect: vi.fn((target: { name: string }) => connections.push(["source", target.name])),
+            disconnect: vi.fn(),
+        };
+
+        vi.stubGlobal(
+            "AudioContext",
+            class {
+                sampleRate = 16_000;
+                destination = destination;
+                createMediaStreamSource() {
+                    return source;
+                }
+                createScriptProcessor() {
+                    return processor;
+                }
+                createGain() {
+                    return silentGain;
+                }
+                async close() {}
+            },
+        );
+        Object.defineProperty(navigator, "mediaDevices", {
+            configurable: true,
+            value: {
+                getUserMedia: vi.fn(async () => ({
+                    getTracks: () => [{ stop: stopTrack }],
+                })),
+            },
+        });
+
+        const levels: number[] = [];
+        const session = await startDictation(
+            {
+                onText: () => {},
+                onError: () => {},
+                onLevel: (lvl) => levels.push(lvl),
+            },
+            true,
+            {
+                start: async () => {},
+                stop: async () => {},
+                push: async () => {},
+            },
+        );
+
+        expect(silentGain.gain.value).toBe(0);
+        expect(connections).toEqual([
+            ["source", "processor"],
+            ["processor", "silentGain"],
+            ["silentGain", "destination"],
+        ]);
+
+        processor.onaudioprocess?.({
+            inputBuffer: { getChannelData: () => new Float32Array(64).fill(0.2) },
+        });
+        expect(levels.length).toBe(1);
+        expect(levels[0]).toBeGreaterThan(0);
+
+        session.dispose();
+        expect(stopTrack).toHaveBeenCalledTimes(1);
+        expect(levels.at(-1)).toBe(0);
+
+        vi.unstubAllGlobals();
     });
 });

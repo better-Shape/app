@@ -5,7 +5,7 @@ import { Checkmark20Regular } from "@fluentui/react-icons/headless/svg/checkmark
 
 
 
-import { useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import { Icon } from "@/components/ui/icon";
 
 
@@ -22,7 +22,7 @@ import { useGitBranch } from "@/features/agent/workbench/hooks/use-git-branch";
 
 const MAX_VISIBLE = 40;
 
-export function WorkspaceBranchSwitch() {
+export const WorkspaceBranchSwitch = memo(function WorkspaceBranchSwitch() {
     const { project_path } = useProjectState();
     const { scmRepoPath } = useGitRepos(project_path);
     const repoPath = scmRepoPath ?? project_path;
@@ -80,10 +80,10 @@ export function WorkspaceBranchSwitch() {
                 <button
                     type="button"
                     disabled={!repoPath}
-                    className="inline-flex max-w-40 items-center gap-1 rounded-md px-1.5 text-sm text-text-secondary hover:text-text-primary disabled:text-text-disabled"
+                    className="inline-flex h-7 min-w-0 max-w-36 shrink items-center gap-1 rounded-md px-1.5 text-sm text-text-secondary transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary data-[state=open]:bg-[var(--btn-open)] data-[state=open]:hover:bg-[var(--btn-open-hover)] data-[state=open]:text-text-primary disabled:pointer-events-none disabled:text-text-disabled"
                 >
                     <Icon icon={Branch20Regular} className="shrink-0 text-text-muted" />
-                    <span className="truncate">{branch ?? "Branch"}</span>
+                    <span className="min-w-0 truncate">{branch ?? "Branch"}</span>
                 </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-64 p-0">
@@ -109,10 +109,10 @@ export function WorkspaceBranchSwitch() {
                 )}
                 {hidden > 0 ? (
                     <div className="border-t border-border px-2 py-1.5 text-xs text-text-muted">
-                        {hidden} more — type to search
+                        {hidden} more · type to search
                     </div>
                 ) : null}
             </DropdownMenuContent>
         </DropdownMenu>
     );
-}
+});

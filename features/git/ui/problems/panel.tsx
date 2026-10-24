@@ -1,12 +1,14 @@
 "use client";
 
 import { ArrowSync20Regular } from "@fluentui/react-icons/headless/svg/arrow-sync";
+import { Chat20Regular } from "@fluentui/react-icons/headless/svg/chat";
 import { ErrorCircle20Regular } from "@fluentui/react-icons/headless/svg/error-circle";
 import { Info20Regular } from "@fluentui/react-icons/headless/svg/info";
 import { Warning20Regular } from "@fluentui/react-icons/headless/svg/warning";
 
 import { FileIcon } from "@/components/ui/file-icon";
 import { Icon, type IconGlyph } from "@/components/ui/icon";
+import { Tooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import "./motion.css";
 import {
@@ -48,16 +50,61 @@ function countLabel(count: number, noun: string): string | null {
     return `${count} ${count === 1 ? noun : `${noun}s`}`;
 }
 
-function ProblemRow({ problem, onOpen }: { problem: Problem; onOpen: (target: ProblemTarget) => void }) {
+function dispatchChatPromptForProblem(prompt: string) {
+    if (typeof window === "undefined") return;
+    window.dispatchEvent(
+        new CustomEvent("bettershape-center-view", {
+            detail: "chat",
+        }),
+    );
+    window.dispatchEvent(
+        new CustomEvent("bettershape-chat-insert-prompt", {
+            detail: { prompt, send: false },
+        }),
+    );
+    window.dispatchEvent(new CustomEvent("bettershape-chat-focus-input"));
+}
+
+function formatSingleProblemPrompt(problem: Problem, fileLabel: string): string {
+    const pos = formatPosition(problem.line, problem.column);
+    const rule = problem.ruleId ? ` (${problem.ruleId})` : "";
+    return `Fix the ESLint ${problem.severity} in @${fileLabel} at ${pos}${rule}: ${problem.message}`;
+}
+
+function formatAllProblemsPrompt(groups: ProblemGroup[]): string {
+    const lines: string[] = ["Fix these ESLint problems:"];
+    let count = 0;
+    for (const group of groups) {
+        for (const p of group.problems) {
+            if (count >= 12) break;
+            const pos = formatPosition(p.line, p.column);
+            const rule = p.ruleId ? ` [${p.ruleId}]` : "";
+            lines.push(`- @${group.label}:${pos}${rule}: ${p.message}`);
+            count += 1;
+        }
+        if (count >= 12) break;
+    }
+    return lines.join("\n");
+}
+
+function ProblemRow({
+    problem,
+    fileLabel,
+    onOpen,
+}: {
+    problem: Problem;
+    fileLabel: string;
+    onOpen: (target: ProblemTarget) => void;
+}) {
     const label = SEVERITY_LABEL[problem.severity];
     const position = formatPosition(problem.line, problem.column);
     return (
-        <li>
+        <li className="group flex items-start gap-1 rounded-md pr-1 hover:bg-[var(--row-hover)]">
             <button
                 type="button"
                 onClick={() => onOpen({ path: problem.path, line: problem.line, column: problem.column })}
                 aria-label={[label, problem.ruleId, problem.message, position].filter(Boolean).join(" — ")}
-                className="flex w-full items-start gap-2 rounded-md px-2 py-1 text-left hover:bg-[var(--row-hover)] focus-visible:bg-panel-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus-ring"
+                className="flex min-w-0 flex-1 items-start gap-2 rounded-md px-2 py-1 text-left focus-visible:bg-panel-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus-ring"
             >
                 <span className={cn("mt-0.5 shrink-0", SEVERITY_CLASS[problem.severity])}>
                     <Icon icon={SEVERITY_GLYPH[problem.severity]} className="icon-sm" />
@@ -72,6 +119,16 @@ function ProblemRow({ problem, onOpen }: { problem: Problem; onOpen: (target: Pr
                     <span className="block truncate text-xs text-text-primary">{problem.message}</span>
                 </span>
             </button>
+            <Tooltip content="Fix in chat" side="left">
+                <button
+                    type="button"
+                    aria-label={`Fix problem at ${position} in chat`}
+                    onClick={() => dispatchChatPromptForProblem(formatSingleProblemPrompt(problem, fileLabel))}
+                    className="mt-0.5 flex size-[24px] shrink-0 items-center justify-center rounded-md text-text-muted opacity-0 transition-[opacity,background-color,color,transform] duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary active:scale-[0.94] group-hover:opacity-100 focus-visible:opacity-100 motion-reduce:transform-none motion-reduce:transition-none"
+                >
+                    <Icon icon={Chat20Regular} className="size-3.5" />
+                </button>
+            </Tooltip>
         </li>
     );
 }
@@ -138,15 +195,27 @@ export function ProblemsPanel({
             <div className="flex shrink-0 items-center gap-2 px-3 py-2">
                 <span className="min-w-0 flex-1 truncate text-sm font-medium text-text-primary">Problems</span>
                 {state.kind === "ready" ? (
-                    <span className="shrink-0 text-xs text-text-muted">
+                    <span className="shrink-0 text-xs tabular-nums text-text-muted">
                         {state.summary.total} {state.summary.total === 1 ? "problem" : "problems"}
                     </span>
+                ) : null}
+                {state.kind === "ready" && state.groups.length > 0 ? (
+                    <Tooltip content="Fix all in chat" side="bottom">
+                        <button
+                            type="button"
+                            aria-label="Fix all problems in chat"
+                            onClick={() => dispatchChatPromptForProblem(formatAllProblemsPrompt(state.groups))}
+                            className="flex size-[24px] shrink-0 items-center justify-center rounded-md text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary active:scale-[0.95]"
+                        >
+                            <Icon icon={Chat20Regular} />
+                        </button>
+                    </Tooltip>
                 ) : null}
                 <button
                     type="button"
                     aria-label="Re-run ESLint"
                     onClick={onRerun}
-                    className="flex size-7 shrink-0 items-center justify-center rounded-md text-text-muted hover:bg-[var(--btn-hover)] hover:text-text-primary"
+                    className="flex size-[24px] shrink-0 items-center justify-center rounded-md text-text-muted hover:bg-[var(--btn-hover)] hover:text-text-primary"
                 >
                     <Icon
                         icon={ArrowSync20Regular}
@@ -161,7 +230,7 @@ export function ProblemsPanel({
                 ) : state.kind === "no-files" ? (
                     <StateMessage title="Nothing to lint" detail={state.reason} />
                 ) : state.kind === "loading" ? (
-                    <StateMessage title="Running ESLint…" detail={state.detail} />
+                    <StateMessage title="Running ESLint..." detail={state.detail} />
                 ) : state.kind === "failed" ? (
                     <StateMessage title="ESLint didn't run" detail={state.message} />
                 ) : (
@@ -184,6 +253,7 @@ export function ProblemsPanel({
                                             <ProblemRow
                                                 key={`${problem.path}:${problem.line}:${problem.column}:${problem.message}`}
                                                 problem={problem}
+                                                fileLabel={group.label}
                                                 onOpen={onOpen}
                                             />
                                         ))}

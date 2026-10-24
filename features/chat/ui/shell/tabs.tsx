@@ -22,6 +22,7 @@ import {
 import { cn } from "@/lib/utils";
 import { ModelAvatarStack, WorkingDots } from "../message/bubble";
 import { useIsChatGenerating } from "../../lib/generating-chats";
+import { prefetchChatConversation } from "../../lib/chat-stream-store";
 import {
     ContextMenu,
     ContextMenuContent,
@@ -99,7 +100,20 @@ function SortableChatTab({
                     role="tab"
                     aria-selected={isActive}
                     tabIndex={0}
+                    onPointerEnter={() => {
+                        if (!isActive) prefetchChatConversation(tab.id);
+                    }}
+                    onFocus={() => {
+                        if (!isActive) prefetchChatConversation(tab.id);
+                    }}
                     onClick={() => onSelect(tab.id)}
+                    onKeyDown={(e) => {
+                        if (e.target !== e.currentTarget) return;
+                        if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            onSelect(tab.id);
+                        }
+                    }}
                     className={workbenchTabItemClass(isActive, isDragging)}
                 >
                     <div

@@ -161,7 +161,7 @@ type WorkflowRow =
     | { kind: "block"; block: Chunk }
     | { kind: "git_stage_group"; paths: string[] }
     | { kind: "read_group"; files: { path: string; start?: number; end?: number }[] }
-    | { kind: "search_group"; queries: string[]; count: number }
+    | { kind: "search_group"; queries: string[]; count: number; previews?: string[] }
     | { kind: "web_trail"; blocks: Chunk[] }
     | { kind: "write_group"; paths: string[]; count: number }
     | { kind: "list_group"; count: number }
@@ -279,6 +279,7 @@ export function groupWorkflowRows(blocks: Chunk[]): WorkflowRow[] {
     let stagePaths: string[] = [];
     let readFiles: { path: string; start?: number; end?: number }[] = [];
     let searchQueries: string[] = [];
+    let searchPreviews: string[] = [];
     let webBlocks: Chunk[] = [];
     let writePaths: string[] = [];
     let writeCount = 0;
@@ -301,8 +302,10 @@ export function groupWorkflowRows(blocks: Chunk[]): WorkflowRow[] {
             kind: "search_group",
             queries: [...searchQueries],
             count: searchQueries.length,
+            previews: searchPreviews.length > 0 ? [...searchPreviews] : undefined,
         });
         searchQueries = [];
+        searchPreviews = [];
     };
     const flushWeb = () => {
         if (webBlocks.length === 0) return;
@@ -392,7 +395,16 @@ export function groupWorkflowRows(blocks: Chunk[]): WorkflowRow[] {
             flushWrites();
             flushLists();
             const q = (block.query || block.content || "").trim();
-            if (q) searchQueries.push(q);
+            if (q && searchQueries[searchQueries.length - 1] !== q) {
+                searchQueries.push(q);
+            }
+            const body = (block.content || "").trim();
+            if (
+                body &&
+                (block.type === "search_result" || (Boolean(block.query) && body !== q))
+            ) {
+                searchPreviews.push(body);
+            }
             continue;
         }
         const pendingApproval =
@@ -543,8 +555,8 @@ export function GeneratedMediaStep({ block }: { block: Chunk }) {
                 ) : (
                     <button
                         type="button"
+                        aria-label={`Open ${labelNoun} in the viewer`}
                         className="cursor-zoom-in outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                        title={`Open ${labelNoun} in the viewer`}
                         onClick={() =>
                             window.dispatchEvent(
                                 new CustomEvent("bettershape-open-media", {
@@ -1046,7 +1058,7 @@ export function getWorkflowActionConfig(block: Chunk, isActive?: boolean) {
             const diffMeta = op === "diff" ? parseGitDiffMeta(block.content) : null;
             const label =
                 status === "running"
-                    ? `${op}…`
+                    ? `${op}...`
                     : status === "error"
                         ? `${op} failed`
                         : status === "pending"
@@ -1408,7 +1420,7 @@ export function ActionItem({
                             title: name,
                             agent: name,
                             model: block.command,
-                            activity: "Working…",
+                            activity: "Working...",
                             task: block.type === "subagent_ref" ? block.content : undefined,
                             transcript: block.type === "subagent" ? block.content : undefined,
                             status: (block.commandStatus as "running" | "done" | "error" | "pending") || "running",
@@ -1434,7 +1446,7 @@ export function ActionItem({
     const lead = splitActionLabel(isEdit && editResolved ? "Applied" : config.label);
     const queryText = config.query
         ? String(config.query).length > 60
-            ? `${String(config.query).slice(0, 60)}…`
+            ? `${String(config.query).slice(0, 60)}...`
             : String(config.query)
         : "";
     const fileLabel = config.file?.split(/[\\/]/).pop() || "";

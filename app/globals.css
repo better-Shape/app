@@ -1063,11 +1063,11 @@ body[data-resizing] .xterm {
 /* Toast notifications, CSS transitions so stack moves stay interruptible (Sonner/shadcn). */
 .bettershape-toast {
   opacity: 0;
-  transform: translate3d(0, 14px, 0) scale(0.96);
+  transform: translate3d(0, -8px, 0) scale(0.97);
   transition:
-    transform var(--toast-enter-dur) var(--ease-out),
-    opacity var(--toast-enter-dur) var(--ease-out),
-    filter var(--toast-enter-dur) var(--ease-out);
+    transform var(--spring-quick-dur) var(--spring-quick),
+    opacity var(--spring-quick-dur) var(--spring-quick);
+  will-change: opacity, transform;
 }
 
 .bettershape-toast[data-mounted="true"] {
@@ -1077,9 +1077,18 @@ body[data-resizing] .xterm {
 
 .bettershape-toast[data-leaving="true"] {
   opacity: 0;
-  transform: translate3d(0, 10px, 0) scale(0.96);
-  transition-duration: var(--toast-exit-dur);
+  transform: translate3d(0, -6px, 0) scale(0.97);
+  transition-duration: var(--toast-exit-dur, var(--spring-quick-dur));
   pointer-events: none;
+}
+
+@keyframes bettershape-toast-countdown {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
 }
 
 /* Modals / command palette: pop-in without clobbering translate centering */

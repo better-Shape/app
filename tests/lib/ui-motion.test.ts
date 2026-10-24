@@ -123,7 +123,12 @@ describe("useReducedMotion", () => {
 
         expect(recoverableErrors).not.toHaveBeenCalled();
         expect(host.textContent).toBe("reduced");
-        if (root) act(() => root.unmount());
+        const hydrated = root;
+        if (hydrated) {
+            act(() => {
+                hydrated.unmount();
+            });
+        }
         host.remove();
     });
 

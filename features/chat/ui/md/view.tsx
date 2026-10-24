@@ -1,9 +1,9 @@
 "use client";
 
-import { Checkmark20Regular } from "@fluentui/react-icons/headless/svg/checkmark";
 import { Clipboard20Regular } from "@fluentui/react-icons/headless/svg/clipboard";
-
-
+import { TextWrap20Regular } from "@fluentui/react-icons/headless/svg/text-wrap";
+import { TextWrapOff20Regular } from "@fluentui/react-icons/headless/svg/text-wrap-off";
+import { WindowConsole20Regular } from "@fluentui/react-icons/headless/svg/window-console";
 
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
@@ -12,9 +12,13 @@ import { getBetterShapeSyntaxTheme } from "@/lib/ui/syntax-theme";
 import { FileIcon } from "@/components/ui/file-icon";
 import { openProjectFile } from "@/lib/window/open-project-file";
 import { Icon } from "@/components/ui/icon";
+import { DrawnCheck } from "@/components/ui/checkmark";
+import { Tooltip } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
+import { insertCommandIntoWorkspaceTerminal } from "@/features/terminal/session";
+import { notify } from "@/features/notifications";
 
-
-import { SyntaxHighlighter } from "@/lib/ui/syntax-highlight";
+import { preloadSyntaxHighlighter, SyntaxHighlighter } from "@/lib/ui/syntax-highlight";
 import { looksLikeProseMarkdown, preprocessChatMarkdown } from "./stream";
 import { ChatLinkChip } from "./link-chip";
 import { Button } from "@/components/ui/button";
@@ -24,53 +28,130 @@ import { resolveProjectFilePath } from "@/lib/path/utils";
 import { ChatMermaid } from "./mermaid";
 import { ChatKeyedRowsTable, MarkdownTableShell } from "./data-table";
 import { parseKeyedRows, tableCellModelId } from "@/lib/chat/fence-tables";
+import { hasUnclosedMarkdownFence, splitStreamingMarkdownBlocks } from "@/lib/chat/markdown-blocks";
 import { providerIcon } from "@/lib/ui/provider-icon";
+
+const REMARK_PLUGINS = [remarkGfm];
 
 const PATH_IN_PROSE =
     /(?:^|(?<=\s))((?:\.{1,2}[\\/])?(?:[\w.-]+[\\/])+[\w.-]+\.[A-Za-z0-9]{1,12})(?=$|[\s,;:)\]"'`])/g;
 
+const PATH_EXISTS_TTL_MS = 30_000;
+const PATH_EXISTS_MAX_ENTRIES = 512;
+
+type PathProbeEntry = {
+    exists: boolean;
+    expiresAt: number;
+};
+
+const pathExistsCache = new Map<string, PathProbeEntry>();
+const pathExistsInflight = new Map<string, Promise<boolean>>();
+
+function peekCachedPathExists(resolvedPath: string): boolean | null {
+    const hit = pathExistsCache.get(resolvedPath);
+    if (!hit) return null;
+    if (hit.expiresAt < Date.now()) {
+        pathExistsCache.delete(resolvedPath);
+        return null;
+    }
+    // Refresh LRU order.
+    pathExistsCache.delete(resolvedPath);
+    pathExistsCache.set(resolvedPath, hit);
+    return hit.exists;
+}
+
+function storeCachedPathExists(resolvedPath: string, exists: boolean): void {
+    if (pathExistsCache.has(resolvedPath)) {
+        pathExistsCache.delete(resolvedPath);
+    }
+    pathExistsCache.set(resolvedPath, {
+        exists,
+        expiresAt: Date.now() + PATH_EXISTS_TTL_MS,
+    });
+    if (pathExistsCache.size > PATH_EXISTS_MAX_ENTRIES) {
+        const oldest = pathExistsCache.keys().next().value;
+        if (oldest !== undefined) pathExistsCache.delete(oldest);
+    }
+}
+
+function probeProjectPathExists(resolvedPath: string): Promise<boolean> {
+    const cached = peekCachedPathExists(resolvedPath);
+    if (cached !== null) return Promise.resolve(cached);
+    const inflight = pathExistsInflight.get(resolvedPath);
+    if (inflight) return inflight;
+
+    const req = commands
+        .readFile(resolvedPath)
+        .then(() => true)
+        .catch(() =>
+            commands
+                .lsDir(resolvedPath)
+                .then(() => true)
+                .catch(() => false),
+        )
+        .then((exists) => {
+            pathExistsInflight.delete(resolvedPath);
+            storeCachedPathExists(resolvedPath, exists);
+            return exists;
+        });
+
+    pathExistsInflight.set(resolvedPath, req);
+    return req;
+}
+
+if (typeof window !== "undefined") {
+    window.addEventListener("bettershape-files-changed", () => {
+        pathExistsCache.clear();
+    });
+}
+
 function ProjectPathLink({ path }: { path: string }) {
-    const [exists, setExists] = useState<boolean | null>(null);
+    const resolved = resolveProjectFilePath(path, getProjectPath());
+    const [exists, setExists] = useState<boolean | null>(() => peekCachedPathExists(resolved));
 
     useEffect(() => {
+        const cached = peekCachedPathExists(resolved);
+        if (cached !== null) {
+            if (exists !== cached) {
+                let cancelled = false;
+                void Promise.resolve().then(() => {
+                    if (!cancelled) setExists(cached);
+                });
+                return () => {
+                    cancelled = true;
+                };
+            }
+            return;
+        }
         let cancelled = false;
-        const resolved = resolveProjectFilePath(path, getProjectPath());
-        void commands
-            .readFile(resolved)
-            .then(() => {
-                if (!cancelled) setExists(true);
-            })
-            .catch(() =>
-                commands
-                    .lsDir(resolved)
-                    .then(() => {
-                        if (!cancelled) setExists(true);
-                    })
-                    .catch(() => {
-                        if (!cancelled) setExists(false);
-                    }),
-            );
+        void probeProjectPathExists(resolved).then((result) => {
+            if (!cancelled) setExists(result);
+        });
         return () => {
             cancelled = true;
         };
-    }, [path]);
+    }, [resolved, exists]);
 
     if (!exists) return path;
     return (
-        <button
-            type="button"
-            className="text-accent-text underline decoration-accent-text/40 underline-offset-2 hover:decoration-accent-text"
-            title={path}
-            onClick={() => {
-                void openProjectFile(path);
-            }}
-        >
-            {path}
-        </button>
+        <Tooltip content={path}>
+            <button
+                type="button"
+                className="text-accent-text underline decoration-accent-text/40 underline-offset-2 transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:decoration-accent-text"
+                onClick={() => {
+                    void openProjectFile(path);
+                }}
+            >
+                {path}
+            </button>
+        </Tooltip>
     );
 }
 
 function linkifyText(text: string): React.ReactNode {
+    if (!text.includes(".") || (!text.includes("/") && !text.includes("\\"))) {
+        return text;
+    }
     PATH_IN_PROSE.lastIndex = 0;
     const nodes: React.ReactNode[] = [];
     let last = 0;
@@ -96,60 +177,184 @@ function linkifyChildren(children: React.ReactNode): React.ReactNode {
     });
 }
 
-function CodeBlock({ language, code, ...rest }: { language: string; code: string; [k: string]: unknown }) {
+const CodeBlock = React.memo(function CodeBlock({
+    language,
+    code,
+    streamingFence = false,
+    ...rest
+}: {
+    language: string;
+    code: string;
+    streamingFence?: boolean;
+    [k: string]: unknown;
+}) {
     const [copied, setCopied] = useState(false);
+    const [wrap, setWrap] = useState(false);
+    const resetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    useEffect(() => {
+        return () => {
+            if (resetRef.current) clearTimeout(resetRef.current);
+        };
+    }, []);
 
     const copy = () => {
-        void navigator.clipboard.writeText(code).then(() => {
+        void navigator.clipboard?.writeText(code).then(() => {
             setCopied(true);
-            window.setTimeout(() => setCopied(false), 1400);
-        });
+            if (resetRef.current) clearTimeout(resetRef.current);
+            resetRef.current = setTimeout(() => setCopied(false), 1400);
+        }).catch(() => {});
+    };
+
+    const lineCount = React.useMemo(() => {
+        if (!code) return 0;
+        let lines = 1;
+        for (let i = 0; i < code.length; i++) {
+            if (code.charCodeAt(i) === 10) lines++;
+        }
+        return lines;
+    }, [code]);
+
+    // While the code fence is still open and actively streaming at 60fps, render
+    // crisp monospace `<code>` inside the identical container (0ms AST/VDOM cost);
+    // the instant the closing fence arrives, Prism highlights it once and React.memo freezes it.
+    const usePlainFastPath = streamingFence;
+    const isShellFence =
+        !streamingFence &&
+        code.trim().length > 0 &&
+        /^(?:sh|bash|zsh|shell|console|fish|pwsh|powershell|cmd)$/i.test(language.trim());
+
+    const handleInsertInTerminal = () => {
+        if (insertCommandIntoWorkspaceTerminal(code)) {
+            notify.info("Inserted in terminal", "Review the command and press Enter to run.");
+        }
     };
 
     return (
-        <div className="my-1 overflow-hidden squircle-2xl bg-surface-3">
-            <div className="flex items-center justify-between gap-2 pl-3 pr-2 py-1.5">
-                <span className="text-sm font-medium text-text-muted">{language}</span>
-                <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={copy}
-                    aria-label={copied ? "Copied" : "Copy code"}
-                >
-                    <SwapText
-                        value={copied ? "Copied" : "Copy code"}
-                        render={(label) => (
-                            <Icon icon={label === "Copied" ? Checkmark20Regular : Clipboard20Regular} />
-                        )}
-                    />
-                </Button>
+        <div className="my-1.5 rounded-xl border border-border-subtle bg-surface-3">
+            <div
+                data-quote-skip
+                data-find-skip
+                className="sticky top-0 z-10 flex items-center justify-between gap-2 rounded-t-xl border-b border-border-subtle bg-surface-3 pl-3 pr-2 py-1.5 select-none"
+            >
+                <div className="flex min-w-0 items-center gap-2">
+                    <span className="truncate text-xs font-medium text-text-muted">
+                        {language || "text"}
+                    </span>
+                    {lineCount >= 4 ? (
+                        <span className="shrink-0 text-2xs tabular-nums text-text-muted/70">
+                            {lineCount} lines
+                        </span>
+                    ) : null}
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                    {isShellFence ? (
+                        <Tooltip content="Insert in terminal">
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                aria-label="Insert in terminal"
+                                onClick={handleInsertInTerminal}
+                                className="size-[24px] text-text-muted hover:text-text-primary enabled:active:scale-[0.95] transition-[color,background-color,transform] duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]"
+                            >
+                                <Icon icon={WindowConsole20Regular} className="size-3.5" />
+                            </Button>
+                        </Tooltip>
+                    ) : null}
+                    <Tooltip content={wrap ? "Disable line wrap" : "Wrap long lines"}>
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            aria-label={wrap ? "Disable line wrap" : "Wrap long lines"}
+                            aria-pressed={wrap}
+                            onClick={() => setWrap((v) => !v)}
+                            className={cn(
+                                "size-[24px] text-text-muted hover:text-text-primary enabled:active:scale-[0.95] transition-[color,background-color,transform] duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
+                                wrap && "bg-[var(--btn-open)] text-text-primary hover:bg-[var(--btn-open-hover)]",
+                            )}
+                        >
+                            <Icon icon={wrap ? TextWrap20Regular : TextWrapOff20Regular} className="size-3.5" />
+                        </Button>
+                    </Tooltip>
+                    <Tooltip content={copied ? "Copied" : "Copy code"}>
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={copy}
+                            aria-label={copied ? "Copied" : "Copy code"}
+                            className={cn(
+                                "size-[24px] text-text-muted hover:text-text-primary enabled:active:scale-[0.95] transition-[color,background-color,transform] duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
+                                copied && "text-success hover:text-success",
+                            )}
+                        >
+                            <SwapText
+                                value={copied ? "Copied" : "Copy code"}
+                                render={(label) =>
+                                    label === "Copied" ? (
+                                        <DrawnCheck motion="compact" />
+                                    ) : (
+                                        <Icon icon={Clipboard20Regular} className="size-3.5" />
+                                    )
+                                }
+                            />
+                        </Button>
+                    </Tooltip>
+                </div>
             </div>
-            <SyntaxHighlighter
+            {usePlainFastPath ? (
+                <pre
+                    data-streaming-fence="true"
+                    className="overflow-x-auto font-mono text-sm text-text-primary"
+                    style={{
+                        margin: 0,
+                        padding: "0.625rem 0.75rem 0.75rem",
+                        background: "transparent",
+                        whiteSpace: wrap ? "pre-wrap" : "pre",
+                        wordBreak: wrap ? "break-word" : "normal",
+                    }}
+                >
+                    <code>{code}</code>
+                </pre>
+            ) : (
+                <SyntaxHighlighter
                     style={getBetterShapeSyntaxTheme()}
                     language={language}
                     PreTag="div"
-                    customStyle={{ margin: 0, padding: "0 0.75rem 0.75rem", background: "transparent" }}
+                    wrapLongLines={wrap}
+                    customStyle={{
+                        margin: 0,
+                        padding: "0.625rem 0.75rem 0.75rem",
+                        background: "transparent",
+                        whiteSpace: wrap ? "pre-wrap" : "pre",
+                        wordBreak: wrap ? "break-word" : "normal",
+                    }}
                     {...rest}
                 >
                     {code}
                 </SyntaxHighlighter>
+            )}
         </div>
     );
-}
+});
 
-/** Fast catch-up typewriter over the raw markdown string (survives re-parses). */
+/** Fast catch-up typewriter over the raw markdown string (survives re-parses, respects reduced motion). */
 const useRevealText = (full: string, live: boolean) => {
+    const reducedMotion =
+        typeof window !== "undefined"
+        && typeof window.matchMedia === "function"
+        && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const len = full.length;
-    const [shown, setShown] = useState(() => (live ? Math.min(24, len) : len));
+    const [shown, setShown] = useState(() => (live && !reducedMotion ? Math.min(24, len) : len));
     const shownRef = useRef(shown);
     const wasLive = useRef(live);
     useLayoutEffect(() => {
         shownRef.current = shown;
         if (live) wasLive.current = true;
     }, [shown, live]);
-    const moreToShow = shown < len;
+    const moreToShow = !reducedMotion && shown < len;
 
     useEffect(() => {
+        if (reducedMotion) return;
         // Finished message that never streamed in this mount, show fully.
         if (!live && !wasLive.current) {
             setShown(len);
@@ -166,15 +371,15 @@ const useRevealText = (full: string, live: boolean) => {
         const tick = (now: number) => {
             const cur = shownRef.current;
             if (cur >= len) return;
-            const dt = Math.min(32, now - last);
+            const dt = Math.min(64, Math.max(8, now - last));
             last = now;
             const behind = len - cur;
-            // Sprint on dumps; cruise near the tip. Stay under ~0.5s for big chunks.
+            // Sprint on dumps; cruise smoothly near the tip. Stay under ~0.35s on bursts.
             let cps: number;
-            if (behind > 800) cps = 1400;
-            else if (behind > 300) cps = 900;
-            else if (behind > 80) cps = 480;
-            else cps = live ? 180 : 320;
+            if (behind > 800) cps = 2600;
+            else if (behind > 300) cps = 1400;
+            else if (behind > 80) cps = 640;
+            else cps = live ? 220 : 420;
             const step = Math.max(1, Math.ceil((cps * dt) / 1000));
             const next = Math.min(len, cur + step);
             setShown(next);
@@ -182,10 +387,25 @@ const useRevealText = (full: string, live: boolean) => {
         };
         raf = requestAnimationFrame(tick);
         return () => cancelAnimationFrame(raf);
-    }, [len, live, moreToShow]);
+    }, [len, live, moreToShow, reducedMotion]);
 
-    return full.slice(0, shown);
+    return reducedMotion ? full : full.slice(0, shown);
 };
+
+const MarkdownSegment = React.memo(function MarkdownSegment({
+    content,
+    components,
+}: {
+    content: string;
+    components: ReturnType<typeof createMarkdownComponents>;
+}) {
+    if (!content) return null;
+    return (
+        <ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={components}>
+            {content}
+        </ReactMarkdown>
+    );
+});
 
 export const ChatMarkdown = React.memo(({
     content,
@@ -198,6 +418,10 @@ export const ChatMarkdown = React.memo(({
     isGenerating?: boolean;
     isLast?: boolean;
 }) => {
+    useEffect(() => {
+        preloadSyntaxHighlighter();
+    }, []);
+
     // Keep revealing briefly after generation ends so a late dump still types in. The hold
     // latches on during render, and only the release is timed, so the effect never sets state
     // synchronously and the reveal does not lose a frame at the start of generation.
@@ -213,27 +437,60 @@ export const ChatMarkdown = React.memo(({
     const live = !nested && !!isLast && (!!isGenerating || hold);
     const visible = useRevealText(content, live);
 
-    const components = React.useMemo(
-        () => createMarkdownComponents({ nested }),
+    const settledComponents = React.useMemo(
+        () => createMarkdownComponents({ nested, streamingFence: false }),
         [nested],
     );
 
-    const processed = React.useMemo(
-        () => preprocessChatMarkdown(visible, { streaming: live, trim: !live }),
-        [visible, live],
+    const rawHasOpenFence = React.useMemo(
+        () => (live ? hasUnclosedMarkdownFence(visible) : false),
+        [live, visible],
     );
+
+    const tailComponents = React.useMemo(
+        () =>
+            rawHasOpenFence
+                ? createMarkdownComponents({ nested, streamingFence: true })
+                : settledComponents,
+        [nested, rawHasOpenFence, settledComponents],
+    );
+
+    // Split BEFORE fence balancing on the raw visible slice when safe, or split on the
+    // preprocessed output so every settled block is frozen via `React.memo(MarkdownSegment)`.
+    const { settled, tail } = React.useMemo(() => {
+        if (!live) {
+            return {
+                settled: [] as string[],
+                tail: preprocessChatMarkdown(visible, { streaming: false, trim: true }),
+            };
+        }
+        const normalized = preprocessChatMarkdown(visible, { streaming: true, trim: false });
+        return splitStreamingMarkdownBlocks(normalized);
+    }, [visible, live]);
 
     return (
         <div className="font-sans chat-markdown-body">
-            <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
-                {processed}
-            </ReactMarkdown>
+            {settled.map((block, idx) => (
+                <MarkdownSegment
+                    key={`b-${idx}`}
+                    content={block}
+                    components={settledComponents}
+                />
+            ))}
+            {tail ? (
+                <MarkdownSegment
+                    key={`tail-${settled.length}`}
+                    content={tail}
+                    components={tailComponents}
+                />
+            ) : null}
         </div>
     );
 });
 
-function createMarkdownComponents(options?: { nested?: boolean }) {
+function createMarkdownComponents(options?: { nested?: boolean; streamingFence?: boolean }) {
     const nested = options?.nested;
+    const streamingFence = Boolean(options?.streamingFence);
 
     return {
         pre: ({ children }: { children?: React.ReactNode }) => children,
@@ -251,12 +508,26 @@ function createMarkdownComponents(options?: { nested?: boolean }) {
                 if (language === "filter-table" || language === "records") {
                     const rows = parseKeyedRows(codeContent);
                     if (!rows) {
-                        return <CodeBlock language={language} code={codeContent} {...rest} />;
+                        return (
+                            <CodeBlock
+                                language={language}
+                                code={codeContent}
+                                streamingFence={streamingFence}
+                                {...rest}
+                            />
+                        );
                     }
                     return <ChatKeyedRowsTable rows={rows} />;
                 }
                 if (language === "chart" || language === "insight" || language === "stats") return null;
-                return <CodeBlock language={language} code={codeContent} {...rest} />;
+                return (
+                    <CodeBlock
+                        language={language}
+                        code={codeContent}
+                        streamingFence={streamingFence}
+                        {...rest}
+                    />
+                );
             }
 
             const isBlock = codeContent.includes("\n");
@@ -278,28 +549,34 @@ function createMarkdownComponents(options?: { nested?: boolean }) {
                 typeof children === "string"
                 && !children.includes("\n")
                 && !children.includes(" ")
-                && (children.includes("/") || children.includes("\\") || /\.[a-z0-9]+$/i.test(children));
+                && !children.includes("://")
+                && !children.includes("(")
+                && (children.includes("/")
+                    || children.includes("\\")
+                    || /\.(?:tsx?|jsx?|mjs|cjs|jsonc?|mdx?|css|scss|less|html?|vue|svelte|astro|rs|toml|ya?ml|py|go|rb|php|java|kt|swift|c|cc|cpp|h|hpp|cs|sh|bash|zsh|ps1|sql|graphql|gql|proto|svg|png|jpe?g|webp|gif|ico|pdf|lock|env|gitignore|dockerfile|makefile|txt|csv|log)$/i.test(children));
 
             if (isFilePath) {
-                const name = (children as string).split(/[\\/]/).pop() || (children as string);
+                const fullPath = children as string;
+                const name = fullPath.split(/[\\/]/).pop() || fullPath;
                 return (
-                    <button
-                        type="button"
-                        className="mx-0.5 inline-flex cursor-pointer items-center gap-1.5 squircle-lg  bg-panel-hover px-2 py-0.5 align-middle font-sans chat-text text-text-primary transition-colors hover:bg-[var(--btn-hover)]"
-                        title={children as string}
-                        onClick={() => {
-                            void openProjectFile(children as string, name);
-                        }}
-                    >
-                        <FileIcon name={name} className="h-4 w-4" />
-                        {name}
-                    </button>
+                    <Tooltip content={fullPath}>
+                        <button
+                            type="button"
+                            className="mx-0.5 inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-panel-hover px-2 py-0.5 align-middle font-sans chat-text text-text-primary transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)]"
+                            onClick={() => {
+                                void openProjectFile(fullPath, name);
+                            }}
+                        >
+                            <FileIcon name={name} className="h-4 w-4" />
+                            {name}
+                        </button>
+                    </Tooltip>
                 );
             }
 
             return (
                 <code
-                    className="squircle-lg bg-panel-hover px-1.5 py-0.5 font-mono chat-text text-accent-text"
+                    className="rounded-md bg-panel-hover px-1.5 py-0.5 font-mono chat-text text-accent-text"
                     {...rest}
                 >
                     {children}
