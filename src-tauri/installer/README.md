@@ -23,6 +23,12 @@ That is the whole mechanism. No hook, no plug-in and no runtime code is
 involved, so a path that does not resolve fails the Windows build instead of
 degrading quietly to the default art.
 
+The image is validated at compile time rather than at install time. MUI stages
+the file itself and runs `!pragma verifyloadimage` on it
+(`Contrib/Modern UI 2/Pages/Welcome.nsh:45-46`), so makensis fails the build if
+the BMP cannot be loaded. A corrupt or wrong-format sidebar is a red
+`build-installers.yml` job, not a blank installer.
+
 `MUI_WELCOMEFINISHPAGE_BITMAP` accepts a BMP only. It has no frame loop, so an
 animated GIF cannot be passed to it at all.
 

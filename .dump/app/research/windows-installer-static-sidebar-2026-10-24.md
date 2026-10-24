@@ -37,7 +37,52 @@ repeated here.
   does not sign the installer and it cannot change a Smart App Control decision
   about the outer executable.
 
-## The diagnostic that was never run
+## Compile safety of removing the hook
+
+No makensis compile was available for this change, so the removal was proved
+from source instead. Three independent facts make it compile-safe by
+construction, all verified against the NSIS tag `v311` tree and Tauri CLI
+2.10.0's template.
+
+- The callback dispatch is conditional. `Contrib/Modern UI 2/Pages.nsh:105-112`
+  defines `MUI_PAGE_FUNCTION_CUSTOM` as
+  `!ifdef MUI_PAGE_CUSTOMFUNCTION_${TYPE}` / `Call "..."` / `!undef ...` /
+  `!endif`. With `hooks.nsh` deleted, `MUI_PAGE_CUSTOMFUNCTION_SHOW` and
+  `MUI_PAGE_CUSTOMFUNCTION_LEAVE` are never defined for the installer welcome
+  page, the `!ifdef` is false, and no `Call` is emitted. There is no dangling
+  reference and nothing to resolve.
+- The hook include is conditional too. `installer.nsi:28-29` is
+  `{{#if installer_hooks}}!include "{{installer_hooks}}"{{/if}}`, and
+  `mod.rs:357-359` inserts `installer_hooks` into the template data only when
+  the config key is `Some`. Dropping the key removes the include line entirely,
+  so makensis is never asked to open a file that no longer exists. This is why
+  the key had to be removed in the same commit as the file: leaving it would
+  point the include at a missing path.
+- Nothing else consumed what the hook provided. Grepping `installer.nsi`,
+  `utils.nsh` and `FileAssociation.nsh` for `CUSTOMFUNCTION`, `BETTERSHAPE`,
+  `AnimGif` and `addplugindir` returns only Tauri's own definitions, which are
+  independent: `MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfPassive` on the installer
+  pages and `un.ConfirmShow` and `un.ConfirmLeave` on the uninstaller pages.
+  Because MUI `!undef`s each custom-function define immediately after consuming
+  it, the hook's defines could never have leaked into those pages, and their
+  absence changes nothing there.
+
+The static image path is MUI-native and needs no hook at all.
+`installer.nsi:128-130` maps a non-empty `SIDEBARIMAGE` to
+`MUI_WELCOMEFINISHPAGE_BITMAP`. `Pages/Welcome.nsh:26-28` applies
+`MUI_DEFAULT` to NSIS's own `win.bmp` and raises `!error` only if the value ends
+up empty, which it cannot while `sidebarImage` is configured. `Welcome.nsh:45-46`
+then stages the file itself and runs `!pragma verifyloadimage` on it, so
+makensis validates that the BMP actually loads at compile time. `Welcome.nsh:133`
+loads it into `$mui.WelcomePage.Image` and line 168 frees it with
+`${NSD_FreeImage}`. That whole lifecycle is MUI's own and never depended on the
+hook.
+
+What this evidence does not cover: a real makensis run against the generated
+script. `!pragma verifyloadimage` means the BMP is checked by the compiler, so
+the first genuine confirmation is the `windows-x86_64` job in
+`build-installers.yml`.
+
 
 The maintainer declined to run it, so the cause stays unconfirmed. This is the
 smallest thing that would settle it, and it should be run before anyone writes
