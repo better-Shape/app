@@ -25,9 +25,13 @@ repeated here.
   hook. Tauri includes the hook at `installer.nsi:28-29` and the earliest
   runtime effect a hook can have on the welcome page is
   `MUI_PAGE_CUSTOMFUNCTION_SHOW`, consumed by `!insertmacro MUI_PAGE_WELCOME`
-  at `installer.nsi:146`. That callback runs after `nsDialogs::Create` and
-  `MUI_INTERNAL_FULLWINDOW_LOADWIZARDIMAGE` have built the page. A hook failure
-  therefore produces a visible wizard with a broken sidebar, never silence.
+  at `installer.nsi:146`. In NSIS 3.11, `Contrib/Modern UI 2/Pages/Welcome.nsh`
+  invokes the SHOW callback before `nsDialogs::Show`; a crash or hang in that
+  callback could prevent the wizard from appearing. The callback therefore
+  cannot be ruled out from the symptom alone. Distinguish Windows launch blocks
+  from a process crash using the machine-side CodeIntegrity and Application
+  diagnostics below; those diagnostics were not available for the reported
+  machine, so the cause remains unconfirmed.
 - The symptom is consistent with Windows refusing to start the process. Three
   mechanisms do that and they are distinguishable only from the machine, which
   is why the diagnostic below exists.

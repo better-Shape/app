@@ -79,11 +79,11 @@ scope, the same reason `workflow_dispatch` and the branch-protection and
 actions-permissions endpoints all return 403. Do not chase a broken workflow
 file on that message.
 
-Consequence: the only way to obtain a fresh attempt at a flaked job is to push a
-commit, which re-triggers the `pull_request` workflows for the new head. A
-content-free push purely to re-roll CI is worse than recording the flake and
-letting the maintainer re-run, so pair the push with a change that is owed
-anyway.
+For this token, pushing a commit that changes the PR head is the available
+workaround to obtain a fresh automatic `pull_request` attempt. A maintainer with
+`actions:write` can instead rerun the failed job. A content-free push purely to
+re-roll CI is worse than recording the flake and letting the maintainer rerun,
+so pair a push with a change that is owed anyway.
 
 ## Diagnosing CI failures when the logs are unreachable
 

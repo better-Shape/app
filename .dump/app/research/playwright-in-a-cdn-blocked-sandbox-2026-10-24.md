@@ -8,8 +8,9 @@ already a devDependency, its npm tarball carries a complete Chromium build plus
 the NSS/NSPR shared libraries, and `registry.npmjs.org` is normally reachable
 when the browser CDN is not. `playwright.config.ts` already knows how to use it.
 
-Verified on 2026-10-24: the full CI command passed locally, 22 tests, 36.8s,
-with Chromium 153.0.8010.0.
+Verified on 2026-10-24 at repository SHA
+`f0362417082c40b76d69df164461f588ce6b1dcd`: the full CI command passed
+locally, 22 tests, 36.8s, with Chromium 153.0.8010.0.
 
 ## What is blocked and what is not
 
@@ -23,8 +24,20 @@ execution the only practical way to diagnose an e2e failure.
 ## Recipe
 
 ```bash
+mkdir -p chr
 npm pack @sparticuz/chromium          # 70 MB tarball from registry.npmjs.org
 tar xzf sparticuz-chromium-*.tgz -C chr
+cd chr/package/bin
+node - <<'NODE'
+const fs = require("node:fs");
+const zlib = require("node:zlib");
+for (const [input, output] of [["chromium.br", "chromium"], ["al2023.tar.br", "al2023.tar"]]) {
+  fs.writeFileSync(output, zlib.brotliDecompressSync(fs.readFileSync(input)));
+}
+NODE
+mkdir -p al2023
+tar -xf al2023.tar -C al2023
+# The library directory is now ./al2023/lib (relative to this directory).
 ```
 
 The tarball's `package/bin/` holds brotli-compressed payloads, not Lambda-only
@@ -36,13 +49,8 @@ artifacts:
 | `al2023.tar.br` | a tar with `lib/libnss3.so`, `libnspr4.so`, `libnssutil3.so`, `libplc4.so`, `libplds4.so`, `libfreebl3.so`, `libsoftokn3.so`, `libexpat.so.1` |
 | `swiftshader.tar.br`, `fonts.tar.br` | software GL and fonts, not needed for this suite |
 
-Node decompresses brotli without any extra binary, which matters because the
-sandbox has no `brotli` and no `apt`:
-
-```js
-const z = require("zlib"), fs = require("fs");
-fs.writeFileSync(out, z.brotliDecompressSync(fs.readFileSync(inp)));
-```
+Node's built-in `zlib` module decompresses both payloads in the complete
+recipe above, so no `brotli` binary or package manager is needed.
 
 `al2023.tar` supplies exactly the three libraries the Chromium binary misses on
 a bare image. Without them it dies with

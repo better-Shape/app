@@ -36,11 +36,12 @@ user-facing string, no token, no colour, no radius, no duration changed.
    `transition-colors` and the tokens it already used; `app/transitions.css` is
    untouched.
 5. **Accessibility pass.** The change exists for accessibility: the safe
-   clickable diameter around the `role="checkbox"` control goes from 22.8px, a
-   WCAG 2.2 SC 2.5.8 failure, to 26.0px. Focus ring, `aria-label` and keyboard
-   path are unchanged because the element itself is unchanged. Verified by
-   running `runAxeAudit` on `/git` before and after: 2 `target-size` nodes to 1,
-   and the remaining node is the one the baseline pins.
+   clickable diameter around the `role="checkbox"` control now satisfies WCAG
+   2.2 SC 2.5.8. The measured before/after diameters are recorded in
+   `../research/git-stage-checkbox-target-size-regression-2026-10-24.md`. Focus
+   ring, `aria-label` and keyboard path are unchanged because the element itself
+   is unchanged. Verified by running `runAxeAudit` on `/git` before and after: 2
+   `target-size` nodes to 1, and the remaining node is the one the baseline pins.
 6. **Skill report.** Loaded and read: `DESIGN.md` sections 3 and 4 plus the icon
    table; `engineering/design-system-baseline.md` in full;
    `engineering/design-skills.md` in full; `.agents/skills/ui-capture/SKILL.md`

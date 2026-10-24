@@ -75,10 +75,12 @@ re-run. Verified in this repository on the same retarget:
 | `build-installers.yml` | bare `pull_request:` | no |
 | `pr-policy.yml` | `pull_request_target`, `types: [opened, edited, synchronize, reopened]` | no run observed |
 
-So retargeting a base cannot produce build or compile evidence. Getting that
-evidence needs a `synchronize` event, which means pushing a commit. Plan the
-retarget and the next real commit together rather than retargeting and then
-waiting on checks that will never start.
+So retargeting a base alone cannot produce build or compile evidence from the
+automatic `pull_request` workflows. Those require a `synchronize` event, usually
+produced by pushing a commit. A manually dispatched workflow or maintainer
+rerun may also produce evidence where configured and permitted. Plan the retarget
+and next real commit together rather than waiting on automatic checks that will
+not start from the retarget event alone.
 
 ## Change in behaviour
 
