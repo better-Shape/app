@@ -97,21 +97,25 @@ function PersonaRow({ card, live }: { card: PersonaCard; live?: PersonaLive }) {
     const running = card.status === "running";
     const image = live?.image || card.image;
     const note = running
-        ? live?.note || "Opening the site…"
+        ? live?.note || "Opening the site..."
         : card.verdict || card.notes?.[0] || card.first_impression || "";
 
     return (
         <div className="py-0.5">
             <button
                 type="button"
+                aria-expanded={open}
                 onClick={() => setOpen((v) => !v)}
-                className="flex w-fit max-w-full min-w-0 items-center gap-1.5 py-0.5 text-left chat-text font-normal text-text-primary"
+                className="flex min-h-[24px] w-fit max-w-full min-w-0 items-center gap-1.5 py-0.5 text-left chat-text font-normal text-text-primary"
             >
                 <span className="shrink-0 text-text-muted">{running ? "Reviewing" : "Reviewed"}</span>
                 <span className="min-w-0 truncate">{card.name}</span>
                 <Icon
                     icon={ChevronRight20Regular}
-                    className={cn("shrink-0 text-text-muted transition-transform duration-200", open && "rotate-90")}
+                    className={cn(
+                        "shrink-0 text-text-muted transition-transform duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
+                        open && "rotate-90",
+                    )}
                 />
             </button>
             <Collapse open={open}>
@@ -159,14 +163,18 @@ export function PersonaReviewPanel({
         <div className="py-0.5">
             <button
                 type="button"
+                aria-expanded={open}
                 onClick={() => setOpen((v) => !v)}
-                className="flex w-fit max-w-full items-center gap-1.5 text-left chat-text font-normal text-text-primary"
+                className="flex min-h-[24px] w-fit max-w-full items-center gap-1.5 text-left chat-text font-normal text-text-primary"
             >
                 <span>Design review</span>
                 {host ? <span className="min-w-0 truncate text-text-muted">{host}</span> : null}
                 <Icon
                     icon={ChevronRight20Regular}
-                    className={cn("shrink-0 text-text-muted transition-transform duration-200", open && "rotate-90")}
+                    className={cn(
+                        "shrink-0 text-text-muted transition-transform duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
+                        open && "rotate-90",
+                    )}
                 />
             </button>
             <Collapse open={open}>

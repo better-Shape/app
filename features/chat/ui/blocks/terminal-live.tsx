@@ -2,6 +2,7 @@
 
 import { Checkmark20Regular } from "@fluentui/react-icons/headless/svg/checkmark";
 import { ChevronDown20Regular } from "@fluentui/react-icons/headless/svg/chevron-down";
+import { ErrorCircle20Regular } from "@fluentui/react-icons/headless/svg/error-circle";
 import { Info20Regular } from "@fluentui/react-icons/headless/svg/info";
 import { MoreHorizontal20Regular } from "@fluentui/react-icons/headless/svg/more-horizontal";
 import { WindowConsole20Regular } from "@fluentui/react-icons/headless/svg/window-console";
@@ -67,6 +68,17 @@ type AgentTerminalEvent = {
     cancelled?: boolean;
 };
 
+function safeListen<T>(
+    eventName: string,
+    handler: (event: { payload: T }) => void,
+): Promise<() => void> {
+    try {
+        return listen<T>(eventName, handler).catch(() => () => {});
+    } catch {
+        return Promise.resolve(() => {});
+    }
+}
+
 /**
  * Subscribe to live output for one command. `enabled` avoids piling up
  * listeners for historical (already finished) transcript rows.
@@ -89,7 +101,7 @@ export function useAgentTerminalStream(
     useEffect(() => {
         if (!commandId || !enabled) return;
         let disposed = false;
-        const unlistenStream = listen<AgentTerminalEvent>("agent-terminal-stream", (event) => {
+        const unlistenStream = safeListen<AgentTerminalEvent>("agent-terminal-stream", (event) => {
             const payload = event.payload;
             if (disposed || !payload || payload.commandId !== commandId) return;
             if (payload.kind === "start") {
@@ -136,7 +148,7 @@ export function useAgentTerminalStream(
                 }));
             }
         });
-        const unlistenPty = listen<{ id?: number }>("pty-exit", (event) => {
+        const unlistenPty = safeListen<{ id?: number }>("pty-exit", (event) => {
             if (disposed) return;
             const sid = event.payload?.id;
             if (sid == null) return;
@@ -235,7 +247,7 @@ function commandSummary(command: string, max = 56): string {
     const one = command.replace(/\s+/g, " ").trim();
     if (!one) return "";
     if (one.length <= max) return one;
-    return `${one.slice(0, max - 1)}…`;
+    return `${one.slice(0, max - 3)}...`;
 }
 
 function TerminalCommandMenu({ command }: { command: string }) {
@@ -247,7 +259,7 @@ function TerminalCommandMenu({ command }: { command: string }) {
                 <button
                     type="button"
                     aria-label="Command options"
-                    className="rounded p-1 text-text-muted hover:bg-[var(--btn-hover)] hover:text-text-primary"
+                    className="inline-flex size-[24px] items-center justify-center rounded text-text-muted hover:bg-[var(--btn-hover)] hover:text-text-primary"
                 >
                     <Icon icon={MoreHorizontal20Regular} />
                 </button>
@@ -289,6 +301,8 @@ function TerminalCommandRow({
     statusLabel,
     output,
     isRunning,
+    failed,
+    exitCode,
     defaultOpen = false,
     notice,
 }: {
@@ -297,16 +311,27 @@ function TerminalCommandRow({
     output: string;
     isRunning?: boolean;
     failed?: boolean;
+    exitCode?: number | null;
     defaultOpen?: boolean;
     notice?: string;
 }) {
-    const [expanded, setExpanded] = useState(defaultOpen);
+    const [expanded, setExpanded] = useState(defaultOpen || Boolean(failed && output.trim()));
+    const [elapsedSec, setElapsedSec] = useState(0);
     const summary = commandSummary(command);
     const hasOutput = Boolean(output.trim() || notice);
     const canExpand = hasOutput || Boolean(command.trim());
 
+    useEffect(() => {
+        if (!isRunning) return undefined;
+        const startedAt = Date.now();
+        const interval = window.setInterval(() => {
+            setElapsedSec(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
+        }, 1000);
+        return () => window.clearInterval(interval);
+    }, [isRunning]);
+
     // Output arriving while the command runs opens the block once.
-    const expandWanted = Boolean(isRunning && hasOutput);
+    const expandWanted = Boolean((isRunning || failed) && hasOutput);
     const [seenExpandWanted, setSeenExpandWanted] = useState(expandWanted);
     if (expandWanted !== seenExpandWanted) {
         setSeenExpandWanted(expandWanted);
@@ -317,22 +342,51 @@ function TerminalCommandRow({
 
     const lead = summary ? `${statusLabel} ${summary}` : statusLabel;
     const parts = splitActionLabel(lead);
+    const showLiveTimer = Boolean(isRunning && elapsedSec >= 3);
+    const showExitBadge = Boolean(failed && typeof exitCode === "number" && exitCode !== 0);
 
     return (
         <ActionLine
             action={parts.action}
             detail={parts.detail}
+            tone={failed ? "error" : "default"}
+            shimmer={Boolean(isRunning)}
+            icon={
+                failed ? (
+                    <Icon icon={ErrorCircle20Regular} className="size-3.5 text-error" />
+                ) : (
+                    <Icon icon={WindowConsole20Regular} className="size-3.5 text-text-muted/80" />
+                )
+            }
+            extra={
+                showLiveTimer ? (
+                    <span className="shrink-0 text-2xs tabular-nums text-text-muted/75">
+                        {elapsedSec < 60
+                            ? `${elapsedSec}s`
+                            : `${Math.floor(elapsedSec / 60)}m ${String(elapsedSec % 60).padStart(2, "0")}s`}
+                    </span>
+                ) : showExitBadge ? (
+                    <span className="shrink-0 font-mono text-2xs tabular-nums text-error">
+                        exit {exitCode}
+                    </span>
+                ) : null
+            }
             open={canExpand ? expanded : undefined}
             onOpenChange={canExpand ? setExpanded : undefined}
         >
             {canExpand ? (
-                <div className="relative mt-1 mb-1 squircle-2xl border border-border-subtle bg-transparent px-1.5 py-2">
+                <div className="relative mt-1 mb-1 rounded-xl border border-border-subtle bg-surface-2/40 px-1.5 py-2">
                     <div className="absolute right-2 top-2 z-[1]">
                         <TerminalCommandMenu command={command} />
                     </div>
                     {output.trim() ? (
                         <div className="pr-8">
                             <LiveTerminalOutput text={output} maxHeight={200} />
+                        </div>
+                    ) : command.trim() ? (
+                        <div className="px-2 py-0.5 pr-8 font-mono text-xs text-text-secondary">
+                            <span className="select-none text-text-muted">$ </span>
+                            {command}
                         </div>
                     ) : null}
                     {notice ? (
@@ -459,7 +513,7 @@ export function TerminalCommandStep({ block }: { block: Chunk }) {
     useEffect(() => {
         if (chunkStatus !== "pending" || !block.commandId) return;
         let disposed = false;
-        const unlistenPromise = listen<{ id?: string; approved?: boolean }>(
+        const unlistenPromise = safeListen<{ id?: string; approved?: boolean }>(
             "agent-command-resolved",
             (event) => {
                 if (disposed || event.payload?.id !== block.commandId) return;
@@ -468,7 +522,7 @@ export function TerminalCommandStep({ block }: { block: Chunk }) {
         );
         return () => {
             disposed = true;
-            void unlistenPromise.then((unlisten) => unlisten()).catch(() => { /* ignore */ });
+            void unlistenPromise.then((unlisten) => unlisten());
         };
     }, [chunkStatus, block.commandId]);
 
@@ -551,7 +605,7 @@ export function TerminalCommandStep({ block }: { block: Chunk }) {
                 defaultOpen
                 notice={
                     stream.waitingForInput
-                        ? "Waiting for input — the agent can answer with write_to_terminal, or stop the turn."
+                        ? "Waiting for input: the agent can answer with write_to_terminal, or you can stop the turn."
                         : undefined
                 }
             />
@@ -570,6 +624,7 @@ export function TerminalCommandStep({ block }: { block: Chunk }) {
             statusLabel={statusLabel}
             output={staticOutput}
             failed={failed && !cancelled}
+            exitCode={exitCode}
         />
     );
 }

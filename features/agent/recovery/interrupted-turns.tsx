@@ -113,6 +113,7 @@ function writeDismissed(keys: ReadonlySet<string>) {
 
 /** Opens a chat the way the sidebar, the palette and the history list all do. */
 export function openConversationById(id: string) {
+    window.dispatchEvent(new CustomEvent("bettershape-center-view", { detail: "chat" }));
     window.dispatchEvent(new CustomEvent("bettershape-chat-load", { detail: { id } }));
 }
 
@@ -144,7 +145,7 @@ function JournalRow({
                 type="button"
                 onClick={() => openConversationById(journal.conversationId)}
                 aria-label={`Open ${summary.heading}, last updated ${summary.age}`}
-                className="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-text-secondary transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--row-hover)] hover:text-text-primary"
+                className="flex min-h-[24px] shrink-0 items-center gap-1 rounded-md px-2 py-0.5 text-xs text-text-secondary transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--row-hover)] hover:text-text-primary"
             >
                 <Icon icon={Chat20Regular} className="icon-sm" />
                 Open
@@ -153,7 +154,7 @@ function JournalRow({
                 type="button"
                 aria-label={`Dismiss ${summary.heading} until you quit the app`}
                 onClick={() => onDismiss(journal)}
-                className="flex size-6 shrink-0 items-center justify-center rounded-md text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary"
+                className="flex size-[24px] shrink-0 items-center justify-center rounded-md text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary"
             >
                 <Icon icon={Dismiss20Regular} className="icon-sm" />
             </button>
@@ -235,7 +236,7 @@ export function InterruptedTurns() {
                     type="button"
                     onClick={retry}
                     aria-label="Check again for interrupted turns"
-                    className="shrink-0 rounded-md px-1.5 py-0.5 text-xs text-text-secondary transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--row-hover)] hover:text-text-primary"
+                    className="inline-flex min-h-[24px] shrink-0 items-center rounded-md px-2 py-0.5 text-xs text-text-secondary transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--row-hover)] hover:text-text-primary"
                 >
                     Check again
                 </button>

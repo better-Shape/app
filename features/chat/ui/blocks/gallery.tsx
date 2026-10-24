@@ -292,12 +292,13 @@ export function DesignPreviewGallery({
                     </>
                 ) : null}
 
-                <div className="absolute inset-x-0 top-2 z-2 flex justify-center gap-1 opacity-0 translate-y-1 transition duration-150 group-hover/screen:translate-y-0 group-hover/screen:opacity-100">
-                    <div className="flex items-center gap-0.5 rounded-full border border-border-subtle bg-surface-1/95 px-1 py-0.5 shadow-[0_8px_28px_rgba(0,0,0,0.18)]">
+                <div className="absolute inset-x-0 top-2 z-2 flex justify-center gap-1 opacity-0 translate-y-1 transition-[opacity,transform] duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] group-hover/screen:translate-y-0 group-hover/screen:opacity-100">
+                    <div className="flex items-center gap-1 rounded-full border border-border-subtle bg-surface-1/95 px-1 py-0.5 shadow-[0_8px_28px_rgba(0,0,0,0.18)]">
                         <Tooltip content="Open">
                             <button
                                 type="button"
-                                className="flex size-7 items-center justify-center rounded-full text-text-muted hover:bg-[var(--btn-hover)] hover:text-text-primary"
+                                aria-label="Open preview"
+                                className="flex size-[24px] items-center justify-center rounded-full text-text-muted hover:bg-[var(--btn-hover)] hover:text-text-primary"
                                 onClick={() => setOpen(true)}
                             >
                                 <Icon icon={ArrowMaximize20Regular} />
@@ -307,8 +308,9 @@ export function DesignPreviewGallery({
                             <Tooltip content="Use this">
                                 <button
                                     type="button"
+                                    aria-label="Use this variant"
                                     disabled={!canPick}
-                                    className="flex size-7 items-center justify-center rounded-full text-text-muted hover:bg-[var(--btn-hover)] hover:text-text-primary disabled:opacity-40"
+                                    className="flex size-[24px] items-center justify-center rounded-full text-text-muted hover:bg-[var(--btn-hover)] hover:text-text-primary disabled:opacity-40"
                                     onClick={() => choose(item.id)}
                                 >
                                     <Icon icon={Checkmark20Regular} />

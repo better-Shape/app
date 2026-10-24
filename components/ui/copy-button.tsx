@@ -5,6 +5,7 @@ import { Clipboard20Regular } from "@fluentui/react-icons/headless/svg/clipboard
 import { DrawnCheck } from "@/components/ui/checkmark";
 import { Icon } from "@/components/ui/icon";
 import { SwapText } from "@/components/ui/swap";
+import { Tooltip } from "@/components/ui/tooltip";
 import { useCopyToClipboard } from "@/lib/ui/use-copy";
 import { cn } from "@/lib/utils";
 
@@ -64,12 +65,11 @@ export const CopyButton = ({
     const state = copyState(copied, failed);
     const face = state === "copied" ? "Copied" : label;
 
-    return (
+    const btn = (
         <button
             type="button"
             data-copy-state={state}
             aria-label={face}
-            title={showLabel ? undefined : label}
             onClick={(e) => {
                 e.stopPropagation();
                 copy(text);
@@ -89,4 +89,7 @@ export const CopyButton = ({
             />
         </button>
     );
+
+    if (showLabel) return btn;
+    return <Tooltip content={face}>{btn}</Tooltip>;
 };

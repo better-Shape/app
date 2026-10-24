@@ -88,7 +88,7 @@ export function GeneratedMediaCard({
                         src={url}
                         alt={prompt || (kind === "svg" ? "Generated SVG" : "Generated image")}
                         className={cn(
-                            "relative z-10 block w-full transition-opacity duration-300",
+                            "relative z-10 block w-full transition-opacity duration-[var(--spring-quick-dur)] ease-[var(--spring-quick)]",
                             kind === "svg"
                                 ? "h-auto max-h-[420px] object-contain object-center p-2"
                                 : "size-full object-cover",

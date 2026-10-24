@@ -68,11 +68,12 @@ const ProgressIndicator = ({ messages, latest }: { messages: string[]; latest: s
 /** Center breadcrumb button: reveals the current file in the OS file manager. */
 const StatusFileCrumb = ({ statusFile, relativePath }: { statusFile: string; relativePath: string }) => (
     <button
+        type="button"
         onClick={() => commands.revealPath(statusFile)}
-        className="pointer-events-auto h-full px-3 flex items-center gap-1.5 text-text-secondary font-light truncate max-w-[60%] cursor-pointer hover:text-text-primary transition-colors"
+        className="pointer-events-auto flex h-full max-w-[60%] cursor-pointer items-center gap-1.5 truncate px-3 font-light text-text-secondary transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:text-text-primary"
         title={statusFile}
     >
-        <FileIcon name={relativePath.split(/[\\/]/).pop() || relativePath} className="w-3.5 h-3.5 shrink-0" />
+        <FileIcon name={relativePath.split(/[\\/]/).pop() || relativePath} className="h-3.5 w-3.5 shrink-0" />
         <span className="truncate">{relativePath}</span>
     </button>
 );
@@ -246,7 +247,7 @@ const Status = () => {
                 )}
             </div>
 
-            <div className="absolute inset-0 z-10 flex items-center justify-center px-2 pointer-events-none">
+            <div className="pointer-events-none absolute inset-0 z-10 hidden items-center justify-center px-2 lg:flex">
                 {statusFile && <StatusFileCrumb statusFile={statusFile} relativePath={relativePath} />}
             </div>
 

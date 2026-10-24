@@ -75,12 +75,13 @@ function DropdownScrollArea({
         const el = ref.current;
         if (!el) return;
         update();
-        const ro = new ResizeObserver(() => update());
-        ro.observe(el);
+        const ro =
+            typeof ResizeObserver !== "undefined" ? new ResizeObserver(() => update()) : null;
+        ro?.observe(el);
         const mo = new MutationObserver(() => update());
         mo.observe(el, { childList: true, subtree: true });
         return () => {
-            ro.disconnect();
+            ro?.disconnect();
             mo.disconnect();
         };
     }, [update, children]);

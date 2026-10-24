@@ -215,4 +215,34 @@ describe("mention picker: skills", () => {
         expect(skillsMenu.some((label) => label.includes("commit-messages"))).toBe(true);
         expect(skillsMenu.some((label) => label.includes("pdf-processing"))).toBe(false);
     });
+
+    it("surfaces built-in /compact in slash mode and accepts with Tab", async () => {
+        const picked: string[] = [];
+        let closed = false;
+        await act(async () => {
+            root.render(
+                <MentionPicker
+                    open
+                    mode="slash"
+                    query="comp"
+                    workflows={[]}
+                    onPick={(token) => picked.push(token)}
+                    onClose={() => {
+                        closed = true;
+                    }}
+                    anchorRef={anchorRef}
+                />,
+            );
+        });
+
+        expect(document.body.textContent).toContain("/compact");
+        expect(document.body.textContent).toContain("[focus]");
+
+        await act(async () => {
+            window.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true }));
+        });
+
+        expect(picked).toEqual(["/compact "]);
+        expect(closed).toBe(true);
+    });
 });

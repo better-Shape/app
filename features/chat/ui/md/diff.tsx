@@ -201,16 +201,16 @@ export function InlineDiff({ file, original, replacement, isGenerating }: {
 
     return (
         <div className={cn(
-            "w-full flex flex-col rounded-md border overflow-hidden my-2 transition-all duration-300",
+            "t-diff-reveal w-full flex flex-col rounded-md border overflow-hidden my-2 transition-[background-color,border-color,opacity] duration-[var(--spring-quick-dur)] ease-[var(--spring-quick)]",
             status === "accepted" ? "border-success/30 bg-success/5" :
                 status === "rejected" ? "border-error/20 bg-error/5 opacity-60" :
                     "border-border-subtle bg-panel/40"
         )}>
-            <div className="flex items-center justify-between px-2 py-1.5">
+            <div data-find-skip className="flex items-center justify-between px-2 py-1.5">
                 <div className="flex items-center gap-2 min-w-0">
                     <span className="text-xs font-medium font-sans text-text-primary truncate max-w-[160px]">{file.split('/').pop()}</span>
                     {hasChanges && (
-                        <div className="flex items-center gap-1.5 ml-1 text-xs font-sans font-medium">
+                        <div className="flex items-center gap-1.5 ml-1 text-xs font-sans font-medium tabular-nums">
                             <span className="text-success">+{totals.addSelected}</span>
                             <span className="text-error">-{totals.removeSelected}</span>
                             {(totals.addSelected !== totals.add || totals.removeSelected !== totals.remove) && (
@@ -220,20 +220,21 @@ export function InlineDiff({ file, original, replacement, isGenerating }: {
                     )}
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5">
                     {isGenerating && (
-                        <span className="text-xs font-medium mr-2 text-text-muted">Generating…</span>
+                        <span className="text-xs font-medium mr-2 text-text-muted">Generating...</span>
                     )}
                     {status === "error" && !isGenerating && (
                         <span className="text-xs text-error font-regular mr-1">Failed</span>
                     )}
                     {status === "applying" && (
-                        <span className="text-2xs font-medium mr-2 text-text-muted">Applying…</span>
+                        <span className="text-2xs font-medium mr-2 text-text-muted">Applying...</span>
                     )}
                     {status === "accepted" && <span className="text-2xs text-success font-regular mr-1">Applied</span>}
                     {status === "rejected" && <span className="text-2xs text-error font-regular mr-1">Discarded</span>}
                     <button
-                        className="px-1.5 py-0.5 rounded-md text-xs font-medium bg-accent text-accent-fg hover:bg-accent-hover transition-colors disabled:opacity-50"
+                        type="button"
+                        className="min-h-[24px] px-2 py-0.5 rounded-md text-xs font-medium bg-accent text-accent-fg hover:bg-accent-hover transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] disabled:opacity-50"
                         onClick={handleApply}
                         disabled={!hasChanges || status === "applying" || status === "accepted"}
                     >
@@ -243,7 +244,8 @@ export function InlineDiff({ file, original, replacement, isGenerating }: {
                         </span>
                     </button>
                     <button
-                        className="px-1.5 py-0.5 rounded-md text-xs font-medium text-text-muted hover:text-text-primary transition-colors hover:bg-[var(--row-hover)] disabled:opacity-50"
+                        type="button"
+                        className="min-h-[24px] px-2 py-0.5 rounded-md text-xs font-medium text-text-muted hover:text-text-primary transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--row-hover)] disabled:opacity-50"
                         onClick={handleReject}
                         disabled={status === "applying" || status === "rejected"}
                     >
@@ -278,16 +280,18 @@ export function InlineDiff({ file, original, replacement, isGenerating }: {
                                 <div className="flex items-start gap-2">
                                     {row.type === 'remove' ? (
                                         <button
+                                            type="button"
+                                            aria-label={selectedRow ? "Keep removed line" : "Remove line"}
                                             className={cn(
-                                                "w-4 h-4 rounded border text-2xs flex items-center justify-center mt-[2px]",
+                                                "size-[24px] shrink-0 rounded border text-2xs flex items-center justify-center",
                                                 selectedRow ? "border-error text-error bg-error/20" : "border-border-subtle text-text-muted"
                                             )}
                                             onClick={() => toggleRow(row.id)}
                                         >
-                                            {selectedRow ? "✓" : "–"}
+                                            {selectedRow ? "✓" : "-"}
                                         </button>
                                     ) : (
-                                        <div className="w-4 h-4" />
+                                        <div className="size-[24px] shrink-0" />
                                     )}
                                     <div className="text-2xs text-text-disabled w-8 text-right select-none">
                                         {row.oldNumber ?? ""}
@@ -310,16 +314,18 @@ export function InlineDiff({ file, original, replacement, isGenerating }: {
                                 <div className="flex items-start gap-2">
                                     {row.type === 'add' ? (
                                         <button
+                                            type="button"
+                                            aria-label={selectedRow ? "Skip added line" : "Include added line"}
                                             className={cn(
-                                                "w-4 h-4 rounded border text-2xs flex items-center justify-center mt-[2px]",
+                                                "size-[24px] shrink-0 rounded border text-2xs flex items-center justify-center",
                                                 selectedRow ? "border-success text-success bg-success/20" : "border-border-subtle text-text-muted"
                                             )}
                                             onClick={() => toggleRow(row.id)}
                                         >
-                                            {selectedRow ? "✓" : "–"}
+                                            {selectedRow ? "✓" : "-"}
                                         </button>
                                     ) : (
-                                        <div className="w-4 h-4" />
+                                        <div className="size-[24px] shrink-0" />
                                     )}
                                     <div className="text-2xs text-text-disabled w-8 text-right select-none">
                                         {row.newNumber ?? ""}
@@ -345,20 +351,6 @@ export function InlineDiff({ file, original, replacement, isGenerating }: {
                     );
                 })}
             </div>
-
-            <style jsx>{`
-    .custom - scrollbar:: -webkit - scrollbar {
-    height: 4px;
-    width: 4px;
-}
-                .custom - scrollbar:: -webkit - scrollbar - track {
-    background: transparent;
-}
-                .custom - scrollbar:: -webkit - scrollbar - thumb {
-    background: var(--scrollbar);
-    border - radius: 4px;
-}
-`}</style>
         </div>
     );
 }

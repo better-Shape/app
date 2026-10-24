@@ -1,20 +1,36 @@
 "use client";
 
-import { useElementById } from "@/lib/ui/use-element-by-id";
-
+import { ArrowDown20Regular } from "@fluentui/react-icons/headless/svg/arrow-down";
+import { Eclipse } from "loading-dev";
 import React, { useMemo } from "react";
 import { createPortal } from "react-dom";
+import { useElementById } from "@/lib/ui/use-element-by-id";
+import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 import { useChatSession } from "../lib/use-chat-session";
 import { ChatTitlebar, resolveChatCrumbTitle } from "./shell/titlebar";
 import { ChatInput } from "./composer/input";
 import { ChatMessageList } from "./message/list";
 import { ChatErrorDialog } from "./blocks/error";
+import { Collapse } from "@/components/ui/collapse";
 import { ChatEmptyState } from "./shell/empty";
+import { ChatSelectionQuoteToolbar } from "./quote-selection";
 import { parseMessageContent } from "./md/renderer";
 import type { ComposerTaskItem } from "./composer/activity";
 import { AGENT_TABS_SLOT } from "@/features/agent/chrome";
 import { ChatHistoryStepper, useChatTurnActive } from "./shell/history-stepper";
+import {
+    CHAT_COPY_MARKDOWN_EVENT,
+    CHAT_EXPAND_FOR_FIND_EVENT,
+    CHAT_EXPORT_MARKDOWN_EVENT,
+    CHAT_FIND_OPEN_EVENT,
+    ChatFindBar,
+} from "./shell/find-bar";
+import { findTranscriptMatches } from "@/lib/chat/transcript-search";
+import { clearChatDomHighlights, syncChatDomHighlights } from "@/lib/chat/dom-highlights";
+import { extractCleanUserPrompts } from "@/lib/chat/prompt-history";
+import { formatTranscriptAsMarkdown, slugifyTranscriptFilename } from "@/lib/chat/export-markdown";
+import { notify } from "@/features/notifications";
 import { useSyncChatGenerating } from "../lib/generating-chats";
 import { SubagentChatView } from "@/features/agent/subagents/view";
 import {
@@ -34,8 +50,50 @@ function stickyPromptText(content: string): string {
         .trim()
         .replace(/\s+/g, " ");
     if (cleaned.length <= 120) return cleaned;
-    return `${cleaned.slice(0, 117)}…`;
+    return `${cleaned.slice(0, 117)}...`;
 }
+
+export function detectPendingHitl(
+    messages: readonly { role?: string; content?: string }[],
+    isLoading: boolean,
+): { kind: "approval" | "question"; count: number } | null {
+    for (let i = messages.length - 1; i >= 0; i--) {
+        const msg = messages[i];
+        if (!msg || msg.role !== "assistant") continue;
+        const raw = msg.content || "";
+        if (
+            raw.includes("<terminal_command") ||
+            raw.includes("<edit_pending") ||
+            raw.includes("<plugin_call") ||
+            raw.includes("<question")
+        ) {
+            const chunks = parseMessageContent(raw);
+            let approvalCount = 0;
+            let questionCount = 0;
+            for (const c of chunks) {
+                if (
+                    isLoading &&
+                    (c.type === "terminal_command" ||
+                        c.type === "edit_pending" ||
+                        c.type === "plugin_call") &&
+                    c.commandStatus === "pending"
+                ) {
+                    approvalCount += 1;
+                }
+                if (c.type === "question" && c.commandStatus === "pending" && Boolean(c.commandId)) {
+                    questionCount += 1;
+                }
+            }
+            if (approvalCount > 0) return { kind: "approval", count: approvalCount };
+            if (questionCount > 0) return { kind: "question", count: questionCount };
+        }
+        break;
+    }
+    return null;
+}
+
+const EMPTY_TASK_ITEMS: ComposerTaskItem[] = [];
+const EMPTY_SUBAGENTS: ReturnType<typeof getSubagents> = [];
 
 export default function Chat({
     className,
@@ -50,6 +108,13 @@ export default function Chat({
 }) {
     const messagesEndRef = React.useRef<HTMLDivElement>(null);
     const scrollContainerRef = React.useRef<HTMLDivElement>(null);
+    const transcriptContentRef = React.useRef<HTMLDivElement>(null);
+    const chatShellRef = React.useRef<HTMLDivElement>(null);
+    const findReturnFocusRef = React.useRef<HTMLElement | null>(null);
+    const [findOpen, setFindOpen] = React.useState(false);
+    const [findQuery, setFindQuery] = React.useState("");
+    const [findMatchCase, setFindMatchCase] = React.useState(false);
+    const [findMatchIndex, setFindMatchIndex] = React.useState(0);
     const session = useChatSession(messagesEndRef, scrollContainerRef);
     const activeSubagent = React.useSyncExternalStore(subscribeSubagents, getActiveSubagent, getActiveSubagent);
 
@@ -63,6 +128,19 @@ export default function Chat({
     React.useLayoutEffect(() => {
         sessionRef.current = session;
     });
+
+    const hasMessages = session.messages.length > 0;
+    const hasSubagent = Boolean(activeSubagent);
+
+    React.useEffect(() => {
+        const contentEl = transcriptContentRef.current;
+        if (!contentEl || typeof ResizeObserver === "undefined") return undefined;
+        const observer = new ResizeObserver(() => {
+            sessionRef.current.handleTranscriptResize();
+        });
+        observer.observe(contentEl);
+        return () => observer.disconnect();
+    }, [hasMessages, hasSubagent]);
 
     React.useEffect(() => {
         const onOpen = (e: Event) => {
@@ -121,11 +199,20 @@ export default function Chat({
     const tabsSlot = useElementById(AGENT_TABS_SLOT);
 
     const taskItems = useMemo((): ComposerTaskItem[] => {
-        const lastAssistant = [...session.messages].reverse().find((m) => m.role === "assistant");
-        if (!lastAssistant) return [];
+        let lastAssistantContent: string | null = null;
+        for (let i = session.messages.length - 1; i >= 0; i--) {
+            const msg = session.messages[i];
+            if (msg?.role === "assistant") {
+                lastAssistantContent = msg.content;
+                break;
+            }
+        }
+        if (!lastAssistantContent || !lastAssistantContent.includes("<todos")) {
+            return EMPTY_TASK_ITEMS;
+        }
 
-        const todos = parseMessageContent(lastAssistant.content).find((c) => c.type === "todos");
-        if (!todos?.todos?.length) return [];
+        const todos = parseMessageContent(lastAssistantContent).find((c) => c.type === "todos");
+        if (!todos?.todos?.length) return EMPTY_TASK_ITEMS;
 
         const items: ComposerTaskItem[] = [];
         for (const t of todos.todos) {
@@ -137,7 +224,7 @@ export default function Chat({
                     t.status === "active" && session.isLoading ? "running" : "pending",
             });
         }
-        return items;
+        return items.length > 0 ? items : EMPTY_TASK_ITEMS;
     }, [session.messages, session.isLoading]);
 
     const newChatRef = React.useRef(session.handleNewChat);
@@ -174,10 +261,13 @@ export default function Chat({
         // A subagent is stamped with the time of the message that mentions it (no clock read in render).
         const seen = new Map<string, ReturnType<typeof extractSubagentsFromText>[number] & { updatedAt: number }>();
         for (const m of session.messages) {
-            for (const item of extractSubagentsFromText(m.content || "", parentId)) {
+            const raw = m.content || "";
+            if (!raw.includes("<subagent")) continue;
+            for (const item of extractSubagentsFromText(raw, parentId)) {
                 seen.set(item.id, { ...item, updatedAt: m.timestamp });
             }
         }
+        if (seen.size === 0) return EMPTY_SUBAGENTS;
         return [...seen.values()].map((item) => ({
             id: item.id,
             title: item.title,
@@ -191,22 +281,102 @@ export default function Chat({
         }));
     }, [session.messages, session.conversationId, session.activeChatTabId]);
 
-    const activeTab = session.openChatTabs.find((tab) => tab.id === session.activeChatTabId);
-    const conv = (session.recentConvs ?? []).find(
-        (item) => item.id === (session.conversationId ?? session.activeChatTabId),
+    const activeTab = useMemo(
+        () => session.openChatTabs.find((tab) => tab.id === session.activeChatTabId),
+        [session.openChatTabs, session.activeChatTabId],
     );
-    const crumbTitle = resolveChatCrumbTitle({
-        chatTitle: session.chatTitle,
-        tabTitle: activeTab?.title,
-        convTitle: conv?.title,
-        messages: session.messages,
+    const conv = useMemo(
+        () =>
+            (session.recentConvs ?? []).find(
+                (item) => item.id === (session.conversationId ?? session.activeChatTabId),
+            ),
+        [session.recentConvs, session.conversationId, session.activeChatTabId],
+    );
+    const crumbTitle = useMemo(
+        () =>
+            resolveChatCrumbTitle({
+                chatTitle: session.chatTitle,
+                tabTitle: activeTab?.title,
+                convTitle: conv?.title,
+                messages: session.messages,
+            }),
+        [session.chatTitle, activeTab?.title, conv?.title, session.messages],
+    );
+    const recentIds = useMemo(
+        () => (session.recentConvs ?? []).map((c) => c.id),
+        [session.recentConvs],
+    );
+    const selectChatTabRef = React.useRef(session.handleSelectChatTab);
+    React.useLayoutEffect(() => {
+        selectChatTabRef.current = session.handleSelectChatTab;
     });
+    const handleCloseSubagent = React.useCallback(() => {
+        closeSubagent();
+    }, []);
+    const handleTitlebarSelect = React.useCallback((id: string) => {
+        closeSubagent();
+        void selectChatTabRef.current(id);
+    }, []);
+    const setSelectedModeRef = React.useRef(session.setSelectedMode);
+    React.useLayoutEffect(() => {
+        setSelectedModeRef.current = session.setSelectedMode;
+    });
+    const handleEmptySelectMode = React.useCallback((mode: string) => {
+        setSelectedModeRef.current(mode);
+        window.dispatchEvent(new CustomEvent("bettershape-chat-focus-input"));
+    }, []);
+    const handleComposerKeyDown = React.useCallback((e: React.KeyboardEvent) => {
+        sessionRef.current.handleKeyDown(e);
+    }, []);
+    const handleComposerSend = React.useCallback(() => {
+        void sessionRef.current.handleSendMessage();
+    }, []);
+    const handleComposerStop = React.useCallback(() => {
+        void sessionRef.current.handleStopMessage();
+    }, []);
+    const handleComposerAcceptAll = React.useCallback(() => {
+        void sessionRef.current.handleAcceptAll();
+    }, []);
+    const handleComposerRejectAll = React.useCallback(() => {
+        void sessionRef.current.handleRejectAll();
+    }, []);
+    const handleComposerAcceptEdit = React.useCallback((id: string) => {
+        void sessionRef.current.handleAcceptEdit(id);
+    }, []);
+    const handleComposerRejectEdit = React.useCallback((id: string) => {
+        void sessionRef.current.handleRejectEdit(id);
+    }, []);
+    const handleComposerSendQueuedNow = React.useCallback((id: string) => {
+        void sessionRef.current.handleSendQueuedNow(id);
+    }, []);
+    const handleComposerNewChat = React.useCallback(() => {
+        void sessionRef.current.handleNewChat();
+    }, []);
+    const handleJumpToBottom = React.useCallback(() => {
+        const container = scrollContainerRef.current;
+        const pendingCard = container?.querySelector<HTMLElement>("[data-pending-approval='true']");
+        if (pendingCard) {
+            const reduced =
+                typeof window !== "undefined" &&
+                Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches);
+            pendingCard.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "center" });
+            return;
+        }
+        sessionRef.current.scrollToBottom("smooth");
+    }, []);
+    const handleDismissSendError = React.useCallback(() => {
+        sessionRef.current.setSendError(null);
+    }, []);
+    const handleRetrySendError = React.useCallback(() => {
+        sessionRef.current.setSendError(null);
+        void sessionRef.current.handleSendMessage();
+    }, []);
 
     const titlebar = (
         <ChatTitlebar
             title={crumbTitle}
             conversationId={session.conversationId ?? session.activeChatTabId}
-            recentIds={(session.recentConvs ?? []).map((c) => c.id)}
+            recentIds={recentIds}
             timestamp={
                 conv?.timestamp
                 ?? session.messages.at(-1)?.timestamp
@@ -215,13 +385,8 @@ export default function Chat({
             subagentTitle={activeSubagent?.title ?? null}
             subagentModel={activeSubagent?.model ?? null}
             extractedSubagents={extractedSubagents}
-            onCloseSubagent={() => {
-                closeSubagent();
-            }}
-            onSelect={(id) => {
-                closeSubagent();
-                void session.handleSelectChatTab(id);
-            }}
+            onCloseSubagent={handleCloseSubagent}
+            onSelect={handleTitlebarSelect}
         />
     );
 
@@ -231,95 +396,354 @@ export default function Chat({
         turnCount,
         { streaming: session.isLoading, rootKey: activeSubagent?.id ?? null },
     );
+    const selectTurnRef = React.useRef(selectTurn);
+    React.useLayoutEffect(() => {
+        selectTurnRef.current = selectTurn;
+    });
+    const handleSelectTurn = React.useCallback((idx: number) => {
+        selectTurnRef.current(idx);
+    }, []);
 
     const isEmpty = session.messages.length === 0;
     const emptyStage = isEmpty && !embedded;
-    const emptyStageRef = React.useRef<HTMLDivElement>(null);
-    const emptyStackRef = React.useRef<HTMLDivElement>(null);
-    const [emptyTop, setEmptyTop] = React.useState(0);
-    // The slide-in transition is enabled one frame after the empty stage is laid out.
-    const [emptyTopMotion, setEmptyTopMotion] = React.useState(false);
 
+    const crumbTitleRef = React.useRef(crumbTitle);
     React.useLayoutEffect(() => {
-        if (!emptyStage) return;
-        const stage = emptyStageRef.current;
-        const stack = emptyStackRef.current;
-        if (!stage || !stack) return;
+        crumbTitleRef.current = crumbTitle;
+    });
 
-        const place = () => {
-            return Math.max(16, Math.round((stage.clientHeight - stack.offsetHeight) / 2));
+    const promptHistory = useMemo(
+        () => extractCleanUserPrompts(session.messages),
+        [session.messages],
+    );
+
+    const findMatches = useMemo(
+        () =>
+            findOpen && findQuery.trim()
+                ? findTranscriptMatches(session.messages, findQuery, {
+                      caseSensitive: findMatchCase,
+                  })
+                : [],
+        [findOpen, findQuery, findMatchCase, session.messages],
+    );
+    const activeFindIndex = findMatches.length > 0 ? findMatchIndex % findMatches.length : 0;
+    const activeFindMatch = findMatches[activeFindIndex] ?? null;
+
+    const pendingHitlInfo = useMemo(
+        () => detectPendingHitl(session.messages, session.isLoading),
+        [session.messages, session.isLoading],
+    );
+    const pendingHitlKind = pendingHitlInfo?.kind ?? null;
+    const pendingHitlCount = pendingHitlInfo?.count ?? 0;
+
+    const [pendingHitlDirection, setPendingHitlDirection] = React.useState<"up" | "down" | null>(
+        null,
+    );
+
+    React.useEffect(() => {
+        if (!pendingHitlKind) return;
+        const scroller = scrollContainerRef.current;
+        if (!scroller) return;
+
+        let rafId = 0;
+        const measure = () => {
+            const pendingEl = scroller.querySelector<HTMLElement>("[data-pending-approval='true']");
+            if (!pendingEl) {
+                setPendingHitlDirection(null);
+                return;
+            }
+            const scrollerRect = scroller.getBoundingClientRect();
+            const elRect = pendingEl.getBoundingClientRect();
+            if (elRect.height <= 0 || scrollerRect.height <= 0) {
+                setPendingHitlDirection(null);
+                return;
+            }
+            const visibleTop = Math.max(elRect.top, scrollerRect.top);
+            const visibleBottom = Math.min(elRect.bottom, scrollerRect.bottom);
+            const visibleHeight = Math.max(0, visibleBottom - visibleTop);
+            const minVisible = Math.min(56, elRect.height * 0.55);
+            if (visibleHeight < minVisible) {
+                setPendingHitlDirection(elRect.top < scrollerRect.top ? "up" : "down");
+            } else {
+                setPendingHitlDirection(null);
+            }
         };
 
-        setEmptyTop(place());
-        const ro = new ResizeObserver(() => {
-            setEmptyTop(place());
-        });
-        ro.observe(stage);
-        ro.observe(stack);
-        const raf = window.requestAnimationFrame(() => {
-            setEmptyTopMotion(true);
-        });
+        const scheduleMeasure = () => {
+            if (rafId) return;
+            rafId = window.requestAnimationFrame(() => {
+                rafId = 0;
+                measure();
+            });
+        };
+
+        scheduleMeasure();
+        scroller.addEventListener("scroll", scheduleMeasure, { passive: true });
+        const ro =
+            typeof ResizeObserver !== "undefined" ? new ResizeObserver(scheduleMeasure) : null;
+        ro?.observe(scroller);
+        if (transcriptContentRef.current) ro?.observe(transcriptContentRef.current);
+
         return () => {
-            ro.disconnect();
-            window.cancelAnimationFrame(raf);
-            setEmptyTopMotion(false);
+            if (rafId) window.cancelAnimationFrame(rafId);
+            scroller.removeEventListener("scroll", scheduleMeasure);
+            ro?.disconnect();
         };
-    }, [emptyStage]);
+    }, [pendingHitlKind, session.messages]);
+
+    const handleCloseFind = React.useCallback(() => {
+        clearChatDomHighlights();
+        setFindOpen(false);
+        const prev = findReturnFocusRef.current;
+        findReturnFocusRef.current = null;
+        if (prev && prev.isConnected) {
+            requestAnimationFrame(() => prev.focus());
+        } else {
+            window.dispatchEvent(new CustomEvent("bettershape-chat-focus-input"));
+        }
+    }, []);
+
+    const handleFindQueryChange = React.useCallback((next: string) => {
+        setFindQuery(next);
+        setFindMatchIndex(0);
+    }, []);
+
+    const handleFindMatchCaseChange = React.useCallback((next: boolean) => {
+        setFindMatchCase(next);
+        setFindMatchIndex(0);
+    }, []);
+
+    const handleFindNext = React.useCallback(() => {
+        setFindMatchIndex((prev) => (findMatches.length > 0 ? (prev + 1) % findMatches.length : 0));
+    }, [findMatches.length]);
+
+    const handleFindPrev = React.useCallback(() => {
+        setFindMatchIndex((prev) =>
+            findMatches.length > 0 ? (prev - 1 + findMatches.length) % findMatches.length : 0,
+        );
+    }, [findMatches.length]);
+
+    React.useEffect(() => {
+        return () => {
+            clearChatDomHighlights();
+        };
+    }, []);
+
+    React.useEffect(() => {
+        const container = scrollContainerRef.current;
+        if (!findOpen || !findQuery.trim() || !container) {
+            clearChatDomHighlights();
+            return;
+        }
+        if (activeFindMatch) {
+            window.dispatchEvent(
+                new CustomEvent(CHAT_EXPAND_FOR_FIND_EVENT, {
+                    detail: {
+                        messageIndex: activeFindMatch.messageIndex,
+                        query: findQuery,
+                        caseSensitive: findMatchCase,
+                    },
+                }),
+            );
+        }
+
+        const rafId = window.requestAnimationFrame(() => {
+            const root = scrollContainerRef.current;
+            if (!root) return;
+            const { activeRange } = syncChatDomHighlights(root, findQuery, {
+                caseSensitive: findMatchCase,
+                activeIndex: activeFindIndex,
+                targetMessageIndex: activeFindMatch?.messageIndex ?? null,
+                targetOccurrenceInMessage: activeFindMatch?.occurrenceInMessage ?? null,
+            });
+            if (!activeFindMatch) return;
+            sessionRef.current.notifyUserScrollUp();
+            const reduced =
+                typeof window !== "undefined" &&
+                Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches);
+
+            if (activeRange) {
+                const rect = activeRange.getBoundingClientRect();
+                const rootRect = root.getBoundingClientRect();
+                if (rect.height > 0 && rootRect.height > 0) {
+                    const targetTop =
+                        root.scrollTop +
+                        (rect.top - rootRect.top) -
+                        rootRect.height / 2 +
+                        rect.height / 2;
+                    root.scrollTo({
+                        top: Math.max(0, targetTop),
+                        behavior: reduced ? "auto" : "smooth",
+                    });
+                    return;
+                }
+            }
+
+            const row = root.querySelector<HTMLElement>(
+                `[data-chat-message-index="${activeFindMatch.messageIndex}"]`,
+            );
+            row?.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "center" });
+        });
+
+        return () => window.cancelAnimationFrame(rafId);
+    }, [findOpen, findQuery, findMatchCase, activeFindIndex, activeFindMatch, session.messages]);
+
+    React.useEffect(() => {
+        const openFindWithSelection = (seed?: string) => {
+            if (sessionRef.current.messages.length === 0) {
+                notify.info("Find in chat", "Start a conversation first to search messages.");
+                return;
+            }
+            if (document.activeElement instanceof HTMLElement) {
+                findReturnFocusRef.current = document.activeElement;
+            }
+            const selected = window.getSelection()?.toString().trim() ?? "";
+            const initial = (seed ?? selected).slice(0, 120);
+            if (initial && !initial.includes("\n")) {
+                setFindQuery(initial);
+                setFindMatchIndex(0);
+            }
+            setFindOpen(true);
+        };
+
+        const onOpenFind = (e: Event) => {
+            const q = (e as CustomEvent<{ query?: string }>).detail?.query;
+            openFindWithSelection(q);
+        };
+
+        const onKeyDown = (e: KeyboardEvent) => {
+            if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== "f") {
+                return;
+            }
+            const target = e.target instanceof HTMLElement ? e.target : null;
+            if (target?.closest(".cm-editor, .xterm, [role='dialog']")) return;
+            const shell = chatShellRef.current;
+            if (!shell || (target && !shell.contains(target))) return;
+            if (sessionRef.current.messages.length === 0) return;
+            e.preventDefault();
+            openFindWithSelection();
+        };
+
+        const onCopyMarkdown = () => {
+            const msgs = sessionRef.current.messages;
+            if (msgs.length === 0) {
+                notify.info("Nothing to copy", "Send a message first to copy the transcript.");
+                return;
+            }
+            const md = formatTranscriptAsMarkdown(crumbTitleRef.current, msgs);
+            void navigator.clipboard
+                ?.writeText(md)
+                .then(() => notify.success("Copied as Markdown", `${msgs.length} messages copied to clipboard.`))
+                .catch(() => notify.error("Copy failed", "Could not write transcript to clipboard."));
+        };
+
+        const onExportMarkdown = () => {
+            const msgs = sessionRef.current.messages;
+            if (msgs.length === 0) {
+                notify.info("Nothing to export", "Send a message first to export the transcript.");
+                return;
+            }
+            const md = formatTranscriptAsMarkdown(crumbTitleRef.current, msgs);
+            const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
+            const url = URL.createObjectURL(blob);
+            const anchor = document.createElement("a");
+            anchor.href = url;
+            anchor.download = slugifyTranscriptFilename(crumbTitleRef.current);
+            anchor.click();
+            URL.revokeObjectURL(url);
+            notify.success("Chat exported", `Saved ${anchor.download}.`);
+        };
+
+        window.addEventListener(CHAT_FIND_OPEN_EVENT, onOpenFind as EventListener);
+        window.addEventListener("keydown", onKeyDown);
+        window.addEventListener(CHAT_COPY_MARKDOWN_EVENT, onCopyMarkdown);
+        window.addEventListener(CHAT_EXPORT_MARKDOWN_EVENT, onExportMarkdown);
+        return () => {
+            window.removeEventListener(CHAT_FIND_OPEN_EVENT, onOpenFind as EventListener);
+            window.removeEventListener("keydown", onKeyDown);
+            window.removeEventListener(CHAT_COPY_MARKDOWN_EVENT, onCopyMarkdown);
+            window.removeEventListener(CHAT_EXPORT_MARKDOWN_EVENT, onExportMarkdown);
+        };
+    }, []);
 
     const turnLabels = useMemo(
         () =>
             session.messageGroups.map((group) => {
                 const user = group.find((g) => g.msg.role === "user")?.msg;
-                return user ? stickyPromptText(user.content) : `Turn`;
+                return user ? stickyPromptText(user.content) : "Turn";
             }),
         [session.messageGroups],
     );
 
-    const composer = (
-        <ChatInput
-            inputValue={session.inputValue}
-            isLoading={session.isLoading}
-            isPreparing={session.isPreparing}
-            uploadedFiles={session.uploadedFiles}
-            onInputChange={session.handleInputChange}
-            onKeyDown={session.handleKeyDown}
-            onSendMessage={() => {
-                void session.handleSendMessage();
-            }}
-            onStopMessage={() => {
-                void session.handleStopMessage();
-            }}
-            setUploadedFiles={session.setUploadedFiles}
-            addUploadedFiles={session.addUploadedFiles}
-            selectedModel={session.selectedModel}
-            setSelectedModel={session.setSelectedModel}
-            selectedWorkerModels={session.selectedWorkerModels}
-            setSelectedWorkerModels={session.setSelectedWorkerModels}
-            hideModeSelect={false}
-            selectedMode={session.selectedMode}
-            setSelectedMode={session.setSelectedMode}
-            reasoningEffort={session.reasoningEffort}
-            setReasoningEffort={session.setReasoningEffort}
-            pendingEdits={session.pendingEdits}
-            onAcceptAllEdits={() => void session.handleAcceptAll()}
-            onRejectAllEdits={() => void session.handleRejectAll()}
-            onAcceptEdit={(id) => void session.handleAcceptEdit(id)}
-            onRejectEdit={(id) => void session.handleRejectEdit(id)}
-            taskItems={isEmpty ? [] : taskItems}
-            queuedMessages={session.messageQueue}
-            onEditQueuedMessage={session.handleEditQueuedMessage}
-            onRemoveQueuedMessage={session.handleRemoveQueuedMessage}
-            onSendQueuedNow={session.handleSendQueuedNow}
-            projectRuleFiles={session.projectRuleFiles}
-            onNewChat={() => {
-                void session.handleNewChat();
-            }}
-            variant={embedded || !isEmpty ? "default" : "empty"}
-        />
-    );
-
-    const insetX = embedded ? "px-2" : "px-5 md:px-6";
+    const insetX = embedded ? "px-2" : "px-3.5 @[480px]/chat:px-5 @[768px]/chat:px-6";
     const columnWidth = embedded ? "max-w-none" : "max-w-4xl";
+    const showTopVeil = !emptyStage && session.scrolledFromTop;
+    const effectiveHitlDirection = pendingHitlKind ? pendingHitlDirection : null;
+    const activeHitlKind = effectiveHitlDirection ? pendingHitlKind : null;
+    const showBottomVeil = !emptyStage && session.scrolledFromBottom;
+    const showFloatingPill = !emptyStage && (session.scrolledFromBottom || Boolean(activeHitlKind));
+
+    const composerDockRef = React.useRef<HTMLDivElement>(null);
+    const prevEmptyStageRef = React.useRef(emptyStage);
+    const prevTabForFlipRef = React.useRef(session.activeChatTabId);
+    const emptyComposerTopRef = React.useRef<number | null>(null);
+
+    React.useLayoutEffect(() => {
+        const el = composerDockRef.current;
+        const sameTab = prevTabForFlipRef.current === session.activeChatTabId;
+        prevTabForFlipRef.current = session.activeChatTabId;
+
+        if (emptyStage && el) {
+            emptyComposerTopRef.current = el.getBoundingClientRect().top;
+            const ro =
+                typeof ResizeObserver !== "undefined"
+                    ? new ResizeObserver(() => {
+                          if (composerDockRef.current) {
+                              emptyComposerTopRef.current =
+                                  composerDockRef.current.getBoundingClientRect().top;
+                          }
+                      })
+                    : null;
+            if (el.parentElement) ro?.observe(el.parentElement);
+            ro?.observe(el);
+            prevEmptyStageRef.current = true;
+            return () => ro?.disconnect();
+        }
+
+        if (prevEmptyStageRef.current && !emptyStage && sameTab && el) {
+            const fromTop = emptyComposerTopRef.current;
+            prevEmptyStageRef.current = false;
+            emptyComposerTopRef.current = null;
+            const reduceMotion =
+                typeof window !== "undefined" &&
+                window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+            if (!reduceMotion && fromTop !== null) {
+                const toTop = el.getBoundingClientRect().top;
+                const dy = fromTop - toTop;
+                if (Math.abs(dy) > 4) {
+                    el.style.transition = "none";
+                    el.style.transform = `translate3d(0, ${Math.round(dy)}px, 0)`;
+                    void el.offsetHeight;
+                    el.style.transition =
+                        "transform var(--spring-panel-dur) var(--spring-panel)";
+                    el.style.transform = "translate3d(0, 0, 0)";
+                    const clear = () => {
+                        el.style.transition = "";
+                        el.style.transform = "";
+                    };
+                    const timer = window.setTimeout(clear, 280);
+                    return () => {
+                        window.clearTimeout(timer);
+                        clear();
+                    };
+                }
+            }
+        }
+
+        prevEmptyStageRef.current = emptyStage;
+        emptyComposerTopRef.current = null;
+        return undefined;
+    }, [emptyStage, session.activeChatTabId]);
 
     const chatColumn = activeSubagent ? (
         <div className="relative min-h-0 flex-1">
@@ -327,43 +751,72 @@ export default function Chat({
                 <SubagentChatView />
             </div>
         </div>
-    ) : emptyStage ? (
-        <div
-            ref={emptyStageRef}
-            className={cn("relative flex min-h-0 flex-1 flex-col items-center overflow-hidden", insetX)}
-        >
-            <div
-                ref={emptyStackRef}
-                className={cn("relative flex w-full shrink-0 flex-col items-center gap-5", columnWidth)}
-                style={{
-                    marginTop: emptyTop,
-                    transition: emptyTopMotion
-                        ? "margin-top 920ms cubic-bezier(0.22, 1, 0.36, 1)"
-                        : "none",
-                }}
-            >
-                <ChatEmptyState
-                    onSelectMode={(mode) => {
-                        session.setSelectedMode(mode);
-                        window.dispatchEvent(new CustomEvent("bettershape-chat-focus-input"));
-                    }}
-                />
-                <div className="w-full">
-                    {composer}
-                </div>
-            </div>
-        </div>
     ) : (
         <>
-            <div className="relative min-h-0 flex-1">
+            <Collapse open={!emptyStage && findOpen} className="shrink-0">
+                <div className={cn("flex justify-end pt-2 pb-1", insetX)}>
+                    <div className={cn("mx-auto flex w-full justify-end", columnWidth)}>
+                        <ChatFindBar
+                            open={findOpen}
+                            query={findQuery}
+                            matchCount={findMatches.length}
+                            activeMatchIndex={activeFindIndex}
+                            matchCase={findMatchCase}
+                            onMatchCaseChange={handleFindMatchCaseChange}
+                            onQueryChange={handleFindQueryChange}
+                            onNext={handleFindNext}
+                            onPrev={handleFindPrev}
+                            onClose={handleCloseFind}
+                        />
+                    </div>
+                </div>
+            </Collapse>
+
+            <div
+                className={cn(
+                    "relative min-h-0",
+                    emptyStage ? "flex-[1_1_72px]" : "flex-1",
+                )}
+            >
+                <div
+                    aria-hidden={!emptyStage || undefined}
+                    className={cn(
+                        "absolute inset-0 z-10 flex flex-col items-center justify-end overflow-hidden pb-5 transition-[opacity,transform] duration-[var(--spring-quick-dur)] ease-[var(--spring-quick)] motion-reduce:transform-none motion-reduce:transition-none",
+                        insetX,
+                        emptyStage
+                            ? "translate-y-0 scale-100 opacity-100"
+                            : "pointer-events-none -translate-y-2 scale-[0.98] opacity-0",
+                    )}
+                >
+                    <div className={cn("flex w-full flex-col items-center", columnWidth)}>
+                        <ChatEmptyState onSelectMode={handleEmptySelectMode} />
+                    </div>
+                </div>
+
                 <div
                     ref={scrollContainerRef}
                     role="presentation"
+                    aria-hidden={emptyStage || undefined}
                     onScroll={session.handleScroll}
+                    onWheel={(e) => {
+                        if (e.deltaY < -2) {
+                            session.notifyUserScrollUp();
+                        }
+                    }}
                     onKeyDown={(e) => {
-                        if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "a") return;
                         const target = e.target as HTMLElement | null;
-                        if (target?.closest("textarea, input, [contenteditable='true']")) return;
+                        const inField = Boolean(target?.closest("textarea, input, [contenteditable='true']"));
+                        const inInteractiveControl = Boolean(
+                            target?.closest("button, [role='button'], [data-chat-find-bar]"),
+                        );
+                        if (
+                            !inField &&
+                            !inInteractiveControl &&
+                            (e.key === "PageUp" || e.key === "ArrowUp" || e.key === "Home")
+                        ) {
+                            session.notifyUserScrollUp();
+                        }
+                        if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "a" || inField) return;
                         e.preventDefault();
                         const root = e.currentTarget;
                         const range = document.createRange();
@@ -372,76 +825,211 @@ export default function Chat({
                         sel?.removeAllRanges();
                         sel?.addRange(range);
                     }}
-                    className={cn("absolute inset-0 z-0 flex flex-col overflow-y-auto no-scrollbar select-text", insetX)}
+                    className={cn(
+                        "absolute inset-0 z-0 flex flex-col overflow-y-auto no-scrollbar select-text transition-opacity duration-[var(--spring-quick-dur)] ease-[var(--spring-quick)]",
+                        insetX,
+                        emptyStage ? "pointer-events-none opacity-0" : "opacity-100",
+                    )}
                 >
-                    <div className={cn("mx-auto flex min-h-full w-full min-w-0 flex-col", columnWidth, embedded ? "pb-16 pt-5" : "pb-80 pt-12")}>
-                        <ChatMessageList
-                            messageGroups={session.messageGroups}
-                            messages={session.messages}
-                            isLoading={session.isLoading}
-                            activityLabel={session.activityLabel}
-                            messagesEndRef={messagesEndRef}
-                            onRedo={session.handleRedo}
-                            onRestore={session.handleRestore}
-                            onFork={session.handleFork}
-                            isFileEditResolved={session.isEditResolved}
-                            activeChatTabId={session.activeChatTabId}
-                            contextSummarized={session.contextSummarized}
-                            fullWidthBubbles={false}
-                        />
+                    <div
+                        ref={transcriptContentRef}
+                        className={cn(
+                            "mx-auto flex w-full min-w-0 flex-col",
+                            columnWidth,
+                            embedded ? "pb-4 pt-4" : "pb-6 pt-6",
+                        )}
+                    >
+                        {!isEmpty ? (
+                            <ChatMessageList
+                                messageGroups={session.messageGroups}
+                                messages={session.messages}
+                                isLoading={session.isLoading}
+                                activityLabel={session.activityLabel}
+                                messagesEndRef={messagesEndRef}
+                                onRedo={session.handleRedo}
+                                onRestore={session.handleRestore}
+                                onFork={session.handleFork}
+                                isFileEditResolved={session.isEditResolved}
+                                activeChatTabId={session.activeChatTabId}
+                                contextSummarized={session.contextSummarized}
+                                fullWidthBubbles={false}
+                                highlightedMessageIndex={
+                                    findOpen && activeFindMatch ? activeFindMatch.messageIndex : null
+                                }
+                            />
+                        ) : null}
                     </div>
                 </div>
+
                 <div
-                    className="pointer-events-none absolute inset-x-0 top-0 z-20 h-20 bg-linear-to-b from-panel to-transparent"
+                    className={cn(
+                        "pointer-events-none absolute inset-x-0 top-0 z-20 h-14 bg-linear-to-b from-panel via-panel/75 to-transparent transition-opacity duration-[var(--spring-quick-dur)] ease-[var(--spring-quick)]",
+                        showTopVeil ? "opacity-100" : "opacity-0",
+                    )}
                     aria-hidden
                 />
-                {turnCount >= 2 && !embedded ? (
-                    <div className="pointer-events-none absolute inset-y-0 right-1 z-10 hidden w-9 py-6 md:flex lg:right-3">
+
+                {turnCount >= 2 && !embedded && !emptyStage ? (
+                    <div className="pointer-events-none absolute inset-y-0 right-1 z-10 hidden w-9 py-6 @[640px]/chat:flex @[900px]/chat:right-3">
                         <div className="pointer-events-auto flex h-full w-full items-stretch justify-end">
                             <ChatHistoryStepper
                                 className="h-full"
                                 turnCount={turnCount}
                                 activeIndex={activeTurn}
-                                onSelect={selectTurn}
+                                onSelect={handleSelectTurn}
                                 turnLabels={turnLabels}
                             />
                         </div>
                     </div>
                 ) : null}
+
+                <ChatSelectionQuoteToolbar containerRef={scrollContainerRef} />
             </div>
 
-            <div className={cn("relative z-20 w-full shrink-0 overflow-visible", insetX)}>
+            <div
+                ref={composerDockRef}
+                className={cn("relative z-20 w-full shrink-0 overflow-visible", insetX)}
+            >
                 <div className={cn("relative mx-auto w-full overflow-visible", columnWidth)}>
                     <div
-                        className="pointer-events-none absolute inset-x-0 bottom-full h-20 bg-linear-to-t from-panel to-transparent"
+                        className={cn(
+                            "pointer-events-none absolute inset-x-0 bottom-full h-12 bg-linear-to-t from-panel via-panel/75 to-transparent transition-opacity duration-[var(--spring-quick-dur)] ease-[var(--spring-quick)]",
+                            showBottomVeil ? "opacity-100" : "opacity-0",
+                        )}
                         aria-hidden
                     />
-                    {composer}
+                    <div
+                        className={cn(
+                            "pointer-events-none absolute inset-x-0 bottom-full z-30 mb-3 flex justify-center transition-[opacity,transform,visibility] duration-[var(--spring-quick-dur)] ease-[var(--spring-quick)] motion-reduce:transform-none motion-reduce:transition-none",
+                            showFloatingPill
+                                ? "visible translate-y-0 scale-100 opacity-100"
+                                : "invisible translate-y-2 scale-95 opacity-0",
+                        )}
+                    >
+                        <button
+                            type="button"
+                            tabIndex={showFloatingPill ? 0 : -1}
+                            aria-hidden={!showFloatingPill || undefined}
+                            aria-label={
+                                activeHitlKind === "approval"
+                                    ? "Jump to pending approval"
+                                    : activeHitlKind === "question"
+                                      ? "Jump to pending question"
+                                      : "Jump to bottom"
+                            }
+                            onClick={handleJumpToBottom}
+                            className={cn(
+                                "inline-flex h-7 items-center gap-1.5 rounded-full border border-border-secondary bg-surface-3 px-3 text-xs font-medium shadow-md",
+                                "transition-[background-color,border-color,color,transform] duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] motion-reduce:transform-none motion-reduce:transition-none",
+                                "active:scale-[0.96] hover:bg-[var(--btn-hover)]",
+                                activeHitlKind
+                                    ? "text-text-primary"
+                                    : "text-text-secondary hover:text-text-primary",
+                                showFloatingPill ? "pointer-events-auto" : "pointer-events-none",
+                            )}
+                        >
+                            {activeHitlKind ? (
+                                <span
+                                    aria-hidden
+                                    className="size-1.5 shrink-0 rounded-full bg-warning"
+                                />
+                            ) : session.isLoading ? (
+                                <Eclipse size={12} className="shrink-0 text-text-secondary" />
+                            ) : (
+                                <Icon icon={ArrowDown20Regular} className="size-3.5" />
+                            )}
+                            <span className="tabular-nums">
+                                {activeHitlKind === "approval"
+                                    ? pendingHitlCount > 1
+                                        ? `${pendingHitlCount} approvals waiting · Review`
+                                        : "Approval waiting · Review"
+                                    : activeHitlKind === "question"
+                                      ? pendingHitlCount > 1
+                                          ? `${pendingHitlCount} questions waiting · Answer`
+                                          : "Question waiting · Answer"
+                                      : "Jump to bottom"}
+                            </span>
+                            {activeHitlKind ? (
+                                <Icon
+                                    icon={ArrowDown20Regular}
+                                    className={cn(
+                                        "size-3.5 text-text-muted transition-transform duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
+                                        effectiveHitlDirection === "up" && "rotate-180",
+                                    )}
+                                />
+                            ) : null}
+                        </button>
+                    </div>
+                    <ChatInput
+                        inputValue={session.inputValue}
+                        isLoading={session.isLoading}
+                        isPreparing={session.isPreparing}
+                        uploadedFiles={session.uploadedFiles}
+                        onInputChange={session.handleInputChange}
+                        onKeyDown={handleComposerKeyDown}
+                        onSendMessage={handleComposerSend}
+                        onStopMessage={handleComposerStop}
+                        setUploadedFiles={session.setUploadedFiles}
+                        addUploadedFiles={session.addUploadedFiles}
+                        selectedModel={session.selectedModel}
+                        setSelectedModel={session.setSelectedModel}
+                        selectedWorkerModels={session.selectedWorkerModels}
+                        setSelectedWorkerModels={session.setSelectedWorkerModels}
+                        hideModeSelect={false}
+                        selectedMode={session.selectedMode}
+                        setSelectedMode={session.setSelectedMode}
+                        reasoningEffort={session.reasoningEffort}
+                        setReasoningEffort={session.setReasoningEffort}
+                        pendingEdits={session.pendingEdits}
+                        onAcceptAllEdits={handleComposerAcceptAll}
+                        onRejectAllEdits={handleComposerRejectAll}
+                        onAcceptEdit={handleComposerAcceptEdit}
+                        onRejectEdit={handleComposerRejectEdit}
+                        taskItems={isEmpty ? EMPTY_TASK_ITEMS : taskItems}
+                        queuedMessages={session.messageQueue}
+                        onEditQueuedMessage={session.handleEditQueuedMessage}
+                        onRemoveQueuedMessage={session.handleRemoveQueuedMessage}
+                        onSendQueuedNow={handleComposerSendQueuedNow}
+                        projectRuleFiles={session.projectRuleFiles}
+                        quotedExcerpts={session.quotedExcerpts}
+                        onRemoveQuote={session.removeQuotedExcerpt}
+                        promptHistory={promptHistory}
+                        onNewChat={handleComposerNewChat}
+                        variant={embedded || !isEmpty ? "default" : "empty"}
+                    />
                 </div>
             </div>
+
+            <div
+                aria-hidden="true"
+                className={cn(
+                    "pointer-events-none w-full min-h-0",
+                    emptyStage ? "flex-[1_1_0px]" : "h-0 flex-none",
+                )}
+            />
         </>
     );
 
     return (
-        <div className={cn("flex h-full w-full flex-col overflow-hidden font-sans", className)}>
+        <div
+            ref={chatShellRef}
+            className={cn("flex h-full w-full flex-col overflow-hidden font-sans", className)}
+        >
             {embedded ? null : tabsSlot ? createPortal(titlebar, tabsSlot) : null}
 
             <div
-                className={cn(
-                    "relative flex min-h-0 flex-1 flex-col",
-                    emptyStage ? "overflow-visible" : "overflow-hidden",
-                )}
+                data-chat-stage
+                className="@container/chat relative flex min-h-0 flex-1 flex-col overflow-hidden"
             >
                 {chatColumn}
             </div>
-            <ChatErrorDialog
-                message={session.sendError}
-                onDismiss={() => session.setSendError(null)}
-                onRetry={() => {
-                    session.setSendError(null);
-                    void session.handleSendMessage();
-                }}
-            />
+            {session.sendError ? (
+                <ChatErrorDialog
+                    message={session.sendError}
+                    onDismiss={handleDismissSendError}
+                    onRetry={handleRetrySendError}
+                />
+            ) : null}
         </div>
     );
 }

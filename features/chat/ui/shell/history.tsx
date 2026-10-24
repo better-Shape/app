@@ -21,6 +21,7 @@ import { commands } from "@/lib/backend";
 import type { Conversation } from "@/lib/backend/types";
 import { toTimestampMs } from "@/lib/ui/timestamp";
 import { cn } from "@/lib/utils";
+import { prefetchChatConversation } from "../../lib/chat-stream-store";
 
 export const CHAT_HISTORY_OPEN_EVENT = "bettershape-chat-open-history";
 
@@ -160,6 +161,12 @@ export function ChatHistoryMenu({
                                 <DropdownMenuItem
                                     key={conversation.id}
                                     className="group gap-2 pr-1"
+                                    onPointerEnter={() => {
+                                        if (!active) prefetchChatConversation(conversation.id);
+                                    }}
+                                    onFocus={() => {
+                                        if (!active) prefetchChatConversation(conversation.id);
+                                    }}
                                     onSelect={() => void handleSelect(conversation)}
                                 >
                                     <span

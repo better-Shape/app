@@ -1,5 +1,8 @@
 "use client";
 
+import { ArrowDownload20Regular } from "@fluentui/react-icons/headless/svg/arrow-download";
+import { Copy20Regular } from "@fluentui/react-icons/headless/svg/copy";
+import { DocumentSearch20Regular } from "@fluentui/react-icons/headless/svg/document-search";
 import { MoreHorizontal20Regular } from "@fluentui/react-icons/headless/svg/more-horizontal";
 import { Search20Regular } from "@fluentui/react-icons/headless/svg/search";
 
@@ -12,11 +15,17 @@ import {
     DropdownMenuContent,
     DropdownMenuItem,
     DropdownMenuSeparator,
+    DropdownMenuShortcut,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown";
 import { openSettingsWindow } from "@/lib/window/open-settings";
 import { getPlatform } from "@/lib/platform";
 import { notify } from "@/features/notifications";
+import {
+    CHAT_COPY_MARKDOWN_EVENT,
+    CHAT_EXPORT_MARKDOWN_EVENT,
+    openChatFindBar,
+} from "./find-bar";
 
 async function downloadDiagnostics() {
     const payload = {
@@ -36,14 +45,29 @@ async function downloadDiagnostics() {
 }
 
 export function ChatMoreMenu() {
+    const modLabel = getPlatform() === "macos" ? "⌘F" : "Ctrl+F";
+
     return (
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-6 w-6 text-text-muted hover:text-text-primary">
+                <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label="More chat actions"
+                    className="size-[24px] text-text-muted hover:text-text-primary"
+                >
                     <Icon icon={MoreHorizontal20Regular} />
                 </Button>
             </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuItem
+                    className="gap-2.5"
+                    onClick={() => openChatFindBar()}
+                >
+                    <Icon icon={DocumentSearch20Regular} className="text-text-secondary" />
+                    Find in chat...
+                    <DropdownMenuShortcut>{modLabel}</DropdownMenuShortcut>
+                </DropdownMenuItem>
                 <DropdownMenuItem
                     className="gap-2.5"
                     onClick={() => {
@@ -58,7 +82,22 @@ export function ChatMoreMenu() {
                     }}
                 >
                     <Icon icon={Search20Regular} className="text-text-secondary" />
-                    Search history…
+                    Search history...
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                    className="gap-2.5"
+                    onClick={() => window.dispatchEvent(new Event(CHAT_COPY_MARKDOWN_EVENT))}
+                >
+                    <Icon icon={Copy20Regular} className="text-text-secondary" />
+                    Copy chat as Markdown
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                    className="gap-2.5"
+                    onClick={() => window.dispatchEvent(new Event(CHAT_EXPORT_MARKDOWN_EVENT))}
+                >
+                    <Icon icon={ArrowDownload20Regular} className="text-text-secondary" />
+                    Export chat (.md)
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem

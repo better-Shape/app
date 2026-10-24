@@ -59,7 +59,7 @@ import {
     subscribeSubagents,
 } from "@/features/agent/subagents/store";
 import { listen } from "@tauri-apps/api/event";
-import { useChatStreamOptional } from "@/features/chat/lib/chat-stream-store";
+import { useViewedConversationId } from "@/features/chat/lib/chat-stream-store";
 import { useChatActivities } from "@/features/chat/lib/chat-activity";
 import { useGeneratingChatIds } from "@/features/chat/lib/generating-chats";
 import { ScrollArea } from "@/components/ui/scroll";
@@ -145,16 +145,20 @@ function HeaderIconBtn({
 function UndoCountdown() {
     const [draining, setDraining] = useState(false);
     useEffect(() => {
-        const frame = window.requestAnimationFrame(() => {
-            window.requestAnimationFrame(() => setDraining(true));
+        let inner = 0;
+        const outer = window.requestAnimationFrame(() => {
+            inner = window.requestAnimationFrame(() => setDraining(true));
         });
-        return () => window.cancelAnimationFrame(frame);
+        return () => {
+            window.cancelAnimationFrame(outer);
+            if (inner) window.cancelAnimationFrame(inner);
+        };
     }, []);
     return (
         <span
             aria-hidden
             className={cn(
-                "absolute inset-x-0 bottom-0 h-[3px] origin-left bg-accent",
+                "pointer-events-none absolute inset-x-0 bottom-0 h-[2px] origin-left bg-accent/80",
                 "transition-transform ease-linear",
                 draining ? "scale-x-0" : "scale-x-100",
             )}
@@ -171,24 +175,26 @@ function UndoBar() {
             data-chat-undo={entry.kind}
             role="status"
             aria-live="polite"
-            className="relative mx-1.5 mb-1 flex items-center gap-2 squircle-2xl border border-border-subtle bg-surface-3 px-2 py-1.5 shadow-lg"
+            className="relative mx-2 mb-1.5 flex items-center gap-2 overflow-hidden rounded-xl border border-border-secondary bg-surface-3 px-2.5 py-2 shadow-md"
         >
-            <span className="min-w-0 flex-1 truncate text-sm text-text-primary">{entry.label}</span>
+            <span className="min-w-0 flex-1 break-words line-clamp-2 text-xs font-medium leading-[17px] text-text-primary">
+                {entry.label}
+            </span>
             <button
                 type="button"
                 onClick={() => undoChat()}
-                className="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-sm text-text-secondary transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary"
+                className="inline-flex min-h-[24px] shrink-0 items-center gap-1 rounded-md border border-border-subtle bg-surface-2 px-2 py-0.5 text-xs font-medium text-text-primary transition-[background-color,color,transform] duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] active:scale-[0.97] motion-reduce:transform-none motion-reduce:transition-none"
             >
-                <Icon icon={ArrowUndo20Regular} className="icon-sm" />
+                <Icon icon={ArrowUndo20Regular} className="size-3.5" />
                 Undo
             </button>
             <button
                 type="button"
                 aria-label="Dismiss undo"
                 onClick={() => dismissChatUndo()}
-                className="flex size-6 shrink-0 items-center justify-center rounded-md text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary"
+                className="flex size-[24px] shrink-0 items-center justify-center rounded-md text-text-muted transition-[background-color,color,transform] duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary active:scale-[0.95] motion-reduce:transform-none motion-reduce:transition-none"
             >
-                <Icon icon={Dismiss20Regular} className="icon-sm" />
+                <Icon icon={Dismiss20Regular} className="size-3.5" />
             </button>
             <UndoCountdown key={entry.id} />
         </div>
@@ -208,7 +214,7 @@ export function ChatList({
     /** @deprecated unified Sessions list, ignored */
     listKind?: "chat";
 }) {
-    const viewedChatId = useChatStreamOptional().viewedConversationId;
+    const viewedChatId = useViewedConversationId();
     const { project_path } = useProjectState();
     const [chats, setChats] = useState<Conversation[]>([]);
     const [searchOpen, setSearchOpen] = useState(false);

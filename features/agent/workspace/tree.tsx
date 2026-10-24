@@ -1,5 +1,6 @@
 "use client";
 
+import { Chat20Regular } from "@fluentui/react-icons/headless/svg/chat";
 import { ChevronDown20Regular } from "@fluentui/react-icons/headless/svg/chevron-down";
 import { ChevronRight20Regular } from "@fluentui/react-icons/headless/svg/chevron-right";
 import { Search20Regular } from "@fluentui/react-icons/headless/svg/search";
@@ -62,9 +63,21 @@ function sortEntries(list: FileEntry[]) {
 
 type ClipboardAction = "cut" | "copy" | "paste";
 
+function formatExplorerMentionToken(entryPath: string, projectPath: string, isDir: boolean): string {
+    const cleanEntry = entryPath.replace(/\\/g, "/");
+    const cleanRoot = projectPath.replace(/\\/g, "/").replace(/\/+$/, "");
+    let rel = cleanEntry;
+    if (cleanRoot && cleanEntry.toLowerCase().startsWith(`${cleanRoot.toLowerCase()}/`)) {
+        rel = cleanEntry.slice(cleanRoot.length + 1);
+    }
+    const suffix = isDir && !rel.endsWith("/") ? "/" : "";
+    return `@${rel}${suffix} `;
+}
+
 function TreeNode({
     entry,
     depth,
+    projectPath,
     activePath,
     query,
     onOpenFile,
@@ -78,6 +91,7 @@ function TreeNode({
 }: {
     entry: FileEntry;
     depth: number;
+    projectPath: string;
     activePath: string | null;
     query: string;
     onOpenFile: (path: string) => void;
@@ -138,6 +152,15 @@ function TreeNode({
     const copyPath = () => {
         void navigator.clipboard.writeText(entry.path);
     };
+    const addToChat = () => {
+        const token = formatExplorerMentionToken(entry.path, projectPath, entry.is_dir);
+        window.dispatchEvent(
+            new CustomEvent("bettershape-chat-insert-prompt", {
+                detail: { prompt: token, send: false },
+            }),
+        );
+        window.dispatchEvent(new CustomEvent("bettershape-chat-focus-input"));
+    };
 
     if (entry.is_dir) {
         const visibleChildren = children?.filter((child) => {
@@ -172,6 +195,10 @@ function TreeNode({
                     </ContextMenuTrigger>
                     <ContextMenuContent className="min-w-40">
                         <ContextMenuItem onClick={() => setOpen(true)}>Open</ContextMenuItem>
+                        <ContextMenuItem onClick={addToChat}>
+                            <Icon icon={Chat20Regular} />
+                            Add to Chat
+                        </ContextMenuItem>
                         <ContextMenuItem onClick={reveal}>Reveal in Explorer</ContextMenuItem>
                         <ContextMenuItem onClick={copyPath}>Copy Path</ContextMenuItem>
                         <ContextMenuSeparator />
@@ -187,6 +214,7 @@ function TreeNode({
                             key={child.path}
                             entry={child}
                             depth={depth + 1}
+                            projectPath={projectPath}
                             activePath={activePath}
                             query={query}
                             onOpenFile={onOpenFile}
@@ -238,6 +266,10 @@ function TreeNode({
             </ContextMenuTrigger>
             <ContextMenuContent className="min-w-40">
                 <ContextMenuItem onClick={() => onOpenFile(entry.path)}>Open</ContextMenuItem>
+                <ContextMenuItem onClick={addToChat}>
+                    <Icon icon={Chat20Regular} />
+                    Add to Chat
+                </ContextMenuItem>
                 <ContextMenuItem onClick={reveal}>Reveal in Explorer</ContextMenuItem>
                 <ContextMenuItem onClick={copyPath}>Copy Path</ContextMenuItem>
                 <ContextMenuSeparator />
@@ -427,6 +459,7 @@ export function FileTree({
                             key={entry.path}
                             entry={entry}
                             depth={0}
+                            projectPath={projectPath}
                             activePath={activePath}
                             query={query}
                             onOpenFile={onOpenFile}

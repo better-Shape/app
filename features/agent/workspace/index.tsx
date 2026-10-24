@@ -223,13 +223,24 @@ export function AgentWorkspace({
         window.addEventListener("bettershape-open-workspace-file", onOpenFile as EventListener);
         window.addEventListener("bettershape-open-file-diff", onOpenDiff as EventListener);
         let stopRustTab: (() => void) | undefined;
-        void import("@tauri-apps/api/event").then(({ listen }) =>
-            listen<string>("bettershape-set-active-tab", (event) => {
-                window.dispatchEvent(new CustomEvent("bettershape-set-active-tab", { detail: event.payload }));
-            }).then((stop) => {
+        void import("@tauri-apps/api/event")
+            .then(({ listen }) => {
+                try {
+                    return listen<string>("bettershape-set-active-tab", (event) => {
+                        window.dispatchEvent(
+                            new CustomEvent("bettershape-set-active-tab", {
+                                detail: event.payload,
+                            }),
+                        );
+                    });
+                } catch {
+                    return undefined;
+                }
+            })
+            .then((stop) => {
                 stopRustTab = stop;
-            }),
-        );
+            })
+            .catch(() => {});
         return () => {
             stopRustTab?.();
             window.removeEventListener("bettershape-set-active-tab", onTab as EventListener);
@@ -280,7 +291,7 @@ export function AgentWorkspace({
     }
 
     return (
-        <aside className="flex h-full w-full min-w-0 flex-col overflow-hidden bg-sidebar">
+        <aside className="@container/workspace flex h-full w-full min-w-0 flex-col overflow-hidden bg-sidebar">
             <div className="flex h-titlebar shrink-0 items-stretch">
                 <WorkspaceTabs
                     className="min-w-0 flex-1 bg-transparent"
@@ -330,7 +341,7 @@ export function AgentWorkspace({
                                         <div className="min-h-0 min-w-0 flex-1 bg-sidebar" style={SIDEBAR_SURFACE}>
                                             <FileEditor path={active.path} />
                                         </div>
-                                        <div className="w-64 shrink-0">
+                                        <div className="hidden w-44 shrink-0 border-l border-border-subtle @[440px]/workspace:block">
                                             <FileTree
                                                 projectPath={projectPath}
                                                 activePath={active.path}

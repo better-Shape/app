@@ -35,10 +35,10 @@ export function ComposerTasksStrip({ items }: { items: ComposerTaskItem[] }) {
             <DropdownMenuTrigger asChild>
                 <button
                     type="button"
-                    className="flex h-6 max-w-[200px] items-center gap-1.5 rounded-md px-1.5 text-sm text-text-secondary hover:bg-[var(--btn-hover)] hover:text-text-primary"
+                    className="inline-flex h-6.5 max-w-[210px] items-center gap-1.5 rounded-full border border-border-subtle bg-surface-3/90 px-2.5 text-xs font-medium text-text-secondary transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary data-[state=open]:bg-[var(--btn-open)] data-[state=open]:hover:bg-[var(--btn-open-hover)] data-[state=open]:text-text-primary"
                     aria-label="Tasks"
                 >
-                    <span className="flex size-4 shrink-0 items-center justify-center">
+                    <span className="flex size-3.5 shrink-0 items-center justify-center">
                         {active.status === "running" ? (
                             <span className="t-spin-check" data-state="spin">
                                 <span className="t-spin-check__ring" />
@@ -46,11 +46,11 @@ export function ComposerTasksStrip({ items }: { items: ComposerTaskItem[] }) {
                         ) : allDone ? (
                             <Icon icon={Checkmark20Regular} className="icon-sm text-success" />
                         ) : (
-                            <span className="size-3.5 rounded-full border border-text-muted/55" />
+                            <span className="size-3 rounded-full border border-text-muted/55" />
                         )}
                     </span>
-                    <span className="truncate">{active.label}</span>
-                    <span className="tabular-nums text-xs text-text-muted">
+                    <span className="min-w-0 truncate">{active.label}</span>
+                    <span className="shrink-0 tabular-nums text-text-muted">
                         {done}/{items.length}
                     </span>
                 </button>

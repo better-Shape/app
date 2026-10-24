@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { memo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
     DropdownMenu,
@@ -46,7 +46,7 @@ function barLook(pos: number, options: { value: ReasoningEffort }[]) {
     };
 }
 
-export function ThinkingEffortControl({
+export const ThinkingEffortControl = memo(function ThinkingEffortControl({
     effort,
     modelId,
     onChange,
@@ -91,12 +91,12 @@ export function ThinkingEffortControl({
 
     return (
         <DropdownMenu>
-            <DropdownMenuTrigger asChild>
+            <DropdownMenuTrigger asChild disabled={disabled}>
                 <Button
                     variant="ghost"
                     size="xs"
                     disabled={disabled}
-                    className="h-8 pl-0 font-normal text-text-muted hover:text-text-primary hover:bg-transparent"
+                    className="h-7 shrink-0 rounded-md px-1.5 font-normal text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary data-[state=open]:bg-[var(--btn-open)] data-[state=open]:hover:bg-[var(--btn-open-hover)] data-[state=open]:text-text-primary"
                     aria-label={`Thinking ${effortDisplayLabel(selected)}`}
                 >
                     <span className="text-sm">{effortDisplayLabel(selected)}</span>
@@ -176,4 +176,4 @@ export function ThinkingEffortControl({
             </DropdownMenuContent>
         </DropdownMenu>
     );
-}
+});

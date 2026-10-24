@@ -29,7 +29,8 @@ export function ContextChip({
 }) {
     const classes = cn(
         "mx-0.5 inline-flex items-center gap-1 rounded-lg bg-accent-text-bg px-1.5 py-0.5 align-middle font-medium text-accent-text",
-        onClick && "cursor-pointer hover:bg-accent-text/20 transition-colors",
+        onClick &&
+            "cursor-pointer transition-[background-color,transform] duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] motion-reduce:transform-none motion-reduce:transition-none hover:bg-accent-text/20 active:scale-[0.96]",
         className,
     );
     const body = (

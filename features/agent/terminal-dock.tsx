@@ -20,7 +20,7 @@ function clearBodyResize() {
     document.body.classList.remove("resizing-vertical");
 }
 
-export function TerminalDock() {
+export function TerminalDock({ suppressed = false }: { suppressed?: boolean } = {}) {
     const { project_path } = useProjectState();
     const cwdRef = useRef(project_path);
     useEffect(() => { cwdRef.current = project_path; }, [project_path]);
@@ -32,6 +32,7 @@ export function TerminalDock() {
     useLayoutEffect(() => { heightRef.current = height; }, [height]);
     useEffect(() => { clearBodyResize(); }, []);
     const dragging = useRef(false);
+    const visibleOpen = open && !suppressed;
 
     const hydrated = useIsMounted();
     const [restoredPreferences, setRestoredPreferences] = useState(false);
@@ -70,34 +71,46 @@ export function TerminalDock() {
     }, []);
 
     useEffect(() => {
+        if (typeof window === "undefined") return undefined;
+        const tauri = (
+            window as unknown as {
+                __TAURI_INTERNALS__?: { transformCallback?: unknown };
+            }
+        ).__TAURI_INTERNALS__;
+        if (typeof tauri?.transformCallback !== "function") return undefined;
+
         let unlisten: (() => void) | undefined;
         let cancelled = false;
-        void import("@tauri-apps/api/event").then(({ listen }) =>
-            listen<{ type: string; command?: string; sessionId?: number }>(
-                "bettershape-terminal-ai-action",
-                (event) => {
-                    if (cancelled) return;
-                    if (event.payload.type !== "start" || event.payload.sessionId == null) return;
-                    const cwd = cwdRef.current || "global";
-                    const title =
-                        (event.payload.command || "Agent").replace(/\s+/g, " ").trim().slice(0, 48) ||
-                        "Agent";
-                    registerBoundTerminalTab({
-                        title,
-                        cwd,
-                        shell: "ai",
-                        boundPtyId: event.payload.sessionId,
-                    });
-                    window.dispatchEvent(
-                        new CustomEvent("bettershape-layout-toggle", { detail: { id: "panel", value: true } }),
-                    );
-                    persistOpen(true);
-                },
-            ).then((fn) => {
-                if (cancelled) fn();
-                else unlisten = fn;
-            }),
-        );
+        void import("@tauri-apps/api/event")
+            .then(({ listen }) =>
+                listen<{ type: string; command?: string; sessionId?: number }>(
+                    "bettershape-terminal-ai-action",
+                    (event) => {
+                        if (cancelled) return;
+                        if (event.payload.type !== "start" || event.payload.sessionId == null) return;
+                        const cwd = cwdRef.current || "global";
+                        const title =
+                            (event.payload.command || "Agent").replace(/\s+/g, " ").trim().slice(0, 48) ||
+                            "Agent";
+                        registerBoundTerminalTab({
+                            title,
+                            cwd,
+                            shell: "ai",
+                            boundPtyId: event.payload.sessionId,
+                        });
+                        window.dispatchEvent(
+                            new CustomEvent("bettershape-layout-toggle", { detail: { id: "panel", value: true } }),
+                        );
+                        persistOpen(true);
+                    },
+                ).then((fn) => {
+                    if (cancelled) fn();
+                    else unlisten = fn;
+                }),
+            )
+            .catch(() => {
+                /* non-Tauri preview runtime */
+            });
         return () => {
             cancelled = true;
             unlisten?.();
@@ -111,7 +124,7 @@ export function TerminalDock() {
             if (id !== "panel" && id !== "terminal") return;
             if (detail?.value === false) persistOpen(false);
             else if (detail?.value === true) persistOpen(true);
-            else persistOpen(!open);
+            else persistOpen(!visibleOpen);
         };
         const onOpen = () => persistOpen(true);
         const onShortcut = (e: Event) => {
@@ -132,10 +145,18 @@ export function TerminalDock() {
             window.removeEventListener("bettershape-terminal-shortcut", onShortcut as EventListener);
             window.removeEventListener("bettershape-set-active-tab", onTab as EventListener);
         };
-    }, [open, persistOpen]);
+    }, [persistOpen, visibleOpen]);
+
+    useEffect(() => {
+        if (!suppressed || !dragging.current) return;
+        dragging.current = false;
+        setResizing(false);
+        clearBodyResize();
+    }, [suppressed]);
 
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
+            if (suppressed) return;
             const t = e.target as HTMLElement | null;
             if (t?.closest("textarea, input, [contenteditable='true']")) return;
             if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
@@ -145,7 +166,7 @@ export function TerminalDock() {
         };
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);
-    }, [open, persistOpen]);
+    }, [open, persistOpen, suppressed]);
 
     useEffect(() => {
         const onMove = (e: MouseEvent) => {
@@ -175,7 +196,7 @@ export function TerminalDock() {
     }, []);
 
     useEffect(() => {
-        if (!open) return;
+        if (!visibleOpen) return;
         const t = window.setTimeout(() => {
             void import("@/features/terminal/ui/terminal").then((m) => {
                 void m.refitAllTerminals();
@@ -184,25 +205,27 @@ export function TerminalDock() {
             });
         }, 40);
         return () => window.clearTimeout(t);
-    }, [open, height]);
+    }, [visibleOpen, height]);
 
     if (!mounted) return null;
 
     return (
         <div
+            data-terminal-dock=""
+            data-terminal-open={visibleOpen ? "true" : "false"}
             className={cn(
                 "relative z-20 shrink-0 overflow-hidden",
-                "transition-[height,margin] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
-                open ? "m-3" : "pointer-events-none m-0",
-                resizing && "transition-none",
+                "transition-[height,margin] duration-[var(--spring-panel-dur)] ease-[var(--spring-panel)] motion-reduce:transition-none",
+                visibleOpen ? "m-3 visible" : "pointer-events-none invisible m-0",
+                (resizing || suppressed) && "transition-none",
             )}
-            style={{ height: open ? height + 10 : 0 }}
-            aria-hidden={!open}
+            style={{ height: visibleOpen ? height + 10 : 0 }}
+            aria-hidden={!visibleOpen}
         >
             <div
                 className="relative flex h-full flex-col overflow-hidden rounded-xl squircle-2xl border border-border bg-panel px-2 pb-2"
             >
-                {open ? (
+                {visibleOpen ? (
                     <div
                         role="separator"
                         aria-orientation="horizontal"
@@ -220,7 +243,7 @@ export function TerminalDock() {
                 ) : null}
                 <div className={cn("min-h-0 flex-1 overflow-hidden", resizing && "pointer-events-none")}>
                     <Suspense fallback={<div className="h-full w-full bg-panel" />}>
-                        <Terminal terminalOnly isOpen={open} onClose={() => persistOpen(false)} />
+                        <Terminal terminalOnly isOpen={visibleOpen} onClose={() => persistOpen(false)} />
                     </Suspense>
                 </div>
             </div>

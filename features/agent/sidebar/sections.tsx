@@ -42,6 +42,7 @@ import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useIsChatGenerating } from "@/features/chat/lib/generating-chats";
+import { prefetchChatConversation } from "@/features/chat/lib/chat-stream-store";
 import { openSubagent, type SubagentCard } from "@/features/agent/subagents/store";
 import type { Conversation } from "@/lib/backend/types";
 import { toTimestampMs } from "@/lib/ui/timestamp";
@@ -458,6 +459,9 @@ const ChatRow = ({
             ref={rowRef}
             data-motion-id={id}
             data-row-variant={variant}
+            onPointerEnter={() => {
+                if (!active) prefetchChatConversation(id);
+            }}
             className={cn("flex flex-col overflow-hidden", isDragging && "opacity-40", outerTintClass(color, active))}
             style={{
                 ...(color ? { ["--chat-tint" as string]: CHAT_COLOR_HEX[color] } : {}),

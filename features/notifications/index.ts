@@ -4,10 +4,19 @@ import { randomSuffix } from "@/lib/utils";
 
 export type NotificationType = "info" | "warning" | "error" | "success";
 
+export type NotificationAction = {
+    label: string;
+    onClick: () => void;
+};
+
 export type NotifyOptions = {
     autoHide?: boolean;
     /** Numeric BetterShape error code, shown as "Error N" with a docs link. */
     code?: number;
+    /** Optional inline action button rendered inside the toast. */
+    action?: NotificationAction;
+    /** Custom auto-hide duration in milliseconds when autoHide is enabled. */
+    durationMs?: number;
 };
 
 export interface Notification {
@@ -18,6 +27,8 @@ export interface Notification {
     timestamp: number;
     autoHide?: boolean;
     code?: number;
+    action?: NotificationAction;
+    durationMs?: number;
 }
 
 interface NotificationState {
@@ -74,6 +85,8 @@ export const notificationStore = {
             timestamp: Date.now(),
             autoHide,
             code: options?.code,
+            action: options?.action,
+            durationMs: options?.durationMs,
         };
 
         const pruned = pruneExpired();

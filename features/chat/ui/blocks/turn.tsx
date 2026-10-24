@@ -1,12 +1,18 @@
 "use client";
 
+import { CheckmarkCircle20Regular } from "@fluentui/react-icons/headless/svg/checkmark-circle";
 import { ChevronRight20Regular } from "@fluentui/react-icons/headless/svg/chevron-right";
+import { ChevronUp20Regular } from "@fluentui/react-icons/headless/svg/chevron-up";
+import { DocumentSearch20Regular } from "@fluentui/react-icons/headless/svg/document-search";
 import { Edit20Regular } from "@fluentui/react-icons/headless/svg/edit";
+import { ErrorCircle20Regular } from "@fluentui/react-icons/headless/svg/error-circle";
+import { Folder20Regular } from "@fluentui/react-icons/headless/svg/folder";
+import { Open20Regular } from "@fluentui/react-icons/headless/svg/open";
+import { Wrench20Regular } from "@fluentui/react-icons/headless/svg/wrench";
 
-
-
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { FileIcon } from "@/components/ui/file-icon";
 import { Icon } from "@/components/ui/icon";
 
 
@@ -14,6 +20,7 @@ import { cn } from "@/lib/utils";
 import type { Chunk } from "../md/renderer";
 import { openProjectFile } from "@/lib/window/open-project-file";
 import { commands } from "@/lib/backend/commands";
+import { notifyTranscriptDisclosureToggle } from "../shell/find-bar";
 import { Collapse } from "./collapse";
 import { TerminalCommandStep } from "./terminal-live";
 import {
@@ -49,22 +56,123 @@ function fileName(path: string): string {
     return path.split(/[\\/]/).pop() || path;
 }
 
-/** Action word bright; detail muted, no chip / full-line highlight. */
+function formatTurnDuration(ms: number): string {
+    const clamped = Math.max(0, ms);
+    if (clamped < 10_000) {
+        const tenths = Math.max(0.1, Math.round(clamped / 100) / 10);
+        return `${tenths.toFixed(tenths % 1 === 0 ? 0 : 1)}s`;
+    }
+    const sec = Math.round(clamped / 1000);
+    if (sec < 60) return `${sec}s`;
+    const mins = Math.floor(sec / 60);
+    const rem = sec % 60;
+    return `${mins}m ${String(rem).padStart(2, "0")}s`;
+}
+
+function formatLineRange(start?: number, end?: number): string | null {
+    if (typeof start !== "number" || !Number.isFinite(start)) return null;
+    if (typeof end === "number" && Number.isFinite(end) && end > start) {
+        return `L${start}-${end}`;
+    }
+    return `L${start}`;
+}
+
+/** Action word bright; detail muted, with optional expandable file/query drill-down. */
 function GroupActionLabel({
     action,
     detail,
+    icon,
+    files,
+    queries,
+    previews,
 }: {
     action: string;
     detail?: string | null;
+    icon?: React.ReactNode;
+    files?: Array<{
+        path: string;
+        start?: number;
+        end?: number;
+        startLine?: number;
+        endLine?: number;
+    }>;
+    queries?: string[];
+    previews?: string[];
 }) {
-    return <ActionLine action={action} detail={detail} />;
+    const cleanFiles = (files ?? []).filter((f) => Boolean(f.path));
+    const cleanQueries = [...new Set((queries ?? []).map((q) => q.trim()).filter(Boolean))];
+    const cleanPreviews = (previews ?? []).map((p) => p.trim()).filter(Boolean);
+    const singleFile =
+        cleanFiles.length === 1 && cleanQueries.length === 0 && cleanPreviews.length === 0
+            ? cleanFiles[0]
+            : null;
+    const expandable =
+        cleanFiles.length > 1 || cleanQueries.length > 1 || cleanPreviews.length > 0;
+
+    return (
+        <ActionLine
+            action={action}
+            detail={detail}
+            icon={icon}
+            onClick={singleFile ? () => void openProjectFile(singleFile.path) : undefined}
+        >
+            {expandable ? (
+                <div className="mt-0.5 mb-1 flex flex-col gap-0.5 pl-3.5">
+                    {cleanFiles.map((f, idx) => {
+                        const name = fileName(f.path);
+                        const lineStart = f.start ?? f.startLine;
+                        const lineEnd = f.end ?? f.endLine;
+                        const range = formatLineRange(lineStart, lineEnd);
+                        return (
+                            <button
+                                key={`${f.path}-${lineStart ?? ""}-${idx}`}
+                                type="button"
+                                onClick={() => void openProjectFile(f.path)}
+                                className="flex w-fit max-w-full items-center gap-1.5 rounded-md px-1 py-0.5 text-left text-xs text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--row-hover)] hover:text-text-primary"
+                            >
+                                <FileIcon name={name} className="size-3.5 shrink-0 opacity-85" />
+                                <span className="min-w-0 truncate">{name}</span>
+                                {range ? (
+                                    <span className="shrink-0 font-mono text-2xs tabular-nums text-text-muted/75">
+                                        {range}
+                                    </span>
+                                ) : null}
+                            </button>
+                        );
+                    })}
+                    {cleanQueries.length > 1
+                        ? cleanQueries.map((q, idx) => (
+                              <div
+                                  key={`${q}-${idx}`}
+                                  className="flex min-w-0 items-center gap-1.5 px-1 py-0.5 text-xs text-text-muted"
+                              >
+                                  <Icon
+                                      icon={DocumentSearch20Regular}
+                                      className="size-3.5 shrink-0 text-text-muted/75"
+                                  />
+                                  <span className="min-w-0 truncate font-mono text-2xs">{q}</span>
+                              </div>
+                          ))
+                        : null}
+                    {cleanPreviews.map((preview, idx) => (
+                        <pre
+                            key={`preview-${idx}`}
+                            className="mt-0.5 max-h-36 overflow-y-auto rounded-md border border-border-subtle/50 bg-surface-2/60 px-2 py-1.5 font-mono text-2xs leading-relaxed text-text-muted whitespace-pre-wrap break-words"
+                        >
+                            {preview}
+                        </pre>
+                    ))}
+                </div>
+            ) : null}
+        </ActionLine>
+    );
 }
 
 function groupDetail(names: string[]): string | null {
     const unique = [...new Set(names.map(fileName).filter(Boolean))];
     if (unique.length === 0) return null;
     if (unique.length === 1) return unique[0] ?? null;
-    return `${unique[0]} and more`;
+    return `${unique[0]} + ${unique.length - 1} more`;
 }
 
 function modelChipLabel(model?: string): string {
@@ -81,7 +189,7 @@ function openSpawnedAgent(block: Chunk) {
         title: name,
         agent: name,
         model: block.command,
-        activity: "Working…",
+        activity: "Working...",
         task: block.type === "subagent_ref" ? block.content : undefined,
         transcript: block.type === "subagent" ? block.content : undefined,
         status: (block.commandStatus as "running" | "done" | "error" | "pending") || "running",
@@ -244,17 +352,59 @@ function ThoughtStep({
     content: string;
     isActive?: boolean;
 }) {
+    const [open, setOpen] = useState(false);
     const trimmed = joinThoughtLines(content).trim();
-    if (!trimmed) return null;
-    if (isActive) return <ActionLine action="Thinking" shimmer />;
+    if (!trimmed) {
+        return isActive ? <ActionLine action="Thinking" shimmer /> : null;
+    }
 
-    const expandable = trimmed.length >= 80;
+    const lines = trimmed.split("\n").filter(Boolean);
+    const lastLine = (lines[lines.length - 1] ?? "").trim();
+    const livePreview =
+        lastLine.length > 64 ? `${lastLine.slice(0, 61).trimEnd()}...` : lastLine;
+
+    if (isActive) {
+        return (
+            <ActionLine
+                action="Thinking"
+                detail={!open && livePreview ? livePreview : undefined}
+                shimmer
+                open={open}
+                onOpenChange={setOpen}
+            >
+                <div className="mt-1 mb-1 max-h-56 w-full min-w-0 overflow-y-auto pl-3.5 whitespace-pre-wrap chat-text leading-relaxed text-text-muted custom-scrollbar">
+                    {trimmed}
+                </div>
+            </ActionLine>
+        );
+    }
+
+    const expandable = trimmed.length >= 60 || lines.length >= 2;
     const detail = trimmed.length < 40 ? "briefly" : `${estimateThoughtSeconds(trimmed)}s`;
     return (
-        <ActionLine action="Thought" detail={detail}>
+        <ActionLine
+            action="Thought"
+            detail={detail}
+            open={expandable ? open : undefined}
+            onOpenChange={expandable ? setOpen : undefined}
+        >
             {expandable ? (
-                <div className="mt-1 w-full min-w-0 whitespace-pre-wrap chat-text leading-relaxed text-text-muted">
-                    {trimmed}
+                <div className="mt-1 mb-1 flex w-full min-w-0 flex-col gap-1 pl-3.5">
+                    <div className="w-full min-w-0 whitespace-pre-wrap chat-text leading-relaxed text-text-muted">
+                        {trimmed}
+                    </div>
+                    {lines.length >= 10 ? (
+                        <div>
+                            <button
+                                type="button"
+                                onClick={() => setOpen(false)}
+                                className="inline-flex min-h-[24px] items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary"
+                            >
+                                <Icon icon={ChevronUp20Regular} className="size-3.5" />
+                                <span>Collapse</span>
+                            </button>
+                        </div>
+                    ) : null}
                 </div>
             ) : null}
         </ActionLine>
@@ -299,16 +449,21 @@ function EditApprovalRow({ block }: { block: Chunk }) {
     useEffect(() => {
         if (!block.commandId) return;
         let disposed = false;
-        const unlistenPromise = listen<{ id?: string; approved?: boolean }>(
-            "agent-edit-resolved",
-            (event) => {
-                if (disposed || event.payload?.id !== block.commandId) return;
-                setLocalStatus(event.payload?.approved ? "applied" : "rejected");
-            },
-        );
+        let unlistenPromise: Promise<() => void>;
+        try {
+            unlistenPromise = listen<{ id?: string; approved?: boolean }>(
+                "agent-edit-resolved",
+                (event) => {
+                    if (disposed || event.payload?.id !== block.commandId) return;
+                    setLocalStatus(event.payload?.approved ? "applied" : "rejected");
+                },
+            ).catch(() => () => {});
+        } catch {
+            unlistenPromise = Promise.resolve(() => {});
+        }
         return () => {
             disposed = true;
-            void unlistenPromise.then((unlisten) => unlisten()).catch(() => { /* ignore */ });
+            void unlistenPromise.then((unlisten) => unlisten());
         };
     }, [block.commandId]);
 
@@ -368,8 +523,24 @@ function EditApprovalRow({ block }: { block: Chunk }) {
 function StepRowAppliedEdit({ block }: { block: Chunk }) {
     const { add, del } = editDelta(block);
     const file = block.file || "";
+    const shortName = fileName(file);
     return (
-        <ActionLine action="Edited" detail={fileName(file)} add={add} del={del}>
+        <ActionLine
+            action="Edited"
+            detail={shortName}
+            icon={<FileIcon name={shortName} className="size-3.5 shrink-0 opacity-85" />}
+            add={add}
+            del={del}
+            secondaryAction={
+                file
+                    ? {
+                          label: `Open ${shortName}`,
+                          icon: <Icon icon={Open20Regular} className="size-3.5" />,
+                          onClick: () => void openProjectFile(file),
+                      }
+                    : undefined
+            }
+        >
             {add > 0 || del > 0 ? (
                 <WorkflowEditPreview
                     original={block.original || ""}
@@ -392,16 +563,21 @@ function PluginCallStep({ block }: { block: Chunk }) {
     useEffect(() => {
         if (status !== "pending" || !block.commandId) return;
         let disposed = false;
-        const unlistenPromise = listen<{ id?: string; approved?: boolean }>(
-            "agent-command-resolved",
-            (event) => {
-                if (disposed || event.payload?.id !== block.commandId) return;
-                setLocalStatus(event.payload?.approved ? "ok" : "rejected");
-            },
-        );
+        let unlistenPromise: Promise<() => void>;
+        try {
+            unlistenPromise = listen<{ id?: string; approved?: boolean }>(
+                "agent-command-resolved",
+                (event) => {
+                    if (disposed || event.payload?.id !== block.commandId) return;
+                    setLocalStatus(event.payload?.approved ? "ok" : "rejected");
+                },
+            ).catch(() => () => {});
+        } catch {
+            unlistenPromise = Promise.resolve(() => {});
+        }
         return () => {
             disposed = true;
-            void unlistenPromise.then((unlisten) => unlisten()).catch(() => undefined);
+            void unlistenPromise.then((unlisten) => unlisten());
         };
     }, [status, block.commandId]);
 
@@ -496,16 +672,36 @@ function StepRow({ block }: { block: Chunk }) {
     if (block.type === "tool_result") {
         const raw = block.content || "";
         const mcp = raw.match(/^\[MCP\s+([^\]]+)\]/i)?.[1]?.trim();
+        const bodyAfterHeader = mcp ? raw.replace(/^\[MCP\s+[^\]]+\]\s*/i, "").trim() : raw.trim();
         if (mcp) {
             const label = humanizeToolName(mcp.replace(/^mcp__/i, "").replace(/__/g, " "));
-            return <ActionLine action="Called" detail={label} />;
+            return (
+                <ActionLine
+                    action="Called"
+                    detail={label}
+                    icon={<Icon icon={Wrench20Regular} className="size-3.5 text-text-muted/80" />}
+                >
+                    {bodyAfterHeader ? (
+                        <pre className="mt-1 mb-1 max-h-48 overflow-auto rounded-lg border border-border-subtle bg-surface-2/50 px-2.5 py-2 font-mono text-2xs text-text-secondary whitespace-pre-wrap custom-scrollbar">
+                            {bodyAfterHeader}
+                        </pre>
+                    ) : null}
+                </ActionLine>
+            );
         }
         const summary = raw.replace(/\s+/g, " ").trim().slice(0, 72);
         return (
             <ActionLine
                 action="Ran"
-                detail={summary ? `${summary}${raw.length > 72 ? "…" : ""}` : "tool"}
-            />
+                detail={summary ? `${summary}${raw.length > 72 ? "..." : ""}` : "tool"}
+                icon={<Icon icon={Wrench20Regular} className="size-3.5 text-text-muted/80" />}
+            >
+                {raw.trim().length > 72 ? (
+                    <pre className="mt-1 mb-1 max-h-48 overflow-auto rounded-lg border border-border-subtle bg-surface-2/50 px-2.5 py-2 font-mono text-2xs text-text-secondary whitespace-pre-wrap custom-scrollbar">
+                        {raw.trim()}
+                    </pre>
+                ) : null}
+            </ActionLine>
         );
     }
 
@@ -519,11 +715,20 @@ function StepRow({ block }: { block: Chunk }) {
 
     if (block.type === "cat") {
         const path = block.content || "";
-        const fileName = path.split(/[\\/]/).pop() || path;
+        const shortName = path.split(/[\\/]/).pop() || path;
+        const range = formatLineRange(block.catStartLine, block.catEndLine);
         return (
             <ActionLine
                 action="Read"
-                detail={fileName || "file"}
+                detail={shortName || "file"}
+                icon={<FileIcon name={shortName || "file.txt"} className="size-3.5 shrink-0 opacity-85" />}
+                extra={
+                    range ? (
+                        <span className="shrink-0 font-mono text-2xs tabular-nums text-text-muted/75">
+                            {range}
+                        </span>
+                    ) : null
+                }
                 onClick={() => path && void openProjectFile(path)}
             />
         );
@@ -535,12 +740,44 @@ function StepRow({ block }: { block: Chunk }) {
 
     if (block.type === "grep") {
         const q = (block.query || block.content || "").trim();
-        return <ActionLine action="Grepped" detail={q} />;
+        const output =
+            block.query && block.content && block.content.trim() !== block.query.trim()
+                ? block.content.trim()
+                : "";
+        return (
+            <ActionLine
+                action="Grepped"
+                detail={q}
+                icon={<Icon icon={DocumentSearch20Regular} className="size-3.5 text-text-muted/80" />}
+            >
+                {output ? (
+                    <pre className="mt-1 mb-1 max-h-44 overflow-auto rounded-lg border border-border-subtle bg-surface-2/50 px-2.5 py-2 font-mono text-2xs text-text-secondary whitespace-pre-wrap custom-scrollbar">
+                        {output}
+                    </pre>
+                ) : null}
+            </ActionLine>
+        );
     }
 
     if (block.type === "search" || block.type === "search_result") {
         const q = (block.query || block.content || "").trim();
-        return <ActionLine action="Searched" detail={q} />;
+        const output =
+            block.query && block.content && block.content.trim() !== block.query.trim()
+                ? block.content.trim()
+                : "";
+        return (
+            <ActionLine
+                action="Searched"
+                detail={q}
+                icon={<Icon icon={DocumentSearch20Regular} className="size-3.5 text-text-muted/80" />}
+            >
+                {output ? (
+                    <pre className="mt-1 mb-1 max-h-44 overflow-auto rounded-lg border border-border-subtle bg-surface-2/50 px-2.5 py-2 font-mono text-2xs text-text-secondary whitespace-pre-wrap custom-scrollbar">
+                        {output}
+                    </pre>
+                ) : null}
+            </ActionLine>
+        );
     }
 
     if (block.type === "inspect_runtime") {
@@ -591,8 +828,20 @@ function StepRow({ block }: { block: Chunk }) {
     if (block.type === "edit" && block.file) {
         const { add, del } = editDelta(block);
         const file = block.file;
+        const shortName = fileName(file);
         return (
-            <ActionLine action="Edited" detail={fileName(file)} add={add} del={del}>
+            <ActionLine
+                action="Edited"
+                detail={shortName}
+                icon={<FileIcon name={shortName} className="size-3.5 shrink-0 opacity-85" />}
+                add={add}
+                del={del}
+                secondaryAction={{
+                    label: `Open ${shortName}`,
+                    icon: <Icon icon={Open20Regular} className="size-3.5" />,
+                    onClick: () => void openProjectFile(file),
+                }}
+            >
                 {add > 0 || del > 0 ? (
                     <WorkflowEditPreview
                         original={block.original || ""}
@@ -612,10 +861,23 @@ function StepRow({ block }: { block: Chunk }) {
         if (finishedFine && !block.isGenerating && isLintCommand(cmd)) {
             const status = lintStatusFromOutput(block.content || "");
             if (status === "clean") {
-                return <ActionLine action="Checked" detail="no linter errors" />;
+                return (
+                    <ActionLine
+                        action="Checked"
+                        detail="no linter errors"
+                        icon={<Icon icon={CheckmarkCircle20Regular} className="size-3.5 text-success/85" />}
+                    />
+                );
             }
             if (status === "errors") {
-                return <ActionLine action="Checked" detail="linter errors" />;
+                return (
+                    <ActionLine
+                        action="Checked"
+                        detail="linter errors"
+                        tone="warning"
+                        icon={<Icon icon={ErrorCircle20Regular} className="size-3.5 text-warning" />}
+                    />
+                );
             }
         }
         return <TerminalCommandStep block={block} />;
@@ -712,6 +974,7 @@ function turnMarks(blocks: Chunk[]) {
 export function TurnWorkflowSummary({
     blocks,
     isActive,
+    durationMs,
     showHeader = true,
     activityLabel,
     children,
@@ -730,13 +993,67 @@ export function TurnWorkflowSummary({
             (b.type === "terminal_command" || b.type === "edit_pending" || b.type === "plugin_call")
             && b.commandStatus === "pending",
     );
-    const [open, setOpen] = useState(() => !!isActive);
+    const failedCount = visible.filter((b) => {
+        if (b.type === "terminal_command" || b.type === "run") {
+            return (
+                b.commandStatus === "failed" ||
+                (typeof b.exitCode === "number" && b.exitCode !== 0)
+            );
+        }
+        if (b.type === "plugin_call") {
+            return b.commandStatus === "error" || b.commandStatus === "failed";
+        }
+        return false;
+    }).length;
+
+    const summaryRootRef = useRef<HTMLDivElement>(null);
+    const pointerInsideRef = useRef(false);
+    const startedAtRef = useRef<number | null>(null);
+    const [liveElapsedMs, setLiveElapsedMs] = useState(0);
+    const [measuredDurationMs, setMeasuredDurationMs] = useState<number | null>(null);
+    const [open, setOpen] = useState(() => Boolean(isActive || failedCount > 0));
     const [prevActive, setPrevActive] = useState(isActive);
+    const [userToggled, setUserToggled] = useState(false);
 
     if (isActive !== prevActive) {
         setPrevActive(isActive);
-        setOpen(!!isActive);
+        if (isActive) {
+            setUserToggled(false);
+            setOpen(true);
+        } else if (failedCount > 0) {
+            setOpen(true);
+        }
     }
+
+    useEffect(() => {
+        if (isActive) {
+            const origin = startedAtRef.current ?? Date.now();
+            startedAtRef.current = origin;
+            const interval = window.setInterval(() => {
+                setLiveElapsedMs(Math.max(0, Date.now() - origin));
+            }, 500);
+            return () => window.clearInterval(interval);
+        }
+        if (startedAtRef.current !== null) {
+            const finalElapsed = Math.max(0, Date.now() - startedAtRef.current);
+            startedAtRef.current = null;
+            if (finalElapsed >= 1000) {
+                setMeasuredDurationMs(finalElapsed);
+            }
+        }
+        return undefined;
+    }, [isActive]);
+
+    useEffect(() => {
+        if (isActive || !open || userToggled || failedCount > 0) return undefined;
+        const timer = window.setTimeout(() => {
+            if (!pointerInsideRef.current) {
+                notifyTranscriptDisclosureToggle(summaryRootRef.current);
+                setOpen(false);
+            }
+        }, 360);
+        return () => window.clearTimeout(timer);
+    }, [isActive, open, userToggled, failedCount]);
 
     if (visible.length === 0) return children;
 
@@ -759,9 +1076,17 @@ export function TurnWorkflowSummary({
     });
     const headline = splitActionLabel(turnSummary(blocks, stats, isActive, activityLabel));
     const marks = turnMarks(blocks);
+    const effectiveDurationMs = durationMs ?? measuredDurationMs ?? undefined;
+    const timingBadge = isActive
+        ? liveElapsedMs >= 2000
+            ? formatTurnDuration(liveElapsedMs)
+            : null
+        : effectiveDurationMs && effectiveDurationMs >= 1000
+          ? formatTurnDuration(effectiveDurationMs)
+          : null;
 
     const pendingApprovalRows = (
-        <div className="flex flex-col gap-1 my-1">
+        <div className="my-1 flex flex-col gap-1">
             {pendingBlocks.map((b, i) =>
                 b.type === "edit_pending" ? (
                     <EditApprovalRow key={b.commandId || `pending-edit-${i}`} block={b} />
@@ -774,8 +1099,132 @@ export function TurnWorkflowSummary({
         </div>
     );
 
+    const leadThoughtSlot = leadThought
+        ? rows.findIndex(
+              (r) =>
+                  r.kind === "block" &&
+                  (r.block.type === "think" || r.block.type === "thought") &&
+                  r.block.content === leadThought.content,
+          )
+        : -1;
+
+    const stepPile = (
+        <>
+            {leadThought?.content?.trim() || leadThought?.isGenerating ? (
+                <ThoughtStep content={leadThought.content || ""} isActive={leadThought.isGenerating} />
+            ) : null}
+            {rows.map((row, slot) => {
+                if (slot === leadThoughtSlot) return null;
+                const enterClass = isActive && slot === rows.length - 1 ? "t-step-enter" : undefined;
+                if (row.kind === "subagent_group") {
+                    return (
+                        <div key={`subs-${slot}`} className={enterClass}>
+                            <SubagentSpawnGroup blocks={row.blocks} />
+                        </div>
+                    );
+                }
+                if (row.kind === "git_stage_group") {
+                    return (
+                        <div key={`stage-${slot}`} className={enterClass}>
+                            <GitStageGroup paths={row.paths} />
+                        </div>
+                    );
+                }
+                if (row.kind === "read_group") {
+                    const firstName = row.files[0] ? fileName(row.files[0].path) : "file.txt";
+                    return (
+                        <div key={`reads-${slot}`} className={enterClass}>
+                            <GroupActionLabel
+                                action="Explored"
+                                detail={groupDetail(row.files.map((f) => f.path))}
+                                icon={<FileIcon name={firstName} className="size-3.5 shrink-0 opacity-85" />}
+                                files={row.files}
+                            />
+                        </div>
+                    );
+                }
+                if (row.kind === "search_group") {
+                    return (
+                        <div key={`searches-${slot}`} className={enterClass}>
+                            <GroupActionLabel
+                                action="Searched"
+                                detail={row.count > 1 ? `${row.count} times` : groupDetail(row.queries)}
+                                icon={
+                                    <Icon
+                                        icon={DocumentSearch20Regular}
+                                        className="size-3.5 text-text-muted/80"
+                                    />
+                                }
+                                queries={row.queries}
+                                previews={row.previews}
+                            />
+                        </div>
+                    );
+                }
+                if (row.kind === "write_group") {
+                    const firstName = row.paths[0] ? fileName(row.paths[0]) : "file.txt";
+                    return (
+                        <div key={`writes-${slot}`} className={enterClass}>
+                            <GroupActionLabel
+                                action="Edited"
+                                detail={groupDetail(row.paths)}
+                                icon={<FileIcon name={firstName} className="size-3.5 shrink-0 opacity-85" />}
+                                files={row.paths.map((p) => ({ path: p }))}
+                            />
+                        </div>
+                    );
+                }
+                if (row.kind === "list_group") {
+                    return (
+                        <div key={`lists-${slot}`} className={enterClass}>
+                            <GroupActionLabel
+                                action="Listed"
+                                detail={row.count > 1 ? `${row.count} folders` : "folders"}
+                                icon={<Icon icon={Folder20Regular} className="size-3.5 text-text-muted/80" />}
+                            />
+                        </div>
+                    );
+                }
+                if (row.kind === "web_trail") {
+                    return (
+                        <div key={`web-${slot}`} className={enterClass}>
+                            <WebSearchTrail
+                                blocks={row.blocks}
+                                isActive={row.blocks.some((b) => b.isGenerating)}
+                            />
+                        </div>
+                    );
+                }
+                if (row.kind === "block") {
+                    return (
+                        <div key={`step-${slot}`} className={enterClass}>
+                            <StepRow block={row.block} />
+                        </div>
+                    );
+                }
+                return null;
+            })}
+            {showLintFooter && !lintShownInSteps ? (
+                <ActionLine
+                    action="Checked"
+                    detail="no linter errors"
+                    icon={<Icon icon={CheckmarkCircle20Regular} className="size-3.5 text-success/85" />}
+                />
+            ) : null}
+        </>
+    );
+
     return (
-        <div className="mb-2 select-none">
+        <div
+            ref={summaryRootRef}
+            className="mb-2 select-none"
+            onPointerEnter={() => {
+                pointerInsideRef.current = true;
+            }}
+            onPointerLeave={() => {
+                pointerInsideRef.current = false;
+            }}
+        >
             {showHeader ? (
                 <ActionLine
                     action={headline.action}
@@ -785,106 +1234,46 @@ export function TurnWorkflowSummary({
                     favicons={marks.urls}
                     shimmer={Boolean(isActive)}
                     open={open}
-                    onOpenChange={setOpen}
+                    onOpenChange={(next) => {
+                        setUserToggled(true);
+                        setOpen(next);
+                    }}
                     extra={
-                        marks.toolkits.length > 0 ? (
-                            <span className="inline-flex shrink-0 items-center -space-x-1.5">
-                                {marks.toolkits.map((toolkit) => (
-                                    <span
-                                        key={toolkit}
-                                        className="inline-flex size-4 items-center justify-center overflow-hidden rounded-full border border-border-subtle bg-panel"
-                                    >
-                                        <PluginLogo toolkit={toolkit} name={toolkit} size={12} />
+                        marks.toolkits.length > 0 || failedCount > 0 || timingBadge ? (
+                            <span className="inline-flex shrink-0 items-center gap-1.5">
+                                {marks.toolkits.length > 0 ? (
+                                    <span className="inline-flex shrink-0 items-center -space-x-1.5">
+                                        {marks.toolkits.map((toolkit) => (
+                                            <span
+                                                key={toolkit}
+                                                className="inline-flex size-4 items-center justify-center overflow-hidden rounded-full border border-border-subtle bg-panel"
+                                            >
+                                                <PluginLogo toolkit={toolkit} name={toolkit} size={12} />
+                                            </span>
+                                        ))}
                                     </span>
-                                ))}
+                                ) : null}
+                                {failedCount > 0 ? (
+                                    <span className="text-2xs font-medium tabular-nums text-error">
+                                        {failedCount} failed
+                                    </span>
+                                ) : null}
+                                {timingBadge ? (
+                                    <span className="text-2xs tabular-nums text-text-muted/75">
+                                        {timingBadge}
+                                    </span>
+                                ) : null}
                             </span>
                         ) : null
                     }
                 >
-                    <div className="flex flex-col">
-                    {leadThought?.content?.trim() ? (
-                        <ThoughtStep content={leadThought.content} isActive={leadThought.isGenerating} />
-                    ) : null}
-                            {(() => {
-                                let skippedLeadThought = false;
-                                // The rows are a projection of the parsed message and only ever
-                                // append, so a row keeps its position: a content key would collide
-                                // the moment the agent reads the same file twice.
-                                return rows.map((row, slot) => {
-                                    if (row.kind === "subagent_group") {
-                                        return <SubagentSpawnGroup key={`subs-${slot}`} blocks={row.blocks} />;
-                                    }
-                                    if (row.kind === "git_stage_group") {
-                                        return <GitStageGroup key={`stage-${slot}`} paths={row.paths} />;
-                                    }
-                                    if (row.kind === "read_group") {
-                                        return (
-                                            <GroupActionLabel
-                                                key={`reads-${slot}`}
-                                                action="Explored"
-                                                detail={groupDetail(row.files.map((f) => f.path))}
-                                            />
-                                        );
-                                    }
-                                    if (row.kind === "search_group") {
-                                        return (
-                                            <GroupActionLabel
-                                                key={`searches-${slot}`}
-                                                action="Searched"
-                                                detail={row.count > 1 ? `${row.count} times` : groupDetail(row.queries)}
-                                            />
-                                        );
-                                    }
-                                    if (row.kind === "write_group") {
-                                        return (
-                                            <GroupActionLabel
-                                                key={`writes-${slot}`}
-                                                action="Edited"
-                                                detail={groupDetail(row.paths)}
-                                            />
-                                        );
-                                    }
-                                    if (row.kind === "list_group") {
-                                        return (
-                                            <GroupActionLabel
-                                                key={`lists-${slot}`}
-                                                action="Listed"
-                                                detail={row.count > 1 ? `${row.count} folders` : "folders"}
-                                            />
-                                        );
-                                    }
-                                    if (row.kind === "web_trail") {
-                                        return (
-                                            <WebSearchTrail
-                                                key={`web-${slot}`}
-                                                blocks={row.blocks}
-                                                isActive={row.blocks.some((b) => b.isGenerating)}
-                                            />
-                                        );
-                                    }
-                                    if (row.kind === "block") {
-                                        const isThought =
-                                            row.block.type === "think" || row.block.type === "thought";
-                                        if (
-                                            isThought
-                                            && !skippedLeadThought
-                                            && leadThought
-                                            && row.block.content === leadThought.content
-                                        ) {
-                                            skippedLeadThought = true;
-                                            return null;
-                                        }
-                                        return <StepRow key={`step-${slot}`} block={row.block} />;
-                                    }
-                                    return null;
-                                });
-                            })()}
-                            {showLintFooter && !lintShownInSteps ? (
-                                <ActionLine action="Checked" detail="no linter errors" />
-                            ) : null}
+                    <div className="mt-0.5 flex flex-col gap-0.5 pl-3.5">
+                        {stepPile}
                     </div>
                 </ActionLine>
-            ) : null}
+            ) : (
+                <div className="flex flex-col gap-0.5">{stepPile}</div>
+            )}
 
             {pendingBlocks.length > 0 ? pendingApprovalRows : null}
 

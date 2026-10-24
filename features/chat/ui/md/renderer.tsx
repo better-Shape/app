@@ -634,13 +634,20 @@ function unescapeXml(s: string): string {
                 const statusMatch = tagFull.match(/status="([^"]+)"/);
                 const idMatch = tagFull.match(/id="([^"]+)"/);
                 const sessionMatch = tagFull.match(/session="(\d+)"/);
-                const exitMatch = tagFull.match(/exit="(-?\d+)"/);
+                const exitMatch = tagFull.match(/(?:exit|exit_code)="(-?\d+)"/);
+                const cmdAttrMatch = tagFull.match(/command="([^"]+)"/);
+                const reasonAttrMatch = tagFull.match(/reason="([^"]+)"/);
+                const lines = content.split('\n').filter(Boolean);
+                const cmd = cmdAttrMatch ? cmdAttrMatch[1].trim() : (lines[0]?.trim() || '');
+                const reasonLine = lines.find(l => l.includes('Awaiting approval:') || l.includes('Blocked:'));
+                const reason = reasonAttrMatch?.[1]?.trim() || reasonLine?.replace(/^.*?(Awaiting approval:|Blocked:)\s*/, '').trim();
                 chunks.push({
                     type: 'terminal_command',
                     content,
-                    command: '',
+                    command: cmd,
                     commandId: idMatch ? idMatch[1] : undefined,
                     commandStatus: statusMatch ? statusMatch[1] : 'completed',
+                    commandReason: reason,
                     sessionId: sessionMatch ? Number(sessionMatch[1]) : undefined,
                     exitCode: exitMatch ? Number(exitMatch[1]) : undefined,
                 });
@@ -665,7 +672,7 @@ function unescapeXml(s: string): string {
                 chunks.push(parseQuestionBlock(tagFull));
             } else if (firstMatch.type === 'run') {
                 chunks.push({ type: 'run', content, command: '' });
-            } else if (firstMatch.type === 'web_result' || firstMatch.type === 'search_result') {
+            } else if (firstMatch.type === 'web_result' || firstMatch.type === 'search_result' || firstMatch.type === 'grep') {
                 const queryMatch = tagFull.match(/query="([^"]+)"/);
                 chunks.push({
                     type: firstMatch.type as Chunk['type'],
@@ -710,11 +717,13 @@ function unescapeXml(s: string): string {
                 const statusMatch = tagFull.match(/status="([^"]+)"/);
                 const idMatch = tagFull.match(/id="([^"]+)"/);
                 const sessionMatch = tagFull.match(/session="(\d+)"/);
-                const exitMatch = tagFull.match(/exit="(-?\d+)"/);
+                const exitMatch = tagFull.match(/(?:exit|exit_code)="(-?\d+)"/);
+                const cmdAttrMatch = tagFull.match(/command="([^"]+)"/);
+                const reasonAttrMatch = tagFull.match(/reason="([^"]+)"/);
                 const lines = content.split('\n').filter(Boolean);
-                const cmd = lines[0]?.trim() || '';
+                const cmd = cmdAttrMatch ? cmdAttrMatch[1].trim() : (lines[0]?.trim() || '');
                 const reasonLine = lines.find(l => l.includes('Awaiting approval:') || l.includes('Blocked:'));
-                const reason = reasonLine?.replace(/^.*?(Awaiting approval:|Blocked:)\s*/, '').trim();
+                const reason = reasonAttrMatch?.[1]?.trim() || reasonLine?.replace(/^.*?(Awaiting approval:|Blocked:)\s*/, '').trim();
                 chunks.push({
                     type: 'terminal_command',
                     content,
@@ -753,7 +762,7 @@ function unescapeXml(s: string): string {
                     command: content.trim(),
                     isGenerating: true,
                 });
-            } else if (firstMatch.type === 'web_result' || firstMatch.type === 'search_result') {
+            } else if (firstMatch.type === 'web_result' || firstMatch.type === 'search_result' || firstMatch.type === 'grep') {
                 const tagFull = text.slice(firstMatch.index, contentStartIndex);
                 const queryMatch = tagFull.match(/query="([^"]+)"/);
                 chunks.push({
@@ -807,11 +816,13 @@ function unescapeXml(s: string): string {
                 const statusMatch = tagFull.match(/status="([^"]+)"/);
                 const idMatch = tagFull.match(/id="([^"]+)"/);
                 const sessionMatch = tagFull.match(/session="(\d+)"/);
-                const exitMatch = tagFull.match(/exit="(-?\d+)"/);
+                const exitMatch = tagFull.match(/(?:exit|exit_code)="(-?\d+)"/);
+                const cmdAttrMatch = tagFull.match(/command="([^"]+)"/);
+                const reasonAttrMatch = tagFull.match(/reason="([^"]+)"/);
                 const lines = content.split('\n').filter(Boolean);
-                const cmd = lines[0]?.trim() || '';
+                const cmd = cmdAttrMatch ? cmdAttrMatch[1].trim() : (lines[0]?.trim() || '');
                 const reasonLine = lines.find(l => l.includes('Awaiting approval:') || l.includes('Blocked:'));
-                const reason = reasonLine?.replace(/^.*?(Awaiting approval:|Blocked:)\s*/, '').trim();
+                const reason = reasonAttrMatch?.[1]?.trim() || reasonLine?.replace(/^.*?(Awaiting approval:|Blocked:)\s*/, '').trim();
                 chunks.push({
                     type: 'terminal_command',
                     content,
@@ -850,7 +861,7 @@ function unescapeXml(s: string): string {
                     command: content.trim(),
                     isGenerating: false,
                 });
-            } else if (firstMatch.type === 'web_result' || firstMatch.type === 'search_result') {
+            } else if (firstMatch.type === 'web_result' || firstMatch.type === 'search_result' || firstMatch.type === 'grep') {
                 const tagFull = text.slice(firstMatch.index, contentStartIndex);
                 const queryMatch = tagFull.match(/query="([^"]+)"/);
                 chunks.push({
@@ -1119,7 +1130,7 @@ export function MessageRenderer({
                     key={`text-${index}`}
                     className={cn(
                         "text-sm font-medium text-text-primary leading-[var(--conversation-line-height)] mb-0 w-full overflow-hidden prose-compact chat-markdown",
-                        isGenerating && isLastSegment && "animate-in fade-in duration-300",
+                        isGenerating && isLastSegment && "t-step-enter",
                     )}
                 >
                     <ChatMarkdown content={text} isGenerating={isGenerating} isLast={isLastSegment} />

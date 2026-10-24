@@ -2,7 +2,6 @@
 
 import React, { useMemo, useState } from "react";
 import { ChatMarkdown } from "../md/view";
-import { Collapse } from "./collapse";
 import { ActionLine } from "./action-line";
 import { providerIcon } from "@/lib/ui/provider-icon";
 import { AUTO_DISPLAY_MODEL } from "../message/bubble";
@@ -89,13 +88,13 @@ export function ReviewDebatePanel({
                         {providerIcon(iconModel, 14)}
                     </span>
                 }
-                onClick={() => setOpen((v) => !v)}
-            />
-            <Collapse open={open}>
-                <div className="w-full min-w-0 py-1 text-sm font-medium text-text-primary prose-compact chat-markdown">
+                open={open}
+                onOpenChange={setOpen}
+            >
+                <div className="w-full min-w-0 py-1 pl-3.5 text-sm font-medium text-text-primary prose-compact chat-markdown">
                     <ChatMarkdown content={display} />
                 </div>
-            </Collapse>
+            </ActionLine>
         </div>
     );
 }

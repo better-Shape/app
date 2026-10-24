@@ -57,11 +57,11 @@ export function Breadcrumb({
         className,
       )}
     >
-      <ol className="flex items-center gap-1 px-1">
+      <ol className="flex min-w-0 items-center gap-1 px-1">
         {items.map((item, index) => (
           <Fragment key={item.key ?? index}>
             {index > 0 && (
-              <Icon icon={ChevronRight20Regular} className="icon-sm" />
+              <Icon icon={ChevronRight20Regular} className="icon-sm shrink-0 text-text-muted/70" />
             )}
             {item}
           </Fragment>
@@ -109,7 +109,7 @@ export const BreadcrumbItem = ({
       <li
         aria-current="page"
         className={cn(
-          "flex items-center gap-1.5 text-sm whitespace-nowrap text-text-secondary",
+          "flex min-w-0 items-center gap-1.5 overflow-hidden text-sm font-medium whitespace-nowrap text-text-primary",
           className,
         )}
       >
@@ -119,15 +119,15 @@ export const BreadcrumbItem = ({
   }
 
   const interactiveClass = cn(
-    "-mx-1 flex items-center gap-1.5 rounded-md px-1 py-0.5 text-md whitespace-nowrap text-text-tertiary",
-    "transition-colors duration-150 ease outline-none",
+    "flex min-w-0 max-w-full items-center gap-1.5 overflow-hidden rounded-md px-1 py-0.5 text-sm whitespace-nowrap text-text-muted",
+    "transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] outline-none",
     "hover:bg-[var(--btn-hover)] hover:text-text-secondary",
     "focus-visible:ring-2 focus-visible:ring-border-focus-ring",
     className,
   );
 
   return (
-    <li className="flex items-center">
+    <li className="flex min-w-0 shrink items-center overflow-hidden">
       {href ? (
         <Link href={href} className={interactiveClass}>
           {content}

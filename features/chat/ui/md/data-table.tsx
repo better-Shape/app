@@ -2,9 +2,56 @@
 
 import React from "react";
 import { cn } from "@/lib/utils";
+import { CopyButton } from "@/components/ui/copy-button";
 import { providerIcon } from "@/lib/ui/provider-icon";
 import { tableCellModelId } from "@/lib/chat/fence-tables";
 import styles from "./data-table.module.css";
+
+function escapeMdCell(cell: string): string {
+    return cell.replace(/\r?\n/g, " ").replace(/\|/g, "\\|").trim();
+}
+
+export function formatRowsAsMarkdownTable(headers: string[], rows: string[][]): string {
+    const colCount = Math.max(
+        headers.length,
+        rows.reduce((max, r) => Math.max(max, r.length), 0),
+    );
+    if (colCount === 0) return "";
+    const effectiveHeaders =
+        headers.length > 0
+            ? Array.from({ length: colCount }, (_, i) => escapeMdCell(headers[i] ?? ""))
+            : Array.from({ length: colCount }, (_, i) => `Column ${i + 1}`);
+    const divider = effectiveHeaders.map(() => "---");
+    const lines = [
+        `| ${effectiveHeaders.join(" | ")} |`,
+        `| ${divider.join(" | ")} |`,
+        ...rows.map((row) => {
+            const cells = Array.from({ length: colCount }, (_, i) => escapeMdCell(row[i] ?? ""));
+            return `| ${cells.join(" | ")} |`;
+        }),
+    ];
+    return lines.join("\n");
+}
+
+function extractDomTableAsMarkdown(container: HTMLElement | null): string {
+    const table = container?.querySelector("table");
+    if (!table) return "";
+    const headers = Array.from(table.querySelectorAll("thead th")).map(
+        (th) => th.textContent?.trim() ?? "",
+    );
+    const bodyRows = Array.from(table.querySelectorAll("tbody tr")).map((tr) =>
+        Array.from(tr.querySelectorAll("td, th")).map((td) => td.textContent?.trim() ?? ""),
+    );
+    if (headers.length === 0 && bodyRows.length > 0) {
+        const allRows = Array.from(table.querySelectorAll("tr")).map((tr) =>
+            Array.from(tr.querySelectorAll("td, th")).map((td) => td.textContent?.trim() ?? ""),
+        );
+        if (allRows.length > 0) {
+            return formatRowsAsMarkdownTable(allRows[0] ?? [], allRows.slice(1));
+        }
+    }
+    return formatRowsAsMarkdownTable(headers, bodyRows);
+}
 
 function CellInner({ value }: { value: string }) {
     const modelId = tableCellModelId(value);
@@ -23,8 +70,21 @@ export function ChatDataTable({
     headers: string[];
     rows: string[][];
 }) {
+    const markdownText = React.useMemo(
+        () => formatRowsAsMarkdownTable(headers, rows),
+        [headers, rows],
+    );
     return (
-        <div className={styles.wrap}>
+        <div className={cn(styles.wrap, "group/table relative")}>
+            {markdownText ? (
+                <div className="absolute top-1.5 right-1.5 z-10 opacity-0 transition-opacity duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] group-hover/table:opacity-100 focus-within:opacity-100">
+                    <CopyButton
+                        text={markdownText}
+                        label="Copy table as Markdown"
+                        boxClassName="bg-surface-3 border border-border-subtle shadow-xs"
+                    />
+                </div>
+            ) : null}
             <table className={styles.table}>
                 {headers.length > 0 ? (
                     <thead>
@@ -68,5 +128,29 @@ export function ChatKeyedRowsTable({ rows }: { rows: Record<string, string>[] })
 }
 
 export function MarkdownTableShell({ children }: { children?: React.ReactNode }) {
-    return <div className={cn(styles.wrap, "my-2")}>{children}</div>;
+    const wrapRef = React.useRef<HTMLDivElement>(null);
+    const [mdText, setMdText] = React.useState("");
+
+    const syncTableMarkdown = React.useCallback(() => {
+        const next = extractDomTableAsMarkdown(wrapRef.current);
+        setMdText((prev) => (prev === next ? prev : next));
+    }, []);
+
+    return (
+        <div
+            ref={wrapRef}
+            onMouseEnter={syncTableMarkdown}
+            onFocus={syncTableMarkdown}
+            className={cn(styles.wrap, "group/table relative my-2")}
+        >
+            <div className="absolute top-1.5 right-1.5 z-10 opacity-0 transition-opacity duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] group-hover/table:opacity-100 focus-within:opacity-100">
+                <CopyButton
+                    text={mdText}
+                    label="Copy table as Markdown"
+                    boxClassName="bg-surface-3 border border-border-subtle shadow-xs"
+                />
+            </div>
+            {children}
+        </div>
+    );
 }

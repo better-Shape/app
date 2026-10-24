@@ -3,11 +3,14 @@
 import React from "react";
 import { cn } from "@/lib/utils";
 
-const EXIT_MS = 180;
-
 /**
- * Height-animated expand/collapse wrapper for workflow dropdowns.
- * Children stay mounted during the closing transition, then unmount.
+ * Spring-animated expand/collapse wrapper for chat workflow & disclosure bodies.
+ *
+ * Uses `grid-template-rows: 0fr ↔ 1fr` on `--reveal-dur` / `--reveal-ease` (`--spring-quick`)
+ * so height transitions are interruptible mid-flight and never guess `max-height`.
+ * Defers initial mount until the first time `open` becomes `true`, then mounts at `0fr`
+ * and promotes to `1fr` on the next animation frame so even the very first open transitions
+ * smoothly instead of snapping in 0ms.
  */
 export function Collapse({
     open,
@@ -19,20 +22,38 @@ export function Collapse({
     className?: string;
 }) {
     const [mounted, setMounted] = React.useState(open);
+    const [expanded, setExpanded] = React.useState(open);
 
-    if (open && !mounted) setMounted(true);
+    if (open && !mounted) {
+        setMounted(true);
+    }
+    if (!open && expanded) {
+        setExpanded(false);
+    }
 
     React.useEffect(() => {
-        if (open) return;
-        const t = window.setTimeout(() => setMounted(false), EXIT_MS);
-        return () => window.clearTimeout(t);
-    }, [open]);
+        if (!open || expanded) return undefined;
+        const id = window.requestAnimationFrame(() => {
+            setExpanded(true);
+        });
+        return () => window.cancelAnimationFrame(id);
+    }, [open, expanded]);
 
-    if (!open && !mounted) return null;
+    if (!mounted && !open) return null;
+
+    const active = open && expanded;
 
     return (
-        <div className="chat-collapse" data-open={open && mounted ? "true" : "false"}>
-            <div className={cn("chat-collapse-inner", className)}>{children}</div>
+        <div
+            className={cn(
+                "grid transition-[grid-template-rows,opacity] duration-[var(--reveal-dur)] ease-[var(--reveal-ease)]",
+                active ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
+            )}
+            data-open={open ? "true" : "false"}
+        >
+            <div className={cn("min-h-0 overflow-hidden", className)} inert={!open}>
+                {children}
+            </div>
         </div>
     );
 }

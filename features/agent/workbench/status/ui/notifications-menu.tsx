@@ -38,24 +38,33 @@ export function NotificationsMenu() {
                 <Button
                     variant="ghost"
                     size="sm"
-                    className="relative h-full px-2 shrink-0 text-text-muted hover:text-text-primary"
+                    aria-label={
+                        unreadCount > 0
+                            ? `Notifications (${unreadCount} unread)`
+                            : "Notifications"
+                    }
+                    className="relative h-full shrink-0 px-2 text-text-muted hover:text-text-primary"
                 >
                     <Icon icon={Alert20Filled} />
                     {unreadCount > 0 && (
-                        <span className="absolute top-1 right-1 flex h-3.5 min-w-[14px] items-center justify-center rounded-full bg-accent px-1 text-2xs font-medium text-accent-fg">
+                        <span className="absolute top-1 right-1 flex h-3.5 min-w-[14px] items-center justify-center rounded-full bg-accent px-1 text-2xs font-medium tabular-nums text-accent-fg">
                             {Math.min(unreadCount, 99)}
                         </span>
                     )}
                 </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-[360px]">
+            <DropdownMenuContent
+                align="end"
+                className="w-[360px] max-w-[calc(100vw-24px)]"
+            >
                 <DropdownMenuItem disabled className="text-sm text-text-muted">
                     Notifications
                 </DropdownMenuItem>
                 {notifications.length === 0 ? (
                     <DropdownMenuItem disabled>No notifications</DropdownMenuItem>
                 ) : (
-                    [...notifications].reverse().slice(0, 20).map((notification) => (
+                    <div className="custom-scrollbar max-h-[320px] overflow-y-auto">
+                    {[...notifications].reverse().slice(0, 20).map((notification) => (
                         <DropdownMenuItem
                             key={notification.id}
                             className="flex flex-col items-start gap-1 py-2 whitespace-normal"
@@ -107,7 +116,8 @@ export function NotificationsMenu() {
                                     .join("\n")}
                             />
                         </DropdownMenuItem>
-                    ))
+                    ))}
+                    </div>
                 )}
                 {notifications.length > 0 && (
                     <DropdownMenuItem onClick={() => notificationStore.clearAll()}>

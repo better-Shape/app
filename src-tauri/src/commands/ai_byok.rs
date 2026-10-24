@@ -159,6 +159,15 @@ pub async fn ai_test_provider(
         api_key.as_deref(),
         base_url.as_deref(),
     )?;
+    if provider.api_key.trim().is_empty()
+        && !ai_providers::is_keyless_provider_id(&provider.id)
+        && !provider.auth_style.trim().eq_ignore_ascii_case("none")
+    {
+        return Err(AppError::Message(format!(
+            "Enter an API key for {} before testing the connection.",
+            provider.label_or_id()
+        )));
+    }
     let client = reqwest::Client::builder()
         .timeout(TEST_TIMEOUT)
         .build()
@@ -400,6 +409,15 @@ pub async fn ai_check_provider(
         if !style.is_empty() {
             provider.auth_style = style;
         }
+    }
+    if provider.api_key.trim().is_empty()
+        && !ai_providers::is_keyless_provider_id(&provider.id)
+        && !provider.auth_style.trim().eq_ignore_ascii_case("none")
+    {
+        return Err(AppError::Message(format!(
+            "Enter an API key for {} before checking chat.",
+            provider.label_or_id()
+        )));
     }
 
     let requested = model.unwrap_or_default();

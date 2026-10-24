@@ -15,12 +15,17 @@ const watchIgnored = [
   "**/target/**",
 ];
 
+const extraDevOrigins = (process.env.BETTERSHAPE_ALLOWED_DEV_ORIGINS ?? "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter((origin) => origin.length > 0 && !origin.includes("*"));
+
 const nextConfig: NextConfig = {
   output: isProd ? "export" : undefined,
   // Dev only: Playwright and browser-preview workflows drive the dev server
   // via 127.0.0.1 (see playwright.config.ts); without this, Next blocks HMR
-  // for that origin. No effect on the production static export.
-  allowedDevOrigins: ["127.0.0.1", "localhost"],
+  // for that origin. Extra exact origins can be passed via BETTERSHAPE_ALLOWED_DEV_ORIGINS.
+  allowedDevOrigins: ["127.0.0.1", "localhost", ...extraDevOrigins],
   // Use root-absolute asset URLs so secondary windows (/settings/, /git/, etc.)
   // load CSS/JS from /_next/... instead of broken nested /_next/... paths.
   trailingSlash: isProd ? true : undefined,

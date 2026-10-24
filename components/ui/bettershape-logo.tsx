@@ -7,17 +7,23 @@ const PHOTOREAL_MIN_SIZE = 24;
 
 export function BetterShapeLogo({
     size = 32,
+    marquee = false,
     className,
 }: {
     size?: number;
+    /** Opt-in middle-course brick marquee (`origin/main` `clip0_68_233` SVG). */
+    marquee?: boolean;
     className?: string;
 }) {
-    const src =
-        size < PHOTOREAL_MIN_SIZE ? "/logos/logo-mono.png" : "/logos/logo.png";
+    const src = marquee
+        ? "/logos/logo_animated.svg"
+        : size < PHOTOREAL_MIN_SIZE
+          ? "/logos/logo-mono.png"
+          : "/logos/logo.png";
     return (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-src={src}
+            src={src}
             alt="BetterShape"
             width={size}
             height={size}
@@ -29,7 +35,10 @@ src={src}
                 maxWidth: size,
                 maxHeight: size,
             }}
-            className={cn("logo-invert shrink-0", className)}
+            className={cn(
+                marquee ? "shrink-0 opacity-85" : "logo-invert shrink-0",
+                className,
+            )}
             draggable={false}
         />
     );

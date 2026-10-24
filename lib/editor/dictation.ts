@@ -77,6 +77,8 @@ export type DictationHandlers = {
     onText: (text: string) => void;
     onError: (message: string) => void;
     onState?: (state: DictationState) => void;
+    /** Normalized 0..1 voice level emitted per audio buffer while listening. */
+    onLevel?: (level: number) => void;
 };
 
 export type DictationSession = {
@@ -167,10 +169,36 @@ export async function startDictation(
     // ScriptProcessor is deprecated but is the only node available without shipping a
     // separate worklet file, and dictation is a deliberate, user-initiated action.
     const processor = context.createScriptProcessor(4096, 1, 1);
+    const silentGain =
+        typeof context.createGain === "function" ? context.createGain() : null;
+    if (silentGain) {
+        silentGain.gain.value = 0;
+    }
+    if (typeof source.connect === "function") {
+        source.connect(processor);
+    }
+    if (typeof processor.connect === "function") {
+        if (silentGain && typeof silentGain.connect === "function") {
+            processor.connect(silentGain);
+            silentGain.connect(context.destination);
+        } else if (context.destination) {
+            processor.connect(context.destination);
+        }
+    }
     const chunks: Float32Array[] = [];
 
     processor.onaudioprocess = (event) => {
-        chunks.push(new Float32Array(event.inputBuffer.getChannelData(0)));
+        const channel = event.inputBuffer.getChannelData(0);
+        chunks.push(new Float32Array(channel));
+        if (handlers.onLevel && channel.length > 0) {
+            let sumSq = 0;
+            for (let i = 0; i < channel.length; i += 4) {
+                const v = channel[i] ?? 0;
+                sumSq += v * v;
+            }
+            const rms = Math.sqrt(sumSq / Math.ceil(channel.length / 4));
+            handlers.onLevel(Math.min(1, rms * 6));
+        }
     };
 
     let disposed = false;
@@ -178,9 +206,11 @@ export async function startDictation(
         if (disposed) return;
         disposed = true;
         processor.onaudioprocess = null;
+        handlers.onLevel?.(0);
         try {
             source.disconnect();
             processor.disconnect();
+            silentGain?.disconnect();
         } catch {
             /* already torn down */
         }

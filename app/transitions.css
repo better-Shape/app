@@ -427,11 +427,16 @@
 .t-think {
   position: relative;
   display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
   text-align: left;
+  vertical-align: bottom;
 }
 
 .t-think-sizer {
   display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
   visibility: hidden;
   white-space: nowrap;
 }
@@ -442,6 +447,8 @@
   left: 0;
   right: 0;
   display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: var(--think-base);
   white-space: nowrap;
   transform: translateY(0);
@@ -458,6 +465,9 @@
   content: attr(data-text);
   position: absolute;
   inset: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   pointer-events: none;
   background-image: linear-gradient(
     90deg,
@@ -709,10 +719,11 @@
 }
 .t-composer-hint__text {
   display: block;
+  max-width: 100%;
   color: var(--text-muted);
-  font-size: 0.875rem;
+  font-size: var(--text-sm);
   font-weight: 500;
-  line-height: 1.5rem;
+  line-height: 22px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -839,6 +850,35 @@
   transform: scale(1);
 }
 
+/* ── Tool-call & live workflow choreography ────────────── */
+@keyframes t-step-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.t-step-enter {
+  animation: t-step-enter var(--spring-quick-dur) var(--spring-quick) both;
+}
+
+@keyframes t-diff-reveal {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.t-diff-reveal {
+  animation: t-diff-reveal var(--spring-quick-dur) var(--spring-quick) both;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .bettershape-popover-content[data-state="open"],
   .bettershape-popover-content[data-state="closed"] {
@@ -892,6 +932,12 @@
   }
   .t-tab-dot {
     transition: none !important;
+    transform: none !important;
+  }
+  .t-step-enter,
+  .t-diff-reveal {
+    animation: none !important;
+    opacity: 1 !important;
     transform: none !important;
   }
   /*

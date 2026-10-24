@@ -54,8 +54,12 @@ export function UsageRing({
                 strokeDasharray={circumference}
                 strokeDashoffset={offset}
                 className={cn(
-                    "transition-[stroke-dashoffset] duration-300",
-                    clamped >= 90 ? "text-warning" : "text-accent",
+                    "transition-[stroke-dashoffset,color] duration-[var(--spring-surface-dur)] ease-[var(--spring-surface)] motion-reduce:transition-none",
+                    clamped >= 90
+                        ? "text-error"
+                        : clamped >= 75
+                          ? "text-warning"
+                          : "text-accent",
                 )}
             />
         </svg>
@@ -84,7 +88,7 @@ export function ChatUsageButton({ compact = false }: { compact?: boolean }) {
         <Tooltip content={usage.tooltip}>
             <button
                 type="button"
-                className="flex h-7 shrink-0 items-center gap-1.5 rounded-md px-1.5 text-sm text-text-muted hover:bg-[var(--btn-hover)] hover:text-text-primary"
+                className="flex h-7 shrink-0 items-center gap-1.5 rounded-md px-1.5 text-sm text-text-muted transition-[background-color,color,transform] duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] motion-reduce:transform-none motion-reduce:transition-none hover:bg-[var(--btn-hover)] hover:text-text-primary active:scale-[0.96]"
                 onClick={() =>
                     void import("@/lib/window/open-settings").then(({ openSettingsWindow }) =>
                         openSettingsWindow({ category: "providers" }),

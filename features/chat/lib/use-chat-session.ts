@@ -38,6 +38,7 @@ import { getSettings } from "@/lib/settings";
 import { getVisibleModels, resolveChatModels, sanitizeEnabledModels, subagentModelsForSend } from "@/lib/settings/models";
 import { getCatalogDefaultEnabledIds, getCatalogModels, useBetterShapeCatalog } from "@/lib/catalog/store";
 import { assertSendAttachmentsUnchanged, messageWithAttachments, waitForSendAttachments } from "./send-attachments";
+import { formatQuotesPrefix, type QuotedExcerpt } from "../ui/quote-selection";
 import { hasAnyUsableProvider as hasUsableProvider } from "@/lib/ai/providers";
 import { matchSlashCommand } from "@/lib/chat/workflows";
 import { notify } from "@/features/notifications";
@@ -184,6 +185,17 @@ function writeComposerPrefs(prefs: ComposerPrefs) {
     }
 }
 
+type PendingEditItem = {
+    id: string;
+    file: string;
+    baseline: string;
+    original: string;
+    replacement: string;
+};
+
+const EMPTY_PENDING_EDITS: PendingEditItem[] = [];
+const EMPTY_QUEUED_MESSAGES: QueuedChatMessage[] = [];
+
 /**
  * The scroll refs are created by the caller, not returned from this hook. Keeping refs out of the
  * returned session object lets components read session values during render.
@@ -207,6 +219,7 @@ export function useChatSession(
     const uploadedFilesRef = React.useRef(uploadedFiles);
     React.useLayoutEffect(() => { uploadedFilesRef.current = uploadedFiles; }, [uploadedFiles]);
     const composerRevisionRef = React.useRef(0);
+    const draftPersistTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
     const [inputValue, updateInputValue] = React.useState(() => {
         try {
             return localStorage.getItem("bettershape-chat-input") || "";
@@ -214,9 +227,18 @@ export function useChatSession(
             return "";
         }
     });
+    const inputValueRef = React.useRef(inputValue);
     const setInputValue = React.useCallback((value: React.SetStateAction<string>) => {
         composerRevisionRef.current += 1;
-        updateInputValue(value);
+        if (draftPersistTimerRef.current !== null) {
+            clearTimeout(draftPersistTimerRef.current);
+            draftPersistTimerRef.current = null;
+        }
+        updateInputValue((prev) => {
+            const next = typeof value === "function" ? value(prev) : value;
+            inputValueRef.current = next;
+            return next;
+        });
     }, []);
     /** Every queued follow-up, across chats. Each one is bound to its `conversationId`. */
     const [messageQueue, setMessageQueue] = React.useState<QueuedChatMessage[]>([]);
@@ -225,6 +247,14 @@ export function useChatSession(
     /** Bumped when a send is delivered so the queue drains the next message for this chat. */
     const [queueDrainTick, setQueueDrainTick] = React.useState(0);
     const [projectRuleFiles, setProjectRuleFiles] = React.useState<string[]>([]);
+    const [quotedExcerpts, setQuotedExcerpts] = React.useState<QuotedExcerpt[]>([]);
+    const quotedExcerptsRef = React.useRef<QuotedExcerpt[]>([]);
+    React.useLayoutEffect(() => {
+        quotedExcerptsRef.current = quotedExcerpts;
+    }, [quotedExcerpts]);
+    const removeQuotedExcerpt = React.useCallback((id: string) => {
+        setQuotedExcerpts((prev) => prev.filter((q) => q.id !== id));
+    }, []);
     const editingQueueIdRef = React.useRef<string | null>(null);
     const {
         messages,
@@ -471,15 +501,7 @@ export function useChatSession(
         [conversationId],
     );
 
-    const pendingEdits = React.useMemo(() => {
-        type Pending = {
-            id: string;
-            file: string;
-            baseline: string;
-            original: string;
-            replacement: string;
-        };
-
+    const pendingEdits = React.useMemo((): PendingEditItem[] => {
         type Step = { id: string; file: string; original: string; replacement: string };
         const stepsByFile = new Map<string, Step[]>();
 
@@ -494,7 +516,7 @@ export function useChatSession(
         };
 
         messages.forEach((m, msgIdx) => {
-            if (m.role !== "assistant") return;
+            if (m.role !== "assistant" || !m.content || !m.content.includes("<edit")) return;
             const chunks = parseMessageContent(m.content);
             const editsInMsg = chunks.filter(isReviewableEdit);
 
@@ -510,7 +532,11 @@ export function useChatSession(
             });
         });
 
-        const edits: Pending[] = [];
+        if (stepsByFile.size === 0) {
+            return EMPTY_PENDING_EDITS;
+        }
+
+        const edits: PendingEditItem[] = [];
         stepsByFile.forEach((steps, file) => {
             // Session Set covers the no-conversationId fallback and immediate Keep/Undo.
             if (!conversationId) {
@@ -553,6 +579,7 @@ export function useChatSession(
             });
         });
 
+        if (edits.length === 0) return EMPTY_PENDING_EDITS;
         return edits;
         // resolveRevision forces recompute after Keep/Undo writes localStorage.
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -834,20 +861,27 @@ export function useChatSession(
             window.removeEventListener("bettershape-editor-edit-action", handleEditorEditAction as EventListener);
     }, []);
 
-    const inputValueRef = React.useRef(inputValue);
     React.useEffect(() => {
         inputValueRef.current = inputValue;
     }, [inputValue]);
 
     React.useEffect(() => {
         const persist = () => {
+            if (draftPersistTimerRef.current !== null) {
+                clearTimeout(draftPersistTimerRef.current);
+                draftPersistTimerRef.current = null;
+            }
             try {
-                localStorage.setItem("bettershape-chat-input", inputValueRef.current);
+                if (inputValueRef.current) {
+                    localStorage.setItem("bettershape-chat-input", inputValueRef.current);
+                } else {
+                    localStorage.removeItem("bettershape-chat-input");
+                }
             } catch {
                 /* ignore */
             }
         };
-        // Keep draft durable across blur / close even if last keystroke missed storage.
+        // Keep draft durable across blur / close even if last keystroke is still debounced.
         window.addEventListener("pagehide", persist);
         window.addEventListener("beforeunload", persist);
         const onVis = () => {
@@ -855,6 +889,7 @@ export function useChatSession(
         };
         document.addEventListener("visibilitychange", onVis);
         return () => {
+            persist();
             window.removeEventListener("pagehide", persist);
             window.removeEventListener("beforeunload", persist);
             document.removeEventListener("visibilitychange", onVis);
@@ -874,22 +909,35 @@ export function useChatSession(
         return () => window.removeEventListener("bettershape-chat-cycle-mode", onCycle);
     }, []);
 
-    const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-        const val = e.target.value;
-        setInputValue(val);
-        const editingId = editingQueueIdRef.current;
-        if (editingId) {
-            setMessageQueue((prev) =>
-                prev.map((m) => (m.id === editingId ? { ...m, content: val } : m)),
-            );
-        }
-        try {
-            localStorage.setItem("bettershape-chat-input", val);
-        } catch {
-            /* ignore */
-        }
-        if (sendError) setSendError(null);
-    };
+    const handleInputChange = React.useCallback(
+        (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+            const val = e.target.value;
+            setInputValue(val);
+            const editingId = editingQueueIdRef.current;
+            if (editingId) {
+                setMessageQueue((prev) =>
+                    prev.map((m) => (m.id === editingId ? { ...m, content: val } : m)),
+                );
+            }
+            if (draftPersistTimerRef.current !== null) {
+                clearTimeout(draftPersistTimerRef.current);
+            }
+            draftPersistTimerRef.current = setTimeout(() => {
+                draftPersistTimerRef.current = null;
+                try {
+                    if (inputValueRef.current) {
+                        localStorage.setItem("bettershape-chat-input", inputValueRef.current);
+                    } else {
+                        localStorage.removeItem("bettershape-chat-input");
+                    }
+                } catch {
+                    /* ignore */
+                }
+            }, 180);
+            if (sendError) setSendError(null);
+        },
+        [sendError, setInputValue, setSendError],
+    );
 
     const handleSendMessageRef = React.useRef<(overrideContent?: string) => Promise<boolean>>(async () => false);
     const handleNewChatRef = React.useRef<() => Promise<void>>(async () => {});
@@ -998,6 +1046,7 @@ export function useChatSession(
         const target = targetId !== undefined ? targetId : getViewedConversationId();
         const submittedRevision = composerRevisionRef.current;
         const submittedIds = fromQueue ? [] : uploadedFilesRef.current.map(file => file.id);
+        const submittedQuotes = fromQueue ? [] : quotedExcerptsRef.current;
         const preparation = preparations.begin(target);
         if (preparation.signal.aborted) return false;
         try {
@@ -1012,7 +1061,13 @@ export function useChatSession(
                 throw new Error("Add an API key in Settings → Providers to chat.");
             }
             const readyFiles = await waitForSendAttachments(submittedIds, () => uploadedFilesRef.current, preparation.signal);
-            const userMsg = await messageWithAttachments(messageContent, readyFiles, preparation.signal);
+            const quotePrefix = submittedQuotes.length > 0 ? formatQuotesPrefix(submittedQuotes) : "";
+            const effectivePrompt = quotePrefix
+                ? messageContent.trim()
+                    ? `${quotePrefix}\n\n${messageContent}`
+                    : quotePrefix
+                : messageContent;
+            const userMsg = await messageWithAttachments(effectivePrompt, readyFiles, preparation.signal);
 
             if (preparation.signal.aborted) return false;
             if (getViewedConversationId() === target) setSendError(null);
@@ -1068,6 +1123,10 @@ export function useChatSession(
                     const submitted = new Set(submittedIds);
                     const consumedFiles = uploadedFilesRef.current.filter(file => submitted.has(file.id));
                     setUploadedFiles(files => files.filter(file => !submitted.has(file.id)));
+                    const submittedQuoteIds = new Set(submittedQuotes.map((q) => q.id));
+                    if (submittedQuoteIds.size > 0) {
+                        setQuotedExcerpts((prev) => prev.filter((q) => !submittedQuoteIds.has(q.id)));
+                    }
                     const consumedComposer = getViewedConversationId() === target && composerRevisionRef.current === submittedRevision && inputValueRef.current === messageContent;
                     const previousEditingQueueId = editingQueueIdRef.current;
                     if (consumedComposer) {
@@ -1083,6 +1142,12 @@ export function useChatSession(
                         const viewed = getViewedConversationId();
                         if (consumedFiles.length > 0) {
                             setUploadedFiles(files => restoreRejectedAttachments(consumedFiles, files, target, viewed));
+                        }
+                        if (submittedQuotes.length > 0 && viewed === target) {
+                            setQuotedExcerpts((prev) => {
+                                const existing = new Set(prev.map((q) => q.id));
+                                return [...submittedQuotes.filter((q) => !existing.has(q.id)), ...prev];
+                            });
                         }
                         // The composer was cleared at admission, which bumps the revision, so
                         // an empty composer is the guard: text typed since the failure stays.
@@ -1208,6 +1273,10 @@ export function useChatSession(
             notify.info("Incognito chats are not summarized.");
             return;
         }
+        if (!getViewedConversationId()) {
+            notify.info("Nothing to compact yet. Send a few messages first.");
+            return;
+        }
         try {
             // Native compacts the chat it currently holds, so the chat on screen has to become
             // that one first: a tab that is still loading would otherwise summarize the chat
@@ -1218,11 +1287,11 @@ export function useChatSession(
                 instructions: getSettings().ai.compactInstructions || undefined,
                 model: selectedModelRef.current || undefined,
             });
-            if (result.error) {
+            if (result?.error) {
                 notify.error("Could not compact this chat.", result.error);
                 return;
             }
-            if (result.alreadySmall || !result.record) {
+            if (!result || result.alreadySmall || !result.record) {
                 notify.info("Nothing to compact yet. This chat is still small.");
                 return;
             }
@@ -1258,16 +1327,24 @@ export function useChatSession(
         }
 
         if (!fromQueue && isLoading) {
-            if (!messageContent.trim() && uploadedFiles.length === 0) return false;
+            const pendingQuotes = quotedExcerptsRef.current;
+            if (!messageContent.trim() && uploadedFiles.length === 0 && pendingQuotes.length === 0) return false;
             if (uploadedFiles.length > 0) return false;
+            const quotePrefix = pendingQuotes.length > 0 ? formatQuotesPrefix(pendingQuotes) : "";
+            const queuedText = quotePrefix
+                ? messageContent.trim()
+                    ? `${quotePrefix}\n\n${messageContent}`
+                    : quotePrefix
+                : messageContent;
             const editingId = editingQueueIdRef.current;
             if (editingId) {
                 setMessageQueue((prev) =>
                     prev.map((m) =>
-                        m.id === editingId ? { ...m, content: messageContent.trim() } : m,
+                        m.id === editingId ? { ...m, content: queuedText.trim() } : m,
                     ),
                 );
                 setInputValue("");
+                if (pendingQuotes.length > 0) setQuotedExcerpts([]);
                 editingQueueIdRef.current = null;
                 try {
                     localStorage.removeItem("bettershape-chat-input");
@@ -1276,8 +1353,9 @@ export function useChatSession(
                 }
                 return true;
             }
-            enqueueChatMessage(messageContent);
+            enqueueChatMessage(queuedText);
             setInputValue("");
+            if (pendingQuotes.length > 0) setQuotedExcerpts([]);
             try {
                 localStorage.removeItem("bettershape-chat-input");
             } catch {
@@ -1287,7 +1365,7 @@ export function useChatSession(
         }
 
         if (
-            (!messageContent.trim() && uploadedFiles.length === 0) ||
+            (!messageContent.trim() && uploadedFiles.length === 0 && (fromQueue || quotedExcerptsRef.current.length === 0)) ||
             (!forceSendRef.current && (isLoading || sendsInFlightRef.current > 0))
         ) {
             return false;
@@ -1403,7 +1481,9 @@ export function useChatSession(
 
     React.useEffect(() => {
         const handleInsertPrompt = (e: Event) => {
-            const detail = (e as CustomEvent<{ prompt?: string; send?: boolean }>).detail;
+            const detail = (
+                e as CustomEvent<{ prompt?: string; send?: boolean; openWorkspace?: boolean }>
+            ).detail;
             if (!detail?.prompt) return;
             setInputValue(detail.prompt);
             try {
@@ -1412,8 +1492,15 @@ export function useChatSession(
                 /* ignore */
             }
             window.dispatchEvent(
-                new CustomEvent("bettershape-layout-toggle", { detail: { id: "secondary-sidebar", value: true } }),
+                new CustomEvent("bettershape-center-view", { detail: "chat" }),
             );
+            if (detail.openWorkspace) {
+                window.dispatchEvent(
+                    new CustomEvent("bettershape-layout-toggle", {
+                        detail: { id: "secondary-sidebar", value: true },
+                    }),
+                );
+            }
             if (detail.send) {
                 if (isLoadingRef.current) enqueueChatMessage(detail.prompt);
                 else void handleSendMessageRef.current(detail.prompt);
@@ -1423,6 +1510,31 @@ export function useChatSession(
         return () =>
             window.removeEventListener("bettershape-chat-insert-prompt", handleInsertPrompt as EventListener);
     }, [enqueueChatMessage, setInputValue]);
+
+    React.useEffect(() => {
+        const onQuote = (e: Event) => {
+            const detail = (e as CustomEvent<{ id?: string; text?: string }>).detail;
+            const text = detail?.text?.trim();
+            if (!text) return;
+            const id = detail?.id || `${Date.now()}-${randomSuffix(5)}`;
+            setQuotedExcerpts((prev) => {
+                if (prev.some((q) => q.text === text)) return prev;
+                return [...prev.slice(-7), { id, text }];
+            });
+            window.dispatchEvent(new CustomEvent("bettershape-chat-focus-input"));
+        };
+        window.addEventListener("bettershape-chat-quote-selection", onQuote as EventListener);
+        return () =>
+            window.removeEventListener("bettershape-chat-quote-selection", onQuote as EventListener);
+    }, []);
+
+    const lastQuoteThreadRef = React.useRef<string | null>(null);
+    React.useEffect(() => {
+        if (lastQuoteThreadRef.current !== null && lastQuoteThreadRef.current !== activeChatTabId) {
+            setQuotedExcerpts([]);
+        }
+        lastQuoteThreadRef.current = activeChatTabId;
+    }, [activeChatTabId]);
 
     const messagesRef = React.useRef(messages);
     React.useEffect(() => {
@@ -1741,39 +1853,198 @@ export function useChatSession(
         }
     };
 
-    const handleKeyDown = (e: React.KeyboardEvent) => {
+    const handleKeyDown = React.useCallback((e: React.KeyboardEvent) => {
         if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
-            void handleSendMessage().catch((err) => {
+            void handleSendMessageRef.current().catch((err) => {
                 console.error("Failed to send message:", err);
             });
         }
-    };
+    }, []);
+
+    const userDetachedRef = React.useRef(false);
+    const programmaticScrollRef = React.useRef(false);
+    const disclosureLockUntilRef = React.useRef(0);
+    const lastScrollTopRef = React.useRef(0);
+    const prevMsgCountRef = React.useRef(messages.length);
+    const prevConvIdRef = React.useRef(conversationId);
+
+    const syncScrollFlags = React.useCallback(
+        (el: HTMLDivElement, options?: { allowReattach?: boolean }) => {
+            const distanceFromBottom = Math.max(0, el.scrollHeight - el.scrollTop - el.clientHeight);
+            const allowReattach =
+                (options?.allowReattach ?? true) && Date.now() > disclosureLockUntilRef.current;
+            if (allowReattach && distanceFromBottom <= 36) {
+                userDetachedRef.current = false;
+            }
+            isNearBottomRef.current =
+                !userDetachedRef.current && (isLoadingRef.current || distanceFromBottom <= 160);
+            setScrolledFromTop((prev) => {
+                const next = el.scrollTop > 6;
+                return prev === next ? prev : next;
+            });
+            setScrolledFromBottom((prev) => {
+                const next = distanceFromBottom > 36;
+                return prev === next ? prev : next;
+            });
+        },
+        [],
+    );
+
+    React.useEffect(() => {
+        const onDisclosureToggle = (e: Event) => {
+            disclosureLockUntilRef.current = Date.now() + 420;
+            const el = scrollContainerRef.current;
+            const trigger = (e as CustomEvent<{ element?: HTMLElement | null }>).detail?.element;
+            if (!el) return;
+            if (trigger && el.contains(trigger)) {
+                const containerRect = el.getBoundingClientRect();
+                const triggerRect = trigger.getBoundingClientRect();
+                // Expanding/collapsing an earlier block above the bottom fold should keep
+                // that disclosure anchored under the pointer instead of yanking to maxTop.
+                if (containerRect.bottom - triggerRect.bottom > 96 || isLoadingRef.current) {
+                    userDetachedRef.current = true;
+                    isNearBottomRef.current = false;
+                }
+            } else if (isLoadingRef.current) {
+                userDetachedRef.current = true;
+                isNearBottomRef.current = false;
+            }
+        };
+        window.addEventListener(
+            "bettershape-transcript-disclosure-toggle",
+            onDisclosureToggle as EventListener,
+        );
+        return () => {
+            window.removeEventListener(
+                "bettershape-transcript-disclosure-toggle",
+                onDisclosureToggle as EventListener,
+            );
+        };
+    }, [scrollContainerRef]);
+
+    const scrollFlagsRafRef = React.useRef<number>(0);
+    React.useEffect(() => {
+        return () => {
+            if (scrollFlagsRafRef.current) {
+                cancelAnimationFrame(scrollFlagsRafRef.current);
+                scrollFlagsRafRef.current = 0;
+            }
+        };
+    }, []);
+
+    const scrollToBottom = React.useCallback(
+        (behavior: ScrollBehavior = "smooth") => {
+            userDetachedRef.current = false;
+            isNearBottomRef.current = true;
+            const prefersReducedMotion =
+                typeof window !== "undefined" &&
+                Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches);
+            const resolvedBehavior: ScrollBehavior = prefersReducedMotion ? "auto" : behavior;
+            const el = scrollContainerRef.current;
+            if (!el) {
+                messagesEndRef.current?.scrollIntoView?.({ behavior: resolvedBehavior });
+                setScrolledFromBottom(false);
+                return;
+            }
+            const maxTop = Math.max(0, el.scrollHeight - el.clientHeight);
+            programmaticScrollRef.current = true;
+            if (resolvedBehavior === "smooth" && typeof el.scrollTo === "function") {
+                el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+            } else {
+                el.scrollTop = maxTop;
+            }
+            lastScrollTopRef.current = maxTop;
+            window.requestAnimationFrame(() => {
+                programmaticScrollRef.current = false;
+                if (scrollContainerRef.current) {
+                    syncScrollFlags(scrollContainerRef.current);
+                }
+            });
+            setScrolledFromTop((prev) => {
+                const next = maxTop > 6;
+                return prev === next ? prev : next;
+            });
+            setScrolledFromBottom((prev) => (prev ? false : prev));
+        },
+        [messagesEndRef, scrollContainerRef, syncScrollFlags],
+    );
+
+    const notifyUserScrollUp = React.useCallback(() => {
+        const el = scrollContainerRef.current;
+        if (el && el.scrollHeight <= el.clientHeight + 8) return;
+        userDetachedRef.current = true;
+        isNearBottomRef.current = false;
+        if (el) {
+            const distanceFromBottom = Math.max(0, el.scrollHeight - el.scrollTop - el.clientHeight);
+            setScrolledFromBottom(distanceFromBottom > 12);
+        }
+    }, [scrollContainerRef]);
+
+    const handleTranscriptResize = React.useCallback(() => {
+        const el = scrollContainerRef.current;
+        if (!el) return;
+        if (!userDetachedRef.current && Date.now() > disclosureLockUntilRef.current) {
+            const maxTop = Math.max(0, el.scrollHeight - el.clientHeight);
+            programmaticScrollRef.current = true;
+            el.scrollTop = maxTop;
+            lastScrollTopRef.current = maxTop;
+            programmaticScrollRef.current = false;
+            isNearBottomRef.current = true;
+            setScrolledFromTop((prev) => {
+                const next = maxTop > 6;
+                return prev === next ? prev : next;
+            });
+            setScrolledFromBottom((prev) => (prev ? false : prev));
+            return;
+        }
+        // Passive content resize must never silently re-attach a scrolled-up reader.
+        syncScrollFlags(el, { allowReattach: false });
+    }, [scrollContainerRef, syncScrollFlags]);
 
     const handleScroll = React.useCallback(() => {
         const el = scrollContainerRef.current;
         if (!el) return;
-        const threshold = 150;
-        isNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
-        setScrolledFromTop(el.scrollTop > 4);
-        setScrolledFromBottom(!isNearBottomRef.current);
-    }, [scrollContainerRef]);
+        const currentTop = el.scrollTop;
+        const delta = currentTop - lastScrollTopRef.current;
+        lastScrollTopRef.current = currentTop;
+        if (!programmaticScrollRef.current && delta < -4) {
+            userDetachedRef.current = true;
+            isNearBottomRef.current = false;
+        }
+        if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+            if (!scrollFlagsRafRef.current) {
+                scrollFlagsRafRef.current = window.requestAnimationFrame(() => {
+                    scrollFlagsRafRef.current = 0;
+                    if (scrollContainerRef.current) {
+                        syncScrollFlags(scrollContainerRef.current);
+                    }
+                });
+            }
+            return;
+        }
+        syncScrollFlags(el);
+    }, [scrollContainerRef, syncScrollFlags]);
 
     React.useEffect(() => {
-        if (isNearBottomRef.current) {
-            messagesEndRef.current?.scrollIntoView({
-                behavior: isLoading ? "auto" : "smooth",
-            });
+        const convSwitched = prevConvIdRef.current !== conversationId;
+        const msgAdded = messages.length > prevMsgCountRef.current;
+        const lastIsUser = messages.at(-1)?.role === "user";
+        prevConvIdRef.current = conversationId;
+        prevMsgCountRef.current = messages.length;
+
+        if (convSwitched || (msgAdded && lastIsUser)) {
+            userDetachedRef.current = false;
+            isNearBottomRef.current = true;
         }
-        // Keep top-fade in sync after programmatic scroll (scroll events can lag).
+
+        if (!userDetachedRef.current && isNearBottomRef.current) {
+            scrollToBottom(isLoading || convSwitched ? "auto" : "smooth");
+            return;
+        }
         const el = scrollContainerRef.current;
-        if (el) {
-            setScrolledFromTop(el.scrollTop > 4);
-            setScrolledFromBottom(
-                el.scrollHeight - el.scrollTop - el.clientHeight >= 150,
-            );
-        }
-    }, [messages, isLoading, messagesEndRef, scrollContainerRef]);
+        if (el) syncScrollFlags(el);
+    }, [conversationId, isLoading, messages, scrollContainerRef, scrollToBottom, syncScrollFlags]);
 
     const handleLoadConversation = React.useCallback(
         async (id: string, options?: { force?: boolean }) => {
@@ -1895,7 +2166,12 @@ export function useChatSession(
         }
     };
 
-    const messageGroups = groupChatMessages(messages);
+    const messageGroups = React.useMemo(() => groupChatMessages(messages), [messages]);
+    const scopedMessageQueue = React.useMemo(() => {
+        if (messageQueue.length === 0) return EMPTY_QUEUED_MESSAGES;
+        const filtered = queueForConversation(messageQueue, conversationId);
+        return filtered.length === 0 ? EMPTY_QUEUED_MESSAGES : filtered;
+    }, [messageQueue, conversationId]);
 
     return {
         messages,
@@ -1928,6 +2204,9 @@ export function useChatSession(
         openChatTabs,
         activeChatTabId,
         handleScroll,
+        scrollToBottom,
+        notifyUserScrollUp,
+        handleTranscriptResize,
         scrolledFromTop,
         scrolledFromBottom,
         isEditResolved,
@@ -1949,11 +2228,13 @@ export function useChatSession(
         handleStopMessage,
         messageGroups,
         refreshHistory,
-        messageQueue: queueForConversation(messageQueue, conversationId),
+        messageQueue: scopedMessageQueue,
         handleEditQueuedMessage,
         handleRemoveQueuedMessage,
         handleSendQueuedNow,
         handleUpdateQueuedMessage,
         projectRuleFiles,
+        quotedExcerpts,
+        removeQuotedExcerpt,
     };
 }

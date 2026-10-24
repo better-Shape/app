@@ -1,5 +1,6 @@
 "use client";
 
+import { Chat20Regular } from "@fluentui/react-icons/headless/svg/chat";
 import { Delete20Filled } from "@fluentui/react-icons/headless/svg/delete";
 import { MailInbox20Regular } from "@fluentui/react-icons/headless/svg/mail-inbox";
 
@@ -11,6 +12,12 @@ import { Icon } from "@/components/ui/icon";
 
 import { FileIcon } from "@/components/ui/file-icon";
 import { FrameworkMark } from "@/features/chat/ui/shell/brand-marks";
+import {
+    CHAT_COPY_MARKDOWN_EVENT,
+    CHAT_EXPORT_MARKDOWN_EVENT,
+    openChatFindBar,
+} from "@/features/chat/ui/shell/find-bar";
+import { prefetchChatConversation } from "@/features/chat/lib/chat-stream-store";
 import { SearchInput } from "@/components/ui/search";
 
 import { getShortcutForLabel } from "@/lib/ui/shortcuts";
@@ -84,7 +91,7 @@ function isBrowseMode(mode: string): boolean {
 
 function formatRelativeAgo(timestamp: number): string {
     const diffMs = Date.now() - toTimestampMs(timestamp);
-    if (!Number.isFinite(diffMs) || diffMs < 0) return "—";
+    if (!Number.isFinite(diffMs) || diffMs < 0) return "";
     const minutes = Math.floor(diffMs / 60_000);
     const hours = Math.floor(diffMs / 3_600_000);
     const days = Math.floor(diffMs / 86_400_000);
@@ -158,6 +165,54 @@ function fuzzyScore(query: string, text: string): number {
         if (t[i] === q[qi]) qi++;
     }
     return qi === q.length ? 40 : 0;
+}
+
+function HighlightedLabel({ text, query }: { text: string; query: string }) {
+    const q = query.trim().toLowerCase();
+    if (!q || !text) return <>{text}</>;
+    const lower = text.toLowerCase();
+    const subIdx = lower.indexOf(q);
+    if (subIdx !== -1) {
+        return (
+            <>
+                {text.slice(0, subIdx)}
+                <span className="font-medium text-text-primary">
+                    {text.slice(subIdx, subIdx + q.length)}
+                </span>
+                {text.slice(subIdx + q.length)}
+            </>
+        );
+    }
+    const matched = new Set<number>();
+    let qi = 0;
+    for (let i = 0; i < lower.length && qi < q.length; i++) {
+        if (lower[i] === q[qi]) {
+            matched.add(i);
+            qi += 1;
+        }
+    }
+    if (qi < q.length) return <>{text}</>;
+    const nodes: React.ReactNode[] = [];
+    let runStart = 0;
+    let runHighlighted = matched.has(0);
+    for (let i = 1; i <= text.length; i++) {
+        const nextHighlighted = i < text.length ? matched.has(i) : !runHighlighted;
+        if (i === text.length || nextHighlighted !== runHighlighted) {
+            const chunk = text.slice(runStart, i);
+            nodes.push(
+                runHighlighted ? (
+                    <span key={runStart} className="font-medium text-text-primary">
+                        {chunk}
+                    </span>
+                ) : (
+                    <React.Fragment key={runStart}>{chunk}</React.Fragment>
+                ),
+            );
+            runStart = i;
+            runHighlighted = nextHighlighted;
+        }
+    }
+    return <>{nodes}</>;
 }
 
 function ShortcutBadge({ shortcut }: { shortcut: string }) {
@@ -547,9 +602,39 @@ export function CommandPalette() {
         query,
     ]);
 
+    const fallbackAskAction = useMemo<EditorAction | null>(() => {
+        const trimmed = query.trim();
+        if (!trimmed || mode === "files" || (browse && filterTab !== "all")) return null;
+        return {
+            id: "agent:ask-fallback",
+            label: `Ask Agent: "${trimmed}"`,
+            shortcut: "Enter",
+            iconNode: <Icon icon={Chat20Regular} className="size-4 text-text-secondary" />,
+            meta: "New prompt",
+            run: () => {
+                window.dispatchEvent(
+                    new CustomEvent("bettershape-center-view", {
+                        detail: "chat",
+                    }),
+                );
+                window.dispatchEvent(
+                    new CustomEvent("bettershape-chat-insert-prompt", {
+                        detail: { prompt: trimmed, send: false },
+                    }),
+                );
+                window.dispatchEvent(new CustomEvent("bettershape-chat-focus-input"));
+            },
+        };
+    }, [browse, filterTab, mode, query]);
+
+    const effectiveRows = useMemo(
+        () => (filtered.length > 0 ? filtered : fallbackAskAction ? [fallbackAskAction] : []),
+        [filtered, fallbackAskAction],
+    );
+
     const selectableActions = useMemo(
-        () => filtered.filter((row): row is EditorAction => "run" in row),
-        [filtered],
+        () => effectiveRows.filter((row): row is EditorAction => "run" in row),
+        [effectiveRows],
     );
 
     const [selectionInputs, setSelectionInputs] = useState<readonly unknown[] | null>(null);
@@ -565,17 +650,21 @@ export function CommandPalette() {
         if (!listRef.current) return;
         const item = listRef.current.querySelector(`[data-palette-index="${selectedIndex}"]`) as HTMLElement | null;
         item?.scrollIntoView({ block: "nearest" });
-    }, [selectedIndex]);
+        const selected = selectableActions[selectedIndex];
+        if (selected?.id.startsWith("agent:") && selected.id !== "agent:ask-fallback") {
+            prefetchChatConversation(selected.id.slice("agent:".length));
+        }
+    }, [selectedIndex, selectableActions]);
 
     const runAction = useCallback((action: EditorAction) => {
         setOpen(false);
-        setTimeout(() => {
+        requestAnimationFrame(() => {
             try {
                 action.run();
             } catch (e) {
                 console.error("Command palette action failed:", e);
             }
-        }, 50);
+        });
     }, []);
 
     const onInputKeyDown = (e: React.KeyboardEvent) => {
@@ -640,7 +729,7 @@ export function CommandPalette() {
                         ref={listRef}
                         className="max-h-[420px] min-h-0 flex-1 overflow-x-hidden overflow-y-auto custom-scrollbar py-1"
                     >
-                        {filtered.length === 0 && (
+                        {effectiveRows.length === 0 && (
                             <div className="px-4 py-6 text-center text-sm text-text-muted">
                                 {mode === "goto_line"
                                     ? "Line number, optional column (e.g. 42:10)"
@@ -649,9 +738,9 @@ export function CommandPalette() {
                                       : "No matching results"}
                             </div>
                         )}
-                        {filtered.map((action, index) => {
+                        {effectiveRows.map((action, index) => {
                             const section = showSections ? action.section : undefined;
-                            const showHeader = Boolean(section && section !== filtered[index - 1]?.section);
+                            const showHeader = Boolean(section && section !== effectiveRows[index - 1]?.section);
                             if (!("run" in action)) {
                                 return (
                                     <React.Fragment key={action.id}>
@@ -684,14 +773,19 @@ export function CommandPalette() {
                                         role="button"
                                         tabIndex={0}
                                         className={cn(
-                                            "mx-1 flex min-w-0 cursor-pointer items-center justify-between rounded-md px-3 py-1.5 text-left",
+                                            "mx-1 flex min-w-0 cursor-pointer items-center justify-between rounded-md px-3 py-1.5 text-left transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
                                             action.reply && "ml-6",
                                             idx === selectedIndex
                                                 ? "bg-panel-hover text-text-primary"
                                                 : "text-text-secondary hover:bg-[var(--row-hover)]",
                                             action.muted && "text-text-disabled [&_img]:opacity-50 [&_svg]:opacity-50",
                                         )}
-                                        onMouseEnter={() => setSelectedIndex(idx)}
+                                        onMouseEnter={() => {
+                                            setSelectedIndex(idx);
+                                            if (action.id.startsWith("agent:") && action.id !== "agent:ask-fallback") {
+                                                prefetchChatConversation(action.id.slice("agent:".length));
+                                            }
+                                        }}
                                         onClick={() => runAction(action)}
                                     >
                                         <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
@@ -704,19 +798,25 @@ export function CommandPalette() {
                                             {(browse && (filterTab === "files" || action.id.startsWith("file:"))) || mode === "files" ? (
                                                 <FileIcon name={action.icon || action.label} className="h-4 w-4 shrink-0 opacity-70" />
                                             ) : null}
-                                            {browse && action.id.startsWith("agent:") ? (
+                                            {browse && action.id.startsWith("agent:") && action.id !== "agent:ask-fallback" ? (
                                                 <span className="flex size-4 shrink-0 items-center justify-center">
                                                     {providerIcon(action.model || "auto", 14)}
                                                 </span>
                                             ) : null}
-                                            {!browse && action.iconNode ? (
+                                            {action.iconNode ? (
                                                 <span className="flex size-4 shrink-0 items-center justify-center">
                                                     {action.iconNode}
                                                 </span>
                                             ) : !browse && action.icon ? (
                                                 <FileIcon name={action.icon} className="h-4 w-4 shrink-0 opacity-70" />
                                             ) : null}
-                                            <span className="min-w-0 truncate text-sm">{action.label}</span>
+                                            <span className="min-w-0 truncate text-sm">
+                                                {action.id === "agent:ask-fallback" ? (
+                                                    action.label
+                                                ) : (
+                                                    <HighlightedLabel text={action.label} query={query} />
+                                                )}
+                                            </span>
                                         </div>
                                         <div className="flex min-w-0 items-center">
                                             {action.meta ? (
@@ -930,8 +1030,8 @@ function getAppCommands(): EditorAction[] {
             shortcut: "",
             run: () => {
                 window.dispatchEvent(
-                    new CustomEvent("bettershape-layout-toggle", {
-                        detail: { id: "secondary-sidebar", value: true },
+                    new CustomEvent("bettershape-center-view", {
+                        detail: "chat",
                     }),
                 );
                 window.dispatchEvent(
@@ -1373,6 +1473,45 @@ function getAppCommands(): EditorAction[] {
             label: "File: Save All",
             shortcut: shortcut("Save All"),
             run: () => window.dispatchEvent(new Event("save-all-request")),
+        },
+        {
+            id: "app.chat.new",
+            label: "Chat: New Chat",
+            shortcut: shortcut("New Chat"),
+            run: () => {
+                window.dispatchEvent(
+                    new CustomEvent("bettershape-center-view", {
+                        detail: "chat",
+                    }),
+                );
+                window.dispatchEvent(new Event("bettershape-chat-new"));
+                window.dispatchEvent(new Event("bettershape-chat-focus-input"));
+            },
+        },
+        {
+            id: "app.chat.find",
+            label: "Chat: Find in Conversation",
+            shortcut: "Ctrl+F",
+            run: () => {
+                window.dispatchEvent(
+                    new CustomEvent("bettershape-center-view", {
+                        detail: "chat",
+                    }),
+                );
+                openChatFindBar();
+            },
+        },
+        {
+            id: "app.chat.copyMarkdown",
+            label: "Chat: Copy Chat as Markdown",
+            shortcut: "",
+            run: () => window.dispatchEvent(new Event(CHAT_COPY_MARKDOWN_EVENT)),
+        },
+        {
+            id: "app.chat.exportMarkdown",
+            label: "Chat: Export Chat as Markdown",
+            shortcut: "",
+            run: () => window.dispatchEvent(new Event(CHAT_EXPORT_MARKDOWN_EVENT)),
         },
         {
             id: "app.file.closeFolder",

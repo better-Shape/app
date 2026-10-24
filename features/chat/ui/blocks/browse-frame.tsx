@@ -187,7 +187,7 @@ export function BrowseChatCard({
                     <button
                         type="button"
                         aria-label="Stop the agent browser"
-                        className="absolute right-2 top-2 z-20 flex size-6 items-center justify-center rounded-md bg-surface-1/90 text-text-primary"
+                        className="absolute right-2 top-2 z-20 flex size-[24px] items-center justify-center rounded-md bg-surface-1/90 text-text-primary"
                         onClick={() => {
                             void commands.agentBrowseStop();
                             void commands.stopChatMessage();
@@ -199,7 +199,7 @@ export function BrowseChatCard({
                 {lines.length ? (
                     <button
                         type="button"
-                        className="absolute bottom-2 left-2 z-20 inline-flex items-center gap-1 rounded-md bg-surface-1/90 px-1.5 py-0.5 text-xs text-text-secondary"
+                        className="absolute bottom-2 left-2 z-20 inline-flex min-h-[24px] items-center gap-1 rounded-md bg-surface-1/90 px-1.5 py-0.5 text-xs text-text-secondary"
                         onClick={() => setConsoleOpen((open) => !open)}
                     >
                         <Icon icon={WindowConsole20Regular} />
