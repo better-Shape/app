@@ -62,16 +62,17 @@ export function fetchWarmProjectFiles(projectPath: string, query = "", limit = 4
         const req = commands
             .searchProjectFiles("", limit)
             .then((rows) => {
-                const normalized = rows.map((r) => (r.relative_path || r.path).replace(/\\/g, "/"));
-                if (filesGeneration === gen) {
-                    filesCache.set(projectPath, {
-                        value: normalized,
-                        expiresAt: Date.now() + WARM_TTL_MS,
-                    });
-                }
                 if (filesInflight.get(projectPath) === req) {
                     filesInflight.delete(projectPath);
                 }
+                if (filesGeneration !== gen) {
+                    return fetchWarmProjectFiles(projectPath, query, limit);
+                }
+                const normalized = rows.map((r) => (r.relative_path || r.path).replace(/\\/g, "/"));
+                filesCache.set(projectPath, {
+                    value: normalized,
+                    expiresAt: Date.now() + WARM_TTL_MS,
+                });
                 return normalized;
             })
             .catch(() => {

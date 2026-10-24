@@ -265,9 +265,15 @@ function ProviderCard({ id, providers }: { id: ProviderId; providers: ProvidersS
     };
 
     const update = (patch: Partial<typeof connection>) => {
-        if ("apiKey" in patch || "baseUrl" in patch || "authStyle" in patch) {
-            setTestResult((prev) => (prev && !prev.ok ? null : prev));
-            setCheckResult((prev) => (prev && !prev.ok ? null : prev));
+        if (
+            "apiKey" in patch ||
+            "baseUrl" in patch ||
+            "authStyle" in patch ||
+            "headers" in patch
+        ) {
+            setTestResult(null);
+            setCheckResult(null);
+            setImported(0);
         }
         updateSettingSection("ai", {
             providers: {

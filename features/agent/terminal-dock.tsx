@@ -82,14 +82,15 @@ export function TerminalDock({ suppressed = false }: { suppressed?: boolean } = 
 
         let unlisten: (() => void) | undefined;
         let cancelled = false;
-        void import("@tauri-apps/api/event")
+        import("@tauri-apps/api/event")
             .then(({ listen }) =>
-                listen<{ type: string; command?: string; sessionId?: number }>(
+                listen<{ type: string; command?: string; cwd?: string; sessionId?: number }>(
                     "bettershape-terminal-ai-action",
                     (event) => {
                         if (cancelled) return;
                         if (event.payload.type !== "start" || event.payload.sessionId == null) return;
-                        const cwd = cwdRef.current || "global";
+                        const eventCwd = event.payload.cwd?.trim();
+                        const cwd = eventCwd || cwdRef.current || "global";
                         const title =
                             (event.payload.command || "Agent").replace(/\s+/g, " ").trim().slice(0, 48) ||
                             "Agent";
@@ -123,8 +124,8 @@ export function TerminalDock({ suppressed = false }: { suppressed?: boolean } = 
             const detail = (e as CustomEvent<{ id?: string; value?: boolean }>).detail;
             const id = detail?.id;
             if (id !== "panel" && id !== "terminal") return;
-            if (detail?.value === false) persistOpen(false);
-            else if (detail?.value === true) persistOpen(true);
+            if (detail.value === false) persistOpen(false);
+            else if (detail.value === true) persistOpen(true);
             else persistOpen(!visibleOpen);
         };
         const onOpen = () => persistOpen(true);

@@ -281,7 +281,7 @@ export function CommandPalette() {
 
             if (openMode === "goto_line") {
                 setActions([]);
-                setQuery(paletteSearchQuery(detail?.filter, openMode));
+                setQuery(paletteSearchQuery(detail.filter, openMode));
                 setOpen(true);
             } else if (openMode === "language_mode" && detail?.actions?.length) {
                 setActions(detail.actions);

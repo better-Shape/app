@@ -289,7 +289,7 @@ export default function Chat({
     );
     const conv = useMemo(
         () =>
-            (session.recentConvs ?? []).find(
+            session.recentConvs.find(
                 (item) => item.id === (session.conversationId ?? session.activeChatTabId),
             ),
         [session.recentConvs, session.conversationId, session.activeChatTabId],
@@ -305,7 +305,7 @@ export default function Chat({
         [session.chatTitle, activeTab?.title, conv?.title, session.messages],
     );
     const recentIds = useMemo(
-        () => (session.recentConvs ?? []).map((c) => c.id),
+        () => session.recentConvs.map((c) => c.id),
         [session.recentConvs],
     );
     const selectChatTabRef = React.useRef(session.handleSelectChatTab);
@@ -356,13 +356,27 @@ export default function Chat({
     }, []);
     const handleJumpToBottom = React.useCallback(() => {
         const container = scrollContainerRef.current;
-        const pendingCard = container?.querySelector<HTMLElement>("[data-pending-approval='true']");
-        if (pendingCard) {
-            const reduced =
-                typeof window !== "undefined" &&
-                Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches);
-            pendingCard.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "center" });
-            return;
+        if (container) {
+            const pendingCards = Array.from(
+                container.querySelectorAll<HTMLElement>("[data-pending-approval='true']"),
+            );
+            const scrollerRect = container.getBoundingClientRect();
+            const offscreenCard = pendingCards.find((card) => {
+                const rect = card.getBoundingClientRect();
+                if (rect.height <= 0 || scrollerRect.height <= 0) return false;
+                const visible =
+                    Math.min(rect.bottom, scrollerRect.bottom) -
+                    Math.max(rect.top, scrollerRect.top);
+                return visible < Math.min(56, rect.height * 0.55);
+            });
+            const targetCard = offscreenCard ?? pendingCards[0];
+            if (targetCard) {
+                const reduced =
+                    typeof window !== "undefined" &&
+                    Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches);
+                targetCard.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "center" });
+                return;
+            }
         }
         sessionRef.current.scrollToBottom("smooth");
     }, []);
@@ -449,26 +463,27 @@ export default function Chat({
 
         let rafId = 0;
         const measure = () => {
-            const pendingEl = scroller.querySelector<HTMLElement>("[data-pending-approval='true']");
-            if (!pendingEl) {
-                setPendingHitlDirection(null);
-                return;
-            }
+            const pendingEls = Array.from(
+                scroller.querySelectorAll<HTMLElement>("[data-pending-approval='true']"),
+            );
             const scrollerRect = scroller.getBoundingClientRect();
-            const elRect = pendingEl.getBoundingClientRect();
-            if (elRect.height <= 0 || scrollerRect.height <= 0) {
+            if (pendingEls.length === 0 || scrollerRect.height <= 0) {
                 setPendingHitlDirection(null);
                 return;
             }
-            const visibleTop = Math.max(elRect.top, scrollerRect.top);
-            const visibleBottom = Math.min(elRect.bottom, scrollerRect.bottom);
-            const visibleHeight = Math.max(0, visibleBottom - visibleTop);
-            const minVisible = Math.min(56, elRect.height * 0.55);
-            if (visibleHeight < minVisible) {
-                setPendingHitlDirection(elRect.top < scrollerRect.top ? "up" : "down");
-            } else {
-                setPendingHitlDirection(null);
+            for (const pendingEl of pendingEls) {
+                const elRect = pendingEl.getBoundingClientRect();
+                if (elRect.height <= 0) continue;
+                const visibleTop = Math.max(elRect.top, scrollerRect.top);
+                const visibleBottom = Math.min(elRect.bottom, scrollerRect.bottom);
+                const visibleHeight = Math.max(0, visibleBottom - visibleTop);
+                const minVisible = Math.min(56, elRect.height * 0.55);
+                if (visibleHeight < minVisible) {
+                    setPendingHitlDirection(elRect.top < scrollerRect.top ? "up" : "down");
+                    return;
+                }
             }
+            setPendingHitlDirection(null);
         };
 
         const scheduleMeasure = () => {

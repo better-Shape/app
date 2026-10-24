@@ -1,15 +1,20 @@
 import { describe, expect, it } from "vitest";
 import { formatRowsAsMarkdownTable } from "@/features/chat/ui/md/data-table";
 import { parseMessageContent } from "@/features/chat/ui/md/renderer";
-import { preprocessChatMarkdown } from "@/features/chat/ui/md/stream";
+import { preprocessChatMarkdown, repairStreamGlitches } from "@/features/chat/ui/md/stream";
+import { extractCleanSelectionText } from "@/features/chat/ui/quote-selection";
 import { terminalSessionStore } from "@/features/terminal/session";
+import { defaultProvidersSettings, modelIdsFor } from "@/lib/ai/providers";
 import { formatTranscriptAsMarkdown } from "@/lib/chat/export-markdown";
 import { splitStreamingMarkdownBlocks } from "@/lib/chat/markdown-blocks";
 import {
     mergeNewestFirstPrompts,
     stepPromptHistoryDown,
+    stripShellPromptPrefix,
+    tryWrapMarkdownLinkOnPaste,
 } from "@/lib/chat/prompt-history";
 import { findTranscriptMatches } from "@/lib/chat/transcript-search";
+import { providerIcon } from "@/lib/ui/provider-icon";
 
 describe("PR #53 review regression coverage", () => {
     it("escapes backslashes before pipes in Markdown table export so \\| stays inside the cell", () => {
@@ -160,5 +165,85 @@ describe("PR #53 review regression coverage", () => {
             terminalSessionStore.setTabs(() => prevTabs);
             terminalSessionStore.clearPendingCommandInsertForTab();
         }
+    });
+
+    it("strips unclosed and nested <script variants to a fixed point and keeps legitimate repeated prose phrases", () => {
+        const tricky = "Before <s<img src=x>cript src=evil> and <scriptx> and <script<script after";
+        const out = preprocessChatMarkdown(tricky);
+        expect(out.toLowerCase()).not.toContain("<script");
+        expect(out).toContain("Before");
+
+        const repeatedOpener =
+            "In summary, we need a clean validation step first.\n\nDetails follow in paragraph two with full context.\n\nIn summary, we need a final check before shipping.";
+        expect(repairStreamGlitches(repeatedOpener)).toBe(repeatedOpener);
+    });
+
+    it("preserves literal XML such as <think>code</think> inside user messages during Markdown export", () => {
+        const md = formatTranscriptAsMarkdown("XML repro", [
+            { role: "user", content: "Why did `<think>code</think>` fail to parse?" },
+            { role: "assistant", content: "<think>hidden</think>Use a closing tag." },
+        ]);
+        expect(md).toContain("<think>code</think>");
+        expect(md).not.toContain("hidden");
+    });
+
+    it("strips mixed $ prompt prefixes without altering $ENV vars and prevents nested Markdown link wrapping", () => {
+        expect(stripShellPromptPrefix("$ npm install\nnpm test\necho $HOME")).toBe(
+            "npm install\nnpm test\necho $HOME",
+        );
+
+        const existingLink = "Read [the migration guide](https://example.com/old) first.";
+        const partialStart = existingLink.indexOf("migration");
+        const partialEnd = partialStart + "migration".length;
+        expect(
+            tryWrapMarkdownLinkOnPaste(
+                existingLink,
+                partialStart,
+                partialEnd,
+                "https://example.com/new",
+            ),
+        ).toBeNull();
+    });
+
+    it("incrementally splits streaming Markdown blocks in O(tail) and separates table cells in quotes", () => {
+        let stream = "First paragraph.";
+        expect(splitStreamingMarkdownBlocks(stream)).toEqual({
+            settled: [],
+            tail: "First paragraph.",
+        });
+        stream += "\n\nSecond paragraph";
+        expect(splitStreamingMarkdownBlocks(stream)).toEqual({
+            settled: ["First paragraph."],
+            tail: "Second paragraph",
+        });
+        stream += " extended.\n\nThird";
+        expect(splitStreamingMarkdownBlocks(stream)).toEqual({
+            settled: ["First paragraph.", "Second paragraph extended."],
+            tail: "Third",
+        });
+
+        const host = document.createElement("div");
+        host.innerHTML = "<table><tr><th>ColA</th><th>ColB</th></tr><tr><td>10</td><td>20</td></tr></table>";
+        const range = document.createRange();
+        range.selectNodeContents(host);
+        expect(extractCleanSelectionText(range, host)).toBe("ColA\tColB\n10\t20");
+    });
+
+    it("guards Object.prototype keys in providerIcon and keeps custom native local/ extra model slugs", () => {
+        expect(() => providerIcon("constructor/gpt-4", 14)).not.toThrow();
+        expect(() => providerIcon("toString/model", 14)).not.toThrow();
+
+        const defaults = defaultProvidersSettings();
+        const customConn = {
+            ...defaults.connections.custom,
+            enabled: true,
+            baseUrl: "http://127.0.0.1:8080/v1",
+            extraModels: ["local/llama-3"],
+        };
+        const ids = modelIdsFor("custom", {
+            ...defaults.connections,
+            custom: customConn,
+        });
+        expect(ids).toContain("custom/local/llama-3");
     });
 });

@@ -54,7 +54,7 @@ export const ChatHistoryStepper = memo(function ChatHistoryStepper({
     return (
         <div
             className={cn(
-                "flex h-full min-h-0 w-[24px] flex-col items-end justify-center gap-0.5 select-none",
+                "flex h-full max-h-full min-h-0 w-[24px] flex-col items-end justify-center gap-0.5 overflow-y-auto no-scrollbar select-none",
                 className,
             )}
             role="navigation"
@@ -70,7 +70,7 @@ export const ChatHistoryStepper = memo(function ChatHistoryStepper({
                             aria-label={label}
                             aria-current={active ? "true" : undefined}
                             onClick={() => onSelect(turnIdx)}
-                            className="group/tick flex min-h-[24px] min-w-[24px] shrink-0 items-center justify-end rounded-sm transition-transform duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] motion-reduce:transform-none motion-reduce:transition-none active:scale-[0.94] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus"
+                            className="group/tick flex max-h-[24px] min-h-[10px] min-w-[24px] flex-1 items-center justify-end rounded-sm transition-transform duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] motion-reduce:transform-none motion-reduce:transition-none active:scale-[0.94] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus"
                         >
                             <span
                                 className={cn(

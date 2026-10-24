@@ -5,7 +5,6 @@ import { ChevronRight20Regular } from "@fluentui/react-icons/headless/svg/chevro
 import { ChevronUp20Regular } from "@fluentui/react-icons/headless/svg/chevron-up";
 import { DocumentSearch20Regular } from "@fluentui/react-icons/headless/svg/document-search";
 import { Edit20Regular } from "@fluentui/react-icons/headless/svg/edit";
-import { ErrorCircle20Regular } from "@fluentui/react-icons/headless/svg/error-circle";
 import { Folder20Regular } from "@fluentui/react-icons/headless/svg/folder";
 import { Open20Regular } from "@fluentui/react-icons/headless/svg/open";
 import { Wrench20Regular } from "@fluentui/react-icons/headless/svg/wrench";
@@ -870,16 +869,6 @@ function StepRow({ block }: { block: Chunk }) {
                         action="Checked"
                         detail="no linter errors"
                         icon={<Icon icon={CheckmarkCircle20Regular} className="size-3.5 text-success/85" />}
-                    />
-                );
-            }
-            if (status === "errors") {
-                return (
-                    <ActionLine
-                        action="Checked"
-                        detail="linter errors"
-                        tone="warning"
-                        icon={<Icon icon={ErrorCircle20Regular} className="size-3.5 text-warning" />}
                     />
                 );
             }

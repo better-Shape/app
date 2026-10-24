@@ -782,7 +782,7 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
             const providerId = String(args.providerId ?? "").trim();
             const apiKey = typeof args.apiKey === "string" ? args.apiKey.trim() : "";
             const baseUrl = typeof args.baseUrl === "string" ? args.baseUrl.trim() : "";
-            const authStyle = typeof args.authStyle === "string" ? args.authStyle.trim() : "";
+            const authStyle = typeof args.authStyle === "string" ? args.authStyle.trim().toLowerCase() : "";
             const keyless =
                 authStyle === "none" || new Set(["ollama", "lmstudio", "vllm", "custom"]).has(providerId);
             const needsBaseUrl = new Set([

@@ -173,14 +173,23 @@ export function MentionPicker({
         };
     }, [open, anchorRef, boxRef, filter, activeCategory, menuEl, files.length, chats.length, mode, workflows.length]);
 
-    const [openScope, setOpenScope] = useState<readonly [typeof open] | null>(null);
-    if (openScope === null || !Object.is(openScope[0], open)) {
-        setOpenScope([open]);
+    const [openScope, setOpenScope] = useState<readonly [typeof open, typeof project_path] | null>(
+        null,
+    );
+    if (
+        openScope === null ||
+        !Object.is(openScope[0], open) ||
+        !Object.is(openScope[1], project_path)
+    ) {
+        const projectChanged = openScope !== null && !Object.is(openScope[1], project_path);
+        setOpenScope([open, project_path]);
         if (!open) {
             setActiveCategory(null);
             setHighlight(0);
         }
-
+        if (projectChanged) {
+            setFiles([]);
+        }
     }
 
     useEffect(() => {
