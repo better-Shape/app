@@ -246,21 +246,36 @@ function isLintCommand(cmd: string): boolean {
     );
 }
 
-function lintStatusFromOutput(output: string): "clean" | "errors" | null {
+const CLEAN_LINT_PATTERNS = [
+    /no linter errors/i,
+    /(?:^|[^0-9])0 errors?(?:$|[^a-z])/i,
+    /✓ no problems/i,
+    /no problems found/i,
+];
+
+/** Classifies terminal lint output as `"clean"`, `"errors"`, or `null` when inconclusive. */
+const lintStatusFromOutput = (output: string): "clean" | "errors" | null => {
     const trimmed = output.trim();
     if (!trimmed) return null;
-    const lower = trimmed.toLowerCase();
-    if (
-        lower.includes("no linter errors")
-        || lower.includes("0 errors")
-        || lower.includes("✓ no problems")
-        || /no problems found/i.test(trimmed)
-    ) {
-        return "clean";
-    }
-    if (lower.includes("error") || lower.includes("✖")) return "errors";
-    return null;
-}
+    if (CLEAN_LINT_PATTERNS.some((re) => re.test(trimmed))) return "clean";
+    return /error|✖/i.test(trimmed) ? "errors" : null;
+};
+
+const FAILED_PLUGIN_CALL_STATUSES = new Set(["error", "failed", "rejected", "cancelled"]);
+const TERMINAL_TURN_TYPES = new Set(["terminal_command", "run"]);
+
+/** True when a command block failed by status or non-zero exit code. */
+const isFailedCommandBlock = (b: Chunk): boolean => {
+    if (b.commandStatus === "failed") return true;
+    return typeof b.exitCode === "number" ? b.exitCode !== 0 : false;
+};
+
+/** True when a visible workflow step finished in an error/failed/rejected state. */
+const isFailedWorkflowBlock = (b: Chunk): boolean => {
+    if (TERMINAL_TURN_TYPES.has(b.type)) return isFailedCommandBlock(b);
+    if (b.type === "plugin_call") return FAILED_PLUGIN_CALL_STATUSES.has(b.commandStatus ?? "");
+    return false;
+};
 
 function computeTurnStats(blocks: Chunk[]) {
     const readFiles = new Set<string>();
@@ -986,18 +1001,7 @@ export function TurnWorkflowSummary({
             (b.type === "terminal_command" || b.type === "edit_pending" || b.type === "plugin_call")
             && b.commandStatus === "pending",
     );
-    const failedCount = visible.filter((b) => {
-        if (b.type === "terminal_command" || b.type === "run") {
-            return (
-                b.commandStatus === "failed" ||
-                (typeof b.exitCode === "number" && b.exitCode !== 0)
-            );
-        }
-        if (b.type === "plugin_call") {
-            return b.commandStatus === "error" || b.commandStatus === "failed";
-        }
-        return false;
-    }).length;
+    const failedCount = visible.filter(isFailedWorkflowBlock).length;
 
     const summaryRootRef = useRef<HTMLDivElement>(null);
     const pointerInsideRef = useRef(false);

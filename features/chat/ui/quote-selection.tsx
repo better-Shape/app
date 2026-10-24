@@ -14,7 +14,7 @@ export type QuotedExcerpt = {
 };
 
 const SKIP_SELECTOR =
-    "button, [data-quote-skip], [aria-hidden='true'], [role='status'], svg, script, style";
+    "button:not([data-quote-allow]), [data-quote-skip], [aria-hidden='true'], [role='status'], svg, script, style";
 
 const BLOCK_TAGS = new Set([
     "P",
@@ -247,11 +247,16 @@ export function ChatSelectionQuoteToolbar({
     useEffect(() => {
         let isPointerDown = false;
         let settleTimer: number | null = null;
+        let evalRaf = 0;
 
         const clearSettle = () => {
             if (settleTimer !== null) {
                 window.clearTimeout(settleTimer);
                 settleTimer = null;
+            }
+            if (evalRaf) {
+                window.cancelAnimationFrame(evalRaf);
+                evalRaf = 0;
             }
         };
 
@@ -262,7 +267,10 @@ export function ChatSelectionQuoteToolbar({
         const onMouseUp = () => {
             isPointerDown = false;
             clearSettle();
-            requestAnimationFrame(evaluateSelection);
+            evalRaf = window.requestAnimationFrame(() => {
+                evalRaf = 0;
+                evaluateSelection();
+            });
         };
         const onSelectionChange = () => {
             const sel = window.getSelection();

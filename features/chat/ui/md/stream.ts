@@ -337,15 +337,61 @@ function unwrapOuterProseFence(text: string): string {
     return text;
 }
 
-const PAIRED_STRIP_TAGS = new Set(["iframe", "script", "style", "object", "embed"]);
+const PAIRED_STRIP_TAG_LIST = ["iframe", "script", "style", "object", "embed"] as const;
+const PAIRED_STRIP_TAGS = new Set<string>(PAIRED_STRIP_TAG_LIST);
 const LAYOUT_HTML_TAGS = new Set([
     "h1", "h2", "h3", "h4", "h5", "h6",
     "p", "div", "span", "a", "ul", "ol", "li",
     "strong", "em", "b", "i", "section", "article", "header", "footer",
 ]);
 
+/** Counts consecutive backticks starting at `start`. */
+const countBacktickRun = (input: string, start: number): number => {
+    let end = start;
+    while (end < input.length && input.charCodeAt(end) === 96) end++;
+    return end - start;
+};
+
+/** Finds the closing backtick run of exact length `runLen`, or `-1` if unclosed. */
+const findMatchingBackticks = (input: string, from: number, runLen: number): number => {
+    let pos = from;
+    while (pos < input.length) {
+        const next = input.indexOf("`", pos);
+        if (next === -1) return -1;
+        const count = countBacktickRun(input, next);
+        if (count === runLen) return next + count;
+        pos = next + count;
+    }
+    return -1;
+};
+
+/** Collects `[start, end]` offsets for closed inline backtick code spans. */
+const collectInlineCodeRanges = (input: string): Array<[number, number]> => {
+    if (!input.includes("`")) return [];
+    const ranges: Array<[number, number]> = [];
+    let pos = 0;
+    while (pos < input.length) {
+        const tick = input.indexOf("`", pos);
+        if (tick === -1) break;
+        const runLen = countBacktickRun(input, tick);
+        const closeEnd = findMatchingBackticks(input, tick + runLen, runLen);
+        if (closeEnd !== -1 && !input.slice(tick, closeEnd).includes("\n\n")) {
+            ranges.push([tick, closeEnd]);
+            pos = closeEnd;
+        } else {
+            pos = tick + runLen;
+        }
+    }
+    return ranges;
+};
+
+/** True when `offset` falls inside one of `ranges`. */
+const isOffsetInRanges = (offset: number, ranges: ReadonlyArray<[number, number]>): boolean =>
+    ranges.some(([start, end]) => offset >= start && offset < end);
+
 /** Single linear character-scanner pass stripping raw HTML tags without regex backtracking. */
 function stripHtmlTagsOnce(input: string): string {
+    const codeRanges = collectInlineCodeRanges(input);
     let out = "";
     let cursor = 0;
     const len = input.length;
@@ -375,9 +421,7 @@ function stripHtmlTagsOnce(input: string): string {
             tagName.length > 0 &&
             (nextChar === "" || nextChar === ">" || nextChar === "/" || /\s/.test(nextChar));
 
-        const matchedPairedPrefix = ["iframe", "script", "style", "object", "embed"].find((t) =>
-            tagName.startsWith(t),
-        );
+        const matchedPairedPrefix = PAIRED_STRIP_TAG_LIST.find((t) => tagName.startsWith(t));
 
         if (!validBoundary && !matchedPairedPrefix) {
             out += "<";
@@ -386,11 +430,8 @@ function stripHtmlTagsOnce(input: string): string {
         }
 
         const gt = input.indexOf(">", pos);
-        if (PAIRED_STRIP_TAGS.has(tagName) || matchedPairedPrefix) {
-            if (gt === -1) {
-                cursor = len;
-                break;
-            }
+        if (matchedPairedPrefix) {
+            if (gt === -1) break;
             if (!isClosing && PAIRED_STRIP_TAGS.has(tagName)) {
                 const lowerRest = input.slice(gt + 1).toLowerCase();
                 const closeNeedle = `</${tagName}`;
@@ -405,7 +446,7 @@ function stripHtmlTagsOnce(input: string): string {
             continue;
         }
 
-        if (gt === -1) {
+        if (gt === -1 || isOffsetInRanges(lt, codeRanges)) {
             out += "<";
             cursor = lt + 1;
             continue;

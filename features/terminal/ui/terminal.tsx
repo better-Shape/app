@@ -165,6 +165,7 @@ function TerminalInstance({ tab, isActive }: { tab: TerminalTab, isActive: boole
         let fitAddon: FitAddonType | undefined;
         let ptyId: number | undefined;
         let unlistenOutput: (() => void) | undefined;
+        let pendingPasteTimer: ReturnType<typeof setTimeout> | undefined;
 
 // Reserves the pty outside render, and re-checks `isMounted` after every await
         // because a panel that unmounts mid-reservation would otherwise leak it.
@@ -467,7 +468,8 @@ function TerminalInstance({ tab, isActive }: { tab: TerminalTab, isActive: boole
                     const pendingCmd = globalTerminalStore.takePendingCommandInsert(tab.id);
                     const attachedTerm = term;
                     if (pendingCmd && attachedTerm) {
-                        setTimeout(() => {
+                        pendingPasteTimer = setTimeout(() => {
+                            pendingPasteTimer = undefined;
                             try {
                                 attachedTerm.paste(pendingCmd);
                                 attachedTerm.focus();
@@ -532,6 +534,7 @@ function TerminalInstance({ tab, isActive }: { tab: TerminalTab, isActive: boole
             isMounted = false;
             detachCopy?.();
             if (fitTimer) clearTimeout(fitTimer);
+            if (pendingPasteTimer) clearTimeout(pendingPasteTimer);
             resObs.disconnect();
             window.removeEventListener("bettershape-terminal-refit", onRefit);
             if (term?.element?.parentNode) term.element.parentNode.removeChild(term.element);

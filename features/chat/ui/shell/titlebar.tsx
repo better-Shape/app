@@ -110,9 +110,6 @@ export const ChatTitlebar = memo(function ChatTitlebar({
 }: {
     title: string;
     conversationId: string | null;
-    recentIds: string[];
-    timestamp?: number | null;
-    onSelect: (id: string) => void;
     subagentTitle?: string | null;
     subagentModel?: string | null;
     onCloseSubagent?: () => void;

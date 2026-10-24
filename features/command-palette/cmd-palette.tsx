@@ -678,7 +678,10 @@ export function CommandPalette() {
         item?.scrollIntoView({ block: "nearest" });
         const selected = selectableActions[selectedIndex];
         if (selected?.id.startsWith("agent:") && selected.id !== "agent:ask-fallback") {
-            prefetchChatConversation(selected.id.slice("agent:".length));
+            const chatId = selected.id.slice("agent:".length);
+            if (!chatId.includes(":sub:")) {
+                prefetchChatConversation(chatId);
+            }
         }
     }, [selectedIndex, selectableActions]);
 

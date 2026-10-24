@@ -40,12 +40,22 @@ const isShortcutOwner = (cardEl: HTMLElement | null, selfId: symbol): boolean =>
     return activeApprovalStack[0] === selfId;
 };
 
+/** True when Shift or Alt is held, disqualifying approval hotkeys. */
+const hasExtraApprovalModifier = (e: KeyboardEvent): boolean => Boolean(e.shiftKey || e.altKey);
+
+/** True when Cmd (macOS) or Ctrl is held. */
+const hasPrimaryApprovalModifier = (e: KeyboardEvent): boolean => Boolean(e.metaKey || e.ctrlKey);
+
+const APPROVAL_KEY_DECISIONS: Record<string, "accept" | "skip" | undefined> = {
+    "true:Enter": "accept",
+    "false:Escape": "skip",
+};
+
 /** Maps a keyboard event to its approval decision (`"accept"`, `"skip"`, or `null`). */
 const resolveApprovalAction = (e: KeyboardEvent): "accept" | "skip" | null => {
-    if (e.shiftKey || e.altKey) return null;
-    const cmdOrCtrl = e.metaKey || e.ctrlKey;
-    if (cmdOrCtrl) return e.key === "Enter" ? "accept" : null;
-    return e.key === "Escape" ? "skip" : null;
+    if (hasExtraApprovalModifier(e)) return null;
+    const hit = APPROVAL_KEY_DECISIONS[`${hasPrimaryApprovalModifier(e)}:${e.key}`];
+    return hit ? hit : null;
 };
 
 /** Dispatches the matching callback for a pending approval hotkey press. */
@@ -164,6 +174,20 @@ const ApprovalActionButtons = ({
     </div>
 );
 
+/** Resolves button labels and platform shortcut hint for an approval card. */
+const resolveApprovalLabels = (skipLabel?: string, acceptLabel?: string) => ({
+    skipLabel: skipLabel ? skipLabel : "Skip",
+    acceptLabel: acceptLabel ? acceptLabel : "Allow",
+    acceptShortcut: getPlatform() === "macos" ? "⌘↵" : "Ctrl+↵",
+});
+
+/** Resolves ARIA label and pending data attributes for an approval card container. */
+const resolveApprovalAttrs = (title: ReactNode, isProcessing?: boolean) => ({
+    pendingAttr: isProcessing ? undefined : "true",
+    pendingKind: isProcessing ? undefined : "approval",
+    ariaLabel: typeof title === "string" ? title : "Action approval",
+});
+
 /** Shared chrome for edit / command / plugin approval cards. */
 export const ApprovalCard = (props: {
     icon?: ReactNode;
@@ -189,13 +213,9 @@ export const ApprovalCard = (props: {
         onAccept,
         className,
     } = props;
-    const skipLabel = props.skipLabel ?? "Skip";
-    const acceptLabel = props.acceptLabel ?? "Allow";
+    const labels = resolveApprovalLabels(props.skipLabel, props.acceptLabel);
+    const attrs = resolveApprovalAttrs(title, isProcessing);
     const cardRef = useRef<HTMLDivElement>(null);
-    const acceptShortcut = getPlatform() === "macos" ? "⌘↵" : "Ctrl+↵";
-    const pendingAttr = isProcessing ? undefined : "true";
-    const pendingKind = isProcessing ? undefined : "approval";
-    const ariaLabel = typeof title === "string" ? title : "Action approval";
 
     useApprovalKeyboardShortcut({
         enabled: true,
@@ -210,9 +230,9 @@ export const ApprovalCard = (props: {
             ref={cardRef}
             role="group"
             data-approval-card="true"
-            data-pending-approval={pendingAttr}
-            data-pending-approval-kind={pendingKind}
-            aria-label={ariaLabel}
+            data-pending-approval={attrs.pendingAttr}
+            data-pending-approval-kind={attrs.pendingKind}
+            aria-label={attrs.ariaLabel}
             className={cn(
                 "my-1.5 overflow-hidden rounded-xl border border-border-subtle bg-surface-3 transition-colors duration-[var(--spring-quick-dur)] ease-[var(--spring-quick)]",
                 className,
@@ -228,9 +248,9 @@ export const ApprovalCard = (props: {
             <div className="flex items-center justify-between gap-2 px-2.5 py-2">
                 <div className="min-w-0">{footerLeft}</div>
                 <ApprovalActionButtons
-                    skipLabel={skipLabel}
-                    acceptLabel={acceptLabel}
-                    acceptShortcut={acceptShortcut}
+                    skipLabel={labels.skipLabel}
+                    acceptLabel={labels.acceptLabel}
+                    acceptShortcut={labels.acceptShortcut}
                     isProcessing={isProcessing}
                     onSkip={onSkip}
                     onAccept={onAccept}
