@@ -82,23 +82,32 @@ export function TerminalDock({ suppressed = false }: { suppressed?: boolean } = 
 
         let unlisten: (() => void) | undefined;
         let cancelled = false;
+        const resolveAiTabSpec = (
+            payload: { type: string; command?: string; cwd?: string; sessionId?: number },
+            fallbackCwd: string | null,
+        ) => {
+            if (payload.type !== "start" || payload.sessionId == null) return null;
+            const cwd = payload.cwd?.trim() || fallbackCwd || "global";
+            const cleanedCmd = (payload.command || "").replace(/\s+/g, " ").trim().slice(0, 48);
+            return {
+                title: cleanedCmd || "Agent",
+                cwd,
+                boundPtyId: payload.sessionId,
+            };
+        };
         import("@tauri-apps/api/event")
             .then(({ listen }) =>
                 listen<{ type: string; command?: string; cwd?: string; sessionId?: number }>(
                     "bettershape-terminal-ai-action",
                     (event) => {
                         if (cancelled) return;
-                        if (event.payload.type !== "start" || event.payload.sessionId == null) return;
-                        const eventCwd = event.payload.cwd?.trim();
-                        const cwd = eventCwd || cwdRef.current || "global";
-                        const title =
-                            (event.payload.command || "Agent").replace(/\s+/g, " ").trim().slice(0, 48) ||
-                            "Agent";
+                        const spec = resolveAiTabSpec(event.payload, cwdRef.current);
+                        if (!spec) return;
                         registerBoundTerminalTab({
-                            title,
-                            cwd,
+                            title: spec.title,
+                            cwd: spec.cwd,
                             shell: "ai",
-                            boundPtyId: event.payload.sessionId,
+                            boundPtyId: spec.boundPtyId,
                         });
                         window.dispatchEvent(
                             new CustomEvent("bettershape-layout-toggle", { detail: { id: "panel", value: true } }),

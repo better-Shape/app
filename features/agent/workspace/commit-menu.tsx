@@ -596,7 +596,9 @@ export function CommitMenu({ projectPath }: { projectPath: string }) {
                                 loading={busy}
                                 disabled={files.length === 0}
                                 onClick={() => {
-                                    suggest().catch(() => {});
+                                    suggest().catch(() => {
+                                        /* Error toast is surfaced inside suggest() */
+                                    });
                                 }}
                             />
                         </div>

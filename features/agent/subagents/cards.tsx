@@ -44,7 +44,9 @@ function Card({ card }: { card: SubagentCard }) {
             role="button"
             tabIndex={0}
             onClick={(e) => {
-                const interactive = (e.target as Element | null)?.closest("button, a");
+                const interactive = (e.target as Element | null)?.closest(
+                    "button, a, [data-subagent-disclosure]",
+                );
                 if (interactive && interactive !== e.currentTarget) return;
                 openSubagent(card.id);
             }}
@@ -105,10 +107,7 @@ function Card({ card }: { card: SubagentCard }) {
                         />
                     </button>
                     <Collapse open={open}>
-                        <div
-                            onClick={(e) => e.stopPropagation()}
-                            className="flex flex-col gap-0.5 pl-0.5"
-                        >
+                        <div data-subagent-disclosure className="flex flex-col gap-0.5 pl-0.5">
                             <ReadGroup files={card.reads ?? []} tokens={card.tokens} />
                         </div>
                     </Collapse>

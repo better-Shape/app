@@ -9,7 +9,7 @@ export function stripOrphanThinkTags(text: string): string {
 }
 
 const LEAKED_TOOL_CALL_FN_RE =
-    /(?:default_api\.[a-zA-Z_]\w*|render_design_previews|read_file|edit_file|write_file|grep_search|run_terminal|web_search|list_terminals|terminal_read|terminal_input|[a-zA-Z_]\w*_execute)/;
+    /(?:default_api\.[a-zA-Z_]\w*|render_design_previews|read_file|edit_file|write_file|grep_search|run_terminal|web_search|list_terminals|terminal_read|terminal_input)/;
 
 /** True when a fenced/JSON blob is a leaked model tool invocation, not user-facing code. */
 export function looksLikeLeakedToolCode(body: string): boolean {
@@ -17,13 +17,15 @@ export function looksLikeLeakedToolCode(body: string): boolean {
     if (!t) return false;
     if (/"tool_code"\s*:/.test(t)) return true;
     if (
-        new RegExp(`\\bprint\\s*\\(\\s*${LEAKED_TOOL_CALL_FN_RE.source}\\s*\\(`).test(t)
+        new RegExp(`\\bprint\\s*\\(\\s*${LEAKED_TOOL_CALL_FN_RE.source}\\s*\\(`).test(t) ||
+        /\bprint\s*\(\s*[a-zA-Z_][a-zA-Z0-9_]*\s*\(/.test(t) && t.includes("_execute")
     ) {
         return true;
     }
     if (/^\s*tool_code\s*$/m.test(t) && /\bprint\s*\(/.test(t)) return true;
     if (
-        new RegExp(`^\\s*functions\\.${LEAKED_TOOL_CALL_FN_RE.source}\\s*\\(`, "m").test(t)
+        new RegExp(`^\\s*functions\\.${LEAKED_TOOL_CALL_FN_RE.source}\\s*\\(`, "m").test(t) ||
+        /^\s*functions\.[a-zA-Z_][a-zA-Z0-9_]*\s*\(/m.test(t) && t.includes("_execute")
     ) {
         return true;
     }
@@ -335,23 +337,111 @@ function unwrapOuterProseFence(text: string): string {
     return text;
 }
 
+const PAIRED_STRIP_TAGS = new Set(["iframe", "script", "style", "object", "embed"]);
+const LAYOUT_HTML_TAGS = new Set([
+    "h1", "h2", "h3", "h4", "h5", "h6",
+    "p", "div", "span", "a", "ul", "ol", "li",
+    "strong", "em", "b", "i", "section", "article", "header", "footer",
+]);
+
+/** Single linear character-scanner pass stripping raw HTML tags without regex backtracking. */
+function stripHtmlTagsOnce(input: string): string {
+    let out = "";
+    let cursor = 0;
+    const len = input.length;
+
+    while (cursor < len) {
+        const lt = input.indexOf("<", cursor);
+        if (lt === -1) {
+            out += input.slice(cursor);
+            break;
+        }
+        out += input.slice(cursor, lt);
+
+        let pos = lt + 1;
+        while (pos < len && /\s/.test(input.charAt(pos))) pos++;
+        let isClosing = false;
+        if (pos < len && input.charAt(pos) === "/") {
+            isClosing = true;
+            pos++;
+            while (pos < len && /\s/.test(input.charAt(pos))) pos++;
+        }
+
+        const nameStart = pos;
+        while (pos < len && /[a-zA-Z0-9]/.test(input.charAt(pos))) pos++;
+        const tagName = input.slice(nameStart, pos).toLowerCase();
+        const nextChar = pos < len ? input.charAt(pos) : "";
+        const validBoundary =
+            tagName.length > 0 &&
+            (nextChar === "" || nextChar === ">" || nextChar === "/" || /\s/.test(nextChar));
+
+        const matchedPairedPrefix = ["iframe", "script", "style", "object", "embed"].find((t) =>
+            tagName.startsWith(t),
+        );
+
+        if (!validBoundary && !matchedPairedPrefix) {
+            out += "<";
+            cursor = lt + 1;
+            continue;
+        }
+
+        const gt = input.indexOf(">", pos);
+        if (PAIRED_STRIP_TAGS.has(tagName) || matchedPairedPrefix) {
+            if (gt === -1) {
+                cursor = len;
+                break;
+            }
+            if (!isClosing && PAIRED_STRIP_TAGS.has(tagName)) {
+                const lowerRest = input.slice(gt + 1).toLowerCase();
+                const closeNeedle = `</${tagName}`;
+                const closeRel = lowerRest.indexOf(closeNeedle);
+                if (closeRel !== -1) {
+                    const closeGt = input.indexOf(">", gt + 1 + closeRel + closeNeedle.length);
+                    cursor = closeGt === -1 ? len : closeGt + 1;
+                    continue;
+                }
+            }
+            cursor = gt + 1;
+            continue;
+        }
+
+        if (gt === -1) {
+            out += "<";
+            cursor = lt + 1;
+            continue;
+        }
+
+        if (tagName === "br" && !isClosing) {
+            out += "\n";
+            cursor = gt + 1;
+            continue;
+        }
+        if (tagName === "img" && !isClosing) {
+            cursor = gt + 1;
+            continue;
+        }
+        if (LAYOUT_HTML_TAGS.has(tagName)) {
+            if (isClosing) out += "\n";
+            cursor = gt + 1;
+            continue;
+        }
+
+        out += input.slice(lt, gt + 1);
+        cursor = gt + 1;
+    }
+
+    return out;
+}
+
 function stripRawHtml(text: string): string {
     if (!text.includes("<")) return text;
     const replaceHtml = (part: string) => {
         let out = part;
-        let prev: string;
-        do {
-            prev = out;
-            out = out
-                .replace(/<img\b[^>]*>/gi, "")
-                .replace(/<br\s*\/?>/gi, "\n")
-                .replace(/<(iframe|script|style|object|embed)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, "")
-                .replace(/<\s*\/?\s*(?:iframe|script|style|object|embed)[^>]*>?/gi, "")
-                .replace(
-                    /<\/?(?:h[1-6]|p|div|span|a|ul|ol|li|strong|em|b|i|section|article|header|footer)\b[^>]*>/gi,
-                    (tag) => (tag.startsWith("</") ? "\n" : ""),
-                );
-        } while (out !== prev);
+        for (let pass = 0; pass < 8; pass++) {
+            const next = stripHtmlTagsOnce(out);
+            if (next === out) break;
+            out = next;
+        }
         return out;
     };
     if (!text.includes("```")) return replaceHtml(text);

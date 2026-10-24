@@ -52,7 +52,10 @@ function firstPromptTitle(messages: { role?: string; content?: string }[] | unde
         .replace(/\s+/g, " ")
         .trim();
     if (!line) return null;
-    return line.length > 48 ? `${line.slice(0, 48).trimEnd()}...` : line;
+    const codePoints = Array.from(line);
+    return codePoints.length > 48
+        ? `${codePoints.slice(0, 48).join("").trimEnd()}...`
+        : line;
 }
 
 export function resolveChatCrumbTitle(opts: {

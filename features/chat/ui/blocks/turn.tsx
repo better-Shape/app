@@ -1185,14 +1185,11 @@ export function TurnWorkflowSummary({
                         </div>
                     );
                 }
-                if (row.kind === "block") {
-                    return (
-                        <div key={`step-${slot}`} className={enterClass}>
-                            <StepRow block={row.block} />
-                        </div>
-                    );
-                }
-                return null;
+                return (
+                    <div key={`step-${slot}`} className={enterClass}>
+                        <StepRow block={row.block} />
+                    </div>
+                );
             })}
             {showLintFooter && !lintShownInSteps ? (
                 <ActionLine

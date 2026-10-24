@@ -137,11 +137,20 @@ export function formatMentionToken(mention: ChatMention): string {
         const label = (mention.label || mention.id || "design").trim();
         token = `@${label.replace(/\s+/g, "-")}`;
     } else if (mention.kind === "folder") {
-        const base = pathBasename(mention.path ?? mention.label);
-        token = `@${base.endsWith("/") ? base : `${base}/`}`;
+        const rawPath = mention.path ?? mention.label;
+        const base = pathBasename(rawPath);
+        const cleanBase = base.endsWith("/") ? base.slice(0, -1) : base;
+        token =
+            /\s/.test(rawPath) || !/^[\w.-]+$/.test(cleanBase)
+                ? `@folder:${slugifyMentionLabel(cleanBase)}/`
+                : `@${cleanBase}/`;
     } else if (mention.kind === "file" || mention.kind === "docs") {
-        const base = pathBasename(mention.path ?? mention.label);
-        token = `@${base}`;
+        const rawPath = mention.path ?? mention.label;
+        const base = pathBasename(rawPath);
+        token =
+            /\s/.test(rawPath) || !/^[\w.-]+$/.test(base)
+                ? `@${mention.kind}:${slugifyMentionLabel(base)}`
+                : `@${base}`;
     } else if (mention.kind === "chat") {
         token = `@chat:${slugifyMentionLabel(mention.label || "Chat")}`;
     } else if (mention.kind === "terminal") {

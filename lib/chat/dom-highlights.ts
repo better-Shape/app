@@ -88,7 +88,7 @@ function shouldSkipTextNode(node: Text, root: HTMLElement): boolean {
     while (cur && cur !== root) {
         const curTag = cur.tagName;
         if (
-            curTag === "BUTTON" ||
+            (curTag === "BUTTON" && !cur.hasAttribute("data-chat-find-text")) ||
             curTag === "KBD" ||
             cur.hasAttribute("inert") ||
             cur.getAttribute("aria-hidden") === "true" ||
@@ -152,28 +152,27 @@ export function syncChatDomHighlights(
 
         const hay = caseSensitive ? raw : raw.toLowerCase();
         let cursor = 0;
-        let msgEl: HTMLElement | null | undefined;
-        let msgIdx: number | null = null;
+        let resolvedMsgIdx: number | null | undefined;
 
         while (cursor <= hay.length - needle.length && collected.length < maxRanges) {
             const idx = hay.indexOf(needle, cursor);
             if (idx === -1) break;
-            if (msgEl === undefined) {
-                msgEl = textNode.parentElement?.closest<HTMLElement>("[data-chat-message-index]") ?? null;
-                const parsed = msgEl ? Number(msgEl.getAttribute("data-chat-message-index")) : NaN;
-                msgIdx = Number.isFinite(parsed) ? parsed : null;
+            if (resolvedMsgIdx === undefined) {
+                const msgEl = textNode.parentElement?.closest<HTMLElement>("[data-chat-message-index]") ?? null;
+                const parsed = msgEl ? Number(msgEl.getAttribute("data-chat-message-index")) : Number.NaN;
+                resolvedMsgIdx = Number.isFinite(parsed) ? parsed : null;
             }
             const range = document.createRange();
             range.setStart(textNode, idx);
             range.setEnd(textNode, idx + needle.length);
-            collected.push({ range, messageIndex: msgIdx });
+            collected.push({ range, messageIndex: resolvedMsgIdx });
 
-            if (msgIdx !== null) {
-                const occ = perMessageCounter.get(msgIdx) ?? 0;
-                perMessageCounter.set(msgIdx, occ + 1);
+            if (resolvedMsgIdx !== null) {
+                const occ = perMessageCounter.get(resolvedMsgIdx) ?? 0;
+                perMessageCounter.set(resolvedMsgIdx, occ + 1);
                 if (
                     matchedTargetRange === null &&
-                    options.targetMessageIndex === msgIdx &&
+                    options.targetMessageIndex === resolvedMsgIdx &&
                     options.targetOccurrenceInMessage === occ
                 ) {
                     matchedTargetRange = range;

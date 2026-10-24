@@ -1064,7 +1064,7 @@ body[data-resizing] .xterm {
   opacity: 0;
   transform: translate3d(0, -8px, 0) scale(0.97);
   transition:
-    transform var(--spring-panel-dur) var(--spring-panel),
+    transform var(--spring-quick-dur) var(--spring-quick),
     opacity var(--spring-quick-dur) var(--spring-quick);
   will-change: opacity, transform;
 }

@@ -1719,16 +1719,17 @@ export const ChatInput = React.memo(function ChatInput({
                         vesselRadiusClass,
                         dragOver && "border-border bg-surface-3/90",
                     )}
-                    onClick={(e) => {
+                    onPointerDown={(e) => {
+                        if (e.button !== 0) return;
                         const target = e.target instanceof HTMLElement ? e.target : null;
                         if (
                             target?.closest(
-                                "button, a, input, textarea, [role='menuitem'], [data-radix-collection-item]",
+                                "button, a, input, textarea, [role='menuitem'], [data-radix-collection-item], [data-composer-quotes]",
                             )
                         ) {
                             return;
                         }
-                        textareaRef.current?.focus();
+                        requestAnimationFrame(() => textareaRef.current?.focus());
                     }}
                     onDrop={handleDrop}
                     onDragEnter={handleDragEnter}

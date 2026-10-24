@@ -510,38 +510,46 @@ function unescapeXml(s: string): string {
         const reasonAttrMatch = tagFull.match(/reason="([^"]+)"/);
         const commandStatus = statusMatch ? statusMatch[1] : defaultStatus;
         const rawLines = content.split("\n");
-        const reasonIdx = rawLines.findIndex(
-            (l) => l.includes("Awaiting approval:") || l.includes("Blocked:"),
-        );
-        const reasonLine = reasonIdx !== -1 ? rawLines[reasonIdx] : undefined;
+        let footerIdx = rawLines.length - 1;
+        while (footerIdx >= 0 && rawLines[footerIdx]?.trim().length === 0) {
+            footerIdx--;
+        }
+        const footerLine = footerIdx >= 0 ? rawLines[footerIdx] : undefined;
+        const isTrailingApprovalFooter =
+            (commandStatus === "pending" || commandStatus === "blocked") &&
+            footerLine !== undefined &&
+            /^(?:Awaiting approval:|Blocked:)\s/.test(footerLine);
+        const reasonIdx = isTrailingApprovalFooter ? footerIdx : -1;
         const reason =
             (reasonAttrMatch ? decodeXmlAttr(reasonAttrMatch[1]).trim() : "")
-            || reasonLine?.replace(/^.*?(Awaiting approval:|Blocked:)\s*/, "").trim();
+            || (isTrailingApprovalFooter && footerLine
+                ? footerLine.replace(/^(?:Awaiting approval:|Blocked:)\s*/, "").trim()
+                : undefined);
 
-        let cmd = "";
-        if (cmdAttrMatch) {
-            cmd = decodeXmlAttr(cmdAttrMatch[1]).trim();
-        } else if (commandStatus === "pending" || commandStatus === "blocked") {
-            const cmdSlice = reasonIdx === -1 ? rawLines : rawLines.slice(0, reasonIdx);
-            cmd = cmdSlice.join("\n").trim();
-        } else if (
-            commandStatus === "running"
-            || commandStatus === "rejected"
-            || commandStatus === "cancelled"
-        ) {
-            cmd = content.trim();
-        } else {
-            const nonEmptyStart = rawLines.findIndex((l) => l.trim().length > 0);
-            if (nonEmptyStart !== -1) {
-                const collected: string[] = [];
-                for (let idx = nonEmptyStart; idx < rawLines.length; idx++) {
-                    const line = rawLines[idx] ?? "";
-                    collected.push(line);
-                    if (!/\\\s*$/.test(line)) break;
-                }
-                cmd = collected.join("\n").trim();
+        const resolveParsedCommand = (): string => {
+            if (cmdAttrMatch) return decodeXmlAttr(cmdAttrMatch[1]).trim();
+            if (commandStatus === "pending" || commandStatus === "blocked") {
+                const cmdSlice = reasonIdx === -1 ? rawLines : rawLines.slice(0, reasonIdx);
+                return cmdSlice.join("\n").trim();
             }
-        }
+            if (
+                commandStatus === "running"
+                || commandStatus === "rejected"
+                || commandStatus === "cancelled"
+            ) {
+                return content.trim();
+            }
+            const nonEmptyStart = rawLines.findIndex((l) => l.trim().length > 0);
+            if (nonEmptyStart === -1) return "";
+            const collected: string[] = [];
+            for (let idx = nonEmptyStart; idx < rawLines.length; idx++) {
+                const line = rawLines[idx] ?? "";
+                collected.push(line);
+                if (!/\\\s*$/.test(line)) break;
+            }
+            return collected.join("\n").trim();
+        };
+        const cmd = resolveParsedCommand();
 
         return {
             type: "terminal_command",

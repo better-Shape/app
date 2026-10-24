@@ -226,8 +226,16 @@ export function insertCommandIntoWorkspaceTerminal(rawCommand: string): boolean 
         return true;
     }
 
-    terminalSessionStore.pendingCommandInsert = cleaned;
-    terminalSessionStore.pendingCommandTargetTabId = targetTab?.id ?? null;
+    const nextTargetId = targetTab?.id ?? null;
+    if (
+        terminalSessionStore.pendingCommandInsert &&
+        terminalSessionStore.pendingCommandTargetTabId === nextTargetId
+    ) {
+        terminalSessionStore.pendingCommandInsert = `${terminalSessionStore.pendingCommandInsert}\n${cleaned}`;
+    } else {
+        terminalSessionStore.pendingCommandInsert = cleaned;
+        terminalSessionStore.pendingCommandTargetTabId = nextTargetId;
+    }
     return true;
 }
 

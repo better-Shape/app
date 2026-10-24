@@ -455,7 +455,7 @@ function ChatMessageItemInner({
                                     </div>
                                 )}
                                 {userQuotes.length > 0 ? (
-                                    <div className="mb-2 flex flex-col gap-1.5">
+                                    <div className={cn("flex flex-col gap-1.5", displayText && "mb-2")}>
                                         {userQuotes.map((qText, qi) => (
                                             <blockquote
                                                 key={`quote-${qi}-${qText.slice(0, 16)}`}
@@ -472,9 +472,11 @@ function ChatMessageItemInner({
                                         ))}
                                     </div>
                                 ) : null}
-                                <div className={cn(isLong && !expanded && "chat-message-fade-clamp")}>
-                                    <MentionRichText text={displayText} />
-                                </div>
+                                {displayText || userQuotes.length === 0 ? (
+                                    <div className={cn(isLong && !expanded && "chat-message-fade-clamp")}>
+                                        <MentionRichText text={displayText} />
+                                    </div>
+                                ) : null}
                                 {isLong ? (
                                     <button
                                         type="button"

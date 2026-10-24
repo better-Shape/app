@@ -71,10 +71,11 @@ describe("splitStreamingMarkdownBlocks & hasUnclosedMarkdownFence", () => {
         ].join("\n");
 
         expect(hasUnclosedMarkdownFence(nestedFenceMd)).toBe(true);
-        const closedNested = `${nestedFenceMd}\n\`\`\`\`\n\nAfter example.`;
+        const closedNested = `${nestedFenceMd}\n\`\`\`\`\n\n~~~~python\n~~~\nstill_in_tilde = True\n~~~~\n\nAfter example.`;
+        expect(hasUnclosedMarkdownFence(`${nestedFenceMd}\n\`\`\`\`\n\n~~~~python\n~~~`)).toBe(true);
         expect(hasUnclosedMarkdownFence(closedNested)).toBe(false);
         const res = splitStreamingMarkdownBlocks(closedNested);
-        expect(res.settled).toHaveLength(2);
+        expect(res.settled).toHaveLength(3);
         expect(res.tail).toBe("After example.");
     });
 
@@ -111,5 +112,23 @@ describe("splitStreamingMarkdownBlocks & hasUnclosedMarkdownFence", () => {
         const res = splitStreamingMarkdownBlocks(refMd);
         expect(res.settled).toEqual([]);
         expect(res.tail).toBe(refMd);
+
+        const footnoteMd = [
+            "Claim backed by a citation.[^1]",
+            "",
+            "Second paragraph before footnote definition.",
+            "",
+            "[^1]: Footnote source details.",
+        ].join("\n");
+        const fnRes = splitStreamingMarkdownBlocks(footnoteMd);
+        expect(fnRes.settled).toEqual([]);
+        expect(fnRes.tail).toBe(footnoteMd);
+
+        const escapedLabelMd = [
+            "Escaped label [ref][foo\\]bar].",
+            "",
+            "[foo\\]bar]: https://example.com/escaped",
+        ].join("\n");
+        expect(splitStreamingMarkdownBlocks(escapedLabelMd).settled).toEqual([]);
     });
 });
