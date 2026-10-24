@@ -43,7 +43,11 @@ function Card({ card }: { card: SubagentCard }) {
         <div
             role="button"
             tabIndex={0}
-            onClick={() => openSubagent(card.id)}
+            onClick={(e) => {
+                const interactive = (e.target as Element | null)?.closest("button, a");
+                if (interactive && interactive !== e.currentTarget) return;
+                openSubagent(card.id);
+            }}
             onKeyDown={(e) => {
                 if (e.target !== e.currentTarget) return;
                 if (e.key === "Enter" || e.key === " ") {
@@ -101,7 +105,10 @@ function Card({ card }: { card: SubagentCard }) {
                         />
                     </button>
                     <Collapse open={open}>
-                        <div className="flex flex-col gap-0.5 pl-0.5">
+                        <div
+                            onClick={(e) => e.stopPropagation()}
+                            className="flex flex-col gap-0.5 pl-0.5"
+                        >
                             <ReadGroup files={card.reads ?? []} tokens={card.tokens} />
                         </div>
                     </Collapse>
@@ -129,7 +136,7 @@ export function SubagentCards({ className }: { className?: string }) {
                 __TAURI_INTERNALS__?: { invoke?: unknown; transformCallback?: unknown };
             }
         ).__TAURI_INTERNALS__;
-        if (typeof tauri?.invoke !== "function" || typeof tauri?.transformCallback !== "function") {
+        if (!tauri || typeof tauri.invoke !== "function" || typeof tauri.transformCallback !== "function") {
             return undefined;
         }
         void listen<{

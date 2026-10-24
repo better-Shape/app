@@ -52,6 +52,13 @@ function countLabel(count: number, noun: string): string | null {
 
 function dispatchChatPromptForProblem(prompt: string) {
     if (typeof window === "undefined") return;
+    // Persist the draft before clearing any workspace overlay so a freshly mounted
+    // `Chat` surface picks up the prompt even when it was unmounted behind an overlay.
+    try {
+        localStorage.setItem("bettershape-chat-input", prompt);
+    } catch {
+        /* ignore */
+    }
     window.dispatchEvent(
         new CustomEvent("bettershape-center-view", {
             detail: "chat",
@@ -63,6 +70,16 @@ function dispatchChatPromptForProblem(prompt: string) {
         }),
     );
     window.dispatchEvent(new CustomEvent("bettershape-chat-focus-input"));
+    if (typeof window.requestAnimationFrame === "function") {
+        window.requestAnimationFrame(() => {
+            window.dispatchEvent(
+                new CustomEvent("bettershape-chat-insert-prompt", {
+                    detail: { prompt, send: false },
+                }),
+            );
+            window.dispatchEvent(new CustomEvent("bettershape-chat-focus-input"));
+        });
+    }
 }
 
 function formatSingleProblemPrompt(problem: Problem, fileLabel: string): string {

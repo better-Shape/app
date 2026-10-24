@@ -3,7 +3,7 @@
 import { ArrowEnter20Filled } from "@fluentui/react-icons/headless/svg/arrow-enter";
 import { WindowConsole20Regular } from "@fluentui/react-icons/headless/svg/window-console";
 
-import React, { useEffect, useRef, type ReactNode, type RefObject } from "react";
+import { useEffect, useRef, type ReactNode, type RefObject } from "react";
 import { Arc } from "loading-dev";
 import { cn } from "@/lib/utils";
 import { Icon } from "@/components/ui/icon";
@@ -12,15 +12,40 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { getPlatform } from "@/lib/platform";
 
 /**
- * Ordered registry of mounted pending approval surfaces (`ApprovalCard` and
+ * Ordered registry of mounted actionable approval surfaces (`ApprovalCard` and
  * pending `PluginActivityCard`) so global `Cmd/Ctrl+Enter` and `Escape`
  * shortcuts route strictly to one card at a time (the focused card if focus is
- * inside one, otherwise the earliest pending card).
+ * inside one, otherwise the earliest actionable pending card).
  */
 const activeApprovalStack: symbol[] = [];
 
+const EDITABLE_SHORTCUT_SELECTOR =
+    "textarea, input, select, [contenteditable='true'], [role='dialog'], [data-radix-popper-content-wrapper]";
+
+const isBlockedApprovalKeyEvent = (e: KeyboardEvent): boolean => {
+    if (e.defaultPrevented || e.isComposing || e.keyCode === 229) return true;
+    const target = e.target instanceof Element ? e.target : null;
+    return Boolean(target?.closest(EDITABLE_SHORTCUT_SELECTOR));
+};
+
+const isShortcutOwner = (cardEl: HTMLElement | null, selfId: symbol): boolean => {
+    const active = document.activeElement;
+    if (cardEl && active && cardEl.contains(active)) return true;
+    const focusedCard =
+        active instanceof HTMLElement ? active.closest("[data-approval-card='true']") : null;
+    if (focusedCard) return false;
+    return activeApprovalStack[0] === selfId;
+};
+
+const resolveApprovalAction = (e: KeyboardEvent): "accept" | "skip" | null => {
+    const cmdOrCtrl = e.metaKey || e.ctrlKey;
+    if (cmdOrCtrl && e.key === "Enter" && !e.shiftKey && !e.altKey) return "accept";
+    if (!cmdOrCtrl && !e.shiftKey && !e.altKey && e.key === "Escape") return "skip";
+    return null;
+};
+
 /** Registers `Cmd/Ctrl+Enter` and `Escape` hotkeys for a pending approval card. */
-export function useApprovalKeyboardShortcut({
+export const useApprovalKeyboardShortcut = ({
     enabled = true,
     isProcessing = false,
     cardRef,
@@ -32,24 +57,22 @@ export function useApprovalKeyboardShortcut({
     cardRef: RefObject<HTMLElement | null>;
     onAccept?: () => void;
     onSkip?: () => void;
-}) {
+}): void => {
     const instanceIdRef = useRef<symbol | null>(null);
     if (instanceIdRef.current === null) {
         instanceIdRef.current = Symbol("approval-card");
     }
     const onAcceptRef = useRef(onAccept);
     const onSkipRef = useRef(onSkip);
-    const isProcessingRef = useRef(isProcessing);
     useEffect(() => {
         onAcceptRef.current = onAccept;
         onSkipRef.current = onSkip;
-        isProcessingRef.current = isProcessing;
-    }, [onAccept, onSkip, isProcessing]);
+    }, [onAccept, onSkip]);
 
-    const hasHandlers = Boolean(onAccept && onSkip);
+    const actionable = enabled && !isProcessing && Boolean(onAccept && onSkip);
 
     useEffect(() => {
-        if (!enabled || !hasHandlers) return undefined;
+        if (!actionable) return undefined;
         const selfId = instanceIdRef.current;
         if (selfId === null) return undefined;
         if (!activeApprovalStack.includes(selfId)) {
@@ -57,52 +80,15 @@ export function useApprovalKeyboardShortcut({
         }
 
         const onKey = (e: KeyboardEvent) => {
-            const acceptFn = onAcceptRef.current;
-            const skipFn = onSkipRef.current;
-            if (
-                isProcessingRef.current
-                || !acceptFn
-                || !skipFn
-                || e.defaultPrevented
-                || e.isComposing
-                || e.keyCode === 229
-            ) {
-                return;
-            }
-            const t = e.target instanceof Element ? e.target : null;
-            if (
-                t?.closest(
-                    "textarea, input, select, [contenteditable='true'], [role='dialog'], [data-radix-popper-content-wrapper]",
-                )
-            ) {
-                return;
-            }
-
-            const cardEl = cardRef.current;
-            const containsFocus = Boolean(
-                cardEl && document.activeElement && cardEl.contains(document.activeElement),
-            );
-            if (!containsFocus) {
-                const anyCardFocused = Boolean(
-                    document.activeElement instanceof HTMLElement &&
-                        document.activeElement.closest("[data-pending-approval='true']"),
-                );
-                if (anyCardFocused || activeApprovalStack[0] !== selfId) {
-                    return;
-                }
-            }
-
-            if ((e.metaKey || e.ctrlKey) && e.key === "Enter" && !e.shiftKey && !e.altKey) {
-                e.preventDefault();
-                e.stopPropagation();
-                acceptFn();
-                return;
-            }
-            if (!e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey && e.key === "Escape") {
-                e.preventDefault();
-                e.stopPropagation();
-                skipFn();
-            }
+            if (isBlockedApprovalKeyEvent(e)) return;
+            if (!isShortcutOwner(cardRef.current, selfId)) return;
+            const action = resolveApprovalAction(e);
+            if (!action) return;
+            const handler = action === "accept" ? onAcceptRef.current : onSkipRef.current;
+            if (!handler) return;
+            e.preventDefault();
+            e.stopPropagation();
+            handler();
         };
 
         window.addEventListener("keydown", onKey, true);
@@ -111,11 +97,11 @@ export function useApprovalKeyboardShortcut({
             const idx = activeApprovalStack.indexOf(selfId);
             if (idx !== -1) activeApprovalStack.splice(idx, 1);
         };
-    }, [enabled, hasHandlers, cardRef]);
-}
+    }, [actionable, cardRef]);
+};
 
 /** Shared chrome for edit / command / plugin approval cards. */
-export function ApprovalCard({
+export const ApprovalCard = ({
     icon,
     title,
     trailing,
@@ -139,7 +125,7 @@ export function ApprovalCard({
     onSkip: () => void;
     onAccept: () => void;
     className?: string;
-}) {
+}) => {
     const cardRef = useRef<HTMLDivElement>(null);
     const acceptShortcut = getPlatform() === "macos" ? "⌘↵" : "Ctrl+↵";
 
@@ -155,6 +141,7 @@ export function ApprovalCard({
         <div
             ref={cardRef}
             role="group"
+            data-approval-card="true"
             data-pending-approval={!isProcessing ? "true" : undefined}
             data-pending-approval-kind={!isProcessing ? "approval" : undefined}
             aria-label={typeof title === "string" ? title : "Action approval"}
@@ -204,7 +191,7 @@ export function ApprovalCard({
             </div>
         </div>
     );
-}
+};
 
 export type ApprovalBarProps = {
     label: string;
@@ -220,7 +207,7 @@ export type ApprovalBarProps = {
 };
 
 /** Inline chat approval bar for pending terminal commands. */
-export function ApprovalBar({
+export const ApprovalBar = ({
     label,
     subject,
     acceptLabel = "Run",
@@ -230,28 +217,26 @@ export function ApprovalBar({
     onReject,
     className,
     promptPrefix = "$ ",
-}: ApprovalBarProps) {
-    return (
-        <ApprovalCard
-            icon={<Icon icon={WindowConsole20Regular} className="text-text-muted" />}
-            title={label}
-            isProcessing={isProcessing}
-            onSkip={onReject}
-            onAccept={onAccept}
-            skipLabel={rejectLabel}
-            acceptLabel={acceptLabel}
-            className={className}
-        >
-            <div className="px-3 pb-2">
-                <Tooltip content={subject} side="top">
-                    <span className="block truncate font-mono text-sm text-text-primary">
-                        {promptPrefix ? (
-                            <span className="select-none text-text-disabled">{promptPrefix}</span>
-                        ) : null}
-                        {subject}
-                    </span>
-                </Tooltip>
-            </div>
-        </ApprovalCard>
-    );
-}
+}: ApprovalBarProps) => (
+    <ApprovalCard
+        icon={<Icon icon={WindowConsole20Regular} className="text-text-muted" />}
+        title={label}
+        isProcessing={isProcessing}
+        onSkip={onReject}
+        onAccept={onAccept}
+        skipLabel={rejectLabel}
+        acceptLabel={acceptLabel}
+        className={className}
+    >
+        <div className="px-3 pb-2">
+            <Tooltip content={subject} side="top">
+                <span className="block truncate font-mono text-sm text-text-primary">
+                    {promptPrefix ? (
+                        <span className="select-none text-text-disabled">{promptPrefix}</span>
+                    ) : null}
+                    {subject}
+                </span>
+            </Tooltip>
+        </div>
+    </ApprovalCard>
+);

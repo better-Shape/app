@@ -3,13 +3,13 @@
  *
  * Turning a growing N-character reply into `[...settled, tail]` lets completed
  * top-level blocks freeze behind `React.memo` while only `tail` re-parses as
- * tokens arrive — reducing streaming render work from O(N^2) to O(tail).
+ * tokens arrive - reducing streaming render work from O(N^2) to O(tail).
  *
  * Correctness invariants:
  *  1. Reference link / footnote definitions (`[id]: url`, `[^1]: note`) resolve
  *     document-wide in CommonMark/GFM, so any message containing one falls back
  *     to `{ settled: [], tail: markdown }`.
- *  2. Fenced code blocks (```` ``` ```` or `~~~` with 0–3 leading spaces) never
+ *  2. Fenced code blocks (```` ``` ```` or `~~~` with 0-3 leading spaces) never
  *     split internally, even across blank lines or shorter nested fences.
  *  3. Contiguous or loose lists (`-`, `*`, `+`, `1.`, `1)`) stay in a single
  *     block across blank lines when the next non-blank line is another list
@@ -29,6 +29,17 @@ export interface StreamingMarkdownSplit {
     settled: string[];
     tail: string;
 }
+
+interface IncrementalSplitCache {
+    /** Exact prefix `markdown.slice(0, tailStartOffset)` covering all settled blocks + separator. */
+    settledPrefix: string;
+    settled: string[];
+    tailStartOffset: number;
+    /** Previous full input when a reference definition forced full-document fallback. */
+    refFallbackPrefix: string | null;
+}
+
+let incrementalCache: IncrementalSplitCache | null = null;
 
 function isClosingFence(line: string, fenceChar: string, fenceLen: number): boolean {
     let spaces = 0;
@@ -71,14 +82,15 @@ export function hasUnclosedMarkdownFence(markdown: string): boolean {
     for (const line of lines) {
         if (fenceChar === null) {
             const open = FENCE_OPEN_RE.exec(line);
-            const run = open?.[1];
-            if (open && run) {
-                // Backtick info strings cannot contain backticks in CommonMark (inline code instead).
-                const rest = line.slice(open[0].length);
-                const firstChar = run[0];
-                if (!firstChar || (firstChar === "`" && rest.includes("`"))) continue;
-                fenceChar = firstChar;
-                fenceLen = run.length;
+            if (open) {
+                const run = open[1];
+                if (run) {
+                    const rest = line.slice(open[0].length);
+                    const firstChar = run[0];
+                    if (!firstChar || (firstChar === "`" && rest.includes("`"))) continue;
+                    fenceChar = firstChar;
+                    fenceLen = run.length;
+                }
             }
         } else if (isClosingFence(line, fenceChar, fenceLen)) {
             fenceChar = null;
@@ -88,26 +100,27 @@ export function hasUnclosedMarkdownFence(markdown: string): boolean {
     return fenceChar !== null;
 }
 
-/** Splits streaming Markdown into settled top-level blocks and a mutable tail block. */
-export function splitStreamingMarkdownBlocks(markdown: string): StreamingMarkdownSplit {
-    if (!markdown) {
-        return { settled: [], tail: "" };
-    }
-    if (!markdown.includes("\n\n")) {
-        return { settled: [], tail: markdown };
-    }
-
-    const lines = markdown.split("\n");
-    const blocks: string[] = [];
+function parseSliceBlocks(slice: string): {
+    hasRefDef: boolean;
+    blocks: Array<{ text: string; startOffset: number }>;
+} {
+    const lines = slice.split("\n");
+    const blocks: Array<{ text: string; startOffset: number }> = [];
 
     let currentLines: string[] = [];
+    let currentStartOffset = 0;
     let pendingBlankLines: string[] = [];
     let currentIsList = false;
     let currentIsIndentedCode = false;
     let fenceChar: string | null = null;
     let fenceLen = 0;
+    let lineOffset = 0;
 
-    for (const line of lines) {
+    for (let idx = 0; idx < lines.length; idx++) {
+        const line = lines[idx] ?? "";
+        const thisLineOffset = lineOffset;
+        lineOffset += line.length + (idx < lines.length - 1 ? 1 : 0);
+
         if (fenceChar !== null) {
             currentLines.push(line);
             if (isClosingFence(line, fenceChar, fenceLen)) {
@@ -118,7 +131,7 @@ export function splitStreamingMarkdownBlocks(markdown: string): StreamingMarkdow
         }
 
         if (REFERENCE_DEF_RE.test(line)) {
-            return { settled: [], tail: markdown };
+            return { hasRefDef: true, blocks: [] };
         }
 
         if (isBlankLine(line)) {
@@ -128,7 +141,6 @@ export function splitStreamingMarkdownBlocks(markdown: string): StreamingMarkdow
             continue;
         }
 
-        // Non-blank line outside any fence: decide whether pending blank lines split a block.
         if (pendingBlankLines.length > 0 && currentLines.length > 0) {
             const continuesList =
                 currentIsList && (LIST_ITEM_RE.test(line) || INDENTED_CONTINUATION_RE.test(line));
@@ -138,7 +150,7 @@ export function splitStreamingMarkdownBlocks(markdown: string): StreamingMarkdow
                 currentLines.push(...pendingBlankLines);
                 pendingBlankLines = [];
             } else {
-                blocks.push(currentLines.join("\n"));
+                blocks.push({ text: currentLines.join("\n"), startOffset: currentStartOffset });
                 currentLines = [];
                 pendingBlankLines = [];
                 currentIsList = false;
@@ -147,18 +159,21 @@ export function splitStreamingMarkdownBlocks(markdown: string): StreamingMarkdow
         }
 
         if (currentLines.length === 0) {
+            currentStartOffset = thisLineOffset;
             currentIsList = LIST_ITEM_RE.test(line);
             currentIsIndentedCode = !currentIsList && INDENTED_CODE_LINE_RE.test(line);
         }
 
         const open = FENCE_OPEN_RE.exec(line);
-        const run = open?.[1];
-        if (open && run) {
-            const rest = line.slice(open[0].length);
-            const firstChar = run[0];
-            if (firstChar && !(firstChar === "`" && rest.includes("`"))) {
-                fenceChar = firstChar;
-                fenceLen = run.length;
+        if (open) {
+            const run = open[1];
+            if (run) {
+                const rest = line.slice(open[0].length);
+                const firstChar = run[0];
+                if (firstChar && !(firstChar === "`" && rest.includes("`"))) {
+                    fenceChar = firstChar;
+                    fenceLen = run.length;
+                }
             }
         }
 
@@ -169,16 +184,84 @@ export function splitStreamingMarkdownBlocks(markdown: string): StreamingMarkdow
         if (pendingBlankLines.length > 0) {
             currentLines.push(...pendingBlankLines);
         }
-        blocks.push(currentLines.join("\n"));
+        blocks.push({ text: currentLines.join("\n"), startOffset: currentStartOffset });
     }
 
-    if (blocks.length <= 1) {
+    return { hasRefDef: false, blocks };
+}
+
+/** Splits streaming Markdown into settled top-level blocks and a mutable tail block in O(tail). */
+export function splitStreamingMarkdownBlocks(markdown: string): StreamingMarkdownSplit {
+    if (!markdown) {
+        return { settled: [], tail: "" };
+    }
+    if (!markdown.includes("\n\n")) {
         return { settled: [], tail: markdown };
     }
 
-    // Keep the last 1 block (or 2 if the penultimate block was a list that could still
-    // receive another loose list item after trailing blank lines) in `tail` when trailing blanks exist.
-    const settled = blocks.slice(0, -1);
-    const tail = blocks[blocks.length - 1] ?? "";
-    return { settled, tail };
+    // Fast O(1) fallback continuation when an earlier line already introduced a reference def
+    // outside a fence, provided the new tokens only appended to that same prefix.
+    if (
+        incrementalCache?.refFallbackPrefix &&
+        markdown.startsWith(incrementalCache.refFallbackPrefix)
+    ) {
+        const appended = markdown.slice(incrementalCache.refFallbackPrefix.length);
+        if (!appended.includes("```") && !appended.includes("~~~")) {
+            incrementalCache = {
+                ...incrementalCache,
+                refFallbackPrefix: markdown,
+            };
+            return { settled: [], tail: markdown };
+        }
+    }
+
+    // Fast O(tail) incremental continuation when `markdown` extends the settled prefix.
+    let baseSettled: string[] = [];
+    let sliceStart = 0;
+    if (
+        incrementalCache &&
+        !incrementalCache.refFallbackPrefix &&
+        incrementalCache.tailStartOffset > 0 &&
+        markdown.length >= incrementalCache.tailStartOffset &&
+        markdown.startsWith(incrementalCache.settledPrefix)
+    ) {
+        baseSettled = incrementalCache.settled;
+        sliceStart = incrementalCache.tailStartOffset;
+    }
+
+    const tailInput = sliceStart > 0 ? markdown.slice(sliceStart) : markdown;
+    const parsed = parseSliceBlocks(tailInput);
+
+    if (parsed.hasRefDef) {
+        incrementalCache = {
+            settledPrefix: "",
+            settled: [],
+            tailStartOffset: 0,
+            refFallbackPrefix: markdown,
+        };
+        return { settled: [], tail: markdown };
+    }
+
+    const totalBlocks = baseSettled.length + parsed.blocks.length;
+    if (totalBlocks <= 1 || parsed.blocks.length === 0) {
+        return { settled: [], tail: markdown };
+    }
+
+    const lastBlock = parsed.blocks[parsed.blocks.length - 1];
+    if (!lastBlock) {
+        return { settled: [], tail: markdown };
+    }
+
+    const newlySettled = parsed.blocks.slice(0, -1).map((b) => b.text);
+    const settled = baseSettled.length > 0 ? [...baseSettled, ...newlySettled] : newlySettled;
+    const nextTailStart = sliceStart + lastBlock.startOffset;
+
+    incrementalCache = {
+        settledPrefix: markdown.slice(0, nextTailStart),
+        settled,
+        tailStartOffset: nextTailStart,
+        refFallbackPrefix: null,
+    };
+
+    return { settled, tail: lastBlock.text };
 }

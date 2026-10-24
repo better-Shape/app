@@ -294,6 +294,7 @@ export function PluginActivityCard({
     return (
         <div
             ref={cardRef}
+            data-approval-card={pending ? "true" : undefined}
             data-pending-approval={pending && !busy ? "true" : undefined}
             data-pending-approval-kind={pending && !busy ? "approval" : undefined}
             className={cn(

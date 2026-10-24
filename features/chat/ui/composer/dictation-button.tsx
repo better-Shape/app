@@ -100,15 +100,17 @@ export const DictationButton = memo(function DictationButton() {
         };
     }, [dispose]);
 
+    const isListening = state === "listening" && !isStarting;
+    const isProcessing = state === "processing";
+
     useEffect(() => {
-        if (state !== "listening" && !isStarting) return undefined;
+        if (!isListening && !isStarting) return undefined;
         const started = Date.now();
-        const timer =
-            state === "listening"
-                ? window.setInterval(() => {
-                      setElapsedSec(Math.floor((Date.now() - started) / 1000));
-                  }, 500)
-                : null;
+        const timer = isListening
+            ? window.setInterval(() => {
+                  setElapsedSec(Math.floor((Date.now() - started) / 1000));
+              }, 500)
+            : null;
         const onKey = (e: KeyboardEvent) => {
             if (e.key === "Escape" && (session.current || startingRef.current)) {
                 e.preventDefault();
@@ -121,7 +123,7 @@ export const DictationButton = memo(function DictationButton() {
             if (timer !== null) window.clearInterval(timer);
             window.removeEventListener("keydown", onKey, true);
         };
-    }, [state, isStarting, dispose]);
+    }, [isListening, isStarting, dispose]);
 
     const toggle = useCallback(async () => {
         if (session.current) {
@@ -181,13 +183,13 @@ export const DictationButton = memo(function DictationButton() {
         }
     }, [dispose, settings.voice.deviceId]);
 
-    const isListening = state === "listening";
-    const isProcessing = state === "processing";
-    const label = isListening
-        ? "Stop dictation"
-        : isProcessing
-          ? "Processing dictation..."
-          : "Dictate";
+    const label = isStarting
+        ? "Cancel microphone start"
+        : isListening
+          ? "Stop dictation"
+          : isProcessing
+            ? "Processing dictation..."
+            : "Dictate";
 
     const barA = Math.round(4 + Math.min(1, level * 0.85 + 0.18) * 8);
     const barB = Math.round(5 + Math.min(1, level * 1.15 + 0.28) * 9);

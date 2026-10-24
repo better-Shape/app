@@ -266,6 +266,9 @@ export function repairStreamGlitches(text: string): string {
 
     // Prefix re-emission check: `text.slice(0, len) === text.slice(start, start + len)` for `len >= 20`
     // can only occur at positions `start` where `text.slice(0, 20)` appears again!
+    // Require either an immediate back-to-back replay (`matched === start`), a mid-token glue
+    // boundary (`!whitespace` before `start`), or a long (`>= 80` char) verbatim replay so
+    // legitimate repeated phrases in later paragraphs are preserved.
     const prefix20 = text.slice(0, 20);
     let searchFrom = 20;
     while (searchFrom <= text.length - 20) {
@@ -276,7 +279,10 @@ export function repairStreamGlitches(text: string): string {
         while (matched < maxLen && text.charCodeAt(matched) === text.charCodeAt(start + matched)) {
             matched++;
         }
-        if (matched >= 20) {
+        const prevChar = text.charAt(start - 1);
+        const isGlitchReplay =
+            matched === start || matched >= 80 || (prevChar.length > 0 && !/\s/.test(prevChar));
+        if (matched >= 20 && isGlitchReplay) {
             return text.slice(0, start) + text.slice(start + matched);
         }
         searchFrom = start + 1;
@@ -333,17 +339,18 @@ function stripRawHtml(text: string): string {
     if (!text.includes("<")) return text;
     const replaceHtml = (part: string) => {
         let out = part;
-        let prev = "";
+        let prev: string;
         do {
             prev = out;
             out = out
                 .replace(/<img\b[^>]*>/gi, "")
                 .replace(/<br\s*\/?>/gi, "\n")
+                .replace(/<(iframe|script|style|object|embed)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, "")
+                .replace(/<\s*\/?\s*(?:iframe|script|style|object|embed)[^>]*>?/gi, "")
                 .replace(
-                    /<\/?(?:h[1-6]|p|div|span|a|ul|ol|li|strong|em|b|i|section|article|header|footer|iframe|script|style|object|embed)\b[^>]*>/gi,
+                    /<\/?(?:h[1-6]|p|div|span|a|ul|ol|li|strong|em|b|i|section|article|header|footer)\b[^>]*>/gi,
                     (tag) => (tag.startsWith("</") ? "\n" : ""),
-                )
-                .replace(/<(?:iframe|script|style|object|embed)\b[^>]*$/gi, "");
+                );
         } while (out !== prev);
         return out;
     };

@@ -356,7 +356,7 @@ export function ChatList({
         const onGenerating = (e: Event) => {
             const detail = (e as CustomEvent<{ id?: string; generating?: boolean }>).detail;
             const id = detail?.id;
-            if (!id || detail?.generating) return;
+            if (!id || detail.generating) return;
             if (id !== activeId) markChatUnread(id);
         };
         window.addEventListener("bettershape-chat-generating", onGenerating as EventListener);

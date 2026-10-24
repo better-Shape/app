@@ -25,8 +25,17 @@ export function ChatErrorDialog({
     onRetry?: () => void;
 }) {
     const entry = classifyAiError(message ?? "");
-    const openaiBilling = /platform\.openai\.com/i.test(message ?? "");
-    const isQuota = entry.code === 2001;
+    const isQuota =
+        Boolean(message) &&
+        /insufficient_quota|insufficient\s+credits|credit\s+balance\s+is\s+too\s+low|exceeded\s+your\s+current\s+quota|billing_hard_limit|billing\s+limit/i.test(
+            message ?? "",
+        );
+    const openaiBilling =
+        Boolean(message) &&
+        ((isQuota && /openai/i.test(message ?? "")) ||
+            /platform\.openai\.com\/(?:account\/billing|settings\/organization\/billing)/i.test(
+                message ?? "",
+            ));
     const isContextOverflow =
         Boolean(message) &&
         /context_length_exceeded|context\s*window|maximum\s*context\s*length|prompt\s*is\s*too\s*long/i.test(

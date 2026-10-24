@@ -224,7 +224,7 @@ export function AgentWorkspace({
         window.addEventListener("bettershape-open-file-diff", onOpenDiff as EventListener);
         let disposed = false;
         let stopRustTab: (() => void) | undefined;
-        void import("@tauri-apps/api/event")
+        import("@tauri-apps/api/event")
             .then(({ listen }) => {
                 try {
                     return listen<string>("bettershape-set-active-tab", (event) => {

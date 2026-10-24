@@ -47,7 +47,11 @@ import { DrawnCheck } from "@/components/ui/checkmark";
 import { SwapText } from "@/components/ui/swap";
 import { UserMessageCard } from "./bubble";
 import { ContextChip, MentionChipIcon, WorkflowChipIcon } from "./context-chip";
-import { dispatchChatQuote, splitLeadingQuoteBlock } from "../quote-selection";
+import {
+    dispatchChatQuote,
+    extractCleanSelectionText,
+    splitLeadingQuoteBlock,
+} from "../quote-selection";
 import { GeneratingIndicator } from "../blocks/generating";
 import { isAutoModelId } from "@/lib/chat/usage-display";
 import { parseUserAttachments } from "../../lib/user-attachments";
@@ -364,11 +368,14 @@ function ChatMessageItemInner({
 
     const handleQuoteMessage = () => {
         const sel = window.getSelection();
-        const selected = sel?.toString().trim() ?? "";
-        if (selected && selectionContainedInBody(sel)) {
-            dispatchChatQuote(selected);
-            sel?.removeAllRanges();
-            return;
+        const root = bodyRef.current;
+        if (sel && !sel.isCollapsed && sel.rangeCount > 0 && root && selectionContainedInBody(sel)) {
+            const cleanSelected = extractCleanSelectionText(sel.getRangeAt(0), root).trim();
+            if (cleanSelected) {
+                dispatchChatQuote(cleanSelected);
+                sel.removeAllRanges();
+                return;
+            }
         }
         const full = getCopyText().trim();
         if (full) dispatchChatQuote(full);

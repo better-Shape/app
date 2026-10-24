@@ -51,8 +51,13 @@ export function buildFailingTestPrompt(
             ? `Fix failing test "${f.testName}" in @${rel} :\n\`\`\`\n${snippet}\n\`\`\``
             : `Fix failing test "${f.testName}" in @${rel}`;
     }
-    const header = `Fix ${failures.length} failing tests:`;
-    const lines = failures.slice(0, 8).map((f) => {
+    const shown = failures.slice(0, 8);
+    const remaining = failures.length - shown.length;
+    const header =
+        remaining > 0
+            ? `Fix all ${failures.length} failing tests (${shown.length} listed below; run the test suite to inspect the remaining ${remaining}):`
+            : `Fix ${failures.length} failing tests:`;
+    const lines = shown.map((f) => {
         const rel = relativeSuitePath(f.suiteFile, projectPath);
         const firstErrLine = (f.error ?? "").trim().split("\n")[0]?.slice(0, 140) ?? "";
         return firstErrLine
@@ -64,12 +69,32 @@ export function buildFailingTestPrompt(
 
 function sendTestPromptToChat(prompt: string) {
     if (!prompt.trim() || typeof window === "undefined") return;
+    try {
+        localStorage.setItem("bettershape-chat-input", prompt);
+    } catch {
+        /* ignore */
+    }
+    window.dispatchEvent(
+        new CustomEvent("bettershape-center-view", {
+            detail: "chat",
+        }),
+    );
     window.dispatchEvent(
         new CustomEvent("bettershape-chat-insert-prompt", {
             detail: { prompt, send: false },
         }),
     );
     window.dispatchEvent(new CustomEvent("bettershape-chat-focus-input"));
+    if (typeof window.requestAnimationFrame === "function") {
+        window.requestAnimationFrame(() => {
+            window.dispatchEvent(
+                new CustomEvent("bettershape-chat-insert-prompt", {
+                    detail: { prompt, send: false },
+                }),
+            );
+            window.dispatchEvent(new CustomEvent("bettershape-chat-focus-input"));
+        });
+    }
 }
 
 function StatusIcon({ status }: { status: TestStatus }) {

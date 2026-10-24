@@ -161,6 +161,12 @@ const PREFIX_TO_BRAND: Record<string, BrandKey> = {
     "meta-llama": "meta",
 };
 
+function lookupBrandPrefix(key: string): Provider | undefined {
+    return Object.prototype.hasOwnProperty.call(PREFIX_TO_BRAND, key)
+        ? PREFIX_TO_BRAND[key]
+        : undefined;
+}
+
 function providerFromModelId(modelId: string): Provider {
     if (!modelId || modelId === "auto" || modelId === "openrouter/auto") {
         return "bettershape";
@@ -168,11 +174,12 @@ function providerFromModelId(modelId: string): Provider {
     const parts = modelId.split("/").map((part) => part.trim().toLowerCase());
     // Multi-segment gateway IDs (`nvidia/deepseek-ai/deepseek-r1`,
     // `openrouter/anthropic/claude-sonnet-4.5`) carry the model maker in segment 2.
-    if (parts.length >= 3 && parts[1] && PREFIX_TO_BRAND[parts[1]]) {
-        return PREFIX_TO_BRAND[parts[1]];
+    const makerBrand = parts.length >= 3 && parts[1] ? lookupBrandPrefix(parts[1]) : undefined;
+    if (makerBrand) {
+        return makerBrand;
     }
     const prefix = parts[0] ?? "";
-    return PREFIX_TO_BRAND[prefix] ?? "bettershape";
+    return lookupBrandPrefix(prefix) ?? "bettershape";
 }
 
 function BrandIcon({ icon, size }: { icon: IconModule; size: number }) {

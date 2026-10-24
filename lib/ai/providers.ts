@@ -1010,7 +1010,7 @@ export function hasAnyUsableProvider(settings: ProvidersSettings): boolean {
   return availableModels(settings).length > 0;
 }
 
-/** True when a connection is enabled & credentialed, even if it still needs model IDs added. */
+/** True when at least one connection is enabled and usable (with credentials or keyless auth), even if model IDs still need to be added. */
 export function hasAnyConfiguredConnection(settings: ProvidersSettings): boolean {
   return PROVIDER_PRESETS.some((preset) => isConnectionUsable(preset.id, settings.connections));
 }
@@ -1037,7 +1037,7 @@ export function modelIdsFor(id: ProviderId, connections: Record<ProviderId, Prov
     .map((raw) => {
       if (raw.startsWith(`${id}/`)) return raw;
       const head = raw.includes("/") ? raw.split("/")[0] ?? "" : "";
-      if (head && canonicalProviderId(head) === id) {
+      if (id !== "custom" && head && canonicalProviderId(head) === id) {
         return `${id}/${raw.slice(head.length + 1)}`;
       }
       return `${id}/${raw}`;

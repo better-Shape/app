@@ -4,7 +4,7 @@
 
 import { formatMessageModelLabel, isAutoModelId } from "./usage-display";
 
-function cleanMessageBodyForMarkdown(raw: string): string {
+function cleanMessageBodyForMarkdown(raw: string, role: "user" | "assistant"): string {
     if (!raw) return "";
     const attachmentNotes: string[] = [];
     const withoutAttachments = raw.replace(
@@ -17,19 +17,24 @@ function cleanMessageBodyForMarkdown(raw: string): string {
         },
     );
 
-    const cleaned = withoutAttachments
-        .replace(/<(?:think|thought|thinking|analysis)\b[^>]*>[\s\S]*?<\/(?:think|thought|thinking|analysis)>/gi, "")
-        .replace(/<rename_chat\b[^>]*>[\s\S]*?<\/rename_chat>/gi, "")
-        .replace(/<todos\b[^>]*>[\s\S]*?<\/todos>/gi, "")
-        .replace(/<bettershape_action\b[^>]*\/?>/gi, "")
-        .replace(
-            /<edit\b([^>]*)>[\s\S]*?<\/edit>/gi,
-            (_m, attrs: string) => {
-                const fileMatch = attrs.match(/\bfile=["']([^"']+)["']/i);
-                const path = fileMatch?.[1]?.trim();
-                return path ? `\n> Edited \`${path}\`\n` : "";
-            },
-        )
+    const stripped =
+        role === "assistant"
+            ? withoutAttachments
+                  .replace(
+                      /<(?:think|thought|thinking|analysis)\b[^>]*>[\s\S]*?<\/(?:think|thought|thinking|analysis)>/gi,
+                      "",
+                  )
+                  .replace(/<rename_chat\b[^>]*>[\s\S]*?<\/rename_chat>/gi, "")
+                  .replace(/<todos\b[^>]*>[\s\S]*?<\/todos>/gi, "")
+                  .replace(/<bettershape_action\b[^>]*\/?>/gi, "")
+                  .replace(/<edit\b([^>]*)>[\s\S]*?<\/edit>/gi, (_m, attrs: string) => {
+                      const fileMatch = attrs.match(/\bfile=["']([^"']+)["']/i);
+                      const path = fileMatch && fileMatch[1] ? fileMatch[1].trim() : "";
+                      return path ? `\n> Edited \`${path}\`\n` : "";
+                  })
+            : withoutAttachments;
+
+    const cleaned = stripped
         .replace(/\r\n/g, "\n")
         .replace(/\n{3,}/g, "\n\n")
         .trim();
@@ -48,7 +53,7 @@ export function formatTranscriptAsMarkdown(
 
     for (const msg of messages) {
         if (msg.role !== "user" && msg.role !== "assistant") continue;
-        const body = cleanMessageBodyForMarkdown(msg.content ?? "");
+        const body = cleanMessageBodyForMarkdown(msg.content ?? "", msg.role);
         if (!body) continue;
 
         if (msg.role === "user") {

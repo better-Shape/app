@@ -256,8 +256,8 @@ export function QuestionsCard({
         <div
             ref={cardRef}
             tabIndex={-1}
-            data-pending-approval={!answered ? "true" : undefined}
-            data-pending-approval-kind={!answered ? "question" : undefined}
+            data-pending-approval={pending && !submitting ? "true" : undefined}
+            data-pending-approval-kind={pending && !submitting ? "question" : undefined}
             className="my-2 overflow-hidden rounded-xl border border-border-subtle bg-surface-3 outline-none"
         >
             <div data-find-skip className="flex items-center justify-between gap-2 px-2.5 py-1.5 text-text-muted">

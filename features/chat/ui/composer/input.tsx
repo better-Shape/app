@@ -342,6 +342,7 @@ const ACCEPT_STRING = [
     ".ogg",
     ".flac",
     ".aac",
+    ".wma",
 ].join(",");
 
 function getFileExtension(name: string): string {
@@ -778,10 +779,10 @@ export const ChatInput = React.memo(function ChatInput({
                 __TAURI_INTERNALS__?: { invoke?: unknown; transformCallback?: unknown };
             }
         ).__TAURI_INTERNALS__;
-        if (typeof tauri?.invoke !== "function" || typeof tauri?.transformCallback !== "function") {
+        if (!tauri || typeof tauri.invoke !== "function" || typeof tauri.transformCallback !== "function") {
             return undefined;
         }
-        let projectPath: string | null = null;
+        let projectPath: string | null;
         try {
             projectPath = getProjectPath();
         } catch {
@@ -805,7 +806,7 @@ export const ChatInput = React.memo(function ChatInput({
             const detail = (e as CustomEvent<{ id?: string; text?: string }>).detail;
             const text = detail?.text?.trim();
             if (!text) return;
-            const id = detail?.id || `${Date.now()}`;
+            const id = detail.id || `${Date.now()}`;
             setLocalQuotes((prev) =>
                 prev.some((q) => q.text === text) ? prev : [...prev.slice(-7), { id, text }],
             );
@@ -1374,8 +1375,39 @@ export const ChatInput = React.memo(function ChatInput({
                 "Unsupported file format",
                 "That dropped file format cannot be attached here.",
             );
+        } else {
+            const droppedText = e.dataTransfer.getData("text/plain");
+            if (droppedText) {
+                const el = textareaRef.current;
+                const current = el ? el.value : inputValue;
+                const start = el ? el.selectionStart : current.length;
+                const end = el ? el.selectionEnd : current.length;
+                const nextValue = `${current.slice(0, start)}${droppedText}${current.slice(end)}`;
+                if (el) {
+                    insertTextareaRangeWithUndo(
+                        el,
+                        start,
+                        end,
+                        droppedText,
+                        nextValue,
+                        (fallbackVal, nextCaret) => {
+                            onInputChange({
+                                target: { value: fallbackVal },
+                            } as React.ChangeEvent<HTMLTextAreaElement>);
+                            requestAnimationFrame(() => {
+                                el.focus();
+                                el.setSelectionRange(nextCaret, nextCaret);
+                            });
+                        },
+                    );
+                } else {
+                    onInputChange({
+                        target: { value: nextValue },
+                    } as React.ChangeEvent<HTMLTextAreaElement>);
+                }
+            }
         }
-    }, [addUploadedFiles]);
+    }, [addUploadedFiles, inputValue, onInputChange]);
 
     const handleDragEnter = React.useCallback((e: React.DragEvent) => {
         e.preventDefault();
@@ -1712,7 +1744,7 @@ export const ChatInput = React.memo(function ChatInput({
                         open={mentionOpen || slashOpen}
                         query={slashOpen ? slashQuery : mentionQuery}
                         mode={slashOpen ? "slash" : "mention"}
-                        workflows={settings.ai.workflows ?? []}
+                        workflows={settings.ai.workflows}
                         onPick={slashOpen ? insertSlash : insertMention}
                         onClose={() => {
                             setMentionOpen(false);
@@ -2051,8 +2083,9 @@ export const ChatInput = React.memo(function ChatInput({
                                                 }
                                             ).__TAURI_INTERNALS__;
                                             if (
-                                                typeof tauri?.invoke === "function" &&
-                                                typeof tauri?.transformCallback === "function"
+                                                tauri &&
+                                                typeof tauri.invoke === "function" &&
+                                                typeof tauri.transformCallback === "function"
                                             ) {
                                                 warmComposerResources(getProjectPath());
                                             }
@@ -2119,7 +2152,7 @@ export const ChatInput = React.memo(function ChatInput({
                                                         : text;
                                                     el.focus();
                                                     el.setSelectionRange(start, end);
-                                                    let insertedNatively = false;
+                                                    let insertedNatively: boolean;
                                                     try {
                                                         insertedNatively = document.execCommand(
                                                             "insertText",

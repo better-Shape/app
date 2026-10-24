@@ -303,8 +303,8 @@ export function AgentLayout({ children }: { children: React.ReactNode }) {
                 toggleSidebar();
             }
             if (id === "secondary-sidebar" || id === "agent-workspace") {
-                if (detail?.value === false) persistWorkspace(false);
-                else if (detail?.value === true) persistWorkspace(true);
+                if (detail.value === false) persistWorkspace(false);
+                else if (detail.value === true) persistWorkspace(true);
                 else toggleWorkspace();
             }
             if (id === "panel" || id === "terminal") {

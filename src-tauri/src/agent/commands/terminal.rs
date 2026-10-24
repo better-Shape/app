@@ -372,6 +372,7 @@ pub async fn run_agent_command(
             json!({
                 "type": "start",
                 "command": command,
+                "cwd": cwd,
                 "interactive": true,
                 "sessionId": session_id,
                 "commandId": command_id,

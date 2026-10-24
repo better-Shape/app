@@ -62,6 +62,15 @@ export function extractCleanSelectionText(range: Range, messageRoot: HTMLElement
             parts.push("\n");
             return;
         }
+        const isTableCell = el.tagName === "TD" || el.tagName === "TH";
+        if (
+            isTableCell &&
+            parts.length > 0 &&
+            !parts[parts.length - 1]?.endsWith("\n") &&
+            !parts[parts.length - 1]?.endsWith("\t")
+        ) {
+            parts.push("\t");
+        }
         const isBlock = BLOCK_TAGS.has(el.tagName);
         if (isBlock && parts.length > 0 && !parts[parts.length - 1]?.endsWith("\n")) {
             parts.push("\n");
@@ -278,8 +287,20 @@ export function ChatSelectionQuoteToolbar({
                     sel.anchorNode instanceof HTMLElement
                         ? sel.anchorNode
                         : sel.anchorNode?.parentElement ?? null;
+                const focusEl =
+                    sel.focusNode instanceof HTMLElement
+                        ? sel.focusNode
+                        : sel.focusNode?.parentElement ?? null;
                 const body = anchorEl?.closest<HTMLElement>("[data-chat-message-body]");
-                if (!body || !container.contains(body)) return;
+                const endBody = focusEl?.closest<HTMLElement>("[data-chat-message-body]");
+                if (
+                    !body ||
+                    body !== endBody ||
+                    !container.contains(body) ||
+                    body.getAttribute("data-chat-streaming") === "true"
+                ) {
+                    return;
+                }
                 const text = extractCleanSelectionText(sel.getRangeAt(0), body);
                 if (!text) return;
                 e.preventDefault();

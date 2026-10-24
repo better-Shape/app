@@ -581,12 +581,11 @@ export function CommitMenu({ projectPath }: { projectPath: string }) {
                                 onChange={(event) => setTitle(event.target.value)}
                                 onKeyDown={(event) => {
                                     event.stopPropagation();
-                                    if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+                                    if (event.key !== "Enter") return;
+                                    if (event.ctrlKey || event.metaKey) {
                                         event.preventDefault();
                                         commitAll();
-                                        return;
-                                    }
-                                    if (event.key === "Enter" && event.shiftKey) {
+                                    } else if (event.shiftKey) {
                                         event.preventDefault();
                                         setDescriptionOpen(true);
                                     }
@@ -596,7 +595,9 @@ export function CommitMenu({ projectPath }: { projectPath: string }) {
                                 placement="inline"
                                 loading={busy}
                                 disabled={files.length === 0}
-                                onClick={() => void suggest()}
+                                onClick={() => {
+                                    suggest().catch(() => {});
+                                }}
                             />
                         </div>
                         {description || descriptionOpen ? (

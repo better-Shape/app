@@ -215,10 +215,21 @@ export function tryWrapMarkdownLinkOnPaste(
     if (HTTP_URL_RE.test(selected.trim())) return null;
     if (selected.includes("[") || selected.includes("]")) return null;
 
-    // Skip if selection is already inside `[label](...)` syntax.
+    // Skip if selection overlaps any existing `[label](...)` Markdown link on the same line.
     const charBefore = start > 0 ? value[start - 1] : "";
     const afterSlice = value.slice(end, end + 2);
     if (charBefore === "[" && afterSlice.startsWith("](")) return null;
+    const lineStart = value.lastIndexOf("\n", start - 1) + 1;
+    const nextNewline = value.indexOf("\n", end);
+    const lineEnd = nextNewline === -1 ? value.length : nextNewline;
+    const lineSlice = value.slice(lineStart, lineEnd);
+    const mdLinkRe = /\[[^\]\n]*\]\([^)\n]*\)/g;
+    let linkMatch: RegExpExecArray | null;
+    while ((linkMatch = mdLinkRe.exec(lineSlice)) !== null) {
+        const spanStart = lineStart + linkMatch.index;
+        const spanEnd = spanStart + linkMatch[0].length;
+        if (start < spanEnd && end > spanStart) return null;
+    }
 
     const replacement = `[${selected}](${url})`;
     const nextValue = `${value.slice(0, start)}${replacement}${value.slice(end)}`;
@@ -279,10 +290,10 @@ export function stripShellPromptPrefix(rawCode: string): string {
     const lines = trimmed.split("\n");
     const nonEmpty = lines.filter((line) => line.trim().length > 0);
     if (nonEmpty.length === 0) return "";
-    const allDollarPrefixed = nonEmpty.every((line) => /^\s*\$\s+\S/.test(line));
-    if (!allDollarPrefixed) return trimmed;
+    const hasDollarPrompt = nonEmpty.some((line) => /^\s*\$\s+\S/.test(line));
+    if (!hasDollarPrompt) return trimmed;
     return lines
-        .map((line) => line.replace(/^\s*\$\s+/, ""))
+        .map((line) => (/^\s*\$\s+\S/.test(line) ? line.replace(/^\s*\$\s+/, "") : line))
         .join("\n")
         .trim();
 }

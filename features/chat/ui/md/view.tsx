@@ -139,7 +139,13 @@ if (typeof window !== "undefined") {
 function ProjectPathLink({ path }: { path: string }) {
     const resolved = resolveProjectFilePath(path, getProjectPath());
     const [cacheRev, setCacheRev] = useState(0);
-    const [exists, setExists] = useState<boolean | null>(() => peekCachedPathExists(resolved));
+    const [probeResult, setProbeResult] = useState<{ resolved: string; exists: boolean | null }>(
+        () => ({ resolved, exists: peekCachedPathExists(resolved) }),
+    );
+    const exists =
+        probeResult.resolved === resolved
+            ? probeResult.exists
+            : peekCachedPathExists(resolved);
 
     useEffect(() => {
         const onInvalidate = () => setCacheRev((rev) => rev + 1);
@@ -152,10 +158,10 @@ function ProjectPathLink({ path }: { path: string }) {
     useEffect(() => {
         const cached = peekCachedPathExists(resolved);
         if (cached !== null) {
-            if (exists !== cached) {
+            if (probeResult.resolved !== resolved || probeResult.exists !== cached) {
                 let cancelled = false;
-                void Promise.resolve().then(() => {
-                    if (!cancelled) setExists(cached);
+                Promise.resolve().then(() => {
+                    if (!cancelled) setProbeResult({ resolved, exists: cached });
                 });
                 return () => {
                     cancelled = true;
@@ -164,13 +170,13 @@ function ProjectPathLink({ path }: { path: string }) {
             return;
         }
         let cancelled = false;
-        void probeProjectPathExists(resolved).then((result) => {
-            if (!cancelled) setExists(result);
+        probeProjectPathExists(resolved).then((result) => {
+            if (!cancelled) setProbeResult({ resolved, exists: result });
         });
         return () => {
             cancelled = true;
         };
-    }, [resolved, exists, cacheRev]);
+    }, [resolved, probeResult.resolved, probeResult.exists, cacheRev]);
 
     if (!exists) return path;
     return (
