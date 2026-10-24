@@ -245,7 +245,9 @@ export function AgentWorkspace({
                 }
                 stopRustTab = stop;
             })
-            .catch(() => {});
+            .catch(() => {
+                /* Non-Tauri browser preview runtime */
+            });
         return () => {
             disposed = true;
             stopRustTab?.();

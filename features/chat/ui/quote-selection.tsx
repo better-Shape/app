@@ -147,10 +147,11 @@ export function splitLeadingQuoteBlock(text: string): { quotes: string[]; rest: 
     }
 
     const rest = lines.slice(i).join("\n").trimStart();
-    if (quotes.length === 0 || !rest) {
+    const cleanedQuotes = quotes.filter(Boolean);
+    if (cleanedQuotes.length === 0) {
         return { quotes: [], rest: text };
     }
-    return { quotes: quotes.filter(Boolean), rest };
+    return { quotes: cleanedQuotes, rest };
 }
 
 /** Dispatches a quoted excerpt to the active chat composer. */

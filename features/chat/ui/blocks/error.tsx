@@ -25,6 +25,7 @@ export function ChatErrorDialog({
     onRetry?: () => void;
 }) {
     const entry = classifyAiError(message ?? "");
+    const lowerMessage = (message ?? "").toLowerCase();
     const isQuota =
         Boolean(message) &&
         /insufficient_quota|insufficient\s+credits|credit\s+balance\s+is\s+too\s+low|exceeded\s+your\s+current\s+quota|billing_hard_limit|billing\s+limit/i.test(
@@ -32,10 +33,9 @@ export function ChatErrorDialog({
         );
     const openaiBilling =
         Boolean(message) &&
-        ((isQuota && /openai/i.test(message ?? "")) ||
-            /platform\.openai\.com\/(?:account\/billing|settings\/organization\/billing)/i.test(
-                message ?? "",
-            ));
+        ((isQuota && lowerMessage.includes("openai")) ||
+            lowerMessage.includes("platform.openai.com/account/billing") ||
+            lowerMessage.includes("platform.openai.com/settings/organization/billing"));
     const isContextOverflow =
         Boolean(message) &&
         /context_length_exceeded|context\s*window|maximum\s*context\s*length|prompt\s*is\s*too\s*long/i.test(

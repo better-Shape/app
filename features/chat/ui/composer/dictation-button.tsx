@@ -48,12 +48,12 @@ export const DictationButton = memo(function DictationButton() {
     const [elapsedSec, setElapsedSec] = useState(0);
     const session = useRef<DictationSession | null>(null);
     const startingRef = useRef(false);
-    const cancelledStartRef = useRef(false);
+    const startAttemptIdRef = useRef(0);
 
     const dispose = useCallback(() => {
         const hadActiveOrPending = session.current !== null || startingRef.current;
         if (startingRef.current) {
-            cancelledStartRef.current = true;
+            startAttemptIdRef.current += 1;
             startingRef.current = false;
             setIsStarting(false);
         }
@@ -139,24 +139,28 @@ export const DictationButton = memo(function DictationButton() {
         }
         setElapsedSec(0);
         startingRef.current = true;
-        cancelledStartRef.current = false;
+        const attemptId = ++startAttemptIdRef.current;
         setIsStarting(true);
         try {
             const active = await startDictation(
                 {
                     onText: (text) => {
+                        if (startAttemptIdRef.current !== attemptId) return;
                         setState("idle");
                         setLevel(0);
                         window.dispatchEvent(
                             new CustomEvent("bettershape-dictation-text", { detail: { text } }),
                         );
                     },
-                    onError: (message) => notificationStore.add(message, "error"),
+                    onError: (message) => {
+                        if (startAttemptIdRef.current !== attemptId) return;
+                        notificationStore.add(message, "error");
+                    },
                     onState: (next) => {
-                        if (!cancelledStartRef.current) setState(next);
+                        if (startAttemptIdRef.current === attemptId) setState(next);
                     },
                     onLevel: (next) => {
-                        if (!cancelledStartRef.current) setLevel(next);
+                        if (startAttemptIdRef.current === attemptId) setLevel(next);
                     },
                 },
                 microphoneConstraints(settings.voice.deviceId),
@@ -166,19 +170,18 @@ export const DictationButton = memo(function DictationButton() {
                     push: (wav) => commands.dictationPush(wav),
                 },
             );
-            startingRef.current = false;
-            setIsStarting(false);
-            if (cancelledStartRef.current) {
-                cancelledStartRef.current = false;
+            if (startAttemptIdRef.current !== attemptId) {
                 active.dispose();
-                setState("idle");
-                setLevel(0);
                 return;
             }
-            session.current = active;
-        } catch {
             startingRef.current = false;
             setIsStarting(false);
+            session.current = active;
+        } catch {
+            if (startAttemptIdRef.current === attemptId) {
+                startingRef.current = false;
+                setIsStarting(false);
+            }
             // `startDictation` has already surfaced the reason; the state is "error".
         }
     }, [dispose, settings.voice.deviceId]);

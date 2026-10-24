@@ -160,9 +160,13 @@ function ProjectPathLink({ path }: { path: string }) {
         if (cached !== null) {
             if (probeResult.resolved !== resolved || probeResult.exists !== cached) {
                 let cancelled = false;
-                Promise.resolve().then(() => {
-                    if (!cancelled) setProbeResult({ resolved, exists: cached });
-                });
+                Promise.resolve()
+                    .then(() => {
+                        if (!cancelled) setProbeResult({ resolved, exists: cached });
+                    })
+                    .catch(() => {
+                        /* Ignore cancelled microtask */
+                    });
                 return () => {
                     cancelled = true;
                 };
@@ -170,9 +174,13 @@ function ProjectPathLink({ path }: { path: string }) {
             return;
         }
         let cancelled = false;
-        probeProjectPathExists(resolved).then((result) => {
-            if (!cancelled) setProbeResult({ resolved, exists: result });
-        });
+        probeProjectPathExists(resolved)
+            .then((result) => {
+                if (!cancelled) setProbeResult({ resolved, exists: result });
+            })
+            .catch(() => {
+                /* Probe failure resolves to non-existent path */
+            });
         return () => {
             cancelled = true;
         };

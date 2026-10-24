@@ -1066,6 +1066,7 @@ function getAppCommands(): EditorAction[] {
                 window.dispatchEvent(
                     new CustomEvent("bettershape-command-palette", {
                         detail: {
+                            filter: "agents",
                             placeholder: "Search agents…",
                         },
                     }),

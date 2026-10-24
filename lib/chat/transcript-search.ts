@@ -36,10 +36,12 @@ export function extractSearchableMessageText(raw: string): string {
             },
         )
         .replace(
-            /<cat\b([^>]*)>[\s\S]*?<\/cat>/gi,
-            (_match, attrs: string) => {
+            /<cat\b([^>]*)>([\s\S]*?)<\/cat>/gi,
+            (_match, attrs: string, inner: string) => {
                 const pathMatch = attrs.match(/\bpath=["']([^"']+)["']/i);
-                return pathMatch?.[1] ? ` ${pathMatch[1]} ` : " ";
+                if (pathMatch?.[1]) return ` ${pathMatch[1]} `;
+                const trimmedInner = inner.trim();
+                return trimmedInner ? ` ${trimmedInner} ` : " ";
             },
         )
         .replace(/\r\n/g, "\n")

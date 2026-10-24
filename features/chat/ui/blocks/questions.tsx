@@ -85,7 +85,8 @@ export function QuestionsCard({
     const cardRef = React.useRef<HTMLDivElement>(null);
     const total = Math.max(questions.length, 1);
     const current = questions[index];
-    const answered = status === "answered" || (!pending && Boolean(initialAnswers));
+    const skipped = status === "skipped";
+    const answered = status === "answered" || skipped || (!pending && Boolean(initialAnswers));
 
     // New saved answers replace the picks shown. Compared during render.
     const [seenAnswers, setSeenAnswers] = useState(initialAnswers);

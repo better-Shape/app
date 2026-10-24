@@ -61,17 +61,31 @@ function sortEntries(list: FileEntry[]) {
     });
 }
 
+import { formatMentionToken } from "@/lib/chat/mentions";
+
 type ClipboardAction = "cut" | "copy" | "paste";
+
+function trimTrailingSlashes(value: string): string {
+    let end = value.length;
+    while (end > 0 && value.charCodeAt(end - 1) === 47) end--;
+    return value.slice(0, end);
+}
 
 function formatExplorerMentionToken(entryPath: string, projectPath: string, isDir: boolean): string {
     const cleanEntry = entryPath.replace(/\\/g, "/");
-    const cleanRoot = projectPath.replace(/\\/g, "/").replace(/\/+$/, "");
-    let rel = cleanEntry;
-    if (cleanRoot && cleanEntry.toLowerCase().startsWith(`${cleanRoot.toLowerCase()}/`)) {
-        rel = cleanEntry.slice(cleanRoot.length + 1);
-    }
+    const cleanRoot = trimTrailingSlashes(projectPath.replace(/\\/g, "/"));
+    const rel =
+        cleanRoot && cleanEntry.toLowerCase().startsWith(`${cleanRoot.toLowerCase()}/`)
+            ? cleanEntry.slice(cleanRoot.length + 1)
+            : cleanEntry;
     const suffix = isDir && !rel.endsWith("/") ? "/" : "";
-    return `@${rel}${suffix} `;
+    const fullRel = `${rel}${suffix}`;
+    const base = trimTrailingSlashes(rel).split("/").pop() || rel;
+    return `${formatMentionToken({
+        kind: isDir ? "folder" : "file",
+        path: fullRel,
+        label: base,
+    })} `;
 }
 
 function TreeNode({

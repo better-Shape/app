@@ -120,6 +120,13 @@ function TestRow({
     projectPath: string | null;
 }) {
     const [expanded, setExpanded] = useState(() => test.status === "failed");
+    const [prevStatus, setPrevStatus] = useState(test.status);
+    if (test.status !== prevStatus) {
+        setPrevStatus(test.status);
+        if (test.status === "failed") {
+            setExpanded(true);
+        }
+    }
     const isFailed = test.status === "failed";
 
     return (

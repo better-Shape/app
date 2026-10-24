@@ -288,11 +288,17 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
             const job = commands
                 .getConversationMessages(id)
                 .then((history) => {
-                    if (!liveTurnsRef.current.has(id) && viewingIdRef.current !== id) {
+                    if (
+                        !liveTurnsRef.current.has(id) &&
+                        viewingIdRef.current !== id &&
+                        !transcriptCacheRef.current.has(id)
+                    ) {
                         writeCachedTranscript(id, history);
                     }
                 })
-                .catch(() => {})
+                .catch(() => {
+                    /* Ignore background prefetch errors */
+                })
                 .finally(() => {
                     prefetchInflightRef.current.delete(id);
                 });

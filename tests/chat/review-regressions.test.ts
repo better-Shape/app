@@ -2,18 +2,23 @@ import { describe, expect, it } from "vitest";
 import { formatRowsAsMarkdownTable } from "@/features/chat/ui/md/data-table";
 import { parseMessageContent } from "@/features/chat/ui/md/renderer";
 import { preprocessChatMarkdown, repairStreamGlitches } from "@/features/chat/ui/md/stream";
-import { extractCleanSelectionText } from "@/features/chat/ui/quote-selection";
-import { terminalSessionStore } from "@/features/terminal/session";
+import { extractCleanSelectionText, splitLeadingQuoteBlock } from "@/features/chat/ui/quote-selection";
+import {
+    insertCommandIntoWorkspaceTerminal,
+    terminalSessionStore,
+} from "@/features/terminal/session";
 import { defaultProvidersSettings, modelIdsFor } from "@/lib/ai/providers";
+import { syncChatDomHighlights } from "@/lib/chat/dom-highlights";
 import { formatTranscriptAsMarkdown } from "@/lib/chat/export-markdown";
 import { splitStreamingMarkdownBlocks } from "@/lib/chat/markdown-blocks";
+import { formatMentionToken, parseMentionTokens } from "@/lib/chat/mentions";
 import {
     mergeNewestFirstPrompts,
     stepPromptHistoryDown,
     stripShellPromptPrefix,
     tryWrapMarkdownLinkOnPaste,
 } from "@/lib/chat/prompt-history";
-import { findTranscriptMatches } from "@/lib/chat/transcript-search";
+import { extractSearchableMessageText, findTranscriptMatches } from "@/lib/chat/transcript-search";
 import { providerIcon } from "@/lib/ui/provider-icon";
 
 describe("PR #53 review regression coverage", () => {
@@ -245,5 +250,59 @@ describe("PR #53 review regression coverage", () => {
             custom: customConn,
         });
         expect(ids).toContain("custom/local/llama-3");
+    });
+
+    it("does not truncate pending approval commands containing 'Awaiting approval:' inside shell strings", () => {
+        const payload = [
+            '<terminal_command status="pending" id="cmd-sec">',
+            'echo "Awaiting approval: decoy"',
+            "rm -rf ./important-dir",
+            "Awaiting approval: Shell command requires confirmation",
+            "</terminal_command>",
+        ].join("\n");
+        const chunks = parseMessageContent(payload);
+        const cmdChunk = chunks.find((c) => c.type === "terminal_command");
+        expect(cmdChunk?.command).toContain('echo "Awaiting approval: decoy"');
+        expect(cmdChunk?.command).toContain("rm -rf ./important-dir");
+        expect(cmdChunk?.commandReason).toBe("Shell command requires confirmation");
+    });
+
+    it("preserves file and folder mention paths containing spaces and accumulates pre-attach terminal inserts", () => {
+        const token = formatMentionToken({
+            kind: "file",
+            path: "docs/Architecture Notes/API Spec.md",
+            label: "API Spec.md",
+        });
+        expect(token).not.toMatch(/\s/);
+        const parsed = parseMentionTokens(`Check ${token} please`);
+        expect(parsed[0]?.path).toBe("docs/Architecture Notes/API Spec.md");
+
+        terminalSessionStore.pendingCommandInsert = null;
+        terminalSessionStore.pendingCommandTargetTabId = null;
+        terminalSessionStore.tabs = [];
+        insertCommandIntoWorkspaceTerminal("npm install");
+        insertCommandIntoWorkspaceTerminal("npm test");
+        expect(terminalSessionStore.takePendingCommandInsert()).toBe("npm install\nnpm test");
+    });
+
+    it("handles quote-only messages, <cat> inner paths, and data-chat-find-text button highlights", () => {
+        expect(splitLeadingQuoteBlock("> Only quoted excerpt")).toEqual({
+            quotes: ["Only quoted excerpt"],
+            rest: "",
+        });
+        expect(extractSearchableMessageText("<cat>src/agent/runner.ts</cat>")).toContain(
+            "src/agent/runner.ts",
+        );
+
+        const container = document.createElement("div");
+        container.setAttribute("data-chat-message-index", "0");
+        container.innerHTML =
+            '<button type="button" data-chat-find-text>src/lib/router.ts</button><button type="button">Copy</button>';
+        document.body.appendChild(container);
+        const { ranges } = syncChatDomHighlights(container, "router.ts");
+        expect(ranges).toHaveLength(1);
+        const { ranges: skippedCopy } = syncChatDomHighlights(container, "Copy");
+        expect(skippedCopy).toHaveLength(0);
+        container.remove();
     });
 });

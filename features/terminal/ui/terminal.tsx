@@ -277,8 +277,9 @@ function TerminalInstance({ tab, isActive }: { tab: TerminalTab, isActive: boole
             // and Ctrl+C interrupts the running process instead of copying.
             const onCopyKey = (event: KeyboardEvent) => {
                 if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "l") {
-                    const selected = term?.hasSelection() ? term.getSelection().trim() : "";
-                    if (!selected) return;
+                    const rawSelected = term?.hasSelection() ? term.getSelection() : "";
+                    if (!rawSelected.trim()) return;
+                    const selected = rawSelected.replace(/[\r\n]+$/, "");
                     event.preventDefault();
                     event.stopPropagation();
                     const file = terminalAttachmentFile(selected, tab.title || "Terminal");

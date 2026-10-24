@@ -19,7 +19,7 @@
  *     already started after at least one blank line outside any fence.
  */
 
-const REFERENCE_DEF_RE = /^ {0,3}\[\^?[^\]]+\]:[ \t]*\S/;
+const REFERENCE_DEF_RE = /^ {0,3}\[\^?(?:\\.|[^\]\\])+\]:[ \t]*\S/;
 const FENCE_OPEN_RE = /^ {0,3}(`{3,}|~{3,})/;
 const LIST_ITEM_RE = /^ {0,3}(?:[-*+]|\d{1,9}[.)])[ \t]+\S/;
 const INDENTED_CONTINUATION_RE = /^(?: {2,}|\t)\S/;
@@ -77,10 +77,9 @@ export function hasUnclosedMarkdownFence(markdown: string): boolean {
         return false;
     }
     const lines = markdown.split("\n");
-    let fenceChar: string | null = null;
-    let fenceLen = 0;
+    let activeFence: { char: string; len: number } | null = null;
     for (const line of lines) {
-        if (fenceChar === null) {
+        if (activeFence === null) {
             const open = FENCE_OPEN_RE.exec(line);
             if (open) {
                 const run = open[1];
@@ -88,16 +87,14 @@ export function hasUnclosedMarkdownFence(markdown: string): boolean {
                     const rest = line.slice(open[0].length);
                     const firstChar = run[0];
                     if (!firstChar || (firstChar === "`" && rest.includes("`"))) continue;
-                    fenceChar = firstChar;
-                    fenceLen = run.length;
+                    activeFence = { char: firstChar, len: run.length };
                 }
             }
-        } else if (isClosingFence(line, fenceChar, fenceLen)) {
-            fenceChar = null;
-            fenceLen = 0;
+        } else if (isClosingFence(line, activeFence.char, activeFence.len)) {
+            activeFence = null;
         }
     }
-    return fenceChar !== null;
+    return activeFence !== null;
 }
 
 function parseSliceBlocks(slice: string): {
@@ -112,8 +109,7 @@ function parseSliceBlocks(slice: string): {
     let pendingBlankLines: string[] = [];
     let currentIsList = false;
     let currentIsIndentedCode = false;
-    let fenceChar: string | null = null;
-    let fenceLen = 0;
+    let activeFence: { char: string; len: number } | null = null;
     let lineOffset = 0;
 
     for (let idx = 0; idx < lines.length; idx++) {
@@ -121,11 +117,10 @@ function parseSliceBlocks(slice: string): {
         const thisLineOffset = lineOffset;
         lineOffset += line.length + (idx < lines.length - 1 ? 1 : 0);
 
-        if (fenceChar !== null) {
+        if (activeFence !== null) {
             currentLines.push(line);
-            if (isClosingFence(line, fenceChar, fenceLen)) {
-                fenceChar = null;
-                fenceLen = 0;
+            if (isClosingFence(line, activeFence.char, activeFence.len)) {
+                activeFence = null;
             }
             continue;
         }
@@ -153,8 +148,6 @@ function parseSliceBlocks(slice: string): {
                 blocks.push({ text: currentLines.join("\n"), startOffset: currentStartOffset });
                 currentLines = [];
                 pendingBlankLines = [];
-                currentIsList = false;
-                currentIsIndentedCode = false;
             }
         }
 
@@ -171,8 +164,7 @@ function parseSliceBlocks(slice: string): {
                 const rest = line.slice(open[0].length);
                 const firstChar = run[0];
                 if (firstChar && !(firstChar === "`" && rest.includes("`"))) {
-                    fenceChar = firstChar;
-                    fenceLen = run.length;
+                    activeFence = { char: firstChar, len: run.length };
                 }
             }
         }

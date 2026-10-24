@@ -135,13 +135,35 @@ export function fetchWarmRecentChats(projectPath?: string | null): Promise<WarmC
     return req;
 }
 
+let mcpListenerBound = false;
+
+/** Invalidates the cached MCP server status list when servers change at runtime. */
+export function invalidateWarmMcpCache(): void {
+    mcpGeneration += 1;
+    mcpCache = null;
+    mcpInflight = null;
+}
+
+function ensureMcpChangeListener(): void {
+    if (mcpListenerBound || typeof window === "undefined") return;
+    mcpListenerBound = true;
+    window.addEventListener("mcp-servers-changed", invalidateWarmMcpCache);
+    import("@tauri-apps/api/event")
+        .then(({ listen }) => listen("mcp-servers-changed", () => invalidateWarmMcpCache()))
+        .catch(() => {
+            /* Browser preview without Tauri IPC */
+        });
+}
+
 /** Synchronously returns cached connected MCP servers when still within TTL. */
 export function peekWarmMcpServers(): WarmMcpServer[] | null {
+    ensureMcpChangeListener();
     return isFresh(mcpCache) ? mcpCache.value : null;
 }
 
 /** Fetches and caches connected MCP servers for `@mcp` mention auto-completion. */
 export function fetchWarmMcpServers(): Promise<WarmMcpServer[]> {
+    ensureMcpChangeListener();
     if (typeof commands.getMcpStatus !== "function") return Promise.resolve([]);
     const hit = peekWarmMcpServers();
     if (hit) return Promise.resolve(hit);

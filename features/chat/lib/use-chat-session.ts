@@ -1313,13 +1313,15 @@ export function useChatSession(
         const fromQueue = typeof overrideContent === "string";
 
         // Built-in commands are handled here and never reach the model as text.
-        const slash = fromQueue ? null : matchSlashCommand(messageContent);
+        const slash = matchSlashCommand(messageContent);
         if (slash?.command.token === "/compact") {
-            setInputValue("");
-            try {
-                localStorage.removeItem("bettershape-chat-input");
-            } catch {
-                /* ignore */
+            if (!fromQueue) {
+                setInputValue("");
+                try {
+                    localStorage.removeItem("bettershape-chat-input");
+                } catch {
+                    /* ignore */
+                }
             }
             if (isLoading) {
                 notify.info("Wait for this reply to finish, then run /compact.");
@@ -1488,11 +1490,15 @@ export function useChatSession(
                 e as CustomEvent<{ prompt?: string; send?: boolean; openWorkspace?: boolean }>
             ).detail;
             if (!detail?.prompt) return;
-            setInputValue(detail.prompt);
-            try {
-                localStorage.setItem("bettershape-chat-input", detail.prompt);
-            } catch {
-                /* ignore */
+            const isAutoBuiltin =
+                Boolean(detail.send) && matchSlashCommand(detail.prompt)?.command.token === "/compact";
+            if (!isAutoBuiltin) {
+                setInputValue(detail.prompt);
+                try {
+                    localStorage.setItem("bettershape-chat-input", detail.prompt);
+                } catch {
+                    /* ignore */
+                }
             }
             window.dispatchEvent(
                 new CustomEvent("bettershape-center-view", { detail: "chat" }),
@@ -1505,7 +1511,7 @@ export function useChatSession(
                 );
             }
             if (detail.send) {
-                if (isLoadingRef.current) enqueueChatMessage(detail.prompt);
+                if (isLoadingRef.current && !isAutoBuiltin) enqueueChatMessage(detail.prompt);
                 else void handleSendMessageRef.current(detail.prompt);
             }
         };

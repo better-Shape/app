@@ -189,6 +189,7 @@ export function MentionPicker({
         }
         if (projectChanged) {
             setFiles([]);
+            setChats(peekWarmRecentChats(project_path) ?? []);
         }
     }
 
