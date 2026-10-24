@@ -8,9 +8,9 @@ import { cn } from "@/lib/utils";
  *
  * Uses `grid-template-rows: 0fr ↔ 1fr` on `--reveal-dur` / `--reveal-ease` (`--spring-quick`)
  * so height transitions are interruptible mid-flight and never guess `max-height`.
- * Defers initial mount until the first time `open` becomes `true`, then mounts at `0fr`
- * and promotes to `1fr` on the next animation frame so even the very first open transitions
- * smoothly instead of snapping in 0ms.
+ * Sections initially mounted closed defer DOM allocation until `open` becomes `true`,
+ * then mount at `0fr` and promote to `1fr` on the next animation frame; sections
+ * mounted already open render expanded immediately without an initial-mount flash.
  */
 export function Collapse({
     open,

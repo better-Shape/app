@@ -60,7 +60,7 @@ export function detectPendingHitl(
     isLoading: boolean,
 ): { kind: "approval" | "question"; count: number } | null {
     for (let i = messages.length - 1; i >= 0; i--) {
-        const msg = messages[i];
+        const msg = messages.at(i);
         if (!msg || msg.role !== "assistant") continue;
         const raw = msg.content || "";
         if (
@@ -357,7 +357,7 @@ export default function Chat({
                     Math.max(rect.top, scrollerRect.top);
                 return visible < Math.min(56, rect.height * 0.55);
             });
-            const targetCard = offscreenCard ?? pendingCards[0];
+            const targetCard = offscreenCard ?? pendingCards.at(0);
             if (targetCard) {
                 const reduced =
                     typeof window !== "undefined" &&
@@ -424,7 +424,7 @@ export default function Chat({
         [findOpen, findQuery, findMatchCase, session.messages],
     );
     const activeFindIndex = findMatches.length > 0 ? findMatchIndex % findMatches.length : 0;
-    const activeFindMatch = findMatches[activeFindIndex] ?? null;
+    const activeFindMatch = findMatches.at(activeFindIndex) ?? null;
 
     const pendingHitlInfo = useMemo(
         () => detectPendingHitl(session.messages, session.isLoading),

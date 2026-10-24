@@ -465,11 +465,11 @@ function TerminalInstance({ tab, isActive }: { tab: TerminalTab, isActive: boole
                 xtermRef.current = term;
                 fitAddonRef.current = fitAddon;
                 if (tab.shell !== "ai") {
-                    const pendingCmd = globalTerminalStore.takePendingCommandInsert(tab.id);
                     const attachedTerm = term;
-                    if (pendingCmd && attachedTerm) {
+                    if (globalTerminalStore.peekPendingCommandInsert(tab.id) && attachedTerm) {
                         pendingPasteTimer = setTimeout(() => {
-                            pendingPasteTimer = undefined;
+                            const pendingCmd = globalTerminalStore.takePendingCommandInsert(tab.id);
+                            if (!pendingCmd) return;
                             try {
                                 attachedTerm.paste(pendingCmd);
                                 attachedTerm.focus();

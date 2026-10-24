@@ -43,13 +43,13 @@ export function buildFailingTestPrompt(
 ): string {
     if (failures.length === 0) return "";
     if (failures.length === 1) {
-        const f = failures[0];
-        if (!f) return "";
-        const rel = relativeSuitePath(f.suiteFile, projectPath);
-        const snippet = (f.error ?? "").trim().slice(0, 600);
+        const firstFailure = failures.at(0);
+        if (!firstFailure) return "";
+        const rel = relativeSuitePath(firstFailure.suiteFile, projectPath);
+        const snippet = (firstFailure.error ?? "").trim().slice(0, 600);
         return snippet
-            ? `Fix failing test "${f.testName}" in @${rel} :\n\`\`\`\n${snippet}\n\`\`\``
-            : `Fix failing test "${f.testName}" in @${rel}`;
+            ? `Fix failing test "${firstFailure.testName}" in @${rel} :\n\`\`\`\n${snippet}\n\`\`\``
+            : `Fix failing test "${firstFailure.testName}" in @${rel}`;
     }
     const shown = failures.slice(0, 8);
     const remaining = failures.length - shown.length;

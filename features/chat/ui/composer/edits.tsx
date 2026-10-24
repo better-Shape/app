@@ -125,20 +125,29 @@ export function PendingEditsPanel({
                             className="flex min-w-0 flex-1 items-center gap-2 text-left"
                             onClick={() => {
                                 const resolved = resolveProjectFilePath(edit.file, getProjectPath());
-                                void openProjectFile(edit.file, edit.fileName).then((ok) => {
-                                    if (!ok) return;
-                                    requestAnimationFrame(() => {
+                                openProjectFile(edit.file, edit.fileName)
+                                    .then((ok) => {
+                                        if (!ok) return;
                                         window.dispatchEvent(
-                                            new CustomEvent("bettershape-editor-preview-diff", {
-                                                detail: {
-                                                    path: resolved,
-                                                    original: edit.original,
-                                                    replacement: edit.replacement,
-                                                },
+                                            new CustomEvent("bettershape-layout-toggle", {
+                                                detail: { id: "agent-workspace", value: true },
                                             }),
                                         );
+                                        requestAnimationFrame(() => {
+                                            window.dispatchEvent(
+                                                new CustomEvent("bettershape-editor-preview-diff", {
+                                                    detail: {
+                                                        path: resolved,
+                                                        original: edit.original,
+                                                        replacement: edit.replacement,
+                                                    },
+                                                }),
+                                            );
+                                        });
+                                    })
+                                    .catch(() => {
+                                        /* ignore */
                                     });
-                                });
                             }}
                         >
                             <FileIcon name={edit.fileName} className="size-3.5 shrink-0" />

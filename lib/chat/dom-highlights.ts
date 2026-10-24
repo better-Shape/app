@@ -14,8 +14,8 @@ const HIGHLIGHT_STYLE_ID = "bettershape-chat-find-highlights";
 let ownedMatchesHighlight: unknown = null;
 let ownedActiveHighlight: unknown = null;
 
-function ensureHighlightStylesheet(): void {
-    if (typeof document === "undefined" || !document.head) return;
+const ensureHighlightStylesheet = (): void => {
+    if (typeof document === "undefined") return;
     if (document.getElementById(HIGHLIGHT_STYLE_ID)) return;
     const style = document.createElement("style");
     style.id = HIGHLIGHT_STYLE_ID;
@@ -24,7 +24,7 @@ function ensureHighlightStylesheet(): void {
         `::highlight(${CHAT_FIND_ACTIVE_HIGHLIGHT_NAME}) { background-color: color-mix(in srgb, var(--warning) 44%, var(--accent)); color: var(--text-on-accent); }`,
     ].join("\n");
     document.head.appendChild(style);
-}
+};
 
 interface CustomHighlightRegistry {
     get?(name: string): unknown;
@@ -134,8 +134,8 @@ export function syncChatDomHighlights(
 
     const caseSensitive = Boolean(options.caseSensitive);
     const maxRanges = options.maxRanges ?? 500;
-    const needle = caseSensitive ? trimmed : trimmed.toLowerCase();
-    const step = Math.max(1, needle.length);
+    const escapedNeedle = trimmed.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const matcher = new RegExp(escapedNeedle, caseSensitive ? "g" : "gi");
 
     const collected: DomMatchRange[] = [];
     const perMessageCounter = new Map<number, number>();
@@ -147,16 +147,21 @@ export function syncChatDomHighlights(
         const textNode = current as Text;
         current = walker.nextNode();
         const raw = textNode.nodeValue;
-        if (!raw || raw.length < needle.length) continue;
+        if (!raw) continue;
         if (shouldSkipTextNode(textNode, container)) continue;
 
-        const hay = caseSensitive ? raw : raw.toLowerCase();
-        let cursor = 0;
+        matcher.lastIndex = 0;
         let resolvedMsgIdx: number | null | undefined;
+        let match = matcher.exec(raw);
 
-        while (cursor <= hay.length - needle.length && collected.length < maxRanges) {
-            const idx = hay.indexOf(needle, cursor);
-            if (idx === -1) break;
+        while (match !== null && collected.length < maxRanges) {
+            const idx = match.index;
+            const matchLen = match[0].length;
+            if (matchLen === 0) {
+                matcher.lastIndex += 1;
+                match = matcher.exec(raw);
+                continue;
+            }
             if (resolvedMsgIdx === undefined) {
                 const msgEl = textNode.parentElement?.closest<HTMLElement>("[data-chat-message-index]") ?? null;
                 const parsed = msgEl ? Number(msgEl.getAttribute("data-chat-message-index")) : Number.NaN;
@@ -164,7 +169,7 @@ export function syncChatDomHighlights(
             }
             const range = document.createRange();
             range.setStart(textNode, idx);
-            range.setEnd(textNode, idx + needle.length);
+            range.setEnd(textNode, idx + matchLen);
             collected.push({ range, messageIndex: resolvedMsgIdx });
 
             if (resolvedMsgIdx !== null) {
@@ -178,7 +183,7 @@ export function syncChatDomHighlights(
                     matchedTargetRange = range;
                 }
             }
-            cursor = idx + step;
+            match = matcher.exec(raw);
         }
     }
 

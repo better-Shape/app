@@ -63,6 +63,25 @@ function isClosingFence(line: string, fenceChar: string, fenceLen: number): bool
     return true;
 }
 
+/** Strips leading CommonMark blockquote markers (`>`) without regex backtracking. */
+const stripBlockquoteMarkers = (line: string): string => {
+    let pos = 0;
+    while (pos < line.length) {
+        let spaces = 0;
+        while (spaces < 3 && pos + spaces < line.length && line.charCodeAt(pos + spaces) === 32) {
+            spaces += 1;
+        }
+        if (pos + spaces >= line.length || line.charCodeAt(pos + spaces) !== 62) {
+            break;
+        }
+        pos += spaces + 1;
+        if (pos < line.length && (line.charCodeAt(pos) === 32 || line.charCodeAt(pos) === 9)) {
+            pos += 1;
+        }
+    }
+    return pos === 0 ? line : line.slice(pos);
+};
+
 function isBlankLine(line: string): boolean {
     for (let i = 0; i < line.length; i++) {
         const ch = line.charCodeAt(i);
@@ -125,7 +144,7 @@ function parseSliceBlocks(slice: string): {
             continue;
         }
 
-        if (REFERENCE_DEF_RE.test(line)) {
+        if (REFERENCE_DEF_RE.test(stripBlockquoteMarkers(line))) {
             return { hasRefDef: true, blocks: [] };
         }
 
@@ -235,12 +254,8 @@ export function splitStreamingMarkdownBlocks(markdown: string): StreamingMarkdow
     }
 
     const totalBlocks = baseSettled.length + parsed.blocks.length;
-    if (totalBlocks <= 1 || parsed.blocks.length === 0) {
-        return { settled: [], tail: markdown };
-    }
-
-    const lastBlock = parsed.blocks[parsed.blocks.length - 1];
-    if (!lastBlock) {
+    const lastBlock = parsed.blocks.at(-1);
+    if (totalBlocks <= 1 || !lastBlock) {
         return { settled: [], tail: markdown };
     }
 

@@ -260,21 +260,17 @@ export function insertTextareaRangeWithUndo(
     textarea.focus();
     textarea.setSelectionRange(start, end);
 
-    let insertedViaNativeCommand = false;
     const doc = textarea.ownerDocument;
-    if (doc && typeof doc.execCommand === "function") {
+    if (typeof doc.execCommand === "function") {
         try {
             const before = textarea.value;
-            const ok = doc.execCommand("insertText", false, replacement);
-            insertedViaNativeCommand = Boolean(ok && textarea.value !== before);
+            if (doc.execCommand("insertText", false, replacement) && textarea.value !== before) {
+                textarea.setSelectionRange(nextCaret, nextCaret);
+                return;
+            }
         } catch {
-            insertedViaNativeCommand = false;
+            // Fall through to controlled value callback when execCommand throws.
         }
-    }
-
-    if (insertedViaNativeCommand) {
-        textarea.setSelectionRange(nextCaret, nextCaret);
-        return;
     }
 
     onFallbackValue(fallbackNextValue, nextCaret);

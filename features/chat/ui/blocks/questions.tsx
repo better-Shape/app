@@ -84,7 +84,7 @@ export function QuestionsCard({
 
     const cardRef = React.useRef<HTMLDivElement>(null);
     const total = Math.max(questions.length, 1);
-    const current = questions[index];
+    const current = questions.at(index);
     const skipped = status === "skipped";
     const answered = status === "answered" || skipped || (!pending && Boolean(initialAnswers));
 
@@ -180,7 +180,7 @@ export function QuestionsCard({
             }
             if (/^[1-9]$/.test(e.key)) {
                 const optIdx = Number(e.key) - 1;
-                const opt = current.options[optIdx];
+                const opt = current.options.at(optIdx);
                 if (opt) {
                     e.preventDefault();
                     selectOption(opt);

@@ -602,8 +602,7 @@ export const ChatInput = React.memo(function ChatInput({
     );
     const missingModelsOnly = React.useMemo(() => {
         if (!needsSignIn || concreteAllModels.length > 0) return false;
-        const connections = settings.ai.providers?.connections;
-        if (!connections) return false;
+        const connections = settings.ai.providers?.connections ?? {};
         return Object.entries(connections).some(([id, conn]) => {
             if (!conn?.enabled) return false;
             if (id === "custom") return Boolean(conn.baseUrl?.trim());
@@ -641,7 +640,7 @@ export const ChatInput = React.memo(function ChatInput({
             if (needsSignIn) return false;
             if (uploadedFiles.some((a) => a.status === "processing")) return false;
             if (isLoading && uploadedFiles.length > 0) return false;
-            if (isLoading && /^\/compact\b/i.test(trimmed)) return false;
+            if (/^\/compact\b/i.test(trimmed)) return false;
             return true;
         },
         [isLoading, needsSignIn, uploadedFiles],
@@ -807,7 +806,7 @@ export const ChatInput = React.memo(function ChatInput({
             const detail = (e as CustomEvent<{ id?: string; text?: string }>).detail;
             const text = detail?.text?.trim();
             if (!text) return;
-            const id = detail.id || `${Date.now()}`;
+            const id = detail?.id || `${Date.now()}`;
             setLocalQuotes((prev) =>
                 prev.some((q) => q.text === text) ? prev : [...prev.slice(-7), { id, text }],
             );
@@ -852,7 +851,7 @@ export const ChatInput = React.memo(function ChatInput({
             // Claude Code parity: while messages are queued and the composer is empty,
             // ArrowUp pops the latest queued message back into the editor for quick edits.
             if (inputValue.length === 0 && queuedMessages.length > 0 && onEditQueuedMessage) {
-                const lastQueued = queuedMessages[queuedMessages.length - 1];
+                const lastQueued = queuedMessages.at(-1);
                 if (lastQueued) {
                     e.preventDefault();
                     onEditQueuedMessage(lastQueued.id);
@@ -2529,7 +2528,7 @@ export const ChatInput = React.memo(function ChatInput({
                     onClose={() => setMediaViewer(null)}
                     src={mediaViewer.src}
                     title={mediaViewer.title}
-                    kind={mediaViewer.kind || "image"}
+                    kind={mediaViewer.kind}
                 />
             ) : null}
         </div>

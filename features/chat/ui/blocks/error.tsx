@@ -38,7 +38,7 @@ export function ChatErrorDialog({
             lowerMessage.includes("platform.openai.com/settings/organization/billing"));
     const isContextOverflow =
         Boolean(message) &&
-        /context_length_exceeded|context\s*window|maximum\s*context\s*length|prompt\s*is\s*too\s*long/i.test(
+        /context_length_exceeded|context\s*window\s*(?:exceeded|overflow|full|limit)|exceed(?:s|ed)?\s*(?:the\s*)?(?:maximum\s*)?context\s*(?:window|length)|maximum\s*context\s*length|prompt\s*is\s*too\s*long/i.test(
             message ?? "",
         );
     const docsUrl = openaiBilling

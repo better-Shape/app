@@ -214,7 +214,7 @@ export function fetchWarmMcpServers(): Promise<WarmMcpServer[]> {
                 return fetchWarmMcpServers();
             }
             const connected = statuses
-                .filter((s) => String(s.status || "").toLowerCase() === "connected")
+                .filter((s) => s.status.toLowerCase() === "connected")
                 .map((s) => ({
                     id: s.id,
                     name: s.name || s.id,
