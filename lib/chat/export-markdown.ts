@@ -18,7 +18,7 @@ function cleanMessageBodyForMarkdown(raw: string): string {
     );
 
     const cleaned = withoutAttachments
-        .replace(/<(?:thinking|analysis)\b[^>]*>[\s\S]*?<\/(?:thinking|analysis)>/gi, "")
+        .replace(/<(?:think|thought|thinking|analysis)\b[^>]*>[\s\S]*?<\/(?:think|thought|thinking|analysis)>/gi, "")
         .replace(/<rename_chat\b[^>]*>[\s\S]*?<\/rename_chat>/gi, "")
         .replace(/<todos\b[^>]*>[\s\S]*?<\/todos>/gi, "")
         .replace(/<bettershape_action\b[^>]*\/?>/gi, "")
@@ -38,6 +38,7 @@ function cleanMessageBodyForMarkdown(raw: string): string {
     return [attachmentNotes.join(" · "), cleaned].filter(Boolean).join("\n\n");
 }
 
+/** Formats a conversation title and message array into a clean Markdown document. */
 export function formatTranscriptAsMarkdown(
     title: string,
     messages: ReadonlyArray<{ role?: string; content?: string; model?: string }>,
@@ -64,6 +65,7 @@ export function formatTranscriptAsMarkdown(
     return `${sections.join("\n\n---\n\n")}\n`;
 }
 
+/** Produces a filesystem-safe `.md` filename from a conversation title. */
 export function slugifyTranscriptFilename(title: string): string {
     const slug = (title || "chat")
         .toLowerCase()

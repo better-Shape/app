@@ -144,6 +144,7 @@ export function splitLeadingQuoteBlock(text: string): { quotes: string[]; rest: 
     return { quotes: quotes.filter(Boolean), rest };
 }
 
+/** Dispatches a quoted excerpt to the active chat composer. */
 export function dispatchChatQuote(text: string) {
     const trimmed = text.trim();
     if (!trimmed) return;

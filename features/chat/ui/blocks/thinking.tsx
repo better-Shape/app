@@ -82,7 +82,7 @@ export function ThinkingBlock({ content, isActive }: { content: string; isActive
                 >
                     {lines.map((line, i) => (
                         <span
-                            key={i}
+                            key={`line-${i}-${line.slice(0, 16)}`}
                             className={cn(
                                 "block",
                                 isActive && i === lines.length - 1 && "text-text-secondary",

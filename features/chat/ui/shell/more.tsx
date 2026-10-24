@@ -24,6 +24,7 @@ import { notify } from "@/features/notifications";
 import {
     CHAT_COPY_MARKDOWN_EVENT,
     CHAT_EXPORT_MARKDOWN_EVENT,
+    dispatchToChatSurface,
     openChatFindBar,
 } from "./find-bar";
 
@@ -73,29 +74,37 @@ export function ChatMoreMenu() {
                     onClick={() => {
                         window.dispatchEvent(
                             new CustomEvent("bettershape-command-palette", {
-                                detail: {
-                                    filter: "agents",
-                                    placeholder: "Search agents, files, actions...",
-                                },
-                            }),
-                        );
-                    }}
-                >
-                    <Icon icon={Search20Regular} className="text-text-secondary" />
-                    Search history...
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                    className="gap-2.5"
-                    onClick={() => window.dispatchEvent(new Event(CHAT_COPY_MARKDOWN_EVENT))}
-                >
-                    <Icon icon={Copy20Regular} className="text-text-secondary" />
-                    Copy chat as Markdown
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                    className="gap-2.5"
-                    onClick={() => window.dispatchEvent(new Event(CHAT_EXPORT_MARKDOWN_EVENT))}
-                >
+                            detail: {
+                                filter: "agents",
+                                placeholder: "Search chat history...",
+                            },
+                        }),
+                    );
+                }}
+            >
+                <Icon icon={Search20Regular} className="text-text-secondary" />
+                Search history...
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+                className="gap-2.5"
+                onClick={() =>
+                    dispatchToChatSurface(() =>
+                        window.dispatchEvent(new Event(CHAT_COPY_MARKDOWN_EVENT)),
+                    )
+                }
+            >
+                <Icon icon={Copy20Regular} className="text-text-secondary" />
+                Copy chat as Markdown
+            </DropdownMenuItem>
+            <DropdownMenuItem
+                className="gap-2.5"
+                onClick={() =>
+                    dispatchToChatSurface(() =>
+                        window.dispatchEvent(new Event(CHAT_EXPORT_MARKDOWN_EVENT)),
+                    )
+                }
+            >
                     <Icon icon={ArrowDownload20Regular} className="text-text-secondary" />
                     Export chat (.md)
                 </DropdownMenuItem>

@@ -54,6 +54,11 @@ function buildMatchSnippet(text: string, start: number, end: number, radius = 36
     return `${prefix}${text.slice(left, right).replace(/\s+/g, " ").trim()}${suffix}`;
 }
 
+function escapeRegExp(literal: string): string {
+    return literal.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Finds literal matches across user and assistant messages with snippet previews. */
 export function findTranscriptMatches(
     messages: ReadonlyArray<{ role?: string; content?: string }>,
     query: string,
@@ -64,11 +69,10 @@ export function findTranscriptMatches(
     const caseSensitive = Boolean(opts.caseSensitive);
     const maxMatches = opts.maxMatches ?? 500;
     const trimmedQuery = query.trim();
-    const needle = caseSensitive ? trimmedQuery : trimmedQuery.toLowerCase();
-    if (!needle || messages.length === 0) return [];
+    if (!trimmedQuery || maxMatches <= 0 || messages.length === 0) return [];
 
     const results: TranscriptMatch[] = [];
-    const step = Math.max(1, needle.length);
+    const matcher = new RegExp(escapeRegExp(trimmedQuery), caseSensitive ? "g" : "gi");
 
     for (let messageIndex = 0; messageIndex < messages.length; messageIndex++) {
         const msg = messages[messageIndex];
@@ -77,23 +81,26 @@ export function findTranscriptMatches(
         const clean = extractSearchableMessageText(msg?.content ?? "");
         if (!clean) continue;
 
-        const hay = caseSensitive ? clean : clean.toLowerCase();
-        let cursor = 0;
+        matcher.lastIndex = 0;
         let occurrence = 0;
-        while (cursor <= hay.length - needle.length) {
-            const found = hay.indexOf(needle, cursor);
-            if (found === -1) break;
+        let match: RegExpExecArray | null;
+        while ((match = matcher.exec(clean)) !== null) {
+            const found = match.index;
+            const matchedLen = match[0].length;
+            if (matchedLen === 0) {
+                matcher.lastIndex += 1;
+                continue;
+            }
             results.push({
                 messageIndex,
                 role,
                 occurrenceInMessage: occurrence,
                 start: found,
-                end: found + needle.length,
-                snippet: buildMatchSnippet(clean, found, found + needle.length),
+                end: found + matchedLen,
+                snippet: buildMatchSnippet(clean, found, found + matchedLen),
             });
             occurrence += 1;
             if (results.length >= maxMatches) return results;
-            cursor = found + step;
         }
     }
 

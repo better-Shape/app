@@ -8,14 +8,25 @@ export function stripOrphanThinkTags(text: string): string {
         .replace(/<\/?think[^>]*>\s*/gi, "");
 }
 
+const LEAKED_TOOL_CALL_FN_RE =
+    /(?:default_api\.[a-zA-Z_]\w*|render_design_previews|read_file|edit_file|write_file|grep_search|run_terminal|web_search|list_terminals|terminal_read|terminal_input|[a-zA-Z_]\w*_execute)/;
+
 /** True when a fenced/JSON blob is a leaked model tool invocation, not user-facing code. */
 export function looksLikeLeakedToolCode(body: string): boolean {
     const t = body.trim();
     if (!t) return false;
     if (/"tool_code"\s*:/.test(t)) return true;
-    if (/\bprint\s*\(\s*[a-zA-Z_][\w]*\s*\(/.test(t)) return true;
+    if (
+        new RegExp(`\\bprint\\s*\\(\\s*${LEAKED_TOOL_CALL_FN_RE.source}\\s*\\(`).test(t)
+    ) {
+        return true;
+    }
     if (/^\s*tool_code\s*$/m.test(t) && /\bprint\s*\(/.test(t)) return true;
-    if (/^\s*functions\.[a-zA-Z_][\w.]*\s*\(/.test(t)) return true;
+    if (
+        new RegExp(`^\\s*functions\\.${LEAKED_TOOL_CALL_FN_RE.source}\\s*\\(`, "m").test(t)
+    ) {
+        return true;
+    }
     if (/<(?:tool_call|function_call|minimax:tool_call|tool_code)\b/i.test(t)) return true;
     return false;
 }
@@ -202,12 +213,30 @@ export function stripLeakedToolCode(text: string): string {
         });
     }
 
-    if (s.includes("print")) {
-        s = s.replace(/(?:^|\n)\s*print\s*\(\s*[a-zA-Z_][\w]*\s*\([\s\S]*$/g, "\n");
-    }
-
-    if (s.includes("functions.")) {
-        s = s.replace(/(?:^|\n)\s*functions\.[a-zA-Z_][\w.]*\s*\(\{[\s\S]*$/g, "\n");
+    if (s.includes("print") || s.includes("functions.")) {
+        const leakedPrintLineRe = new RegExp(
+            `(?:^|\\n)[ \\t]*print\\s*\\(\\s*${LEAKED_TOOL_CALL_FN_RE.source}\\s*\\([^\\n]*\\)\\s*\\)[ \\t]*(?=\\n|$)`,
+            "g",
+        );
+        const leakedPrintTailRe = new RegExp(
+            `(?:^|\\n)[ \\t]*print\\s*\\(\\s*${LEAKED_TOOL_CALL_FN_RE.source}\\s*\\([^\\n]*$`,
+            "g",
+        );
+        const leakedFnLineRe = new RegExp(
+            `(?:^|\\n)[ \\t]*functions\\.${LEAKED_TOOL_CALL_FN_RE.source}\\s*\\(\\{[^\\n]*\\}\\)[ \\t]*(?=\\n|$)`,
+            "g",
+        );
+        const leakedFnTailRe = new RegExp(
+            `(?:^|\\n)[ \\t]*functions\\.${LEAKED_TOOL_CALL_FN_RE.source}\\s*\\(\\{[^\\n]*$`,
+            "g",
+        );
+        s = mapOutsideCodeFences(s, (prose) =>
+            prose
+                .replace(leakedPrintLineRe, "\n")
+                .replace(leakedPrintTailRe, "\n")
+                .replace(leakedFnLineRe, "\n")
+                .replace(leakedFnTailRe, "\n"),
+        );
     }
 
     s = stripLeakedToolMarkup(s);
@@ -302,13 +331,22 @@ function unwrapOuterProseFence(text: string): string {
 
 function stripRawHtml(text: string): string {
     if (!text.includes("<")) return text;
-    const replaceHtml = (part: string) =>
-        part
-            .replace(/<img[^>]*>/gi, "")
-            .replace(/<br\s*\/?>/gi, "\n")
-            .replace(/<\/?(h[1-6]|p|div|span|a|ul|ol|li|strong|em|b|i|section|article|header|footer)[^>]*>/gi, (tag) =>
-                tag.startsWith("</") ? "\n" : "",
-            );
+    const replaceHtml = (part: string) => {
+        let out = part;
+        let prev = "";
+        do {
+            prev = out;
+            out = out
+                .replace(/<img\b[^>]*>/gi, "")
+                .replace(/<br\s*\/?>/gi, "\n")
+                .replace(
+                    /<\/?(?:h[1-6]|p|div|span|a|ul|ol|li|strong|em|b|i|section|article|header|footer|iframe|script|style|object|embed)\b[^>]*>/gi,
+                    (tag) => (tag.startsWith("</") ? "\n" : ""),
+                )
+                .replace(/<(?:iframe|script|style|object|embed)\b[^>]*$/gi, "");
+        } while (out !== prev);
+        return out;
+    };
     if (!text.includes("```")) return replaceHtml(text);
     const parts = text.split(/(```[\s\S]*?(?:```|$))/g);
     return parts

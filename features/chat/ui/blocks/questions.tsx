@@ -82,6 +82,7 @@ export function QuestionsCard({
     const customInputRef = useAutoFocusRef<HTMLInputElement>();
     const [submitting, setSubmitting] = useState(false);
 
+    const cardRef = React.useRef<HTMLDivElement>(null);
     const total = Math.max(questions.length, 1);
     const current = questions[index];
     const answered = status === "answered" || (!pending && Boolean(initialAnswers));
@@ -154,10 +155,28 @@ export function QuestionsCard({
     useEffect(() => {
         if (!pending || submitting || customOpen || !current) return undefined;
         const onKey = (e: KeyboardEvent) => {
-            if (e.isComposing || e.keyCode === 229) return;
+            if (e.defaultPrevented || e.isComposing || e.keyCode === 229) return;
             if (e.metaKey || e.ctrlKey || e.altKey) return;
             const target = e.target instanceof Element ? e.target : null;
-            if (target?.closest("textarea, input, [contenteditable='true'], [role='menu']")) return;
+            if (
+                target?.closest(
+                    "textarea, input, select, [contenteditable='true'], [role='menu'], [role='dialog']",
+                )
+            ) {
+                return;
+            }
+            const cardEl = cardRef.current;
+            const activeEl = document.activeElement instanceof Element ? document.activeElement : null;
+            const focusInsideCard = Boolean(cardEl && activeEl && cardEl.contains(activeEl));
+            if (!focusInsideCard && activeEl && activeEl !== document.body && activeEl !== document.documentElement) {
+                if (
+                    activeEl.closest(
+                        "button, a, input, textarea, select, [role='button'], [role='tab'], [role='menuitem'], [role='option'], [role='dialog'], [contenteditable='true'], [tabindex]:not([tabindex='-1'])",
+                    )
+                ) {
+                    return;
+                }
+            }
             if (/^[1-9]$/.test(e.key)) {
                 const optIdx = Number(e.key) - 1;
                 const opt = current.options[optIdx];
@@ -235,9 +254,11 @@ export function QuestionsCard({
 
     return (
         <div
+            ref={cardRef}
+            tabIndex={-1}
             data-pending-approval={!answered ? "true" : undefined}
             data-pending-approval-kind={!answered ? "question" : undefined}
-            className="my-2 overflow-hidden rounded-xl border border-border-subtle bg-surface-3"
+            className="my-2 overflow-hidden rounded-xl border border-border-subtle bg-surface-3 outline-none"
         >
             <div data-find-skip className="flex items-center justify-between gap-2 px-2.5 py-1.5 text-text-muted">
                 <div className="flex items-center gap-1">

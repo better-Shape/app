@@ -19,6 +19,7 @@ import { getPlatform } from "@/lib/platform";
  */
 const activeApprovalStack: symbol[] = [];
 
+/** Registers `Cmd/Ctrl+Enter` and `Escape` hotkeys for a pending approval card. */
 export function useApprovalKeyboardShortcut({
     enabled = true,
     isProcessing = false,
@@ -36,9 +37,19 @@ export function useApprovalKeyboardShortcut({
     if (instanceIdRef.current === null) {
         instanceIdRef.current = Symbol("approval-card");
     }
+    const onAcceptRef = useRef(onAccept);
+    const onSkipRef = useRef(onSkip);
+    const isProcessingRef = useRef(isProcessing);
+    useEffect(() => {
+        onAcceptRef.current = onAccept;
+        onSkipRef.current = onSkip;
+        isProcessingRef.current = isProcessing;
+    }, [onAccept, onSkip, isProcessing]);
+
+    const hasHandlers = Boolean(onAccept && onSkip);
 
     useEffect(() => {
-        if (!enabled || !onAccept || !onSkip) return undefined;
+        if (!enabled || !hasHandlers) return undefined;
         const selfId = instanceIdRef.current;
         if (selfId === null) return undefined;
         if (!activeApprovalStack.includes(selfId)) {
@@ -46,7 +57,18 @@ export function useApprovalKeyboardShortcut({
         }
 
         const onKey = (e: KeyboardEvent) => {
-            if (isProcessing || e.defaultPrevented || e.isComposing || e.keyCode === 229) return;
+            const acceptFn = onAcceptRef.current;
+            const skipFn = onSkipRef.current;
+            if (
+                isProcessingRef.current
+                || !acceptFn
+                || !skipFn
+                || e.defaultPrevented
+                || e.isComposing
+                || e.keyCode === 229
+            ) {
+                return;
+            }
             const t = e.target instanceof Element ? e.target : null;
             if (
                 t?.closest(
@@ -73,13 +95,13 @@ export function useApprovalKeyboardShortcut({
             if ((e.metaKey || e.ctrlKey) && e.key === "Enter" && !e.shiftKey && !e.altKey) {
                 e.preventDefault();
                 e.stopPropagation();
-                onAccept();
+                acceptFn();
                 return;
             }
             if (!e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey && e.key === "Escape") {
                 e.preventDefault();
                 e.stopPropagation();
-                onSkip();
+                skipFn();
             }
         };
 
@@ -89,7 +111,7 @@ export function useApprovalKeyboardShortcut({
             const idx = activeApprovalStack.indexOf(selfId);
             if (idx !== -1) activeApprovalStack.splice(idx, 1);
         };
-    }, [enabled, isProcessing, cardRef, onAccept, onSkip]);
+    }, [enabled, hasHandlers, cardRef]);
 }
 
 /** Shared chrome for edit / command / plugin approval cards. */

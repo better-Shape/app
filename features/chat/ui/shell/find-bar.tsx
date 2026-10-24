@@ -60,6 +60,53 @@ export const dispatchToChatSurface = (action: () => void) => {
 };
 
 /**
+ * Stages `prompt` in the chat composer, switches the center view to `"chat"`,
+ * and focuses the composer input even when `Chat` mounts asynchronously from an overlay.
+ */
+export const stagePromptInChatComposer = (prompt: string) => {
+    if (!prompt.trim() || typeof window === "undefined") return;
+    try {
+        localStorage.setItem("bettershape-chat-input", prompt);
+    } catch {
+        /* storage unavailable */
+    }
+    window.dispatchEvent(new CustomEvent("bettershape-center-view", { detail: "chat" }));
+    window.dispatchEvent(
+        new CustomEvent("bettershape-chat-insert-prompt", {
+            detail: { prompt, send: false },
+        }),
+    );
+    window.dispatchEvent(new CustomEvent("bettershape-chat-focus-input"));
+    if (typeof window.requestAnimationFrame === "function") {
+        window.requestAnimationFrame(() => {
+            window.dispatchEvent(new CustomEvent("bettershape-chat-focus-input"));
+        });
+    }
+};
+
+/** Opens the in-conversation Find bar, switching back from overlays if needed. */
+export const openChatFindBar = (initialQuery?: string) => {
+    if (typeof window === "undefined") return;
+    dispatchToChatSurface(() => {
+        window.dispatchEvent(
+            new CustomEvent(CHAT_FIND_OPEN_EVENT, {
+                detail: initialQuery ? { query: initialQuery } : undefined,
+            }),
+        );
+    });
+};
+
+/** Signals that a transcript disclosure toggled so Stick-to-Bottom preserves scroll anchor. */
+export const notifyTranscriptDisclosureToggle = (element?: HTMLElement | null) => {
+    if (typeof window === "undefined") return;
+    window.dispatchEvent(
+        new CustomEvent("bettershape-transcript-disclosure-toggle", {
+            detail: { element: element ?? null },
+        }),
+    );
+};
+
+/**
  * Expands a collapsed chat disclosure when Find in Chat jumps to a match inside
  * the enclosing `[data-chat-message-index]` row.
  */
@@ -112,25 +159,8 @@ export const useExpandForChatFind = ({
     }, [enabled, rootRef]);
 };
 
-export function openChatFindBar(initialQuery?: string) {
-    if (typeof window === "undefined") return;
-    window.dispatchEvent(
-        new CustomEvent(CHAT_FIND_OPEN_EVENT, {
-            detail: initialQuery ? { query: initialQuery } : undefined,
-        }),
-    );
-}
-
-export function notifyTranscriptDisclosureToggle(element?: HTMLElement | null) {
-    if (typeof window === "undefined") return;
-    window.dispatchEvent(
-        new CustomEvent("bettershape-transcript-disclosure-toggle", {
-            detail: { element: element ?? null },
-        }),
-    );
-}
-
-export function ChatFindBar({
+/** Compact floating search bar for finding text within the active chat transcript. */
+export const ChatFindBar = ({
     open,
     query,
     matchCount,
@@ -152,7 +182,7 @@ export function ChatFindBar({
     onNext: () => void;
     onPrev: () => void;
     onClose: () => void;
-}) {
+}) => {
     const inputRef = useRef<HTMLInputElement>(null);
     const [everOpened, setEverOpened] = React.useState(open);
 
@@ -161,7 +191,7 @@ export function ChatFindBar({
     }
 
     useEffect(() => {
-        if (!open) return;
+        if (!open) return undefined;
         const id = requestAnimationFrame(() => {
             inputRef.current?.focus();
             inputRef.current?.select();
@@ -277,4 +307,4 @@ export function ChatFindBar({
             </div>
         </div>
     );
-}
+};

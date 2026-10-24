@@ -21,10 +21,12 @@ type DiffRow = {
 const getLanguage = (path: string) => {
     const ext = path.split('.').pop()?.toLowerCase();
     switch (ext) {
-        case 'tsx': return 'typescript';
-        case 'ts': return 'typescript';
-        case 'js': return 'javascript';
-        case 'jsx': return 'javascript';
+        case 'tsx':
+        case 'ts':
+            return 'typescript';
+        case 'js':
+        case 'jsx':
+            return 'javascript';
         case 'rs': return 'rust';
         case 'toml': return 'ini';
         case 'json': return 'json';

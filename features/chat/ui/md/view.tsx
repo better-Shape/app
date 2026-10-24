@@ -74,26 +74,54 @@ function storeCachedPathExists(resolvedPath: string, exists: boolean): void {
     }
 }
 
+let pathExistsEpoch = 0;
+const pathExistsEpochListeners = new Set<() => void>();
+
 function probeProjectPathExists(resolvedPath: string): Promise<boolean> {
     const cached = peekCachedPathExists(resolvedPath);
     if (cached !== null) return Promise.resolve(cached);
     const inflight = pathExistsInflight.get(resolvedPath);
     if (inflight) return inflight;
 
-    const req = commands
-        .readFile(resolvedPath)
-        .then(() => true)
-        .catch(() =>
-            commands
-                .lsDir(resolvedPath)
-                .then(() => true)
-                .catch(() => false),
-        )
-        .then((exists) => {
-            pathExistsInflight.delete(resolvedPath);
+    const epochAtStart = pathExistsEpoch;
+    const normalized = resolvedPath.replace(/\\/g, "/").replace(/\/+$/, "");
+    const slashIdx = normalized.lastIndexOf("/");
+    const parentDir = slashIdx > 0 ? normalized.slice(0, slashIdx) : slashIdx === 0 ? "/" : "";
+    const baseName = slashIdx >= 0 ? normalized.slice(slashIdx + 1) : normalized;
+
+    const fallbackProbe = () =>
+        commands
+            .readFile(resolvedPath)
+            .then(() => true)
+            .catch(() =>
+                commands
+                    .lsDir(resolvedPath)
+                    .then(() => true)
+                    .catch(() => false),
+            );
+
+    const req = (
+        parentDir && baseName
+            ? commands
+                  .lsDir(parentDir)
+                  .then((entries) =>
+                      Array.isArray(entries)
+                          ? entries.some(
+                                (entry) =>
+                                    entry?.name === baseName
+                                    || entry?.path?.replace(/\\/g, "/").replace(/\/+$/, "") === normalized,
+                            )
+                          : fallbackProbe(),
+                  )
+                  .catch(() => fallbackProbe())
+            : fallbackProbe()
+    ).then((exists) => {
+        pathExistsInflight.delete(resolvedPath);
+        if (pathExistsEpoch === epochAtStart) {
             storeCachedPathExists(resolvedPath, exists);
-            return exists;
-        });
+        }
+        return exists;
+    });
 
     pathExistsInflight.set(resolvedPath, req);
     return req;
@@ -101,13 +129,25 @@ function probeProjectPathExists(resolvedPath: string): Promise<boolean> {
 
 if (typeof window !== "undefined") {
     window.addEventListener("bettershape-files-changed", () => {
+        pathExistsEpoch += 1;
         pathExistsCache.clear();
+        pathExistsInflight.clear();
+        pathExistsEpochListeners.forEach((listener) => listener());
     });
 }
 
 function ProjectPathLink({ path }: { path: string }) {
     const resolved = resolveProjectFilePath(path, getProjectPath());
+    const [cacheRev, setCacheRev] = useState(0);
     const [exists, setExists] = useState<boolean | null>(() => peekCachedPathExists(resolved));
+
+    useEffect(() => {
+        const onInvalidate = () => setCacheRev((rev) => rev + 1);
+        pathExistsEpochListeners.add(onInvalidate);
+        return () => {
+            pathExistsEpochListeners.delete(onInvalidate);
+        };
+    }, []);
 
     useEffect(() => {
         const cached = peekCachedPathExists(resolved);
@@ -130,7 +170,7 @@ function ProjectPathLink({ path }: { path: string }) {
         return () => {
             cancelled = true;
         };
-    }, [resolved, exists]);
+    }, [resolved, exists, cacheRev]);
 
     if (!exists) return path;
     return (

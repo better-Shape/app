@@ -24,12 +24,15 @@ export type WarmMcpServer = {
 
 const filesCache = new Map<string, TimedEntry<string[]>>();
 const filesInflight = new Map<string, Promise<string[]>>();
+let filesGeneration = 0;
 
 const chatsCache = new Map<string, TimedEntry<WarmChatSummary[]>>();
 const chatsInflight = new Map<string, Promise<WarmChatSummary[]>>();
+let chatsGeneration = 0;
 
 let mcpCache: TimedEntry<WarmMcpServer[]> | null = null;
 let mcpInflight: Promise<WarmMcpServer[]> | null = null;
+let mcpGeneration = 0;
 
 function isFresh<T>(entry: TimedEntry<T> | undefined | null): entry is TimedEntry<T> {
     return Boolean(entry && entry.expiresAt > Date.now());
@@ -39,12 +42,14 @@ function scopeKey(projectPath?: string | null): string {
     return projectPath ? projectPath : "__global__";
 }
 
+/** Synchronously returns cached project file paths when still within TTL. */
 export function peekWarmProjectFiles(projectPath?: string | null): string[] | null {
     if (!projectPath) return null;
     const hit = filesCache.get(projectPath);
     return isFresh(hit) ? hit.value : null;
 }
 
+/** Fetches and caches project file paths for `@` mention auto-completion. */
 export function fetchWarmProjectFiles(projectPath: string, query = "", limit = 40): Promise<string[]> {
     if (typeof commands.searchProjectFiles !== "function") return Promise.resolve([]);
     const trimmed = query.trim();
@@ -53,19 +58,26 @@ export function fetchWarmProjectFiles(projectPath: string, query = "", limit = 4
         if (hit) return Promise.resolve(hit);
         const existing = filesInflight.get(projectPath);
         if (existing) return existing;
+        const gen = filesGeneration;
         const req = commands
             .searchProjectFiles("", limit)
             .then((rows) => {
                 const normalized = rows.map((r) => (r.relative_path || r.path).replace(/\\/g, "/"));
-                filesCache.set(projectPath, {
-                    value: normalized,
-                    expiresAt: Date.now() + WARM_TTL_MS,
-                });
-                filesInflight.delete(projectPath);
+                if (filesGeneration === gen) {
+                    filesCache.set(projectPath, {
+                        value: normalized,
+                        expiresAt: Date.now() + WARM_TTL_MS,
+                    });
+                }
+                if (filesInflight.get(projectPath) === req) {
+                    filesInflight.delete(projectPath);
+                }
                 return normalized;
             })
             .catch(() => {
-                filesInflight.delete(projectPath);
+                if (filesInflight.get(projectPath) === req) {
+                    filesInflight.delete(projectPath);
+                }
                 return [];
             });
         filesInflight.set(projectPath, req);
@@ -78,12 +90,14 @@ export function fetchWarmProjectFiles(projectPath: string, query = "", limit = 4
         .catch(() => []);
 }
 
+/** Synchronously returns cached recent conversations when still within TTL. */
 export function peekWarmRecentChats(projectPath?: string | null): WarmChatSummary[] | null {
     const key = scopeKey(projectPath);
     const hit = chatsCache.get(key);
     return isFresh(hit) ? hit.value : null;
 }
 
+/** Fetches and caches recent conversations for `@chat` mention auto-completion. */
 export function fetchWarmRecentChats(projectPath?: string | null): Promise<WarmChatSummary[]> {
     if (typeof commands.getConversations !== "function") return Promise.resolve([]);
     const key = scopeKey(projectPath);
@@ -91,6 +105,7 @@ export function fetchWarmRecentChats(projectPath?: string | null): Promise<WarmC
     if (hit) return Promise.resolve(hit);
     const existing = chatsInflight.get(key);
     if (existing) return existing;
+    const gen = chatsGeneration;
     const req = commands
         .getConversations(projectPath ?? undefined)
         .then((list) => {
@@ -98,31 +113,40 @@ export function fetchWarmRecentChats(projectPath?: string | null): Promise<WarmC
                 id: c.id,
                 title: c.title || "Chat",
             }));
-            chatsCache.set(key, {
-                value: mapped,
-                expiresAt: Date.now() + WARM_TTL_MS,
-            });
-            chatsInflight.delete(key);
+            if (chatsGeneration === gen) {
+                chatsCache.set(key, {
+                    value: mapped,
+                    expiresAt: Date.now() + WARM_TTL_MS,
+                });
+            }
+            if (chatsInflight.get(key) === req) {
+                chatsInflight.delete(key);
+            }
             return mapped;
         })
         .catch(() => {
-            chatsInflight.delete(key);
+            if (chatsInflight.get(key) === req) {
+                chatsInflight.delete(key);
+            }
             return [];
         });
     chatsInflight.set(key, req);
     return req;
 }
 
+/** Synchronously returns cached connected MCP servers when still within TTL. */
 export function peekWarmMcpServers(): WarmMcpServer[] | null {
     return isFresh(mcpCache) ? mcpCache.value : null;
 }
 
+/** Fetches and caches connected MCP servers for `@mcp` mention auto-completion. */
 export function fetchWarmMcpServers(): Promise<WarmMcpServer[]> {
     if (typeof commands.getMcpStatus !== "function") return Promise.resolve([]);
     const hit = peekWarmMcpServers();
     if (hit) return Promise.resolve(hit);
     if (mcpInflight) return mcpInflight;
-    mcpInflight = commands
+    const gen = mcpGeneration;
+    const req = commands
         .getMcpStatus()
         .then((statuses) => {
             const connected = statuses
@@ -131,18 +155,25 @@ export function fetchWarmMcpServers(): Promise<WarmMcpServer[]> {
                     id: s.id,
                     name: s.name || s.id,
                 }));
-            mcpCache = {
-                value: connected,
-                expiresAt: Date.now() + WARM_TTL_MS,
-            };
-            mcpInflight = null;
+            if (mcpGeneration === gen) {
+                mcpCache = {
+                    value: connected,
+                    expiresAt: Date.now() + WARM_TTL_MS,
+                };
+            }
+            if (mcpInflight === req) {
+                mcpInflight = null;
+            }
             return connected;
         })
         .catch(() => {
-            mcpInflight = null;
+            if (mcpInflight === req) {
+                mcpInflight = null;
+            }
             return [];
         });
-    return mcpInflight;
+    mcpInflight = req;
+    return req;
 }
 
 /**
@@ -195,7 +226,11 @@ export function warmComposerResources(projectPath?: string | null): () => void {
     };
 }
 
+/** Clears warm mention caches and invalidates in-flight generations for tests. */
 export function resetMentionWarmCachesForTests(): void {
+    filesGeneration += 1;
+    chatsGeneration += 1;
+    mcpGeneration += 1;
     filesCache.clear();
     filesInflight.clear();
     chatsCache.clear();
@@ -206,9 +241,13 @@ export function resetMentionWarmCachesForTests(): void {
 
 if (typeof window !== "undefined") {
     window.addEventListener("bettershape-files-changed", () => {
+        filesGeneration += 1;
         filesCache.clear();
+        filesInflight.clear();
     });
     window.addEventListener("bettershape-chats-changed", () => {
+        chatsGeneration += 1;
         chatsCache.clear();
+        chatsInflight.clear();
     });
 }

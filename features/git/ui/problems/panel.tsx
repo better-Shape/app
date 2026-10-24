@@ -72,17 +72,24 @@ function formatSingleProblemPrompt(problem: Problem, fileLabel: string): string 
 }
 
 function formatAllProblemsPrompt(groups: ProblemGroup[]): string {
+    const MAX_PROMPT_PROBLEMS = 100;
+    const total = groups.reduce((sum, group) => sum + group.problems.length, 0);
     const lines: string[] = ["Fix these ESLint problems:"];
     let count = 0;
     for (const group of groups) {
         for (const p of group.problems) {
-            if (count >= 12) break;
+            if (count >= MAX_PROMPT_PROBLEMS) break;
             const pos = formatPosition(p.line, p.column);
             const rule = p.ruleId ? ` [${p.ruleId}]` : "";
             lines.push(`- @${group.label}:${pos}${rule}: ${p.message}`);
             count += 1;
         }
-        if (count >= 12) break;
+        if (count >= MAX_PROMPT_PROBLEMS) break;
+    }
+    if (total > count) {
+        lines.push(
+            `(${total - count} additional ESLint problem${total - count === 1 ? "" : "s"} omitted for brevity; run ESLint to inspect and fix the remaining diagnostics.)`,
+        );
     }
     return lines.join("\n");
 }

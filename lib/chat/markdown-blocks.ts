@@ -19,10 +19,11 @@
  *     already started after at least one blank line outside any fence.
  */
 
-const REFERENCE_DEF_RE = /^ {0,3}\[\^?[^\]]+\]:[ \t]*\S/m;
+const REFERENCE_DEF_RE = /^ {0,3}\[\^?[^\]]+\]:[ \t]*\S/;
 const FENCE_OPEN_RE = /^ {0,3}(`{3,}|~{3,})/;
 const LIST_ITEM_RE = /^ {0,3}(?:[-*+]|\d{1,9}[.)])[ \t]+\S/;
 const INDENTED_CONTINUATION_RE = /^(?: {2,}|\t)\S/;
+const INDENTED_CODE_LINE_RE = /^(?: {4}|\t)/;
 
 export interface StreamingMarkdownSplit {
     settled: string[];
@@ -59,6 +60,7 @@ function isBlankLine(line: string): boolean {
     return true;
 }
 
+/** Returns true when `markdown` ends inside an unclosed fenced code block. */
 export function hasUnclosedMarkdownFence(markdown: string): boolean {
     if (!markdown || (!markdown.includes("```") && !markdown.includes("~~~"))) {
         return false;
@@ -86,14 +88,12 @@ export function hasUnclosedMarkdownFence(markdown: string): boolean {
     return fenceChar !== null;
 }
 
+/** Splits streaming Markdown into settled top-level blocks and a mutable tail block. */
 export function splitStreamingMarkdownBlocks(markdown: string): StreamingMarkdownSplit {
     if (!markdown) {
         return { settled: [], tail: "" };
     }
     if (!markdown.includes("\n\n")) {
-        return { settled: [], tail: markdown };
-    }
-    if (REFERENCE_DEF_RE.test(markdown)) {
         return { settled: [], tail: markdown };
     }
 
@@ -103,6 +103,7 @@ export function splitStreamingMarkdownBlocks(markdown: string): StreamingMarkdow
     let currentLines: string[] = [];
     let pendingBlankLines: string[] = [];
     let currentIsList = false;
+    let currentIsIndentedCode = false;
     let fenceChar: string | null = null;
     let fenceLen = 0;
 
@@ -116,6 +117,10 @@ export function splitStreamingMarkdownBlocks(markdown: string): StreamingMarkdow
             continue;
         }
 
+        if (REFERENCE_DEF_RE.test(line)) {
+            return { settled: [], tail: markdown };
+        }
+
         if (isBlankLine(line)) {
             if (currentLines.length > 0) {
                 pendingBlankLines.push(line);
@@ -127,7 +132,9 @@ export function splitStreamingMarkdownBlocks(markdown: string): StreamingMarkdow
         if (pendingBlankLines.length > 0 && currentLines.length > 0) {
             const continuesList =
                 currentIsList && (LIST_ITEM_RE.test(line) || INDENTED_CONTINUATION_RE.test(line));
-            if (continuesList) {
+            const continuesIndentedCode =
+                currentIsIndentedCode && INDENTED_CODE_LINE_RE.test(line);
+            if (continuesList || continuesIndentedCode) {
                 currentLines.push(...pendingBlankLines);
                 pendingBlankLines = [];
             } else {
@@ -135,11 +142,13 @@ export function splitStreamingMarkdownBlocks(markdown: string): StreamingMarkdow
                 currentLines = [];
                 pendingBlankLines = [];
                 currentIsList = false;
+                currentIsIndentedCode = false;
             }
         }
 
         if (currentLines.length === 0) {
             currentIsList = LIST_ITEM_RE.test(line);
+            currentIsIndentedCode = !currentIsList && INDENTED_CODE_LINE_RE.test(line);
         }
 
         const open = FENCE_OPEN_RE.exec(line);
