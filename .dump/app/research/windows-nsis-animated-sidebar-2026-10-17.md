@@ -1,9 +1,16 @@
 # Animated Windows installer sidebar
 
-Facts, decisions and measurements behind `src-tauri/installer/`. Written for the
-next person who has to touch the Windows installer. Asset checksums and the
-regeneration recipe live in `src-tauri/installer/README.md` and are not repeated
-here. The review of the change that introduced this is
+Status 24 October 2026: the feature described here was removed. `src-tauri/installer/`
+now holds `sidebar.bmp` and its README only, and `tauri.conf.json` sets no
+`installerHooks`. This file is kept because the MUI, hook and plug-in facts in
+it stay true and are what anyone re-adding animation needs. The removal
+decision, and the research into why unsigned Windows builds do not run, are in
+`.dump/app/research/windows-installer-static-sidebar-2026-10-24.md`.
+
+Facts, decisions and measurements behind the animated sidebar as it was built.
+Asset checksums and the regeneration recipe live in
+`src-tauri/installer/README.md` and are not repeated here. The review of the
+change that introduced this is
 `.dump/app/audits/windows-nsis-animated-sidebar-2026-10-17.md`.
 
 ## Conclusions
