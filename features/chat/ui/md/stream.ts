@@ -404,6 +404,12 @@ function stripHtmlTagsOnce(input: string): string {
         }
         out += input.slice(cursor, lt);
 
+        if (isOffsetInRanges(lt, codeRanges)) {
+            out += "<";
+            cursor = lt + 1;
+            continue;
+        }
+
         let pos = lt + 1;
         while (pos < len && /\s/.test(input.charAt(pos))) pos++;
         let isClosing = false;
@@ -446,7 +452,7 @@ function stripHtmlTagsOnce(input: string): string {
             continue;
         }
 
-        if (gt === -1 || isOffsetInRanges(lt, codeRanges)) {
+        if (gt === -1) {
             out += "<";
             cursor = lt + 1;
             continue;

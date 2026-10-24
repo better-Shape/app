@@ -815,7 +815,10 @@ export function CommandPalette() {
                                         onMouseEnter={() => {
                                             setSelectedIndex(idx);
                                             if (action.id.startsWith("agent:") && action.id !== "agent:ask-fallback") {
-                                                prefetchChatConversation(action.id.slice("agent:".length));
+                                                const rawConvId = action.id.slice("agent:".length);
+                                                if (rawConvId && !rawConvId.includes(":sub:")) {
+                                                    prefetchChatConversation(rawConvId);
+                                                }
                                             }
                                         }}
                                         onClick={() => runAction(action)}

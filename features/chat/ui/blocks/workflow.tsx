@@ -279,6 +279,7 @@ export function groupWorkflowRows(blocks: Chunk[]): WorkflowRow[] {
     let stagePaths: string[] = [];
     let readFiles: { path: string; start?: number; end?: number }[] = [];
     let searchQueries: string[] = [];
+    let searchCount = 0;
     let searchPreviews: string[] = [];
     let webBlocks: Chunk[] = [];
     let writePaths: string[] = [];
@@ -297,14 +298,15 @@ export function groupWorkflowRows(blocks: Chunk[]): WorkflowRow[] {
         readFiles = [];
     };
     const flushSearches = () => {
-        if (searchQueries.length === 0) return;
+        if (searchCount === 0 && searchQueries.length === 0) return;
         rows.push({
             kind: "search_group",
             queries: [...searchQueries],
-            count: searchQueries.length,
+            count: Math.max(searchCount, searchQueries.length),
             previews: searchPreviews.length > 0 ? [...searchPreviews] : undefined,
         });
         searchQueries = [];
+        searchCount = 0;
         searchPreviews = [];
     };
     const flushWeb = () => {
@@ -395,8 +397,11 @@ export function groupWorkflowRows(blocks: Chunk[]): WorkflowRow[] {
             flushWrites();
             flushLists();
             const q = (block.query || block.content || "").trim();
-            if (q && searchQueries[searchQueries.length - 1] !== q) {
-                searchQueries.push(q);
+            if (q) {
+                searchCount += 1;
+                if (searchQueries[searchQueries.length - 1] !== q) {
+                    searchQueries.push(q);
+                }
             }
             const body = (block.content || "").trim();
             if (
@@ -1182,12 +1187,36 @@ export function AgentWorkflow({
                     );
                 }
                 if (row.kind === "search_group") {
+                    const hasDetails = row.queries.length > 0 || Boolean(row.previews?.length);
+                    const summaryDetail =
+                        row.count > 1 ? `${row.count} times` : row.queries[0] || undefined;
                     return (
                         <ActionLine
                             key={`searches-${slot}`}
                             action="Searched"
-                            detail={row.count > 1 ? `${row.count} times` : undefined}
-                        />
+                            detail={summaryDetail}
+                        >
+                            {hasDetails ? (
+                                <div className="flex flex-col gap-1.5 py-1 text-xs text-text-muted">
+                                    {row.queries.map((queryText, qIdx) => (
+                                        <div
+                                            key={`${queryText}-${qIdx}`}
+                                            className="truncate font-mono text-text-secondary"
+                                        >
+                                            {queryText}
+                                        </div>
+                                    ))}
+                                    {row.previews?.slice(0, 3).map((previewText, pIdx) => (
+                                        <pre
+                                            key={`preview-${pIdx}`}
+                                            className="max-h-28 overflow-auto whitespace-pre-wrap break-words rounded-md bg-surface-2 px-2 py-1 font-mono text-2xs text-text-muted"
+                                        >
+                                            {previewText}
+                                        </pre>
+                                    ))}
+                                </div>
+                            ) : null}
+                        </ActionLine>
                     );
                 }
                 if (row.kind === "web_trail") {
@@ -1414,19 +1443,32 @@ export function ActionItem({
                 detail={name}
                 icon={providerIcon(block.command || "auto", 14)}
                 onClick={() => {
-                    void import("@/features/agent/subagents/store").then(({ openSubagent, upsertSubagent }) => {
-                        upsertSubagent({
-                            id,
-                            title: name,
-                            agent: name,
-                            model: block.command,
-                            activity: "Working...",
-                            task: block.type === "subagent_ref" ? block.content : undefined,
-                            transcript: block.type === "subagent" ? block.content : undefined,
-                            status: (block.commandStatus as "running" | "done" | "error" | "pending") || "running",
+                    const subStatus =
+                        (block.commandStatus as "running" | "done" | "error" | "pending") ||
+                        "running";
+                    const subActivity =
+                        subStatus === "done"
+                            ? "Completed"
+                            : subStatus === "error"
+                              ? "Failed"
+                              : "Working...";
+                    import("@/features/agent/subagents/store")
+                        .then(({ openSubagent, upsertSubagent }) => {
+                            upsertSubagent({
+                                id,
+                                title: name,
+                                agent: name,
+                                model: block.command,
+                                activity: subActivity,
+                                task: block.type === "subagent_ref" ? block.content : undefined,
+                                transcript: block.type === "subagent" ? block.content : undefined,
+                                status: subStatus,
+                            });
+                            openSubagent(id);
+                        })
+                        .catch(() => {
+                            /* ignore */
                         });
-                        openSubagent(id);
-                    });
                 }}
             />
         );

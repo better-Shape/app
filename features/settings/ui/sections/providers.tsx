@@ -55,6 +55,20 @@ import {
     SETTING_CONTROL_BTN,
 } from "../shared/controls";
 
+type ProviderDiagnosticReport = {
+    ok: boolean;
+    status: number;
+    message: string;
+    models: string[];
+    latencyMs: number;
+};
+
+/** Validates runtime diagnostics payloads so null/malformed bridge replies never throw. */
+const isValidProviderReport = (value: unknown): value is ProviderDiagnosticReport =>
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { ok?: unknown }).ok === "boolean";
+
 function KeyInput({
     value,
     placeholder,
@@ -193,21 +207,21 @@ function ProviderCard({ id, providers }: { id: ProviderId; providers: ProvidersS
         }
         setTesting(true);
         try {
-            const report = await commands.aiTestProvider(
+            const rawReport: unknown = await commands.aiTestProvider(
                 id,
                 preset.kind,
                 connection.apiKey,
                 connection.baseUrl || preset.baseUrl,
             );
-            if (!report || typeof report.ok !== "boolean") {
+            if (!isValidProviderReport(rawReport)) {
                 throw new Error(
                     `Could not reach ${preset.label} diagnostics. Verify your API key and base URL, then try again.`,
                 );
             }
             setTestResult({
-                ok: report.ok,
-                message: report.ok ? `${report.message} (${report.latencyMs} ms)` : report.message,
-                models: Array.isArray(report.models) ? report.models : [],
+                ok: rawReport.ok,
+                message: rawReport.ok ? `${rawReport.message} (${rawReport.latencyMs} ms)` : rawReport.message,
+                models: Array.isArray(rawReport.models) ? rawReport.models : [],
             });
         } catch (error) {
             setTestResult({
@@ -237,7 +251,7 @@ function ProviderCard({ id, providers }: { id: ProviderId; providers: ProvidersS
         }
         setChecking(true);
         try {
-            const report = await commands.aiCheckProvider(id, {
+            const rawReport: unknown = await commands.aiCheckProvider(id, {
                 kind: preset.kind,
                 apiKey: connection.apiKey,
                 baseUrl: connection.baseUrl || preset.baseUrl,
@@ -245,14 +259,14 @@ function ProviderCard({ id, providers }: { id: ProviderId; providers: ProvidersS
                 headers: providerHeaders(id, connection),
                 authStyle: providerAuthStyle(id, connection),
             });
-            if (!report || typeof report.ok !== "boolean") {
+            if (!isValidProviderReport(rawReport)) {
                 throw new Error(
                     `Could not complete chat check for ${preset.label}. Verify your API key and model selection, then try again.`,
                 );
             }
             setCheckResult({
-                ok: report.ok,
-                message: report.ok ? `${report.message} (${report.latencyMs} ms)` : report.message,
+                ok: rawReport.ok,
+                message: rawReport.ok ? `${rawReport.message} (${rawReport.latencyMs} ms)` : rawReport.message,
             });
         } catch (error) {
             setCheckResult({

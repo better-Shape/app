@@ -164,7 +164,7 @@ class TerminalSessionStore {
         this.ptyScrollback.delete(ptyId);
     }
 
-    takePendingCommandInsert(tabId?: string): string | null {
+    peekPendingCommandInsert(tabId?: string): string | null {
         const next = this.pendingCommandInsert;
         if (!next) return null;
         if (
@@ -175,6 +175,12 @@ class TerminalSessionStore {
         ) {
             return null;
         }
+        return next;
+    }
+
+    takePendingCommandInsert(tabId?: string): string | null {
+        const next = this.peekPendingCommandInsert(tabId);
+        if (!next) return null;
         this.pendingCommandInsert = null;
         this.pendingCommandTargetTabId = null;
         return next;

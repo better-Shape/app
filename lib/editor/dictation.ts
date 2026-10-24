@@ -181,7 +181,7 @@ export async function startDictation(
         if (silentGain && typeof silentGain.connect === "function") {
             processor.connect(silentGain);
             silentGain.connect(context.destination);
-        } else if (context.destination) {
+        } else {
             processor.connect(context.destination);
         }
     }

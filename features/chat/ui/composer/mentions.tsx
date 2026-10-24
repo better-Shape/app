@@ -556,16 +556,17 @@ export function MentionPicker({
                 }
                 e.preventDefault();
                 if (mode === "slash") {
-                    const entry = slashEntries[highlight];
+                    const entry = slashEntries.at(highlight);
                     if (entry) {
                         pickSlashToken(
                             entry.kind === "builtin" ? entry.cmd.token : workflowSlashToken(entry.w),
                         );
                     }
                 } else if (highlight < rootItems.length) {
-                    if (rootItems[highlight]) pickItem(rootItems[highlight]);
+                    const pickedRoot = rootItems.at(highlight);
+                    if (pickedRoot) pickItem(pickedRoot);
                 } else if (showCategories) {
-                    const cat = visibleCategories[highlight - rootItems.length];
+                    const cat = visibleCategories.at(highlight - rootItems.length);
                     if (cat) setActiveCategory(cat.id);
                 }
             }

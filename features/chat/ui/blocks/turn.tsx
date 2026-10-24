@@ -1064,7 +1064,7 @@ export function TurnWorkflowSummary({
         ),
     );
     const thoughtBlocks = coalesced.filter((b) => b.type === "think" || b.type === "thought");
-    const leadThought = thoughtBlocks[0];
+    const leadThought = thoughtBlocks.at(0);
     const showLintFooter = stats.lintClean && stats.lintChecks > 0;
     const lintShownInSteps = visible.some((b) => {
         if (b.type !== "terminal_command" && b.type !== "run") return false;
@@ -1128,7 +1128,8 @@ export function TurnWorkflowSummary({
                     );
                 }
                 if (row.kind === "read_group") {
-                    const firstName = row.files[0] ? fileName(row.files[0].path) : "file.txt";
+                    const firstRead = row.files.at(0);
+                    const firstName = firstRead ? fileName(firstRead.path) : "file.txt";
                     return (
                         <div key={`reads-${slot}`} className={enterClass}>
                             <GroupActionLabel

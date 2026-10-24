@@ -148,8 +148,8 @@ export function TerminalDock({ suppressed = false }: { suppressed?: boolean } = 
             const detail = (e as CustomEvent<{ id?: string; value?: boolean }>).detail;
             const id = detail?.id;
             if (id !== "panel" && id !== "terminal") return;
-            if (detail.value === false) persistOpen(false);
-            else if (detail.value === true) persistOpen(true);
+            if (detail?.value === false) persistOpen(false);
+            else if (detail?.value === true) persistOpen(true);
             else persistOpen(!visibleOpen);
         };
         const onOpen = () => persistOpen(true);

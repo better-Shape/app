@@ -94,10 +94,10 @@ describe("PR #53 review regression coverage", () => {
         const messages = [{ role: "assistant", content: "Prefix İSTANBUL and target word" }];
         const matches = findTranscriptMatches(messages, "target");
         expect(matches).toHaveLength(1);
-        const m = matches[0];
-        expect(m).toBeDefined();
-        if (m) {
-            expect(messages[0]?.content.slice(m.start, m.end)).toBe("target");
+        const match = matches.at(0);
+        expect(match).toBeDefined();
+        if (match) {
+            expect(messages[0]?.content.slice(match.start, match.end)).toBe("target");
         }
         expect(findTranscriptMatches(messages, "target", 0)).toEqual([]);
     });
@@ -310,12 +310,50 @@ describe("PR #53 review regression coverage", () => {
         container.remove();
     });
 
-    it("preserves literal HTML tags inside inline backtick code spans while stripping dangerous tags", () => {
+    it("preserves literal HTML tags (including <script> and <style>) inside inline backtick code spans while stripping raw tags", () => {
         const md = preprocessChatMarkdown(
-            "Use `<div>` or `<span class=\"x\">` for layout, never <script>alert(1)</script>.",
+            "Use `<div>`, `<script src=\"app.js\">x</script>`, or `<style>body{}</style>` in examples, never <script>alert(1)</script>.",
         );
         expect(md).toContain("`<div>`");
-        expect(md).toContain('`<span class="x">`');
+        expect(md).toContain('`<script src="app.js">x</script>`');
+        expect(md).toContain("`<style>body{}</style>`");
         expect(md).not.toContain("alert(1)");
+    });
+
+    it("highlights text safely after case-expanding Unicode (İ), peeks pending terminal commands non-destructively, and preserves fenced tags in search", () => {
+        const container = document.createElement("div");
+        container.setAttribute("data-chat-message-index", "0");
+        container.textContent = "İstanbul İETT route end";
+        document.body.appendChild(container);
+        const { ranges } = syncChatDomHighlights(container, "end", { caseSensitive: false });
+        expect(ranges).toHaveLength(1);
+        expect(ranges.at(0)?.range.toString()).toBe("end");
+        container.remove();
+
+        terminalSessionStore.pendingCommandInsert = null;
+        terminalSessionStore.pendingCommandTargetTabId = null;
+        terminalSessionStore.tabs = [];
+        insertCommandIntoWorkspaceTerminal("cargo test");
+        expect(terminalSessionStore.peekPendingCommandInsert()).toBe("cargo test");
+        expect(terminalSessionStore.takePendingCommandInsert()).toBe("cargo test");
+        expect(terminalSessionStore.peekPendingCommandInsert()).toBeNull();
+
+        const searchable = extractSearchableMessageText(
+            "<thinking>secret reasoning</thinking>\n```xml\n<thinking>documented tag</thinking>\n```",
+        );
+        expect(searchable).not.toContain("secret reasoning");
+        expect(searchable).toContain("documented tag");
+
+        const quotedRef = [
+            "Read [guide][docs] first.",
+            "",
+            "> [docs]: https://example.com/guide",
+            "",
+            "Final paragraph.",
+        ].join("\n");
+        expect(splitStreamingMarkdownBlocks(quotedRef)).toEqual({
+            settled: [],
+            tail: quotedRef,
+        });
     });
 });

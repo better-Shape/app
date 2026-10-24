@@ -16,13 +16,9 @@ export interface TranscriptSearchOptions {
     maxMatches?: number;
 }
 
-/**
- * Strips hidden agent control tags while keeping prose, fenced code, tool output,
- * and edited file paths searchable.
- */
-export function extractSearchableMessageText(raw: string): string {
-    if (!raw) return "";
-    return raw
+/** Strips hidden agent control tags on a non-fenced text slice. */
+const stripControlTagsSlice = (segment: string): string =>
+    segment
         .replace(/<attached_(?:image|file|asset)\b[^>]*>[\s\S]*?<\/attached_(?:image|file|asset)>/gi, " ")
         .replace(/<(?:thinking|analysis)\b[^>]*>[\s\S]*?<\/(?:thinking|analysis)>/gi, " ")
         .replace(/<rename_chat\b[^>]*>[\s\S]*?<\/rename_chat>/gi, " ")
@@ -43,9 +39,53 @@ export function extractSearchableMessageText(raw: string): string {
                 const trimmedInner = inner.trim();
                 return trimmedInner ? ` ${trimmedInner} ` : " ";
             },
-        )
-        .replace(/\r\n/g, "\n")
-        .trim();
+        );
+
+/**
+ * Strips hidden agent control tags while keeping prose, fenced code, tool output,
+ * and edited file paths searchable.
+ */
+export function extractSearchableMessageText(raw: string): string {
+    if (!raw) return "";
+    const normalized = raw.replace(/\r\n/g, "\n");
+    const lines = normalized.split("\n");
+    const out: string[] = [];
+    const proseBuf: string[] = [];
+    let fenceChar = "";
+    let fenceLen = 0;
+
+    for (const line of lines) {
+        const fenceMatch = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+        const marker = fenceMatch?.[1];
+        const rest = fenceMatch?.[2] ?? "";
+        if (!fenceChar && marker) {
+            if (proseBuf.length > 0) {
+                out.push(stripControlTagsSlice(proseBuf.join("\n")));
+                proseBuf.length = 0;
+            }
+            fenceChar = marker.charAt(0);
+            fenceLen = marker.length;
+            out.push(line);
+        } else if (
+            fenceChar &&
+            marker &&
+            marker.charAt(0) === fenceChar &&
+            marker.length >= fenceLen &&
+            /^[ \t]*$/.test(rest)
+        ) {
+            fenceChar = "";
+            fenceLen = 0;
+            out.push(line);
+        } else if (fenceChar) {
+            out.push(line);
+        } else {
+            proseBuf.push(line);
+        }
+    }
+    if (proseBuf.length > 0) {
+        out.push(stripControlTagsSlice(proseBuf.join("\n")));
+    }
+    return out.join("\n").trim();
 }
 
 function buildMatchSnippet(text: string, start: number, end: number, radius = 36): string {

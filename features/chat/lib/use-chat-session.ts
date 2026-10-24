@@ -1343,16 +1343,20 @@ export function useChatSession(
             // that one first: a tab that is still loading would otherwise summarize the chat
             // the user just left behind.
             await activateViewedBackend();
-            const result = await commands.compactChat({
+            const result = (await commands.compactChat({
                 focus: focus || undefined,
                 instructions: getSettings().ai.compactInstructions || undefined,
                 model: selectedModelRef.current || undefined,
-            });
-            if (result?.error) {
+            })) as Awaited<ReturnType<typeof commands.compactChat>> | null | undefined;
+            if (!result) {
+                notify.info("Nothing to compact yet. This chat is still small.");
+                return;
+            }
+            if (result.error) {
                 notify.error("Could not compact this chat.", result.error);
                 return;
             }
-            if (!result || result.alreadySmall || !result.record) {
+            if (result.alreadySmall || !result.record) {
                 notify.info("Nothing to compact yet. This chat is still small.");
                 return;
             }
@@ -1577,7 +1581,7 @@ export function useChatSession(
             const detail = (e as CustomEvent<{ id?: string; text?: string }>).detail;
             const text = detail?.text?.trim();
             if (!text) return;
-            const id = detail.id || `${Date.now()}-${randomSuffix(5)}`;
+            const id = detail?.id || `${Date.now()}-${randomSuffix(5)}`;
             setQuotedExcerpts((prev) => {
                 if (prev.some((q) => q.text === text)) return prev;
                 return [...prev.slice(-7), { id, text }];
