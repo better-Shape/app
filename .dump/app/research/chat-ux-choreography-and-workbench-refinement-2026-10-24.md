@@ -25,7 +25,7 @@ This record documents the architecture, bug fixes, and measurements for the chat
 ### 4. Titlebar commit popover inset and split-button height mismatch
 
 - **Cause.** `features/agent/workspace/commit-menu.tsx` rendered `<Input variant="ghost">` directly against the popover edge, cramping the `Message` placeholder, and paired a `size="sm"` primary button with a `h-7` (`22.75px` at the `13px` root) split chevron button.
-- **Fix.** Wrapped the `Message` input in a framed `rounded-lg border border-border bg-bg-primary` container with `pl-2.5 pr-8` (`10.8px` symmetric inset at `13px` root) and matched both halves of the split commit control at `h-9` (`29.25px`).
+- **Fix.** Wrapped the `Message` input in a framed `rounded-lg border border-border-subtle bg-surface-2` container with `px-3 pr-9` (`9.75px` left inset and `29.25px` right icon clearance at the `13px` root) and matched both halves of the split commit control at `h-9` (`29.25px`).
 
 ### 5. Streaming render isolation, scroll ownership, and HITL visibility
 

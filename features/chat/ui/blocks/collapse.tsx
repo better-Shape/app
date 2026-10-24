@@ -16,10 +16,12 @@ export function Collapse({
     open,
     children,
     className,
+    innerClassName,
 }: {
     open: boolean;
     children: React.ReactNode;
     className?: string;
+    innerClassName?: string;
 }) {
     const [mounted, setMounted] = React.useState(open);
     const [expanded, setExpanded] = React.useState(open);
@@ -48,10 +50,11 @@ export function Collapse({
             className={cn(
                 "grid transition-[grid-template-rows,opacity] duration-[var(--reveal-dur)] ease-[var(--reveal-ease)]",
                 active ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
+                className,
             )}
             data-open={open ? "true" : "false"}
         >
-            <div className={cn("min-h-0 overflow-hidden", className)} inert={!open}>
+            <div className={cn("min-h-0 overflow-hidden", innerClassName)} inert={!open}>
                 {children}
             </div>
         </div>

@@ -42,60 +42,94 @@ function scopeKey(projectPath?: string | null): string {
     return projectPath ? projectPath : "__global__";
 }
 
+/** Evicts oldest entries when a cache map grows past `maxEntries`. */
+const setBoundedTimedEntry = <T>(
+    cache: Map<string, TimedEntry<T>>,
+    key: string,
+    value: T,
+    maxEntries = 32,
+): void => {
+    cache.delete(key);
+    cache.set(key, { value, expiresAt: Date.now() + WARM_TTL_MS });
+    if (cache.size <= maxEntries) return;
+    const oldest = cache.keys().next().value;
+    if (typeof oldest === "string") cache.delete(oldest);
+};
+
 /** Synchronously returns cached project file paths when still within TTL. */
 export function peekWarmProjectFiles(projectPath?: string | null): string[] | null {
     if (!projectPath) return null;
     const hit = filesCache.get(projectPath);
-    return isFresh(hit) ? hit.value : null;
+    if (!hit) return null;
+    if (isFresh(hit)) return hit.value;
+    filesCache.delete(projectPath);
+    return null;
 }
 
-/** Fetches and caches project file paths for `@` mention auto-completion. */
-export function fetchWarmProjectFiles(projectPath: string, query = "", limit = 40): Promise<string[]> {
-    if (typeof commands.searchProjectFiles !== "function") return Promise.resolve([]);
-    const trimmed = query.trim();
-    if (!trimmed) {
-        const hit = peekWarmProjectFiles(projectPath);
-        if (hit) return Promise.resolve(hit);
-        const existing = filesInflight.get(projectPath);
-        if (existing) return existing;
-        const gen = filesGeneration;
-        const req = commands
-            .searchProjectFiles("", limit)
-            .then((rows) => {
-                if (filesInflight.get(projectPath) === req) {
-                    filesInflight.delete(projectPath);
-                }
-                if (filesGeneration !== gen) {
-                    return fetchWarmProjectFiles(projectPath, query, limit);
-                }
-                const normalized = rows.map((r) => (r.relative_path || r.path).replace(/\\/g, "/"));
-                filesCache.set(projectPath, {
-                    value: normalized,
-                    expiresAt: Date.now() + WARM_TTL_MS,
-                });
-                return normalized;
-            })
-            .catch(() => {
-                if (filesInflight.get(projectPath) === req) {
-                    filesInflight.delete(projectPath);
-                }
-                return [];
-            });
-        filesInflight.set(projectPath, req);
-        return req;
-    }
+/** Normalizes file search rows into forward-slash relative paths. */
+const normalizeFileRows = (rows: ReadonlyArray<{ relative_path?: string; path: string }>): string[] =>
+    rows.map((r) => (r.relative_path || r.path).replace(/\\/g, "/"));
 
+/** Runs a non-empty file query and retries once if workspace files changed mid-flight. */
+const queryProjectFilesFresh = (trimmed: string, limit: number): Promise<string[]> => {
+    const gen = filesGeneration;
     return commands
         .searchProjectFiles(trimmed, limit)
-        .then((rows) => rows.map((r) => (r.relative_path || r.path).replace(/\\/g, "/")))
+        .then((rows) => {
+            if (filesGeneration !== gen) {
+                return commands.searchProjectFiles(trimmed, limit).then(normalizeFileRows);
+            }
+            return normalizeFileRows(rows);
+        })
         .catch(() => []);
+};
+
+/** Loads and caches the root project file list, coalescing concurrent callers. */
+const loadRootProjectFiles = (projectPath: string, limit: number): Promise<string[]> => {
+    const existing = filesInflight.get(projectPath);
+    if (existing) return existing;
+    const gen = filesGeneration;
+    const req = commands
+        .searchProjectFiles("", limit)
+        .then((rows) => {
+            if (filesInflight.get(projectPath) === req) {
+                filesInflight.delete(projectPath);
+            }
+            if (filesGeneration !== gen) {
+                return loadRootProjectFiles(projectPath, limit);
+            }
+            const normalized = normalizeFileRows(rows);
+            setBoundedTimedEntry(filesCache, projectPath, normalized);
+            return normalized;
+        })
+        .catch(() => {
+            if (filesInflight.get(projectPath) === req) {
+                filesInflight.delete(projectPath);
+            }
+            return [];
+        });
+    filesInflight.set(projectPath, req);
+    return req;
+};
+
+/** Fetches and caches project file paths for `@` mention auto-completion. */
+export function fetchWarmProjectFiles(projectPath: string, query?: string, limit?: number): Promise<string[]> {
+    if (typeof commands.searchProjectFiles !== "function") return Promise.resolve([]);
+    const trimmed = (query ?? "").trim();
+    const effectiveLimit = limit ?? 40;
+    if (trimmed) return queryProjectFilesFresh(trimmed, effectiveLimit);
+    const hit = peekWarmProjectFiles(projectPath);
+    return hit ? Promise.resolve(hit) : loadRootProjectFiles(projectPath, effectiveLimit);
 }
 
 /** Synchronously returns cached recent conversations when still within TTL. */
 export function peekWarmRecentChats(projectPath?: string | null): WarmChatSummary[] | null {
     const key = scopeKey(projectPath);
     const hit = chatsCache.get(key);
-    return isFresh(hit) ? hit.value : null;
+    if (!hit) return null;
+    if (isFresh(hit)) return hit.value;
+    chatsCache.delete(key);
+    return null;
 }
 
 /** Fetches and caches recent conversations for `@chat` mention auto-completion. */
@@ -110,19 +144,17 @@ export function fetchWarmRecentChats(projectPath?: string | null): Promise<WarmC
     const req = commands
         .getConversations(projectPath ?? undefined)
         .then((list) => {
+            if (chatsInflight.get(key) === req) {
+                chatsInflight.delete(key);
+            }
+            if (chatsGeneration !== gen) {
+                return fetchWarmRecentChats(projectPath);
+            }
             const mapped = list.slice(0, 20).map((c) => ({
                 id: c.id,
                 title: c.title || "Chat",
             }));
-            if (chatsGeneration === gen) {
-                chatsCache.set(key, {
-                    value: mapped,
-                    expiresAt: Date.now() + WARM_TTL_MS,
-                });
-            }
-            if (chatsInflight.get(key) === req) {
-                chatsInflight.delete(key);
-            }
+            setBoundedTimedEntry(chatsCache, key, mapped);
             return mapped;
         })
         .catch(() => {
@@ -158,7 +190,10 @@ function ensureMcpChangeListener(): void {
 /** Synchronously returns cached connected MCP servers when still within TTL. */
 export function peekWarmMcpServers(): WarmMcpServer[] | null {
     ensureMcpChangeListener();
-    return isFresh(mcpCache) ? mcpCache.value : null;
+    if (!mcpCache) return null;
+    if (isFresh(mcpCache)) return mcpCache.value;
+    mcpCache = null;
+    return null;
 }
 
 /** Fetches and caches connected MCP servers for `@mcp` mention auto-completion. */
@@ -172,21 +207,22 @@ export function fetchWarmMcpServers(): Promise<WarmMcpServer[]> {
     const req = commands
         .getMcpStatus()
         .then((statuses) => {
+            if (mcpInflight === req) {
+                mcpInflight = null;
+            }
+            if (mcpGeneration !== gen) {
+                return fetchWarmMcpServers();
+            }
             const connected = statuses
                 .filter((s) => String(s.status || "").toLowerCase() === "connected")
                 .map((s) => ({
                     id: s.id,
                     name: s.name || s.id,
                 }));
-            if (mcpGeneration === gen) {
-                mcpCache = {
-                    value: connected,
-                    expiresAt: Date.now() + WARM_TTL_MS,
-                };
-            }
-            if (mcpInflight === req) {
-                mcpInflight = null;
-            }
+            mcpCache = {
+                value: connected,
+                expiresAt: Date.now() + WARM_TTL_MS,
+            };
             return connected;
         })
         .catch(() => {

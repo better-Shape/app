@@ -297,12 +297,25 @@ describe("PR #53 review regression coverage", () => {
         const container = document.createElement("div");
         container.setAttribute("data-chat-message-index", "0");
         container.innerHTML =
-            '<button type="button" data-chat-find-text>src/lib/router.ts</button><button type="button">Copy</button>';
+            '<button type="button" data-chat-find-text data-quote-allow="">src/lib/router.ts</button><button type="button">Copy</button>';
         document.body.appendChild(container);
         const { ranges } = syncChatDomHighlights(container, "router.ts");
         expect(ranges).toHaveLength(1);
         const { ranges: skippedCopy } = syncChatDomHighlights(container, "Copy");
         expect(skippedCopy).toHaveLength(0);
+
+        const selRange = document.createRange();
+        selRange.selectNodeContents(container);
+        expect(extractCleanSelectionText(selRange, container)).toBe("src/lib/router.ts");
         container.remove();
+    });
+
+    it("preserves literal HTML tags inside inline backtick code spans while stripping dangerous tags", () => {
+        const md = preprocessChatMarkdown(
+            "Use `<div>` or `<span class=\"x\">` for layout, never <script>alert(1)</script>.",
+        );
+        expect(md).toContain("`<div>`");
+        expect(md).toContain('`<span class="x">`');
+        expect(md).not.toContain("alert(1)");
     });
 });

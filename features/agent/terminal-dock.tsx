@@ -20,6 +20,34 @@ function clearBodyResize() {
     document.body.classList.remove("resizing-vertical");
 }
 
+/** Normalizes a terminal AI action command into a concise tab title. */
+const formatAiTerminalTitle = (command?: string): string => {
+    if (!command) return "Agent";
+    const cleaned = command.replace(/\s+/g, " ").trim().slice(0, 48);
+    return cleaned ? cleaned : "Agent";
+};
+
+/** Resolves the workspace directory for a bound AI terminal session. */
+const resolveAiTerminalCwd = (cwd: string | undefined, fallbackCwd: string | null): string => {
+    const trimmed = cwd?.trim();
+    if (trimmed) return trimmed;
+    return fallbackCwd ? fallbackCwd : "global";
+};
+
+/** Builds the bound terminal tab descriptor for a `"start"` AI terminal event, or `null`. */
+const resolveAiTabSpec = (
+    payload: { type: string; command?: string; cwd?: string; sessionId?: number },
+    fallbackCwd: string | null,
+) => {
+    if (payload.type !== "start") return null;
+    if (payload.sessionId == null) return null;
+    return {
+        title: formatAiTerminalTitle(payload.command),
+        cwd: resolveAiTerminalCwd(payload.cwd, fallbackCwd),
+        boundPtyId: payload.sessionId,
+    };
+};
+
 /** Resizable bottom terminal dock scoped to the active project surface. */
 export function TerminalDock({ suppressed = false }: { suppressed?: boolean } = {}) {
     const { project_path } = useProjectState();
@@ -82,19 +110,6 @@ export function TerminalDock({ suppressed = false }: { suppressed?: boolean } = 
 
         let unlisten: (() => void) | undefined;
         let cancelled = false;
-        const resolveAiTabSpec = (
-            payload: { type: string; command?: string; cwd?: string; sessionId?: number },
-            fallbackCwd: string | null,
-        ) => {
-            if (payload.type !== "start" || payload.sessionId == null) return null;
-            const cwd = payload.cwd?.trim() || fallbackCwd || "global";
-            const cleanedCmd = (payload.command || "").replace(/\s+/g, " ").trim().slice(0, 48);
-            return {
-                title: cleanedCmd || "Agent",
-                cwd,
-                boundPtyId: payload.sessionId,
-            };
-        };
         import("@tauri-apps/api/event")
             .then(({ listen }) =>
                 listen<{ type: string; command?: string; cwd?: string; sessionId?: number }>(

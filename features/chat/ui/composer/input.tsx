@@ -802,6 +802,7 @@ export const ChatInput = React.memo(function ChatInput({
 
     React.useEffect(() => {
         if (quotedExcerpts !== undefined) return undefined;
+        let focusRaf = 0;
         const onQuote = (e: Event) => {
             const detail = (e as CustomEvent<{ id?: string; text?: string }>).detail;
             const text = detail?.text?.trim();
@@ -810,11 +811,17 @@ export const ChatInput = React.memo(function ChatInput({
             setLocalQuotes((prev) =>
                 prev.some((q) => q.text === text) ? prev : [...prev.slice(-7), { id, text }],
             );
-            requestAnimationFrame(() => textareaRef.current?.focus());
+            if (focusRaf) cancelAnimationFrame(focusRaf);
+            focusRaf = requestAnimationFrame(() => {
+                focusRaf = 0;
+                textareaRef.current?.focus();
+            });
         };
         window.addEventListener("bettershape-chat-quote-selection", onQuote as EventListener);
-        return () =>
+        return () => {
+            if (focusRaf) cancelAnimationFrame(focusRaf);
             window.removeEventListener("bettershape-chat-quote-selection", onQuote as EventListener);
+        };
     }, [quotedExcerpts]);
 
     const onComposerKeyDown = React.useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -1127,13 +1134,16 @@ export const ChatInput = React.memo(function ChatInput({
     }, []);
 
     React.useEffect(() => {
+        let caretRaf = 0;
         const onFocusInput = (e: Event) => {
             const detail = (e as CustomEvent<{ caretEnd?: boolean } | undefined>).detail;
             const el = textareaRef.current;
             if (!el) return;
             el.focus();
             if (detail?.caretEnd) {
-                requestAnimationFrame(() => {
+                if (caretRaf) cancelAnimationFrame(caretRaf);
+                caretRaf = requestAnimationFrame(() => {
+                    caretRaf = 0;
                     const node = textareaRef.current;
                     if (!node) return;
                     const len = node.value.length;
@@ -1142,8 +1152,10 @@ export const ChatInput = React.memo(function ChatInput({
             }
         };
         window.addEventListener("bettershape-chat-focus-input", onFocusInput as EventListener);
-        return () =>
+        return () => {
+            if (caretRaf) cancelAnimationFrame(caretRaf);
             window.removeEventListener("bettershape-chat-focus-input", onFocusInput as EventListener);
+        };
     }, []);
 
     React.useEffect(() => {
@@ -1431,6 +1443,7 @@ export const ChatInput = React.memo(function ChatInput({
 
     // Elements picked in the Browser tab become @element mentions at the caret.
     React.useEffect(() => {
+        let focusRaf = 0;
         const onElement = (e: Event) => {
             const detail = (e as CustomEvent<BrowserPickedElement>).detail;
             if (!detail?.tag) return;
@@ -1445,17 +1458,23 @@ export const ChatInput = React.memo(function ChatInput({
             const next = `${before}${lead}${token}${trail}${after}`;
             onInputChange({ target: { value: next } } as React.ChangeEvent<HTMLTextAreaElement>);
             const pos = before.length + lead.length + token.length + trail.length;
-            requestAnimationFrame(() => {
+            if (focusRaf) cancelAnimationFrame(focusRaf);
+            focusRaf = requestAnimationFrame(() => {
+                focusRaf = 0;
                 textarea?.focus();
                 textarea?.setSelectionRange(pos, pos);
             });
         };
         window.addEventListener("bettershape-chat-attach-element", onElement as EventListener);
-        return () => window.removeEventListener("bettershape-chat-attach-element", onElement as EventListener);
+        return () => {
+            if (focusRaf) cancelAnimationFrame(focusRaf);
+            window.removeEventListener("bettershape-chat-attach-element", onElement as EventListener);
+        };
     }, [inputValue, onInputChange]);
 
     // External surfaces (e.g. Terminal selection) can attach files directly into the composer.
     React.useEffect(() => {
+        let focusRaf = 0;
         const onAttachFiles = (e: Event) => {
             const detail = (e as CustomEvent<{ files?: File[]; prompt?: string }>).detail;
             const incoming = (detail?.files ?? []).filter(Boolean);
@@ -1467,10 +1486,17 @@ export const ChatInput = React.memo(function ChatInput({
                 const next = `${pad}${detail.prompt}`;
                 onInputChange({ target: { value: next } } as React.ChangeEvent<HTMLTextAreaElement>);
             }
-            requestAnimationFrame(() => textareaRef.current?.focus());
+            if (focusRaf) cancelAnimationFrame(focusRaf);
+            focusRaf = requestAnimationFrame(() => {
+                focusRaf = 0;
+                textareaRef.current?.focus();
+            });
         };
         window.addEventListener("bettershape-chat-attach-files", onAttachFiles as EventListener);
-        return () => window.removeEventListener("bettershape-chat-attach-files", onAttachFiles as EventListener);
+        return () => {
+            if (focusRaf) cancelAnimationFrame(focusRaf);
+            window.removeEventListener("bettershape-chat-attach-files", onAttachFiles as EventListener);
+        };
     }, [addUploadedFiles, inputValue, onInputChange]);
 
     // Filter file uploads to only allowed types
@@ -1595,6 +1621,7 @@ export const ChatInput = React.memo(function ChatInput({
     }, []);
 
     React.useEffect(() => {
+        let focusRaf = 0;
         const onDictation = (e: Event) => {
             const text = (e as CustomEvent<{ text?: string }>).detail?.text;
             if (!text) return;
@@ -1606,10 +1633,15 @@ export const ChatInput = React.memo(function ChatInput({
             const pad = before.length > 0 && !/\s$/.test(before) ? " " : "";
             const next = `${before}${pad}${text}${after.replace(/^\s/, "")}`;
             onInputChange({ target: { value: next } } as React.ChangeEvent<HTMLTextAreaElement>);
-            requestAnimationFrame(() => textarea?.focus());
+            if (focusRaf) cancelAnimationFrame(focusRaf);
+            focusRaf = requestAnimationFrame(() => {
+                focusRaf = 0;
+                textarea?.focus();
+            });
         };
         window.addEventListener("bettershape-dictation-text", onDictation as EventListener);
         return () => {
+            if (focusRaf) cancelAnimationFrame(focusRaf);
             window.removeEventListener("bettershape-dictation-text", onDictation as EventListener);
         };
     }, [inputValue, onInputChange]);

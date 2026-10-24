@@ -154,6 +154,7 @@ function MentionRichText({ text }: { text: string }) {
                         <button
                             type="button"
                             data-chat-find-text
+                            data-quote-allow=""
                             onClick={() => void openProjectFile(path, name)}
                             className="inline cursor-pointer font-mono text-[0.9em] text-accent-text underline-offset-2 transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:underline"
                         >

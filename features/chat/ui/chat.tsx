@@ -304,20 +304,8 @@ export default function Chat({
             }),
         [session.chatTitle, activeTab?.title, conv?.title, session.messages],
     );
-    const recentIds = useMemo(
-        () => session.recentConvs.map((c) => c.id),
-        [session.recentConvs],
-    );
-    const selectChatTabRef = React.useRef(session.handleSelectChatTab);
-    React.useLayoutEffect(() => {
-        selectChatTabRef.current = session.handleSelectChatTab;
-    });
     const handleCloseSubagent = React.useCallback(() => {
         closeSubagent();
-    }, []);
-    const handleTitlebarSelect = React.useCallback((id: string) => {
-        closeSubagent();
-        void selectChatTabRef.current(id);
     }, []);
     const setSelectedModeRef = React.useRef(session.setSelectedMode);
     React.useLayoutEffect(() => {
@@ -392,17 +380,10 @@ export default function Chat({
         <ChatTitlebar
             title={crumbTitle}
             conversationId={session.conversationId ?? session.activeChatTabId}
-            recentIds={recentIds}
-            timestamp={
-                conv?.timestamp
-                ?? session.messages.at(-1)?.timestamp
-                ?? null
-            }
             subagentTitle={activeSubagent?.title ?? null}
             subagentModel={activeSubagent?.model ?? null}
             extractedSubagents={extractedSubagents}
             onCloseSubagent={handleCloseSubagent}
-            onSelect={handleTitlebarSelect}
         />
     );
 

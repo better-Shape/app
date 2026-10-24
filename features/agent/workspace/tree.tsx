@@ -65,28 +65,41 @@ import { formatMentionToken } from "@/lib/chat/mentions";
 
 type ClipboardAction = "cut" | "copy" | "paste";
 
-function trimTrailingSlashes(value: string): string {
+/** Strips trailing forward slashes without regex backtracking. */
+const trimTrailingSlashes = (value: string): string => {
     let end = value.length;
     while (end > 0 && value.charCodeAt(end - 1) === 47) end--;
     return value.slice(0, end);
-}
+};
 
-function formatExplorerMentionToken(entryPath: string, projectPath: string, isDir: boolean): string {
+/** Resolves an explorer entry path relative to the workspace root when nested inside it. */
+const relativeExplorerPath = (entryPath: string, projectPath: string): string => {
     const cleanEntry = entryPath.replace(/\\/g, "/");
     const cleanRoot = trimTrailingSlashes(projectPath.replace(/\\/g, "/"));
-    const rel =
-        cleanRoot && cleanEntry.toLowerCase().startsWith(`${cleanRoot.toLowerCase()}/`)
-            ? cleanEntry.slice(cleanRoot.length + 1)
-            : cleanEntry;
-    const suffix = isDir && !rel.endsWith("/") ? "/" : "";
-    const fullRel = `${rel}${suffix}`;
-    const base = trimTrailingSlashes(rel).split("/").pop() || rel;
+    if (!cleanRoot) return cleanEntry;
+    const prefix = `${cleanRoot.toLowerCase()}/`;
+    return cleanEntry.toLowerCase().startsWith(prefix)
+        ? cleanEntry.slice(cleanRoot.length + 1)
+        : cleanEntry;
+};
+
+/** Appends a trailing slash for directory mentions unless one is already present. */
+const withDirectorySlash = (relPath: string, isDir: boolean): string => {
+    if (!isDir) return relPath;
+    return relPath.endsWith("/") ? relPath : `${relPath}/`;
+};
+
+/** Formats a file or folder explorer entry as a structured `@` mention token. */
+const formatExplorerMentionToken = (entryPath: string, projectPath: string, isDir: boolean): string => {
+    const rel = relativeExplorerPath(entryPath, projectPath);
+    const fullRel = withDirectorySlash(rel, isDir);
+    const base = trimTrailingSlashes(rel).split("/").pop() ?? rel;
     return `${formatMentionToken({
         kind: isDir ? "folder" : "file",
         path: fullRel,
         label: base,
     })} `;
-}
+};
 
 function TreeNode({
     entry,
@@ -170,7 +183,7 @@ function TreeNode({
         const token = formatExplorerMentionToken(entry.path, projectPath, entry.is_dir);
         window.dispatchEvent(
             new CustomEvent("bettershape-chat-insert-prompt", {
-                detail: { prompt: token, send: false },
+                detail: { prompt: token, send: false, append: true },
             }),
         );
         window.dispatchEvent(new CustomEvent("bettershape-chat-focus-input"));

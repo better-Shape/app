@@ -196,6 +196,64 @@ type PendingEditItem = {
 const EMPTY_PENDING_EDITS: PendingEditItem[] = [];
 const EMPTY_QUEUED_MESSAGES: QueuedChatMessage[] = [];
 
+type InsertPromptDetail = {
+    prompt?: string;
+    send?: boolean;
+    openWorkspace?: boolean;
+    append?: boolean;
+};
+
+/** Writes the latest composer draft into `localStorage` without throwing in restricted contexts. */
+const persistComposerDraft = (value: string): void => {
+    try {
+        localStorage.setItem("bettershape-chat-input", value);
+    } catch {
+        /* ignore */
+    }
+};
+
+/** Merges an inserted token onto an existing draft when `append` is enabled. */
+const mergeInsertedPrompt = (existing: string, incoming: string, append?: boolean): string => {
+    if (!append) return incoming;
+    const trimmedEnd = existing.trimEnd();
+    return trimmedEnd ? `${trimmedEnd} ${incoming}` : incoming;
+};
+
+/** True when an inserted prompt auto-executes a built-in slash command such as `/compact`. */
+const isAutoBuiltinInsert = (detail: InsertPromptDetail): boolean => {
+    if (!detail.send) return false;
+    return matchSlashCommand(detail.prompt ?? "")?.command.token === "/compact";
+};
+
+/** Switches center focus to Chat and optionally opens the workspace sidebar. */
+const focusInsertedChatSurface = (openWorkspace?: boolean): void => {
+    window.dispatchEvent(new CustomEvent("bettershape-center-view", { detail: "chat" }));
+    if (!openWorkspace) return;
+    window.dispatchEvent(
+        new CustomEvent("bettershape-layout-toggle", {
+            detail: { id: "secondary-sidebar", value: true },
+        }),
+    );
+};
+
+/** Sends or enqueues an auto-submitted prompt insertion depending on turn state. */
+const dispatchInsertedSend = (
+    prompt: string,
+    isBusy: boolean,
+    isBuiltin: boolean,
+    enqueue: (text: string) => void,
+    sendNow: (text: string) => Promise<boolean>,
+): void => {
+    const shouldQueue = isBusy ? !isBuiltin : false;
+    if (shouldQueue) {
+        enqueue(prompt);
+        return;
+    }
+    sendNow(prompt).catch(() => {
+        /* Handled inside handleSendMessage */
+    });
+};
+
 /**
  * The scroll refs are created by the caller, not returned from this hook. Keeping refs out of the
  * returned session object lets components read session values during render.
@@ -1315,6 +1373,10 @@ export function useChatSession(
         // Built-in commands are handled here and never reach the model as text.
         const slash = matchSlashCommand(messageContent);
         if (slash?.command.token === "/compact") {
+            if (isLoading) {
+                notify.info("Wait for this reply to finish, then run /compact.");
+                return false;
+            }
             if (!fromQueue) {
                 setInputValue("");
                 try {
@@ -1322,10 +1384,6 @@ export function useChatSession(
                 } catch {
                     /* ignore */
                 }
-            }
-            if (isLoading) {
-                notify.info("Wait for this reply to finish, then run /compact.");
-                return false;
             }
             await runCompactCommand(slash.argument);
             return true;
@@ -1485,34 +1543,28 @@ export function useChatSession(
     }, [enqueueChatMessage, getViewedConversationId]);
 
     React.useEffect(() => {
+        /** Inserts or appends external prompt text into the active chat composer. */
         const handleInsertPrompt = (e: Event) => {
-            const detail = (
-                e as CustomEvent<{ prompt?: string; send?: boolean; openWorkspace?: boolean }>
-            ).detail;
+            const detail = (e as CustomEvent<InsertPromptDetail>).detail;
             if (!detail?.prompt) return;
-            const isAutoBuiltin =
-                Boolean(detail.send) && matchSlashCommand(detail.prompt)?.command.token === "/compact";
+            const prompt = detail.prompt;
+            const isAutoBuiltin = isAutoBuiltinInsert(detail);
             if (!isAutoBuiltin) {
-                setInputValue(detail.prompt);
-                try {
-                    localStorage.setItem("bettershape-chat-input", detail.prompt);
-                } catch {
-                    /* ignore */
-                }
+                setInputValue((prev) => {
+                    const next = mergeInsertedPrompt(prev, prompt, detail.append);
+                    persistComposerDraft(next);
+                    return next;
+                });
             }
-            window.dispatchEvent(
-                new CustomEvent("bettershape-center-view", { detail: "chat" }),
-            );
-            if (detail.openWorkspace) {
-                window.dispatchEvent(
-                    new CustomEvent("bettershape-layout-toggle", {
-                        detail: { id: "secondary-sidebar", value: true },
-                    }),
-                );
-            }
+            focusInsertedChatSurface(detail.openWorkspace);
             if (detail.send) {
-                if (isLoadingRef.current && !isAutoBuiltin) enqueueChatMessage(detail.prompt);
-                else void handleSendMessageRef.current(detail.prompt);
+                dispatchInsertedSend(
+                    prompt,
+                    isLoadingRef.current,
+                    isAutoBuiltin,
+                    enqueueChatMessage,
+                    handleSendMessageRef.current,
+                );
             }
         };
         window.addEventListener("bettershape-chat-insert-prompt", handleInsertPrompt as EventListener);

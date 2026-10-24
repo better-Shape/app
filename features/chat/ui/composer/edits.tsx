@@ -20,16 +20,30 @@ import { resolveProjectFilePath } from "@/lib/path/utils";
 import { getProjectPath } from "@/lib/backend";
 import { Tooltip } from "@/components/ui/tooltip";
 
-function countDiff(original: string, replacement: string): { add: number; del: number } {
-    return countChangedLines(original, replacement);
-}
+/** Counts added and removed lines between `original` and `replacement`. */
+const countDiff = (original: string, replacement: string): { add: number; del: number } =>
+    countChangedLines(original, replacement);
 
-function splitPathParts(file: string): { fileName: string; parentDir: string } {
+/** Splits a file path into its basename and ancestor directory segments. */
+const splitPathSegments = (file: string): { fileName: string; parents: string[] } => {
     const parts = file.split(/[\\/]/).filter(Boolean);
-    const fileName = parts[parts.length - 1] || file;
-    const parentDir = parts.length >= 2 ? parts[parts.length - 2] ?? "" : "";
-    return { fileName, parentDir };
-}
+    const last = parts.at(-1);
+    return {
+        fileName: last ? last : file,
+        parents: parts.slice(0, -1),
+    };
+};
+
+/** Computes the shortest trailing parent suffix that distinguishes `parents` among peers. */
+const shortestUniqueParentHint = (parents: string[], peerParents: string[][]): string => {
+    if (peerParents.length === 0 || parents.length === 0) return "";
+    for (let depth = 1; depth <= parents.length; depth++) {
+        const candidate = parents.slice(-depth).join("/");
+        const collides = peerParents.some((other) => other.slice(-depth).join("/") === candidate);
+        if (!collides) return candidate;
+    }
+    return parents.join("/");
+};
 
 export function PendingEditsPanel({
     edits,
@@ -46,18 +60,20 @@ export function PendingEditsPanel({
     embedded?: boolean;
 }) {
     const withStats = useMemo(() => {
-        const baseCounts = new Map<string, number>();
-        for (const edit of edits) {
-            const { fileName } = splitPathParts(edit.file);
-            baseCounts.set(fileName, (baseCounts.get(fileName) ?? 0) + 1);
-        }
-        return edits.map((edit) => {
-            const { fileName, parentDir } = splitPathParts(edit.file);
+        const parsed = edits.map((edit) => ({
+            edit,
+            normPath: edit.file.replace(/\\/g, "/"),
+            ...splitPathSegments(edit.file),
+        }));
+        return parsed.map((entry) => {
+            const peerParents = parsed
+                .filter((p) => p.fileName === entry.fileName && p.normPath !== entry.normPath)
+                .map((p) => p.parents);
             return {
-                ...edit,
-                fileName,
-                parentHint: (baseCounts.get(fileName) ?? 0) > 1 ? parentDir : "",
-                ...countDiff(edit.original, edit.replacement),
+                ...entry.edit,
+                fileName: entry.fileName,
+                parentHint: shortestUniqueParentHint(entry.parents, peerParents),
+                ...countDiff(entry.edit.original, entry.edit.replacement),
             };
         });
     }, [edits]);
