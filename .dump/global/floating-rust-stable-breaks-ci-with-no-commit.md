@@ -62,7 +62,7 @@ and deferred (`valkey-io/valkey-glide#7253`, `apache/datafusion-comet#6507`,
 `googleapis/google-cloud-rust#7108`, which keeps `fetch_update` with
 `#[allow(deprecated)]` plus a TODO until its MSRV moves).
 
-## The options, none applied
+## The options
 
 1. `#[allow(deprecated)]` on `advance` in `src-tauri/src/core/turn_order.rs`
    with a TODO naming the removal condition, MSRV reaching 1.95. Smallest change,
@@ -78,10 +78,39 @@ and deferred (`valkey-io/valkey-glide#7253`, `apache/datafusion-comet#6507`,
    gate. It costs security fixes and can diverge from whatever the release jobs
    use.
 
-Whichever is chosen, the underlying exposure stays: an unpinned `stable` plus
+## The resolution, and why CI verifies it rather than a local run
+
+Option 1 was applied in commit `a1d0076` on `arena/4d3e2c3d-app`:
+`#[allow(deprecated)]` on `advance` in `src-tauri/src/core/turn_order.rs`, with a
+doc comment naming the removal condition, MSRV reaching 1.95, and pointing at
+this file. The maintainer delegated the choice.
+
+It is verified by CI and that is the only honest verification available.
+`Rust Lints (fmt, clippy)` is `success` on head `a1d0076` (run `40054305369`).
+That job runs `cargo fmt --check` and
+`cargo clippy --all-targets --all-features -- -D warnings`, so the attribute
+clears the deprecation, the doc comment is rustfmt-clean, and the masked-warning
+risk from `--all-targets` aborting early did not materialise. `Test Rust (Cargo)`
+is `success` on the same head, and `CI Success` with it.
+
+No local Rust verification of this failure is possible here, for two independent
+reasons:
+
+- crates.io is unreachable, so the application crate cannot resolve dependencies
+  at all.
+- The reproducible toolchain route in
+  `../app/audits/native-toolchain-and-cross-target-verification.md` installs
+  1.88.0 from the `@rustbin` npm scope. The deprecation landed in 1.99.0, so a
+  1.88 clippy run reports nothing and proves nothing. A green local run on an
+  older toolchain is exactly the false negative this class produces, which is why
+  that document's "clippy pass" table and this failure do not contradict.
+
+The residual exposure is unchanged by the fix: an unpinned `stable` plus
 `-D warnings` means any future Rust release can red the build with no commit, on
 any branch, and the failure will look like the current PR's fault. Expect this
-to recur and expect it to be misattributed.
+to recur and expect it to be misattributed. Option 3, a `rust-toolchain.toml`
+pin, is the only one that removes the exposure instead of one instance of it,
+and it stays open.
 
 ## How to tell this class apart from a real failure
 
