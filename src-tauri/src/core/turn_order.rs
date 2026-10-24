@@ -8,6 +8,17 @@ pub fn next_turn_sequence() -> Option<u64> {
     advance(&NEXT_TURN)
 }
 
+/// `fetch_update` is deprecated as of Rust 1.99 in favour of `try_update`,
+/// which is stable only from 1.95. This crate declares `rust-version =
+/// "1.89.0"` and the vendored sandbox toolchain on `vendor/sandbox-toolchain`
+/// is 1.89.0 to match, so the rename is not available yet and CI's `-D
+/// warnings` turns the deprecation into a hard error on any runner new enough
+/// to have it. The two are semantically identical: in std, `fetch_update` is an
+/// alias whose body is `self.try_update(set_order, fetch_order, f)`.
+///
+/// Drop this attribute and rename once the MSRV reaches 1.95. See
+/// `.dump/global/floating-rust-stable-breaks-ci-with-no-commit.md`.
+#[allow(deprecated)]
 fn advance(counter: &AtomicU64) -> Option<u64> {
     counter
         .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_add(1))

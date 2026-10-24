@@ -230,9 +230,19 @@ const ChangeRow = ({
                         selected ? "bg-[var(--row-selected)] hover:bg-[var(--row-selected-hover)]" : "hover:bg-[var(--row-hover)]",
                     )}
                 >
+                    {/*
+                        `mr-1.5`, not `mr-1`: the stage checkbox is 11.4px and clears
+                        WCAG 2.5.8 on the spacing exception, not on size, so the gap to
+                        the diff button beside it is load-bearing. At `mr-1` the safe
+                        clickable diameter is 22.8px and `e2e/audit.spec.ts` fails the
+                        /git target-size baseline; at `mr-1.5` it is 26px. The diff
+                        action became a real sibling <button> (a target axe measures
+                        against) when the row was given real roles, which is what made
+                        this margin start mattering. Matches the icon margin below.
+                    */}
                     <div
                         role="presentation"
-                        className="w-5 h-5 flex items-center justify-center shrink-0 cursor-pointer text-text-muted hover:text-text-primary mr-1"
+                        className="w-5 h-5 flex items-center justify-center shrink-0 cursor-pointer text-text-muted hover:text-text-primary mr-1.5"
                         onClick={handleToggleState}
                         onPointerDown={(e) => e.stopPropagation()}
                     >
