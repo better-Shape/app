@@ -305,7 +305,7 @@ export function Panel({
     const halfGap = paneGap ? `calc(${paneGap} / 2)` : undefined;
     let lastVisibleIndex = -1;
     for (let i = panes.length - 1; i >= 0; i--) {
-        if (panes[i]!.visible !== false) {
+        if (panes.at(i)?.visible !== false) {
             lastVisibleIndex = i;
             break;
         }
@@ -317,8 +317,8 @@ export function Panel({
                 const isLast = idx === panes.length - 1;
                 const isVisible = pane.visible !== false;
                 const renderedSize = isVisible ? sizes[idx] : 0;
-                const prevVisible = idx > 0 && panes[idx - 1]!.visible !== false;
-                const nextVisible = !isLast && panes[idx + 1]!.visible !== false;
+                const prevVisible = idx > 0 && panes.at(idx - 1)?.visible !== false;
+                const nextVisible = !isLast && panes.at(idx + 1)?.visible !== false;
                 // Between-pane gap (half each side). Trailing outer gap on the last visible pane.
                 const edgeMargin = halfGap && isVisible
                     ? {

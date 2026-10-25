@@ -137,7 +137,7 @@ function upsertTest(test: TestCase) {
     tests.push(test);
     tests.sort((a, b) => a.name.localeCompare(b.name));
 
-    suite = {
+    const updatedSuite: (typeof state.suites)[number] = {
         ...suite,
         tests,
         passed: tests.filter((t) => t.status === "passed").length,
@@ -145,7 +145,7 @@ function upsertTest(test: TestCase) {
         skipped: tests.filter((t) => t.status === "skipped" || t.status === "pending").length,
     };
 
-    const nextSuites = suites.map((s) => (s.file === fileKey ? suite! : s));
+    const nextSuites = suites.map((s) => (s.file === fileKey ? updatedSuite : s));
     nextSuites.sort((a, b) => a.name.localeCompare(b.name));
 
     state = { ...state, suites: nextSuites };

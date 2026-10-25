@@ -140,7 +140,7 @@ function getSettingsPaletteActions(): EditorAction[] {
             meta: "Settings",
             section: "Settings",
             run: () => {
-                void openSettingsWindow({ category: cat.id });
+                openSettingsWindow({ category: cat.id }).catch(() => undefined);
             },
         })),
     ];

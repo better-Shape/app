@@ -169,7 +169,7 @@ export const startDictation = async (
         push: (wav: number[]) => Promise<void>;
     },
 ): Promise<DictationSession> => {
-    const setState = handlers.onState ?? (() => {});
+    const setState = handlers.onState ?? (() => undefined);
     setState("listening");
 
     let stream: MediaStream;

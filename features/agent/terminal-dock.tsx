@@ -49,57 +49,24 @@ const resolveAiTabSpec = (
     };
 };
 
-/** Resizable bottom terminal dock scoped to the active project surface. */
-export const TerminalDock = ({ suppressed = false }: { suppressed?: boolean } = {}) => {
-    const { project_path } = useProjectState();
-    const cwdRef = useRef(project_path);
-    useEffect(() => { cwdRef.current = project_path; }, [project_path]);
-    const [open, setOpen] = useState(false);
-    const [mounted, setMounted] = useState(false);
-    const [height, setHeight] = useState(DEFAULT_H);
-    const [resizing, setResizing] = useState(false);
-    const heightRef = useRef(DEFAULT_H);
-    useLayoutEffect(() => { heightRef.current = height; }, [height]);
-    useEffect(() => { clearBodyResize(); }, []);
-    const dragging = useRef(false);
-    const visibleOpen = open && !suppressed;
-
-    const hydrated = useIsMounted();
-    const [restoredPreferences, setRestoredPreferences] = useState(false);
-    if (hydrated && !restoredPreferences) {
-        setRestoredPreferences(true);
-        try {
-            const h = Number(localStorage.getItem(HEIGHT_KEY));
-            if (h >= MIN_H && h <= 800) {
-                setHeight(h);
-            }
-            const wasOpen = localStorage.getItem(OPEN_KEY) === "true";
-            setOpen(wasOpen);
-            if (wasOpen) setMounted(true);
-        } catch {
-            /* ignore */
-        }
-
+/** Reads persisted terminal dock height and open preference from `localStorage`. */
+const readStoredTerminalDockPrefs = (): { height?: number; wasOpen: boolean } => {
+    try {
+        const h = Number(localStorage.getItem(HEIGHT_KEY));
+        return {
+            height: h >= MIN_H && h <= 800 ? h : undefined,
+            wasOpen: localStorage.getItem(OPEN_KEY) === "true",
+        };
+    } catch {
+        return { wasOpen: false };
     }
+};
 
-    const persistOpen = useCallback((next: boolean) => {
-        if (!next) {
-            dragging.current = false;
-            setResizing(false);
-            clearBodyResize();
-            setOpen(false);
-        } else {
-            setMounted(true);
-            requestAnimationFrame(() => setOpen(true));
-        }
-        try {
-            localStorage.setItem(OPEN_KEY, String(next));
-        } catch {
-            /* ignore */
-        }
-        window.dispatchEvent(new CustomEvent("bettershape-terminal-open", { detail: { open: next } }));
-    }, []);
-
+/** Listens for Tauri `bettershape-terminal-ai-action` events and opens bound AI PTY tabs. */
+const useTerminalAiActionListener = (
+    cwdRef: React.RefObject<string | null | undefined>,
+    persistOpen: (next: boolean) => void,
+) => {
     useEffect(() => {
         if (typeof window === "undefined") return undefined;
         const tauri = (
@@ -117,7 +84,7 @@ export const TerminalDock = ({ suppressed = false }: { suppressed?: boolean } = 
                     "bettershape-terminal-ai-action",
                     (event) => {
                         if (cancelled) return;
-                        const spec = resolveAiTabSpec(event.payload, cwdRef.current);
+                        const spec = resolveAiTabSpec(event.payload, cwdRef.current ?? null);
                         if (!spec) return;
                         registerBoundTerminalTab({
                             title: spec.title,
@@ -142,25 +109,52 @@ export const TerminalDock = ({ suppressed = false }: { suppressed?: boolean } = 
             cancelled = true;
             unlisten?.();
         };
-    }, [persistOpen]);
+    }, [cwdRef, persistOpen]);
+};
 
+/** Checks whether a keyboard target owns editable text input focus. */
+const isEditableKeyTarget = (target: EventTarget | null): boolean =>
+    Boolean((target as HTMLElement | null)?.closest("textarea, input, [contenteditable='true']"));
+
+/** Checks whether a keyboard event uses bare Ctrl/Cmd without Alt or Shift modifiers. */
+const isBarePrimaryModifier = (e: KeyboardEvent): boolean =>
+    (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey;
+
+/** Checks whether a keyboard event matches bare `Mod+J` outside editable text inputs. */
+const isTerminalToggleShortcut = (e: KeyboardEvent, suppressed: boolean): boolean => {
+    if (suppressed || isEditableKeyTarget(e.target)) return false;
+    return isBarePrimaryModifier(e) && e.key.toLowerCase() === "j";
+};
+
+/** Subscribes layout toggle, shortcut, and Ctrl/Cmd+J keyboard events for the terminal dock. */
+const useTerminalDockEvents = ({
+    open,
+    visibleOpen,
+    suppressed,
+    persistOpen,
+}: {
+    open: boolean;
+    visibleOpen: boolean;
+    suppressed: boolean;
+    persistOpen: (next: boolean) => void;
+}) => {
     useEffect(() => {
+        /** Toggles or explicitly sets terminal dock visibility from layout events. */
         const onToggle = (e: Event) => {
-            const detail = (e as CustomEvent<{ id?: string; value?: boolean }>).detail;
-            const id = detail?.id;
-            if (id !== "panel" && id !== "terminal") return;
-            if (detail?.value === false) persistOpen(false);
-            else if (detail?.value === true) persistOpen(true);
-            else persistOpen(!visibleOpen);
+            const detail = (e as CustomEvent<{ id?: string; value?: boolean } | null>).detail;
+            if (!detail || (detail.id !== "panel" && detail.id !== "terminal")) return;
+            persistOpen(typeof detail.value === "boolean" ? detail.value : !visibleOpen);
         };
+        /** Opens the terminal dock on workspace terminal launch events. */
         const onOpen = () => persistOpen(true);
+        /** Opens the terminal dock on global terminal shortcut actions. */
         const onShortcut = (e: Event) => {
-            const action = (e as CustomEvent<{ action?: string }>).detail?.action;
-            if (action === "open" || action === "toggle" || !action) persistOpen(true);
+            const action = (e as CustomEvent<{ action?: string } | null>).detail?.action;
+            if (!action || action === "open" || action === "toggle") persistOpen(true);
         };
+        /** Opens the terminal dock when the active tab channel targets `terminal`. */
         const onTab = (e: Event) => {
-            const tabId = (e as CustomEvent<string>).detail?.toLowerCase();
-            if (tabId === "terminal") persistOpen(true);
+            if ((e as CustomEvent<string | null>).detail?.toLowerCase() === "terminal") persistOpen(true);
         };
         window.addEventListener("bettershape-layout-toggle", onToggle as EventListener);
         window.addEventListener("bettershape-open-workspace-terminal", onOpen);
@@ -175,36 +169,54 @@ export const TerminalDock = ({ suppressed = false }: { suppressed?: boolean } = 
     }, [persistOpen, visibleOpen]);
 
     useEffect(() => {
-        if (!suppressed || !dragging.current) return;
-        dragging.current = false;
-        setResizing(false);
-        clearBodyResize();
-    }, [suppressed]);
-
-    useEffect(() => {
+        /** Toggles the terminal dock on Ctrl/Cmd+J outside editable fields. */
         const onKey = (e: KeyboardEvent) => {
-            if (suppressed) return;
-            const t = e.target as HTMLElement | null;
-            if (t?.closest("textarea, input, [contenteditable='true']")) return;
-            if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
-            if (e.key.toLowerCase() !== "j") return;
+            if (!isTerminalToggleShortcut(e, suppressed)) return;
             e.preventDefault();
             persistOpen(!open);
         };
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);
     }, [open, persistOpen, suppressed]);
+};
+
+/** Handles drag-to-resize mouse tracking and terminal xterm refit scheduling. */
+const useTerminalDockResizeAndRefit = ({
+    draggingRef,
+    heightRef,
+    height,
+    suppressed,
+    visibleOpen,
+    setHeight,
+    setResizing,
+}: {
+    draggingRef: React.MutableRefObject<boolean>;
+    heightRef: React.MutableRefObject<number>;
+    height: number;
+    suppressed: boolean;
+    visibleOpen: boolean;
+    setHeight: React.Dispatch<React.SetStateAction<number>>;
+    setResizing: React.Dispatch<React.SetStateAction<boolean>>;
+}) => {
+    useEffect(() => {
+        if (!suppressed || !draggingRef.current) return;
+        draggingRef.current = false;
+        setResizing(false);
+        clearBodyResize();
+    }, [draggingRef, setResizing, suppressed]);
 
     useEffect(() => {
+        /** Updates dock height during active top-edge resize drag. */
         const onMove = (e: MouseEvent) => {
-            if (!dragging.current) return;
+            if (!draggingRef.current) return;
             const max = Math.floor(window.innerHeight * 0.55);
             const next = Math.min(max, Math.max(MIN_H, window.innerHeight - e.clientY - 8));
             heightRef.current = next;
             setHeight(next);
         };
+        /** Commits dock height on mouseup and clears body resize cursor state. */
         const onUp = () => {
-            dragging.current = false;
+            draggingRef.current = false;
             setResizing(false);
             clearBodyResize();
             try {
@@ -220,56 +232,143 @@ export const TerminalDock = ({ suppressed = false }: { suppressed?: boolean } = 
             window.removeEventListener("mouseup", onUp);
             clearBodyResize();
         };
-    }, []);
+    }, [draggingRef, heightRef, setHeight, setResizing]);
 
     useEffect(() => {
         if (!visibleOpen) return undefined;
         const t = window.setTimeout(() => {
-            import("@/features/terminal/ui/terminal").then((m) => {
-                m.refitAllTerminals().catch(() => undefined);
-            }).catch(() => {
-                /* ignore */
-            });
+            import("@/features/terminal/ui/terminal")
+                .then((m) => m.refitAllTerminals().catch(() => undefined))
+                .catch(() => undefined);
         }, 40);
         return () => window.clearTimeout(t);
     }, [visibleOpen, height]);
+};
+
+/** Restores saved terminal dock height and open state once client hydration completes. */
+const useHydratedTerminalDockPrefs = (
+    setHeight: React.Dispatch<React.SetStateAction<number>>,
+    setOpen: React.Dispatch<React.SetStateAction<boolean>>,
+    setMounted: React.Dispatch<React.SetStateAction<boolean>>,
+) => {
+    const hydrated = useIsMounted();
+    const [restoredPreferences, setRestoredPreferences] = useState(false);
+    if (!hydrated || restoredPreferences) return;
+    setRestoredPreferences(true);
+    const prefs = readStoredTerminalDockPrefs();
+    if (prefs.height !== undefined) setHeight(prefs.height);
+    setOpen(prefs.wasOpen);
+    if (prefs.wasOpen) setMounted(true);
+};
+
+/** Computes CSS class and inline height presentation props for the terminal dock shell. */
+const deriveTerminalDockChrome = (visibleOpen: boolean, height: number, freezeMotion: boolean) => ({
+    visibilityClass: visibleOpen ? "m-3 visible" : "pointer-events-none invisible m-0",
+    transitionGuard: freezeMotion ? "transition-none" : "",
+    shellHeight: visibleOpen ? height + 10 : 0,
+});
+
+/** Renders the top-edge horizontal drag separator when the terminal dock is open. */
+const TerminalDockResizeHandle = ({
+    visibleOpen,
+    onStartResize,
+}: {
+    visibleOpen: boolean;
+    onStartResize: (e: React.MouseEvent) => void;
+}) => {
+    if (!visibleOpen) return null;
+    return (
+        <div
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label="Resize terminal"
+            className="group absolute inset-x-0 top-0 z-10 h-2 cursor-row-resize"
+            onMouseDown={onStartResize}
+        />
+    );
+};
+
+/** Resizable bottom terminal dock scoped to the active project surface. */
+export const TerminalDock = ({ suppressed = false }: { suppressed?: boolean } = {}) => {
+    const { project_path } = useProjectState();
+    const cwdRef = useRef(project_path);
+    useEffect(() => { cwdRef.current = project_path; }, [project_path]);
+    const [open, setOpen] = useState(false);
+    const [mounted, setMounted] = useState(false);
+    const [height, setHeight] = useState(DEFAULT_H);
+    const [resizing, setResizing] = useState(false);
+    const heightRef = useRef(DEFAULT_H);
+    useLayoutEffect(() => { heightRef.current = height; }, [height]);
+    useEffect(() => { clearBodyResize(); }, []);
+    const draggingRef = useRef(false);
+    const visibleOpen = open && !suppressed;
+
+    useHydratedTerminalDockPrefs(setHeight, setOpen, setMounted);
+
+    const persistOpen = useCallback((next: boolean) => {
+        if (!next) {
+            draggingRef.current = false;
+            setResizing(false);
+            clearBodyResize();
+            setOpen(false);
+        } else {
+            setMounted(true);
+            requestAnimationFrame(() => setOpen(true));
+        }
+        try {
+            localStorage.setItem(OPEN_KEY, String(next));
+        } catch {
+            /* ignore */
+        }
+        window.dispatchEvent(new CustomEvent("bettershape-terminal-open", { detail: { open: next } }));
+    }, []);
+
+    const startDockResize = useCallback((e: React.MouseEvent) => {
+        e.preventDefault();
+        draggingRef.current = true;
+        setResizing(true);
+        document.body.style.cursor = "row-resize";
+        document.body.style.userSelect = "none";
+        document.body.classList.add("resizing-vertical");
+    }, []);
+
+    useTerminalAiActionListener(cwdRef, persistOpen);
+    useTerminalDockEvents({ open, visibleOpen, suppressed, persistOpen });
+    useTerminalDockResizeAndRefit({
+        draggingRef,
+        heightRef,
+        height,
+        suppressed,
+        visibleOpen,
+        setHeight,
+        setResizing,
+    });
 
     if (!mounted) return null;
+
+    const chrome = deriveTerminalDockChrome(visibleOpen, height, resizing || suppressed);
+    const bodyClass = resizing ? "min-h-0 flex-1 overflow-hidden pointer-events-none" : "min-h-0 flex-1 overflow-hidden";
 
     return (
         <div
             data-terminal-dock=""
-            data-terminal-open={visibleOpen ? "true" : "false"}
+            data-terminal-open={String(visibleOpen)}
             className={cn(
                 "relative z-20 shrink-0 overflow-hidden",
                 "transition-[height,margin] duration-[var(--spring-panel-dur)] ease-[var(--spring-panel)] motion-reduce:transition-none",
-                visibleOpen ? "m-3 visible" : "pointer-events-none invisible m-0",
-                (resizing || suppressed) && "transition-none",
+                chrome.visibilityClass,
+                chrome.transitionGuard,
             )}
-            style={{ height: visibleOpen ? height + 10 : 0 }}
+            style={{ height: chrome.shellHeight }}
             aria-hidden={!visibleOpen}
             inert={!visibleOpen}
         >
-            <div
-                className="relative flex h-full flex-col overflow-hidden rounded-xl squircle-2xl border border-border bg-panel px-2 pb-2"
-            >
-                {visibleOpen ? (
-                    <div
-                        role="separator"
-                        aria-orientation="horizontal"
-                        aria-label="Resize terminal"
-                        className="group absolute inset-x-0 top-0 z-10 h-2 cursor-row-resize"
-                        onMouseDown={(e) => {
-                            e.preventDefault();
-                            dragging.current = true;
-                            setResizing(true);
-                            document.body.style.cursor = "row-resize";
-                            document.body.style.userSelect = "none";
-                            document.body.classList.add("resizing-vertical");
-                        }}
-                    />
-                ) : null}
-                <div className={cn("min-h-0 flex-1 overflow-hidden", resizing && "pointer-events-none")}>
+            <div className="relative flex h-full flex-col overflow-hidden rounded-xl squircle-2xl border border-border bg-panel px-2 pb-2">
+                <TerminalDockResizeHandle
+                    visibleOpen={visibleOpen}
+                    onStartResize={startDockResize}
+                />
+                <div className={bodyClass}>
                     <Suspense fallback={<div className="h-full w-full bg-panel" />}>
                         <Terminal terminalOnly isOpen={visibleOpen} onClose={() => persistOpen(false)} />
                     </Suspense>

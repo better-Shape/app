@@ -185,12 +185,11 @@ const groupDetail = (names: string[]): string | null => {
     return `${unique[0]} + ${unique.length - 1} more`;
 };
 
-/** Formats a model identifier into a compact chip label. */
-const modelChipLabel = (model?: string): string => {
+function modelChipLabel(model?: string): string {
     const bare = (model || "").split("/").pop()?.trim() || "";
     if (!bare || bare === "auto") return bare === "auto" ? "Auto" : "";
     return bare.replace(/[-_]/g, " ");
-};
+}
 
 const openSpawnedAgent = (block: Chunk) => {
     const name = block.query || "agent";
@@ -231,11 +230,12 @@ function SubagentRow({ block }: { block: Chunk }) {
 }
 
 function SubagentSpawnGroup({ blocks }: { blocks: Chunk[] }) {
+    const rowKey = createOccurrenceKeyer();
     return (
         <ActionLine action="Spawning" detail="subagents" defaultOpen>
             <div className="flex flex-col">
-                {blocks.map((block, index) => (
-                    <SubagentRow key={`${block.type}-${block.file || block.query}-${index}`} block={block} />
+                {blocks.map((block) => (
+                    <SubagentRow key={rowKey(`${block.type}-${block.file || block.query || ""}`)} block={block} />
                 ))}
             </div>
         </ActionLine>
@@ -246,8 +246,7 @@ function editDelta(block: Chunk): { add: number; del: number } {
     return countChangedLines(block.original || "", block.replacement || "");
 }
 
-/** Is lint command. */
-const isLintCommand = (cmd: string): boolean => {
+function isLintCommand(cmd: string): boolean {
     const lower = cmd.toLowerCase();
     return (
         lower.includes("eslint")
@@ -257,7 +256,7 @@ const isLintCommand = (cmd: string): boolean => {
         || lower.includes("tsc --noemit")
         || lower.includes("tsc -p")
     );
-};
+}
 
 const CLEAN_LINT_PATTERNS = [
     /no linter errors/i,
@@ -471,8 +470,8 @@ const useBackendResolutionStatus = (
         const unlistenPromise = Promise.resolve()
             .then(() =>
                 listen<{ id?: string; approved?: boolean }>(eventName, (event) => {
-                    if (disposed || event.payload?.id !== commandId) return;
-                    onStatusRef.current(event.payload?.approved ? approvedStatus : "rejected");
+                    if (disposed || event.payload.id !== commandId) return;
+                    onStatusRef.current(event.payload.approved ? approvedStatus : "rejected");
                 }),
             )
             .catch(() => () => undefined);
@@ -665,293 +664,308 @@ const PluginCallStep = ({ block }: { block: Chunk }) => {
     );
 };
 
+const FILE_MUTATION_STEP_LABELS: Partial<Record<string, string>> = {
+    create_file: "Created",
+    mkdir: "Created directory",
+    delete_file: "Deleted",
+    rename_file: "Renamed",
+};
+
+/** Parses structured browse-session JSON payload safely. */
+const parseBrowseSessionPayload = (raw: string | undefined) => {
+    try {
+        const parsed = JSON.parse(raw || "") as {
+            image?: string;
+            x?: number;
+            y?: number;
+            console?: string[];
+        };
+        return {
+            image: parsed.image || "",
+            x: parsed.x,
+            y: parsed.y,
+            consoleLines: parsed.console,
+        };
+    } catch {
+        return { image: "", x: undefined, y: undefined, consoleLines: undefined };
+    }
+};
+
+/** Renders a `browse_session` chunk inside `StepRow`. */
+const renderBrowseSessionStep = (block: Chunk): React.ReactNode => {
+    const payload = parseBrowseSessionPayload(block.content);
+    return (
+        <div className="py-0.5">
+            <div className="mt-1.5">
+                <BrowseChatCard
+                    url={block.visitUrl}
+                    title={block.visitTitle}
+                    status={block.commandStatus}
+                    image={payload.image}
+                    x={payload.x}
+                    y={payload.y}
+                    consoleLines={payload.consoleLines}
+                    followLive={Boolean(block.isGenerating) || !payload.image.trim()}
+                />
+            </div>
+        </div>
+    );
+};
+
+/** Parses an `[MCP server__tool]` prefix from a `tool_result` chunk when present. */
+const parseMcpToolResult = (raw: string): { mcp: string; body: string } => {
+    const closeIdx = /^\[MCP\s/i.test(raw) ? raw.indexOf("]") : -1;
+    const mcp = closeIdx > 4 ? raw.slice(4, closeIdx).trim() : "";
+    return {
+        mcp,
+        body: mcp ? raw.slice(closeIdx + 1).trim() : raw.trim(),
+    };
+};
+
+/** Renders a `tool_result` chunk (MCP call or generic tool output) inside `StepRow`. */
+const renderToolResultStep = (block: Chunk): React.ReactNode => {
+    const raw = block.content || "";
+    const parsed = parseMcpToolResult(raw);
+    const wrenchIcon = <Icon icon={Wrench20Regular} className="size-3.5 text-text-muted/80" />;
+    if (parsed.mcp) {
+        const label = humanizeToolName(parsed.mcp.replace(/^mcp__/i, "").replace(/__/g, " "));
+        return (
+            <ActionLine action="Called" detail={label} icon={wrenchIcon}>
+                {parsed.body ? (
+                    <pre className="mt-1 mb-1 max-h-48 overflow-auto rounded-lg border border-border-subtle bg-surface-2/50 px-2.5 py-2 font-mono text-2xs text-text-secondary whitespace-pre-wrap custom-scrollbar">
+                        {parsed.body}
+                    </pre>
+                ) : null}
+            </ActionLine>
+        );
+    }
+    const collapsed = raw.replace(/\s+/g, " ").trim();
+    const truncated = collapsed.length > 72;
+    const detail = collapsed ? `${collapsed.slice(0, 72)}${truncated ? "..." : ""}` : "tool";
+    return (
+        <ActionLine action="Ran" detail={detail} icon={wrenchIcon}>
+            {truncated ? (
+                <pre className="mt-1 mb-1 max-h-48 overflow-auto rounded-lg border border-border-subtle bg-surface-2/50 px-2.5 py-2 font-mono text-2xs text-text-secondary whitespace-pre-wrap custom-scrollbar">
+                    {raw.trim()}
+                </pre>
+            ) : null}
+        </ActionLine>
+    );
+};
+
+/** Renders a `cat` file-read chunk inside `StepRow`. */
+const renderCatStep = (block: Chunk): React.ReactNode => {
+    const path = block.content || "";
+    const shortName = path.split(/[\\/]/).pop() || path || "file";
+    const range = formatLineRange(block.catStartLine, block.catEndLine);
+    return (
+        <ActionLine
+            action="Read"
+            detail={shortName}
+            icon={<FileIcon name={shortName} className="size-3.5 shrink-0 opacity-85" />}
+            extra={
+                range ? (
+                    <span className="shrink-0 font-mono text-2xs tabular-nums text-text-muted/75">
+                        {range}
+                    </span>
+                ) : null
+            }
+            onClick={() => {
+                if (path) openProjectFile(path).catch(() => undefined);
+            }}
+        />
+    );
+};
+
+/** Extracts distinct search/grep result output when different from the query string. */
+const extractSearchStepOutput = (block: Chunk): string => {
+    if (!block.query || !block.content) return "";
+    const trimmed = block.content.trim();
+    return trimmed !== block.query.trim() ? trimmed : "";
+};
+
+/** Renders a `grep`, `search`, or `search_result` chunk inside `StepRow`. */
+const renderSearchLikeStep = (block: Chunk, action: "Grepped" | "Searched"): React.ReactNode => {
+    const query = (block.query || block.content || "").trim();
+    const output = extractSearchStepOutput(block);
+    return (
+        <ActionLine
+            action={action}
+            detail={query}
+            icon={<Icon icon={DocumentSearch20Regular} className="size-3.5 text-text-muted/80" />}
+        >
+            {output ? (
+                <pre className="mt-1 mb-1 max-h-44 overflow-auto rounded-lg border border-border-subtle bg-surface-2/50 px-2.5 py-2 font-mono text-2xs text-text-secondary whitespace-pre-wrap custom-scrollbar">
+                    {output}
+                </pre>
+            ) : null}
+        </ActionLine>
+    );
+};
+
+/** Formats an `inspect_runtime` URL or fallback runtime kind label. */
+const formatInspectStepDetail = (block: Chunk): string => {
+    const rawUrl = (block.query || "").trim();
+    if (rawUrl) {
+        try {
+            const parsed = new URL(rawUrl);
+            return `${parsed.host}${parsed.pathname === "/" ? "" : parsed.pathname}`;
+        } catch {
+            return rawUrl;
+        }
+    }
+    return (block.inspectKind || "runtime").trim();
+};
+
+/** Renders an `inspect_runtime` chunk inside `StepRow`. */
+const renderInspectRuntimeStep = (block: Chunk): React.ReactNode => (
+    <ActionLine
+        action={block.isGenerating ? "Inspecting" : "Inspected"}
+        detail={formatInspectStepDetail(block)}
+    />
+);
+
+/** Renders a `web_visit` chunk inside `StepRow`. */
+const renderWebVisitStep = (block: Chunk): React.ReactNode => {
+    const host = block.visitHost || block.visitTitle || block.content || "";
+    const favicon = block.visitUrl || block.visitHost || "";
+    const visitUrl = block.visitUrl;
+    return (
+        <ActionLine
+            action={block.isGenerating ? "Visiting" : "Visited"}
+            detail={host}
+            favicons={favicon ? [favicon] : undefined}
+            busy={Boolean(block.isGenerating)}
+            onClick={
+                visitUrl
+                    ? () => {
+                          commands.openUrlExternal(visitUrl).catch(() => undefined);
+                      }
+                    : undefined
+            }
+        />
+    );
+};
+
+/** Renders an `edit` chunk inside `StepRow` when `block.file` is present. */
+const renderEditStep = (block: Chunk): React.ReactNode => {
+    if (!block.file) return <ActionItem block={block} />;
+    const { add, del } = editDelta(block);
+    const file = block.file;
+    const shortName = fileName(file);
+    const hasDiff = add > 0 || del > 0;
+    return (
+        <ActionLine
+            action="Edited"
+            detail={shortName}
+            icon={<FileIcon name={shortName} className="size-3.5 shrink-0 opacity-85" />}
+            add={add}
+            del={del}
+            secondaryAction={{
+                label: `Open ${shortName}`,
+                icon: <Icon icon={Open20Regular} className="size-3.5" />,
+                onClick: () => {
+                    openProjectFile(file).catch(() => undefined);
+                },
+            }}
+        >
+            {hasDiff ? (
+                <WorkflowEditPreview
+                    original={block.original || ""}
+                    replacement={block.replacement || ""}
+                />
+            ) : null}
+        </ActionLine>
+    );
+};
+
+/** Checks whether a terminal command completed cleanly and ran a recognized lint check. */
+const isCleanFinishedLintBlock = (block: Chunk): boolean => {
+    if (block.isGenerating) return false;
+    const status = block.commandStatus;
+    const finishedFine = !status || status === "completed" || status === "background";
+    if (!finishedFine) return false;
+    const cmd = (block.command || block.content || "").trim();
+    return isLintCommand(cmd) && lintStatusFromOutput(block.content || "") === "clean";
+};
+
+/** Renders a `terminal_command` or `run` chunk inside `StepRow`. */
+const renderTerminalStep = (block: Chunk): React.ReactNode => {
+    if (isCleanFinishedLintBlock(block)) {
+        return (
+            <ActionLine
+                action="Checked"
+                detail="no linter errors"
+                icon={<Icon icon={CheckmarkCircle20Regular} className="size-3.5 text-success/85" />}
+            />
+        );
+    }
+    return <TerminalCommandStep block={block} />;
+};
+
+/** Renders an `edit_pending` approval/applied/cancelled/rejected chunk inside `StepRow`. */
+const renderEditPendingStep = (block: Chunk): React.ReactNode => {
+    const status = block.commandStatus || "pending";
+    if (status === "pending") return <EditApprovalRow block={block} />;
+    if (status === "applied" && block.file) return <StepRowAppliedEdit block={block} />;
+    return (
+        <ActionLine
+            action={status === "cancelled" ? "Cancelled" : "Rejected"}
+            detail={block.file ? fileName(block.file) : "file"}
+        />
+    );
+};
+
+/** Renders a `create_file`, `mkdir`, `delete_file`, or `rename_file` chunk inside `StepRow`. */
+const renderFileMutationStep = (block: Chunk): React.ReactNode => (
+    <ActionLine
+        action={FILE_MUTATION_STEP_LABELS[block.type] ?? "Modified"}
+        detail={block.content ? fileName(block.content) : undefined}
+    />
+);
+
+/** Renders a `web_search` or `web_result` chunk inside `StepRow`. */
+const renderWebSearchStep = (block: Chunk): React.ReactNode => (
+    <WebSearchBlock
+        query={(block.query || "").trim()}
+        results={parseWebSearchHits(block.content || "")}
+        isActive={block.isGenerating}
+    />
+);
+
+const STEP_ROW_RENDERERS: Record<string, (block: Chunk) => React.ReactNode> = {
+    browse_session: renderBrowseSessionStep,
+    think: (block) => <ThoughtStep content={block.content || ""} isActive={block.isGenerating} />,
+    thought: (block) => <ThoughtStep content={block.content || ""} isActive={block.isGenerating} />,
+    tool_result: renderToolResultStep,
+    plugin_call: (block) => <PluginCallStep block={block} />,
+    generated_svg: (block) => <GeneratedMediaStep block={block} />,
+    generated_image: (block) => <GeneratedMediaStep block={block} />,
+    generated_audio: (block) => <GeneratedMediaStep block={block} />,
+    cat: renderCatStep,
+    subagent: (block) => <SubagentRow block={block} />,
+    subagent_ref: (block) => <SubagentRow block={block} />,
+    grep: (block) => renderSearchLikeStep(block, "Grepped"),
+    search: (block) => renderSearchLikeStep(block, "Searched"),
+    search_result: (block) => renderSearchLikeStep(block, "Searched"),
+    inspect_runtime: renderInspectRuntimeStep,
+    web_search: renderWebSearchStep,
+    web_result: renderWebSearchStep,
+    web_visit: renderWebVisitStep,
+    edit: renderEditStep,
+    terminal_command: renderTerminalStep,
+    run: renderTerminalStep,
+    edit_pending: renderEditPendingStep,
+    create_file: renderFileMutationStep,
+    mkdir: renderFileMutationStep,
+    delete_file: renderFileMutationStep,
+    rename_file: renderFileMutationStep,
+};
+
 /** Renders the StepRow UI component. */
 const StepRow = ({ block }: { block: Chunk }) => {
-    if (block.type === "browse_session") {
-        let image = "";
-        let x: number | undefined;
-        let y: number | undefined;
-        let consoleLines: string[] | undefined;
-        try {
-            const parsed = JSON.parse(block.content || "") as {
-                image?: string;
-                x?: number;
-                y?: number;
-                console?: string[];
-            };
-            image = parsed.image || "";
-            x = parsed.x;
-            y = parsed.y;
-            consoleLines = parsed.console;
-        } catch {
-            image = "";
-        }
-        return (
-            <div className="py-0.5">
-                <div className="mt-1.5">
-                    <BrowseChatCard
-                        url={block.visitUrl}
-                        title={block.visitTitle}
-                        status={block.commandStatus}
-                        image={image}
-                        x={x}
-                        y={y}
-                        consoleLines={consoleLines}
-                        followLive={Boolean(block.isGenerating) || !image.trim()}
-                    />
-                </div>
-            </div>
-        );
-    }
-
-    if (block.type === "think" || block.type === "thought") {
-        return <ThoughtStep content={block.content || ""} isActive={block.isGenerating} />;
-    }
-
-    if (block.type === "tool_result") {
-        const raw = block.content || "";
-        const closeBracketIdx = /^\[MCP\s/i.test(raw) ? raw.indexOf("]") : -1;
-        const mcp = closeBracketIdx > 4 ? raw.slice(4, closeBracketIdx).trim() : "";
-        const bodyAfterHeader = mcp ? raw.slice(closeBracketIdx + 1).trim() : raw.trim();
-        if (mcp) {
-            const label = humanizeToolName(mcp.replace(/^mcp__/i, "").replace(/__/g, " "));
-            return (
-                <ActionLine
-                    action="Called"
-                    detail={label}
-                    icon={<Icon icon={Wrench20Regular} className="size-3.5 text-text-muted/80" />}
-                >
-                    {bodyAfterHeader ? (
-                        <pre className="mt-1 mb-1 max-h-48 overflow-auto rounded-lg border border-border-subtle bg-surface-2/50 px-2.5 py-2 font-mono text-2xs text-text-secondary whitespace-pre-wrap custom-scrollbar">
-                            {bodyAfterHeader}
-                        </pre>
-                    ) : null}
-                </ActionLine>
-            );
-        }
-        const collapsed = raw.replace(/\s+/g, " ").trim();
-        const summary = collapsed.slice(0, 72);
-        return (
-            <ActionLine
-                action="Ran"
-                detail={summary ? `${summary}${collapsed.length > 72 ? "..." : ""}` : "tool"}
-                icon={<Icon icon={Wrench20Regular} className="size-3.5 text-text-muted/80" />}
-            >
-                {collapsed.length > 72 ? (
-                    <pre className="mt-1 mb-1 max-h-48 overflow-auto rounded-lg border border-border-subtle bg-surface-2/50 px-2.5 py-2 font-mono text-2xs text-text-secondary whitespace-pre-wrap custom-scrollbar">
-                        {raw.trim()}
-                    </pre>
-                ) : null}
-            </ActionLine>
-        );
-    }
-
-    if (block.type === "plugin_call") {
-        return <PluginCallStep block={block} />;
-    }
-
-    if (block.type === "generated_svg" || block.type === "generated_image" || block.type === "generated_audio") {
-        return <GeneratedMediaStep block={block} />;
-    }
-
-    if (block.type === "cat") {
-        const path = block.content || "";
-        const shortName = path.split(/[\\/]/).pop() || path;
-        const range = formatLineRange(block.catStartLine, block.catEndLine);
-        return (
-            <ActionLine
-                action="Read"
-                detail={shortName || "file"}
-                icon={<FileIcon name={shortName || "file.txt"} className="size-3.5 shrink-0 opacity-85" />}
-                extra={
-                    range ? (
-                        <span className="shrink-0 font-mono text-2xs tabular-nums text-text-muted/75">
-                            {range}
-                        </span>
-                    ) : null
-                }
-                onClick={() => {
-                    if (path) openProjectFile(path).catch(() => undefined);
-                }}
-            />
-        );
-    }
-
-    if (block.type === "subagent" || block.type === "subagent_ref") {
-        return <SubagentRow block={block} />;
-    }
-
-    if (block.type === "grep") {
-        const q = (block.query || block.content || "").trim();
-        const output =
-            block.query && block.content && block.content.trim() !== block.query.trim()
-                ? block.content.trim()
-                : "";
-        return (
-            <ActionLine
-                action="Grepped"
-                detail={q}
-                icon={<Icon icon={DocumentSearch20Regular} className="size-3.5 text-text-muted/80" />}
-            >
-                {output ? (
-                    <pre className="mt-1 mb-1 max-h-44 overflow-auto rounded-lg border border-border-subtle bg-surface-2/50 px-2.5 py-2 font-mono text-2xs text-text-secondary whitespace-pre-wrap custom-scrollbar">
-                        {output}
-                    </pre>
-                ) : null}
-            </ActionLine>
-        );
-    }
-
-    if (block.type === "search" || block.type === "search_result") {
-        const q = (block.query || block.content || "").trim();
-        const output =
-            block.query && block.content && block.content.trim() !== block.query.trim()
-                ? block.content.trim()
-                : "";
-        return (
-            <ActionLine
-                action="Searched"
-                detail={q}
-                icon={<Icon icon={DocumentSearch20Regular} className="size-3.5 text-text-muted/80" />}
-            >
-                {output ? (
-                    <pre className="mt-1 mb-1 max-h-44 overflow-auto rounded-lg border border-border-subtle bg-surface-2/50 px-2.5 py-2 font-mono text-2xs text-text-secondary whitespace-pre-wrap custom-scrollbar">
-                        {output}
-                    </pre>
-                ) : null}
-            </ActionLine>
-        );
-    }
-
-    if (block.type === "inspect_runtime") {
-        const url = (block.query || "").trim();
-        let detail = url;
-        try {
-            if (url) {
-                const parsed = new URL(url);
-                detail = `${parsed.host}${parsed.pathname === "/" ? "" : parsed.pathname}`;
-            }
-        } catch {
-            /* keep raw url */
-        }
-        if (!detail) detail = (block.inspectKind || "runtime").trim();
-        return (
-            <ActionLine
-                action={block.isGenerating ? "Inspecting" : "Inspected"}
-                detail={detail}
-            />
-        );
-    }
-
-    if (block.type === "web_search" || block.type === "web_result") {
-        return (
-            <WebSearchBlock
-                query={(block.query || "").trim()}
-                results={parseWebSearchHits(block.content || "")}
-                isActive={block.isGenerating}
-            />
-        );
-    }
-
-    if (block.type === "web_visit") {
-        const host = block.visitHost || block.visitTitle || block.content || "";
-        const url = block.visitUrl || block.visitHost || "";
-        const visitUrl = block.visitUrl;
-        return (
-            <ActionLine
-                action={block.isGenerating ? "Visiting" : "Visited"}
-                detail={host}
-                favicons={url ? [url] : undefined}
-                busy={Boolean(block.isGenerating)}
-                onClick={visitUrl ? () => { commands.openUrlExternal(visitUrl).catch(() => undefined); } : undefined}
-            />
-        );
-    }
-
-    if (block.type === "edit" && block.file) {
-        const { add, del } = editDelta(block);
-        const file = block.file;
-        const shortName = fileName(file);
-        return (
-            <ActionLine
-                action="Edited"
-                detail={shortName}
-                icon={<FileIcon name={shortName} className="size-3.5 shrink-0 opacity-85" />}
-                add={add}
-                del={del}
-                secondaryAction={{
-                    label: `Open ${shortName}`,
-                    icon: <Icon icon={Open20Regular} className="size-3.5" />,
-                    onClick: () => { openProjectFile(file).catch(() => undefined); },
-                }}
-            >
-                {add > 0 || del > 0 ? (
-                    <WorkflowEditPreview
-                        original={block.original || ""}
-                        replacement={block.replacement || ""}
-                    />
-                ) : null}
-            </ActionLine>
-        );
-    }
-
-    if (block.type === "terminal_command" || block.type === "run") {
-        const cmd = (block.command || block.content || "").trim();
-        const finishedFine =
-            !block.commandStatus
-            || block.commandStatus === "completed"
-            || block.commandStatus === "background";
-        if (finishedFine && !block.isGenerating && isLintCommand(cmd)) {
-            const status = lintStatusFromOutput(block.content || "");
-            if (status === "clean") {
-                return (
-                    <ActionLine
-                        action="Checked"
-                        detail="no linter errors"
-                        icon={<Icon icon={CheckmarkCircle20Regular} className="size-3.5 text-success/85" />}
-                    />
-                );
-            }
-        }
-        return <TerminalCommandStep block={block} />;
-    }
-
-    if (block.type === "edit_pending") {
-        const status = block.commandStatus || "pending";
-        if (status === "pending") {
-            return <EditApprovalRow block={block} />;
-        }
-        if (status === "applied" && block.file) {
-            // Applied edits render like a normal edit row (with the diff).
-            return <StepRowAppliedEdit block={block} />;
-        }
-        return (
-            <ActionLine
-                action={status === "cancelled" ? "Cancelled" : "Rejected"}
-                detail={block.file ? fileName(block.file) : "file"}
-            />
-        );
-    }
-
-    if (block.type === "create_file" || block.type === "mkdir" || block.type === "delete_file" || block.type === "rename_file") {
-        const label =
-            block.type === "create_file"
-                ? "Created"
-                : block.type === "mkdir"
-                  ? "Created directory"
-                  : block.type === "delete_file"
-                    ? "Deleted"
-                    : "Renamed";
-        return (
-            <ActionLine
-                action={label}
-                detail={block.content ? fileName(block.content) : undefined}
-            />
-        );
-    }
-
-    // ls, rename_chat, rich git groups, and anything else ActionItem knows.
-    return <ActionItem block={block} />;
+    const render = STEP_ROW_RENDERERS[block.type];
+    return render ? <>{render(block)}</> : <ActionItem block={block} />;
 };
 
 function turnSummary(blocks: Chunk[], stats: ReturnType<typeof computeTurnStats>, isActive?: boolean, activityLabel?: string | null) {
@@ -974,8 +988,7 @@ function turnSummary(blocks: Chunk[], stats: ReturnType<typeof computeTurnStats>
     return isActive ? "Working" : "Worked";
 }
 
-/** Turn marks. */
-const turnMarks = (blocks: Chunk[]) => {
+function turnMarks(blocks: Chunk[]) {
     const urls: string[] = [];
     const toolkits: string[] = [];
     for (const block of blocks) {
@@ -1003,7 +1016,7 @@ const turnMarks = (blocks: Chunk[]) => {
         urls: [...new Set(urls.filter(Boolean))].slice(0, 4),
         toolkits: [...new Set(toolkits.filter(Boolean))].slice(0, 4),
     };
-};
+}
 
 /** Renders the TurnWorkflowSummary UI component. */
 export const TurnWorkflowSummary = ({
@@ -1181,7 +1194,7 @@ export const TurnWorkflowSummary = ({
                     }
                     if (row.kind === "search_group") {
                         return (
-                            <div key={rowKey(`searches:${row.queries[0] ?? ""}`)} className={enterClass}>
+                            <div key={rowKey(`searches:${row.queries.at(0) ?? ""}`)} className={enterClass}>
                                 <GroupActionLabel
                                     action="Searched"
                                     detail={row.count > 1 ? `${row.count} times` : groupDetail(row.queries)}
@@ -1198,9 +1211,10 @@ export const TurnWorkflowSummary = ({
                         );
                     }
                     if (row.kind === "write_group") {
-                        const firstName = row.paths[0] ? fileName(row.paths[0]) : "file.txt";
+                        const firstPath = row.paths.at(0);
+                        const firstName = firstPath ? fileName(firstPath) : "file.txt";
                         return (
-                            <div key={rowKey(`writes:${row.paths[0] ?? ""}`)} className={enterClass}>
+                            <div key={rowKey(`writes:${firstPath ?? ""}`)} className={enterClass}>
                                 <GroupActionLabel
                                     action="Edited"
                                     detail={groupDetail(row.paths)}
@@ -1223,7 +1237,7 @@ export const TurnWorkflowSummary = ({
                     }
                     if (row.kind === "web_trail") {
                         return (
-                            <div key={rowKey(`web:${row.blocks[0]?.query ?? ""}`)} className={enterClass}>
+                            <div key={rowKey(`web:${row.blocks.at(0)?.query ?? ""}`)} className={enterClass}>
                                 <WebSearchTrail
                                     blocks={row.blocks}
                                     isActive={row.blocks.some((b) => b.isGenerating)}

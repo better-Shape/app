@@ -33,11 +33,103 @@ function clockLabel(card: SubagentCard): string {
     return at.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
 }
 
+/** True when a click inside a subagent card originated from a nested button, link, or disclosure. */
+const isNestedCardControl = (target: EventTarget | null, currentTarget: EventTarget): boolean => {
+    const interactive = (target as Element | null)?.closest(
+        "button, a, [data-subagent-disclosure]",
+    );
+    return Boolean(interactive && interactive !== currentTarget);
+};
+
+/** Renders the terminal status badge for completed or failed subagent cards. */
+const SubagentCardStatusBadge = ({ status }: { status: SubagentStatus }) => {
+    if (status === "done") {
+        return <Icon icon={CheckmarkCircle20Filled} className={cn("shrink-0", statusTone(status))} />;
+    }
+    if (status === "error") {
+        return (
+            <span className="inline-flex shrink-0 items-center gap-1 text-xs text-error">
+                <span>Failed</span>
+                <Icon icon={DismissCircle20Filled} className={cn("shrink-0", statusTone(status))} />
+            </span>
+        );
+    }
+    return null;
+};
+
+/** Renders the collapsible read-review disclosure inside an active reviewing subagent card. */
+const SubagentReviewSection = ({
+    card,
+    open,
+    onToggle,
+}: {
+    card: SubagentCard;
+    open: boolean;
+    onToggle: () => void;
+}) => (
+    <div className="flex flex-col gap-0.5">
+        <button
+            type="button"
+            aria-expanded={open}
+            onClick={(e) => {
+                e.stopPropagation();
+                onToggle();
+            }}
+            className="flex min-h-[24px] w-full items-center gap-2 py-0.5 text-left text-sm font-medium text-text-secondary transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:text-text-primary"
+        >
+            <Icon icon={Sparkle20Filled} className="shrink-0 text-text-secondary" />
+            <span className="min-w-0 flex-1 truncate">Reviewing changes...</span>
+            <Icon
+                icon={ChevronRight20Regular}
+                className={cn(
+                    "shrink-0 opacity-50 transition-transform duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
+                    open && "rotate-90",
+                )}
+            />
+        </button>
+        <Collapse open={open}>
+            <div data-subagent-disclosure className="flex flex-col gap-0.5 pl-0.5">
+                <ReadGroup files={card.reads ?? []} tokens={card.tokens} />
+            </div>
+        </Collapse>
+    </div>
+);
+
+/** Checks whether an active subagent card is in the collapsible read-review phase. */
+const isReviewingWithReads = (card: SubagentCard): boolean => {
+    if (card.phase !== "reviewing") return false;
+    return Boolean(card.reads?.length);
+};
+
+/** Renders the live activity indicator or settled summary line for a subagent card. */
+const SubagentCardActivity = ({
+    card,
+    live,
+    open,
+    onToggle,
+}: {
+    card: SubagentCard;
+    live: boolean;
+    open: boolean;
+    onToggle: () => void;
+}) => {
+    if (!live) return <p className="truncate text-sm text-text-muted">{card.activity}</p>;
+    if (isReviewingWithReads(card)) {
+        return <SubagentReviewSection card={card} open={open} onToggle={onToggle} />;
+    }
+    const fallbackLabel = card.phase === "editing" ? "Editing file" : "Working";
+    return (
+        <GeneratingIndicator
+            label={card.activity || fallbackLabel}
+            showTimer
+            startedAt={card.startedAt}
+        />
+    );
+};
+
 /** Renders the Card UI component. */
 const Card = ({ card }: { card: SubagentCard }) => {
     const live = card.status === "running" || card.status === "pending";
-    const reviewing = live && card.phase === "reviewing" && (card.reads?.length ?? 0) > 0;
-    const editing = live && card.phase === "editing";
     const [open, setOpen] = useState(true);
 
     return (
@@ -45,15 +137,10 @@ const Card = ({ card }: { card: SubagentCard }) => {
             role="button"
             tabIndex={0}
             onClick={(e) => {
-                const interactive = (e.target as Element | null)?.closest(
-                    "button, a, [data-subagent-disclosure]",
-                );
-                if (interactive && interactive !== e.currentTarget) return;
-                openSubagent(card.id);
+                if (!isNestedCardControl(e.target, e.currentTarget)) openSubagent(card.id);
             }}
             onKeyDown={(e) => {
-                if (e.target !== e.currentTarget) return;
-                if (e.key === "Enter" || e.key === " ") {
+                if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) {
                     e.preventDefault();
                     openSubagent(card.id);
                 }
@@ -70,58 +157,14 @@ const Card = ({ card }: { card: SubagentCard }) => {
                 <span className="shrink-0 text-xs tabular-nums text-text-disabled">
                     {clockLabel(card)}
                 </span>
-                {card.status === "done" ? (
-                    <Icon icon={CheckmarkCircle20Filled} className={cn("shrink-0", statusTone(card.status))} />
-                ) : card.status === "error" ? (
-                    <span className="inline-flex shrink-0 items-center gap-1 text-xs text-error">
-                        <span>Failed</span>
-                        <Icon icon={DismissCircle20Filled} className={cn("shrink-0", statusTone(card.status))} />
-                    </span>
-                ) : null}
+                <SubagentCardStatusBadge status={card.status} />
             </div>
-
-            {editing ? (
-                <GeneratingIndicator
-                    label={card.activity || "Editing file"}
-                    showTimer
-                    startedAt={card.startedAt}
-                />
-            ) : reviewing ? (
-                <div className="flex flex-col gap-0.5">
-                    <button
-                        type="button"
-                        aria-expanded={open}
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            setOpen((v) => !v);
-                        }}
-                        className="flex min-h-[24px] w-full items-center gap-2 py-0.5 text-left text-sm font-medium text-text-secondary transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:text-text-primary"
-                    >
-                        <Icon icon={Sparkle20Filled} className="shrink-0 text-text-secondary" />
-                        <span className="min-w-0 flex-1 truncate">Reviewing changes...</span>
-                        <Icon
-                            icon={ChevronRight20Regular}
-                            className={cn(
-                                "shrink-0 opacity-50 transition-transform duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
-                                open && "rotate-90",
-                            )}
-                        />
-                    </button>
-                    <Collapse open={open}>
-                        <div data-subagent-disclosure className="flex flex-col gap-0.5 pl-0.5">
-                            <ReadGroup files={card.reads ?? []} tokens={card.tokens} />
-                        </div>
-                    </Collapse>
-                </div>
-            ) : live ? (
-                <GeneratingIndicator
-                    label={card.activity || "Working"}
-                    showTimer
-                    startedAt={card.startedAt}
-                />
-            ) : (
-                <p className="truncate text-sm text-text-muted">{card.activity}</p>
-            )}
+            <SubagentCardActivity
+                card={card}
+                live={live}
+                open={open}
+                onToggle={() => setOpen((v) => !v)}
+            />
         </div>
     );
 };

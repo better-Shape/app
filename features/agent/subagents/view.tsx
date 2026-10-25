@@ -20,12 +20,11 @@ import {
     subscribeSubagents,
 } from "./store";
 
-/** Renders the SubagentChatView UI component. */
-export const SubagentChatView = () => {
-    const card = useSyncExternalStore(subscribeSubagents, getActiveSubagent, getActiveSubagent);
-
+/** Closes the active subagent detail view when Escape is pressed outside interactive inputs. */
+const useSubagentEscapeClose = (active: boolean) => {
     useEffect(() => {
-        if (!card) return undefined;
+        if (!active) return undefined;
+        /** Dismisses the subagent view on bare Escape outside menus, dialogs, and text fields. */
         const onKeyDown = (e: KeyboardEvent) => {
             if (e.key !== "Escape" || e.defaultPrevented) return;
             const target = e.target instanceof HTMLElement ? e.target : null;
@@ -35,14 +34,48 @@ export const SubagentChatView = () => {
         };
         window.addEventListener("keydown", onKeyDown);
         return () => window.removeEventListener("keydown", onKeyDown);
-    }, [card]);
+    }, [active]);
+};
+
+/** Renders the trailing status glyph inside the subagent header badge. */
+const SubagentBadgeStatus = ({ live, status }: { live: boolean; status: string }) => {
+    if (live) return <Eclipse size={11} className="shrink-0 text-text-muted" aria-hidden />;
+    if (status === "done") {
+        return <Icon icon={CheckmarkCircle20Filled} className="size-3.5 shrink-0 text-success" />;
+    }
+    if (status === "error") {
+        return <Icon icon={DismissCircle20Filled} className="size-3.5 shrink-0 text-error" />;
+    }
+    return null;
+};
+
+/** Checks whether a subagent status represents an in-flight execution (`running` or `pending`). */
+const isSubagentLive = (status: string): boolean => status === "running" || status === "pending";
+
+/** Computes display view-model fields for an active `SubagentCard`. */
+const deriveSubagentViewProps = (card: NonNullable<ReturnType<typeof getActiveSubagent>>) => {
+    const live = isSubagentLive(card.status);
+    const workflow = subagentWorkflowContent(card);
+    const copyableOutput = extractSearchableMessageText(workflow);
+    return {
+        live,
+        task: card.task?.trim() || card.title,
+        workflow,
+        copyableOutput,
+        iconModel: card.model || "auto",
+        activityLabel: live ? card.activity : undefined,
+        showCopy: !live && Boolean(copyableOutput),
+    };
+};
+
+/** Renders the SubagentChatView UI component. */
+export const SubagentChatView = () => {
+    const card = useSyncExternalStore(subscribeSubagents, getActiveSubagent, getActiveSubagent);
+    useSubagentEscapeClose(Boolean(card));
 
     if (!card) return null;
 
-    const live = card.status === "running" || card.status === "pending";
-    const task = card.task?.trim() || card.title;
-    const workflow = subagentWorkflowContent(card);
-    const copyableOutput = extractSearchableMessageText(workflow);
+    const view = deriveSubagentViewProps(card);
 
     return (
         <div className="mx-auto flex min-h-full w-full min-w-0 max-w-4xl flex-col gap-4 pb-16 pt-5">
@@ -61,33 +94,27 @@ export const SubagentChatView = () => {
                 <div className="flex min-w-0 items-center gap-2">
                     <span className="inline-flex min-w-0 items-center gap-1.5 rounded-full border border-border-subtle bg-surface-3 px-2.5 py-0.5 text-xs text-text-secondary">
                         <span className="flex size-3.5 shrink-0 items-center justify-center">
-                            {providerIcon(card.model || "auto", 12)}
+                            {providerIcon(view.iconModel, 12)}
                         </span>
                         <span className="max-w-44 truncate font-medium text-text-primary">
                             {card.title}
                         </span>
-                        {live ? (
-                            <Eclipse size={11} className="shrink-0 text-text-muted" aria-hidden />
-                        ) : card.status === "done" ? (
-                            <Icon icon={CheckmarkCircle20Filled} className="size-3.5 shrink-0 text-success" />
-                        ) : card.status === "error" ? (
-                            <Icon icon={DismissCircle20Filled} className="size-3.5 shrink-0 text-error" />
-                        ) : null}
+                        <SubagentBadgeStatus live={view.live} status={card.status} />
                     </span>
-                    {!live && copyableOutput ? (
-                        <CopyButton text={copyableOutput} label="Copy subagent output" />
+                    {view.showCopy ? (
+                        <CopyButton text={view.copyableOutput} label="Copy subagent output" />
                     ) : null}
                 </div>
             </div>
             <UserMessageCard className="w-full max-w-none">
-                {task}
+                {view.task}
             </UserMessageCard>
             <div className="min-w-0 chat-text text-text-primary">
                 <MessageRenderer
-                    content={workflow}
-                    isGenerating={live}
+                    content={view.workflow}
+                    isGenerating={view.live}
                     skipSubagentSync
-                    activityLabel={live ? card.activity : undefined}
+                    activityLabel={view.activityLabel}
                 />
             </div>
         </div>

@@ -9,13 +9,12 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { getBetterShapeSyntaxTheme } from "@/lib/ui/syntax-theme";
-import { createOccurrenceKeyer } from "@/lib/utils";
+import { cn, createOccurrenceKeyer } from "@/lib/utils";
 import { FileIcon } from "@/components/ui/file-icon";
 import { openProjectFile } from "@/lib/window/open-project-file";
 import { Icon } from "@/components/ui/icon";
 import { DrawnCheck } from "@/components/ui/checkmark";
 import { Tooltip } from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
 import { insertCommandIntoWorkspaceTerminal } from "@/features/terminal/session";
 import { notify } from "@/features/notifications";
 
@@ -118,14 +117,14 @@ const probeProjectPathExists = (resolvedPath: string): Promise<boolean> => {
     ): boolean | Promise<boolean> => {
         let hasCaseFoldedMatch = false;
         for (const entry of entries) {
-            const entryPath = entry?.path
+            const entryPath = entry.path
                 ? trimTrailingSlashes(entry.path.replace(/\\/g, "/"))
                 : undefined;
-            if (entry?.name === baseName || entryPath === normalized) {
+            if (entry.name === baseName || entryPath === normalized) {
                 return true;
             }
             if (
-                entry?.name?.toLowerCase() === lowerBaseName
+                entry.name?.toLowerCase() === lowerBaseName
                 || entryPath?.toLowerCase() === lowerNormalized
             ) {
                 hasCaseFoldedMatch = true;

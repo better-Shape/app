@@ -33,7 +33,7 @@ import { PluginLogo } from "@/components/ui/plugin-logo";
 import { fetchPlugins, fetchPluginTools, peekPluginsCache, type PluginRow, type PluginToolHint } from "@/lib/plugins/api";
 import { newWorkflowId, workflowPluginTools, workflowSeeHow, type AgentWorkflow } from "@/lib/chat/workflows";
 import { updateSettingSection } from "@/lib/settings";
-import { cn } from "@/lib/utils";
+import { cn, createOccurrenceKeyer } from "@/lib/utils";
 import { SettingActionRow, SettingCard, SettingSection, SETTING_CONTROL_BTN } from "../shared/controls";
 
 export function WorkflowsEditor({ value }: { value: AgentWorkflow[] }) {
@@ -348,10 +348,12 @@ function WorkflowDialog({
                                             No tools found
                                         </div>
                                     ) : (
-                                        uniqueTools.map((t, i) => (
-                                            <DropdownMenuCheckboxItem
-                                                key={`${t.slug}-${i}`}
-                                                checked={selectedSlugs.includes(t.slug)}
+                                        (() => {
+                                            const toolKey = createOccurrenceKeyer();
+                                            return uniqueTools.map((t) => (
+                                                <DropdownMenuCheckboxItem
+                                                    key={toolKey(t.slug)}
+                                                    checked={selectedSlugs.includes(t.slug)}
                                                 onCheckedChange={(checked) => {
                                                     const next = checked
                                                         ? [...selectedSlugs, t.slug]
@@ -365,7 +367,8 @@ function WorkflowDialog({
                                             >
                                                 {t.name || t.slug}
                                             </DropdownMenuCheckboxItem>
-                                        ))
+                                        ));
+                                        })()
                                     )}
                                 </DropdownMenuContent>
                             </DropdownMenu>

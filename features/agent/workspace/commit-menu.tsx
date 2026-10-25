@@ -192,7 +192,7 @@ function GitSetupPick({
                         notify.error("Git", `Use ${CLONE_PLACEHOLDER[cloneKind]}`);
                         return;
                     }
-                    void cloneFromUrl(url);
+                    cloneFromUrl(url).catch(() => undefined);
                 }}
             />
         );
@@ -216,7 +216,7 @@ function GitSetupPick({
             })}
             onSelect={(item) => {
                 if (item.id === "init") {
-                    void initialize();
+                    initialize().catch(() => undefined);
                     return;
                 }
                 setQuery("");
@@ -249,231 +249,498 @@ function parseDiffFileStats(raw: string): Record<string, { plus: number; minus: 
     return stats;
 }
 
-/** Renders the CommitMenu UI component. */
-export const CommitMenu = ({ projectPath }: { projectPath: string }) => {
-    const [repo, setRepo] = useState<string | null>(null);
-    const [files, setFiles] = useState<GitFileParams[]>([]);
-    const [stats, setStats] = useState<Record<string, { plus: number; minus: number }>>({});
-    const [busy, setBusy] = useState(false);
-    const [title, setTitle] = useState("");
-    const [description, setDescription] = useState("");
-    const [descriptionOpen, setDescriptionOpen] = useState(false);
-    const [lastMessage, setLastMessage] = useState("");
-    const [hasRemote, setHasRemote] = useState(false);
-    const [ahead, setAhead] = useState(0);
-    const [behind, setBehind] = useState(0);
-    const [branch, setBranch] = useState("");
-    const [publishOpen, setPublishOpen] = useState(false);
-    const [menuOpen, setMenuOpen] = useState(false);
-    const [setupOpen, setSetupOpen] = useState(false);
-    const github = useGitHubAuth();
+type RepoSnapshot = {
+    repo: string | null;
+    files: GitFileParams[];
+    stats: Record<string, { plus: number; minus: number }>;
+    lastMessage: string;
+    hasRemote: boolean;
+    ahead: number;
+    behind: number;
+    branch: string;
+};
 
-    const refresh = useCallback(() => discoverGitRepos(projectPath).then(async repos => {
-            const path = pickDefaultRepo(projectPath, repos);
-            setRepo(path);
-            if (!path) {
-                setFiles([]);
-                setStats({});
-                setLastMessage("");
-                setHasRemote(false);
-                setAhead(0);
-                setBehind(0);
-                setBranch("");
-                return;
-            }
-            const list = await commands.gitStatus(path);
-            setFiles(list);
-            try {
-                const raw = await commands.gitDiff(path);
-                setStats(parseDiffFileStats(raw || ""));
-            } catch {
-                setStats({});
-            }
-            const [log, sync, remote, current] = await Promise.all([
-                commands.gitLog(path, 1).catch(() => []),
-                commands.gitSyncStatus(path).catch(() => null),
-                commands.gitHasRemote(path).catch(() => false),
-                commands.gitCurrentBranch(path).catch(() => ""),
-            ]);
-            setLastMessage(log[0]?.message?.split("\n")[0] ?? "");
-            setHasRemote(remote);
-            setAhead(sync?.ahead ?? 0);
-            setBehind(sync?.behind ?? 0);
-            setBranch(current || "");
-    }).catch(() => {
-            setRepo(null);
-            setFiles([]);
-            setStats({});
-            setLastMessage("");
-            setHasRemote(false);
-            setAhead(0);
-            setBehind(0);
-            setBranch("");
-    }), [projectPath]);
+const EMPTY_REPO_SNAPSHOT: RepoSnapshot = {
+    repo: null,
+    files: [],
+    stats: {},
+    lastMessage: "",
+    hasRemote: false,
+    ahead: 0,
+    behind: 0,
+    branch: "",
+};
+
+const GIT_STATUS_TONES: Partial<Record<string, string>> = {
+    A: "text-success",
+    D: "text-error",
+};
+
+/** Extracts the first subject line from a single-commit git log response. */
+const extractHeadSubject = (log: Array<{ message?: string }>): string =>
+    log.at(0)?.message?.split("\n")[0] ?? "";
+
+/** Normalizes ahead/behind sync counters when `gitSyncStatus` returns `null`. */
+const extractSyncCounts = (sync: { ahead?: number; behind?: number } | null) => ({
+    ahead: sync?.ahead ?? 0,
+    behind: sync?.behind ?? 0,
+});
+
+/** Loads repository status, diff line totals, sync counts, and current branch for `projectPath`. */
+const loadRepoSnapshot = async (projectPath: string): Promise<RepoSnapshot> => {
+    const repos = await discoverGitRepos(projectPath);
+    const path = pickDefaultRepo(projectPath, repos);
+    if (!path) return EMPTY_REPO_SNAPSHOT;
+    const files = await commands.gitStatus(path);
+    const rawDiff = await commands.gitDiff(path).catch(() => "");
+    const [log, sync, hasRemote, current] = await Promise.all([
+        commands.gitLog(path, 1).catch(() => []),
+        commands.gitSyncStatus(path).catch(() => null),
+        commands.gitHasRemote(path).catch(() => false),
+        commands.gitCurrentBranch(path).catch(() => ""),
+    ]);
+    return {
+        repo: path,
+        files,
+        stats: parseDiffFileStats(rawDiff),
+        lastMessage: extractHeadSubject(log),
+        hasRemote,
+        ...extractSyncCounts(sync),
+        branch: current,
+    };
+};
+
+/** Confirms staging unstaged changes into an amended commit. */
+const resolveAmendPathsToStage = async (paths: string[]): Promise<string[]> => {
+    if (paths.length === 0) return [];
+    const stageAll = await confirm("Stage these changes into the amended commit?", {
+        title: "Amend commit",
+        kind: "info",
+        okLabel: "Stage and amend",
+        cancelLabel: "Message only",
+    });
+    return stageAll ? paths : [];
+};
+
+/** Confirms unstaged-changes staging policy for normal commits or amends. */
+const resolvePathsToStage = async (
+    paths: string[],
+    hasStaged: boolean,
+    amend: boolean,
+): Promise<string[] | null> => {
+    if (hasStaged) return paths;
+    if (amend) return resolveAmendPathsToStage(paths);
+    const ok = await confirm("Nothing is staged. Stage these changes and commit?", {
+        title: "Stage and commit",
+        kind: "warning",
+        okLabel: "Stage and commit",
+        cancelLabel: "Cancel",
+    });
+    return ok ? paths : null;
+};
+
+/** Prompts before rewriting a commit that is already published to a remote. */
+const confirmPublishedAmendGuard = (
+    amend: boolean,
+    hasRemote: boolean,
+    ahead: number,
+): Promise<boolean> => {
+    if (!amend || !hasRemote || ahead > 0) return Promise.resolve(true);
+    return confirm("The latest commit is already on the remote. Amending rewrites that history.", {
+        title: "Amend published commit",
+        kind: "warning",
+        okLabel: "Amend",
+        cancelLabel: "Cancel",
+    });
+};
+
+/** Prompts for final commit confirmation when `git.confirmBeforeCommit` is enabled. */
+const confirmFinalCommitStep = (message: string, amend: boolean): Promise<boolean> => {
+    if (!getSettings().git.confirmBeforeCommit) return Promise.resolve(true);
+    const prompt = amend ? `Amend the last commit?\n\n${message}` : `Create this commit?\n\n${message}`;
+    return confirm(prompt, {
+        title: amend ? "Amend commit" : "Create commit",
+        kind: "info",
+        okLabel: amend ? "Amend" : "Commit",
+        cancelLabel: "Cancel",
+    });
+};
+
+/** Confirms published-amend and optional pre-commit gates for an already-resolved stage set. */
+const verifyCommitGates = async (
+    message: string,
+    amend: boolean,
+    hasRemote: boolean,
+    ahead: number,
+): Promise<boolean> => {
+    if (!(await confirmPublishedAmendGuard(amend, hasRemote, ahead))) return false;
+    return confirmFinalCommitStep(message, amend);
+};
+
+/** Confirms staging, published-amend history rewrite, and optional commit confirmation gates. */
+const resolveApprovedCommitPaths = async ({
+    paths,
+    files,
+    message,
+    amend,
+    hasRemote,
+    ahead,
+}: {
+    paths: string[];
+    files: GitFileParams[];
+    message: string;
+    amend: boolean;
+    hasRemote: boolean;
+    ahead: number;
+}): Promise<string[] | null> => {
+    if (paths.length === 0 && !amend) return null;
+    const toStage = await resolvePathsToStage(paths, files.some((file) => file.staged), amend);
+    if (!toStage) return null;
+    return (await verifyCommitGates(message, amend, hasRemote, ahead)) ? toStage : null;
+};
+
+/** Sums diff `+` / `-` line counts across tracked files in the working tree. */
+const sumWorkingTreeDiffStats = (
+    files: GitFileParams[],
+    stats: Record<string, { plus: number; minus: number }>,
+) => {
+    let plus = 0;
+    let minus = 0;
+    for (const file of files) {
+        const row = stats[file.path.replace(/\\/g, "/")];
+        if (!row) continue;
+        plus += row.plus;
+        minus += row.minus;
+    }
+    return { plus, minus };
+};
+
+/** Subscribes `bettershape-git-refresh` and exposes the latest `RepoSnapshot` + `refresh` handle. */
+const useCommitMenuSnapshot = (projectPath: string) => {
+    const [snapshot, setSnapshot] = useState<RepoSnapshot>(EMPTY_REPO_SNAPSHOT);
+    const refresh = useCallback(
+        () =>
+            loadRepoSnapshot(projectPath)
+                .then(setSnapshot)
+                .catch(() => setSnapshot(EMPTY_REPO_SNAPSHOT)),
+        [projectPath],
+    );
 
     useEffect(() => {
         refresh().catch(() => undefined);
-        const on = () => { refresh().catch(() => undefined); };
+        /** Refreshes repository status whenever git state mutates. */
+        const on = () => {
+            refresh().catch(() => undefined);
+        };
         window.addEventListener("bettershape-git-refresh", on);
         return () => window.removeEventListener("bettershape-git-refresh", on);
     }, [refresh]);
 
-    const totals = useMemo(() => {
-        let plus = 0;
-        let minus = 0;
-        for (const file of files) {
-            const key = file.path.replace(/\\/g, "/");
-            const row = stats[key];
-            if (!row) continue;
-            plus += row.plus;
-            minus += row.minus;
-        }
-        return { plus, minus };
-    }, [files, stats]);
+    return { snapshot, setSnapshot, refresh };
+};
+
+/** Renders the Commit trigger button with live `+` / `−` diff counters. */
+const CommitTriggerButton = ({
+    busy,
+    totals,
+}: {
+    busy: boolean;
+    totals: { plus: number; minus: number };
+}) => (
+    <DropdownMenuTrigger asChild>
+        <Button
+            variant="outline"
+            size="sm"
+            disabled={busy}
+            className="px-1.5 text-sm font-normal text-text-muted hover:bg-[var(--btn-hover)] hover:text-text-primary"
+        >
+            <span>Commit</span>
+            {totals.plus > 0 ? <span className="tabular-nums text-success">+{totals.plus}</span> : null}
+            {totals.minus > 0 ? <span className="tabular-nums text-error">−{totals.minus}</span> : null}
+            <Icon icon={ChevronDown20Regular} className="opacity-60" />
+        </Button>
+    </DropdownMenuTrigger>
+);
+
+/** Renders the framed commit message + optional description box inside `CommitMenu`. */
+const CommitMessageComposer = ({
+    title,
+    setTitle,
+    description,
+    setDescription,
+    descriptionOpen,
+    setDescriptionOpen,
+    busy,
+    hasFiles,
+    onCommitAll,
+    onSuggest,
+}: {
+    title: string;
+    setTitle: (next: string) => void;
+    description: string;
+    setDescription: (next: string) => void;
+    descriptionOpen: boolean;
+    setDescriptionOpen: (next: boolean) => void;
+    busy: boolean;
+    hasFiles: boolean;
+    onCommitAll: () => void;
+    onSuggest: () => void;
+}) => (
+    <div className="overflow-hidden rounded-lg border border-border-subtle bg-surface-2 transition-colors focus-within:border-border-secondary">
+        <div className="relative flex items-center">
+            <Input
+                value={title}
+                placeholder="Message"
+                className="h-[34px] border-none bg-transparent px-3 pr-9 text-sm shadow-none focus-visible:ring-0"
+                disabled={busy}
+                onChange={(event) => setTitle(event.target.value)}
+                onKeyDown={(event) => {
+                    event.stopPropagation();
+                    if (event.key !== "Enter") return;
+                    if (event.ctrlKey || event.metaKey) {
+                        event.preventDefault();
+                        onCommitAll();
+                    } else if (event.shiftKey) {
+                        event.preventDefault();
+                        setDescriptionOpen(true);
+                    }
+                }}
+            />
+            <GenerateStarButton
+                placement="inline"
+                loading={busy}
+                disabled={!hasFiles}
+                onClick={onSuggest}
+            />
+        </div>
+        {description || descriptionOpen ? (
+            <textarea
+                value={description}
+                placeholder="Description (optional)"
+                disabled={busy}
+                rows={2}
+                onChange={(event) => {
+                    setDescriptionOpen(true);
+                    setDescription(event.target.value);
+                }}
+                onKeyDown={(event) => {
+                    if (event.key !== "Escape") event.stopPropagation();
+                    if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+                        event.preventDefault();
+                        onCommitAll();
+                    }
+                }}
+                className="w-full resize-none border-t border-border-subtle bg-transparent px-3 py-2 text-xs leading-relaxed text-text-secondary outline-none placeholder:text-text-disabled"
+            />
+        ) : null}
+    </div>
+);
+
+/** Formats optional parenthesized count suffix (`Pull (2)`, `Push (1)`). */
+const formatCountSuffix = (label: string, count: number): string =>
+    count > 0 ? `${label} (${count})` : label;
+
+/** Formats dynamic labels for `Pull`, `Push`, and `New branch` submenu items. */
+const deriveSubmenuLabels = (snapshot: RepoSnapshot) => ({
+    pullLabel: formatCountSuffix("Pull", snapshot.behind),
+    pushLabel: formatCountSuffix("Push", snapshot.ahead),
+    branchLabel: snapshot.branch ? `New branch from ${snapshot.branch}` : "New branch",
+});
+
+/** Computes repo/remote disabled flags for `CommitSecondarySubmenu`. */
+const deriveSubmenuRemoteFlags = (snapshot: RepoSnapshot, busy: boolean) => {
+    const noRepoOrBusy = !snapshot.repo || busy;
+    return {
+        noRepoOrBusy,
+        noRemoteOrBusy: !snapshot.hasRemote || busy,
+        disablePublish: noRepoOrBusy || snapshot.hasRemote,
+    };
+};
+
+/** Computes disabled flags and dynamic menu item labels for `CommitSecondarySubmenu`. */
+const deriveSubmenuState = (snapshot: RepoSnapshot, busy: boolean) => ({
+    canAmend: !busy && Boolean(snapshot.lastMessage),
+    canCommitStaged: !busy && snapshot.files.some((file) => file.staged),
+    noFilesOrBusy: snapshot.files.length === 0 || busy,
+    ...deriveSubmenuRemoteFlags(snapshot, busy),
+    ...deriveSubmenuLabels(snapshot),
+});
+
+/** Renders the secondary git actions submenu (`Amend`, `Stage`, `Fetch`, `Pull`, `Push`, `Stash`, `Publish`). */
+const CommitSecondarySubmenu = ({
+    snapshot,
+    busy,
+    stashTitle,
+    onAmend,
+    onCommitStaged,
+    onStageAll,
+    onDiscardAll,
+    onPush,
+    onCreateBranch,
+    onOpenPublish,
+    withRepo,
+    runGit,
+}: {
+    snapshot: RepoSnapshot;
+    busy: boolean;
+    stashTitle: string;
+    onAmend: () => void;
+    onCommitStaged: () => void;
+    onStageAll: () => void;
+    onDiscardAll: () => void;
+    onPush: () => void;
+    onCreateBranch: () => void;
+    onOpenPublish: () => void;
+    withRepo: (run: (path: string) => void) => () => void;
+    runGit: (label: string, task: () => Promise<unknown>) => Promise<void>;
+}) => {
+    const state = deriveSubmenuState(snapshot, busy);
+
+    return (
+        <DropdownMenuSub>
+            <DropdownMenuSubTrigger
+                aria-label="Commit options"
+                disabled={busy}
+                className="h-9 w-9 shrink-0 justify-center rounded-full bg-panel-hover px-0! py-0! [&>svg]:ml-0"
+            />
+            <DropdownMenuSubContent className="min-w-52">
+                <DropdownMenuItem disabled={!state.canAmend} onSelect={onAmend}>
+                    Amend last commit
+                </DropdownMenuItem>
+                <DropdownMenuItem disabled={!state.canCommitStaged} onSelect={onCommitStaged}>
+                    Commit staged
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem disabled={state.noFilesOrBusy} onSelect={onStageAll}>
+                    Stage all
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                    disabled={state.noRepoOrBusy}
+                    onSelect={withRepo((path) => {
+                        runGit("Unstaged", () => commands.gitUnstageAll(path)).catch(() => undefined);
+                    })}
+                >
+                    Unstage all
+                </DropdownMenuItem>
+                <DropdownMenuItem disabled={state.noFilesOrBusy} onSelect={onDiscardAll}>
+                    Discard all changes
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                    disabled={state.noRemoteOrBusy}
+                    onSelect={withRepo((path) => {
+                        runGit("Fetched", () => commands.gitFetch(path)).catch(() => undefined);
+                    })}
+                >
+                    Fetch
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                    disabled={state.noRemoteOrBusy}
+                    onSelect={withRepo((path) => {
+                        runGit("Pulled", () => commands.gitPull(path)).catch(() => undefined);
+                    })}
+                >
+                    {state.pullLabel}
+                </DropdownMenuItem>
+                <DropdownMenuItem disabled={state.noRemoteOrBusy} onSelect={onPush}>
+                    {state.pushLabel}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                    disabled={state.noRemoteOrBusy}
+                    onSelect={withRepo((path) => {
+                        runGit("Synced", () => commands.gitSync(path)).catch(() => undefined);
+                    })}
+                >
+                    Sync
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                    disabled={state.noFilesOrBusy}
+                    onSelect={withRepo((path) => {
+                        runGit("Stashed", () => commands.gitStashSave(path, stashTitle, true)).catch(() => undefined);
+                    })}
+                >
+                    Stash changes
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                    disabled={state.noRepoOrBusy}
+                    onSelect={withRepo((path) => {
+                        runGit("Stash applied", () => commands.gitStashPop(path, 0)).catch(() => undefined);
+                    })}
+                >
+                    Pop stash
+                </DropdownMenuItem>
+                <DropdownMenuItem disabled={state.noRepoOrBusy} onSelect={onCreateBranch}>
+                    {state.branchLabel}
+                </DropdownMenuItem>
+                <DropdownMenuItem disabled={state.disablePublish} onSelect={onOpenPublish}>
+                    Publish repository
+                </DropdownMenuItem>
+            </DropdownMenuSubContent>
+        </DropdownMenuSub>
+    );
+};
+
+/** Renders the scrollable changed-files list inside `CommitMenu`. */
+const CommitChangesList = ({ files }: { files: GitFileParams[] }) => (
+    <>
+        <div className="flex items-center gap-2 px-2 py-1 text-sm text-text-secondary">
+            <span className="flex-1">Changes</span>
+            {files.length > 0 ? (
+                <span className="rounded-full bg-primary px-1.5 text-xs text-text-primary">{files.length}</span>
+            ) : null}
+        </div>
+        <div className="max-h-64 overflow-y-auto">
+            {files.length === 0 ? (
+                <div className="px-2 py-2 text-sm text-text-muted">No changes</div>
+            ) : (
+                files.map((file) => {
+                    const letter = statusLetter(file.status);
+                    const folder = parentFolder(file.path);
+                    const tone = GIT_STATUS_TONES[letter] ?? "text-warning";
+                    return (
+                        <div
+                            key={`${file.path}-${file.staged}`}
+                            className="flex items-center gap-2 px-2 py-1 text-sm"
+                        >
+                            <FileIcon name={fileName(file.path)} className="size-4 shrink-0" />
+                            <span className="min-w-0 flex-1 truncate text-text-primary">{fileName(file.path)}</span>
+                            {folder ? <span className="shrink-0 text-sm text-text-muted">{folder}</span> : null}
+                            <span className={cn("w-4 shrink-0 text-center text-sm", tone)}>{letter}</span>
+                        </div>
+                    );
+                })
+            )}
+        </div>
+    </>
+);
+
+/** Provides bound git mutation commands (`commitAll`, `amend`, `commitStaged`, `push`, `stageAll`, `discardAll`, `createBranch`, `suggest`, `withRepo`, `runGit`) for `CommitMenu`. */
+const useCommitMenuCommands = ({
+    snapshot,
+    refresh,
+    title,
+    setTitle,
+    description,
+    setDescription,
+    setDescriptionOpen,
+    setBusy,
+}: {
+    snapshot: RepoSnapshot;
+    refresh: () => Promise<void>;
+    title: string;
+    setTitle: (next: string) => void;
+    description: string;
+    setDescription: (next: string) => void;
+    setDescriptionOpen: (next: boolean) => void;
+    setBusy: (next: boolean) => void;
+}) => {
+    const { repo, files, lastMessage, hasRemote, ahead } = snapshot;
 
     const messageBody = () => {
         const head = title.trim();
         const body = description.trim();
         return body ? `${head}\n\n${body}` : head;
-    };
-
-    const commitPaths = async (paths: string[], message: string, amend = false) => {
-        if (!repo || !message.trim()) {
-            notify.error("Git", "Enter a commit title");
-            return;
-        }
-        let toStage = paths;
-        if (toStage.length === 0 && !amend) return;
-        const staged = files.filter((file) => file.staged);
-        if (!amend && staged.length === 0) {
-            const stageAll = await confirm(
-                "Nothing is staged. Stage these changes and commit?",
-                {
-                    title: "Stage and commit",
-                    kind: "warning",
-                    okLabel: "Stage and commit",
-                    cancelLabel: "Cancel",
-                },
-            );
-            if (!stageAll) return;
-        }
-        if (amend && staged.length === 0 && paths.length > 0) {
-            const stageAll = await confirm(
-                "Stage these changes into the amended commit?",
-                {
-                    title: "Amend commit",
-                    kind: "info",
-                    okLabel: "Stage and amend",
-                    cancelLabel: "Message only",
-                },
-            );
-            if (!stageAll) toStage = [];
-        }
-        if (amend && hasRemote && ahead === 0) {
-            const rewrite = await confirm(
-                "The latest commit is already on the remote. Amending rewrites that history.",
-                {
-                    title: "Amend published commit",
-                    kind: "warning",
-                    okLabel: "Amend",
-                    cancelLabel: "Cancel",
-                },
-            );
-            if (!rewrite) return;
-        }
-        if (getSettings().git.confirmBeforeCommit) {
-            const ok = await confirm(
-                amend ? `Amend the last commit?\n\n${message}` : `Create this commit?\n\n${message}`,
-                {
-                    title: amend ? "Amend commit" : "Create commit",
-                    kind: "info",
-                    okLabel: amend ? "Amend" : "Commit",
-                    cancelLabel: "Cancel",
-                },
-            );
-            if (!ok) return;
-        }
-        setBusy(true);
-        try {
-            for (const path of toStage) {
-                await commands.gitStage(repo, path);
-            }
-            if (amend) await commands.gitCommitAmend(repo, message);
-            else await commands.gitCommit(repo, message);
-            window.dispatchEvent(new Event("bettershape-git-refresh"));
-            notify.success("Git", amend ? "Commit amended" : "Committed");
-            setTitle("");
-            setDescription("");
-            setDescriptionOpen(false);
-            await refresh();
-        } catch (err) {
-            notify.gitError(err);
-        } finally {
-            setBusy(false);
-        }
-    };
-
-    const commitAll = () => {
-        commitPaths(files.map((file) => file.path), messageBody()).catch(() => undefined);
-    };
-
-    const amend = () => {
-        if (!lastMessage && !title.trim()) {
-            notify.error("Git", "Nothing to amend");
-            return;
-        }
-        const message = title.trim() ? messageBody() : lastMessage;
-        commitPaths(files.map((file) => file.path), message, true).catch(() => undefined);
-    };
-
-    const push = async () => {
-        if (!repo) return;
-        const ok = await confirm(
-            ahead > 0 ? `Push ${ahead} commit${ahead === 1 ? "" : "s"} to the remote?` : "Push to the remote?",
-            {
-                title: "Push",
-                kind: "info",
-                okLabel: "Push",
-                cancelLabel: "Cancel",
-            },
-        );
-        if (!ok) return;
-        setBusy(true);
-        try {
-            await commands.gitPush(repo);
-            window.dispatchEvent(new Event("bettershape-git-refresh"));
-            notify.success("Git", "Pushed");
-            await refresh();
-        } catch (err) {
-            notify.gitError(err);
-        } finally {
-            setBusy(false);
-        }
-    };
-
-    const stageAll = async () => {
-        if (!repo) return;
-        setBusy(true);
-        try {
-            await commands.gitStageAll(repo);
-            window.dispatchEvent(new Event("bettershape-git-refresh"));
-            await refresh();
-        } catch (err) {
-            notify.gitError(err);
-        } finally {
-            setBusy(false);
-        }
-    };
-
-    /**
-     * Binds the open repository into a menu action.
-     *
-     * The menu items that need a repository are already disabled without one; this is what
-     * keeps the handler honest about it. The path arrives as an argument, so no command is
-     * ever called with a null repository and none of these handlers needs an assertion.
-     */
-    const withRepo = (run: (path: string) => void) => () => {
-        if (repo) run(repo);
     };
 
     const runGit = async (label: string, task: () => Promise<unknown>) => {
@@ -483,6 +750,75 @@ export const CommitMenu = ({ projectPath }: { projectPath: string }) => {
             await task();
             window.dispatchEvent(new Event("bettershape-git-refresh"));
             notify.success("Git", label);
+            await refresh();
+        } catch (err) {
+            notify.gitError(err);
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    const commitPaths = async (paths: string[], message: string, isAmend = false) => {
+        if (!repo || !message.trim()) {
+            notify.error("Git", "Enter a commit title");
+            return;
+        }
+        const approved = await resolveApprovedCommitPaths({
+            paths,
+            files,
+            message,
+            amend: isAmend,
+            hasRemote,
+            ahead,
+        });
+        if (!approved) return;
+        await runGit(isAmend ? "Commit amended" : "Committed", async () => {
+            for (const path of approved) await commands.gitStage(repo, path);
+            if (isAmend) await commands.gitCommitAmend(repo, message);
+            else await commands.gitCommit(repo, message);
+            setTitle("");
+            setDescription("");
+            setDescriptionOpen(false);
+        });
+    };
+
+    const commitAll = () => {
+        commitPaths(files.map((file) => file.path), messageBody()).catch(() => undefined);
+    };
+
+    const commitStaged = () => {
+        const staged = files.filter((file) => file.staged).map((file) => file.path);
+        commitPaths(staged, messageBody()).catch(() => undefined);
+    };
+
+    const amend = () => {
+        const nextMessage = title.trim() ? messageBody() : lastMessage;
+        if (!nextMessage) {
+            notify.error("Git", "Nothing to amend");
+            return;
+        }
+        commitPaths(files.map((file) => file.path), nextMessage, true).catch(() => undefined);
+    };
+
+    const push = async () => {
+        if (!repo) return;
+        const prompt =
+            ahead > 0 ? `Push ${ahead} commit${ahead === 1 ? "" : "s"} to the remote?` : "Push to the remote?";
+        const ok = await confirm(prompt, {
+            title: "Push",
+            kind: "info",
+            okLabel: "Push",
+            cancelLabel: "Cancel",
+        });
+        if (ok) await runGit("Pushed", () => commands.gitPush(repo));
+    };
+
+    const stageAll = async () => {
+        if (!repo) return;
+        setBusy(true);
+        try {
+            await commands.gitStageAll(repo);
+            window.dispatchEvent(new Event("bettershape-git-refresh"));
             await refresh();
         } catch (err) {
             notify.gitError(err);
@@ -506,12 +842,11 @@ export const CommitMenu = ({ projectPath }: { projectPath: string }) => {
     };
 
     const createBranch = async () => {
-        if (!repo) return;
-        const name = window.prompt("New branch name");
-        if (!name?.trim()) return;
-        await runGit(`Switched to ${name.trim()}`, async () => {
-            await commands.gitCreateBranch(repo, name.trim());
-            await commands.gitSwitchBranch(repo, name.trim());
+        const name = repo ? window.prompt("New branch name")?.trim() : "";
+        if (!repo || !name) return;
+        await runGit(`Switched to ${name}`, async () => {
+            await commands.gitCreateBranch(repo, name);
+            await commands.gitSwitchBranch(repo, name);
         });
     };
 
@@ -520,8 +855,7 @@ export const CommitMenu = ({ projectPath }: { projectPath: string }) => {
         setBusy(true);
         try {
             await commands.gitStageAll(repo);
-            const message = await commands.generateCommitMessage(repo);
-            const lines = message.trim().split("\n");
+            const lines = (await commands.generateCommitMessage(repo)).trim().split("\n");
             setTitle(lines[0] ?? "");
             setDescription(lines.slice(1).join("\n").trim());
         } catch (err) {
@@ -531,220 +865,165 @@ export const CommitMenu = ({ projectPath }: { projectPath: string }) => {
         }
     };
 
+    const withRepo = (run: (path: string) => void) => () => {
+        if (repo) run(repo);
+    };
+
+    return {
+        commitAll,
+        commitStaged,
+        amend,
+        push,
+        stageAll,
+        discardAll,
+        createBranch,
+        suggest,
+        withRepo,
+        runGit,
+    };
+};
+
+/** Resolves repository availability when the Commit dropdown opens, falling back to `GitSetupPick`. */
+const handleCommitMenuOpenChange = ({
+    next,
+    projectPath,
+    setSnapshot,
+    setMenuOpen,
+    setSetupOpen,
+}: {
+    next: boolean;
+    projectPath: string;
+    setSnapshot: React.Dispatch<React.SetStateAction<RepoSnapshot>>;
+    setMenuOpen: React.Dispatch<React.SetStateAction<boolean>>;
+    setSetupOpen: React.Dispatch<React.SetStateAction<boolean>>;
+}) => {
+    if (!next) {
+        setMenuOpen(false);
+        return;
+    }
+    discoverGitRepos(projectPath)
+        .catch(() => [])
+        .then((repos) => {
+            const found = pickDefaultRepo(projectPath, repos);
+            setSnapshot((prev) => ({ ...prev, repo: found }));
+            setMenuOpen(Boolean(found));
+            if (!found) setSetupOpen(true);
+        })
+        .catch(() => undefined);
+};
+
+/** Renders the CommitMenu UI component. */
+export const CommitMenu = ({ projectPath }: { projectPath: string }) => {
+    const { snapshot, setSnapshot, refresh } = useCommitMenuSnapshot(projectPath);
+    const [busy, setBusy] = useState(false);
+    const [title, setTitle] = useState("");
+    const [description, setDescription] = useState("");
+    const [descriptionOpen, setDescriptionOpen] = useState(false);
+    const [publishOpen, setPublishOpen] = useState(false);
+    const [menuOpen, setMenuOpen] = useState(false);
+    const [setupOpen, setSetupOpen] = useState(false);
+    const github = useGitHubAuth();
+
+    const totals = useMemo(
+        () => sumWorkingTreeDiffStats(snapshot.files, snapshot.stats),
+        [snapshot.files, snapshot.stats],
+    );
+
+    const git = useCommitMenuCommands({
+        snapshot,
+        refresh,
+        title,
+        setTitle,
+        description,
+        setDescription,
+        setDescriptionOpen,
+        setBusy,
+    });
+
+    const canCommit = snapshot.files.length > 0 && !busy && Boolean(title.trim());
+
     return (
         <>
-        <DropdownMenu
-            open={menuOpen}
-            onOpenChange={(next) => {
-                if (!next) {
-                    setMenuOpen(false);
-                    return;
+            <DropdownMenu
+                open={menuOpen}
+                onOpenChange={(next) =>
+                    handleCommitMenuOpenChange({
+                        next,
+                        projectPath,
+                        setSnapshot,
+                        setMenuOpen,
+                        setSetupOpen,
+                    })
                 }
-                (async () => {
-                    const repos = await discoverGitRepos(projectPath).catch(() => []);
-                    const found = pickDefaultRepo(projectPath, repos);
-                    if (!found) {
-                        setRepo(null);
-                        setMenuOpen(false);
-                        setSetupOpen(true);
-                        return;
-                    }
-                    setRepo(found);
-                    setMenuOpen(true);
-                })().catch(() => undefined);
-            }}
-        >
-            <DropdownMenuTrigger asChild>
-                <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={busy}
-                    className="px-1.5 text-sm font-normal text-text-muted hover:bg-[var(--btn-hover)] hover:text-text-primary"
-                >
-                    <span>Commit</span>
-                    {totals.plus > 0 ? <span className="tabular-nums text-success">+{totals.plus}</span> : null}
-                    {totals.minus > 0 ? <span className="tabular-nums text-error">−{totals.minus}</span> : null}
-                    <Icon icon={ChevronDown20Regular} className="opacity-60" />
-                </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-[320px]">
-                <div
-                    className="flex flex-col gap-2 p-1.5"
-                    onPointerDown={(event) => event.stopPropagation()}
-                >
-                    <div className="overflow-hidden rounded-lg border border-border-subtle bg-surface-2 transition-colors focus-within:border-border-secondary">
-                        <div className="relative flex items-center">
-                            <Input
-                                value={title}
-                                placeholder="Message"
-                                className="h-[34px] border-none bg-transparent px-3 pr-9 text-sm shadow-none focus-visible:ring-0"
-                                disabled={busy}
-                                onChange={(event) => setTitle(event.target.value)}
-                                onKeyDown={(event) => {
-                                    event.stopPropagation();
-                                    if (event.key !== "Enter") return;
-                                    if (event.ctrlKey || event.metaKey) {
-                                        event.preventDefault();
-                                        commitAll();
-                                    } else if (event.shiftKey) {
-                                        event.preventDefault();
-                                        setDescriptionOpen(true);
-                                    }
+            >
+                <CommitTriggerButton busy={busy} totals={totals} />
+                <DropdownMenuContent align="end" className="w-[320px]">
+                    <div
+                        className="flex flex-col gap-2 p-1.5"
+                        onPointerDown={(event) => event.stopPropagation()}
+                    >
+                        <CommitMessageComposer
+                            title={title}
+                            setTitle={setTitle}
+                            description={description}
+                            setDescription={setDescription}
+                            descriptionOpen={descriptionOpen}
+                            setDescriptionOpen={setDescriptionOpen}
+                            busy={busy}
+                            hasFiles={snapshot.files.length > 0}
+                            onCommitAll={git.commitAll}
+                            onSuggest={() => {
+                                git.suggest().catch(() => undefined);
+                            }}
+                        />
+                        <div className="flex items-center gap-1.5">
+                            <Button
+                                variant="default"
+                                size="md"
+                                className="flex-1"
+                                disabled={!canCommit}
+                                onClick={git.commitAll}
+                            >
+                                Commit
+                            </Button>
+                            <CommitSecondarySubmenu
+                                snapshot={snapshot}
+                                busy={busy}
+                                stashTitle={title.trim() || "WIP"}
+                                onAmend={git.amend}
+                                onCommitStaged={git.commitStaged}
+                                onStageAll={() => {
+                                    git.stageAll().catch(() => undefined);
                                 }}
-                            />
-                            <GenerateStarButton
-                                placement="inline"
-                                loading={busy}
-                                disabled={files.length === 0}
-                                onClick={() => {
-                                    suggest().catch(() => {
-                                        /* Error toast is surfaced inside suggest() */
-                                    });
+                                onDiscardAll={() => {
+                                    git.discardAll().catch(() => undefined);
                                 }}
+                                onPush={() => {
+                                    git.push().catch(() => undefined);
+                                }}
+                                onCreateBranch={() => {
+                                    git.createBranch().catch(() => undefined);
+                                }}
+                                onOpenPublish={() => setPublishOpen(true)}
+                                withRepo={git.withRepo}
+                                runGit={git.runGit}
                             />
                         </div>
-                        {description || descriptionOpen ? (
-                            <textarea
-                                value={description}
-                                placeholder="Description (optional)"
-                                disabled={busy}
-                                rows={2}
-                                onChange={(event) => {
-                                    setDescriptionOpen(true);
-                                    setDescription(event.target.value);
-                                }}
-                                onKeyDown={(event) => {
-                                    if (event.key !== "Escape") {
-                                        event.stopPropagation();
-                                    }
-                                    if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
-                                        event.preventDefault();
-                                        commitAll();
-                                    }
-                                }}
-                                className="w-full resize-none border-t border-border-subtle bg-transparent px-3 py-2 text-xs leading-relaxed text-text-secondary outline-none placeholder:text-text-disabled"
-                            />
-                        ) : null}
                     </div>
-                    <div className="flex items-center gap-1.5">
-                        <Button
-                            variant="default"
-                            size="md"
-                            className="flex-1"
-                            disabled={files.length === 0 || busy || !title.trim()}
-                            onClick={commitAll}
-                        >
-                            Commit
-                        </Button>
-                        <DropdownMenuSub>
-                            <DropdownMenuSubTrigger
-                                aria-label="Commit options"
-                                disabled={busy}
-                                className="h-9 w-9 shrink-0 justify-center rounded-full bg-panel-hover px-0! py-0! [&>svg]:ml-0"
-                            >
-                            </DropdownMenuSubTrigger>
-                            <DropdownMenuSubContent className="min-w-52">
-                                <DropdownMenuItem disabled={busy || !lastMessage} onSelect={amend}>
-                                    Amend last commit
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                    disabled={busy || files.every((file) => !file.staged)}
-                                    onSelect={() => {
-                                        const staged = files.filter((file) => file.staged).map((file) => file.path);
-                                        commitPaths(staged, messageBody()).catch(() => undefined);
-                                    }}
-                                >
-                                    Commit staged
-                                </DropdownMenuItem>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem disabled={files.length === 0 || busy} onSelect={() => { stageAll().catch(() => undefined); }}>
-                                    Stage all
-                                </DropdownMenuItem>
-                                <DropdownMenuItem disabled={!repo || busy} onSelect={withRepo((path) => { runGit("Unstaged", () => commands.gitUnstageAll(path)).catch(() => undefined); })}>
-                                    Unstage all
-                                </DropdownMenuItem>
-                                <DropdownMenuItem disabled={files.length === 0 || busy} onSelect={() => { discardAll().catch(() => undefined); }}>
-                                    Discard all changes
-                                </DropdownMenuItem>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem disabled={!hasRemote || busy} onSelect={withRepo((path) => { runGit("Fetched", () => commands.gitFetch(path)).catch(() => undefined); })}>
-                                    Fetch
-                                </DropdownMenuItem>
-                                <DropdownMenuItem disabled={!hasRemote || busy} onSelect={withRepo((path) => { runGit("Pulled", () => commands.gitPull(path)).catch(() => undefined); })}>
-                                    Pull{behind > 0 ? ` (${behind})` : ""}
-                                </DropdownMenuItem>
-                                <DropdownMenuItem disabled={!hasRemote || busy} onSelect={() => { push().catch(() => undefined); }}>
-                                    Push{ahead > 0 ? ` (${ahead})` : ""}
-                                </DropdownMenuItem>
-                                <DropdownMenuItem disabled={!hasRemote || busy} onSelect={withRepo((path) => { runGit("Synced", () => commands.gitSync(path)).catch(() => undefined); })}>
-                                    Sync
-                                </DropdownMenuItem>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem disabled={files.length === 0 || busy} onSelect={withRepo((path) => { runGit("Stashed", () => commands.gitStashSave(path, title.trim() || "WIP", true)).catch(() => undefined); })}>
-                                    Stash changes
-                                </DropdownMenuItem>
-                                <DropdownMenuItem disabled={!repo || busy} onSelect={withRepo((path) => { runGit("Stash applied", () => commands.gitStashPop(path, 0)).catch(() => undefined); })}>
-                                    Pop stash
-                                </DropdownMenuItem>
-                                <DropdownMenuItem disabled={!repo || busy} onSelect={() => { createBranch().catch(() => undefined); }}>
-                                    New branch{branch ? ` from ${branch}` : ""}
-                                </DropdownMenuItem>
-                                <DropdownMenuItem disabled={!repo || busy || hasRemote} onSelect={() => setPublishOpen(true)}>
-                                    Publish repository
-                                </DropdownMenuItem>
-                            </DropdownMenuSubContent>
-                        </DropdownMenuSub>
-                    </div>
-                </div>
-                <div className="flex items-center gap-2 px-2 py-1 text-sm text-text-secondary">
-                    <span className="flex-1">Changes</span>
-                    {files.length > 0 ? (
-                        <span className="rounded-full bg-primary px-1.5 text-xs text-text-primary">{files.length}</span>
-                    ) : null}
-                </div>
-                <div className="max-h-64 overflow-y-auto">
-                    {files.length === 0 ? (
-                        <div className="px-2 py-2 text-sm text-text-muted">No changes</div>
-                    ) : (
-                        files.map((file) => {
-                            const letter = statusLetter(file.status);
-                            const folder = parentFolder(file.path);
-                            return (
-                                <div
-                                    key={`${file.path}-${file.staged}`}
-                                    className="flex items-center gap-2 px-2 py-1 text-sm"
-                                >
-                                    <FileIcon name={fileName(file.path)} className="size-4 shrink-0" />
-                                    <span className="min-w-0 flex-1 truncate text-text-primary">{fileName(file.path)}</span>
-                                    {folder ? <span className="shrink-0 text-sm text-text-muted">{folder}</span> : null}
-                                    <span
-                                        className={cn(
-                                            "w-4 shrink-0 text-center text-sm",
-                                            letter === "A" && "text-success",
-                                            letter === "D" && "text-error",
-                                            letter !== "A" && letter !== "D" && "text-warning",
-                                        )}
-                                    >
-                                        {letter}
-                                    </span>
-                                </div>
-                            );
-                        })
-                    )}
-                </div>
-            </DropdownMenuContent>
-        </DropdownMenu>
-        <PublishRepoDialog
-            open={publishOpen}
-            repo={repo}
-            githubUser={github.loggedIn ? github.username : null}
-            onClose={() => setPublishOpen(false)}
-            onPublished={() => {
-                setPublishOpen(false);
-                refresh().catch(() => undefined);
-            }}
-        />
-        <GitSetupPick open={setupOpen} onOpenChange={setSetupOpen} projectPath={projectPath} />
+                    <CommitChangesList files={snapshot.files} />
+                </DropdownMenuContent>
+            </DropdownMenu>
+            <PublishRepoDialog
+                open={publishOpen}
+                repo={snapshot.repo}
+                githubUser={github.loggedIn ? github.username : null}
+                onClose={() => setPublishOpen(false)}
+                onPublished={() => {
+                    setPublishOpen(false);
+                    refresh().catch(() => undefined);
+                }}
+            />
+            <GitSetupPick open={setupOpen} onOpenChange={setSetupOpen} projectPath={projectPath} />
         </>
     );
 };
@@ -826,7 +1105,7 @@ function PublishRepoDialog({
                                 className="flex items-center gap-2 rounded-lg border border-accent px-3 py-2 text-left text-sm text-text-primary"
                                 onClick={() => {
                                     if (!githubUser) {
-                                        void loginGitHub();
+                                        loginGitHub().catch(() => undefined);
                                         return;
                                     }
                                     setStep("repository");
@@ -870,7 +1149,7 @@ function PublishRepoDialog({
                         </Button>
                     ) : null}
                     {step === "summary" ? (
-                        <Button variant="default" size="sm" disabled={busy || !remoteUrl.startsWith("http")} onClick={() => void publish()}>
+                        <Button variant="default" size="sm" disabled={busy || !remoteUrl.startsWith("http")} onClick={() => { publish().catch(() => undefined); }}>
                             Publish
                         </Button>
                     ) : null}

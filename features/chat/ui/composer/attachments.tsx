@@ -9,7 +9,15 @@ import { WindowConsole20Regular } from "@fluentui/react-icons/headless/svg/windo
 
 
 import React from "react";
-import * as Dialog from "@radix-ui/react-dialog";
+import {
+    Close as DialogClose,
+    Content as DialogContent,
+    Description as DialogDescription,
+    Overlay as DialogOverlay,
+    Portal as DialogPortal,
+    Root as DialogRoot,
+    Title as DialogTitle,
+} from "@radix-ui/react-dialog";
 import { useObjectUrl } from "@/lib/ui/use-object-url";
 import { type IconGlyph, Icon } from "@/components/ui/icon";
 import { CopyButton } from "@/components/ui/copy-button";
@@ -20,9 +28,8 @@ import {
 } from "@/lib/ui/modal-overlay";
 import { useOverlayRoot } from "@/lib/ui/overlay-root";
 import { FileIcon } from "@/components/ui/file-icon";
-import { cn } from "@/lib/utils";
 import { Tooltip } from "@/components/ui/tooltip";
-import { randomSuffix } from "@/lib/utils";
+import { cn, createOccurrenceKeyer, randomSuffix } from "@/lib/utils";
 
 const TEXT_PREVIEW_EXTENSIONS = new Set([
     "txt", "log", "md", "mdx", "json", "toml", "yaml", "yml", "csv",
@@ -161,15 +168,16 @@ export function Waveform({
     className?: string;
 }) {
     const bars = peaks.length ? peaks : [0.35, 0.6, 0.4, 0.8, 0.5, 0.7, 0.45, 0.3, 0.55];
+    const barKey = createOccurrenceKeyer();
     return (
         <span className={cn("flex h-6 items-center gap-0.5", className)} aria-hidden>
             {/*
               Bars are positional slots rather than items: the array is regenerated whole when
-              the audio changes, and two bars can carry the same amplitude.
+              the audio changes, and an occurrence keyer distinguishes matching amplitudes.
             */}
-            {bars.map((peak, slot) => (
+            {bars.map((peak) => (
                 <span
-                    key={slot}
+                    key={barKey(String(peak))}
                     className="w-0.5 rounded-full bg-text-secondary"
                     style={{ height: `${Math.max(15, Math.round(peak * 100))}%` }}
                 />
@@ -412,7 +420,7 @@ export const ComposerAttachments = ({
                     />
                 ))}
             </div>
-            <Dialog.Root
+            <DialogRoot
                 open={Boolean(previewing)}
                 onOpenChange={(open) => {
                     if (!open) {
@@ -421,9 +429,9 @@ export const ComposerAttachments = ({
                     }
                 }}
             >
-                <Dialog.Portal container={overlayRoot}>
-                    <Dialog.Overlay className={BETTERSHAPE_OVERLAY_CLASS} />
-                    <Dialog.Content
+                <DialogPortal container={overlayRoot}>
+                    <DialogOverlay className={BETTERSHAPE_OVERLAY_CLASS} />
+                    <DialogContent
                         className={cn(
                             BETTERSHAPE_OVERLAY_CONTENT_CLASS,
                             BETTERSHAPE_MODAL_PANEL_CLASS,
@@ -434,14 +442,14 @@ export const ComposerAttachments = ({
                             <>
                                 <div className="flex items-center justify-between gap-2 border-b border-border-subtle px-3.5 py-2.5">
                                     <div className="flex min-w-0 items-center gap-2">
-                                        <Dialog.Title className="truncate text-sm font-medium text-text-primary">
+                                        <DialogTitle className="truncate text-sm font-medium text-text-primary">
                                             {previewing.name}
-                                        </Dialog.Title>
-                                        <Dialog.Description className="shrink-0 text-xs tabular-nums text-text-muted">
+                                        </DialogTitle>
+                                        <DialogDescription className="shrink-0 text-xs tabular-nums text-text-muted">
                                             {previewing.lineCount}{" "}
                                             {previewing.lineCount === 1 ? "line" : "lines"} ·{" "}
                                             {formatAttachmentSize(previewing.size)}
-                                        </Dialog.Description>
+                                        </DialogDescription>
                                     </div>
                                     <div className="flex shrink-0 items-center gap-1">
                                         {onInsertInline && previewing.text.length <= 24_000 ? (
@@ -458,7 +466,7 @@ export const ComposerAttachments = ({
                                             </button>
                                         ) : null}
                                         <CopyButton text={previewing.text} label="Copy content" />
-                                        <Dialog.Close asChild>
+                                        <DialogClose asChild>
                                             <button
                                                 type="button"
                                                 aria-label="Close attachment preview"
@@ -466,7 +474,7 @@ export const ComposerAttachments = ({
                                             >
                                                 <Icon icon={Dismiss20Regular} className="size-3.5" />
                                             </button>
-                                        </Dialog.Close>
+                                        </DialogClose>
                                     </div>
                                 </div>
                                 <pre className="max-h-[360px] overflow-auto bg-panel p-3.5 font-mono text-xs leading-relaxed whitespace-pre-wrap break-words text-text-primary custom-scrollbar select-text">
@@ -474,9 +482,9 @@ export const ComposerAttachments = ({
                                 </pre>
                             </>
                         ) : null}
-                    </Dialog.Content>
-                </Dialog.Portal>
-            </Dialog.Root>
+                    </DialogContent>
+                </DialogPortal>
+            </DialogRoot>
         </>
     );
 };

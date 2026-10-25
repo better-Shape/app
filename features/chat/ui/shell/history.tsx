@@ -9,7 +9,6 @@ import { Icon } from "@/components/ui/icon";
 
 import { Button } from "@/components/ui/button";
 import { SearchInput } from "@/components/ui/search";
-import { focusOnMount } from "@/lib/utils";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -21,7 +20,7 @@ import { SidebarPanelActionButton } from "@/features/panels";
 import { commands } from "@/lib/backend";
 import type { Conversation } from "@/lib/backend/types";
 import { toTimestampMs } from "@/lib/ui/timestamp";
-import { cn } from "@/lib/utils";
+import { cn, focusOnMount } from "@/lib/utils";
 import { prefetchChatConversation } from "../../lib/chat-stream-store";
 
 export const CHAT_HISTORY_OPEN_EVENT = "bettershape-chat-open-history";
@@ -96,7 +95,7 @@ export const ChatHistoryMenu = ({
     }, [conversations, query]);
 
     const handleSelect = useCallback(
-        async (conversation: Conversation) => {
+        (conversation: Conversation) => {
             setOpen(false);
             if (onSelectConversation) {
                 onSelectConversation(conversation.id, conversation);
@@ -169,7 +168,7 @@ export const ChatHistoryMenu = ({
                                     onFocus={() => {
                                         if (!active) prefetchChatConversation(conversation.id);
                                     }}
-                                    onSelect={() => { handleSelect(conversation).catch(() => undefined); }}
+                                    onSelect={() => { handleSelect(conversation); }}
                                 >
                                     <span
                                         className={cn(

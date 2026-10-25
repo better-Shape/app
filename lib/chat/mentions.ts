@@ -70,60 +70,71 @@ function pathBasename(path: string): string {
     return parts[parts.length - 1] || path;
 }
 
-/** Short chip label for composer / messages (basename, not full path). */
-export function mentionDisplayLabel(mention: ChatMention): string {
-    if (mention.kind === "codebase") return "Codebase";
-    if (mention.kind === "selection") return "Selection";
-    if (mention.kind === "design") return mention.label || mention.id || "Design";
-    if (mention.kind === "chat") {
-        if (mention.label && mention.label !== mention.path && mention.label !== mention.id) {
-            return mention.label;
-        }
-        const raw = mention.path || mention.id || mention.label || "Chat";
-        if (/^[0-9a-f-]{8,}$/i.test(raw) || /^\d+$/.test(raw)) {
-            return mention.label && !/^[0-9a-f-]{8,}$/i.test(mention.label)
-                ? mention.label
-                : "Chat";
-        }
-        return unslugMentionLabel(raw);
-    }
-    if (mention.kind === "browser") {
-        const resolved = resolveBrowserMentionPath(mention.path) || mention.path || mention.label || "";
-        if (!resolved || resolved === "current") return "Current page";
-        return hostnameOf(resolved) || mention.label || "Browser";
-    }
-    if (mention.kind === "terminal") {
-        return mention.label && mention.label !== mention.path
-            ? mention.label
-            : unslugMentionLabel(mention.path || "Terminal");
-    }
-    if (mention.kind === "branch") {
-        return mention.label && mention.label !== mention.path
-            ? mention.label
-            : unslugMentionLabel(mention.path || "Branch");
-    }
-    if (mention.kind === "mcp") {
-        return mention.label || mention.id || mention.path || "MCP";
-    }
-    if (mention.kind === "plugin") {
-        return mention.label || mention.id || mention.path || "Plugin";
-    }
-    if (mention.kind === "skill") {
-        return mention.label || mention.id || mention.path || "Skill";
-    }
-    if (mention.kind === "element") {
-        if (mention.label?.startsWith("<")) return mention.label;
-        const tag = (mention.id || mention.path || "element").replace(/^element:/, "").replace(/-\d+$/, "");
-        return `<${tag}>`;
-    }
-    if (mention.kind === "file" || mention.kind === "folder" || mention.kind === "docs") {
-        if (mention.label && !mention.label.includes("/")) return mention.label;
-        if (mention.path) return pathBasename(mention.path);
+/** Formats a chat-mention chip label while hiding raw UUID or numeric IDs. */
+const formatChatMentionLabel = (mention: ChatMention): string => {
+    if (mention.label && mention.label !== mention.path && mention.label !== mention.id) {
         return mention.label;
     }
-    if (mention.path) return pathBasename(mention.path);
-    return mention.label;
-}
+    const raw = mention.path || mention.id || mention.label || "Chat";
+    if (/^[0-9a-f-]{8,}$/i.test(raw) || /^\d+$/.test(raw)) {
+        return mention.label && !/^[0-9a-f-]{8,}$/i.test(mention.label) ? mention.label : "Chat";
+    }
+    return unslugMentionLabel(raw);
+};
+
+/** Formats a browser-mention chip label from its target URL or active tab fallback. */
+const formatBrowserMentionLabel = (mention: ChatMention): string => {
+    const resolved = resolveBrowserMentionPath(mention.path) || mention.path || mention.label || "";
+    if (!resolved || resolved === "current") return "Current page";
+    return hostnameOf(resolved) || mention.label || "Browser";
+};
+
+/** Formats a named slug mention (terminal or branch) using its label or unslugged path. */
+const formatNamedSlugMentionLabel = (mention: ChatMention, fallback: string): string =>
+    mention.label && mention.label !== mention.path
+        ? mention.label
+        : unslugMentionLabel(mention.path || fallback);
+
+/** Formats a generic entity mention using label, ID, path, or fallback noun. */
+const formatEntityMentionLabel = (mention: ChatMention, fallback: string): string =>
+    mention.label || mention.id || mention.path || fallback;
+
+/** Formats a DOM element mention as `<tag>`. */
+const formatElementMentionLabel = (mention: ChatMention): string => {
+    if (mention.label.startsWith("<")) return mention.label;
+    const tag = (mention.id || mention.path || "element").replace(/^element:/, "").replace(/-\d+$/, "");
+    return `<${tag}>`;
+};
+
+/** Formats a file, folder, or docs mention to its basename. */
+const formatPathMentionLabel = (mention: ChatMention): string => {
+    if (mention.label && !mention.label.includes("/")) return mention.label;
+    return mention.path ? pathBasename(mention.path) : mention.label;
+};
+
+const MENTION_LABEL_FORMATTERS: Partial<Record<ChatMention["kind"], (mention: ChatMention) => string>> = {
+    codebase: () => "Codebase",
+    selection: () => "Selection",
+    design: (m) => m.label || m.id || "Design",
+    chat: formatChatMentionLabel,
+    browser: formatBrowserMentionLabel,
+    terminal: (m) => formatNamedSlugMentionLabel(m, "Terminal"),
+    branch: (m) => formatNamedSlugMentionLabel(m, "Branch"),
+    mcp: (m) => formatEntityMentionLabel(m, "MCP"),
+    plugin: (m) => formatEntityMentionLabel(m, "Plugin"),
+    skill: (m) => formatEntityMentionLabel(m, "Skill"),
+    element: formatElementMentionLabel,
+    file: formatPathMentionLabel,
+    folder: formatPathMentionLabel,
+    docs: formatPathMentionLabel,
+};
+
+/** Short chip label for composer / messages (basename, not full path). */
+export const mentionDisplayLabel = (mention: ChatMention): string => {
+    const formatter = MENTION_LABEL_FORMATTERS[mention.kind];
+    if (formatter) return formatter(mention);
+    return mention.path ? pathBasename(mention.path) : mention.label;
+};
 
 /** Trim trailing slashes. */
 const trimTrailingSlashes = (value: string): string => {
@@ -161,58 +172,70 @@ const disambiguatePathToken = (
         : `@${kind}:${slugifyMentionLabel(cleanRel)}`;
 };
 
+/** Checks whether a path basename can use a bare `@basename` mention token without slugification. */
+const canUseBarePathToken = (rawPath: string, cleanBase: string): boolean =>
+    !/\s/.test(rawPath) && /^[\w.-]+$/.test(cleanBase);
+
+/** Formats a folder mention token (`@src/` or `@folder:my-dir/`) with collision disambiguation. */
+const formatFolderMentionToken = (mention: ChatMention): string => {
+    const rawPath = mention.path ?? mention.label;
+    const base = pathBasename(rawPath);
+    const cleanBase = base.endsWith("/") ? base.slice(0, -1) : base;
+    const shortToken = canUseBarePathToken(rawPath, cleanBase)
+        ? `@${cleanBase}/`
+        : `@folder:${slugifyMentionLabel(cleanBase)}/`;
+    return disambiguatePathToken(shortToken, rawPath, "folder");
+};
+
+/** Formats a file or docs mention token (`@index.ts` or `@file:my-file`) with collision disambiguation. */
+const formatFileOrDocsMentionToken = (mention: ChatMention, kind: "file" | "docs"): string => {
+    const rawPath = mention.path ?? mention.label;
+    const base = pathBasename(rawPath);
+    const shortToken = canUseBarePathToken(rawPath, base)
+        ? `@${base}`
+        : `@${kind}:${slugifyMentionLabel(base)}`;
+    return disambiguatePathToken(shortToken, rawPath, kind);
+};
+
+/** Formats a browser mention token (`@browser:localhost:3000` or `@browser:current`). */
+const formatBrowserMentionToken = (mention: ChatMention): string => {
+    const resolved = resolveBrowserMentionPath(mention.path) || mention.path || "";
+    const parsedHost = hostnameOf(resolved);
+    if (parsedHost) return `@browser:${parsedHost}`;
+    const fallback = !resolved || resolved === "current" ? "current" : slugifyMentionLabel(mention.label || "page");
+    return `@browser:${fallback}`;
+};
+
+/** Formats a skill mention token using the skill directory/filename or fallback identifier. */
+const formatSkillMentionToken = (mention: ChatMention): string => {
+    const source = skillMentionSource(mention.path) || mention.id || mention.path;
+    return `@skill:${slugifyMentionLabel(source || mention.label || "skill")}`;
+};
+
+const MENTION_TOKEN_FORMATTERS: Record<string, (mention: ChatMention) => string> = {
+    codebase: () => "@codebase",
+    selection: () => "@selection",
+    design: (m) => `@${(m.label || m.id || "design").trim().replace(/\s+/g, "-")}`,
+    folder: formatFolderMentionToken,
+    file: (m) => formatFileOrDocsMentionToken(m, "file"),
+    docs: (m) => formatFileOrDocsMentionToken(m, "docs"),
+    chat: (m) => `@chat:${slugifyMentionLabel(m.label || "Chat")}`,
+    terminal: (m) => `@terminal:${slugifyMentionLabel(m.label || "Terminal")}`,
+    branch: (m) => `@branch:${slugifyMentionLabel(m.label || m.path || "main")}`,
+    browser: formatBrowserMentionToken,
+    mcp: (m) => `@mcp:${slugifyMentionLabel(m.id || m.label || "server")}`,
+    plugin: (m) => `@plugin:${slugifyMentionLabel(m.id || m.path || m.label || "plugin")}`,
+    skill: formatSkillMentionToken,
+    element: (m) => `@${(m.id || "element:element").replace(/^@/, "")}`,
+};
+
 /**
  * Insert short tokens into the composer (`@favicon.ico`) and register the full
  * path so send-time resolution still works.
  */
 export const formatMentionToken = (mention: ChatMention): string => {
-    let token: string;
-    if (mention.kind === "codebase") token = "@codebase";
-    else if (mention.kind === "selection") token = "@selection";
-    else if (mention.kind === "design") {
-        const label = (mention.label || mention.id || "design").trim();
-        token = `@${label.replace(/\s+/g, "-")}`;
-    } else if (mention.kind === "folder") {
-        const rawPath = mention.path ?? mention.label;
-        const base = pathBasename(rawPath);
-        const cleanBase = base.endsWith("/") ? base.slice(0, -1) : base;
-        const shortToken =
-            /\s/.test(rawPath) || !/^[\w.-]+$/.test(cleanBase)
-                ? `@folder:${slugifyMentionLabel(cleanBase)}/`
-                : `@${cleanBase}/`;
-        token = disambiguatePathToken(shortToken, rawPath, "folder");
-    } else if (mention.kind === "file" || mention.kind === "docs") {
-        const rawPath = mention.path ?? mention.label;
-        const base = pathBasename(rawPath);
-        const shortToken =
-            /\s/.test(rawPath) || !/^[\w.-]+$/.test(base)
-                ? `@${mention.kind}:${slugifyMentionLabel(base)}`
-                : `@${base}`;
-        token = disambiguatePathToken(shortToken, rawPath, mention.kind);
-    } else if (mention.kind === "chat") {
-        token = `@chat:${slugifyMentionLabel(mention.label || "Chat")}`;
-    } else if (mention.kind === "terminal") {
-        token = `@terminal:${slugifyMentionLabel(mention.label || "Terminal")}`;
-    } else if (mention.kind === "branch") {
-        token = `@branch:${slugifyMentionLabel(mention.label || mention.path || "main")}`;
-    } else if (mention.kind === "browser") {
-        const resolved = resolveBrowserMentionPath(mention.path) || mention.path || "";
-        const host =
-            hostnameOf(resolved) ||
-            (resolved === "current" || !resolved ? "current" : slugifyMentionLabel(mention.label || "page"));
-        token = `@browser:${host}`;
-    } else if (mention.kind === "mcp") {
-        token = `@mcp:${slugifyMentionLabel(mention.id || mention.label || "server")}`;
-    } else if (mention.kind === "plugin") {
-        token = `@plugin:${slugifyMentionLabel(mention.id || mention.path || mention.label || "plugin")}`;
-    } else if (mention.kind === "skill") {
-        const source = skillMentionSource(mention.path);
-        token = `@skill:${slugifyMentionLabel(source || mention.id || mention.path || mention.label || "skill")}`;
-    } else if (mention.kind === "element") {
-        token = `@${(mention.id || "element:element").replace(/^@/, "")}`;
-    } else {
-        token = `@${mention.kind}:${mention.path ?? mention.label}`;
-    }
+    const format = MENTION_TOKEN_FORMATTERS[mention.kind];
+    const token = format ? format(mention) : `@${mention.kind}:${mention.path ?? mention.label}`;
     registerMentionToken(token, {
         ...mention,
         label: mentionDisplayLabel(mention),

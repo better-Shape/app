@@ -54,7 +54,7 @@ function openFileEdit(file: string, original: string, replacement: string, isRes
     // Open a real editor tab (not the lightweight preview-only pane).
     const fileName = file.split(/[\\/]/).pop() || file;
     const resolved = resolvePath(file);
-    void openProjectFile(file, fileName).then((ok) => {
+    openProjectFile(file, fileName).then((ok) => {
         if (!ok) return;
         window.dispatchEvent(
             new CustomEvent("bettershape-layout-toggle", {
@@ -603,7 +603,7 @@ export function GitStageGroup({ paths }: { paths: string[] }) {
                         className="gap-2"
                         onClick={() => {
                             const name = path.split(/[\\/]/).pop() || path;
-                            void openProjectFile(path, name);
+                            openProjectFile(path, name).catch(() => undefined);
                         }}
                     >
                         <FileIcon name={path.split(/[\\/]/).pop() || path} className="size-4 shrink-0" />
@@ -798,15 +798,16 @@ export function ReadGroup({
 }) {
     const unique = files.filter((f) => f.path);
     const tokenCount = tokens ?? estimateReadTokens(unique);
+    const readKey = createOccurrenceKeyer();
     return (
         <div className="flex flex-col gap-0.5 py-0.5">
-            {unique.map((file, i) => (
+            {unique.map((file) => (
                 <ActionLine
-                    key={`${file.path}-${i}`}
+                    key={readKey(file.path)}
                     action="Read"
                     detail={formatReadTarget(file)}
                     title={file.path}
-                    onClick={() => void openProjectFile(file.path)}
+                    onClick={() => { openProjectFile(file.path).catch(() => undefined); }}
                 />
             ))}
             {unique.length > 0 ? (
@@ -837,268 +838,267 @@ function computeGroupHeader(visible: Chunk[]): { icon: IconGlyph; label: string 
     return { icon: Sparkle20Filled, label: "Worked" };
 }
 
+/** Extracts up to 5 result URLs from a web-search markdown block. */
+const extractWebSearchResultUrls = (content: string | undefined): string[] =>
+    (content || "")
+        .split("---")
+        .map((part) => part.match(/URL:\s*(.+)/)?.[1]?.trim() || "")
+        .filter(Boolean)
+        .slice(0, 5);
+
+/** Formats an inspect-runtime target URL into `host + path` when parseable. */
+const formatInspectRuntimeDetail = (rawUrl: string): string => {
+    if (!rawUrl) return "";
+    try {
+        const parsed = new URL(rawUrl);
+        return `${parsed.host}${parsed.pathname === "/" ? "" : parsed.pathname}`;
+    } catch {
+        return rawUrl;
+    }
+};
+
+const GENERATED_MEDIA_NOUNS: Partial<Record<string, string>> = {
+    generated_svg: "SVG",
+    generated_audio: "audio",
+    generated_image: "image",
+};
+
+const EDIT_PENDING_LABELS: Partial<Record<string, string>> = {
+    applied: "Edited",
+    rejected: "Rejected edit",
+    cancelled: "Cancelled edit",
+};
+
+const GIT_OP_LABELS: Partial<Record<string, string>> = {
+    fetch: "Fetched",
+    status: "Git status",
+    log: "Git log",
+    diff: "Git diff",
+    branches: "Branches",
+    stage: "Staged",
+    commit: "Committed",
+};
+
+const STRUCTURED_GIT_OPS = new Set(["stage", "status", "log", "branches", "diff"]);
+
+/** Resolves the human-readable action label for a `git_operation` chunk. */
+const resolveGitOpLabel = (op: string, status: string): string => {
+    if (status === "running") return `${op}...`;
+    if (status === "error") return `${op} failed`;
+    if (status === "pending") return "Awaiting approval";
+    return GIT_OP_LABELS[op] ?? `Git ${op}`;
+};
+
+/** Builds the workflow action configuration for a `git_operation` chunk. */
+const buildGitOperationActionConfig = (block: Chunk) => {
+    const op = block.gitOp ?? "git";
+    const status = block.gitStatus ?? "completed";
+    const structured = STRUCTURED_GIT_OPS.has(op);
+    const stagePath = op === "stage" ? parseGitStagePath(block.content) : null;
+    const statusLines = op === "status" ? parseGitStatusLines(block.content) : [];
+    const logLines = op === "log" ? parseGitLogLines(block.content) : [];
+    const branchLines = op === "branches" ? parseGitBranchLines(block.content) : [];
+    const diffMeta = op === "diff" ? parseGitDiffMeta(block.content) : null;
+    return {
+        label: resolveGitOpLabel(op, status),
+        file: stagePath ?? diffMeta?.file ?? undefined,
+        query: structured ? undefined : block.content?.trim() || undefined,
+        expandable: !structured && Boolean(block.content && block.content.length > 80),
+        content: block.content,
+        icon: (status === "running" ? "refresh" : "git-branch") as "refresh" | "git-branch",
+        gitStatusLines: statusLines.length > 0 ? statusLines : undefined,
+        gitLogLines: logLines.length > 0 ? logLines : undefined,
+        gitBranchLines: branchLines.length > 0 ? branchLines : undefined,
+        gitDiffMeta: diffMeta?.body ? diffMeta : undefined,
+    };
+};
+
+/** Builds the workflow action configuration for a `terminal_command` or `run` chunk. */
+const buildTerminalActionConfig = (block: Chunk) => {
+    const label =
+        block.commandStatus === "pending"
+            ? "Awaiting approval"
+            : block.commandStatus === "background"
+              ? "Running in background"
+              : "Ran";
+    return {
+        label,
+        query: block.command || block.content,
+        expandable: Boolean(block.content && block.content.trim() !== block.command?.trim()),
+        content: block.content ? block.content.replace(block.command || "", "").trim() : "",
+        commandId: block.commandId,
+        commandStatus: block.commandStatus,
+        commandReason: block.commandReason,
+    };
+};
+
+/** Builds the workflow action configuration for a `web_search` or `web_result` chunk. */
+const buildWebSearchActionConfig = (block: Chunk) => ({
+    label: block.type === "web_result" || !block.isGenerating ? "Searched web" : "Searching web",
+    query: block.query,
+    expandable: Boolean(block.content),
+    content: block.content,
+    resultUrls: extractWebSearchResultUrls(block.content),
+});
+
+/** Builds the workflow action configuration for an `inspect_runtime` chunk. */
+const buildInspectRuntimeActionConfig = (block: Chunk, inFlight: boolean | undefined) => {
+    const detail = formatInspectRuntimeDetail((block.query || "").trim());
+    const kind = (block.inspectKind || "").trim();
+    return {
+        label: inFlight ? "Inspecting" : "Inspected",
+        query: detail || kind || "runtime",
+        expandable: Boolean(block.content?.trim()),
+        content: block.content,
+        chromiumIcon: true,
+    };
+};
+
+/** Builds the workflow action configuration for generated media chunks. */
+const buildGeneratedMediaActionConfig = (block: Chunk) => {
+    const noun = GENERATED_MEDIA_NOUNS[block.type] ?? "image";
+    return {
+        label: block.isGenerating ? `Generating ${noun}` : `Generated ${noun}`,
+        expandable: true,
+        content: block.content,
+    };
+};
+
+type WorkflowActionBuilder = (block: Chunk, inFlight: boolean | undefined) => {
+    label: string;
+    query?: string;
+    file?: string;
+    expandable: boolean;
+    content?: string;
+    resultUrls?: string[];
+    faviconUrl?: string;
+    onClick?: () => void;
+    chromiumIcon?: boolean;
+    original?: string;
+    replacement?: string;
+    commandId?: string;
+    commandStatus?: Chunk["commandStatus"];
+    commandReason?: string;
+    icon?: "refresh" | "git-branch";
+    gitStatusLines?: ReturnType<typeof parseGitStatusLines>;
+    gitLogLines?: ReturnType<typeof parseGitLogLines>;
+    gitBranchLines?: ReturnType<typeof parseGitBranchLines>;
+    gitDiffMeta?: ReturnType<typeof parseGitDiffMeta>;
+};
+
+const WORKFLOW_ACTION_BUILDERS: Record<string, WorkflowActionBuilder> = {
+    think: (block, inFlight) => ({
+        label: inFlight ? "Thinking" : "Thought",
+        expandable: true,
+        content: block.content,
+    }),
+    thought: (block, inFlight) => ({
+        label: inFlight ? "Thinking" : "Thought",
+        expandable: true,
+        content: block.content,
+    }),
+    search: (block, inFlight) => ({
+        label: inFlight ? "Searching" : "Searched",
+        query: block.query || block.content,
+        expandable: Boolean(block.content) && block.content !== block.query,
+        content: block.content,
+    }),
+    search_result: (block) => ({
+        label: "Searched",
+        query: block.query,
+        expandable: Boolean(block.content),
+        content: block.content,
+    }),
+    web_search: buildWebSearchActionConfig,
+    web_result: buildWebSearchActionConfig,
+    browse_session: (block, inFlight) => ({
+        label: inFlight ? "Opening" : "Opened",
+        query: block.visitTitle || block.visitUrl || "page",
+        expandable: false,
+    }),
+    web_visit: (block) => ({
+        label: block.isGenerating ? "Visiting" : "Visited",
+        query: block.visitHost || block.visitTitle || block.content,
+        file: undefined,
+        expandable: false,
+        faviconUrl: block.visitUrl || block.visitHost,
+        onClick: () => {
+            const href = block.visitUrl;
+            if (href) commands.openUrlExternal(href).catch(() => undefined);
+        },
+    }),
+    inspect_runtime: buildInspectRuntimeActionConfig,
+    plugin_call: (block) => ({
+        label: block.pluginLabel || "Plugin",
+        query: block.pluginToolkit,
+        expandable: false,
+        content: block.content,
+    }),
+    generated_svg: buildGeneratedMediaActionConfig,
+    generated_image: buildGeneratedMediaActionConfig,
+    generated_audio: buildGeneratedMediaActionConfig,
+    subagent: (block) => ({
+        label: "Spawned",
+        query: block.query || "agent",
+        expandable: false,
+        content: block.content,
+    }),
+    subagent_ref: (block) => ({
+        label: "Spawned",
+        query: block.query || "agent",
+        expandable: false,
+        content: block.content,
+    }),
+    grep: (block, inFlight) => ({
+        label: inFlight ? "Grepping" : "Grepped",
+        query: block.query || block.content,
+        expandable: Boolean(block.content),
+        content: block.content,
+    }),
+    cat: (block) => ({
+        label: "Read",
+        file: block.content,
+        expandable: false,
+        onClick: () => {
+            if (block.content) openProjectFile(block.content).catch(() => undefined);
+        },
+    }),
+    ls: (block) => {
+        const trimmed = (block.content || "").trim();
+        return {
+            label: "Listed",
+            query: trimmed === "." ? "project" : trimmed.split(/[\\/]/).pop(),
+            expandable: false,
+        };
+    },
+    create_file: (block) => ({ label: "Created", file: block.content, expandable: false }),
+    mkdir: (block) => ({ label: "Created directory", file: block.content, expandable: false }),
+    delete_file: (block) => ({ label: "Deleted", file: block.content, expandable: false }),
+    rename_file: (block) => ({ label: "Renamed", query: block.content, expandable: false }),
+    rename_chat: (block) => ({ label: "Renamed chat", query: block.content, expandable: false }),
+    edit: (block) => ({
+        label: block.isGenerating ? "Editing" : "Edited",
+        file: block.file || "",
+        expandable: false,
+        original: block.original,
+        replacement: block.replacement,
+    }),
+    edit_pending: (block) => ({
+        label: EDIT_PENDING_LABELS[block.commandStatus ?? ""] ?? "Proposed edit",
+        file: block.file || "",
+        expandable: false,
+        original: block.original,
+        replacement: block.replacement,
+    }),
+    terminal_command: buildTerminalActionConfig,
+    run: buildTerminalActionConfig,
+    git_operation: buildGitOperationActionConfig,
+};
+
 /** Get workflow action config. */
 export const getWorkflowActionConfig = (block: Chunk, isActive?: boolean) => {
-    const inFlight = isActive ?? block.isGenerating;
-    switch (block.type) {
-        case "think":
-        case "thought":
-            return {
-                label: inFlight ? "Thinking" : "Thought",
-                expandable: true,
-                content: block.content,
-            };
-        case "search":
-            return {
-                label: inFlight ? "Searching" : "Searched",
-                query: block.query || block.content,
-                expandable: Boolean(block.content) && block.content !== block.query,
-                content: block.content,
-            };
-        case "search_result":
-            return {
-                label: "Searched",
-                query: block.query,
-                expandable: Boolean(block.content),
-                content: block.content,
-            };
-        case "web_search":
-        case "web_result": {
-            const hits = (block.content || "")
-                .split("---")
-                .map((part) => {
-                    const urlMatch = part.match(/URL:\s*(.+)/);
-                    return urlMatch?.[1]?.trim() || "";
-                })
-                .filter(Boolean);
-            return {
-                label: block.type === "web_result" || !block.isGenerating ? "Searched web" : "Searching web",
-                query: block.query,
-                expandable: Boolean(block.content),
-                content: block.content,
-                resultUrls: hits.slice(0, 5),
-            };
-        }
-        case "browse_session":
-            return {
-                label: inFlight ? "Opening" : "Opened",
-                query: block.visitTitle || block.visitUrl || "page",
-                expandable: false,
-            };
-        case "web_visit":
-            return {
-                label: block.isGenerating ? "Visiting" : "Visited",
-                query: block.visitHost || block.visitTitle || block.content,
-                file: undefined,
-                expandable: false,
-                faviconUrl: block.visitUrl || block.visitHost,
-                onClick: () => {
-                    const href = block.visitUrl;
-                    if (href) commands.openUrlExternal(href).catch(() => undefined);
-                },
-            };
-        case "inspect_runtime": {
-            const url = (block.query || "").trim();
-            let detail = url;
-            try {
-                if (url) {
-                    const parsed = new URL(url);
-                    detail = `${parsed.host}${parsed.pathname === "/" ? "" : parsed.pathname}`;
-                }
-            } catch {
-                /* keep raw url */
-            }
-            const kind = (block.inspectKind || "").trim();
-            return {
-                label: inFlight ? "Inspecting" : "Inspected",
-                query: detail || kind || "runtime",
-                expandable: Boolean(block.content?.trim()),
-                content: block.content,
-                chromiumIcon: true,
-            };
-        }
-        case "plugin_call":
-            return {
-                label: block.pluginLabel || "Plugin",
-                query: block.pluginToolkit,
-                expandable: false,
-                content: block.content,
-            };
-        case "generated_svg":
-        case "generated_image":
-        case "generated_audio":
-            return {
-                label: block.isGenerating
-                    ? `Generating ${block.type === "generated_svg" ? "SVG" : block.type === "generated_audio" ? "audio" : "image"}`
-                    : `Generated ${block.type === "generated_svg" ? "SVG" : block.type === "generated_audio" ? "audio" : "image"}`,
-                expandable: true,
-                content: block.content,
-            };
-        case "subagent":
-        case "subagent_ref":
-            return {
-                label: "Spawned",
-                query: block.query || "agent",
-                expandable: false,
-                content: block.content,
-            };
-        case "grep":
-            return {
-                label: inFlight ? "Grepping" : "Grepped",
-                query: block.query || block.content,
-                expandable: Boolean(block.content),
-                content: block.content,
-            };
-        case "cat":
-            return {
-                label: "Read",
-                file: block.content,
-                expandable: false,
-                onClick: () => {
-                    if (block.content) {
-                        openProjectFile(block.content).catch(() => undefined);
-                    }
-                },
-            };
-        case "ls":
-            return {
-                label: "Listed",
-                query: (block.content || "").trim() === "." ? "project" : (block.content || "").split(/[\\/]/).pop(),
-                expandable: false,
-            };
-        case "create_file":
-            return {
-                label: "Created",
-                file: block.content,
-                expandable: false,
-            };
-        case "mkdir":
-            return {
-                label: "Created directory",
-                file: block.content,
-                expandable: false,
-            };
-        case "delete_file":
-            return {
-                label: "Deleted",
-                file: block.content,
-                expandable: false,
-            };
-        case "rename_file":
-            return {
-                label: "Renamed",
-                query: block.content,
-                expandable: false,
-            };
-        case "rename_chat":
-            return {
-                label: "Renamed chat",
-                query: block.content,
-                expandable: false,
-            };
-        case "edit": {
-            const file = block.file || "";
-            return {
-                label: block.isGenerating ? "Editing" : "Edited",
-                file,
-                expandable: false,
-                original: block.original,
-                replacement: block.replacement,
-            };
-        }
-        case "edit_pending": {
-            const file = block.file || "";
-            const label =
-                block.commandStatus === "applied"
-                    ? "Edited"
-                    : block.commandStatus === "rejected"
-                        ? "Rejected edit"
-                        : block.commandStatus === "cancelled"
-                            ? "Cancelled edit"
-                            : "Proposed edit";
-            return {
-                label,
-                file,
-                expandable: false,
-                original: block.original,
-                replacement: block.replacement,
-            };
-        }
-        case "terminal_command":
-        case "run":
-            return {
-                label:
-                    block.commandStatus === "pending"
-                        ? "Awaiting approval"
-                        : block.commandStatus === "background"
-                          ? "Running in background"
-                          : "Ran",
-                query: block.command || block.content,
-                expandable: Boolean(block.content && block.content.trim() !== block.command?.trim()),
-                content: block.content ? block.content.replace(block.command || "", "").trim() : "",
-                commandId: block.commandId,
-                commandStatus: block.commandStatus,
-                commandReason: block.commandReason,
-            };
-        case "git_operation": {
-            const op = block.gitOp ?? "git";
-            const status = block.gitStatus ?? "completed";
-            const stagePath = op === "stage" ? parseGitStagePath(block.content) : null;
-            const statusLines = op === "status" ? parseGitStatusLines(block.content) : [];
-            const logLines = op === "log" ? parseGitLogLines(block.content) : [];
-            const branchLines = op === "branches" ? parseGitBranchLines(block.content) : [];
-            const diffMeta = op === "diff" ? parseGitDiffMeta(block.content) : null;
-            const label =
-                status === "running"
-                    ? `${op}...`
-                    : status === "error"
-                        ? `${op} failed`
-                        : status === "pending"
-                            ? `Awaiting approval`
-                            : op === "fetch"
-                                ? "Fetched"
-                                : op === "status"
-                                    ? "Git status"
-                                    : op === "log"
-                                        ? "Git log"
-                                        : op === "diff"
-                                            ? "Git diff"
-                                            : op === "branches"
-                                                ? "Branches"
-                                                : op === "stage"
-                                                    ? "Staged"
-                                                    : op === "commit"
-                                                        ? "Committed"
-                                                        : `Git ${op}`;
-            return {
-                label,
-                file: stagePath ?? diffMeta?.file ?? undefined,
-                query:
-                    op === "stage" ||
-                    op === "status" ||
-                    op === "log" ||
-                    op === "branches" ||
-                    op === "diff"
-                        ? undefined
-                        : block.content?.trim() || undefined,
-                expandable:
-                    op !== "stage" &&
-                    op !== "status" &&
-                    op !== "log" &&
-                    op !== "branches" &&
-                    op !== "diff" &&
-                    Boolean(block.content && block.content.length > 80),
-                content: block.content,
-                icon: status === "running" ? "refresh" : "git-branch",
-                gitStatusLines: statusLines.length > 0 ? statusLines : undefined,
-                gitLogLines: logLines.length > 0 ? logLines : undefined,
-                gitBranchLines: branchLines.length > 0 ? branchLines : undefined,
-                gitDiffMeta: diffMeta?.body ? diffMeta : undefined,
-            };
-        }
-        default:
-            return null;
-    }
+    const builder = WORKFLOW_ACTION_BUILDERS[block.type];
+    return builder ? builder(block, isActive ?? block.isGenerating) : null;
 };
 
 export function isRenderableWorkflowBlock(block: Chunk, isActive?: boolean) {
@@ -1169,7 +1169,7 @@ export const AgentWorkflow = ({
                                   : `${names[0]} and more`;
                         return (
                             <ActionLine
-                                key={rowKey(`reads:${names[0] ?? ""}`)}
+                                key={rowKey(`reads:${names.at(0) ?? ""}`)}
                                 action="Explored"
                                 detail={detail}
                             />
@@ -1233,7 +1233,7 @@ export const AgentWorkflow = ({
                         });
                         return (
                             <WebSearchBlock
-                                key={rowKey(`web:${queries[0] ?? ""}`)}
+                                key={rowKey(`web:${queries.at(0) ?? ""}`)}
                                 query={queries[queries.length - 1]}
                                 searches={queries.length}
                                 results={unique}
@@ -1251,7 +1251,7 @@ export const AgentWorkflow = ({
                                   : `${names[0]} and more`;
                         return (
                             <ActionLine
-                                key={rowKey(`writes:${names[0] ?? ""}`)}
+                                key={rowKey(`writes:${names.at(0) ?? ""}`)}
                                 action="Edited"
                                 detail={detail}
                             />
@@ -1311,7 +1311,7 @@ export const AgentWorkflow = ({
 
 function FilePill({ path, onClick }: { path: string; onClick?: () => void }) {
     const fileName = path.split(/[\\/]/).pop() || path;
-    const handleOpen = onClick ?? (() => { void openProjectFile(path, fileName); });
+    const handleOpen = onClick ?? (() => { openProjectFile(path, fileName).catch(() => undefined); });
     return (
         <span
             role="button"
@@ -1331,58 +1331,41 @@ function FilePill({ path, onClick }: { path: string; onClick?: () => void }) {
     );
 }
 
-/** ActionItem helper. */
-export function ActionItem({
-    block,
-    isFileEditResolved,
-}: {
-    block: Chunk;
-    isFileEditResolved?: (file: string, replacement?: string) => boolean;
-}) {
-    const config = getWorkflowActionConfig(block);
+type WorkflowActionConfig = NonNullable<ReturnType<typeof getWorkflowActionConfig>>;
 
-    const isThink = block.type === "think" || block.type === "thought";
-    const isEdit = block.type === "edit";
+const MARKDOWN_PROSE_CHUNK_TYPES = new Set([
+    "think",
+    "thought",
+    "search_result",
+    "web_result",
+    "inspect_runtime",
+]);
 
-    const editStats = React.useMemo(() => {
-        if (!isEdit || block.isGenerating) return null;
-        return countChangedLines(block.original || "", block.replacement || "");
-    }, [isEdit, block.original, block.replacement, block.isGenerating]);
+const SUBAGENT_RAW_STATUS_MAP: Partial<Record<string, "running" | "done" | "error" | "pending">> = {
+    done: "done",
+    completed: "done",
+    error: "error",
+    failed: "error",
+    pending: "pending",
+};
 
-    if (!config) return null;
+const SUBAGENT_ACTIVITY_BY_STATUS: Partial<Record<string, string>> = {
+    done: "Completed",
+    error: "Failed",
+};
 
-    if (block.type === "terminal_command") {
-        return <TerminalCommandStep block={block} />;
-    }
-
-    if (block.type === "edit_pending" && (block.commandStatus || "pending") === "pending") {
-        // Edit approval cards live in TurnWorkflowSummary; keep a compact
-        // fallback if this legacy AgentWorkflow path still renders one.
-        return (
-            <ActionLine
-                action="Pending"
-                detail={(block.file || "").split(/[\\/]/).pop() || "file"}
-            />
-        );
-    }
-
-    if (block.type === "generated_svg" || block.type === "generated_image" || block.type === "generated_audio") {
-        return <GeneratedMediaStep block={block} />;
-    }
-
-    if (block.type === "git_operation" && block.gitOp === "status" && config.gitStatusLines?.length) {
+/** Renders structured `git_operation` groups (`status`, `log`, `branches`, `diff`, `stage`) when matched. */
+const renderStructuredGitGroup = (block: Chunk, config: WorkflowActionConfig): React.ReactNode | null => {
+    if (block.gitOp === "status" && config.gitStatusLines?.length) {
         return <GitStatusGroup lines={config.gitStatusLines} />;
     }
-
-    if (block.type === "git_operation" && block.gitOp === "log" && config.gitLogLines?.length) {
+    if (block.gitOp === "log" && config.gitLogLines?.length) {
         return <GitLogGroup lines={config.gitLogLines} />;
     }
-
-    if (block.type === "git_operation" && block.gitOp === "branches" && config.gitBranchLines?.length) {
+    if (block.gitOp === "branches" && config.gitBranchLines?.length) {
         return <GitBranchesGroup lines={config.gitBranchLines} />;
     }
-
-    if (block.type === "git_operation" && block.gitOp === "diff" && config.gitDiffMeta) {
+    if (block.gitOp === "diff" && config.gitDiffMeta) {
         return (
             <GitDiffGroup
                 file={config.gitDiffMeta.file}
@@ -1391,8 +1374,14 @@ export function ActionItem({
             />
         );
     }
+    return null;
+};
 
-    if (block.type === "git_operation" && block.gitOp === "stage" && config.file) {
+/** Renders a `git_operation` chunk as either a structured git group, stage chip, or inline status line. */
+const renderGitWorkflowActionItem = (block: Chunk, config: WorkflowActionConfig): React.ReactNode => {
+    const structured = renderStructuredGitGroup(block, config);
+    if (structured) return structured;
+    if (block.gitOp === "stage" && config.file) {
         return (
             <GitActionChip label="Staged" detail={config.file.split(/[\\/]/).pop()}>
                 <div className="flex min-w-0 items-center gap-2 rounded-lg px-2 py-1.5">
@@ -1402,140 +1391,216 @@ export function ActionItem({
             </GitActionChip>
         );
     }
-
-    if (block.type === "git_operation") {
-        const running = block.gitStatus === "running";
-        const failed = block.gitStatus === "error";
-        const content = (config.content || "").trim();
-        const fileLabel = config.file?.split(/[\\/]/).pop();
-        return (
-            <div className="flex w-fit max-w-full items-center gap-2 py-0.5 text-sm">
-                <Icon
-                    icon={Branch20Regular}
-                    className={cn("icon-sm shrink-0", running && "animate-spin", failed ? "text-error" : "text-text-muted")}
-                />
-                <span className={cn("text-text-secondary", failed && "text-error")}>{config.label}</span>
-                {fileLabel ? (
-                    <span className="inline-flex min-w-0 items-center gap-1 text-text-muted">
-                        <FileIcon name={fileLabel} className="size-4" />
-                        <span className="truncate">{fileLabel}</span>
-                    </span>
-                ) : null}
-                {content && content.length < 180 && !fileLabel ? (
-                    <span className="truncate text-text-muted">{content}</span>
-                ) : null}
-            </div>
-        );
-    }
-
-    if (block.type === "subagent" || block.type === "subagent_ref") {
-        const name = block.query || "agent";
-        const id = block.file || name;
-        return (
-            <ActionLine
-                action="Spawned"
-                detail={name}
-                icon={providerIcon(block.command || "auto", 14)}
-                onClick={() => {
-                    const rawStatus = (block.commandStatus || "").toLowerCase();
-                    const subStatus: "running" | "done" | "error" | "pending" =
-                        rawStatus === "done" || rawStatus === "completed"
-                            ? "done"
-                            : rawStatus === "error" || rawStatus === "failed"
-                              ? "error"
-                              : rawStatus === "pending"
-                                ? "pending"
-                                : "running";
-                    const subActivity =
-                        subStatus === "done"
-                            ? "Completed"
-                            : subStatus === "error"
-                              ? "Failed"
-                              : "Working...";
-                    import("@/features/agent/subagents/store")
-                        .then(({ openSubagent, upsertSubagent }) => {
-                            upsertSubagent({
-                                id,
-                                title: name,
-                                agent: name,
-                                model: block.command || undefined,
-                                activity: subActivity,
-                                task: block.type === "subagent_ref" ? block.content : undefined,
-                                transcript: block.type === "subagent" ? block.content : undefined,
-                                status: subStatus,
-                            });
-                            openSubagent(id);
-                        })
-                        .catch(() => {
-                            /* ignore */
-                        });
-                }}
+    const failed = block.gitStatus === "error";
+    const content = (config.content || "").trim();
+    const fileLabel = config.file?.split(/[\\/]/).pop();
+    const inlineDetail = !fileLabel && content.length > 0 && content.length < 180 ? content : "";
+    return (
+        <div className="flex w-fit max-w-full items-center gap-2 py-0.5 text-sm">
+            <Icon
+                icon={Branch20Regular}
+                className={cn(
+                    "icon-sm shrink-0",
+                    block.gitStatus === "running" && "animate-spin",
+                    failed ? "text-error" : "text-text-muted",
+                )}
             />
-        );
+            <span className={cn("text-text-secondary", failed && "text-error")}>{config.label}</span>
+            {fileLabel ? (
+                <span className="inline-flex min-w-0 items-center gap-1 text-text-muted">
+                    <FileIcon name={fileLabel} className="size-4" />
+                    <span className="truncate">{fileLabel}</span>
+                </span>
+            ) : null}
+            {inlineDetail ? <span className="truncate text-text-muted">{inlineDetail}</span> : null}
+        </div>
+    );
+};
+
+/** Opens or upserts a subagent detail card when a `subagent` / `subagent_ref` workflow row is clicked. */
+const openWorkflowSubagentCard = (block: Chunk, id: string, name: string) => {
+    const rawStatus = (block.commandStatus || "").toLowerCase();
+    const subStatus = SUBAGENT_RAW_STATUS_MAP[rawStatus] ?? "running";
+    const subActivity = SUBAGENT_ACTIVITY_BY_STATUS[subStatus] ?? "Working...";
+    import("@/features/agent/subagents/store")
+        .then(({ openSubagent, upsertSubagent }) => {
+            upsertSubagent({
+                id,
+                title: name,
+                agent: name,
+                model: block.command || undefined,
+                activity: subActivity,
+                task: block.type === "subagent_ref" ? block.content : undefined,
+                transcript: block.type === "subagent" ? block.content : undefined,
+                status: subStatus,
+            });
+            openSubagent(id);
+        })
+        .catch(() => undefined);
+};
+
+/** Renders a `subagent` or `subagent_ref` workflow row. */
+const renderSubagentActionItem = (block: Chunk): React.ReactNode => {
+    const name = block.query || "agent";
+    const id = block.file || name;
+    return (
+        <ActionLine
+            action="Spawned"
+            detail={name}
+            icon={providerIcon(block.command || "auto", 14)}
+            onClick={() => openWorkflowSubagentCard(block, id, name)}
+        />
+    );
+};
+
+/** Truncates a workflow query string to 60 characters for single-line display. */
+const formatShortWorkflowQuery = (query: string | undefined): string => {
+    if (!query) return "";
+    return query.length > 60 ? `${query.slice(0, 60)}...` : query;
+};
+
+/** Collects favicon URLs from `faviconUrl` and `resultUrls` on a workflow config. */
+const collectWorkflowFavicons = (config: WorkflowActionConfig): string[] => {
+    const out: string[] = [];
+    if (config.faviconUrl) out.push(config.faviconUrl);
+    if (config.resultUrls) out.push(...config.resultUrls);
+    return out;
+};
+
+/** Checks whether an expanded workflow disclosure body should render through `ChatMarkdown`. */
+const shouldRenderWorkflowMarkdown = (block: Chunk, content: string | undefined): boolean => {
+    if (MARKDOWN_PROSE_CHUNK_TYPES.has(block.type)) return true;
+    return block.type === "search" && Boolean(content && looksLikeProseMarkdown(content));
+};
+
+/** Builds click handler for non-expandable `edit` or link-backed workflow action lines. */
+const buildWorkflowActionClick = (
+    block: Chunk,
+    config: WorkflowActionConfig,
+    editResolved: boolean,
+): (() => void) | undefined => {
+    if (config.expandable) return undefined;
+    if (block.type === "edit" && block.file) {
+        const file = block.file;
+        return () => openFileEdit(file, block.original || "", block.replacement || "", editResolved);
     }
+    return config.onClick;
+};
 
-        const useMarkdown =
-        isThink
-        || block.type === "search_result"
-        || block.type === "web_result"
-        || block.type === "inspect_runtime"
-        || (block.type === "search" && Boolean(config.content && looksLikeProseMarkdown(config.content)));
+/** Renders the expandable disclosure body inside a generic `ActionLine`. */
+const WorkflowActionDisclosureBody = ({
+    isThink,
+    useMarkdown,
+    content,
+}: {
+    isThink: boolean;
+    useMarkdown: boolean;
+    content: string;
+}) => {
+    const toneClass = isThink
+        ? "leading-relaxed text-text-muted"
+        : useMarkdown
+          ? "font-sans"
+          : "overflow-x-auto whitespace-pre-wrap rounded-md border border-border-subtle bg-panel p-2 font-mono chat-text text-text-secondary";
+    return (
+        <div className={cn("mb-1 mt-1 chat-text", toneClass)}>
+            {useMarkdown ? <ChatMarkdown content={content} /> : content}
+        </div>
+    );
+};
 
-    const editResolved = isEdit && block.file
-        ? (isFileEditResolved?.(block.file, block.replacement) ?? false)
-        : false;
-
-    const lead = splitActionLabel(isEdit && editResolved ? "Applied" : config.label);
-    const queryText = config.query
-        ? String(config.query).length > 60
-            ? `${String(config.query).slice(0, 60)}...`
-            : String(config.query)
-        : "";
+/** Renders the generic `ActionLine` presentation for non-specialized workflow chunks. */
+const renderDefaultWorkflowActionLine = ({
+    block,
+    config,
+    editStats,
+    editResolved,
+}: {
+    block: Chunk;
+    config: WorkflowActionConfig;
+    editStats: { add: number; del: number } | null;
+    editResolved: boolean;
+}): React.ReactNode => {
+    const isThink = block.type === "think" || block.type === "thought";
+    const useMarkdown = shouldRenderWorkflowMarkdown(block, config.content);
+    const lead = splitActionLabel(editResolved ? "Applied" : config.label);
     const fileLabel = config.file?.split(/[\\/]/).pop() || "";
-    const detail = [lead.detail, queryText, fileLabel].filter(Boolean).join(" ");
-    const favicons = [
-        ...("faviconUrl" in config && config.faviconUrl ? [String(config.faviconUrl)] : []),
-        ...("resultUrls" in config && Array.isArray(config.resultUrls) ? config.resultUrls : []),
-    ];
+    const detail = [lead.detail, formatShortWorkflowQuery(config.query), fileLabel].filter(Boolean).join(" ");
+    const delta = editResolved || !editStats ? { add: 0, del: 0 } : editStats;
+    const showBody = Boolean(config.expandable && config.content);
 
     return (
         <ActionLine
             action={lead.action}
             detail={detail || undefined}
-            add={!editResolved ? editStats?.add ?? 0 : 0}
-            del={!editResolved ? editStats?.del ?? 0 : 0}
-            favicons={favicons}
-            icon={
-                "chromiumIcon" in config && config.chromiumIcon ? (
-                    <Icon icon={Globe20Filled} className="text-text-muted" />
-                ) : undefined
-            }
-            onClick={
-                !config.expandable && (isEdit || config.onClick)
-                    ? () => {
-                          if (isEdit && block.file) {
-                              openFileEdit(block.file, block.original || "", block.replacement || "", editResolved);
-                              return;
-                          }
-                          config.onClick?.();
-                      }
-                    : undefined
-            }
+            add={delta.add}
+            del={delta.del}
+            favicons={collectWorkflowFavicons(config)}
+            icon={config.chromiumIcon ? <Icon icon={Globe20Filled} className="text-text-muted" /> : undefined}
+            onClick={buildWorkflowActionClick(block, config, editResolved)}
         >
-            {config.expandable && config.content ? (
-                <div
-                    className={cn(
-                        "mb-1 mt-1 chat-text",
-                        isThink
-                            ? "leading-relaxed text-text-muted"
-                            : useMarkdown
-                              ? "font-sans"
-                              : "overflow-x-auto whitespace-pre-wrap rounded-md border border-border-subtle bg-panel p-2 font-mono chat-text text-text-secondary",
-                    )}
-                >
-                    {useMarkdown ? <ChatMarkdown content={config.content || ""} /> : config.content}
-                </div>
+            {showBody ? (
+                <WorkflowActionDisclosureBody
+                    isThink={isThink}
+                    useMarkdown={useMarkdown}
+                    content={config.content ?? ""}
+                />
             ) : null}
         </ActionLine>
+    );
+};
+
+/** Dispatches specialized workflow block types (`terminal_command`, `edit_pending`, media, git, subagent) before falling back to `ActionLine`. */
+const renderSpecializedActionItem = (
+    block: Chunk,
+    config: WorkflowActionConfig,
+): React.ReactNode | undefined => {
+    if (block.type === "terminal_command") return <TerminalCommandStep block={block} />;
+    if (block.type === "edit_pending" && (block.commandStatus || "pending") === "pending") {
+        return <ActionLine action="Pending" detail={(block.file || "").split(/[\\/]/).pop() || "file"} />;
+    }
+    if (GENERATED_MEDIA_NOUNS[block.type]) return <GeneratedMediaStep block={block} />;
+    if (block.type === "git_operation") return renderGitWorkflowActionItem(block, config);
+    if (block.type === "subagent" || block.type === "subagent_ref") return renderSubagentActionItem(block);
+    return undefined;
+};
+
+/** Checks whether a file edit block has already been resolved in the workspace. */
+const checkEditBlockResolved = (
+    block: Chunk,
+    isFileEditResolved?: (file: string, replacement?: string) => boolean,
+): boolean => {
+    if (block.type !== "edit" || !block.file || !isFileEditResolved) return false;
+    return isFileEditResolved(block.file, block.replacement);
+};
+
+/** ActionItem helper. */
+export function ActionItem({
+    block,
+    isFileEditResolved,
+}: {
+    block: Chunk;
+    isFileEditResolved?: (file: string, replacement?: string) => boolean;
+}) {
+    const config = getWorkflowActionConfig(block);
+    const editStats = React.useMemo(() => {
+        if (block.type !== "edit" || block.isGenerating) return null;
+        return countChangedLines(block.original || "", block.replacement || "");
+    }, [block.type, block.original, block.replacement, block.isGenerating]);
+
+    if (!config) return null;
+
+    const specialized = renderSpecializedActionItem(block, config);
+    if (specialized !== undefined) return <>{specialized}</>;
+
+    return (
+        <>
+            {renderDefaultWorkflowActionLine({
+                block,
+                config,
+                editStats,
+                editResolved: checkEditBlockResolved(block, isFileEditResolved),
+            })}
+        </>
     );
 }

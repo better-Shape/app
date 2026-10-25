@@ -114,7 +114,7 @@ export const commands = {
         return content;
     },
     /** Read `path` only when it canonicalizes inside `root`. Skill scans use this. */
-    readFileWithin: async (path: string, root: string) => {
+    readFileWithin: (path: string, root: string) => {
         fileContentCache.delete(path);
         return invokeCommand<string>("read_file_within", { path, root });
     },

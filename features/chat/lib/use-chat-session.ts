@@ -85,12 +85,13 @@ function readPersistedChatTabs(projectPath: string | null | undefined): {
         const tabs = parsed.tabs.filter(
             (t) => t && typeof t.id === "string" && typeof t.title === "string",
         );
-        if (tabs.length === 0) return null;
+        const firstTab = tabs.at(0);
+        if (!firstTab) return null;
         const activeId =
             typeof parsed.activeId === "string"
             && tabs.some((t) => t.id === parsed.activeId)
                 ? parsed.activeId
-                : tabs[0]!.id;
+                : firstTab.id;
         return { tabs, activeId };
     } catch {
         return null;
@@ -359,7 +360,7 @@ export const useChatSession = (
         hasLiveTurn,
         getRequestOwner,
     } = useChatStream();
-    const refreshMetadataRef = React.useRef<() => Promise<void>>(async () => {});
+    const refreshMetadataRef = React.useRef<() => Promise<void>>(() => Promise.resolve());
     const [recentConvs, setRecentConvs] = React.useState<Conversation[]>([]);
     const [chatTitle, setChatTitle] = React.useState<string>("New Chat");
     const [openChatTabs, setOpenChatTabs] = React.useState<ChatTab[]>([
@@ -566,7 +567,7 @@ export const useChatSession = (
     );
 
     const markEditResolved = React.useCallback(
-        async (file: string, status: "applied" | "rejected", replacement?: string) => {
+        (file: string, status: "applied" | "rejected", replacement?: string): Promise<void> => {
             const n = file.replace(/\\/g, "/").toLowerCase();
             setResolvedFiles((prev) => {
                 const s = new Set(prev);
@@ -578,6 +579,7 @@ export const useChatSession = (
                 markFileResolved(convId, file, status, replacement);
             }
             setResolveRevision((v) => v + 1);
+            return Promise.resolve();
         },
         [conversationId],
     );
@@ -590,10 +592,10 @@ export const useChatSession = (
             if (!c.file) return false;
             if (c.type === "edit") return true;
             // Applied edits under require-edit-approval land as edit_pending status=applied.
-            if (c.type === "edit_pending" && (c.commandStatus === "applied" || c.commandStatus === "approved")) {
-                return true;
-            }
-            return false;
+            return (
+                c.type === "edit_pending"
+                && (c.commandStatus === "applied" || c.commandStatus === "approved")
+            );
         };
 
         messages.forEach((m, msgIdx) => {
@@ -1007,9 +1009,9 @@ export const useChatSession = (
         [sendError, setInputValue, setSendError],
     );
 
-    const handleNewChatRef = React.useRef<() => Promise<void>>(async () => {});
+    const handleNewChatRef = React.useRef<() => Promise<void>>(() => Promise.resolve());
     const sendToChatRef = React.useRef<(content: string, target: string) => Promise<boolean>>(
-        async () => false,
+        () => Promise.resolve(false),
     );
     /** Sends currently awaiting the backend. A counter, so overlapping sends cannot clear each other. */
     const sendsInFlightRef = React.useRef(0);

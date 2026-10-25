@@ -101,22 +101,7 @@ const formatExplorerMentionToken = (entryPath: string, projectPath: string, isDi
     })} `;
 };
 
-/** Renders the TreeNode UI component. */
-const TreeNode = ({
-    entry,
-    depth,
-    projectPath,
-    activePath,
-    query,
-    onOpenFile,
-    statusFor,
-    revealDir,
-    revealPath,
-    selectedPath,
-    cutPaths,
-    onSelect,
-    onClipboard,
-}: {
+type TreeNodeProps = {
     entry: FileEntry;
     depth: number;
     projectPath: string;
@@ -130,33 +115,50 @@ const TreeNode = ({
     cutPaths?: Set<string>;
     onSelect?: (entry: FileEntry) => void;
     onClipboard?: (action: ClipboardAction, entry: FileEntry) => void;
-}) => {
-    const [open, setOpen] = useState(false);
+};
+
+/** Checks whether two workspace file paths refer to the same normalized file. */
+const isSameNormalizedPath = (a: string | null, b: string): boolean =>
+    a != null && a.replace(/\\/g, "/").toLowerCase() === b.replace(/\\/g, "/").toLowerCase();
+
+/** Filters directory children against the explorer search needle while keeping subdirectories inspectable. */
+const filterDirectoryChildren = (
+    children: FileEntry[] | null,
+    needle: string,
+): FileEntry[] | undefined =>
+    children?.filter((child) => !needle || child.is_dir || child.name.toLowerCase().includes(needle));
+
+/** Returns true when a filtered directory has loaded with zero matching descendants or name match. */
+const shouldHideFilteredDir = (
+    name: string,
+    needle: string,
+    children: FileEntry[] | null,
+    visibleChildren: FileEntry[] | undefined,
+): boolean =>
+    Boolean(
+        needle &&
+            !name.toLowerCase().includes(needle) &&
+            children &&
+            visibleChildren &&
+            visibleChildren.length === 0,
+    );
+
+/** Loads directory children on demand and refreshes when `bettershape-files-changed` fires. */
+const useDirectoryChildren = (entry: FileEntry, isExpanded: boolean) => {
     const [children, setChildren] = useState<FileEntry[] | null>(null);
     const seq = useRef(0);
-    const nodeRef = useRef<HTMLButtonElement | null>(null);
-    // "Reveal in Explorer" force-expands every directory on the way to the target.
-    const inRevealTrace = Boolean(entry.is_dir && revealDir && isWithin(entry.path, revealDir));
-    const revealed = Boolean(revealPath && pathKey(entry.path) === pathKey(revealPath));
-    const isExpanded = open || Boolean(query.trim() && entry.is_dir) || inRevealTrace;
-    // A cut entry stays dimmed until it lands somewhere else, the way a file
-    // manager shows a pending move.
-    const cut = Boolean(cutPaths?.has(pathKey(entry.path)));
-    const selected = Boolean(selectedPath && pathKey(selectedPath) === pathKey(entry.path));
-
-    useEffect(() => {
-        if (!revealed) return;
-        nodeRef.current?.scrollIntoView({ block: "nearest" });
-    }, [revealed]);
 
     const load = useCallback(() => {
         if (!entry.is_dir) return undefined;
         const id = ++seq.current;
-        return commands.lsDir(entry.path).then(entries => {
-            if (seq.current === id) setChildren(sortEntries(entries));
-        }).catch(() => {
-            if (seq.current === id) setChildren([]);
-        });
+        return commands
+            .lsDir(entry.path)
+            .then((entries) => {
+                if (seq.current === id) setChildren(sortEntries(entries));
+            })
+            .catch(() => {
+                if (seq.current === id) setChildren([]);
+            });
     }, [entry.is_dir, entry.path]);
 
     useEffect(() => {
@@ -165,22 +167,26 @@ const TreeNode = ({
 
     useEffect(() => {
         if (!isExpanded || !entry.is_dir) return undefined;
-        const fn = () => { load(); };
+        /** Reloads expanded directory entries when workspace files change. */
+        const fn = () => {
+            load();
+        };
         window.addEventListener("bettershape-files-changed", fn);
         return () => window.removeEventListener("bettershape-files-changed", fn);
     }, [isExpanded, entry.is_dir, load]);
 
-    const pad = 8 + depth * 12;
-    const mark = gitMark(statusFor(entry.path));
-    const needle = query.trim().toLowerCase();
+    return children;
+};
 
-    const reveal = () => {
-        commands.revealPath(entry.path).catch(() => {});
-    };
-    const copyPath = () => {
+/** Builds explorer context-menu actions (`reveal`, `copyPath`, `addToChat`) for an entry. */
+const createEntryActions = (entry: FileEntry, projectPath: string) => ({
+    reveal: () => {
+        commands.revealPath(entry.path).catch(() => undefined);
+    },
+    copyPath: () => {
         navigator.clipboard.writeText(entry.path).catch(() => undefined);
-    };
-    const addToChat = () => {
+    },
+    addToChat: () => {
         const token = formatExplorerMentionToken(entry.path, projectPath, entry.is_dir);
         window.dispatchEvent(
             new CustomEvent("bettershape-chat-insert-prompt", {
@@ -188,118 +194,174 @@ const TreeNode = ({
             }),
         );
         window.dispatchEvent(new CustomEvent("bettershape-chat-focus-input"));
-    };
+    },
+});
 
-    if (entry.is_dir) {
-        const visibleChildren = children?.filter((child) => {
-            if (!needle || child.is_dir) return true;
-            return child.name.toLowerCase().includes(needle);
-        });
-        if (needle && !entry.name.toLowerCase().includes(needle) && visibleChildren && visibleChildren.length === 0 && children) {
-            return null;
-        }
-        return (
-            <div>
-                <ContextMenu>
-                    <ContextMenuTrigger asChild>
-                <button
-                    ref={nodeRef}
-                    type="button"
-                    onClick={() => { onSelect?.(entry); setOpen((v) => !v); }}
-                    className={cn(
-                        "flex h-6 w-full items-center gap-1 rounded-md pr-2 text-left text-sm text-text-secondary hover:bg-[var(--row-hover)] hover:text-text-primary",
-                        revealed && "bg-[var(--row-selected)] hover:bg-[var(--row-selected-hover)] text-text-primary",
-                        selected && !revealed && "bg-[var(--row-selected)] hover:bg-[var(--row-selected-hover)] text-text-primary",
-                        cut && "opacity-50",
-                    )}
-                    style={{ paddingLeft: pad }}
-                >
-                    <Icon
-                        icon={isExpanded ? ChevronDown20Regular : ChevronRight20Regular}
-                        className="icon-sm shrink-0 text-text-muted"
-                    />
-                    <span className="min-w-0 flex-1 truncate">{entry.name}</span>
-                </button>
-                    </ContextMenuTrigger>
-                    <ContextMenuContent className="min-w-40">
-                        <ContextMenuItem onClick={() => setOpen(true)}>Open</ContextMenuItem>
-                        <ContextMenuItem onClick={addToChat}>
-                            <Icon icon={Chat20Regular} />
-                            Add to Chat
-                        </ContextMenuItem>
-                        <ContextMenuItem onClick={reveal}>Reveal in Explorer</ContextMenuItem>
-                        <ContextMenuItem onClick={copyPath}>Copy Path</ContextMenuItem>
-                        <ContextMenuSeparator />
-                        <ContextMenuItem onClick={() => onClipboard?.("cut", entry)}>Cut</ContextMenuItem>
-                        <ContextMenuItem onClick={() => onClipboard?.("copy", entry)}>Copy</ContextMenuItem>
-                        <ContextMenuItem onClick={() => onClipboard?.("paste", entry)}>Paste</ContextMenuItem>
-                    </ContextMenuContent>
-                </ContextMenu>
-                {isExpanded ? (
-                    <div>
-                        {visibleChildren?.map((child) => (
+/** Computes row selection/cut class names for explorer tree items. */
+const treeRowToneClass = (highlighted: boolean, cut: boolean, baseRest: string): string =>
+    cn(
+        highlighted
+            ? "bg-[var(--row-selected)] hover:bg-[var(--row-selected-hover)] text-text-primary"
+            : baseRest,
+        cut && "opacity-50",
+    );
+
+/** Renders Cut / Copy / Paste menu items for an explorer tree entry. */
+const ClipboardMenuItems = ({
+    entry,
+    pasteLabel,
+    onClipboard,
+}: {
+    entry: FileEntry;
+    pasteLabel: string;
+    onClipboard?: (action: ClipboardAction, entry: FileEntry) => void;
+}) => (
+    <>
+        <ContextMenuItem onClick={() => onClipboard?.("cut", entry)}>Cut</ContextMenuItem>
+        <ContextMenuItem onClick={() => onClipboard?.("copy", entry)}>Copy</ContextMenuItem>
+        <ContextMenuItem onClick={() => onClipboard?.("paste", entry)}>{pasteLabel}</ContextMenuItem>
+    </>
+);
+
+/** Renders an expandable directory row and its context menu inside the file tree. */
+const DirectoryTreeBranch = ({
+    props,
+    nodeRef,
+    isExpanded,
+    highlighted,
+    cut,
+    pad,
+    needle,
+    childEntries,
+    setOpen,
+    actions,
+}: {
+    props: TreeNodeProps;
+    nodeRef: React.RefObject<HTMLButtonElement | null>;
+    isExpanded: boolean;
+    highlighted: boolean;
+    cut: boolean;
+    pad: number;
+    needle: string;
+    childEntries: FileEntry[] | null;
+    setOpen: React.Dispatch<React.SetStateAction<boolean>>;
+    actions: ReturnType<typeof createEntryActions>;
+}) => {
+    const { entry, onSelect, onClipboard } = props;
+    const visibleChildren = filterDirectoryChildren(childEntries, needle);
+    if (shouldHideFilteredDir(entry.name, needle, childEntries, visibleChildren)) return null;
+    const chevronIcon = isExpanded ? ChevronDown20Regular : ChevronRight20Regular;
+
+    return (
+        <div>
+            <ContextMenu>
+                <ContextMenuTrigger asChild>
+                    <button
+                        ref={nodeRef}
+                        type="button"
+                        onClick={() => {
+                            onSelect?.(entry);
+                            setOpen((v) => !v);
+                        }}
+                        className={cn(
+                            "flex h-6 w-full items-center gap-1 rounded-md pr-2 text-left text-sm",
+                            treeRowToneClass(
+                                highlighted,
+                                cut,
+                                "text-text-secondary hover:bg-[var(--row-hover)] hover:text-text-primary",
+                            ),
+                        )}
+                        style={{ paddingLeft: pad }}
+                    >
+                        <Icon icon={chevronIcon} className="icon-sm shrink-0 text-text-muted" />
+                        <span className="min-w-0 flex-1 truncate">{entry.name}</span>
+                    </button>
+                </ContextMenuTrigger>
+                <ContextMenuContent className="min-w-40">
+                    <ContextMenuItem onClick={() => setOpen(true)}>Open</ContextMenuItem>
+                    <ContextMenuItem onClick={actions.addToChat}>
+                        <Icon icon={Chat20Regular} />
+                        Add to Chat
+                    </ContextMenuItem>
+                    <ContextMenuItem onClick={actions.reveal}>Reveal in Explorer</ContextMenuItem>
+                    <ContextMenuItem onClick={actions.copyPath}>Copy Path</ContextMenuItem>
+                    <ContextMenuSeparator />
+                    <ClipboardMenuItems entry={entry} pasteLabel="Paste" onClipboard={onClipboard} />
+                </ContextMenuContent>
+            </ContextMenu>
+            {isExpanded ? (
+                <div>
+                    {visibleChildren?.map((child) => (
                         <TreeNode
                             key={child.path}
+                            {...props}
                             entry={child}
-                            depth={depth + 1}
-                            projectPath={projectPath}
-                            activePath={activePath}
-                            query={query}
-                            onOpenFile={onOpenFile}
-                            statusFor={statusFor}
-                            revealDir={revealDir}
-                            revealPath={revealPath}
-                            selectedPath={selectedPath}
-                            cutPaths={cutPaths}
-                            onSelect={onSelect}
-                            onClipboard={onClipboard}
+                            depth={props.depth + 1}
                         />
-                        ))}
-                    </div>
-                ) : null}
-            </div>
-        );
-    }
+                    ))}
+                </div>
+            ) : null}
+        </div>
+    );
+};
 
+/** Renders a leaf file row and its context menu inside the file tree. */
+const FileTreeLeaf = ({
+    props,
+    nodeRef,
+    highlighted,
+    cut,
+    pad,
+    needle,
+    actions,
+}: {
+    props: TreeNodeProps;
+    nodeRef: React.RefObject<HTMLButtonElement | null>;
+    highlighted: boolean;
+    cut: boolean;
+    pad: number;
+    needle: string;
+    actions: ReturnType<typeof createEntryActions>;
+}) => {
+    const { entry, onOpenFile, statusFor, onSelect, onClipboard } = props;
     if (needle && !entry.name.toLowerCase().includes(needle)) return null;
-
-    const active =
-        activePath != null
-        && activePath.replace(/\\/g, "/").toLowerCase() === entry.path.replace(/\\/g, "/").toLowerCase();
+    const mark = gitMark(statusFor(entry.path));
 
     return (
         <ContextMenu>
             <ContextMenuTrigger asChild>
-        <button
-            ref={nodeRef}
-            type="button"
-            onClick={() => { onSelect?.(entry); onOpenFile(entry.path); }}
-            className={cn(
-                "flex h-6 w-full items-center gap-1.5 rounded-md pr-2 text-left text-sm",
-                active || revealed
-                    ? "bg-[var(--row-selected)] hover:bg-[var(--row-selected-hover)] text-text-primary"
-                    : selected
-                      ? "bg-[var(--row-selected)] hover:bg-[var(--row-selected-hover)] text-text-primary"
-                      : "text-text-secondary hover:bg-[var(--row-hover)] hover:text-text-primary",
-                cut && "opacity-50",
-            )}
-            style={{ paddingLeft: pad }}
-        >
-            <FileIcon name={entry.name} className="size-4 shrink-0" />
-            <span className={cn("min-w-0 flex-1 truncate", mark?.className)}>{entry.name}</span>
-            {mark ? (
-                <span className={cn("shrink-0 text-xs font-medium", mark.className)}>{mark.letter}</span>
-            ) : null}
-        </button>
+                <button
+                    ref={nodeRef}
+                    type="button"
+                    onClick={() => {
+                        onSelect?.(entry);
+                        onOpenFile(entry.path);
+                    }}
+                    className={cn(
+                        "flex h-6 w-full items-center gap-1.5 rounded-md pr-2 text-left text-sm",
+                        treeRowToneClass(
+                            highlighted,
+                            cut,
+                            "text-text-secondary hover:bg-[var(--row-hover)] hover:text-text-primary",
+                        ),
+                    )}
+                    style={{ paddingLeft: pad }}
+                >
+                    <FileIcon name={entry.name} className="size-4 shrink-0" />
+                    <span className={cn("min-w-0 flex-1 truncate", mark?.className)}>{entry.name}</span>
+                    {mark ? (
+                        <span className={cn("shrink-0 text-xs font-medium", mark.className)}>{mark.letter}</span>
+                    ) : null}
+                </button>
             </ContextMenuTrigger>
             <ContextMenuContent className="min-w-40">
                 <ContextMenuItem onClick={() => onOpenFile(entry.path)}>Open</ContextMenuItem>
-                <ContextMenuItem onClick={addToChat}>
+                <ContextMenuItem onClick={actions.addToChat}>
                     <Icon icon={Chat20Regular} />
                     Add to Chat
                 </ContextMenuItem>
-                <ContextMenuItem onClick={reveal}>Reveal in Explorer</ContextMenuItem>
-                <ContextMenuItem onClick={copyPath}>Copy Path</ContextMenuItem>
+                <ContextMenuItem onClick={actions.reveal}>Reveal in Explorer</ContextMenuItem>
+                <ContextMenuItem onClick={actions.copyPath}>Copy Path</ContextMenuItem>
                 <ContextMenuSeparator />
                 <ContextMenuItem
                     onClick={() => {
@@ -311,11 +373,78 @@ const TreeNode = ({
                     Open Terminal
                 </ContextMenuItem>
                 <ContextMenuSeparator />
-                <ContextMenuItem onClick={() => onClipboard?.("cut", entry)}>Cut</ContextMenuItem>
-                <ContextMenuItem onClick={() => onClipboard?.("copy", entry)}>Copy</ContextMenuItem>
-                <ContextMenuItem onClick={() => onClipboard?.("paste", entry)}>Paste into Folder</ContextMenuItem>
+                <ClipboardMenuItems entry={entry} pasteLabel="Paste into Folder" onClipboard={onClipboard} />
             </ContextMenuContent>
         </ContextMenu>
+    );
+};
+
+/** Checks whether two optional explorer paths share the same normalized `pathKey`. */
+const matchesOptionalPathKey = (candidate: string | null | undefined, target: string): boolean =>
+    Boolean(candidate && pathKey(candidate) === pathKey(target));
+
+/** Checks whether a directory node should auto-expand from search or reveal trace. */
+const isAutoExpandedDir = (entry: FileEntry, needle: string, revealDir?: string): boolean => {
+    if (!entry.is_dir) return false;
+    return Boolean(needle) || Boolean(revealDir && isWithin(entry.path, revealDir));
+};
+
+/** Computes expansion, reveal, selection, and cut state for a single explorer tree node. */
+const computeTreeNodeFlags = (props: TreeNodeProps, open: boolean) => {
+    const needle = props.query.trim().toLowerCase();
+    const revealed = matchesOptionalPathKey(props.revealPath, props.entry.path);
+    const selected = matchesOptionalPathKey(props.selectedPath, props.entry.path);
+    return {
+        needle,
+        revealed,
+        dirHighlighted: revealed || selected,
+        fileHighlighted: isSameNormalizedPath(props.activePath, props.entry.path) || revealed || selected,
+        isExpanded: open || isAutoExpandedDir(props.entry, needle, props.revealDir),
+        cut: Boolean(props.cutPaths?.has(pathKey(props.entry.path))),
+    };
+};
+
+/** Renders the TreeNode UI component. */
+const TreeNode = (props: TreeNodeProps) => {
+    const [open, setOpen] = useState(false);
+    const nodeRef = useRef<HTMLButtonElement | null>(null);
+    const flags = computeTreeNodeFlags(props, open);
+    const children = useDirectoryChildren(props.entry, flags.isExpanded);
+
+    useEffect(() => {
+        if (flags.revealed) nodeRef.current?.scrollIntoView({ block: "nearest" });
+    }, [flags.revealed]);
+
+    const pad = 8 + props.depth * 12;
+    const actions = createEntryActions(props.entry, props.projectPath);
+
+    if (props.entry.is_dir) {
+        return (
+            <DirectoryTreeBranch
+                props={props}
+                nodeRef={nodeRef}
+                isExpanded={flags.isExpanded}
+                highlighted={flags.dirHighlighted}
+                cut={flags.cut}
+                pad={pad}
+                needle={flags.needle}
+                childEntries={children}
+                setOpen={setOpen}
+                actions={actions}
+            />
+        );
+    }
+
+    return (
+        <FileTreeLeaf
+            props={props}
+            nodeRef={nodeRef}
+            highlighted={flags.fileHighlighted}
+            cut={flags.cut}
+            pad={pad}
+            needle={flags.needle}
+            actions={actions}
+        />
     );
 };
 

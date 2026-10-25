@@ -1,6 +1,14 @@
 "use client";
 
-import * as React from "react";
+import {
+    useCallback,
+    useEffect,
+    useLayoutEffect,
+    useRef,
+    useState,
+    type KeyboardEvent,
+    type ReactNode,
+} from "react";
 import { createPortal } from "react-dom";
 import { Dismiss16Regular } from "@fluentui/react-icons/headless/svg/dismiss";
 import { Icon } from "@/components/ui/icon";
@@ -42,20 +50,21 @@ const openNotificationTarget = (notification: Notification) => {
 /** Only cards with an actual destination become interactive card surfaces. */
 const isCardNavigable = (notification: Notification): boolean => notification.code != null;
 
+/** True when a toast carries an interactive action or high-attention severity. */
+const isExtendedToast = (notification: Notification): boolean =>
+    Boolean(notification.action) || notification.type === "error" || notification.type === "warning";
+
+/** Positive explicit override duration in milliseconds, or `null` when unset. */
+const customDurationMs = (durationMs: number | undefined): number | null =>
+    typeof durationMs === "number" && durationMs > 0 ? durationMs : null;
+
 /** How long a toast holds before it dismisses itself, or null when it waits for a person. */
 const autoHideFor = (notification: Notification): number | null => {
     if (notification.autoHide === false) return null;
-    if (typeof notification.durationMs === "number" && notification.durationMs > 0) {
-        return notification.durationMs;
-    }
-    if (
-        notification.action ||
-        notification.type === "error" ||
-        notification.type === "warning"
-    ) {
-        return TOAST_ACTION_OR_ALERT_MS;
-    }
-    return TOAST_AUTO_HIDE_MS;
+    return (
+        customDurationMs(notification.durationMs)
+        ?? (isExtendedToast(notification) ? TOAST_ACTION_OR_ALERT_MS : TOAST_AUTO_HIDE_MS)
+    );
 };
 
 /** Maps a boolean state to a `"true"` data-attribute token or omits the attribute. */
@@ -76,7 +85,7 @@ const cardClasses = ({ clickable }: { clickable: boolean }) =>
 const cardActivation = (notification: Notification, clickable: boolean) => ({
     onClick: clickable ? () => openNotificationTarget(notification) : undefined,
     onKeyDown: clickable
-        ? (event: React.KeyboardEvent) => {
+        ? (event: KeyboardEvent) => {
               if (event.target !== event.currentTarget) return;
               if (event.key === "Enter" || event.key === " ") {
                   event.preventDefault();
@@ -89,9 +98,9 @@ const cardActivation = (notification: Notification, clickable: boolean) => ({
 
 /** Flips to `true` after two animation frames so newly mounted toasts trigger CSS enter transitions. */
 const useToastEntered = (): boolean => {
-    const [entered, setEntered] = React.useState(false);
+    const [entered, setEntered] = useState(false);
 
-    React.useEffect(() => {
+    useEffect(() => {
         let inner = 0;
         const outer = window.requestAnimationFrame(() => {
             inner = window.requestAnimationFrame(() => {
@@ -153,19 +162,19 @@ const ToastCard = ({
 }) => {
     const autoHideMs = autoHideFor(notification);
     const entered = useToastEntered();
-    const remainingRef = React.useRef<number | null>(autoHideMs);
-    const startedAtRef = React.useRef<number>(0);
-    const onDismissRef = React.useRef(onDismiss);
+    const remainingRef = useRef<number | null>(autoHideMs);
+    const startedAtRef = useRef<number>(0);
+    const onDismissRef = useRef(onDismiss);
 
-    React.useLayoutEffect(() => {
+    useLayoutEffect(() => {
         onDismissRef.current = onDismiss;
     });
 
-    React.useEffect(() => {
+    useEffect(() => {
         remainingRef.current = autoHideMs;
     }, [autoHideMs]);
 
-    React.useEffect(() => {
+    useEffect(() => {
         if (autoHideMs == null || leaving) return undefined;
         if (paused) return undefined;
 
@@ -260,8 +269,8 @@ const ToastStack = ({
     pageHidden: boolean;
     onDismiss: (id: string) => void;
 }) => {
-    const [hovered, setHovered] = React.useState(false);
-    const [focusedWithin, setFocusedWithin] = React.useState(false);
+    const [hovered, setHovered] = useState(false);
+    const [focusedWithin, setFocusedWithin] = useState(false);
     const paused = hovered || focusedWithin || pageHidden;
 
     return (
@@ -296,19 +305,22 @@ const ToastStack = ({
 export const NotificationToasts = () => {
     const { notifications, toastIds } = useNotifications();
     const mounted = useIsMounted();
-    const [leavingIds, setLeavingIds] = React.useState<ReadonlySet<string>>(() => new Set());
-    const [pageHidden, setPageHidden] = React.useState(false);
+    const [leavingIds, setLeavingIds] = useState<ReadonlySet<string>>(() => new Set());
+    const [pageHidden, setPageHidden] = useState(false);
     const reducedMotion = useReducedMotion();
 
-    React.useEffect(() => {
+    useEffect(() => {
         if (typeof document === "undefined") return undefined;
-        const onVisibility = () => setPageHidden(document.visibilityState === "hidden");
+        /** Syncs toast timer pause state whenever the document visibility changes. */
+        const onVisibility = () => {
+            setPageHidden(document.visibilityState === "hidden");
+        };
         onVisibility();
         document.addEventListener("visibilitychange", onVisibility);
         return () => document.removeEventListener("visibilitychange", onVisibility);
     }, []);
 
-    React.useEffect(() => {
+    useEffect(() => {
         if (!reducedMotion || leavingIds.size === 0) return;
         for (const id of leavingIds) {
             notificationStore.dismissToast(id);
@@ -322,7 +334,7 @@ export const NotificationToasts = () => {
         .map((id) => notifications.find((n) => n.id === id))
         .filter((n): n is Notification => Boolean(n));
 
-    const dismiss = React.useCallback((id: string) => {
+    const dismiss = useCallback((id: string) => {
         if (typeof document !== "undefined" && prefersReducedMotion(document.documentElement)) {
             notificationStore.dismissToast(id);
             return;
@@ -359,7 +371,7 @@ export const NotificationToasts = () => {
 };
 
 /** Mounts the global notification toast portal alongside application children. */
-export const NotificationProvider = ({ children }: { children: React.ReactNode }) => (
+export const NotificationProvider = ({ children }: { children: ReactNode }) => (
     <>
         {children}
         <NotificationToasts />

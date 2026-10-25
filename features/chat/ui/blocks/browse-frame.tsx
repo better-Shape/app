@@ -56,7 +56,7 @@ export function BrowseStage({
 
     useEffect(() => {
         const el = hostRef.current;
-        if (!el) return;
+        if (!el) return undefined;
         const measure = () => setBox({ w: el.clientWidth, h: el.clientHeight });
         measure();
         const obs = new ResizeObserver(measure);
@@ -103,7 +103,7 @@ export function BrowseStage({
                 const next = readPoint(event);
                 if (!next) return;
                 setPointer(next);
-                void commands.agentBrowsePointer("click", next.x, next.y);
+                commands.agentBrowsePointer("click", next.x, next.y).catch(() => undefined);
             } : undefined}
         >
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -248,9 +248,11 @@ export function AgentControlBar() {
                         <AlertDialogAction
                             onClick={() => {
                                 const url = frame?.url;
-                                void commands.agentBrowseStop();
+                                commands.agentBrowseStop().catch(() => undefined);
                                 if (url) {
-                                    void import("@/features/agent/browser/store").then(({ openBrowserTab }) => openBrowserTab(url));
+                                    import("@/features/agent/browser/store")
+                                        .then(({ openBrowserTab }) => openBrowserTab(url))
+                                        .catch(() => undefined);
                                 }
                             }}
                         >
