@@ -275,7 +275,7 @@ export function CommandPalette() {
 
             if (openMode === "goto_line") {
                 setActions([]);
-                setQuery(paletteSearchQuery(detail.filter, openMode));
+                setQuery(paletteSearchQuery(detail?.filter, openMode));
                 setOpen(true);
             } else if (openMode === "language_mode" && detail?.actions?.length) {
                 setActions(detail.actions);
@@ -1516,13 +1516,21 @@ function getAppCommands(): EditorAction[] {
             label: "Chat: New Chat",
             shortcut: shortcut("New Chat"),
             run: () => {
+                const chatMounted = Boolean(document.querySelector("[data-chat-stage]"));
                 window.dispatchEvent(
                     new CustomEvent("bettershape-center-view", {
                         detail: "chat",
                     }),
                 );
-                window.dispatchEvent(new Event("bettershape-chat-new"));
-                window.dispatchEvent(new Event("bettershape-chat-focus-input"));
+                const triggerNewChat = () => {
+                    window.dispatchEvent(new Event("bettershape-chat-new"));
+                    window.dispatchEvent(new Event("bettershape-chat-focus-input"));
+                };
+                if (chatMounted) {
+                    triggerNewChat();
+                } else {
+                    window.setTimeout(triggerNewChat, 0);
+                }
             },
         },
         {

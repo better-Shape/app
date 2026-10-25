@@ -411,7 +411,10 @@ function ThoughtStep({
                         <div>
                             <button
                                 type="button"
-                                onClick={() => setOpen(false)}
+                                onClick={(event) => {
+                                    notifyTranscriptDisclosureToggle(event.currentTarget);
+                                    setOpen(false);
+                                }}
                                 className="inline-flex min-h-[24px] items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary"
                             >
                                 <Icon icon={ChevronUp20Regular} className="size-3.5" />
@@ -1078,13 +1081,12 @@ export function TurnWorkflowSummary({
     const headline = splitActionLabel(turnSummary(blocks, stats, isActive, activityLabel));
     const marks = turnMarks(blocks);
     const effectiveDurationMs = durationMs ?? measuredDurationMs ?? undefined;
-    const timingBadge = isActive
-        ? liveElapsedMs >= 2000
-            ? formatTurnDuration(liveElapsedMs)
-            : null
-        : effectiveDurationMs && effectiveDurationMs >= 1000
-          ? formatTurnDuration(effectiveDurationMs)
-          : null;
+    let timingBadge: string | null = null;
+    if (isActive && liveElapsedMs >= 2000) {
+        timingBadge = formatTurnDuration(liveElapsedMs);
+    } else if (!isActive && effectiveDurationMs && effectiveDurationMs >= 1000) {
+        timingBadge = formatTurnDuration(effectiveDurationMs);
+    }
 
     const pendingApprovalRows = (
         <div className="my-1 flex flex-col gap-1">

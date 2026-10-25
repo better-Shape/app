@@ -1614,11 +1614,20 @@ fn normalize_questions(raw: &Value) -> Result<Value, String> {
                 .filter(|s| !s.is_empty())
                 .map(|s| s.to_string())
                 .unwrap_or_else(|| format!("{}", j + 1));
-            opts.push(json!({
+            let description = opt
+                .get("description")
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty());
+            let mut option_obj = json!({
                 "id": oid,
                 "label": label,
                 "recommended": opt.get("recommended").and_then(|v| v.as_bool()).unwrap_or(false),
-            }));
+            });
+            if let Some(desc) = description {
+                option_obj["description"] = Value::String(desc.to_string());
+            }
+            opts.push(option_obj);
         }
         out.push(json!({
             "id": id,

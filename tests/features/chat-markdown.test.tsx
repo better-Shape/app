@@ -80,9 +80,11 @@ describe("chat markdown tables and mermaid", () => {
                 }) as MediaQueryList,
         );
 
-        host = document.createElement("div");
-        document.body.appendChild(host);
-        root = createRoot(host);
+        const streamHost = document.createElement("div");
+        document.body.appendChild(streamHost);
+        const streamRoot = createRoot(streamHost);
+        host = streamHost;
+        root = streamRoot;
 
         const openMd = [
             "## Step 1",
@@ -95,32 +97,32 @@ describe("chat markdown tables and mermaid", () => {
         ].join("\n");
 
         await act(async () => {
-            root!.render(<ChatMarkdown content={openMd} isGenerating isLast />);
+            streamRoot.render(<ChatMarkdown content={openMd} isGenerating isLast />);
         });
 
-        expect(host.querySelectorAll("ol")).toHaveLength(1);
-        expect(host.querySelectorAll("ol > li")).toHaveLength(2);
+        expect(streamHost.querySelectorAll("ol")).toHaveLength(1);
+        expect(streamHost.querySelectorAll("ol > li")).toHaveLength(2);
         // `React.memo` stays inline <code>, while `package.json` renders a file pill button:
-        const buttons = [...host.querySelectorAll("li button")].map((b) => b.textContent?.trim());
+        const buttons = [...streamHost.querySelectorAll("li button")].map((b) => b.textContent?.trim());
         expect(buttons).toContain("package.json");
         expect(buttons).not.toContain("React.memo");
         // Open JSX fence preserves `<div>` tags intact and uses plain zero-VDOM fast path:
-        const openPre = host.querySelector('pre[data-streaming-fence="true"]');
+        const openPre = streamHost.querySelector('pre[data-streaming-fence="true"]');
         expect(openPre).toBeTruthy();
         expect(openPre?.textContent).toContain("<div data-live={true}>42</div>");
         expect(openPre?.querySelectorAll("span").length ?? 0).toBe(0);
 
         const closedMd = `${openMd}\n\`\`\`\n\nTrailing summary paragraph.`;
         await act(async () => {
-            root!.render(<ChatMarkdown content={closedMd} isGenerating isLast />);
+            streamRoot.render(<ChatMarkdown content={closedMd} isGenerating isLast />);
         });
         await act(async () => {
             await new Promise((r) => setTimeout(r, 40));
         });
 
-        expect(host.querySelector('pre[data-streaming-fence="true"]')).toBeNull();
-        expect(host.textContent).toContain("Trailing summary paragraph.");
-        const allCodeText = [...host.querySelectorAll("code")].map((c) => c.textContent).join("\n");
+        expect(streamHost.querySelector('pre[data-streaming-fence="true"]')).toBeNull();
+        expect(streamHost.textContent).toContain("Trailing summary paragraph.");
+        const allCodeText = [...streamHost.querySelectorAll("code")].map((c) => c.textContent).join("\n");
         expect(allCodeText).toContain("<div data-live={true}>42</div>");
         vi.unstubAllGlobals();
     });

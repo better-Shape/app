@@ -13,8 +13,12 @@ const events = vi.hoisted(() => ({
 
 vi.mock("@tauri-apps/api/event", () => ({
     listen: vi.fn(async (name: string, handler: (event: { payload: unknown }) => void) => {
-        if (!events.handlers.has(name)) events.handlers.set(name, new Set());
-        events.handlers.get(name)!.add(handler);
+        let bucket = events.handlers.get(name);
+        if (!bucket) {
+            bucket = new Set();
+            events.handlers.set(name, bucket);
+        }
+        bucket.add(handler);
         return () => {
             events.handlers.get(name)?.delete(handler);
         };

@@ -353,11 +353,10 @@ export function ChatList({
     }, []);
 
     useEffect(() => {
-        const onGenerating = (e: Event) => {
-            const detail = (e as CustomEvent<{ id?: string; generating?: boolean }>).detail;
-            const id = detail?.id;
-            if (!id || detail.generating) return;
-            if (id !== activeId) markChatUnread(id);
+        const onGenerating = (event: Event) => {
+            const detail = (event as CustomEvent<{ id?: string; generating?: boolean }>).detail;
+            if (!detail?.id || detail.generating) return;
+            if (detail.id !== activeId) markChatUnread(detail.id);
         };
         window.addEventListener("bettershape-chat-generating", onGenerating as EventListener);
         return () => window.removeEventListener("bettershape-chat-generating", onGenerating as EventListener);

@@ -224,23 +224,47 @@ export function AgentLayout({ children }: { children: React.ReactNode }) {
         );
     }, [active_file, persistWorkspace]);
 
+    const overlayRef = useRef<AgentOverlay>(overlay);
+    const pendingNewChatRef = useRef(false);
     useEffect(() => {
-        const onView = (e: Event) => {
-            const v = (e as CustomEvent<string>).detail;
-            if (v === "editor") {
+        overlayRef.current = overlay;
+        if (overlay === null && pendingNewChatRef.current) {
+            pendingNewChatRef.current = false;
+            window.dispatchEvent(new Event("bettershape-chat-new"));
+            window.dispatchEvent(new Event("bettershape-chat-focus-input"));
+        }
+    }, [overlay]);
+
+    useEffect(() => {
+        const onView = (event: Event) => {
+            const view = (event as CustomEvent<string>).detail;
+            if (view === "editor") {
+                overlayRef.current = null;
                 setOverlay(null);
                 persistWorkspace(true);
             }
-            if (v === "chat") setOverlay(null);
+            if (view === "chat") {
+                overlayRef.current = null;
+                setOverlay(null);
+            }
+        };
+        const onChatNew = () => {
+            if (overlayRef.current === null) return;
+            overlayRef.current = null;
+            pendingNewChatRef.current = true;
+            setOverlay(null);
         };
         const onFileDiff = () => {
+            overlayRef.current = null;
             setOverlay(null);
             persistWorkspace(true);
         };
         window.addEventListener("bettershape-center-view", onView as EventListener);
+        window.addEventListener("bettershape-chat-new", onChatNew);
         window.addEventListener("bettershape-open-file-diff", onFileDiff as EventListener);
         return () => {
             window.removeEventListener("bettershape-center-view", onView as EventListener);
+            window.removeEventListener("bettershape-chat-new", onChatNew);
             window.removeEventListener("bettershape-open-file-diff", onFileDiff as EventListener);
         };
     }, [persistWorkspace]);

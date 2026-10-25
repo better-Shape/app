@@ -26,13 +26,15 @@ let root: Root | null = null;
 let host: HTMLDivElement | null = null;
 
 function mount(node: React.ReactElement) {
-    host = document.createElement("div");
-    document.body.appendChild(host);
-    root = createRoot(host);
+    const nextHost = document.createElement("div");
+    document.body.appendChild(nextHost);
+    const nextRoot = createRoot(nextHost);
+    host = nextHost;
+    root = nextRoot;
     act(() => {
-        root!.render(<TooltipProvider delayDuration={0}>{node}</TooltipProvider>);
+        nextRoot.render(<TooltipProvider delayDuration={0}>{node}</TooltipProvider>);
     });
-    return host;
+    return nextHost;
 }
 
 afterEach(() => {
@@ -56,7 +58,7 @@ describe("Pass 5 composer undo-safe insertion, prompt recall guards, and shell p
         document.body.appendChild(ta);
 
         const wrapped = tryWrapMarkdownLinkOnPaste(ta.value, 6, 10, "https://example.com");
-        expect(wrapped).not.toBeNull();
+        if (!wrapped) throw new Error("expected wrapped markdown link");
 
         const execSpy = vi.fn((cmd: string, _ui?: boolean, val?: string) => {
             if (cmd === "insertText" && typeof val === "string") {
@@ -76,10 +78,10 @@ describe("Pass 5 composer undo-safe insertion, prompt recall guards, and shell p
         const fallbackSpy = vi.fn();
         insertTextareaRangeWithUndo(
             ta,
-            wrapped!.start,
-            wrapped!.end,
-            wrapped!.replacement,
-            wrapped!.nextValue,
+            wrapped.start,
+            wrapped.end,
+            wrapped.replacement,
+            wrapped.nextValue,
             fallbackSpy,
         );
 
@@ -96,12 +98,13 @@ describe("Pass 5 composer undo-safe insertion, prompt recall guards, and shell p
         expect(canStepPromptHistoryUp(null, "draft work", 0, 0)).toBe(true);
 
         const stepped = stepPromptHistoryUp(null, "draft work", ["fix auth race", "init repo"]);
-        expect(stepped?.cursor.stashedDraft).toBe("draft work");
-        expect(stepped?.cursor.recalledValue).toBe("fix auth race");
-        expect(isUnmodifiedHistoryRecall(stepped!.cursor, "fix auth race")).toBe(true);
+        if (!stepped) throw new Error("expected recalled history step");
+        expect(stepped.cursor.stashedDraft).toBe("draft work");
+        expect(stepped.cursor.recalledValue).toBe("fix auth race");
+        expect(isUnmodifiedHistoryRecall(stepped.cursor, "fix auth race")).toBe(true);
 
         // User edits the recalled prompt: Escape/ArrowDown must not overwrite their new text!
-        expect(isUnmodifiedHistoryRecall(stepped!.cursor, "fix auth race in session.ts")).toBe(false);
+        expect(isUnmodifiedHistoryRecall(stepped.cursor, "fix auth race in session.ts")).toBe(false);
     });
 
     it("strips leading '$ ' shell prompts without mangling $ENV variables", () => {
@@ -143,7 +146,9 @@ describe("Pass 5 sub-node CSS.highlights search & case sensitivity", () => {
             <div data-chat-message-index="1"><p>Updated TokenStore and tokenstore.</p><button>TokenStore</button></div>
         `;
         document.body.appendChild(container);
-        const paragraphNodeBefore = container.querySelectorAll("p")[1]!.firstChild;
+        const secondP = container.querySelectorAll("p")[1];
+        if (!secondP) throw new Error("expected second paragraph");
+        const paragraphNodeBefore = secondP.firstChild;
 
         const { ranges, activeRange } = syncChatDomHighlights(container, "TokenStore", {
             caseSensitive: true,
@@ -154,7 +159,7 @@ describe("Pass 5 sub-node CSS.highlights search & case sensitivity", () => {
         // Skips <button> chrome and preserves exact Text node identity without <mark> splitting!
         expect(ranges).toHaveLength(2);
         expect(activeRange?.toString()).toBe("TokenStore");
-        expect(container.querySelectorAll("p")[1]!.firstChild).toBe(paragraphNodeBefore);
+        expect(container.querySelectorAll("p")[1]?.firstChild).toBe(paragraphNodeBefore);
         expect(setSpy).toHaveBeenCalledWith("chat-find", expect.any(FakeHighlight));
         expect(setSpy).toHaveBeenCalledWith("chat-find-active", expect.any(FakeHighlight));
 
@@ -193,8 +198,10 @@ describe("Pass 5 HITL single-owner shortcuts, tool-call presentation, and workbe
         expect(acceptSecond).toHaveBeenCalledTimes(0);
 
         // Once card #1 settles/unmounts, Ctrl+Enter cleanly routes to card #2.
+        const currentRoot = root;
+        if (!currentRoot) throw new Error("expected mounted root");
         act(() => {
-            root!.render(
+            currentRoot.render(
                 <TooltipProvider delayDuration={0}>
                     <Harness showFirst={false} />
                 </TooltipProvider>,
@@ -239,9 +246,9 @@ describe("Pass 5 HITL single-owner shortcuts, tool-call presentation, and workbe
         const exploredBtn = Array.from(el.querySelectorAll("button")).find((b) =>
             b.textContent?.includes("auth.ts + 1 more"),
         );
-        expect(exploredBtn).toBeTruthy();
+        if (!exploredBtn) throw new Error("expected explored group button");
         act(() => {
-            exploredBtn!.click();
+            exploredBtn.click();
         });
         expect(el.textContent).toContain("L10-45");
         expect(el.textContent).toContain("session.ts");
@@ -254,10 +261,10 @@ describe("Pass 5 HITL single-owner shortcuts, tool-call presentation, and workbe
 
         const el = mount(<ChatMarkdown content={"```bash\n$ npm run lint:strict\n```"} />);
         const insertBtn = el.querySelector<HTMLButtonElement>('button[aria-label="Insert in terminal"]');
-        expect(insertBtn).toBeTruthy();
+        if (!insertBtn) throw new Error("expected Insert in terminal button");
 
         act(() => {
-            insertBtn!.click();
+            insertBtn.click();
         });
         expect(openEvents).toHaveLength(1);
         expect(terminalSessionStore.takePendingCommandInsert()).toBe("npm run lint:strict");

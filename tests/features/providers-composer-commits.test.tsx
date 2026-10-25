@@ -110,10 +110,11 @@ describe("Pass 8: Settings -> Providers Check chat & Test connection diagnostics
             const checkButtons = Array.from(host.querySelectorAll("button")).filter(
                 (b) => b.textContent?.trim() === "Check chat",
             );
-            expect(checkButtons.length).toBeGreaterThan(0);
+            const firstCheck = checkButtons[0];
+            if (!firstCheck) throw new Error("expected Check chat button");
 
             await act(async () => {
-                checkButtons[0]!.click();
+                firstCheck.click();
             });
 
             const alert = host.querySelector('[role="alert"]');
@@ -142,10 +143,10 @@ describe("Pass 8: Settings -> Providers Check chat & Test connection diagnostics
             const checkBtn = Array.from(host.querySelectorAll("button")).find(
                 (b) => b.textContent?.trim() === "Check chat",
             );
-            expect(checkBtn).toBeTruthy();
+            if (!checkBtn) throw new Error("expected Check chat button");
 
             await act(async () => {
-                checkBtn!.click();
+                checkBtn.click();
             });
 
             const alert = host.querySelector('[role="alert"]');

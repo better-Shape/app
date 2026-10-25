@@ -1016,7 +1016,7 @@ export default function Chat({
             ref={chatShellRef}
             className={cn("flex h-full w-full flex-col overflow-hidden font-sans", className)}
         >
-            {embedded ? null : tabsSlot ? createPortal(titlebar, tabsSlot) : null}
+            {!embedded && tabsSlot ? createPortal(titlebar, tabsSlot) : null}
 
             <div
                 data-chat-stage

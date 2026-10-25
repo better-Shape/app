@@ -72,22 +72,25 @@ describe("prompt-history & smart URL paste", () => {
     it("preserves unsent working draft across ArrowUp/ArrowDown recall cycles", () => {
         const prompts = ["most recent", "older prompt"];
         const up1 = stepPromptHistoryUp(null, "half-typed draft", prompts);
+        if (!up1) throw new Error("expected first history step");
         expect(up1).toMatchObject({
             cursor: { index: 0, stashedDraft: "half-typed draft", recalledValue: "most recent" },
             value: "most recent",
         });
 
-        const up2 = stepPromptHistoryUp(up1!.cursor, up1!.value, prompts);
-        expect(up2?.value).toBe("older prompt");
+        const up2 = stepPromptHistoryUp(up1.cursor, up1.value, prompts);
+        if (!up2) throw new Error("expected second history step");
+        expect(up2.value).toBe("older prompt");
 
         // Clamps at oldest entry
-        expect(stepPromptHistoryUp(up2!.cursor, up2!.value, prompts)).toBeNull();
+        expect(stepPromptHistoryUp(up2.cursor, up2.value, prompts)).toBeNull();
 
-        const down1 = stepPromptHistoryDown(up2!.cursor, prompts);
-        expect(down1?.value).toBe("most recent");
-        expect(down1?.cursor).not.toBeNull();
+        const down1 = stepPromptHistoryDown(up2.cursor, prompts);
+        if (!down1) throw new Error("expected downward history step");
+        expect(down1.value).toBe("most recent");
+        expect(down1.cursor).not.toBeNull();
 
-        const down2 = stepPromptHistoryDown(down1!.cursor, prompts);
+        const down2 = stepPromptHistoryDown(down1.cursor, prompts);
         expect(down2).toEqual({
             cursor: null,
             value: "half-typed draft",

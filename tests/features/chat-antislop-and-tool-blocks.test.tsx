@@ -30,13 +30,15 @@ let root: Root | null = null;
 let host: HTMLDivElement | null = null;
 
 function mount(node: React.ReactElement) {
-    host = document.createElement("div");
-    document.body.appendChild(host);
-    root = createRoot(host);
+    const nextHost = document.createElement("div");
+    document.body.appendChild(nextHost);
+    const nextRoot = createRoot(nextHost);
+    host = nextHost;
+    root = nextRoot;
     act(() => {
-        root!.render(<TooltipProvider delayDuration={0}>{node}</TooltipProvider>);
+        nextRoot.render(<TooltipProvider delayDuration={0}>{node}</TooltipProvider>);
     });
-    return host;
+    return nextHost;
 }
 
 afterEach(() => {
@@ -166,10 +168,12 @@ describe("Pass 6 QuestionsCard multi-select, IME composition guard, and anti-slo
             b.textContent?.includes("Web search") || b.textContent?.includes("Plugin cards"),
         );
         expect(optButtons).toHaveLength(2);
+        const [firstOpt, secondOpt] = optButtons;
+        if (!firstOpt || !secondOpt) throw new Error("expected 2 option buttons");
 
         act(() => {
-            optButtons[0]!.click();
-            optButtons[1]!.click();
+            firstOpt.click();
+            secondOpt.click();
         });
         // Multi-select does NOT auto-submit on option click!
         expect(answerSpy).not.toHaveBeenCalled();
@@ -177,7 +181,7 @@ describe("Pass 6 QuestionsCard multi-select, IME composition guard, and anti-slo
         const submitBtn = Array.from(el.querySelectorAll("button")).find((b) =>
             b.textContent?.includes("Submit (2)"),
         );
-        expect(submitBtn).toBeTruthy();
+        if (!submitBtn) throw new Error("expected Submit (2) button");
 
         // IME composition Enter must be ignored.
         act(() => {
@@ -192,7 +196,7 @@ describe("Pass 6 QuestionsCard multi-select, IME composition guard, and anti-slo
         expect(answerSpy).not.toHaveBeenCalled();
 
         await act(async () => {
-            submitBtn!.click();
+            submitBtn.click();
         });
         expect(answerSpy).toHaveBeenCalledWith(
             "ask-42",
@@ -222,12 +226,13 @@ describe("Pass 6 PluginActivityCard pending arg inspection, WebSearchBlock fallb
 
         expect(el.querySelector("[data-pending-approval='true']")).toBeTruthy();
         const headerBtn = el.querySelector<HTMLButtonElement>("button[aria-expanded]");
-        expect(headerBtn?.getAttribute("aria-expanded")).toBe("false");
+        if (!headerBtn) throw new Error("expected expandable header button");
+        expect(headerBtn.getAttribute("aria-expanded")).toBe("false");
 
         act(() => {
-            headerBtn!.click();
+            headerBtn.click();
         });
-        expect(headerBtn?.getAttribute("aria-expanded")).toBe("true");
+        expect(headerBtn.getAttribute("aria-expanded")).toBe("true");
         expect(el.textContent).toContain("better-Shape/app");
 
         act(() => {
@@ -276,11 +281,12 @@ describe("Pass 6 PluginActivityCard pending arg inspection, WebSearchBlock fallb
         const debateBtn = Array.from(el.querySelectorAll("button")).find((b) =>
             b.textContent?.includes("Adversarial review"),
         );
-        expect(debateBtn?.getAttribute("aria-expanded")).toBe("false");
+        if (!debateBtn) throw new Error("expected Adversarial review button");
+        expect(debateBtn.getAttribute("aria-expanded")).toBe("false");
         act(() => {
-            debateBtn!.click();
+            debateBtn.click();
         });
-        expect(debateBtn?.getAttribute("aria-expanded")).toBe("true");
+        expect(debateBtn.getAttribute("aria-expanded")).toBe("true");
         expect(el.textContent).toContain("All security and motion checks passed");
     });
 

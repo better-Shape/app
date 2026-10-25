@@ -7,7 +7,7 @@ import { formatMessageModelLabel, isAutoModelId } from "./usage-display";
 const stripAssistantProseSlice = (segment: string): string =>
     segment
         .replace(
-            /<(?:thinking|thought|think|analysis)\b[^>]*>[\s\S]*?<\/(?:thinking|thought|think|analysis)>/gi,
+            /<(thinking|thought|think|analysis)\b[^>]*>[\s\S]*?<\/\1>/gi,
             "",
         )
         .replace(/<rename_chat\b[^>]*>[\s\S]*?<\/rename_chat>/gi, "")

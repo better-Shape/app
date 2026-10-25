@@ -215,7 +215,16 @@ export async function startDictation(
             /* already torn down */
         }
         for (const track of stream.getTracks()) track.stop();
-        void context.close().catch(() => {});
+        context.close().catch(() => {
+            /* ignore audio context close errors */
+        });
+    };
+
+    const hasAudibleSignal = (samples: Float32Array): boolean => {
+        for (const sample of samples) {
+            if (Math.abs(sample) >= 1e-4) return true;
+        }
+        return false;
     };
 
     return {
@@ -224,7 +233,10 @@ export async function startDictation(
             const samples = concatFloat32(chunks);
             chunks.length = 0;
             teardown();
-            if (samples.length === 0) {
+            if (!hasAudibleSignal(samples)) {
+                invoke.stop().catch(() => {
+                    /* ignore recognizer teardown errors */
+                });
                 setState("idle");
                 return;
             }
@@ -233,7 +245,7 @@ export async function startDictation(
             const wav = encodeWavPcm16(pcm, DICTATION_SAMPLE_RATE);
             // The recognizer stays up: `dictation_stop` kills the child process, and doing
             // that now would race the recognition that `dictation_push` only just queued.
-            // It is torn down by `dispose`, once the text has come back.
+            // It is torn down once the recognition response arrives or is cancelled.
             invoke
                 .push(Array.from(wav))
                 .catch((error: unknown) => {
@@ -246,7 +258,9 @@ export async function startDictation(
         },
         dispose: () => {
             teardown();
-            void invoke.stop();
+            invoke.stop().catch(() => {
+                /* ignore recognizer teardown errors */
+            });
             setState("idle");
         },
     };

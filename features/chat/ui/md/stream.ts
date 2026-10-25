@@ -385,13 +385,10 @@ const collectInlineCodeRanges = (input: string): Array<[number, number]> => {
     return ranges;
 };
 
-/** True when `offset` falls inside one of `ranges`. */
-const isOffsetInRanges = (offset: number, ranges: ReadonlyArray<[number, number]>): boolean =>
-    ranges.some(([start, end]) => offset >= start && offset < end);
-
 /** Single linear character-scanner pass stripping raw HTML tags without regex backtracking. */
 function stripHtmlTagsOnce(input: string): string {
     const codeRanges = collectInlineCodeRanges(input);
+    let rangeIndex = 0;
     let out = "";
     let cursor = 0;
     const len = input.length;
@@ -404,7 +401,11 @@ function stripHtmlTagsOnce(input: string): string {
         }
         out += input.slice(cursor, lt);
 
-        if (isOffsetInRanges(lt, codeRanges)) {
+        while (rangeIndex < codeRanges.length && codeRanges[rangeIndex][1] <= lt) {
+            rangeIndex += 1;
+        }
+        const activeRange = codeRanges[rangeIndex];
+        if (activeRange !== undefined && lt >= activeRange[0] && lt < activeRange[1]) {
             out += "<";
             cursor = lt + 1;
             continue;

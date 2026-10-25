@@ -77,8 +77,9 @@ describe("Transcript select-to-quote extraction & formatting", () => {
         document.body.append(msgA, msgB);
 
         const range = document.createRange();
-        range.setStart(msgA.firstChild!, 0);
-        range.setEnd(msgB.firstChild!, 6);
+        if (!msgA.firstChild || !msgB.firstChild) throw new Error("expected text children");
+        range.setStart(msgA.firstChild, 0);
+        range.setEnd(msgB.firstChild, 6);
 
         expect(extractCleanSelectionText(range, msgA)).toBe("");
         msgA.remove();
@@ -183,8 +184,8 @@ describe("HITL cards, smart CodeBlock & Error recovery micro-interactions", () =
         });
 
         expect(host.textContent).toContain("4 lines");
-        const wrapBtn = host.querySelector<HTMLButtonElement>('button[aria-label="Wrap long lines"]')!;
-        expect(wrapBtn).not.toBeNull();
+        const wrapBtn = host.querySelector<HTMLButtonElement>('button[aria-label="Wrap long lines"]');
+        if (!wrapBtn) throw new Error("expected Wrap long lines button");
         expect(wrapBtn.getAttribute("aria-pressed")).toBe("false");
 
         await act(async () => {
@@ -193,7 +194,8 @@ describe("HITL cards, smart CodeBlock & Error recovery micro-interactions", () =
         const disableWrapBtn = host.querySelector<HTMLButtonElement>('button[aria-label="Disable line wrap"]');
         expect(disableWrapBtn?.getAttribute("aria-pressed")).toBe("true");
 
-        const copyBtn = host.querySelector<HTMLButtonElement>('button[aria-label="Copy code"]')!;
+        const copyBtn = host.querySelector<HTMLButtonElement>('button[aria-label="Copy code"]');
+        if (!copyBtn) throw new Error("expected Copy code button");
         await act(async () => {
             copyBtn.click();
             await Promise.resolve();
@@ -222,10 +224,10 @@ describe("HITL cards, smart CodeBlock & Error recovery micro-interactions", () =
         const compactBtn = Array.from(document.querySelectorAll("button")).find((b) =>
             b.textContent?.includes("Compact context"),
         );
-        expect(compactBtn).toBeDefined();
+        if (!compactBtn) throw new Error("expected Compact context button");
 
         await act(async () => {
-            compactBtn!.click();
+            compactBtn.click();
         });
 
         expect(onDismiss).toHaveBeenCalledTimes(1);

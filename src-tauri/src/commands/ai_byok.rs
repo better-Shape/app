@@ -773,6 +773,7 @@ mod tests {
         hdrs.insert(" X-Custom ".to_string(), " ok ".to_string());
         apply_diagnostic_overrides(&mut target, Some(hdrs), Some(" None ".to_string()));
         assert_eq!(target.auth_style, "none");
-        assert_eq!(target.headers.get("X-Custom").map(String::as_str), Some("ok"));
+        let custom = target.headers.get("X-Custom").map(String::as_str);
+        assert_eq!(custom, Some("ok"));
     }
 }

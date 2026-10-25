@@ -100,18 +100,33 @@ function probeProjectPathExists(resolvedPath: string): Promise<boolean> {
                     .catch(() => false),
             );
 
+    const lowerBaseName = baseName.toLowerCase();
+    const lowerNormalized = normalized.toLowerCase();
+    const matchesDirEntries = (
+        entries: Array<{ name?: string | null; path?: string | null }>,
+    ): boolean | Promise<boolean> => {
+        let hasCaseFoldedMatch = false;
+        for (const entry of entries) {
+            const entryPath = entry?.path?.replace(/\\/g, "/").replace(/\/+$/, "");
+            if (entry?.name === baseName || entryPath === normalized) {
+                return true;
+            }
+            if (
+                entry?.name?.toLowerCase() === lowerBaseName
+                || entryPath?.toLowerCase() === lowerNormalized
+            ) {
+                hasCaseFoldedMatch = true;
+            }
+        }
+        return hasCaseFoldedMatch ? fallbackProbe() : false;
+    };
+
     const req = (
         parentDir && baseName
             ? commands
                   .lsDir(parentDir)
                   .then((entries) =>
-                      Array.isArray(entries)
-                          ? entries.some(
-                                (entry) =>
-                                    entry?.name === baseName
-                                    || entry?.path?.replace(/\\/g, "/").replace(/\/+$/, "") === normalized,
-                            )
-                          : fallbackProbe(),
+                      Array.isArray(entries) ? matchesDirEntries(entries) : fallbackProbe(),
                   )
                   .catch(() => fallbackProbe())
             : fallbackProbe()

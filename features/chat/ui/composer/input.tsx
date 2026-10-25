@@ -610,6 +610,12 @@ export const ChatInput = React.memo(function ChatInput({
             return Boolean(conn.apiKey?.trim()) || conn.authStyle === "none";
         });
     }, [concreteAllModels.length, needsSignIn, settings.ai.providers]);
+    let composerAriaLabel: string = IDLE_COMPOSER_HINTS[0];
+    if (needsSignIn) {
+        composerAriaLabel = missingModelsOnly
+            ? "Add or fetch a model ID in Settings → Providers to chat"
+            : "Add an API key in Settings → Providers to chat";
+    }
     const resolvedAutoModel = React.useMemo(() => {
         if (concreteAllModels.length === 0) return null;
         const wanted = (settings.ai.providers?.defaultModel ?? "").trim();
@@ -802,9 +808,10 @@ export const ChatInput = React.memo(function ChatInput({
     React.useEffect(() => {
         if (quotedExcerpts !== undefined) return undefined;
         let focusRaf = 0;
-        const onQuote = (e: Event) => {
-            const detail = (e as CustomEvent<{ id?: string; text?: string }>).detail;
-            const text = detail?.text?.trim();
+        const onQuote = (event: Event) => {
+            const detail = (event as CustomEvent<{ id?: string; text?: string }>).detail;
+            if (!detail) return;
+            const text = detail.text?.trim();
             if (!text) return;
             const id = detail.id || `${Date.now()}`;
             setLocalQuotes((prev) =>
@@ -1453,7 +1460,7 @@ export const ChatInput = React.memo(function ChatInput({
             const before = val.slice(0, caret);
             const after = val.slice(caret);
             const lead = before && !/\s$/.test(before) ? " " : "";
-            const trail = after && !/^\s/.test(after) ? " " : after ? "" : " ";
+            const trail = after && /^\s/.test(after) ? "" : " ";
             const next = `${before}${lead}${token}${trail}${after}`;
             onInputChange({ target: { value: next } } as React.ChangeEvent<HTMLTextAreaElement>);
             const pos = before.length + lead.length + token.length + trail.length;
@@ -1752,7 +1759,7 @@ export const ChatInput = React.memo(function ChatInput({
                     )}
                     onPointerDown={(e) => {
                         if (e.button !== 0) return;
-                        const target = e.target instanceof HTMLElement ? e.target : null;
+                        const target = e.target instanceof Element ? e.target : null;
                         if (
                             target?.closest(
                                 "button, a, input, textarea, [role='menuitem'], [data-radix-collection-item], [data-composer-quotes]",
@@ -2124,11 +2131,7 @@ export const ChatInput = React.memo(function ChatInput({
                                         }}
                                         onBlur={() => setIsEditorFocused(false)}
                                         placeholder=""
-                                        aria-label={
-                                            needsSignIn
-                                                ? "Add an API key in Settings → Providers to chat"
-                                                : IDLE_COMPOSER_HINTS[0]
-                                        }
+                                        aria-label={composerAriaLabel}
                                         rows={1}
                                         className={cn(
                                             "custom-scrollbar relative z-[1] block min-h-[22px] w-full resize-none overflow-x-hidden border-none bg-transparent px-1.5 py-0 text-sm font-medium leading-[22px] text-transparent outline-none placeholder:text-text-muted selection:bg-accent/30 whitespace-pre-wrap",
