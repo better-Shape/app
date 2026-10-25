@@ -24,7 +24,7 @@ import {
     runAllTests,
     runFailedTests,
 } from "../runner";
-import { getFailedPattern, useTestStore } from "../store";
+import { getFailedPattern, resetTestStore, useTestStore } from "../store";
 import type { TestCase, TestStatus } from "../types";
 
 function relativeSuitePath(filePath: string, projectPath: string | null): string {
@@ -87,11 +87,6 @@ function sendTestPromptToChat(prompt: string) {
     window.dispatchEvent(new CustomEvent("bettershape-chat-focus-input"));
     if (typeof window.requestAnimationFrame === "function") {
         window.requestAnimationFrame(() => {
-            window.dispatchEvent(
-                new CustomEvent("bettershape-chat-insert-prompt", {
-                    detail: { prompt, send: false },
-                }),
-            );
             window.dispatchEvent(new CustomEvent("bettershape-chat-focus-input"));
         });
     }
@@ -187,47 +182,67 @@ function TestRow({
 
 export default function TestPanel() {
     const { project_path } = useProjectState();
-    const { discovery, suites, summary, running, error } = useTestStore();
+    const { projectPath: storeProjectPath, discovery, suites, summary, running, error } = useTestStore();
     const [expandedFiles, setExpandedFiles] = useState<Record<string, boolean>>({});
 
     useEffect(() => {
-        void initTestRunnerEvents();
+        initTestRunnerEvents().catch(() => {
+            /* ignore listener initialization errors */
+        });
     }, []);
 
     useEffect(() => {
-        if (!project_path) return;
-        void discoverProjectTests(project_path).catch(() => {
+        let cancelled = false;
+        if (storeProjectPath !== (project_path ?? null)) {
+            resetTestStore(project_path ?? null);
+        }
+        if (!project_path) {
+            return () => {
+                cancelled = true;
+            };
+        }
+        discoverProjectTests(project_path, () => !cancelled).catch(() => {
             /* ignore discovery errors */
         });
-    }, [project_path]);
+        return () => {
+            cancelled = true;
+        };
+    }, [project_path, storeProjectPath]);
 
-    const framework = discovery?.framework ?? "none";
+    const matchesProject = Boolean(project_path && storeProjectPath === project_path);
+    const activeDiscovery = matchesProject ? discovery : null;
+    const activeSuites = useMemo(
+        () => (matchesProject ? suites : []),
+        [matchesProject, suites],
+    );
+    const activeSummary = matchesProject ? summary : null;
+    const framework = activeDiscovery?.framework ?? "none";
     const hasFramework = framework !== "none";
 
     const totals = useMemo(() => {
-        if (summary) return summary;
+        if (activeSummary) return activeSummary;
         let passed = 0,
             failed = 0,
             skipped = 0;
-        for (const suite of suites) {
+        for (const suite of activeSuites) {
             passed += suite.passed;
             failed += suite.failed;
             skipped += suite.skipped;
         }
         return { passed, failed, skipped, total: passed + failed + skipped };
-    }, [summary, suites]);
+    }, [activeSummary, activeSuites]);
 
     const allFailures = useMemo(() => {
         const list: Array<{ suiteFile: string; testName: string; error?: string }> = [];
-        for (const suite of suites) {
-            for (const t of suite.tests) {
-                if (t.status === "failed") {
-                    list.push({ suiteFile: suite.file, testName: t.name, error: t.error });
+        for (const suite of activeSuites) {
+            for (const testItem of suite.tests) {
+                if (testItem.status === "failed") {
+                    list.push({ suiteFile: suite.file, testName: testItem.name, error: testItem.error });
                 }
             }
         }
         return list;
-    }, [suites]);
+    }, [activeSuites]);
 
     const toggleFile = useCallback((file: string) => {
         setExpandedFiles((prev) => ({ ...prev, [file]: !prev[file] }));
@@ -306,7 +321,7 @@ export default function TestPanel() {
                         {error}
                     </div>
                 ) : null}
-                {suites.map((suite) => {
+                {activeSuites.map((suite) => {
                     const expanded = expandedFiles[suite.file] ?? true;
                     return (
                         <div key={suite.id} className="border-b border-border-subtle/50">
@@ -348,10 +363,10 @@ export default function TestPanel() {
                         </div>
                     );
                 })}
-                {project_path && hasFramework && suites.length === 0 && !running && !error ? (
+                {project_path && hasFramework && activeSuites.length === 0 && !running && !error ? (
                     <div className="px-4 py-6 text-sm text-text-muted">
-                        {discovery?.test_files.length
-                            ? `${discovery.test_files.length} test file(s) found. Click Run All to execute.`
+                        {activeDiscovery?.test_files.length
+                            ? `${activeDiscovery.test_files.length} test file(s) found. Click Run All to execute.`
                             : "No test files found. Click Run All to scan and run tests."}
                     </div>
                 ) : null}

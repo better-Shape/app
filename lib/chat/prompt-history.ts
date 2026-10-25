@@ -260,8 +260,8 @@ export function insertTextareaRangeWithUndo(
     textarea.focus();
     textarea.setSelectionRange(start, end);
 
-    const doc = textarea.ownerDocument;
-    if (typeof doc.execCommand === "function") {
+    const doc = textarea.ownerDocument as Document | null;
+    if (doc && typeof doc.execCommand === "function") {
         try {
             const before = textarea.value;
             if (doc.execCommand("insertText", false, replacement) && textarea.value !== before) {

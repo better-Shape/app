@@ -2,6 +2,7 @@ import { useSyncExternalStore } from "react";
 import type { TestCase, TestDiscovery, TestRunSummary, TestSuiteNode } from "./types";
 
 type TestStoreState = {
+    projectPath: string | null;
     discovery: TestDiscovery | null;
     suites: TestSuiteNode[];
     summary: TestRunSummary | null;
@@ -11,6 +12,7 @@ type TestStoreState = {
 };
 
 let state: TestStoreState = {
+    projectPath: null,
     discovery: null,
     suites: [],
     summary: null,
@@ -21,25 +23,35 @@ let state: TestStoreState = {
 
 const listeners = new Set<() => void>();
 
-function emit() {
-    listeners.forEach((l) => l());
-}
+/** Broadcasts store state updates to all subscribed React components. */
+const emit = (): void => {
+    for (const listener of listeners) {
+        listener();
+    }
+};
 
-function subscribe(listener: () => void) {
+/** Subscribes a listener to test store snapshots. */
+const subscribe = (listener: () => void): (() => void) => {
     listeners.add(listener);
-    return () => listeners.delete(listener);
-}
+    return () => {
+        listeners.delete(listener);
+    };
+};
 
-function getSnapshot(): TestStoreState {
+/** Returns the current immutable test store snapshot. */
+const getSnapshot = (): TestStoreState => {
     return state;
-}
+};
 
+/** Subscribes components to the shared test runner state. */
 export function useTestStore() {
     return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
 
-export function resetTestStore() {
+/** Resets all discovered suites and results, optionally binding to `projectPath`. */
+export function resetTestStore(projectPath: string | null = null) {
     state = {
+        projectPath,
         discovery: null,
         suites: [],
         summary: null,
@@ -50,7 +62,8 @@ export function resetTestStore() {
     emit();
 }
 
-export function setTestDiscovery(discovery: TestDiscovery) {
+/** Records discovered test files for `projectPath`. */
+export function setTestDiscovery(discovery: TestDiscovery, projectPath: string | null = null) {
     const previewSuites = discovery.test_files.map((file) => ({
         id: file,
         name: file.split(/[\\/]/).pop() || file,
@@ -60,7 +73,14 @@ export function setTestDiscovery(discovery: TestDiscovery) {
         failed: 0,
         skipped: 0,
     }));
-    state = { ...state, discovery, suites: previewSuites };
+    state = {
+        ...state,
+        projectPath: projectPath ?? state.projectPath,
+        discovery,
+        suites: previewSuites,
+        summary: null,
+        error: null,
+    };
     emit();
 }
 

@@ -27,7 +27,9 @@ function loadPrismModule(): Promise<HighlighterComponent> {
                 const PrismComp = m.Prism as unknown as HighlighterComponent;
                 resolvedPrism = PrismComp;
                 inflightLoad = null;
-                prismListeners.forEach((listener) => listener());
+                for (const listener of prismListeners) {
+                    listener();
+                }
                 return PrismComp;
             })
             .catch((err) => {

@@ -83,15 +83,24 @@ export const DictationButton = memo(function DictationButton() {
             else unlisteners.push(stop);
         });
 
-        void safeListen<string>("dictation-error", (event) => {
+        safeListen<string>("dictation-error", (event) => {
             const message = event.payload?.trim();
             if (message) notificationStore.add(message, "error");
+            startAttemptIdRef.current += 1;
+            startingRef.current = false;
+            setIsStarting(false);
+            session.current?.dispose();
+            session.current = null;
             setState("error");
             setLevel(0);
-        }).then((stop) => {
-            if (cancelled) stop();
-            else unlisteners.push(stop);
-        });
+        })
+            .then((stop) => {
+                if (cancelled) stop();
+                else unlisteners.push(stop);
+            })
+            .catch(() => {
+                /* ignore listener setup failures */
+            });
 
         return () => {
             cancelled = true;

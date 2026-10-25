@@ -25,6 +25,7 @@ export type WarmMcpServer = {
 const filesCache = new Map<string, TimedEntry<string[]>>();
 const filesInflight = new Map<string, Promise<string[]>>();
 let filesGeneration = 0;
+let latestRequestedProjectPath: string | null = null;
 
 const chatsCache = new Map<string, TimedEntry<WarmChatSummary[]>>();
 const chatsInflight = new Map<string, Promise<WarmChatSummary[]>>();
@@ -99,7 +100,9 @@ const loadRootProjectFiles = (projectPath: string, limit: number): Promise<strin
                 return loadRootProjectFiles(projectPath, limit);
             }
             const normalized = normalizeFileRows(rows);
-            setBoundedTimedEntry(filesCache, projectPath, normalized);
+            if (latestRequestedProjectPath === null || latestRequestedProjectPath === projectPath) {
+                setBoundedTimedEntry(filesCache, projectPath, normalized);
+            }
             return normalized;
         })
         .catch(() => {
@@ -114,6 +117,9 @@ const loadRootProjectFiles = (projectPath: string, limit: number): Promise<strin
 
 /** Fetches and caches project file paths for `@` mention auto-completion. */
 export function fetchWarmProjectFiles(projectPath: string, query?: string, limit?: number): Promise<string[]> {
+    if (projectPath) {
+        latestRequestedProjectPath = projectPath;
+    }
     if (typeof commands.searchProjectFiles !== "function") return Promise.resolve([]);
     const trimmed = (query ?? "").trim();
     const effectiveLimit = limit ?? 40;
@@ -214,10 +220,13 @@ export function fetchWarmMcpServers(): Promise<WarmMcpServer[]> {
                 return fetchWarmMcpServers();
             }
             const connected = statuses
-                .filter((s) => s.status.toLowerCase() === "connected")
-                .map((s) => ({
-                    id: s.id,
-                    name: s.name || s.id,
+                .filter((srv) => {
+                    const rawStatus = (srv as { status?: unknown }).status;
+                    return (typeof rawStatus === "string" ? rawStatus : "").toLowerCase() === "connected";
+                })
+                .map((srv) => ({
+                    id: srv.id,
+                    name: srv.name || srv.id,
                 }));
             mcpCache = {
                 value: connected,
@@ -290,6 +299,7 @@ export function resetMentionWarmCachesForTests(): void {
     filesGeneration += 1;
     chatsGeneration += 1;
     mcpGeneration += 1;
+    latestRequestedProjectPath = null;
     filesCache.clear();
     filesInflight.clear();
     chatsCache.clear();

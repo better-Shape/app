@@ -1548,12 +1548,14 @@ export function useChatSession(
 
     React.useEffect(() => {
         /** Inserts or appends external prompt text into the active chat composer. */
-        const handleInsertPrompt = (e: Event) => {
-            const detail = (e as CustomEvent<InsertPromptDetail>).detail;
+        const handleInsertPrompt = (evt: Event) => {
+            const detail = (evt as CustomEvent<InsertPromptDetail>).detail;
             if (!detail?.prompt) return;
             const prompt = detail.prompt;
             const isAutoBuiltin = isAutoBuiltinInsert(detail);
-            if (!isAutoBuiltin) {
+            const isBusy = isLoadingRef.current || sendsInFlightRef.current > 0;
+            const willQueueAutoSend = Boolean(detail.send) && isBusy && !isAutoBuiltin;
+            if (!isAutoBuiltin && !willQueueAutoSend) {
                 setInputValue((prev) => {
                     const next = mergeInsertedPrompt(prev, prompt, detail.append);
                     persistComposerDraft(next);
@@ -1564,7 +1566,7 @@ export function useChatSession(
             if (detail.send) {
                 dispatchInsertedSend(
                     prompt,
-                    isLoadingRef.current,
+                    isBusy,
                     isAutoBuiltin,
                     enqueueChatMessage,
                     handleSendMessageRef.current,

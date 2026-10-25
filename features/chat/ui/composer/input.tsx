@@ -637,13 +637,13 @@ export const ChatInput = React.memo(function ChatInput({
     const canRecordPromptHistory = React.useCallback(
         (trimmed: string) => {
             if (!trimmed) return false;
-            if (needsSignIn) return false;
-            if (uploadedFiles.some((a) => a.status === "processing")) return false;
+            if (needsSignIn || isPreparing) return false;
+            if (uploadedFiles.some((att) => att.status === "processing")) return false;
             if (isLoading && uploadedFiles.length > 0) return false;
             if (/^\/compact\b/i.test(trimmed)) return false;
             return true;
         },
-        [isLoading, needsSignIn, uploadedFiles],
+        [isLoading, isPreparing, needsSignIn, uploadedFiles],
     );
 
     const handleSendWithHistory = React.useCallback(() => {

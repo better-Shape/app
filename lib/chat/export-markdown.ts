@@ -21,7 +21,7 @@ function cleanMessageBodyForMarkdown(raw: string, role: "user" | "assistant"): s
         role === "assistant"
             ? withoutAttachments
                   .replace(
-                      /<(?:think|thought|thinking|analysis)\b[^>]*>[\s\S]*?<\/(?:think|thought|thinking|analysis)>/gi,
+                      /<(?:thinking|thought|think|analysis)\b[^>]*>[\s\S]*?<\/(?:thinking|thought|think|analysis)>/gi,
                       "",
                   )
                   .replace(/<rename_chat\b[^>]*>[\s\S]*?<\/rename_chat>/gi, "")

@@ -16,14 +16,15 @@ let ownedActiveHighlight: unknown = null;
 
 const ensureHighlightStylesheet = (): void => {
     if (typeof document === "undefined") return;
-    if (document.getElementById(HIGHLIGHT_STYLE_ID)) return;
+    const head = document.head as HTMLHeadElement | null;
+    if (!head || document.getElementById(HIGHLIGHT_STYLE_ID)) return;
     const style = document.createElement("style");
     style.id = HIGHLIGHT_STYLE_ID;
     style.textContent = [
         `::highlight(${CHAT_FIND_HIGHLIGHT_NAME}) { background-color: color-mix(in srgb, var(--accent) 26%, transparent); color: var(--text-primary); }`,
         `::highlight(${CHAT_FIND_ACTIVE_HIGHLIGHT_NAME}) { background-color: color-mix(in srgb, var(--warning) 44%, var(--accent)); color: var(--text-on-accent); }`,
     ].join("\n");
-    document.head.appendChild(style);
+    head.appendChild(style);
 };
 
 interface CustomHighlightRegistry {

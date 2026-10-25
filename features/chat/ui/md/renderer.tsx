@@ -505,7 +505,7 @@ function unescapeXml(s: string): string {
         const statusMatch = tagFull.match(/status="([^"]+)"/);
         const idMatch = tagFull.match(/id="([^"]+)"/);
         const sessionMatch = tagFull.match(/session="(\d+)"/);
-        const exitMatch = tagFull.match(/(?:exit|exit_code)="(-?\d+)"/);
+        const exitMatch = tagFull.match(/(?:exit_code|exit)="(-?\d+)"/);
         const cmdAttrMatch = tagFull.match(/command="([^"]+)"/);
         const reasonAttrMatch = tagFull.match(/reason="([^"]+)"/);
         const commandStatus = statusMatch ? statusMatch[1] : defaultStatus;

@@ -26,13 +26,19 @@ export function disposeTestRunnerEvents() {
     listenerInitialized = false;
 }
 
-export async function discoverProjectTests(projectPath: string): Promise<TestDiscovery> {
+/** Discovers project test suites and updates the store if `projectPath` is still active. */
+export async function discoverProjectTests(
+    projectPath: string,
+    shouldApply: () => boolean = () => true,
+): Promise<TestDiscovery> {
     const discovery = await commands.discoverTests(projectPath);
     const normalized: TestDiscovery = {
         framework: normalizeFramework(discovery.framework),
         test_files: discovery.test_files,
     };
-    setTestDiscovery(normalized);
+    if (shouldApply()) {
+        setTestDiscovery(normalized, projectPath);
+    }
     return normalized;
 }
 
