@@ -518,10 +518,30 @@ describe("PR #53 review regression coverage", () => {
 
         expect(detectErrorBillingProvider("OpenRouter API error: insufficient credits for openrouter/openai/gpt-5", true)).toBe("openrouter");
         expect(detectErrorBillingProvider("OpenAI API error: insufficient_quota on gpt-5", true)).toBe("openai");
+        expect(detectErrorBillingProvider("401 Unauthorized calling https://openrouter.ai/api/v1/chat/completions", false)).toBeNull();
+        expect(detectErrorBillingProvider("401 Unauthorized calling https://api.openai.com/v1/responses", false)).toBeNull();
+        expect(detectErrorBillingProvider("Add credits at https://openrouter.ai/settings/credits", false)).toBe("openrouter");
 
         const emojiCmd = `${"a".repeat(47)}🚀 trailing`;
         const title = formatAiTerminalTitle(emojiCmd);
         expect(Array.from(title)).toHaveLength(48);
         expect(title.endsWith("🚀")).toBe(true);
+
+        const mismatchedMd = formatTranscriptAsMarkdown("Mismatched control tags", [
+            {
+                role: "assistant",
+                content: "<thinking>draft\nVisible answer before </analysis> after.",
+            },
+        ]);
+        expect(mismatchedMd).toContain("Visible answer before");
+
+        const spanHost = document.createElement("div");
+        spanHost.innerHTML =
+            '<div data-chat-message-index="0"><p><span>const</span> <strong>tokenStore</strong> = 1;</p></div>';
+        document.body.appendChild(spanHost);
+        const crossNode = syncChatDomHighlights(spanHost, "const tokenStore");
+        expect(crossNode.ranges).toHaveLength(1);
+        expect(crossNode.ranges[0]?.range.toString()).toBe("const tokenStore");
+        spanHost.remove();
     });
 });

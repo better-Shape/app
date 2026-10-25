@@ -285,8 +285,8 @@ export const applyInsertedPromptEvent = (
         sendNow: (text: string) => Promise<boolean>;
     },
 ): void => {
-    const prompt = detail?.prompt;
-    if (!prompt) return;
+    if (!detail?.prompt) return;
+    const prompt = detail.prompt;
     if (!detail.send) {
         deps.setInputValue((prev) => {
             const next = mergeInsertedPrompt(prev, prompt, detail.append);
@@ -1615,9 +1615,10 @@ export function useChatSession(
     }, [enqueueChatMessage, setInputValue]);
 
     React.useEffect(() => {
-        const onQuote = (e: Event) => {
-            const detail = (e as CustomEvent<{ id?: string; text?: string }>).detail;
-            const text = detail?.text?.trim();
+        const onQuote = (event: Event) => {
+            const detail = (event as CustomEvent<{ id?: string; text?: string }>).detail;
+            if (!detail) return;
+            const text = detail.text?.trim();
             if (!text) return;
             const id = detail.id || `${Date.now()}-${randomSuffix(5)}`;
             setQuotedExcerpts((prev) => {

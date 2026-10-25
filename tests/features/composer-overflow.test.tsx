@@ -90,8 +90,9 @@ async function renderComposer(patch: Partial<Props> = {}) {
 describe("ChatInput overflow, sheet expansion, hints & quoted excerpts", () => {
     it("keeps the exact same textarea DOM node across compact 1-line and multi-line expanded morphs, with a spacious sheet floor", async () => {
         await renderComposer({ inputValue: "short" });
-        const box = host.querySelector("[data-expanded-layout]")!;
-        const initialTextarea = host.querySelector("textarea")!;
+        const box = host.querySelector("[data-expanded-layout]");
+        const initialTextarea = host.querySelector("textarea");
+        if (!box || !initialTextarea) throw new Error("expected composer box and textarea");
         const editorFrame = initialTextarea.closest("div[style]") as HTMLDivElement;
         expect(box.getAttribute("data-expanded-layout")).toBe("false");
         expect(editorFrame.style.height).toBe("32px");
@@ -99,16 +100,16 @@ describe("ChatInput overflow, sheet expansion, hints & quoted excerpts", () => {
         const multiLineText = Array.from({ length: 8 }, (_, i) => `Line ${i + 1}: refactor composer`).join("\n");
         await renderComposer({ inputValue: multiLineText });
 
-        const afterTextarea = host.querySelector("textarea")!;
+        const afterTextarea = host.querySelector("textarea");
         expect(afterTextarea).toBe(initialTextarea);
         expect(box.getAttribute("data-expanded-layout")).toBe("true");
 
         const expandBtn = host.querySelector<HTMLButtonElement>('button[aria-label="Expand composer"]');
-        expect(expandBtn).not.toBeNull();
+        if (!expandBtn) throw new Error("expected Expand composer button");
         expect(box.getAttribute("data-expanded-sheet")).toBe("false");
 
         await act(async () => {
-            expandBtn!.click();
+            expandBtn.click();
         });
         expect(box.getAttribute("data-expanded-sheet")).toBe("true");
         expect(parseInt(editorFrame.style.height, 10)).toBeGreaterThanOrEqual(290);
@@ -152,9 +153,9 @@ describe("ChatInput overflow, sheet expansion, hints & quoted excerpts", () => {
         expect(sendBtn?.disabled).toBe(false);
 
         const removeFirst = host.querySelector<HTMLButtonElement>('button[aria-label="Remove quote 1"]');
-        expect(removeFirst).not.toBeNull();
+        if (!removeFirst) throw new Error("expected Remove quote 1 button");
         await act(async () => {
-            removeFirst!.click();
+            removeFirst.click();
         });
         expect(removed).toEqual(["q1"]);
     });

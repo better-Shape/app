@@ -67,6 +67,9 @@ try {
       if ($null -ne $result -and -not [string]::IsNullOrWhiteSpace($result.Text)) {
         [Console]::Out.WriteLine($result.Text.Trim())
         [Console]::Out.Flush()
+      } else {
+        [Console]::Out.WriteLine('')
+        [Console]::Out.Flush()
       }
     } catch {
       [Console]::Out.WriteLine('ERR ' + $_.Exception.Message)
@@ -212,9 +215,6 @@ pub fn dictation_start(app: tauri::AppHandle) -> Result<(), String> {
                 }
                 let Ok(line) = line else { break };
                 let text = line.trim();
-                if text.is_empty() {
-                    continue;
-                }
                 let _ = app.emit("dictation-text", text.to_string());
             }
             if DICTATION_STOP.load(std::sync::atomic::Ordering::SeqCst)

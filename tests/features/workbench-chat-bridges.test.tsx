@@ -47,14 +47,14 @@ describe("ChatFindBar", () => {
         try {
             expect(host.textContent).toContain("2 / 4");
             const input = host.querySelector("input");
-            expect(input).not.toBeNull();
+            if (!input) throw new Error("expected find bar input");
 
             act(() => {
-                input!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-                input!.dispatchEvent(
+                input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+                input.dispatchEvent(
                     new KeyboardEvent("keydown", { key: "Enter", shiftKey: true, bubbles: true }),
                 );
-                input!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+                input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
             });
 
             expect(events).toEqual(["next", "prev", "close"]);
@@ -106,8 +106,8 @@ describe("ProblemsPanel -> Chat bridge", () => {
             const rowFixBtn = host.querySelector<HTMLButtonElement>(
                 'button[aria-label="Fix problem at 14:5 in chat"]',
             );
-            expect(rowFixBtn).not.toBeNull();
-            act(() => rowFixBtn!.click());
+            if (!rowFixBtn) throw new Error("expected row Fix button");
+            act(() => rowFixBtn.click());
 
             expect(centerViews.events.at(-1)?.detail).toBe("chat");
             expect(toggles.events).toHaveLength(0);
@@ -119,8 +119,8 @@ describe("ProblemsPanel -> Chat bridge", () => {
             const fixAllBtn = host.querySelector<HTMLButtonElement>(
                 'button[aria-label="Fix all problems in chat"]',
             );
-            expect(fixAllBtn).not.toBeNull();
-            act(() => fixAllBtn!.click());
+            if (!fixAllBtn) throw new Error("expected Fix all problems button");
+            act(() => fixAllBtn.click());
             expect(inserts.events).toHaveLength(2);
             expect(inserts.events[1]?.detail.prompt).toContain("Fix these ESLint problems:");
             expect(inserts.events[1]?.detail.prompt).toContain("@src/index.ts:14:5 [no-undef]");

@@ -198,15 +198,15 @@ export default function TestPanel() {
     }, []);
 
     useEffect(() => {
-        let cancelled = false;
-        if (storeProjectPath !== (project_path ?? null)) {
-            resetTestStore(project_path ?? null);
+        const targetPath = project_path ?? null;
+        if (storeProjectPath !== targetPath) {
+            resetTestStore(targetPath);
+            return undefined;
         }
         if (!project_path) {
-            return () => {
-                cancelled = true;
-            };
+            return undefined;
         }
+        let cancelled = false;
         discoverProjectTests(project_path, () => !cancelled).catch((err) => {
             if (!cancelled) {
                 setTestError(

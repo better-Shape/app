@@ -52,9 +52,11 @@ describe("splitStreamingMarkdownBlocks & hasUnclosedMarkdownFence", () => {
         const closedSplit = splitStreamingMarkdownBlocks(closedFenceMd);
         expect(closedSplit.settled).toHaveLength(2);
         expect(closedSplit.settled[0]).toBe("Intro paragraph.");
-        expect(closedSplit.settled[1]).toContain("```tsx");
-        expect(closedSplit.settled[1]).toContain("```");
-        expect(hasUnclosedMarkdownFence(closedSplit.settled[1]!)).toBe(false);
+        const secondSettled = closedSplit.settled[1];
+        if (!secondSettled) throw new Error("expected second settled block");
+        expect(secondSettled).toContain("```tsx");
+        expect(secondSettled).toContain("```");
+        expect(hasUnclosedMarkdownFence(secondSettled)).toBe(false);
         expect(closedSplit.tail).toBe("Follow-up explanation.");
     });
 

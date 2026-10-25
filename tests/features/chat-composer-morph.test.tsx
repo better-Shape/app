@@ -110,14 +110,14 @@ describe("Pass 7: ModeMenu & BYOK pre-key composer controls", () => {
             const modeBtn = host.querySelector<HTMLButtonElement>('button[aria-label="Plan"]');
             const addBtn = host.querySelector<HTMLButtonElement>('button[aria-label="Add"]');
             const sendBtn = host.querySelector<HTMLButtonElement>('button[aria-label="Send"]');
-            expect(modeBtn).toBeTruthy();
-            expect(modeBtn?.getAttribute("aria-disabled")).toBeNull();
+            if (!modeBtn) throw new Error("expected Plan mode button");
+            expect(modeBtn.getAttribute("aria-disabled")).toBeNull();
             expect(addBtn?.disabled).toBe(false);
             expect(sendBtn?.disabled).toBe(true);
             // Disabled Send button must not look active-blue when provider is missing
             expect(sendBtn?.className).not.toContain("bg-accent");
 
-            dispatchPointerClick(modeBtn!);
+            dispatchPointerClick(modeBtn);
 
             const menuItems = Array.from(
                 document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
@@ -217,8 +217,8 @@ describe("Pass 7: Continuous 3-column composer morph & @ mention guards", () => 
             onKeyDown,
         });
         try {
-            const textarea = host.querySelector("textarea")!;
-            expect(textarea).toBeTruthy();
+            const textarea = host.querySelector("textarea");
+            if (!textarea) throw new Error("expected composer textarea");
 
             // Typing an email address must NOT open the @ mention popover
             act(() => {

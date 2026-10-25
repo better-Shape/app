@@ -217,4 +217,71 @@ describe("startDictationCapture audio graph & RMS levels", () => {
 
         vi.unstubAllGlobals();
     });
+
+    it("returns directly to idle and stops the recognizer when committed audio is silent", async () => {
+        const stopTrack = vi.fn();
+        const stopInvoke = vi.fn(async () => {});
+        const pushInvoke = vi.fn(async () => {});
+        type AudioProcessHandler = (e: { inputBuffer: { getChannelData: () => Float32Array } }) => void;
+        let processorHandler: AudioProcessHandler | null = null;
+        const processor = {
+            set onaudioprocess(fn: AudioProcessHandler | null) {
+                processorHandler = fn;
+            },
+            get onaudioprocess() {
+                return processorHandler;
+            },
+            connect: vi.fn(),
+            disconnect: vi.fn(),
+        };
+        vi.stubGlobal(
+            "AudioContext",
+            class {
+                sampleRate = 16_000;
+                destination = {};
+                createMediaStreamSource() {
+                    return { connect: vi.fn(), disconnect: vi.fn() };
+                }
+                createScriptProcessor() {
+                    return processor;
+                }
+                createGain() {
+                    return { gain: { value: 1 }, connect: vi.fn(), disconnect: vi.fn() };
+                }
+                async close() {}
+            },
+        );
+        Object.defineProperty(navigator, "mediaDevices", {
+            configurable: true,
+            value: {
+                getUserMedia: vi.fn(async () => ({
+                    getTracks: () => [{ stop: stopTrack }],
+                })),
+            },
+        });
+
+        const states: string[] = [];
+        const session = await startDictation(
+            {
+                onText: () => {},
+                onError: () => {},
+                onState: (next) => states.push(next),
+            },
+            true,
+            {
+                start: async () => {},
+                stop: stopInvoke,
+                push: pushInvoke,
+            },
+        );
+        processor.onaudioprocess?.({
+            inputBuffer: { getChannelData: () => new Float32Array(128).fill(0) },
+        });
+        session.commit();
+
+        expect(states).toEqual(["listening", "idle"]);
+        expect(pushInvoke).not.toHaveBeenCalled();
+        expect(stopInvoke).toHaveBeenCalledTimes(1);
+        vi.unstubAllGlobals();
+    });
 });

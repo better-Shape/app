@@ -15,11 +15,13 @@ import {
 import { classifyAiError, errorDocsUrl } from "@/lib/errors/catalog";
 import { commands } from "@/lib/backend";
 
-const OPENROUTER_BILLING_HINTS = ["openrouter.ai"] as const;
+const OPENROUTER_BILLING_URLS = [
+    "openrouter.ai/settings/credits",
+    "openrouter.ai/credits",
+] as const;
 const OPENAI_BILLING_URLS = [
     "platform.openai.com/account/billing",
     "platform.openai.com/settings/organization/billing",
-    "api.openai.com",
 ] as const;
 
 const includesAnySubstring = (haystack: string, needles: readonly string[]): boolean =>
@@ -33,12 +35,12 @@ export const detectErrorBillingProvider = (
     if (!rawMessage) return null;
     const lower = rawMessage.toLowerCase();
     const isOpenRouter =
-        includesAnySubstring(lower, OPENROUTER_BILLING_HINTS) ||
-        (isQuota && /\bopenrouter\b/.test(lower));
+        includesAnySubstring(lower, OPENROUTER_BILLING_URLS) ||
+        (isQuota && (/\bopenrouter\b/.test(lower) || lower.includes("openrouter.ai")));
     if (isOpenRouter) return "openrouter";
     const isOpenAi =
         includesAnySubstring(lower, OPENAI_BILLING_URLS) ||
-        (isQuota && /\bopenai\b/.test(lower));
+        (isQuota && (/\bopenai\b/.test(lower) || lower.includes("api.openai.com")));
     return isOpenAi ? "openai" : null;
 };
 
@@ -82,15 +84,12 @@ export function ChatErrorDialog({
             isModelBusy ||
             /too many requests/i.test(rawMessage));
 
-    const title = !hasMessage
-        ? entry.title
-        : isContextOverflow
-          ? "Context window full"
-          : isTransient
-            ? isModelBusy
-                ? "Model busy"
-                : "Rate limited"
-            : entry.title;
+    let title = entry.title;
+    if (hasMessage && isContextOverflow) {
+        title = "Context window full";
+    } else if (hasMessage && isTransient) {
+        title = isModelBusy ? "Model busy" : "Rate limited";
+    }
 
     const hint = !hasMessage
         ? ""

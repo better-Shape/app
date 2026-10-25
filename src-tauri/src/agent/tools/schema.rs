@@ -928,6 +928,7 @@ fn ask_user() -> Value {
                                     "properties": {
                                         "id": {"type": "string"},
                                         "label": {"type": "string"},
+                                        "description": {"type": "string"},
                                         "recommended": {"type": "boolean"}
                                     },
                                     "required": ["label"],

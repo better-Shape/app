@@ -19,8 +19,8 @@ export interface TranscriptSearchOptions {
 /** Strips hidden agent control tags on a non-fenced text slice. */
 const stripControlTagsSlice = (segment: string): string =>
     segment
-        .replace(/<attached_(?:image|file|asset)\b[^>]*>[\s\S]*?<\/attached_(?:image|file|asset)>/gi, " ")
-        .replace(/<(?:thinking|analysis)\b[^>]*>[\s\S]*?<\/(?:thinking|analysis)>/gi, " ")
+        .replace(/<attached_(image|file|asset)\b[^>]*>[\s\S]*?<\/attached_\1>/gi, " ")
+        .replace(/<(thinking|thought|think|analysis)\b[^>]*>[\s\S]*?<\/\1>/gi, " ")
         .replace(/<rename_chat\b[^>]*>[\s\S]*?<\/rename_chat>/gi, " ")
         .replace(/<todos\b[^>]*>[\s\S]*?<\/todos>/gi, " ")
         .replace(/<bettershape_action\b[^>]*\/?>/gi, " ")

@@ -111,8 +111,109 @@ export interface DomMatchRange {
     messageIndex: number | null;
 }
 
+interface TextSegment {
+    node: Text;
+    start: number;
+    end: number;
+}
+
+interface MessageTextRun {
+    messageIndex: number | null;
+    text: string;
+    segments: TextSegment[];
+    lastBlock: Element | null;
+}
+
+const BLOCK_ANCESTOR_SELECTOR =
+    "p, li, pre, blockquote, h1, h2, h3, h4, h5, h6, tr, td, th, div, section, article";
+
+const resolveMessageIndex = (textNode: Text): number | null => {
+    const msgEl = textNode.parentElement?.closest<HTMLElement>("[data-chat-message-index]") ?? null;
+    const parsed = msgEl ? Number(msgEl.getAttribute("data-chat-message-index")) : Number.NaN;
+    return Number.isFinite(parsed) ? parsed : null;
+};
+
+const collectMessageTextRuns = (container: HTMLElement): MessageTextRun[] => {
+    const runs: MessageTextRun[] = [];
+    const byKey = new Map<string, MessageTextRun>();
+    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+    let current = walker.nextNode();
+    while (current) {
+        const textNode = current as Text;
+        current = walker.nextNode();
+        const raw = textNode.nodeValue;
+        if (!raw || shouldSkipTextNode(textNode, container)) continue;
+
+        const messageIndex = resolveMessageIndex(textNode);
+        const key = messageIndex === null ? "__root__" : String(messageIndex);
+        let run = byKey.get(key);
+        if (!run) {
+            run = { messageIndex, text: "", segments: [], lastBlock: null };
+            byKey.set(key, run);
+            runs.push(run);
+        }
+        const block = textNode.parentElement?.closest(BLOCK_ANCESTOR_SELECTOR) ?? container;
+        if (run.lastBlock && run.lastBlock !== block && !run.text.endsWith("\n")) {
+            run.text += "\n";
+        }
+        const start = run.text.length;
+        run.text += raw;
+        run.segments.push({ node: textNode, start, end: start + raw.length });
+        run.lastBlock = block;
+    }
+    return runs;
+};
+
+const locateDomBoundary = (
+    segments: readonly TextSegment[],
+    offset: number,
+    isEnd: boolean,
+): { node: Text; offset: number } | null => {
+    let lo = 0;
+    let hi = segments.length - 1;
+    let found: TextSegment | undefined;
+    while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        const seg = segments[mid];
+        if (!seg) break;
+        const before = isEnd ? seg.end < offset : seg.end <= offset;
+        if (before) {
+            lo = mid + 1;
+        } else {
+            found = seg;
+            hi = mid - 1;
+        }
+    }
+    if (!found) return null;
+    const maxLen = found.node.nodeValue?.length ?? 0;
+    const localOffset = Math.min(Math.max(0, offset - found.start), maxLen);
+    return { node: found.node, offset: localOffset };
+};
+
+const createRunMatchRange = (
+    segments: readonly TextSegment[],
+    matchStart: number,
+    matchEnd: number,
+): Range | null => {
+    const startPos = locateDomBoundary(segments, matchStart, false);
+    const endPos = locateDomBoundary(segments, matchEnd, true);
+    if (!startPos || !endPos) return null;
+    const range = document.createRange();
+    range.setStart(startPos.node, startPos.offset);
+    range.setEnd(endPos.node, endPos.offset);
+    return range;
+};
+
+const buildQueryMatcher = (trimmed: string, caseSensitive: boolean): RegExp => {
+    const pattern = trimmed
+        .split(/\s+/)
+        .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+        .join("\\s+");
+    return new RegExp(pattern, caseSensitive ? "g" : "gi");
+};
+
 /**
- * Collects DOM `Range`s for every visible text-node match inside `container`,
+ * Collects DOM `Range`s for every visible text match inside `container`,
  * paints `CSS.highlights` when supported, and returns the ordered ranges so the
  * caller can scroll precisely to `ranges[activeIndex].range.getBoundingClientRect()`.
  */
@@ -133,58 +234,41 @@ export function syncChatDomHighlights(
         return { ranges: [], activeRange: null };
     }
 
-    const caseSensitive = Boolean(options.caseSensitive);
     const maxRanges = options.maxRanges ?? 500;
-    const escapedNeedle = trimmed.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const matcher = new RegExp(escapedNeedle, caseSensitive ? "g" : "gi");
+    const matcher = buildQueryMatcher(trimmed, Boolean(options.caseSensitive));
+    const runs = collectMessageTextRuns(container);
 
     const collected: DomMatchRange[] = [];
     const perMessageCounter = new Map<number, number>();
     let matchedTargetRange: Range | null = null;
 
-    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
-    let current = walker.nextNode();
-    while (current && collected.length < maxRanges) {
-        const textNode = current as Text;
-        current = walker.nextNode();
-        const raw = textNode.nodeValue;
-        if (!raw) continue;
-        if (shouldSkipTextNode(textNode, container)) continue;
-
+    for (const run of runs) {
+        if (collected.length >= maxRanges) break;
         matcher.lastIndex = 0;
-        let resolvedMsgIdx: number | null | undefined;
-        let match = matcher.exec(raw);
-
+        let match = matcher.exec(run.text);
         while (match !== null && collected.length < maxRanges) {
-            const idx = match.index;
             const matchLen = match[0].length;
             if (matchLen === 0) {
                 matcher.lastIndex += 1;
-                match = matcher.exec(raw);
+                match = matcher.exec(run.text);
                 continue;
             }
-            if (resolvedMsgIdx === undefined) {
-                const msgEl = textNode.parentElement?.closest<HTMLElement>("[data-chat-message-index]") ?? null;
-                const parsed = msgEl ? Number(msgEl.getAttribute("data-chat-message-index")) : Number.NaN;
-                resolvedMsgIdx = Number.isFinite(parsed) ? parsed : null;
-            }
-            const range = document.createRange();
-            range.setStart(textNode, idx);
-            range.setEnd(textNode, idx + matchLen);
-            collected.push({ range, messageIndex: resolvedMsgIdx });
-
-            if (resolvedMsgIdx !== null) {
-                const occ = perMessageCounter.get(resolvedMsgIdx) ?? 0;
-                perMessageCounter.set(resolvedMsgIdx, occ + 1);
-                if (
-                    matchedTargetRange === null &&
-                    options.targetMessageIndex === resolvedMsgIdx &&
-                    options.targetOccurrenceInMessage === occ
-                ) {
-                    matchedTargetRange = range;
+            const range = createRunMatchRange(run.segments, match.index, match.index + matchLen);
+            if (range) {
+                collected.push({ range, messageIndex: run.messageIndex });
+                if (run.messageIndex !== null) {
+                    const occ = perMessageCounter.get(run.messageIndex) ?? 0;
+                    perMessageCounter.set(run.messageIndex, occ + 1);
+                    if (
+                        matchedTargetRange === null
+                        && options.targetMessageIndex === run.messageIndex
+                        && options.targetOccurrenceInMessage === occ
+                    ) {
+                        matchedTargetRange = range;
+                    }
                 }
             }
-            match = matcher.exec(raw);
+            match = matcher.exec(run.text);
         }
     }
 
