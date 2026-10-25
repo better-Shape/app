@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import {
     DICTATION_SAMPLE_RATE,
+    MAX_DICTATION_BUFFER_SECONDS,
+    appendBoundedAudioChunk,
     describeDictationError,
     encodeWavPcm16,
     resampleTo16k,
@@ -282,6 +284,90 @@ describe("startDictationCapture audio graph & RMS levels", () => {
         expect(states).toEqual(["listening", "idle"]);
         expect(pushInvoke).not.toHaveBeenCalled();
         expect(stopInvoke).toHaveBeenCalledTimes(1);
+        vi.unstubAllGlobals();
+    });
+
+    it("caps buffered PCM samples on unattended dictation so memory cannot grow without limit", async () => {
+        const chunks: Float32Array[] = [];
+        let total = 0;
+        total = appendBoundedAudioChunk(chunks, new Float32Array([1, 2, 3, 4]), total, 6);
+        total = appendBoundedAudioChunk(chunks, new Float32Array([5, 6, 7, 8]), total, 6);
+        expect(total).toBe(6);
+        const retained = chunks.reduce((sum, part) => sum + part.length, 0);
+        expect(retained).toBe(6);
+        expect(Array.from(chunks[0] ?? [])).toEqual([3, 4]);
+        expect(Array.from(chunks[1] ?? [])).toEqual([5, 6, 7, 8]);
+
+        let capturedWavLength = 0;
+        const pushInvoke = vi.fn(async (wav: number[]) => {
+            capturedWavLength = wav.length;
+        });
+        type AudioProcessHandler = (e: { inputBuffer: { getChannelData: () => Float32Array } }) => void;
+        let processorHandler: AudioProcessHandler | null = null;
+        const processor = {
+            set onaudioprocess(fn: AudioProcessHandler | null) {
+                processorHandler = fn;
+            },
+            get onaudioprocess() {
+                return processorHandler;
+            },
+            connect: vi.fn(),
+            disconnect: vi.fn(),
+        };
+        const lowSampleRate = 100;
+        vi.stubGlobal(
+            "AudioContext",
+            class {
+                sampleRate = lowSampleRate;
+                destination = {};
+                createMediaStreamSource() {
+                    return { connect: vi.fn(), disconnect: vi.fn() };
+                }
+                createScriptProcessor() {
+                    return processor;
+                }
+                createGain() {
+                    return { gain: { value: 1 }, connect: vi.fn(), disconnect: vi.fn() };
+                }
+                async close() {}
+            },
+        );
+        Object.defineProperty(navigator, "mediaDevices", {
+            configurable: true,
+            value: {
+                getUserMedia: vi.fn(async () => ({
+                    getTracks: () => [{ stop: vi.fn() }],
+                })),
+            },
+        });
+
+        const session = await startDictation(
+            { onText: () => {}, onError: () => {} },
+            true,
+            {
+                start: async () => {},
+                stop: async () => {},
+                push: pushInvoke,
+            },
+        );
+        const maxExpectedSamples = Math.max(
+            DICTATION_SAMPLE_RATE,
+            lowSampleRate * MAX_DICTATION_BUFFER_SECONDS,
+        );
+        const frame = new Float32Array(4096).fill(0.25);
+        for (let step = 0; step < 12; step++) {
+            processor.onaudioprocess?.({
+                inputBuffer: { getChannelData: () => frame },
+            });
+        }
+        session.commit();
+
+        expect(pushInvoke).toHaveBeenCalledTimes(1);
+        const expectedResampledMax = Math.round(
+            (maxExpectedSamples * DICTATION_SAMPLE_RATE) / lowSampleRate,
+        );
+        expect(capturedWavLength - 44).toBeGreaterThan(0);
+        expect(capturedWavLength - 44).toBeLessThanOrEqual(expectedResampledMax * 2);
         vi.unstubAllGlobals();
     });
 });

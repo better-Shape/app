@@ -603,4 +603,59 @@ describe("PR #53 review regression coverage", () => {
         );
         resetSubagents();
     });
+
+    it("exports attachments containing Markdown code fences as summaries while keeping fenced examples and tilde code blocks intact", () => {
+        const md = formatTranscriptAsMarkdown("Fence edge cases", [
+            {
+                role: "user",
+                content: [
+                    '<attached_file name="README.md">',
+                    "# Attached Doc",
+                    "```ts",
+                    "export const secretBody = 42;",
+                    "```",
+                    "</attached_file>",
+                    "Please review the snippet below:",
+                    "```xml",
+                    '<attached_file name="example.txt">literal example</attached_file>',
+                    "```",
+                ].join("\n"),
+            },
+            {
+                role: "assistant",
+                content: [
+                    "<thinking>",
+                    "```python",
+                    "internal_plan = True",
+                    "```",
+                    "</thinking>",
+                    "Outside <div>stripped</div> prose:",
+                    "~~~html",
+                    "<script>window.keepMe = 1;</script>",
+                    "<div class=\"card\">kept inside tilde fence</div>",
+                    "~~~",
+                ].join("\n"),
+            },
+        ]);
+
+        expect(md).toContain("_Attached: `README.md`_");
+        expect(md).not.toContain("secretBody");
+        expect(md).toContain('<attached_file name="example.txt">literal example</attached_file>');
+        expect(md).not.toContain("internal_plan");
+
+        const processed = preprocessChatMarkdown(
+            [
+                "Before <div>strip-me</div> text",
+                "~~~html",
+                "<script>window.keepMe = 1;</script>",
+                "<div class=\"card\">kept inside tilde fence</div>",
+                "~~~",
+                "After <span>also-stripped</span>",
+            ].join("\n"),
+        );
+        expect(processed).not.toContain("<div>strip-me</div>");
+        expect(processed).not.toContain("<span>also-stripped</span>");
+        expect(processed).toContain("<script>window.keepMe = 1;</script>");
+        expect(processed).toContain('<div class="card">kept inside tilde fence</div>');
+    });
 });

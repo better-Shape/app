@@ -61,6 +61,25 @@ function emit(name: string, payload: unknown) {
     }
 }
 
+type StreamApi = ReturnType<typeof useChatStream>;
+
+let capturedStreamApi: StreamApi | null = null;
+
+/** Captures the latest `useChatStream()` value through an explicit render callback. */
+const StreamConsumer = ({ onRender }: { onRender: (api: StreamApi) => void }) => {
+    const value = useChatStream();
+    onRender(value);
+    return null;
+};
+
+/** Returns the mounted `useChatStream()` handle or throws if not yet rendered. */
+const requireStreamApi = (): StreamApi => {
+    if (!capturedStreamApi) {
+        throw new Error("StreamConsumer has not rendered yet");
+    }
+    return capturedStreamApi;
+};
+
 async function settle(rounds = 4) {
     for (let i = 0; i < rounds; i++) {
         await act(async () => {
@@ -74,6 +93,7 @@ describe("ChatStreamProvider context splitting, rAF coalescing, and resident LRU
     let root: Root;
 
     beforeEach(() => {
+        capturedStreamApi = null;
         backend.currentResolvers.length = 0;
         backend.messageRequests.length = 0;
         events.handlers.clear();
@@ -91,7 +111,6 @@ describe("ChatStreamProvider context splitting, rAF coalescing, and resident LRU
     });
 
     it("isolates useViewedConversationId, useChatStreamGetters, and useChatStreamStatus from per-token transcript renders", async () => {
-        let streamApi!: ReturnType<typeof useChatStream>;
         let viewedIdRenders = 0;
         let gettersRenders = 0;
         let statusRenders = 0;
@@ -115,12 +134,6 @@ describe("ChatStreamProvider context splitting, rAF coalescing, and resident LRU
             return null;
         });
 
-        function StreamProbe() {
-            streamApi = useChatStream();
-            fullStreamRenders++;
-            return null;
-        }
-
         const rafCallbacks: FrameRequestCallback[] = [];
         vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => {
             rafCallbacks.push(cb);
@@ -133,7 +146,12 @@ describe("ChatStreamProvider context splitting, rAF coalescing, and resident LRU
                     <ViewedIdProbe />
                     <GettersProbe />
                     <StatusProbe />
-                    <StreamProbe />
+                    {React.createElement(StreamConsumer, {
+                        onRender: (nextApi: StreamApi) => {
+                            capturedStreamApi = nextApi;
+                            fullStreamRenders++;
+                        },
+                    })}
                 </ChatStreamProvider>,
             );
         });
@@ -164,7 +182,7 @@ describe("ChatStreamProvider context splitting, rAF coalescing, and resident LRU
         });
 
         // Leading edge applied immediately for <16ms TTFT:
-        expect(streamApi.messages.at(-1)?.content).toBe("First ");
+        expect(requireStreamApi().messages.at(-1)?.content).toBe("First ");
         expect(rafCallbacks.length).toBe(1);
 
         // Flush single animation frame for the 3 coalesced tokens:
@@ -173,7 +191,7 @@ describe("ChatStreamProvider context splitting, rAF coalescing, and resident LRU
             cb?.(16.6);
         });
 
-        expect(streamApi.messages.at(-1)?.content).toBe("First second third fourth.");
+        expect(requireStreamApi().messages.at(-1)?.content).toBe("First second third fourth.");
         // Only 2 transcript renders for 4 tokens (1 leading + 1 rAF), and ZERO re-renders on decoupled selectors:
         expect(fullStreamRenders - baselineStream).toBe(2);
         expect(viewedIdRenders).toBe(baselineViewedId);
@@ -182,17 +200,14 @@ describe("ChatStreamProvider context splitting, rAF coalescing, and resident LRU
     });
 
     it("serves prefetched and previously visited conversations synchronously in 0ms from resident LRU cache", async () => {
-        let streamApi!: ReturnType<typeof useChatStream>;
-
-        function StreamProbe() {
-            streamApi = useChatStream();
-            return null;
-        }
-
         await act(async () => {
             root.render(
                 <ChatStreamProvider>
-                    <StreamProbe />
+                    {React.createElement(StreamConsumer, {
+                        onRender: (nextApi: StreamApi) => {
+                            capturedStreamApi = nextApi;
+                        },
+                    })}
                 </ChatStreamProvider>,
             );
         });
@@ -204,7 +219,7 @@ describe("ChatStreamProvider context splitting, rAF coalescing, and resident LRU
             .find((r) => r.id === "conv-a")
             ?.resolve([{ role: "user", content: "Alpha prompt", timestamp: 10 }]);
         await settle();
-        expect(streamApi.messages.map((m) => m.content)).toEqual(["Alpha prompt"]);
+        expect(requireStreamApi().messages.map((m) => m.content)).toEqual(["Alpha prompt"]);
 
         // Hover-prefetch conv-b via the global event helper BEFORE switching tabs:
         await act(async () => {
@@ -220,19 +235,19 @@ describe("ChatStreamProvider context splitting, rAF coalescing, and resident LRU
 
         // Switching to conv-b renders its prefetched messages IMMEDIATELY on frame 0:
         await act(async () => {
-            streamApi.showConversation("conv-b");
+            requireStreamApi().showConversation("conv-b");
         });
-        expect(streamApi.viewedConversationId).toBe("conv-b");
-        expect(streamApi.messages.map((m) => m.content)).toEqual([
+        expect(requireStreamApi().viewedConversationId).toBe("conv-b");
+        expect(requireStreamApi().messages.map((m) => m.content)).toEqual([
             "Beta prefetched prompt",
             "Beta instant reply",
         ]);
 
         // Switching back to conv-a also hits resident LRU cache synchronously in 0ms:
         await act(async () => {
-            streamApi.showConversation("conv-a");
+            requireStreamApi().showConversation("conv-a");
         });
-        expect(streamApi.viewedConversationId).toBe("conv-a");
-        expect(streamApi.messages.map((m) => m.content)).toEqual(["Alpha prompt"]);
+        expect(requireStreamApi().viewedConversationId).toBe("conv-a");
+        expect(requireStreamApi().messages.map((m) => m.content)).toEqual(["Alpha prompt"]);
     });
 });
