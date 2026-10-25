@@ -55,13 +55,19 @@ function pruneExpired(now = Date.now()): NotificationState {
     );
     const ids = new Set(notifications.map((n) => n.id));
     const toastIds = state.toastIds.filter((id) => ids.has(id));
+    const activeToastSet = new Set(toastIds);
+    const cleanedNotifications = notifications.map((n) =>
+        n.action && !activeToastSet.has(n.id) ? { ...n, action: undefined } : n,
+    );
+    const hadStaleAction = cleanedNotifications.some((n, idx) => n !== notifications[idx]);
     if (
-        notifications.length === state.notifications.length
+        !hadStaleAction
+        && cleanedNotifications.length === state.notifications.length
         && toastIds.length === state.toastIds.length
     ) {
         return state;
     }
-    return { ...state, notifications, toastIds };
+    return { ...state, notifications: cleanedNotifications, toastIds };
 }
 
 function emitChange() {
@@ -90,9 +96,14 @@ export const notificationStore = {
         };
 
         const pruned = pruneExpired();
-        const notifications = [...pruned.notifications, notification].slice(-MAX_HISTORY);
         // Always show as a toast. autoHide defaults on; callers can pass autoHide: false to stick.
         const toastIds = [...pruned.toastIds, id].slice(-MAX_TOASTS);
+        const activeToastSet = new Set(toastIds);
+        const notifications = [...pruned.notifications, notification]
+            .slice(-MAX_HISTORY)
+            .map((item) =>
+                item.action && !activeToastSet.has(item.id) ? { ...item, action: undefined } : item,
+            );
 
         state = { notifications, toastIds, lastViewedAt: pruned.lastViewedAt };
         emitChange();

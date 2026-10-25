@@ -467,18 +467,14 @@ function EditApprovalRow({ block }: { block: Chunk }) {
     useEffect(() => {
         if (!block.commandId) return undefined;
         let disposed = false;
-        let unlistenPromise: Promise<() => void>;
-        try {
-            unlistenPromise = listen<{ id?: string; approved?: boolean }>(
-                "agent-edit-resolved",
-                (event) => {
+        const unlistenPromise = Promise.resolve()
+            .then(() =>
+                listen<{ id?: string; approved?: boolean }>("agent-edit-resolved", (event) => {
                     if (disposed || event.payload?.id !== block.commandId) return;
                     setLocalStatus(event.payload?.approved ? "applied" : "rejected");
-                },
-            ).catch(() => () => undefined);
-        } catch {
-            unlistenPromise = Promise.resolve(() => undefined);
-        }
+                }),
+            )
+            .catch(() => () => undefined);
         return () => {
             disposed = true;
             unlistenPromise.then((unlisten) => unlisten()).catch(() => undefined);
@@ -583,18 +579,14 @@ function PluginCallStep({ block }: { block: Chunk }) {
     useEffect(() => {
         if (status !== "pending" || !block.commandId) return undefined;
         let disposed = false;
-        let unlistenPromise: Promise<() => void>;
-        try {
-            unlistenPromise = listen<{ id?: string; approved?: boolean }>(
-                "agent-command-resolved",
-                (event) => {
+        const unlistenPromise = Promise.resolve()
+            .then(() =>
+                listen<{ id?: string; approved?: boolean }>("agent-command-resolved", (event) => {
                     if (disposed || event.payload?.id !== block.commandId) return;
                     setLocalStatus(event.payload?.approved ? "ok" : "rejected");
-                },
-            ).catch(() => () => undefined);
-        } catch {
-            unlistenPromise = Promise.resolve(() => undefined);
-        }
+                }),
+            )
+            .catch(() => () => undefined);
         return () => {
             disposed = true;
             unlistenPromise.then((unlisten) => unlisten()).catch(() => undefined);
@@ -691,8 +683,9 @@ function StepRow({ block }: { block: Chunk }) {
 
     if (block.type === "tool_result") {
         const raw = block.content || "";
-        const mcp = raw.match(/^\[MCP\s+([^\]]+)\]/i)?.[1]?.trim();
-        const bodyAfterHeader = mcp ? raw.replace(/^\[MCP\s+[^\]]+\]\s*/i, "").trim() : raw.trim();
+        const closeBracketIdx = /^\[MCP\s/i.test(raw) ? raw.indexOf("]") : -1;
+        const mcp = closeBracketIdx > 4 ? raw.slice(4, closeBracketIdx).trim() : "";
+        const bodyAfterHeader = mcp ? raw.slice(closeBracketIdx + 1).trim() : raw.trim();
         if (mcp) {
             const label = humanizeToolName(mcp.replace(/^mcp__/i, "").replace(/__/g, " "));
             return (

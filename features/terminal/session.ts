@@ -242,8 +242,11 @@ export function insertCommandIntoWorkspaceTerminal(rawCommand: string): boolean 
     }
 
     const targetTab = findTargetProjectShellTab(terminalSessionStore.panel.cwd);
+    const hasPendingDrain = Boolean(
+        targetTab && terminalSessionStore.peekPendingCommandInsert(targetTab.id),
+    );
     const inst = targetTab ? terminalSessionStore.instances.get(targetTab.id) : undefined;
-    if (inst?.term && typeof inst.term.paste === "function") {
+    if (!hasPendingDrain && inst?.term && typeof inst.term.paste === "function") {
         inst.term.paste(cleaned);
         inst.term.focus?.();
         inst.term.scrollToBottom?.();

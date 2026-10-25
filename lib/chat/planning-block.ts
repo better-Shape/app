@@ -3,7 +3,6 @@ export function todoCountLabel(completed: number, total: number): string {
 }
 
 export type PlanStepStatus = "done" | "active" | "pending" | "cancelled";
-export type PlanningStepStatus = PlanStepStatus;
 
 export function freezeActiveSteps<T extends { status: PlanStepStatus }>(
     steps: T[],
@@ -92,7 +91,7 @@ export function selectPlanningPreviewSteps<T extends PlanningStepItem>(
     const ordered = [...selected]
         .sort((a, b) => a - b)
         .flatMap((index) => {
-            const step = steps[index];
+            const step = steps.at(index);
             return step ? [{ step, index }] : [];
         });
 

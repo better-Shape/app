@@ -225,19 +225,15 @@ export function AgentWorkspace({
         let disposed = false;
         let stopRustTab: (() => void) | undefined;
         import("@tauri-apps/api/event")
-            .then(({ listen }) => {
-                try {
-                    return listen<string>("bettershape-set-active-tab", (event) => {
-                        window.dispatchEvent(
-                            new CustomEvent("bettershape-set-active-tab", {
-                                detail: event.payload,
-                            }),
-                        );
-                    });
-                } catch {
-                    return undefined;
-                }
-            })
+            .then(({ listen }) =>
+                listen<string>("bettershape-set-active-tab", (event) => {
+                    window.dispatchEvent(
+                        new CustomEvent("bettershape-set-active-tab", {
+                            detail: event.payload,
+                        }),
+                    );
+                }),
+            )
             .then((stop) => {
                 if (disposed) {
                     stop?.();

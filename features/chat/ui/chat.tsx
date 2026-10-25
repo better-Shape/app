@@ -54,6 +54,24 @@ function stickyPromptText(content: string): string {
     return `${cleaned.slice(0, 117)}...`;
 }
 
+/** True when an ancestor inside `boundary` is vertically scrollable and still has room to scroll up. */
+const canNestedAncestorScrollUp = (
+    target: EventTarget | null,
+    boundary: HTMLElement,
+): boolean => {
+    let cur = target instanceof HTMLElement ? target : null;
+    while (cur && cur !== boundary) {
+        if (cur.scrollHeight > cur.clientHeight + 1 && cur.scrollTop > 0) {
+            const overflowY = window.getComputedStyle(cur).overflowY;
+            if (overflowY === "auto" || overflowY === "scroll" || overflowY === "overlay") {
+                return true;
+            }
+        }
+        cur = cur.parentElement;
+    }
+    return false;
+};
+
 /** Detects pending human-in-the-loop approval or question blocks in the transcript. */
 export function detectPendingHitl(
     messages: readonly { role?: string; content?: string }[],
@@ -382,8 +400,19 @@ export default function Chat({
         sessionRef.current.setSendError(null);
     }, []);
     const handleRetrySendError = React.useCallback(() => {
-        sessionRef.current.setSendError(null);
-        void sessionRef.current.handleSendMessage();
+        const current = sessionRef.current;
+        current.setSendError(null);
+        const hasComposerPayload =
+            current.inputValue.trim().length > 0 ||
+            current.uploadedFiles.length > 0 ||
+            current.quotedExcerpts.length > 0;
+        if (hasComposerPayload) {
+            current.handleSendMessage().catch(() => undefined);
+            return;
+        }
+        if (current.messages.length > 0) {
+            current.handleRedo(current.messages.length - 1).catch(() => undefined);
+        }
     }, []);
 
     const titlebar = (
@@ -602,6 +631,9 @@ export default function Chat({
                 notify.info("Find in chat", "Start a conversation first to search messages.");
                 return;
             }
+            if (getActiveSubagent()) {
+                closeSubagent();
+            }
             if (document.activeElement instanceof HTMLElement) {
                 findReturnFocusRef.current = document.activeElement;
             }
@@ -623,7 +655,6 @@ export default function Chat({
             if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== "f") {
                 return;
             }
-            if (getActiveSubagent()) return;
             const target = e.target instanceof HTMLElement ? e.target : null;
             if (target?.closest(".cm-editor, .xterm, [role='dialog']")) return;
             const shell = chatShellRef.current;
@@ -813,7 +844,7 @@ export default function Chat({
                     aria-hidden={emptyStage || undefined}
                     onScroll={session.handleScroll}
                     onWheel={(e) => {
-                        if (e.deltaY < -2) {
+                        if (e.deltaY < -2 && !canNestedAncestorScrollUp(e.target, e.currentTarget)) {
                             session.notifyUserScrollUp();
                         }
                     }}

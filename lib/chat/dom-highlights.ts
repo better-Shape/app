@@ -56,10 +56,10 @@ function deleteOwnedHighlight(
     name: string,
     ownedInstance: unknown,
 ): void {
-    if (ownedInstance === null) return;
+    if (!ownedInstance) return;
     if (typeof registry.get === "function") {
         const current = registry.get(name);
-        if (current !== undefined && current !== ownedInstance) return;
+        if (current != null && !Object.is(current, ownedInstance)) return;
     }
     registry.delete(name);
 }
@@ -174,7 +174,7 @@ const locateDomBoundary = (
     let found: TextSegment | undefined;
     while (lo <= hi) {
         const mid = (lo + hi) >> 1;
-        const seg = segments[mid];
+        const seg = segments.at(mid);
         if (!seg) break;
         const before = isEnd ? seg.end < offset : seg.end <= offset;
         if (before) {

@@ -9,6 +9,8 @@ import { formatRowsAsMarkdownTable } from "@/features/chat/ui/md/data-table";
 import { parseMessageContent } from "@/features/chat/ui/md/renderer";
 import { preprocessChatMarkdown, repairStreamGlitches } from "@/features/chat/ui/md/stream";
 import { extractCleanSelectionText, splitLeadingQuoteBlock } from "@/features/chat/ui/quote-selection";
+import { openChatFindBar, registerMountedChatSurface } from "@/features/chat/ui/shell/find-bar";
+import { notificationStore } from "@/features/notifications";
 import {
     insertCommandIntoWorkspaceTerminal,
     terminalSessionStore,
@@ -33,7 +35,7 @@ import {
 import { extractSearchableMessageText, findTranscriptMatches } from "@/lib/chat/transcript-search";
 import { providerIcon } from "@/lib/ui/provider-icon";
 
-describe("PR #53 review regression coverage", () => {
+describe("chat stream sanitization, transcript utilities, and workbench bridges", () => {
     it("escapes backslashes before pipes in Markdown table export so \\| stays inside the cell", () => {
         const md = formatRowsAsMarkdownTable(["Expr", "Meaning"], [["a\\|b", "path\\to\\dir"]]);
         expect(md).toContain("| a\\\\\\|b | path\\\\to\\\\dir |");
@@ -657,5 +659,76 @@ describe("PR #53 review regression coverage", () => {
         expect(processed).not.toContain("<span>also-stripped</span>");
         expect(processed).toContain("<script>window.keepMe = 1;</script>");
         expect(processed).toContain('<div class="card">kept inside tilde fence</div>');
+    });
+
+    it("preserves math/code comparisons in preprocessChatMarkdown and strips many paired scripts in linear time", () => {
+        const mathMd = preprocessChatMarkdown(
+            "Check that x < b > y and x <b && c> y and f(a<p, q>z) hold, while <b>bold</b> strips tags.",
+        );
+        expect(mathMd).toContain("x < b > y");
+        expect(mathMd).toContain("x <b && c> y");
+        expect(mathMd).toContain("f(a<p, q>z)");
+        expect(mathMd).toContain("bold");
+        expect(mathMd).not.toContain("<b>");
+
+        const repeatedScripts = `${Array.from({ length: 400 }, (_, idx) => `<script>evil(${idx})</script>`).join(" ")}Safe output`;
+        const t0 = performance.now();
+        const cleaned = preprocessChatMarkdown(repeatedScripts);
+        expect(performance.now() - t0).toBeLessThan(250);
+        expect(cleaned).not.toContain("evil(");
+        expect(cleaned).toContain("Safe output");
+    });
+
+    it("preserves FIFO terminal command order during the 60ms pending drain, clears evicted toast actions, and switches center view on Find", () => {
+        const pasted: string[] = [];
+        terminalSessionStore.tabs = [
+            { id: "shell-fifo", title: "pwsh", cwd: "/repo", shell: "pwsh", group: "left" },
+        ];
+        terminalSessionStore.panel.cwd = "/repo";
+        terminalSessionStore.pendingCommandInsert = "echo first";
+        terminalSessionStore.pendingCommandTargetTabId = "shell-fifo";
+        terminalSessionStore.instances.set("shell-fifo", {
+            ptyId: 1,
+            fitAddon: null,
+            unlistenOutput: () => undefined,
+            term: {
+                paste: (data: string) => pasted.push(data),
+            },
+        });
+
+        insertCommandIntoWorkspaceTerminal("echo second");
+        expect(pasted).toHaveLength(0);
+        expect(terminalSessionStore.takePendingCommandInsert("shell-fifo")).toBe(
+            "echo first\necho second",
+        );
+
+        insertCommandIntoWorkspaceTerminal("echo third");
+        expect(pasted).toEqual(["echo third"]);
+        terminalSessionStore.instances.delete("shell-fifo");
+
+        notificationStore.clearAll();
+        const firstId = notificationStore.add("First", "info", "desc", {
+            action: { label: "Insert inline", onClick: () => undefined },
+        });
+        notificationStore.add("Second", "info");
+        notificationStore.add("Third", "info");
+        notificationStore.add("Fourth", "info");
+        const snap = notificationStore.getSnapshot();
+        const evicted = snap.notifications.find((n) => n.id === firstId);
+        expect(snap.toastIds).not.toContain(firstId);
+        expect(evicted?.action).toBeUndefined();
+        notificationStore.clearAll();
+
+        const centerViews: string[] = [];
+        const onCenter = (e: Event) => {
+            const detail = (e as CustomEvent<string>).detail;
+            centerViews.push(detail);
+        };
+        window.addEventListener("bettershape-center-view", onCenter);
+        const unregister = registerMountedChatSurface();
+        openChatFindBar("needle");
+        unregister();
+        window.removeEventListener("bettershape-center-view", onCenter);
+        expect(centerViews).toContain("chat");
     });
 });

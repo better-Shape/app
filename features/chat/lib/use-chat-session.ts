@@ -1616,7 +1616,7 @@ export function useChatSession(
 
     React.useEffect(() => {
         const onQuote = (event: Event) => {
-            const detail = (event as CustomEvent<{ id?: string; text?: string }>).detail;
+            const detail = (event as CustomEvent<{ id?: string; text?: string } | undefined>).detail;
             if (!detail) return;
             const text = detail.text?.trim();
             if (!text) return;
