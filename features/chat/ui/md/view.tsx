@@ -132,7 +132,9 @@ if (typeof window !== "undefined") {
         pathExistsEpoch += 1;
         pathExistsCache.clear();
         pathExistsInflight.clear();
-        pathExistsEpochListeners.forEach((listener) => listener());
+        for (const listener of pathExistsEpochListeners) {
+            listener();
+        }
     });
 }
 
@@ -276,7 +278,7 @@ const CodeBlock = React.memo(function CodeBlock({
     const isShellFence =
         !streamingFence &&
         code.trim().length > 0 &&
-        /^(?:sh|bash|zsh|shell|console|fish|pwsh|powershell|cmd)$/i.test(language.trim());
+        /^(?:shell|sh|bash|zsh|console|fish|powershell|pwsh|cmd)$/i.test(language.trim());
 
     const handleInsertInTerminal = () => {
         if (insertCommandIntoWorkspaceTerminal(code)) {
@@ -607,7 +609,7 @@ function createMarkdownComponents(options?: { nested?: boolean; streamingFence?:
                 && !children.includes("(")
                 && (children.includes("/")
                     || children.includes("\\")
-                    || /\.(?:tsx?|jsx?|mjs|cjs|jsonc?|mdx?|css|scss|less|html?|vue|svelte|astro|rs|toml|ya?ml|py|go|rb|php|java|kt|swift|c|cc|cpp|h|hpp|cs|sh|bash|zsh|ps1|sql|graphql|gql|proto|svg|png|jpe?g|webp|gif|ico|pdf|lock|env|gitignore|dockerfile|makefile|txt|csv|log)$/i.test(children));
+                    || /\.(?:tsx?|jsx?|mjs|cjs|jsonc?|mdx?|scss|css|less|html?|vue|svelte|astro|rs|toml|ya?ml|py|go|rb|php|java|kt|swift|cpp|cc|csv|cs|c|hpp|h|bash|zsh|sh|ps1|sql|graphql|gql|proto|svg|png|jpe?g|webp|gif|ico|pdf|lock|env|gitignore|dockerfile|makefile|txt|log)$/i.test(children));
 
             if (isFilePath) {
                 const fullPath = children as string;

@@ -1005,6 +1005,7 @@ export function TurnWorkflowSummary({
 
     const summaryRootRef = useRef<HTMLDivElement>(null);
     const pointerInsideRef = useRef(false);
+    const deferredCollapseRef = useRef(false);
     const startedAtRef = useRef<number | null>(null);
     const [liveElapsedMs, setLiveElapsedMs] = useState(0);
     const [measuredDurationMs, setMeasuredDurationMs] = useState<number | null>(null);
@@ -1042,11 +1043,17 @@ export function TurnWorkflowSummary({
     }, [isActive]);
 
     useEffect(() => {
-        if (isActive || !open || userToggled || failedCount > 0) return undefined;
+        if (isActive || !open || userToggled || failedCount > 0) {
+            deferredCollapseRef.current = false;
+            return undefined;
+        }
         const timer = window.setTimeout(() => {
             if (!pointerInsideRef.current) {
+                deferredCollapseRef.current = false;
                 notifyTranscriptDisclosureToggle(summaryRootRef.current);
                 setOpen(false);
+            } else {
+                deferredCollapseRef.current = true;
             }
         }, 360);
         return () => window.clearTimeout(timer);
@@ -1218,6 +1225,17 @@ export function TurnWorkflowSummary({
             }}
             onPointerLeave={() => {
                 pointerInsideRef.current = false;
+                if (
+                    deferredCollapseRef.current &&
+                    !isActive &&
+                    open &&
+                    !userToggled &&
+                    failedCount === 0
+                ) {
+                    deferredCollapseRef.current = false;
+                    notifyTranscriptDisclosureToggle(summaryRootRef.current);
+                    setOpen(false);
+                }
             }}
         >
             {showHeader ? (
@@ -1230,6 +1248,7 @@ export function TurnWorkflowSummary({
                     busy={Boolean(isActive)}
                     open={open}
                     onOpenChange={(next) => {
+                        deferredCollapseRef.current = false;
                         setUserToggled(true);
                         setOpen(next);
                     }}

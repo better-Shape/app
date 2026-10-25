@@ -237,6 +237,9 @@ export async function startDictation(
             invoke
                 .push(Array.from(wav))
                 .catch((error: unknown) => {
+                    invoke.stop().catch(() => {
+                        /* ignore recognizer teardown errors */
+                    });
                     setState("error");
                     handlers.onError(describeDictationError(error));
                 });

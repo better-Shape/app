@@ -13,6 +13,7 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { useAutoFocusRef } from "@/lib/ui/use-auto-focus-ref";
 import { commands } from "@/lib/backend/commands";
+import { notificationStore } from "@/features/notifications";
 
 export type QuestionOption = {
     id: string;
@@ -109,8 +110,13 @@ export function QuestionsCard({
             setSubmitting(true);
             try {
                 await commands.answerAskUser(askId, JSON.stringify(next), skipped);
-            } catch {
+            } catch (err) {
                 setSubmitting(false);
+                const detail =
+                    err instanceof Error && err.message
+                        ? err.message
+                        : "Could not submit your response. Please try again.";
+                notificationStore.add(detail, "error");
             }
         },
         [askId, submitting],

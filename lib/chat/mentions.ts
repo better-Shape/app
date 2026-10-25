@@ -125,6 +125,28 @@ export function mentionDisplayLabel(mention: ChatMention): string {
     return mention.label;
 }
 
+/** Disambiguates basename mention tokens when another path already claimed `shortToken`. */
+const disambiguatePathToken = (
+    shortToken: string,
+    rawPath: string,
+    kind: "file" | "folder" | "docs",
+): string => {
+    const existing = lookupMentionToken(shortToken);
+    const normalized = rawPath.replace(/\\/g, "/");
+    if (!existing?.path || existing.path.replace(/\\/g, "/") === normalized) {
+        return shortToken;
+    }
+    const cleanRel = normalized.replace(/\/+$/, "");
+    if (kind === "folder") {
+        return /^(?:[\w.-]+\/)*[\w.-]+$/.test(cleanRel)
+            ? `@${cleanRel}/`
+            : `@folder:${slugifyMentionLabel(cleanRel)}/`;
+    }
+    return /^(?:[\w.-]+\/)*[\w.-]+$/.test(cleanRel)
+        ? `@${cleanRel}`
+        : `@${kind}:${slugifyMentionLabel(cleanRel)}`;
+};
+
 /**
  * Insert short tokens into the composer (`@favicon.ico`) and register the full
  * path so send-time resolution still works.
@@ -140,17 +162,19 @@ export function formatMentionToken(mention: ChatMention): string {
         const rawPath = mention.path ?? mention.label;
         const base = pathBasename(rawPath);
         const cleanBase = base.endsWith("/") ? base.slice(0, -1) : base;
-        token =
+        const shortToken =
             /\s/.test(rawPath) || !/^[\w.-]+$/.test(cleanBase)
                 ? `@folder:${slugifyMentionLabel(cleanBase)}/`
                 : `@${cleanBase}/`;
+        token = disambiguatePathToken(shortToken, rawPath, "folder");
     } else if (mention.kind === "file" || mention.kind === "docs") {
         const rawPath = mention.path ?? mention.label;
         const base = pathBasename(rawPath);
-        token =
+        const shortToken =
             /\s/.test(rawPath) || !/^[\w.-]+$/.test(base)
                 ? `@${mention.kind}:${slugifyMentionLabel(base)}`
                 : `@${base}`;
+        token = disambiguatePathToken(shortToken, rawPath, mention.kind);
     } else if (mention.kind === "chat") {
         token = `@chat:${slugifyMentionLabel(mention.label || "Chat")}`;
     } else if (mention.kind === "terminal") {

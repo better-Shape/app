@@ -356,4 +356,24 @@ describe("PR #53 review regression coverage", () => {
             tail: quotedRef,
         });
     });
+
+    it("disambiguates duplicate-basename file mentions instead of overwriting earlier registrations", () => {
+        const first = formatMentionToken({
+            kind: "file",
+            path: "src/shared/config.ts",
+            label: "config.ts",
+        });
+        const second = formatMentionToken({
+            kind: "file",
+            path: "packages/core/config.ts",
+            label: "config.ts",
+        });
+        expect(first).toBe("@config.ts");
+        expect(second).toBe("@packages/core/config.ts");
+
+        const parsed = parseMentionTokens(`Compare ${first} with ${second}`);
+        expect(parsed).toHaveLength(2);
+        expect(parsed.at(0)?.path).toBe("src/shared/config.ts");
+        expect(parsed.at(1)?.path).toBe("packages/core/config.ts");
+    });
 });

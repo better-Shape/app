@@ -464,21 +464,19 @@ function TerminalInstance({ tab, isActive }: { tab: TerminalTab, isActive: boole
                 globalTerminalStore.instances.set(tab.id, { term, fitAddon, ptyId, unlistenOutput });
                 xtermRef.current = term;
                 fitAddonRef.current = fitAddon;
-                if (tab.shell !== "ai") {
+                if (tab.shell !== "ai" && globalTerminalStore.peekPendingCommandInsert(tab.id)) {
                     const attachedTerm = term;
-                    if (globalTerminalStore.peekPendingCommandInsert(tab.id) && attachedTerm) {
-                        pendingPasteTimer = setTimeout(() => {
-                            const pendingCmd = globalTerminalStore.takePendingCommandInsert(tab.id);
-                            if (!pendingCmd) return;
-                            try {
-                                attachedTerm.paste(pendingCmd);
-                                attachedTerm.focus();
-                                attachedTerm.scrollToBottom();
-                            } catch {
-                                /* ignore */
-                            }
-                        }, 60);
-                    }
+                    pendingPasteTimer = setTimeout(() => {
+                        const pendingCmd = globalTerminalStore.takePendingCommandInsert(tab.id);
+                        if (!pendingCmd) return;
+                        try {
+                            attachedTerm.paste(pendingCmd);
+                            attachedTerm.focus();
+                            attachedTerm.scrollToBottom();
+                        } catch {
+                            /* ignore */
+                        }
+                    }, 60);
                 }
                 if (isActive) {
                     term.focus();
