@@ -188,7 +188,7 @@ function ProjectPathLink({ path }: { path: string }) {
                     cancelled = true;
                 };
             }
-            return;
+            return undefined;
         }
         let cancelled = false;
         probeProjectPathExists(resolved)
@@ -270,11 +270,11 @@ const CodeBlock = React.memo(function CodeBlock({
     }, []);
 
     const copy = () => {
-        void navigator.clipboard?.writeText(code).then(() => {
+        navigator.clipboard?.writeText(code).then(() => {
             setCopied(true);
             if (resetRef.current) clearTimeout(resetRef.current);
             resetRef.current = setTimeout(() => setCopied(false), 1400);
-        }).catch(() => {});
+        }).catch(() => undefined);
     };
 
     const lineCount = React.useMemo(() => {

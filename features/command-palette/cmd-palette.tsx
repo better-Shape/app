@@ -589,7 +589,7 @@ export function CommandPalette() {
             ];
         } else if (filterTab === "agents") {
             pool = agentActions;
-        } else if (filterTab === "files") {
+        } else {
             pool = activeFileBias ? [...currentFileActions, ...fileActions] : fileActions;
         }
 

@@ -202,14 +202,6 @@ describe("ChatStreamProvider stale completion guard", () => {
         mockInvoke((cmd, args) => {
             if (cmd === "plugin:event|listen") {
                 const payload = args as { event: string; handler: number };
-                const cb = (
-                    window as unknown as {
-                        __TAURI_INTERNALS__?: {
-                            callbacks?: Map<number, (e: { payload: unknown }) => void>;
-                        };
-                    }
-                ).__TAURI_INTERNALS__;
-                void cb;
                 const list = listeners.get(payload.event) ?? [];
                 list.push((ev) => {
                     const run = (

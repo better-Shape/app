@@ -16,6 +16,7 @@ import { clearChatDomHighlights, syncChatDomHighlights } from "@/lib/chat/dom-hi
 import { ApprovalCard } from "@/features/chat/ui/blocks/approval";
 import { TurnWorkflowSummary } from "@/features/chat/ui/blocks/turn";
 import { ChatMarkdown } from "@/features/chat/ui/md/view";
+import { ChatMessageItem } from "@/features/chat/ui/message/item";
 import { terminalSessionStore } from "@/features/terminal/session";
 import { buildFailingTestPrompt } from "@/features/testing/ui/test-panel";
 import type { Chunk } from "@/features/chat/ui/md/renderer";
@@ -285,5 +286,38 @@ describe("Pass 5 HITL single-owner shortcuts, tool-call presentation, and workbe
         expect(prompt).toContain('@tests/auth.test.ts');
         expect(prompt).toContain('Fix failing test "refreshes expired token"');
         expect(prompt).toContain("expected 401 to equal 200");
+    });
+
+    it("suppresses checkpoint restore action when ChatMessageItem index is omitted or negative", () => {
+        const onRestore = vi.fn();
+        const withoutIndex = mount(
+            <ChatMessageItem
+                role="user"
+                content="Standalone preview turn"
+                timestamp={1_700_000_000_000}
+                onRestore={onRestore}
+            />,
+        );
+        expect(
+            withoutIndex.querySelector('button[aria-label="Restore to this checkpoint"]'),
+        ).toBeNull();
+
+        const withZeroIndex = mount(
+            <ChatMessageItem
+                role="user"
+                content="First persisted turn"
+                timestamp={1_700_000_000_000}
+                index={0}
+                onRestore={onRestore}
+            />,
+        );
+        const restoreBtn = withZeroIndex.querySelector<HTMLButtonElement>(
+            'button[aria-label="Restore to this checkpoint"]',
+        );
+        expect(restoreBtn).not.toBeNull();
+        act(() => {
+            restoreBtn?.click();
+        });
+        expect(onRestore).toHaveBeenCalledWith(0);
     });
 });

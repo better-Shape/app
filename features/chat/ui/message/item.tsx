@@ -364,7 +364,7 @@ function ChatMessageItemInner({
         const sel = window.getSelection();
         const selected = sel?.toString() ?? "";
         const targetText = selected && selectionContainedInBody(sel) ? selected : getCopyText();
-        void navigator.clipboard?.writeText(targetText).then(markCopied).catch(() => {});
+        navigator.clipboard?.writeText(targetText).then(markCopied).catch(() => undefined);
     };
 
     const handleQuoteMessage = () => {
@@ -523,7 +523,7 @@ function ChatMessageItemInner({
                                     />
                                 </Button>
                             </Tooltip>
-                            {index !== undefined && onRestore ? (
+                            {index >= 0 && onRestore ? (
                                 <Tooltip content="Restore to this checkpoint" side="top">
                                     <Button
                                         variant="ghost"
@@ -552,7 +552,7 @@ function ChatMessageItemInner({
                     Quote in reply
                     <ContextMenuShortcut>Ctrl+Shift+.</ContextMenuShortcut>
                 </ContextMenuItem>
-                {index !== undefined && onRestore ? (
+                {index >= 0 && onRestore ? (
                     <ContextMenuItem onClick={() => onRestore(index)}>
                         <Icon icon={ArrowShuffle24Regular} />
                         Restore to this checkpoint
@@ -813,7 +813,7 @@ function ChatMessageItemInner({
                 Quote in reply
                 <ContextMenuShortcut>Ctrl+Shift+.</ContextMenuShortcut>
             </ContextMenuItem>
-            {!isGenerating && index !== undefined && onFork ? (
+            {!isGenerating && index >= 0 && onFork ? (
                 <ContextMenuItem onClick={() => setForkOpen(true)}>
                     <Icon icon={BranchFork20Regular} />
                     Fork chat from here

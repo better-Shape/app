@@ -16,20 +16,22 @@ import {
     type DictationState,
 } from "@/lib/editor/dictation";
 
+/** Formats recording elapsed seconds as `m:ss`. */
 function formatElapsed(sec: number): string {
     const m = Math.floor(sec / 60);
     const s = sec % 60;
     return `${m}:${String(s).padStart(2, "0")}`;
 }
 
+/** Subscribes to a Tauri event while safely falling back to a no-op outside the desktop bridge. */
 function safeListen<T>(
     eventName: string,
     handler: (event: { payload: T }) => void,
 ): Promise<() => void> {
     try {
-        return listen<T>(eventName, handler).catch(() => () => {});
+        return listen<T>(eventName, handler).catch(() => () => undefined);
     } catch {
-        return Promise.resolve(() => {});
+        return Promise.resolve(() => undefined);
     }
 }
 

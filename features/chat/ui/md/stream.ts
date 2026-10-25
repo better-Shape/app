@@ -474,7 +474,7 @@ function stripHtmlTagsOnce(input: string): string {
             rangeIndex += 1;
         }
         const activeRange = codeRanges[rangeIndex];
-        if (activeRange !== undefined && lt >= activeRange[0] && lt < activeRange[1]) {
+        if (activeRange && lt >= activeRange[0] && lt < activeRange[1]) {
             out += "<";
             cursor = lt + 1;
             continue;

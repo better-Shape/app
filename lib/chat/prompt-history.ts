@@ -224,11 +224,12 @@ export function tryWrapMarkdownLinkOnPaste(
     const lineEnd = nextNewline === -1 ? value.length : nextNewline;
     const lineSlice = value.slice(lineStart, lineEnd);
     const mdLinkRe = /\[[^\]\n]*\]\([^)\n]*\)/g;
-    let linkMatch: RegExpExecArray | null;
-    while ((linkMatch = mdLinkRe.exec(lineSlice)) !== null) {
+    let linkMatch = mdLinkRe.exec(lineSlice);
+    while (linkMatch !== null) {
         const spanStart = lineStart + linkMatch.index;
         const spanEnd = spanStart + linkMatch[0].length;
         if (start < spanEnd && end > spanStart) return null;
+        linkMatch = mdLinkRe.exec(lineSlice);
     }
 
     const replacement = `[${selected}](${url})`;

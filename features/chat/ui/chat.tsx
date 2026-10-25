@@ -448,9 +448,9 @@ export default function Chat({
     );
 
     React.useEffect(() => {
-        if (!pendingHitlKind) return;
+        if (!pendingHitlKind) return undefined;
         const scroller = scrollContainerRef.current;
-        if (!scroller) return;
+        if (!scroller) return undefined;
 
         let rafId = 0;
         const measure = () => {
@@ -541,7 +541,7 @@ export default function Chat({
         const container = scrollContainerRef.current;
         if (!findOpen || !findQuery.trim() || !container) {
             clearChatDomHighlights();
-            return;
+            return undefined;
         }
         if (activeFindMatch) {
             window.dispatchEvent(
@@ -737,7 +737,7 @@ export default function Chat({
                 if (Math.abs(dy) > 4) {
                     el.style.transition = "none";
                     el.style.transform = `translate3d(0, ${Math.round(dy)}px, 0)`;
-                    void el.offsetHeight;
+                    el.getBoundingClientRect();
                     el.style.transition =
                         "transform var(--spring-panel-dur) var(--spring-panel)";
                     el.style.transform = "translate3d(0, 0, 0)";

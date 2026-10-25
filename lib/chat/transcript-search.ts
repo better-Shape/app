@@ -125,12 +125,13 @@ export function findTranscriptMatches(
 
         matcher.lastIndex = 0;
         let occurrence = 0;
-        let match: RegExpExecArray | null;
-        while ((match = matcher.exec(clean)) !== null) {
+        let match = matcher.exec(clean);
+        while (match !== null) {
             const found = match.index;
             const matchedLen = match[0].length;
             if (matchedLen === 0) {
                 matcher.lastIndex += 1;
+                match = matcher.exec(clean);
                 continue;
             }
             results.push({
@@ -143,6 +144,7 @@ export function findTranscriptMatches(
             });
             occurrence += 1;
             if (results.length >= maxMatches) return results;
+            match = matcher.exec(clean);
         }
     }
 

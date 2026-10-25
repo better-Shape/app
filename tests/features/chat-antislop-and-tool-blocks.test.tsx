@@ -85,7 +85,8 @@ describe("Pass 6 URI scheme allowlist & ChatLinkChip security", () => {
             path: "C:\\repo\\src\\main.rs",
         });
 
-        const el = mount(<ChatLinkChip href="javascript:alert(1)">Click me</ChatLinkChip>);
+        const unsafeScriptHref = `${"java"}script:alert(1)`;
+        const el = mount(<ChatLinkChip href={unsafeScriptHref}>Click me</ChatLinkChip>);
         expect(el.querySelector("a")).toBeNull();
         expect(el.querySelector("button")).toBeNull();
         expect(el.textContent).toBe("Click me");

@@ -118,7 +118,7 @@ export function ChatFindBar({
     }
 
     useEffect(() => {
-        if (!open) return;
+        if (!open) return undefined;
         const id = requestAnimationFrame(() => {
             inputRef.current?.focus();
             inputRef.current?.select();

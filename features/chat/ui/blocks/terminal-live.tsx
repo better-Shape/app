@@ -68,14 +68,15 @@ type AgentTerminalEvent = {
     cancelled?: boolean;
 };
 
+/** Subscribes to a Tauri event while safely falling back to a no-op outside the desktop bridge. */
 function safeListen<T>(
     eventName: string,
     handler: (event: { payload: T }) => void,
 ): Promise<() => void> {
     try {
-        return listen<T>(eventName, handler).catch(() => () => {});
+        return listen<T>(eventName, handler).catch(() => () => undefined);
     } catch {
-        return Promise.resolve(() => {});
+        return Promise.resolve(() => undefined);
     }
 }
 
