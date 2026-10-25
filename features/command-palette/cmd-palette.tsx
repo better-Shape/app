@@ -632,6 +632,11 @@ export function CommandPalette() {
             iconNode: <Icon icon={Chat20Regular} className="size-4 text-text-secondary" />,
             meta: "New prompt",
             run: () => {
+                try {
+                    localStorage.setItem("bettershape-chat-input", trimmed);
+                } catch {
+                    /* ignore storage errors */
+                }
                 window.dispatchEvent(
                     new CustomEvent("bettershape-center-view", {
                         detail: "chat",
@@ -643,6 +648,11 @@ export function CommandPalette() {
                     }),
                 );
                 window.dispatchEvent(new CustomEvent("bettershape-chat-focus-input"));
+                if (typeof window.requestAnimationFrame === "function") {
+                    window.requestAnimationFrame(() => {
+                        window.dispatchEvent(new CustomEvent("bettershape-chat-focus-input"));
+                    });
+                }
             },
         };
     }, [browse, filterTab, mode, query]);

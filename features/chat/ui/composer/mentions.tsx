@@ -78,6 +78,18 @@ function pathDir(path: string): string {
     return `...${dir.slice(-26)}`;
 }
 
+/** True when a keydown event is part of an active IME composition session. */
+export const isImeKeyEvent = (e: Pick<KeyboardEvent, "isComposing" | "keyCode">): boolean =>
+    Boolean(e.isComposing) || e.keyCode === 229;
+
+/** True when Enter or Tab was pressed without Shift/Cmd/Ctrl/Alt modifiers. */
+export const isPlainPickerConfirmKey = (
+    e: Pick<KeyboardEvent, "key" | "shiftKey" | "metaKey" | "ctrlKey" | "altKey">,
+): boolean => {
+    if (e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return false;
+    return e.key === "Enter" || e.key === "Tab";
+};
+
 export function MentionPicker({
     open,
     query,
@@ -532,44 +544,48 @@ export function MentionPicker({
 
     useEffect(() => {
         if (!open) return;
+        const confirmHighlightedEntry = () => {
+            if (mode === "slash") {
+                const entry = slashEntries.at(highlight);
+                if (entry) {
+                    pickSlashToken(
+                        entry.kind === "builtin" ? entry.cmd.token : workflowSlashToken(entry.w),
+                    );
+                }
+                return;
+            }
+            if (highlight < rootItems.length) {
+                const pickedRoot = rootItems.at(highlight);
+                if (pickedRoot) pickItem(pickedRoot);
+                return;
+            }
+            if (showCategories) {
+                const cat = visibleCategories.at(highlight - rootItems.length);
+                if (cat) setActiveCategory(cat.id);
+            }
+        };
         const onKey = (e: KeyboardEvent) => {
+            if (isImeKeyEvent(e)) return;
             if (e.key === "Escape") {
                 e.preventDefault();
                 if (mode === "mention" && activeCategory) setActiveCategory(null);
                 else onClose();
                 return;
             }
-            if (e.key === "ArrowDown") {
+            if (e.key === "ArrowDown" || e.key === "ArrowUp") {
                 if (listLen <= 0) return;
                 e.preventDefault();
-                setHighlight((h) => Math.min(h + 1, Math.max(listLen - 1, 0)));
-            } else if (e.key === "ArrowUp") {
-                if (listLen <= 0) return;
-                e.preventDefault();
-                setHighlight((h) => Math.max(h - 1, 0));
-            } else if (e.key === "Enter" || (e.key === "Tab" && !e.shiftKey)) {
-                if (listLen <= 0) {
-                    if (e.key === "Enter") {
-                        onClose();
-                    }
-                    return;
-                }
-                e.preventDefault();
-                if (mode === "slash") {
-                    const entry = slashEntries.at(highlight);
-                    if (entry) {
-                        pickSlashToken(
-                            entry.kind === "builtin" ? entry.cmd.token : workflowSlashToken(entry.w),
-                        );
-                    }
-                } else if (highlight < rootItems.length) {
-                    const pickedRoot = rootItems.at(highlight);
-                    if (pickedRoot) pickItem(pickedRoot);
-                } else if (showCategories) {
-                    const cat = visibleCategories.at(highlight - rootItems.length);
-                    if (cat) setActiveCategory(cat.id);
-                }
+                const delta = e.key === "ArrowDown" ? 1 : -1;
+                setHighlight((h) => Math.min(Math.max(h + delta, 0), Math.max(listLen - 1, 0)));
+                return;
             }
+            if (!isPlainPickerConfirmKey(e)) return;
+            if (listLen <= 0) {
+                if (e.key === "Enter") onClose();
+                return;
+            }
+            e.preventDefault();
+            confirmHighlightedEntry();
         };
         window.addEventListener("keydown", onKey, true);
         return () => window.removeEventListener("keydown", onKey, true);

@@ -2,6 +2,7 @@ import { listen } from "@tauri-apps/api/event";
 import { commands } from "@/lib/backend";
 import {
     applyTestResultEvent,
+    isActiveTestProject,
     resetTestStore,
     setTestDiscovery,
     setTestError,
@@ -15,9 +16,14 @@ let unlisten: (() => void) | null = null;
 export async function initTestRunnerEvents() {
     if (listenerInitialized) return;
     listenerInitialized = true;
-    unlisten = await listen<TestResultEvent>("test-result", (event) => {
-        applyTestResultEvent(event.payload);
-    });
+    try {
+        unlisten = await listen<TestResultEvent>("test-result", (event) => {
+            applyTestResultEvent(event.payload);
+        });
+    } catch (err) {
+        listenerInitialized = false;
+        throw err;
+    }
 }
 
 export function disposeTestRunnerEvents() {
@@ -58,11 +64,13 @@ export async function runAllTests(projectPath: string, framework: TestFramework)
         setTestError("No test framework detected in this project.");
         return;
     }
-    setTestRunning(true, null);
+    setTestRunning(true, null, projectPath);
     try {
         await commands.runTests(projectPath, framework, null);
     } catch (e) {
-        setTestError(e instanceof Error ? e.message : String(e));
+        if (isActiveTestProject(projectPath)) {
+            setTestError(e instanceof Error ? e.message : String(e));
+        }
     }
 }
 
@@ -71,11 +79,13 @@ export async function runFailedTests(projectPath: string, framework: TestFramewo
         setTestError("No test framework detected in this project.");
         return;
     }
-    setTestRunning(true, pattern);
+    setTestRunning(true, pattern, projectPath);
     try {
         await commands.runTests(projectPath, framework, pattern);
     } catch (e) {
-        setTestError(e instanceof Error ? e.message : String(e));
+        if (isActiveTestProject(projectPath)) {
+            setTestError(e instanceof Error ? e.message : String(e));
+        }
     }
 }
 

@@ -145,6 +145,26 @@ fn collect_models(kind: ProviderKind, body: &str) -> Vec<String> {
     out
 }
 
+fn apply_diagnostic_overrides(
+    provider: &mut ResolvedProvider,
+    headers: Option<HashMap<String, String>>,
+    auth_style: Option<String>,
+) {
+    if let Some(headers) = headers {
+        provider.headers = headers
+            .into_iter()
+            .map(|(name, value)| (name.trim().to_string(), value.trim().to_string()))
+            .filter(|(name, value)| !name.is_empty() && !value.is_empty())
+            .collect();
+    }
+    if let Some(style) = auth_style {
+        let style = style.trim().to_ascii_lowercase();
+        if !style.is_empty() {
+            provider.auth_style = style;
+        }
+    }
+}
+
 /// Probe one provider: key validity, base URL, and the models it serves.
 #[tauri::command]
 pub async fn ai_test_provider(
@@ -152,13 +172,16 @@ pub async fn ai_test_provider(
     kind: Option<String>,
     api_key: Option<String>,
     base_url: Option<String>,
+    headers: Option<HashMap<String, String>>,
+    auth_style: Option<String>,
 ) -> Result<ProviderTestReport, AppError> {
-    let provider = resolve_target(
+    let mut provider = resolve_target(
         &provider_id,
         kind.as_deref(),
         api_key.as_deref(),
         base_url.as_deref(),
     )?;
+    apply_diagnostic_overrides(&mut provider, headers, auth_style);
     if provider.api_key.trim().is_empty()
         && !ai_providers::is_keyless_provider_id(&provider.id)
         && !provider.auth_style.trim().eq_ignore_ascii_case("none")
@@ -397,19 +420,7 @@ pub async fn ai_check_provider(
         api_key.as_deref(),
         base_url.as_deref(),
     )?;
-    if let Some(headers) = headers {
-        provider.headers = headers
-            .into_iter()
-            .map(|(name, value)| (name.trim().to_string(), value.trim().to_string()))
-            .filter(|(name, value)| !name.is_empty() && !value.is_empty())
-            .collect();
-    }
-    if let Some(style) = auth_style {
-        let style = style.trim().to_ascii_lowercase();
-        if !style.is_empty() {
-            provider.auth_style = style;
-        }
-    }
+    apply_diagnostic_overrides(&mut provider, headers, auth_style);
     if provider.api_key.trim().is_empty()
         && !ai_providers::is_keyless_provider_id(&provider.id)
         && !provider.auth_style.trim().eq_ignore_ascii_case("none")
@@ -747,5 +758,21 @@ mod tests {
         assert_eq!(kind_from_str(Some("Anthropic")), ProviderKind::Anthropic);
         assert_eq!(kind_from_str(Some("google")), ProviderKind::Google);
         assert_eq!(kind_from_str(None), ProviderKind::OpenAi);
+    }
+
+    #[test]
+    fn diagnostic_overrides_preserve_none_auth_style_for_unsaved_providers() {
+        let mut target = resolve_target(
+            "diag-local-gateway",
+            Some("openai"),
+            None,
+            Some("http://127.0.0.1:8080/v1"),
+        )
+        .expect("target");
+        let mut hdrs = HashMap::new();
+        hdrs.insert(" X-Custom ".to_string(), " ok ".to_string());
+        apply_diagnostic_overrides(&mut target, Some(hdrs), Some(" None ".to_string()));
+        assert_eq!(target.auth_style, "none");
+        assert_eq!(target.headers.get("X-Custom").map(String::as_str), Some("ok"));
     }
 }

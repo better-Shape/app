@@ -3,6 +3,7 @@ import type { TestCase, TestDiscovery, TestRunSummary, TestSuiteNode } from "./t
 
 type TestStoreState = {
     projectPath: string | null;
+    runProjectPath: string | null;
     discovery: TestDiscovery | null;
     suites: TestSuiteNode[];
     summary: TestRunSummary | null;
@@ -13,6 +14,7 @@ type TestStoreState = {
 
 let state: TestStoreState = {
     projectPath: null,
+    runProjectPath: null,
     discovery: null,
     suites: [],
     summary: null,
@@ -39,19 +41,27 @@ const subscribe = (listener: () => void): (() => void) => {
 };
 
 /** Returns the current immutable test store snapshot. */
-const getSnapshot = (): TestStoreState => {
+export const getTestStoreSnapshot = (): TestStoreState => {
     return state;
 };
 
 /** Subscribes components to the shared test runner state. */
 export function useTestStore() {
-    return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+    return useSyncExternalStore(subscribe, getTestStoreSnapshot, getTestStoreSnapshot);
+}
+
+/** True when `projectPath` still owns the shared test runner store. */
+export function isActiveTestProject(projectPath: string): boolean {
+    return state.projectPath === null || state.projectPath === projectPath;
 }
 
 /** Resets all discovered suites and results, optionally binding to `projectPath`. */
 export function resetTestStore(projectPath: string | null = null) {
+    const switchedProjectsWhileRunning =
+        state.running && projectPath !== null && projectPath !== state.projectPath;
     state = {
         projectPath,
+        runProjectPath: switchedProjectsWhileRunning ? state.runProjectPath : null,
         discovery: null,
         suites: [],
         summary: null,
@@ -84,10 +94,15 @@ export function setTestDiscovery(discovery: TestDiscovery, projectPath: string |
     emit();
 }
 
-export function setTestRunning(running: boolean, pattern: string | null = null) {
+export function setTestRunning(
+    running: boolean,
+    pattern: string | null = null,
+    projectPath: string | null = null,
+) {
     state = {
         ...state,
         running,
+        runProjectPath: running ? (projectPath ?? state.projectPath) : state.runProjectPath,
         error: running ? null : state.error,
         lastPattern: pattern ?? state.lastPattern,
         summary: running ? null : state.summary,
@@ -143,6 +158,16 @@ export function applyTestResultEvent(event: {
     summary?: TestRunSummary;
     message?: string;
 }) {
+    if (
+        state.projectPath !== null &&
+        state.runProjectPath !== null &&
+        state.projectPath !== state.runProjectPath
+    ) {
+        if (event.event_type === "complete" || event.event_type === "error") {
+            state = { ...state, runProjectPath: null };
+        }
+        return;
+    }
     switch (event.event_type) {
         case "start":
             state = {

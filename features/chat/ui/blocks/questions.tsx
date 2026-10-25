@@ -98,11 +98,12 @@ export function QuestionsCard({
 
     const recap = useMemo(() => {
         if (!answered && pending) return null;
+        const effectiveAnswers = skipped ? (initialAnswers ?? {}) : (initialAnswers || picked);
         return questions.map((q) => ({
             prompt: q.prompt,
-            answer: formatAnswer(q, (initialAnswers || picked)[q.id]),
+            answer: formatAnswer(q, effectiveAnswers[q.id]),
         }));
-    }, [answered, pending, questions, initialAnswers, picked]);
+    }, [answered, pending, skipped, questions, initialAnswers, picked]);
 
     const submit = useCallback(
         async (next: QuestionAnswers, skipped = false) => {

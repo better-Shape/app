@@ -806,7 +806,7 @@ export const ChatInput = React.memo(function ChatInput({
             const detail = (e as CustomEvent<{ id?: string; text?: string }>).detail;
             const text = detail?.text?.trim();
             if (!text) return;
-            const id = detail?.id || `${Date.now()}`;
+            const id = detail.id || `${Date.now()}`;
             setLocalQuotes((prev) =>
                 prev.some((q) => q.text === text) ? prev : [...prev.slice(-7), { id, text }],
             );
