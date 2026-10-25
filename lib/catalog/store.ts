@@ -84,7 +84,7 @@ export function useBetterShapeCatalog() {
   const models = useMemo(() => [AUTO_MODEL, ...toModelInfo(providers)], [providers]);
   // A stable object identity per provider set keeps consumer effects honest.
   return useMemo(
-    () => ({ catalog: { models }, loading: false, error: null, models }),
+    () => ({ catalog: { models } as { models: ModelInfo[] } | null, loading: false, error: null, models }),
     [models],
   );
 }

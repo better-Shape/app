@@ -223,6 +223,72 @@ const ClipboardMenuItems = ({
     </>
 );
 
+let renderRecursiveTreeNode: (props: TreeNodeProps) => React.ReactNode = () => null;
+
+/** Renders the context menu wrapper for a directory row inside `DirectoryTreeBranch`. */
+const DirectoryRowContextMenu = ({
+    entry,
+    nodeRef,
+    isExpanded,
+    highlighted,
+    cut,
+    pad,
+    onSelect,
+    onClipboard,
+    setOpen,
+    actions,
+}: {
+    entry: FileEntry;
+    nodeRef: React.RefObject<HTMLButtonElement | null>;
+    isExpanded: boolean;
+    highlighted: boolean;
+    cut: boolean;
+    pad: number;
+    onSelect?: (entry: FileEntry) => void;
+    onClipboard?: TreeNodeProps["onClipboard"];
+    setOpen: React.Dispatch<React.SetStateAction<boolean>>;
+    actions: ReturnType<typeof createEntryActions>;
+}) => {
+    const chevronIcon = isExpanded ? ChevronDown20Regular : ChevronRight20Regular;
+    return (
+        <ContextMenu>
+            <ContextMenuTrigger asChild>
+                <button
+                    ref={nodeRef}
+                    type="button"
+                    onClick={() => {
+                        onSelect?.(entry);
+                        setOpen((prevOpen) => !prevOpen);
+                    }}
+                    className={cn(
+                        "flex h-6 w-full items-center gap-1 rounded-md pr-2 text-left text-sm",
+                        treeRowToneClass(
+                            highlighted,
+                            cut,
+                            "text-text-secondary hover:bg-[var(--row-hover)] hover:text-text-primary",
+                        ),
+                    )}
+                    style={{ paddingLeft: pad }}
+                >
+                    <Icon icon={chevronIcon} className="icon-sm shrink-0 text-text-muted" />
+                    <span className="min-w-0 flex-1 truncate">{entry.name}</span>
+                </button>
+            </ContextMenuTrigger>
+            <ContextMenuContent className="min-w-40">
+                <ContextMenuItem onClick={() => setOpen(true)}>Open</ContextMenuItem>
+                <ContextMenuItem onClick={actions.addToChat}>
+                    <Icon icon={Chat20Regular} />
+                    Add to Chat
+                </ContextMenuItem>
+                <ContextMenuItem onClick={actions.reveal}>Reveal in Explorer</ContextMenuItem>
+                <ContextMenuItem onClick={actions.copyPath}>Copy Path</ContextMenuItem>
+                <ContextMenuSeparator />
+                <ClipboardMenuItems entry={entry} pasteLabel="Paste" onClipboard={onClipboard} />
+            </ContextMenuContent>
+        </ContextMenu>
+    );
+};
+
 /** Renders an expandable directory row and its context menu inside the file tree. */
 const DirectoryTreeBranch = ({
     props,
@@ -250,55 +316,30 @@ const DirectoryTreeBranch = ({
     const { entry, onSelect, onClipboard } = props;
     const visibleChildren = filterDirectoryChildren(childEntries, needle);
     if (shouldHideFilteredDir(entry.name, needle, childEntries, visibleChildren)) return null;
-    const chevronIcon = isExpanded ? ChevronDown20Regular : ChevronRight20Regular;
 
     return (
         <div>
-            <ContextMenu>
-                <ContextMenuTrigger asChild>
-                    <button
-                        ref={nodeRef}
-                        type="button"
-                        onClick={() => {
-                            onSelect?.(entry);
-                            setOpen((v) => !v);
-                        }}
-                        className={cn(
-                            "flex h-6 w-full items-center gap-1 rounded-md pr-2 text-left text-sm",
-                            treeRowToneClass(
-                                highlighted,
-                                cut,
-                                "text-text-secondary hover:bg-[var(--row-hover)] hover:text-text-primary",
-                            ),
-                        )}
-                        style={{ paddingLeft: pad }}
-                    >
-                        <Icon icon={chevronIcon} className="icon-sm shrink-0 text-text-muted" />
-                        <span className="min-w-0 flex-1 truncate">{entry.name}</span>
-                    </button>
-                </ContextMenuTrigger>
-                <ContextMenuContent className="min-w-40">
-                    <ContextMenuItem onClick={() => setOpen(true)}>Open</ContextMenuItem>
-                    <ContextMenuItem onClick={actions.addToChat}>
-                        <Icon icon={Chat20Regular} />
-                        Add to Chat
-                    </ContextMenuItem>
-                    <ContextMenuItem onClick={actions.reveal}>Reveal in Explorer</ContextMenuItem>
-                    <ContextMenuItem onClick={actions.copyPath}>Copy Path</ContextMenuItem>
-                    <ContextMenuSeparator />
-                    <ClipboardMenuItems entry={entry} pasteLabel="Paste" onClipboard={onClipboard} />
-                </ContextMenuContent>
-            </ContextMenu>
+            <DirectoryRowContextMenu
+                entry={entry}
+                nodeRef={nodeRef}
+                isExpanded={isExpanded}
+                highlighted={highlighted}
+                cut={cut}
+                pad={pad}
+                onSelect={onSelect}
+                onClipboard={onClipboard}
+                setOpen={setOpen}
+                actions={actions}
+            />
             {isExpanded ? (
                 <div>
-                    {visibleChildren?.map((child) => (
-                        <TreeNode
-                            key={child.path}
-                            {...props}
-                            entry={child}
-                            depth={props.depth + 1}
-                        />
-                    ))}
+                    {visibleChildren?.map((child) =>
+                        renderRecursiveTreeNode({
+                            ...props,
+                            entry: child,
+                            depth: props.depth + 1,
+                        }),
+                    )}
                 </div>
             ) : null}
         </div>
@@ -447,6 +488,8 @@ const TreeNode = (props: TreeNodeProps) => {
         />
     );
 };
+
+renderRecursiveTreeNode = (childProps) => <TreeNode key={childProps.entry.path} {...childProps} />;
 
 /** Renders the FileTree UI component. */
 export const FileTree = ({

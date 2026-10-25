@@ -313,7 +313,7 @@ export const commands = {
         invokeCommand<GitLogEntry[]>("git_log", { path, limit }),
     gitLogStreamStart: (path: string, callerId: string, allRefs = false) =>
         invokeCommand<void>("git_log_stream_start", { path, callerId, allRefs }),
-    gitLogStreamNext: (callerId: string, limit: number = 200) =>
+    gitLogStreamNext: (callerId: string, limit = 200) =>
         invokeCommand<GitLogEntry[]>("git_log_stream_next", { callerId, limit }),
     gitLogStreamStop: (callerId: string) =>
         invokeCommand<void>("git_log_stream_stop", { callerId }),

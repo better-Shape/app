@@ -68,6 +68,29 @@ const NON_SINGLETON_TAB_KINDS = new Set<TabKind>(["plan", "file", "diff", "agent
 /** Resolves the display basename for a workspace file or diff path. */
 const tabTitleFromPath = (path: string): string => path.split(/[\\/]/).pop() || path;
 
+/** Renders the split code editor and sibling file tree body inside `WorkspaceFileSurface`. */
+const WorkspaceFileSplitBody = ({
+    projectPath,
+    path,
+    onOpenFile,
+}: {
+    projectPath: string;
+    path: string;
+    onOpenFile: (path: string) => void;
+}) => (
+    <div className="flex h-full min-h-0 flex-col">
+        <FileBar path={path} />
+        <div className="flex min-h-0 flex-1">
+            <div className="min-h-0 min-w-0 flex-1 bg-sidebar" style={SIDEBAR_SURFACE}>
+                <FileEditor path={path} />
+            </div>
+            <div className="hidden w-44 shrink-0 border-l border-border-subtle @[440px]/workspace:block">
+                <FileTree projectPath={projectPath} activePath={path} onOpenFile={onOpenFile} />
+            </div>
+        </div>
+    </div>
+);
+
 /** Renders the split code editor and sibling file tree for an open workspace file tab. */
 const WorkspaceFileSurface = ({
     projectPath,
@@ -80,21 +103,11 @@ const WorkspaceFileSurface = ({
 }) => (
     <EditorViewProvider>
         <EditorSplitProvider>
-            <div className="flex h-full min-h-0 flex-col">
-                <FileBar path={path} />
-                <div className="flex min-h-0 flex-1">
-                    <div className="min-h-0 min-w-0 flex-1 bg-sidebar" style={SIDEBAR_SURFACE}>
-                        <FileEditor path={path} />
-                    </div>
-                    <div className="hidden w-44 shrink-0 border-l border-border-subtle @[440px]/workspace:block">
-                        <FileTree
-                            projectPath={projectPath}
-                            activePath={path}
-                            onOpenFile={onOpenFile}
-                        />
-                    </div>
-                </div>
-            </div>
+            <WorkspaceFileSplitBody
+                projectPath={projectPath}
+                path={path}
+                onOpenFile={onOpenFile}
+            />
         </EditorSplitProvider>
     </EditorViewProvider>
 );
@@ -126,14 +139,14 @@ const isRenderablePlanTab = (tab: WorkspaceTab): boolean =>
     tab.kind === "plan" && Boolean(tab.path || tab.markdown);
 
 /** Checks whether a keyboard event uses bare Ctrl/Cmd without Alt or Shift modifiers. */
-const hasBarePrimaryMod = (e: KeyboardEvent): boolean =>
-    (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey;
+const hasBarePrimaryMod = (event: KeyboardEvent): boolean =>
+    (event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey;
 
 /** Checks whether a keyboard event matches bare `Mod+G` outside editable inputs. */
-const isOpenFilesShortcut = (e: KeyboardEvent): boolean => {
-    const t = e.target as HTMLElement | null;
-    if (t?.closest("textarea, input, [contenteditable='true']")) return false;
-    return hasBarePrimaryMod(e) && e.key.toLowerCase() === "g";
+const isOpenFilesShortcut = (event: KeyboardEvent): boolean => {
+    const target = event.target as HTMLElement | null;
+    if (target?.closest("textarea, input, [contenteditable='true']")) return false;
+    return hasBarePrimaryMod(event) && event.key.toLowerCase() === "g";
 };
 
 /** Renders a `file` or `diff` document tab when matched. */
@@ -410,7 +423,7 @@ export const AgentWorkspace = ({
                 <WorkspaceTabs
                     className="min-w-0 flex-1 bg-transparent"
                     tabs={tabs}
-                    activeId={active?.id ?? ""}
+                    activeId={active.id}
                     onSelect={(id) => {
                         activeIdRef.current = id;
                         setActiveId(id);

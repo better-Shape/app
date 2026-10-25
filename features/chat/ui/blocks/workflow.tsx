@@ -46,10 +46,12 @@ export const WORKFLOW_CHUNK_TYPES = new Set<Chunk["type"]>([
     "browse_session",
 ]);
 
+/** Resolves a workspace-relative file path against the active project root. */
 function resolvePath(filePath: string): string {
     return resolveProjectFilePath(filePath, getProjectPath());
 }
 
+/** Opens a file in the workspace editor and dispatches its inline diff preview. */
 function openFileEdit(file: string, original: string, replacement: string, isResolved?: boolean) {
     // Open a real editor tab (not the lightweight preview-only pane).
     const fileName = file.split(/[\\/]/).pop() || file;
@@ -72,9 +74,10 @@ function openFileEdit(file: string, original: string, replacement: string, isRes
                 detail: { path: resolved, original, replacement },
             }));
         }, 100);
-    });
+    }).catch(() => undefined);
 }
 
+/** Extracts the staged file path from a `Staged <path>` workflow output string. */
 export function parseGitStagePath(content?: string): string | null {
     if (!content?.trim()) return null;
     const trimmed = content.trim();
@@ -84,6 +87,7 @@ export function parseGitStagePath(content?: string): string | null {
 
 type GitStatusLine = { area: "staged" | "unstaged"; status: string; path: string };
 
+/** Parses `git status` output lines into structured status code and path entries. */
 export function parseGitStatusLines(content?: string): GitStatusLine[] {
     if (!content?.trim()) return [];
     return content.split("\n").flatMap((line) => {
@@ -96,6 +100,7 @@ export function parseGitStatusLines(content?: string): GitStatusLine[] {
 
 type GitLogLine = { hash: string; date: string; author: string; subject: string };
 
+/** Parses compact `git log` lines into commit hash, refs, subject, and metadata. */
 export function parseGitLogLines(content?: string): GitLogLine[] {
     if (!content?.trim()) return [];
     return content.split("\n").flatMap((line) => {
@@ -126,6 +131,7 @@ export function parseGitLogLines(content?: string): GitLogLine[] {
 
 type GitBranchLine = { name: string; current: boolean; remote: boolean };
 
+/** Parses `git branch` output into branch names, active flags, and tracking info. */
 export function parseGitBranchLines(content?: string): GitBranchLine[] {
     if (!content?.trim()) return [];
     return content.split("\n").flatMap((line) => {
@@ -142,6 +148,7 @@ export function parseGitBranchLines(content?: string): GitBranchLine[] {
     });
 }
 
+/** Extracts target file path, hunk scope, and unified diff body from diff output. */
 export function parseGitDiffMeta(content?: string): { file?: string; scope?: string; body: string } {
     if (!content?.trim()) return { body: "" };
     const lines = content.split("\n");
@@ -167,17 +174,20 @@ type WorkflowRow =
     | { kind: "list_group"; count: number }
     | { kind: "subagent_group"; blocks: Chunk[] };
 
+/** Checks whether two optional file paths normalize to the same target. */
 function sameFilePath(a?: string, b?: string): boolean {
     if (!a || !b) return false;
     return a.replace(/\\/g, "/").toLowerCase() === b.replace(/\\/g, "/").toLowerCase();
 }
 
+/** Checks whether a workflow chunk is a completed file mutation eligible for coalescing. */
 function isCoalescableFileEdit(block: Chunk): boolean {
     if (!block.file) return false;
     if (block.type === "edit") return true;
     return block.type === "edit_pending" && block.commandStatus === "applied";
 }
 
+/** Returns the target file path mutated by an edit or write workflow chunk. */
 function mutationPath(block: Chunk): string | undefined {
     if (isCoalescableFileEdit(block)) return block.file;
     if (
@@ -196,6 +206,7 @@ function isThinkChunk(block: Chunk): boolean {
     return block.type === "think" || block.type === "thought";
 }
 
+/** Normalizes whitespace in a task or todo description string. */
 function taskText(value?: string): string {
     return (value || "").replace(/\s+/g, " ").trim();
 }
@@ -222,6 +233,7 @@ function sameRepeatedTask(a: Chunk, b: Chunk): boolean {
     }
 }
 
+/** Merges consecutive updates to the same todo item into a single chunk. */
 function mergeRepeatedTask(a: Chunk, b: Chunk): Chunk {
     if (isThinkChunk(a) || isThinkChunk(b)) {
         const parts = [a.content, b.content].map((part) => (part || "").trim()).filter(Boolean);
@@ -249,6 +261,7 @@ export function coalesceConsecutiveSameTasks(blocks: Chunk[]): Chunk[] {
     return out;
 }
 
+/** Folds adjacent edits to the same file into a combined diff chunk. */
 export function coalesceConsecutiveSameFileEdits(blocks: Chunk[]): Chunk[] {
     const out: Chunk[] = [];
     for (const block of blocks) {
@@ -443,6 +456,7 @@ export const groupWorkflowRows = (blocks: Chunk[]): WorkflowRow[] => {
     return rows;
 };
 
+/** Renders a color-coded single-letter Git status badge. */
 function GitStatusBadge({ status }: { status: string }) {
     const letter = status.trim().charAt(0).toUpperCase() || "?";
     const label =
@@ -472,6 +486,7 @@ function GitStatusBadge({ status }: { status: string }) {
     );
 }
 
+/** Counts added and deleted lines across a unified diff body. */
 function countDiffLines(body: string): { add: number; del: number } {
     let add = 0;
     let del = 0;
@@ -588,6 +603,7 @@ export const GeneratedMediaStep = ({ block }: { block: Chunk }) => {
     );
 };
 
+/** Renders a grouped summary of files staged in Git. */
 export function GitStageGroup({ paths }: { paths: string[] }) {
     const unique = [...new Set(paths.filter(Boolean))];
 
@@ -634,6 +650,7 @@ const GitStatusFileRow = ({ line }: { line: GitStatusLine }) => {
     );
 };
 
+/** Renders parsed `git status` entries as a compact file list. */
 function GitStatusGroup({ lines }: { lines: GitStatusLine[] }) {
     const staged = lines.filter((l) => l.area === "staged");
     const unstaged = lines.filter((l) => l.area === "unstaged");
@@ -672,6 +689,7 @@ function GitStatusGroup({ lines }: { lines: GitStatusLine[] }) {
     );
 }
 
+/** Renders parsed `git log` commits as a compact timeline list. */
 function GitLogGroup({ lines }: { lines: GitLogLine[] }) {
     return (
         <GitActionChip label="Viewed log" detail={`${lines.length} commit${lines.length === 1 ? "" : "s"}`}>
@@ -698,6 +716,7 @@ function GitLogGroup({ lines }: { lines: GitLogLine[] }) {
     );
 }
 
+/** Renders parsed `git branch` entries with current-branch highlighting. */
 function GitBranchesGroup({ lines }: { lines: GitBranchLine[] }) {
     const current = lines.find((l) => l.current);
 
@@ -734,6 +753,7 @@ function GitBranchesGroup({ lines }: { lines: GitBranchLine[] }) {
     );
 }
 
+/** Renders a collapsible unified diff card for Git diff output. */
 function GitDiffGroup({
     file,
     scope,
@@ -761,6 +781,7 @@ function GitDiffGroup({
     );
 }
 
+/** Formats a file read target with optional 1-based line range suffix. */
 export function formatReadTarget(file: {
     path: string;
     start?: number;
@@ -775,6 +796,7 @@ export function formatReadTarget(file: {
     return `${file.path}${range}`;
 }
 
+/** Estimates approximate token count across a batch of file read ranges. */
 export function estimateReadTokens(files: { path: string; start?: number; end?: number }[]): number {
     return files.reduce((sum, file) => {
         if (file.start && file.end && file.end >= file.start) {
@@ -784,11 +806,13 @@ export function estimateReadTokens(files: { path: string; start?: number; end?: 
     }, 0);
 }
 
+/** Formats an integer token count using compact `k` notation when large. */
 export function formatTokenCount(tokens: number): string {
     if (tokens >= 1000) return `${Math.round(tokens / 1000)}k`;
     return String(tokens);
 }
 
+/** Renders a collapsible group of consecutive file-read tool calls. */
 export function ReadGroup({
     files,
     tokens,
@@ -820,6 +844,7 @@ export function ReadGroup({
         </div>
     );
 }
+/** Computes the summary icon and label for a collapsed workflow step group. */
 function computeGroupHeader(visible: Chunk[]): { icon: IconGlyph; label: string } {
     const hasThink = visible.some((b) => b.type === "think" || b.type === "thought");
     const hasExplore = visible.some((b) =>
@@ -1101,6 +1126,7 @@ export const getWorkflowActionConfig = (block: Chunk, isActive?: boolean) => {
     return builder ? builder(block, isActive ?? block.isGenerating) : null;
 };
 
+/** Checks whether a workflow chunk has visible UI content in the transcript. */
 export function isRenderableWorkflowBlock(block: Chunk, isActive?: boolean) {
     if (block.type === "browse_session") return true;
     if (block.type === "status") return false;
@@ -1309,6 +1335,7 @@ export const AgentWorkflow = ({
     );
 };
 
+/** Renders an interactive file-icon chip that opens the referenced path on click. */
 function FilePill({ path, onClick }: { path: string; onClick?: () => void }) {
     const fileName = path.split(/[\\/]/).pop() || path;
     const handleOpen = onClick ?? (() => { openProjectFile(path, fileName).catch(() => undefined); });
@@ -1591,16 +1618,12 @@ export function ActionItem({
     if (!config) return null;
 
     const specialized = renderSpecializedActionItem(block, config);
-    if (specialized !== undefined) return <>{specialized}</>;
+    if (specialized !== undefined) return specialized;
 
-    return (
-        <>
-            {renderDefaultWorkflowActionLine({
-                block,
-                config,
-                editStats,
-                editResolved: checkEditBlockResolved(block, isFileEditResolved),
-            })}
-        </>
-    );
+    return renderDefaultWorkflowActionLine({
+        block,
+        config,
+        editStats,
+        editResolved: checkEditBlockResolved(block, isFileEditResolved),
+    });
 }

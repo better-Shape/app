@@ -68,9 +68,12 @@ const WORKSPACE_TAB_TARGETS = new Set([
 /** Reads initial layout preferences (`workspaceWidth`, `workspaceOpen`, `sidebarOpen`, `zenMode`, `splash`) from storage. */
 const readStoredAgentLayoutPrefs = () => {
     try {
-        const w = Number(localStorage.getItem("bettershape-agent-workspace-width"));
+        const storedWidth = Number(localStorage.getItem("bettershape-agent-workspace-width"));
         return {
-            workspaceWidth: w >= MIN_WORKSPACE && w <= MAX_WORKSPACE_PX ? w : undefined,
+            workspaceWidth:
+                storedWidth >= MIN_WORKSPACE && storedWidth <= MAX_WORKSPACE_PX
+                    ? storedWidth
+                    : undefined,
             workspaceOpen: localStorage.getItem("bettershape-agent-workspace") !== "false",
             sidebarOpen: localStorage.getItem("bettershape-agent-sidebar") !== "false",
             zenMode: localStorage.getItem(ZEN_KEY) === "1",
@@ -294,7 +297,8 @@ const dispatchAgentLayoutToggle = ({
         [PANEL_OVERLAY_CLEAR_IDS, () => setOverlay(null)],
         [EXPLORER_TOGGLE_IDS, () => openExplorerFromLayoutToggle(persistWorkspace, setOverlay)],
     ];
-    handlers.find(([ids]) => ids.has(id))?.[1]();
+    const matched = handlers.find(([ids]) => ids.has(id));
+    if (matched) matched[1]();
 };
 /** Handles layout-toggle, overlay, pull-request, terminal, zen-mode, and layout-reset window events. */
 const useAgentLayoutWindowChannels = ({
@@ -883,19 +887,17 @@ const AgentMainShellColumn = ({
         />
         <InterruptedTurns />
         <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
-            <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
-                <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-                    <AgentCenterViewport
-                        overlay={overlay}
-                        projectPath={projectPath}
-                        navSlot={navSlot}
-                        sidebarOpen={sidebarOpen}
-                        onCloseOverlay={() => setOverlay(null)}
-                    >
-                        {children}
-                    </AgentCenterViewport>
-                    {flags.hasProject ? <TerminalDock suppressed={flags.overlayOpen} /> : null}
-                </div>
+            <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+                <AgentCenterViewport
+                    overlay={overlay}
+                    projectPath={projectPath}
+                    navSlot={navSlot}
+                    sidebarOpen={sidebarOpen}
+                    onCloseOverlay={() => setOverlay(null)}
+                >
+                    {children}
+                </AgentCenterViewport>
+                {flags.hasProject ? <TerminalDock suppressed={flags.overlayOpen} /> : null}
             </div>
             <AgentWorkspaceDock
                 showWorkspace={flags.showWorkspace}

@@ -53,25 +53,30 @@ import {
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
+/** Extracts the trailing file or directory name from a repository path. */
 function fileName(path: string) {
     return path.split(/[\\/]/).pop() || path;
 }
 
+/** Returns the parent directory portion of a repository-relative file path. */
 function parentFolder(path: string) {
     const parts = path.replace(/\\/g, "/").split("/").filter(Boolean);
     return parts.length > 1 ? (parts[parts.length - 2] ?? "") : "";
 }
 
+/** Opens a native folder-selection dialog and resolves the chosen directory path. */
 async function pickDirectory(title: string): Promise<string | null> {
     const { open: pick } = await import("@tauri-apps/plugin-dialog");
     const selected = await pick({ directory: true, multiple: false, title });
     return typeof selected === "string" ? selected : null;
 }
 
+/** Wraps a Git provider brand glyph inside a uniform icon slot. */
 function hostMark(node: ReactNode) {
     return <span className="flex size-4 items-center justify-center">{node}</span>;
 }
 
+/** Renders the repository initialization and clone quick-pick modal when no repo is open. */
 function GitSetupPick({
     open,
     onOpenChange,
@@ -227,11 +232,13 @@ function GitSetupPick({
     );
 }
 
+/** Maps a Git porcelain status string to its single-letter badge code. */
 function statusLetter(status: string) {
     const code = status.trim().replace("?", "U").charAt(0).toUpperCase();
     return code || "M";
 }
 
+/** Parses `--numstat` diff output into per-file added and deleted line counts. */
 function parseDiffFileStats(raw: string): Record<string, { plus: number; minus: number }> {
     const stats: Record<string, { plus: number; minus: number }> = {};
     let current: string | null = null;
@@ -737,12 +744,14 @@ const useCommitMenuCommands = ({
 }) => {
     const { repo, files, lastMessage, hasRemote, ahead } = snapshot;
 
+    /** Formats the combined commit subject and optional body text. */
     const messageBody = () => {
         const head = title.trim();
         const body = description.trim();
         return body ? `${head}\n\n${body}` : head;
     };
 
+    /** Runs a busy-guarded Git command and refreshes repository state on completion. */
     const runGit = async (label: string, task: () => Promise<unknown>) => {
         if (!repo) return;
         setBusy(true);
@@ -758,6 +767,7 @@ const useCommitMenuCommands = ({
         }
     };
 
+    /** Stages approved paths and commits or amends with secret-scan protection. */
     const commitPaths = async (paths: string[], message: string, isAmend = false) => {
         if (!repo || !message.trim()) {
             notify.error("Git", "Enter a commit title");
@@ -782,15 +792,18 @@ const useCommitMenuCommands = ({
         });
     };
 
+    /** Stages and commits all modified working-tree paths. */
     const commitAll = () => {
         commitPaths(files.map((file) => file.path), messageBody()).catch(() => undefined);
     };
 
+    /** Commits only the currently staged working-tree paths. */
     const commitStaged = () => {
         const staged = files.filter((file) => file.staged).map((file) => file.path);
         commitPaths(staged, messageBody()).catch(() => undefined);
     };
 
+    /** Amends the previous commit with current paths and message. */
     const amend = () => {
         const nextMessage = title.trim() ? messageBody() : lastMessage;
         if (!nextMessage) {
@@ -800,6 +813,7 @@ const useCommitMenuCommands = ({
         commitPaths(files.map((file) => file.path), nextMessage, true).catch(() => undefined);
     };
 
+    /** Confirms and pushes local commits to the configured remote. */
     const push = async () => {
         if (!repo) return;
         const prompt =
@@ -813,6 +827,7 @@ const useCommitMenuCommands = ({
         if (ok) await runGit("Pushed", () => commands.gitPush(repo));
     };
 
+    /** Stages all modified working-tree files without committing. */
     const stageAll = async () => {
         if (!repo) return;
         setBusy(true);
@@ -827,6 +842,7 @@ const useCommitMenuCommands = ({
         }
     };
 
+    /** Confirms and discards all uncommitted working-tree changes. */
     const discardAll = async () => {
         if (!repo || files.length === 0) return;
         const ok = await confirm("Discard every uncommitted change in this repo?", {
@@ -841,8 +857,9 @@ const useCommitMenuCommands = ({
         });
     };
 
-    const createBranch = async () => {
-        const name = repo ? window.prompt("New branch name")?.trim() : "";
+    /** Creates and checks out a new branch with the given name. */
+    const createBranch = async (rawName: string) => {
+        const name = rawName.trim();
         if (!repo || !name) return;
         await runGit(`Switched to ${name}`, async () => {
             await commands.gitCreateBranch(repo, name);
@@ -850,13 +867,14 @@ const useCommitMenuCommands = ({
         });
     };
 
+    /** Stages changes and generates a commit subject and body via AI. */
     const suggest = async () => {
         if (!repo) return;
         setBusy(true);
         try {
             await commands.gitStageAll(repo);
             const lines = (await commands.generateCommitMessage(repo)).trim().split("\n");
-            setTitle(lines[0] ?? "");
+            setTitle(lines.at(0) ?? "");
             setDescription(lines.slice(1).join("\n").trim());
         } catch (err) {
             notify.gitError(err);
@@ -865,6 +883,7 @@ const useCommitMenuCommands = ({
         }
     };
 
+    /** Binds a callback to run only when an active repository path is resolved. */
     const withRepo = (run: (path: string) => void) => () => {
         if (repo) run(repo);
     };
@@ -912,6 +931,137 @@ const handleCommitMenuOpenChange = ({
         .catch(() => undefined);
 };
 
+/** Renders the composer, primary Commit button, secondary submenu, and file list inside `CommitMenu`. */
+const CommitDropdownPanel = ({
+    snapshot,
+    busy,
+    canCommit,
+    title,
+    setTitle,
+    description,
+    setDescription,
+    descriptionOpen,
+    setDescriptionOpen,
+    git,
+    onOpenNewBranch,
+    onOpenPublish,
+}: {
+    snapshot: RepoSnapshot;
+    busy: boolean;
+    canCommit: boolean;
+    title: string;
+    setTitle: (next: string) => void;
+    description: string;
+    setDescription: (next: string) => void;
+    descriptionOpen: boolean;
+    setDescriptionOpen: React.Dispatch<React.SetStateAction<boolean>>;
+    git: ReturnType<typeof useCommitMenuCommands>;
+    onOpenNewBranch: () => void;
+    onOpenPublish: () => void;
+}) => (
+    <DropdownMenuContent align="end" className="w-[320px]">
+        <div
+            className="flex flex-col gap-2 p-1.5"
+            onPointerDown={(event) => event.stopPropagation()}
+        >
+            <CommitMessageComposer
+                title={title}
+                setTitle={setTitle}
+                description={description}
+                setDescription={setDescription}
+                descriptionOpen={descriptionOpen}
+                setDescriptionOpen={setDescriptionOpen}
+                busy={busy}
+                hasFiles={snapshot.files.length > 0}
+                onCommitAll={git.commitAll}
+                onSuggest={() => {
+                    git.suggest().catch(() => undefined);
+                }}
+            />
+            <div className="flex items-center gap-1.5">
+                <Button
+                    variant="default"
+                    size="md"
+                    className="flex-1"
+                    disabled={!canCommit}
+                    onClick={git.commitAll}
+                >
+                    Commit
+                </Button>
+                <CommitSecondarySubmenu
+                    snapshot={snapshot}
+                    busy={busy}
+                    stashTitle={title.trim() || "WIP"}
+                    onAmend={git.amend}
+                    onCommitStaged={git.commitStaged}
+                    onStageAll={() => {
+                        git.stageAll().catch(() => undefined);
+                    }}
+                    onDiscardAll={() => {
+                        git.discardAll().catch(() => undefined);
+                    }}
+                    onPush={() => {
+                        git.push().catch(() => undefined);
+                    }}
+                    onCreateBranch={onOpenNewBranch}
+                    onOpenPublish={onOpenPublish}
+                    withRepo={git.withRepo}
+                    runGit={git.runGit}
+                />
+            </div>
+        </div>
+        <CommitChangesList files={snapshot.files} />
+    </DropdownMenuContent>
+);
+
+/** Modal dialog for naming and switching to a newly created Git branch. */
+const CreateBranchDialog = ({
+    open,
+    busy,
+    onClose,
+    onSubmit,
+}: {
+    open: boolean;
+    busy: boolean;
+    onClose: () => void;
+    onSubmit: (name: string) => void;
+}) => {
+    const [branchName, setBranchName] = useState("");
+    const submitIfValid = () => {
+        const trimmed = branchName.trim();
+        if (!trimmed) return;
+        setBranchName("");
+        onSubmit(trimmed);
+    };
+    return (
+        <AlertDialog open={open} onOpenChange={(next) => { if (!next) { setBranchName(""); onClose(); } }}>
+            <AlertDialogContent sizeClassName="max-w-[400px]">
+                <AlertDialogHeader>
+                    <AlertDialogTitle>New branch</AlertDialogTitle>
+                    <AlertDialogDescription>Create a new branch from HEAD and switch to it.</AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogBody>
+                    <Input
+                        value={branchName}
+                        placeholder="feature/branch-name"
+                        spellCheck={false}
+                        onChange={(event) => setBranchName(event.target.value)}
+                        onKeyDown={(event) => {
+                            if (event.key === "Enter") { event.preventDefault(); submitIfValid(); }
+                        }}
+                    />
+                </AlertDialogBody>
+                <AlertDialogFooter>
+                    <AlertDialogCancel onClick={() => { setBranchName(""); onClose(); }}>Cancel</AlertDialogCancel>
+                    <Button variant="default" size="sm" disabled={busy || !branchName.trim()} onClick={submitIfValid}>
+                        Create branch
+                    </Button>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
+    );
+};
+
 /** Renders the CommitMenu UI component. */
 export const CommitMenu = ({ projectPath }: { projectPath: string }) => {
     const { snapshot, setSnapshot, refresh } = useCommitMenuSnapshot(projectPath);
@@ -920,6 +1070,7 @@ export const CommitMenu = ({ projectPath }: { projectPath: string }) => {
     const [description, setDescription] = useState("");
     const [descriptionOpen, setDescriptionOpen] = useState(false);
     const [publishOpen, setPublishOpen] = useState(false);
+    const [newBranchOpen, setNewBranchOpen] = useState(false);
     const [menuOpen, setMenuOpen] = useState(false);
     const [setupOpen, setSetupOpen] = useState(false);
     const github = useGitHubAuth();
@@ -957,62 +1108,30 @@ export const CommitMenu = ({ projectPath }: { projectPath: string }) => {
                 }
             >
                 <CommitTriggerButton busy={busy} totals={totals} />
-                <DropdownMenuContent align="end" className="w-[320px]">
-                    <div
-                        className="flex flex-col gap-2 p-1.5"
-                        onPointerDown={(event) => event.stopPropagation()}
-                    >
-                        <CommitMessageComposer
-                            title={title}
-                            setTitle={setTitle}
-                            description={description}
-                            setDescription={setDescription}
-                            descriptionOpen={descriptionOpen}
-                            setDescriptionOpen={setDescriptionOpen}
-                            busy={busy}
-                            hasFiles={snapshot.files.length > 0}
-                            onCommitAll={git.commitAll}
-                            onSuggest={() => {
-                                git.suggest().catch(() => undefined);
-                            }}
-                        />
-                        <div className="flex items-center gap-1.5">
-                            <Button
-                                variant="default"
-                                size="md"
-                                className="flex-1"
-                                disabled={!canCommit}
-                                onClick={git.commitAll}
-                            >
-                                Commit
-                            </Button>
-                            <CommitSecondarySubmenu
-                                snapshot={snapshot}
-                                busy={busy}
-                                stashTitle={title.trim() || "WIP"}
-                                onAmend={git.amend}
-                                onCommitStaged={git.commitStaged}
-                                onStageAll={() => {
-                                    git.stageAll().catch(() => undefined);
-                                }}
-                                onDiscardAll={() => {
-                                    git.discardAll().catch(() => undefined);
-                                }}
-                                onPush={() => {
-                                    git.push().catch(() => undefined);
-                                }}
-                                onCreateBranch={() => {
-                                    git.createBranch().catch(() => undefined);
-                                }}
-                                onOpenPublish={() => setPublishOpen(true)}
-                                withRepo={git.withRepo}
-                                runGit={git.runGit}
-                            />
-                        </div>
-                    </div>
-                    <CommitChangesList files={snapshot.files} />
-                </DropdownMenuContent>
+                <CommitDropdownPanel
+                    snapshot={snapshot}
+                    busy={busy}
+                    canCommit={canCommit}
+                    title={title}
+                    setTitle={setTitle}
+                    description={description}
+                    setDescription={setDescription}
+                    descriptionOpen={descriptionOpen}
+                    setDescriptionOpen={setDescriptionOpen}
+                    git={git}
+                    onOpenNewBranch={() => setNewBranchOpen(true)}
+                    onOpenPublish={() => setPublishOpen(true)}
+                />
             </DropdownMenu>
+            <CreateBranchDialog
+                open={newBranchOpen}
+                busy={busy}
+                onClose={() => setNewBranchOpen(false)}
+                onSubmit={(branchName) => {
+                    setNewBranchOpen(false);
+                    git.createBranch(branchName).catch(() => undefined);
+                }}
+            />
             <PublishRepoDialog
                 open={publishOpen}
                 repo={snapshot.repo}
@@ -1028,6 +1147,7 @@ export const CommitMenu = ({ projectPath }: { projectPath: string }) => {
     );
 };
 
+/** Renders a multi-step dialog for linking a remote host and pushing the first commit. */
 function PublishRepoDialog({
     open,
     repo,

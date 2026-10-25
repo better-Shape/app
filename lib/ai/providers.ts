@@ -821,6 +821,7 @@ export function matchesProviderQuery(preset: ProviderPreset, query: string): boo
   );
 }
 
+/** Returns the built-in preset metadata for a known AI provider identifier. */
 export function providerPreset(id: ProviderId): ProviderPreset {
   return PROVIDER_PRESETS.find((p) => p.id === id) ?? PROVIDER_PRESETS[PROVIDER_PRESETS.length - 1];
 }
@@ -863,6 +864,7 @@ export const SEARCH_PROVIDERS = [
   { id: "brave", label: "Brave Search", keyHint: "BSA…", docsUrl: "https://api-dashboard.search.brave.com/app/keys" },
 ] as const;
 
+/** Creates a blank `ProviderConnection` initialized from optional preset defaults. */
 function emptyConnection(preset?: ProviderPreset): ProviderConnection {
   return {
     apiKey: "",
@@ -877,6 +879,7 @@ function emptyConnection(preset?: ProviderPreset): ProviderConnection {
   };
 }
 
+/** Creates the default multi-provider BYOK settings structure. */
 export function defaultProvidersSettings(): ProvidersSettings {
   const connections = {} as Record<ProviderId, ProviderConnection>;
   for (const preset of PROVIDER_PRESETS) connections[preset.id] = emptyConnection(preset);
@@ -977,6 +980,7 @@ export function normalizeHeaders(raw: unknown): Record<string, string> {
   return out;
 }
 
+/** Type-guards whether an unknown value is a supported HTTP auth header style. */
 function isAuthStyle(value: unknown): value is AuthStyle | "" {
   return (
     value === "" ||
@@ -1003,6 +1007,7 @@ export function parseHeaderLines(text: string): Record<string, string> {
   return out;
 }
 
+/** Serializes custom HTTP header key-value pairs into newline-delimited `Key: Value` text. */
 export function formatHeaderLines(headers: Record<string, string> | undefined): string {
   return Object.entries(headers ?? {})
     .map(([name, value]) => `${name}: ${value}`)
@@ -1067,6 +1072,7 @@ export type ModelOption = {
   vision: boolean;
 };
 
+/** Builds a normalized `ModelOption` descriptor from a raw model identifier. */
 export function modelOption(id: string): ModelOption {
   const prefix = id.split("/")[0] ?? "";
   const providerId = canonicalProviderId(prefix) ?? ("custom" as ProviderId);
@@ -1104,6 +1110,7 @@ export function embeddingProviders(settings: ProvidersSettings): ProviderId[] {
   ).map((preset) => preset.id);
 }
 
+/** Collects available embedding model identifiers across configured providers. */
 export function embeddingModelOptions(settings: ProvidersSettings): string[] {
   const presets: string[] = [];
   for (const id of embeddingProviders(settings)) {
@@ -1185,6 +1192,7 @@ export type RustAiConfig = {
   composio: { apiKey: string; userId: string };
 };
 
+/** Converts frontend provider settings into the Rust backend `AiConfig` wire payload. */
 export function toRustAiConfig(settings: ProvidersSettings): RustAiConfig {
   const providers: RustAiProviderEntry[] = [];
   for (const preset of PROVIDER_PRESETS) {

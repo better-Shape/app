@@ -363,6 +363,136 @@ const useProjectConversationsLoader = (
     }, [loadChats]);
 };
 
+/** Renders a labeled radio group section inside `SessionsFilterDropdown`. */
+const FilterMenuRadioSection = <T extends string>({
+    label,
+    value,
+    options,
+    onChange,
+}: {
+    label: string;
+    value: T;
+    options: ReadonlyArray<{ value: T; label: string }>;
+    onChange: (next: T) => void;
+}) => (
+    <>
+        <DropdownMenuLabel>{label}</DropdownMenuLabel>
+        <DropdownMenuRadioGroup value={value} onValueChange={(next) => onChange(next as T)}>
+            {options.map((option) => (
+                <DropdownMenuRadioItem key={option.value} value={option.value}>
+                    {option.label}
+                </DropdownMenuRadioItem>
+            ))}
+        </DropdownMenuRadioGroup>
+    </>
+);
+
+/** Renders the Filter/Group/Sort dropdown menu in `ChatListHeaderToolbar`. */
+const SessionsFilterDropdown = ({
+    filter,
+    onFilterChange,
+    grouping,
+    onGroupingChange,
+    sort,
+    onSortChange,
+}: {
+    filter: ChatFilter;
+    onFilterChange: (next: ChatFilter) => void;
+    grouping: ChatGrouping;
+    onGroupingChange: (value: string) => void;
+    sort: ChatSort;
+    onSortChange: (next: ChatSort) => void;
+}) => (
+    <DropdownMenu modal={false}>
+        <Tooltip content="Filter" side="bottom" delayDuration={80}>
+            <DropdownMenuTrigger asChild>
+                <button
+                    type="button"
+                    aria-label="Filter"
+                    className="flex size-7 items-center justify-center rounded-md text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary data-[state=open]:bg-[var(--btn-open)] data-[state=open]:hover:bg-[var(--btn-open-hover)] data-[state=open]:text-text-primary"
+                >
+                    <Icon icon={Filter20Regular} />
+                </button>
+            </DropdownMenuTrigger>
+        </Tooltip>
+        <DropdownMenuContent align="end" className="min-w-40">
+            <FilterMenuRadioSection label="Show" value={filter} options={FILTER_OPTIONS} onChange={onFilterChange} />
+            <DropdownMenuSeparator />
+            <FilterMenuRadioSection label="Group by" value={grouping} options={GROUP_OPTIONS} onChange={onGroupingChange} />
+            <DropdownMenuSeparator />
+            <FilterMenuRadioSection label="Sort" value={sort} options={SORT_OPTIONS} onChange={onSortChange} />
+        </DropdownMenuContent>
+    </DropdownMenu>
+);
+
+/** Renders the multi-select and section-collapse actions menu in `ChatListHeaderToolbar`. */
+const SessionsActionsDropdown = ({
+    selectedIds,
+    selectedTargets,
+    handlers,
+    onOpenCollectionDraft,
+    onClearSelection,
+    hasMultipleSections,
+    allCollapsed,
+    onToggleAllCollapsed,
+    onNewChat,
+}: {
+    selectedIds: string[];
+    selectedTargets: ChatLifecycleTarget[];
+    handlers: ChatLifecycleHandlers;
+    onOpenCollectionDraft: () => void;
+    onClearSelection: () => void;
+    hasMultipleSections: boolean;
+    allCollapsed: boolean;
+    onToggleAllCollapsed: () => void;
+    onNewChat: () => void;
+}) => (
+    <DropdownMenu modal={false}>
+        <Tooltip content="Sessions actions" side="bottom" delayDuration={80}>
+            <DropdownMenuTrigger asChild>
+                <button
+                    type="button"
+                    aria-label="Sessions actions"
+                    className="flex size-7 items-center justify-center rounded-md text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary data-[state=open]:bg-[var(--btn-open)] data-[state=open]:hover:bg-[var(--btn-open-hover)] data-[state=open]:text-text-primary"
+                >
+                    <Icon icon={MoreHorizontal20Regular} />
+                </button>
+            </DropdownMenuTrigger>
+        </Tooltip>
+        <DropdownMenuContent align="end" className="min-w-48">
+            <DropdownMenuLabel>
+                {selectedIds.length > 0 ? `${selectedIds.length} selected` : "Sessions"}
+            </DropdownMenuLabel>
+            {selectedTargets.length > 0 ? (
+                <>
+                    {renderLifecycleActions(
+                        buildChatLifecycleActions(selectedTargets, handlers),
+                        CHAT_SELECTION_PRIMITIVES,
+                    )}
+                    <DropdownMenuItem onClick={onOpenCollectionDraft}>
+                        <Icon icon={Collections20Regular} />
+                        Add to collection
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                </>
+            ) : null}
+            <DropdownMenuItem disabled={selectedIds.length === 0} onClick={onClearSelection}>
+                Clear selection
+            </DropdownMenuItem>
+            {hasMultipleSections ? (
+                <DropdownMenuItem onClick={onToggleAllCollapsed}>
+                    {allCollapsed ? "Expand all sections" : "Collapse all sections"}
+                </DropdownMenuItem>
+            ) : null}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={onNewChat}>
+                <Icon icon={Compose20Regular} />
+                New chat
+            </DropdownMenuItem>
+        </DropdownMenuContent>
+    </DropdownMenu>
+);
+
 /** Renders the Sessions header toolbar (`Search`, `Filter`, `Sessions actions`, and `New chat`). */
 const ChatListHeaderToolbar = ({
     searchOpen,
@@ -407,91 +537,25 @@ const ChatListHeaderToolbar = ({
             <HeaderIconBtn label="Search" active={searchOpen} onClick={onToggleSearch}>
                 <Icon icon={Search20Regular} />
             </HeaderIconBtn>
-            <DropdownMenu modal={false}>
-                <Tooltip content="Filter" side="bottom" delayDuration={80}>
-                    <DropdownMenuTrigger asChild>
-                        <button
-                            type="button"
-                            aria-label="Filter"
-                            className="flex size-7 items-center justify-center rounded-md text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary data-[state=open]:bg-[var(--btn-open)] data-[state=open]:hover:bg-[var(--btn-open-hover)] data-[state=open]:text-text-primary"
-                        >
-                            <Icon icon={Filter20Regular} />
-                        </button>
-                    </DropdownMenuTrigger>
-                </Tooltip>
-                <DropdownMenuContent align="end" className="min-w-40">
-                    <DropdownMenuLabel>Show</DropdownMenuLabel>
-                    <DropdownMenuRadioGroup value={filter} onValueChange={(v) => onFilterChange(v as ChatFilter)}>
-                        {FILTER_OPTIONS.map((opt) => (
-                            <DropdownMenuRadioItem key={opt.value} value={opt.value}>
-                                {opt.label}
-                            </DropdownMenuRadioItem>
-                        ))}
-                    </DropdownMenuRadioGroup>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuLabel>Group by</DropdownMenuLabel>
-                    <DropdownMenuRadioGroup value={grouping} onValueChange={onGroupingChange}>
-                        {GROUP_OPTIONS.map((option) => (
-                            <DropdownMenuRadioItem key={option.value} value={option.value}>
-                                {option.label}
-                            </DropdownMenuRadioItem>
-                        ))}
-                    </DropdownMenuRadioGroup>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuLabel>Sort</DropdownMenuLabel>
-                    <DropdownMenuRadioGroup value={sort} onValueChange={(v) => onSortChange(v as ChatSort)}>
-                        {SORT_OPTIONS.map((opt) => (
-                            <DropdownMenuRadioItem key={opt.value} value={opt.value}>
-                                {opt.label}
-                            </DropdownMenuRadioItem>
-                        ))}
-                    </DropdownMenuRadioGroup>
-                </DropdownMenuContent>
-            </DropdownMenu>
-            <DropdownMenu modal={false}>
-                <Tooltip content="Sessions actions" side="bottom" delayDuration={80}>
-                    <DropdownMenuTrigger asChild>
-                        <button
-                            type="button"
-                            aria-label="Sessions actions"
-                            className="flex size-7 items-center justify-center rounded-md text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary data-[state=open]:bg-[var(--btn-open)] data-[state=open]:hover:bg-[var(--btn-open-hover)] data-[state=open]:text-text-primary"
-                        >
-                            <Icon icon={MoreHorizontal20Regular} />
-                        </button>
-                    </DropdownMenuTrigger>
-                </Tooltip>
-                <DropdownMenuContent align="end" className="min-w-48">
-                    <DropdownMenuLabel>
-                        {selectedIds.length > 0 ? `${selectedIds.length} selected` : "Sessions"}
-                    </DropdownMenuLabel>
-                    {selectedTargets.length > 0 ? (
-                        <>
-                            {renderLifecycleActions(
-                                buildChatLifecycleActions(selectedTargets, handlers),
-                                CHAT_SELECTION_PRIMITIVES,
-                            )}
-                            <DropdownMenuItem onClick={onOpenCollectionDraft}>
-                                <Icon icon={Collections20Regular} />
-                                Add to collection
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                        </>
-                    ) : null}
-                    <DropdownMenuItem disabled={selectedIds.length === 0} onClick={onClearSelection}>
-                        Clear selection
-                    </DropdownMenuItem>
-                    {hasMultipleSections ? (
-                        <DropdownMenuItem onClick={onToggleAllCollapsed}>
-                            {allCollapsed ? "Expand all sections" : "Collapse all sections"}
-                        </DropdownMenuItem>
-                    ) : null}
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={onNewChat}>
-                        <Icon icon={Compose20Regular} />
-                        New chat
-                    </DropdownMenuItem>
-                </DropdownMenuContent>
-            </DropdownMenu>
+            <SessionsFilterDropdown
+                filter={filter}
+                onFilterChange={onFilterChange}
+                grouping={grouping}
+                onGroupingChange={onGroupingChange}
+                sort={sort}
+                onSortChange={onSortChange}
+            />
+            <SessionsActionsDropdown
+                selectedIds={selectedIds}
+                selectedTargets={selectedTargets}
+                handlers={handlers}
+                onOpenCollectionDraft={onOpenCollectionDraft}
+                onClearSelection={onClearSelection}
+                hasMultipleSections={hasMultipleSections}
+                allCollapsed={allCollapsed}
+                onToggleAllCollapsed={onToggleAllCollapsed}
+                onNewChat={onNewChat}
+            />
             <HeaderIconBtn label="New chat" onClick={onNewChat}>
                 <Icon icon={Compose20Regular} />
             </HeaderIconBtn>
@@ -879,6 +943,12 @@ const passesChatFilterTab = (
     return true;
 };
 
+/** Resolves the first matching collection name for a conversation ID. */
+const findCollectionNameForChat = (
+    chatId: string,
+    collections: ReturnType<typeof getCollections>,
+): string | null => collections.find((entry) => entry.chatIds.includes(chatId))?.name ?? null;
+
 /** Resolves a conversation's archive/search/filter eligibility inside `useChatListProjection`. */
 const isChatMatchingFilter = (
     chat: Conversation,
@@ -980,12 +1050,6 @@ const resolveRowActivity = (
     generatingIds: ReadonlySet<string>,
 ) => activities.get(chatId) ?? (generatingIds.has(chatId) ? ("working" as const) : ("ready" as const));
 
-/** Resolves the first matching collection name for a conversation ID. */
-const findCollectionNameForChat = (
-    chatId: string,
-    collections: ReturnType<typeof getCollections>,
-): string | null => collections.find((entry) => entry.chatIds.includes(chatId))?.name ?? null;
-
 /** Builds the memoized `rowProps` projector for `ChatShelves`. */
 const useChatRowPropsBuilder = ({
     projectPath,
@@ -1019,7 +1083,7 @@ const useChatRowPropsBuilder = ({
             active: chat.id === activeId,
             pinned: pinnedIds.has(chat.id),
             unread: unreadIds.has(chat.id),
-            color: colors[chat.id] ?? null,
+            color: colors[chat.id] || null,
             subagents: allSubagents.filter((card) => card.parentId === chat.id),
             selecting: selectedIds.length > 0,
             selected: selectedIds.includes(chat.id),

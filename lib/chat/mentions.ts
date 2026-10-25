@@ -46,6 +46,7 @@ export function resolveBrowserMentionPath(path: string | undefined): string | nu
 const MENTION_PATTERN =
     /@(?:(file|folder|design|docs|terminal|chat|branch|browser|mcp|plugin|skill|element):([^\s]+)|(codebase|selection)\b|((?:[\w.-]+\/)*[\w.-]+\/?))/g;
 
+/** Normalizes a design preset key into lowercase alphanumeric slug form. */
 function normalizeDesignKey(value: string): string {
     return value.trim().toLowerCase().replace(/[\s_]+/g, "-");
 }
@@ -60,10 +61,12 @@ export function slugifyMentionLabel(value: string): string {
         .replace(/^-|-$/g, "") || "item";
 }
 
+/** Converts a hyphenated or underscored slug into a readable mention label. */
 function unslugMentionLabel(value: string): string {
     return value.replace(/-/g, " ").trim() || value;
 }
 
+/** Returns the trailing filename segment of a slash-delimited path. */
 function pathBasename(path: string): string {
     const norm = path.replace(/\\/g, "/").replace(/(?<!\/)\/+$/, "");
     const parts = norm.split("/").filter(Boolean);
@@ -243,6 +246,7 @@ export const formatMentionToken = (mention: ChatMention): string => {
     return token;
 };
 
+/** Resolves an `@design:...` mention token against built-in design presets. */
 function resolveDesignMention(token: string): ChatMention | null {
     const key = normalizeDesignKey(token);
     const tokenHit = designTokenById(key) ?? DESIGN_TOKEN_MENTIONS.find((t) => normalizeDesignKey(t.label) === key);
@@ -272,6 +276,7 @@ function resolveDesignMention(token: string): ChatMention | null {
     return null;
 }
 
+/** Computes the display chip label for a typed `@kind:target` mention. */
 function labelForTypedMention(kind: MentionKind, path: string): string {
     if (kind === "chat") return unslugMentionLabel(path);
     if (kind === "browser") return hostnameOf(path) || path;
@@ -284,6 +289,7 @@ function labelForTypedMention(kind: MentionKind, path: string): string {
     return path;
 }
 
+/** Extracts structured `@` mention tokens from a composer prompt string. */
 export function parseMentionTokens(text: string): ChatMention[] {
     const mentions: ChatMention[] = [];
     let match: RegExpExecArray | null;
@@ -376,6 +382,7 @@ export function mentionRanges(
     return ranges;
 }
 
+/** Removes raw `@` mention syntax tokens from display text while preserving prose. */
 export function stripMentionTokens(text: string): string {
     return text.replace(MENTION_PATTERN, "").replace(/\s+/g, " ").trim();
 }
@@ -414,6 +421,7 @@ export type SelectionSnapshot = {
     text: string;
 };
 
+/** Formats an active editor code selection into an XML context block. */
 function selectionMentionBlock(selection: SelectionSnapshot): string | null {
     const text = selection.text?.trim();
     if (!text) return null;
@@ -529,6 +537,7 @@ function skillMentionSource(path: string | undefined): string | null {
     return null;
 }
 
+/** Formats a discovered workspace skill file into an XML prompt instruction block. */
 function skillMentionBlock(onDisk: DiscoveredSkill): string {
     const attributes = [
         `type="skill"`,
@@ -544,6 +553,7 @@ function skillMentionBlock(onDisk: DiscoveredSkill): string {
     return `<mention_context ${attributes.join(" ")}>Follow this skill for the rest of the turn.${folderNote}\n${onDisk.body}\n</mention_context>`;
 }
 
+/** Reads and formats the underlying file, folder, symbol, or URL content for a mention. */
 async function readMentionContext(
     mention: ChatMention,
     projectPath: string | null,
@@ -679,11 +689,13 @@ const BINARY_MENTION_EXT = new Set([
     "dylib", "wasm", "mp3", "mp4", "wav", "ogg", "mov", "webm",
 ]);
 
+/** Checks whether a path has a known binary or media file extension. */
 function isBinaryMentionPath(path: string): boolean {
     const ext = path.split(/[\\/]/).pop()?.split(".").pop()?.toLowerCase() ?? "";
     return BINARY_MENTION_EXT.has(ext);
 }
 
+/** Detects null bytes or high control-character ratios indicating binary content. */
 function looksLikeBinaryText(content: string): boolean {
     if (content.includes("\0")) return true;
     const n = Math.min(content.length, 800);
@@ -696,6 +708,7 @@ function looksLikeBinaryText(content: string): boolean {
     return bad / n > 0.08;
 }
 
+/** Expands composer `@` mentions into grounded context blocks attached to the user prompt. */
 export async function buildMessageWithMentions(
     text: string,
     projectPath: string | null,

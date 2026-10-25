@@ -1,5 +1,4 @@
-import React from "react";
-import { act } from "react";
+import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChatMarkdown } from "@/features/chat/ui/md/view";
@@ -32,7 +31,8 @@ describe("chat markdown tables and mermaid", () => {
 
     afterEach(() => {
         if (root && host) {
-            act(() => root!.unmount());
+            const activeRoot = root;
+            act(() => activeRoot.unmount());
             host.remove();
         }
         root = null;
@@ -60,8 +60,8 @@ describe("chat markdown tables and mermaid", () => {
         const mounted = await renderMarkdown("```mermaid\n" + source + "\n```\n");
         root = mounted.root;
         host = mounted.host;
-        expect(host.textContent).toContain("graph TD");
-        expect(() => host!.textContent).not.toThrow();
+        expect(mounted.host.textContent).toContain("graph TD");
+        expect(() => mounted.host.textContent).not.toThrow();
     });
 
     it("streams multi-block Markdown with plain open code fences and upgrades closed blocks cleanly", async () => {

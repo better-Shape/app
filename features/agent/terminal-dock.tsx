@@ -52,9 +52,9 @@ const resolveAiTabSpec = (
 /** Reads persisted terminal dock height and open preference from `localStorage`. */
 const readStoredTerminalDockPrefs = (): { height?: number; wasOpen: boolean } => {
     try {
-        const h = Number(localStorage.getItem(HEIGHT_KEY));
+        const storedHeight = Number(localStorage.getItem(HEIGHT_KEY));
         return {
-            height: h >= MIN_H && h <= 800 ? h : undefined,
+            height: storedHeight >= MIN_H && storedHeight <= 800 ? storedHeight : undefined,
             wasOpen: localStorage.getItem(OPEN_KEY) === "true",
         };
     } catch {
@@ -236,12 +236,12 @@ const useTerminalDockResizeAndRefit = ({
 
     useEffect(() => {
         if (!visibleOpen) return undefined;
-        const t = window.setTimeout(() => {
+        const refitTimer = window.setTimeout(() => {
             import("@/features/terminal/ui/terminal")
-                .then((m) => m.refitAllTerminals().catch(() => undefined))
+                .then((terminalMod) => terminalMod.refitAllTerminals().catch(() => undefined))
                 .catch(() => undefined);
         }, 40);
-        return () => window.clearTimeout(t);
+        return () => window.clearTimeout(refitTimer);
     }, [visibleOpen, height]);
 };
 

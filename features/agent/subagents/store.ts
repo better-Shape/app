@@ -27,19 +27,23 @@ let activeId: string | null = null;
 let parentConversationId: string | null = null;
 const listeners = new Set<Listener>();
 
+/** Notifies all subscribed subagent store listeners of a state change. */
 function emit() {
     for (const l of listeners) l();
 }
 
+/** Returns the currently focused subagent card identifier, if any. */
 export function getActiveSubagentId(): string | null {
     return activeId;
 }
 
+/** Returns the active subagent card snapshot when one is open. */
 export function getActiveSubagent(): SubagentCard | null {
     if (!activeId) return null;
     return cards.find((c) => c.id === activeId) ?? null;
 }
 
+/** Marks the target subagent card active and opens its workspace inspector. */
 export function openSubagent(id: string) {
     if (!id) return;
     activeId = id;
@@ -50,15 +54,18 @@ export function openSubagent(id: string) {
     );
 }
 
+/** Clears the active subagent inspector selection. */
 export function closeSubagent() {
     activeId = null;
     emit();
 }
 
+/** Sets the default parent conversation identifier for newly spawned subagents. */
 export function setSubagentParentConversation(id: string | null) {
     parentConversationId = id;
 }
 
+/** Returns all subagent cards belonging to the given parent conversation. */
 export function subagentsForParent(parentId: string): SubagentCard[] {
     return cards.filter((c) => c.parentId === parentId);
 }
@@ -118,7 +125,8 @@ const collectXmlSubagentMatches = (
         toExtractedSubagent(m.at(1) ?? "", hasBody ? (m.at(2) ?? "") : undefined),
     );
 
-export function extractSubagentsFromText(text: string, _parentId?: string): ExtractedSubagentEntry[] {
+/** Parses XML `<subagent_ref/>` and `<subagent>...</subagent>` tags into deduplicated subagent entries. */
+export const extractSubagentsFromText = (text: string, _parentId?: string): ExtractedSubagentEntry[] => {
     const out: ExtractedSubagentEntry[] = [];
     const seen = new Set<string>();
     const candidates = [
@@ -132,32 +140,37 @@ export function extractSubagentsFromText(text: string, _parentId?: string): Extr
         }
     }
     return out;
-}
+};
 
-export function subagentWorkflowContent(card: SubagentCard): string {
-    const transcript = card.transcript?.trim() ?? "";
+/** Formats a single `SubagentRead` entry as an XML `<cat>` tag. */
+const formatSubagentReadTag = (read: SubagentRead): string => {
+    const start = read.start != null ? ` start="${read.start}"` : "";
+    const end = read.end != null ? ` end="${read.end}"` : "";
+    return `<cat${start}${end}>${read.path}</cat>`;
+};
+
+/** Formats a subagent's transcript, file reads, or search activity into workflow block XML. */
+export const subagentWorkflowContent = (card: SubagentCard): string => {
+    const transcript = card.transcript ? card.transcript.trim() : "";
     if (transcript) return transcript;
-    const parts: string[] = [];
-    for (const read of card.reads ?? []) {
-        const start = read.start != null ? ` start="${read.start}"` : "";
-        const end = read.end != null ? ` end="${read.end}"` : "";
-        parts.push(`<cat${start}${end}>${read.path}</cat>`);
-    }
-    if (parts.length === 0 && card.activity?.trim()) {
-        parts.push(`<search>${card.activity.trim()}</search>`);
-    }
+    const parts = (card.reads ?? []).map(formatSubagentReadTag);
+    const fallbackActivity = card.activity ? card.activity.trim() : "";
+    if (parts.length === 0 && fallbackActivity) parts.push(`<search>${fallbackActivity}</search>`);
     return parts.join("\n");
-}
+};
 
+/** Returns the current immutable list of tracked subagent cards. */
 export function getSubagents(): SubagentCard[] {
     return cards;
 }
 
+/** Subscribes a callback to subagent store updates and returns an unsubscribe handle. */
 export function subscribeSubagents(listener: Listener): () => void {
     listeners.add(listener);
     return () => listeners.delete(listener);
 }
 
+/** Infers a subagent execution phase from its activity summary when not explicitly set. */
 function inferPhase(activity: string, explicit?: SubagentPhase): SubagentPhase {
     if (explicit) return explicit;
     const lower = activity.toLowerCase();
@@ -166,6 +179,7 @@ function inferPhase(activity: string, explicit?: SubagentPhase): SubagentPhase {
     return "working";
 }
 
+/** Extracts file path and line-range read entries mentioned in an activity label. */
 function parseReadsFromActivity(activity: string): SubagentRead[] {
     const reads: SubagentRead[] = [];
     const re = /(?:read(?:ing)?|reviewing)\s+(\S+?)(?::(\d+)(?:-(\d+))?)?(?:\s|$)/gi;
@@ -183,6 +197,12 @@ function parseReadsFromActivity(activity: string): SubagentRead[] {
 
 type SubagentUpsertInput = Omit<SubagentCard, "updatedAt"> & { updatedAt?: number };
 
+/** Picks the first defined value between incoming, existing, and fallback fields. */
+const pickDefined = <T>(primary: T | undefined, secondary: T | undefined, fallback?: T): T | undefined => {
+    if (primary !== undefined) return primary;
+    return secondary !== undefined ? secondary : fallback;
+};
+
 /** Resolves activity text, phase, and parsed file reads for an upserted subagent card. */
 const resolveSubagentActivity = (next: SubagentUpsertInput, existing: SubagentCard | undefined) => {
     const activity = pickDefined(next.activity || undefined, existing?.activity || undefined, "Working…") ?? "Working…";
@@ -193,12 +213,6 @@ const resolveSubagentActivity = (next: SubagentUpsertInput, existing: SubagentCa
         phase: inferPhase(activity, priorPhase),
         reads: priorReads ?? parseReadsFromActivity(activity),
     };
-};
-
-/** Picks the first defined value between incoming, existing, and fallback fields. */
-const pickDefined = <T>(primary: T | undefined, secondary: T | undefined, fallback?: T): T | undefined => {
-    if (primary !== undefined) return primary;
-    return secondary !== undefined ? secondary : fallback;
 };
 
 /** Resolves parent conversation ownership and timestamps for an upserted subagent card. */
@@ -238,6 +252,7 @@ export const upsertSubagent = (next: SubagentUpsertInput) => {
     emit();
 };
 
+/** Removes completed, failed, and cancelled subagent cards from the store. */
 export function clearFinishedSubagents() {
     cards = cards.filter((c) => c.status === "running" || c.status === "pending");
     emit();
@@ -245,6 +260,7 @@ export function clearFinishedSubagents() {
 
 let demoTimer: ReturnType<typeof setInterval> | null = null;
 
+/** Resets all tracked subagent cards and active selection state. */
 export function resetSubagents() {
     if (demoTimer) {
         clearInterval(demoTimer);
@@ -268,6 +284,7 @@ export function resetSubagentsForParent(parentId: string | null) {
     emit();
 }
 
+/** Applies an incoming backend subagent lifecycle event to the store. */
 export function applySubagentEvent(payload: {
     id?: string;
     title?: string;
@@ -308,10 +325,12 @@ export function applySubagentEvent(payload: {
     });
 }
 
+/** Populates sample subagent cards for offline preview and layout verification. */
 export function seedDemoSubagents() {
     resetSubagents();
 }
 
+/** Synchronizes subagent store entries from parsed assistant message chunks. */
 export function syncSubagentsFromChunks(
     chunks: Array<{
         type?: string;

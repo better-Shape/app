@@ -727,10 +727,14 @@ function mergeSettings(
             ...base.appearance,
             ...patch.appearance,
             colorTheme: normalizeColorTheme(
-                patch.appearance?.colorTheme ?? base.appearance.colorTheme,
+                patch.appearance?.colorTheme ??
+                    base.appearance?.colorTheme ??
+                    DEFAULT_SETTINGS.appearance.colorTheme,
             ),
             motionPreference: normalizeMotionPreference(
-                patch.appearance?.motionPreference ?? base.appearance.motionPreference,
+                patch.appearance?.motionPreference ??
+                    base.appearance?.motionPreference ??
+                    DEFAULT_SETTINGS.appearance.motionPreference,
             ),
         },
     };
