@@ -223,7 +223,7 @@ const ClipboardMenuItems = ({
     </>
 );
 
-let renderRecursiveTreeNode: (props: TreeNodeProps) => React.ReactNode = () => null;
+const treeNodeRenderer: { render?: (props: TreeNodeProps) => React.ReactNode } = {};
 
 /** Renders the context menu wrapper for a directory row inside `DirectoryTreeBranch`. */
 const DirectoryRowContextMenu = ({
@@ -334,7 +334,7 @@ const DirectoryTreeBranch = ({
             {isExpanded ? (
                 <div>
                     {visibleChildren?.map((child) =>
-                        renderRecursiveTreeNode({
+                        treeNodeRenderer.render?.({
                             ...props,
                             entry: child,
                             depth: props.depth + 1,
@@ -489,7 +489,7 @@ const TreeNode = (props: TreeNodeProps) => {
     );
 };
 
-renderRecursiveTreeNode = (childProps) => <TreeNode key={childProps.entry.path} {...childProps} />;
+treeNodeRenderer.render = (childProps) => <TreeNode key={childProps.entry.path} {...childProps} />;
 
 /** Renders the FileTree UI component. */
 export const FileTree = ({

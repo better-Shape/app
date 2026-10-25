@@ -45,7 +45,7 @@ function decodeXml(value: string): string {
         .replace(/&amp;/g, "&");
 }
 
-const TERMINAL_STATUS_RANK: Record<string, number> = {
+const TERMINAL_STATUS_RANK: Partial<Record<string, number>> = {
     pending: 1,
     blocked: 2,
     running: 3,
@@ -58,14 +58,14 @@ const TERMINAL_STATUS_RANK: Record<string, number> = {
 };
 
 /** Pending edit lifecycle rank: later states replace the pending card. */
-const EDIT_PENDING_STATUS_RANK: Record<string, number> = {
+const EDIT_PENDING_STATUS_RANK: Partial<Record<string, number>> = {
     pending: 1,
     cancelled: 2,
     rejected: 3,
     applied: 4,
 };
 
-const PLUGIN_STATUS_RANK: Record<string, number> = {
+const PLUGIN_STATUS_RANK: Partial<Record<string, number>> = {
     pending: 1,
     rejected: 4,
     cancelled: 4,

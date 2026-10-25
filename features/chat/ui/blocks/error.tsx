@@ -85,12 +85,12 @@ const CONTEXT_OVERFLOW_RE =
 const MODEL_BUSY_RE = /model_busy|model is busy|high\s*(load|demand)/i;
 const RATE_LIMIT_RE = /rate\s*limit|too many requests/i;
 
-const BILLING_DOCS_URLS: Record<string, string> = {
+const BILLING_DOCS_URLS: Partial<Record<string, string>> = {
     openrouter: "https://openrouter.ai/settings/credits",
     openai: "https://platform.openai.com/settings/organization/billing/",
 };
 
-const BILLING_HINTS: Record<string, string> = {
+const BILLING_HINTS: Partial<Record<string, string>> = {
     openrouter: "(openrouter.ai) has exhausted its credits. Add credits to continue.",
     openai: "(api.openai.com) has exhausted its credits. Add credits to continue.",
 };
