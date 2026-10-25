@@ -19,6 +19,8 @@ name: Preview (Browser)
 
 on:
   pull_request:
+  push:
+    branches: [main, mega/absorb-all]
   workflow_dispatch:
 
 permissions:

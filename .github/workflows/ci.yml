@@ -4,7 +4,7 @@ on:
   pull_request:
     # Run on all PRs, not just targeting main - catches issues in feature branches too
   push:
-    branches: [main]
+    branches: [main, mega/absorb-all]
   workflow_dispatch:
 
 permissions:

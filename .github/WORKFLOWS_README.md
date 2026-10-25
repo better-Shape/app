@@ -2,7 +2,7 @@
 
 ## CI (`ci.yml`)
 
-Main quality gate. Runs on PRs and pushes to `main`.
+Main quality gate. Runs on PRs and pushes to `main` and `mega/absorb-all`.
 
 - Lint & Typecheck (ESLint + tsc --noEmit)
 - Test JS (Vitest)
@@ -25,7 +25,7 @@ Concurrency: cancel stale PR runs, let main finish.
 - Zizmor (Actions linter)
 - Scorecard (main only, weekly + push)
 
-Triggers: PR, push to main, weekly Monday 00:00 UTC.
+Triggers: PR, push to `main` and `mega/absorb-all`, weekly Monday 00:00 UTC.
 
 ## Release (`release.yml`)
 
