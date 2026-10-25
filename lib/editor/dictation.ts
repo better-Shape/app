@@ -15,6 +15,9 @@
 /** Sample rate the recognizer is happiest with, and the one System.Speech defaults to. */
 export const DICTATION_SAMPLE_RATE = 16_000;
 
+/** Upper bound on retained PCM capture duration so unattended sessions cannot exhaust renderer memory. */
+export const MAX_DICTATION_BUFFER_SECONDS = 300;
+
 /**
  * Resample to 16 kHz with linear interpolation.
  *
@@ -120,6 +123,47 @@ function concatFloat32(chunks: Float32Array[]): Float32Array {
     return out;
 }
 
+/** Appends a PCM chunk while evicting oldest samples once `maxSamples` is exceeded. */
+export const appendBoundedAudioChunk = (
+    chunks: Float32Array[],
+    incoming: Float32Array,
+    currentSamples: number,
+    maxSamples: number,
+): number => {
+    if (incoming.length === 0 || maxSamples <= 0) return currentSamples;
+    if (incoming.length >= maxSamples) {
+        chunks.length = 0;
+        const tail = incoming.slice(incoming.length - maxSamples);
+        chunks.push(tail);
+        return tail.length;
+    }
+    chunks.push(incoming);
+    let total = currentSamples + incoming.length;
+    while (total > maxSamples && chunks.length > 0) {
+        const head = chunks[0];
+        const excess = total - maxSamples;
+        if (head.length <= excess) {
+            chunks.shift();
+            total -= head.length;
+        } else {
+            chunks[0] = head.subarray(excess);
+            total -= excess;
+        }
+    }
+    return total;
+};
+
+/** Computes a normalized `0..1` voice-level meter reading from a mono PCM buffer. */
+const computeAudioBufferLevel = (channel: Float32Array): number => {
+    let sumSq = 0;
+    for (let index = 0; index < channel.length; index += 4) {
+        const sample = channel[index] ?? 0;
+        sumSq += sample * sample;
+    }
+    const rms = Math.sqrt(sumSq / Math.ceil(channel.length / 4));
+    return Math.min(1, rms * 6);
+};
+
 /** Record one utterance and push it to the recognizer. */
 export async function startDictation(
     handlers: DictationHandlers,
@@ -186,18 +230,26 @@ export async function startDictation(
         }
     }
     const chunks: Float32Array[] = [];
+    const effectiveRate =
+        Number.isFinite(context.sampleRate) && context.sampleRate > 0
+            ? context.sampleRate
+            : 48_000;
+    const maxBufferedSamples = Math.max(
+        DICTATION_SAMPLE_RATE,
+        Math.round(effectiveRate * MAX_DICTATION_BUFFER_SECONDS),
+    );
+    let bufferedSamples = 0;
 
     processor.onaudioprocess = (event) => {
         const channel = event.inputBuffer.getChannelData(0);
-        chunks.push(new Float32Array(channel));
+        bufferedSamples = appendBoundedAudioChunk(
+            chunks,
+            new Float32Array(channel),
+            bufferedSamples,
+            maxBufferedSamples,
+        );
         if (handlers.onLevel && channel.length > 0) {
-            let sumSq = 0;
-            for (let i = 0; i < channel.length; i += 4) {
-                const v = channel[i] ?? 0;
-                sumSq += v * v;
-            }
-            const rms = Math.sqrt(sumSq / Math.ceil(channel.length / 4));
-            handlers.onLevel(Math.min(1, rms * 6));
+            handlers.onLevel(computeAudioBufferLevel(channel));
         }
     };
 
@@ -206,6 +258,8 @@ export async function startDictation(
         if (disposed) return;
         disposed = true;
         processor.onaudioprocess = null;
+        chunks.length = 0;
+        bufferedSamples = 0;
         handlers.onLevel?.(0);
         try {
             source.disconnect();
@@ -231,7 +285,6 @@ export async function startDictation(
         commit: () => {
             if (disposed) return;
             const samples = concatFloat32(chunks);
-            chunks.length = 0;
             teardown();
             if (!hasAudibleSignal(samples)) {
                 invoke.stop().catch(() => {

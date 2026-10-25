@@ -995,10 +995,14 @@ export const ChatInput = React.memo(function ChatInput({
             const line = COMPOSER_LINE_HEIGHT;
             const hasNewline = inputValue.includes("\n");
 
-            // O(1) zero-reflow fast path for short single-line ASCII prompts that cannot wrap.
+            // O(1) zero-reflow fast path for short single-line ASCII prompts that cannot wrap
+            // even when composed entirely of worst-case wide glyphs (e.g. repeated `W` or `M`).
             const knownWidth = textareaClientWidthRef.current;
+            const maxAsciiGlyphPx = 16;
             const safeSingleLineChars =
-                knownWidth > 96 ? Math.max(12, Math.floor((knownWidth - 26) / 8.8)) : 16;
+                knownWidth > 120
+                    ? Math.max(0, Math.floor((knownWidth - 32) / maxAsciiGlyphPx))
+                    : 0;
             const canUseSingleLineFastPath =
                 !isExpanded
                 && !composerTallRef.current

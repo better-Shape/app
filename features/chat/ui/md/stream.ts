@@ -101,17 +101,86 @@ const DSML_PAIRED_RE = new RegExp(
 const DSML_OPEN_TAIL_RE = new RegExp(`<${FW_BAR}{0,2}DSML${FW_BAR}{1,2}[\\w.]*?>[\\s\\S]*$`, "gi");
 const DSML_STRAY_RE = new RegExp(`<\\/?${FW_BAR}{0,2}DSML${FW_BAR}{1,2}[\\w.]*?>`, "gi");
 
-/** Apply `fn` only to prose outside fenced code blocks (including an open trailing streaming fence). */
-function mapOutsideCodeFences(text: string, fn: (prose: string) => string): string {
-    if (!text.includes("```")) return fn(text);
-    const parts = text.split(/(```[\s\S]*?(?:```|$))/g);
-    return parts
-        .map((part, index) => {
-            if (index % 2 === 1) return part;
-            return fn(part);
-        })
-        .join("");
-}
+/** Reads a CommonMark backtick or tilde fence marker (`>= 3` chars) on a single line. */
+const readStreamFenceMarker = (
+    rawLine: string,
+): { char: string; len: number; suffix: string } | null => {
+    const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
+    let spaces = 0;
+    while (spaces < 3 && line.charCodeAt(spaces) === 32) {
+        spaces += 1;
+    }
+    const markerChar = line.charAt(spaces);
+    if (markerChar !== "`" && markerChar !== "~") return null;
+    let markerEnd = spaces;
+    while (markerEnd < line.length && line.charAt(markerEnd) === markerChar) {
+        markerEnd += 1;
+    }
+    const len = markerEnd - spaces;
+    if (len < 3) return null;
+    return { char: markerChar, len, suffix: line.slice(markerEnd) };
+};
+
+/** Checks whether `parsed` opens a CommonMark fenced code block. */
+const isOpeningStreamFence = (
+    parsed: { char: string; len: number; suffix: string } | null,
+): parsed is { char: string; len: number; suffix: string } =>
+    Boolean(parsed && (parsed.char !== "`" || !parsed.suffix.includes("`")));
+
+/** Checks whether `parsed` closes an open CommonMark fenced code block. */
+const isClosingStreamFence = (
+    parsed: { char: string; len: number; suffix: string } | null,
+    fenceChar: string,
+    fenceLen: number,
+): boolean =>
+    Boolean(
+        parsed
+        && parsed.char === fenceChar
+        && parsed.len >= fenceLen
+        && /^[ \t]*$/.test(parsed.suffix),
+    );
+
+/** Apply `fn` only to prose outside CommonMark backtick or tilde fenced code blocks. */
+const mapOutsideCodeFences = (text: string, fn: (prose: string) => string): string => {
+    if (!text.includes("```") && !text.includes("~~~")) return fn(text);
+    const out: string[] = [];
+    let proseStart = 0;
+    let fenceStart = -1;
+    let fenceChar = "";
+    let fenceLen = 0;
+    let cursor = 0;
+
+    while (cursor < text.length) {
+        const nl = text.indexOf("\n", cursor);
+        const afterLine = nl === -1 ? text.length : nl + 1;
+        const parsed = readStreamFenceMarker(
+            nl === -1 ? text.slice(cursor) : text.slice(cursor, nl),
+        );
+
+        if (!fenceChar && isOpeningStreamFence(parsed)) {
+            if (cursor > proseStart) out.push(fn(text.slice(proseStart, cursor)));
+            fenceStart = cursor;
+            fenceChar = parsed.char;
+            fenceLen = parsed.len;
+        } else if (fenceChar && isClosingStreamFence(parsed, fenceChar, fenceLen)) {
+            out.push(text.slice(fenceStart, afterLine));
+            proseStart = afterLine;
+            fenceStart = -1;
+            fenceChar = "";
+            fenceLen = 0;
+        }
+
+        cursor = afterLine;
+    }
+
+    if (fenceChar) {
+        out.push(text.slice(fenceStart));
+    } else if (proseStart < text.length) {
+        out.push(fn(text.slice(proseStart)));
+    }
+
+    return out.join("");
+};
 
 /**
  * Strip provider/model tool-call grammars that leaked into assistant text.
@@ -481,7 +550,8 @@ function stripHtmlTagsOnce(input: string): string {
     return out;
 }
 
-function stripRawHtml(text: string): string {
+/** Strips raw HTML tags from prose while preserving fenced and inline code blocks. */
+const stripRawHtml = (text: string): string => {
     if (!text.includes("<")) return text;
     const replaceHtml = (part: string) => {
         let out = part;
@@ -492,12 +562,8 @@ function stripRawHtml(text: string): string {
         }
         return out;
     };
-    if (!text.includes("```")) return replaceHtml(text);
-    const parts = text.split(/(```[\s\S]*?(?:```|$))/g);
-    return parts
-        .map((part, index) => (index % 2 === 1 ? part : replaceHtml(part)))
-        .join("");
-}
+    return mapOutsideCodeFences(text, replaceHtml);
+};
 
 const MAX_DISPLAY_CHARS = 48_000;
 

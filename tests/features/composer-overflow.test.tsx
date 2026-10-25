@@ -159,4 +159,18 @@ describe("ChatInput overflow, sheet expansion, hints & quoted excerpts", () => {
         });
         expect(removed).toEqual(["q1"]);
     });
+
+    it("measures scrollHeight for wrapped wide-ASCII strings like repeated Ws instead of clamping to single-line height", async () => {
+        await renderComposer({ inputValue: "seed" });
+        const textarea = host.querySelector("textarea");
+        const box = host.querySelector("[data-expanded-layout]");
+        if (!textarea || !box) throw new Error("expected textarea and composer box");
+
+        Object.defineProperty(textarea, "clientWidth", { configurable: true, get: () => 300 });
+        Object.defineProperty(textarea, "scrollHeight", { configurable: true, get: () => 52 });
+
+        await renderComposer({ inputValue: "W".repeat(26) });
+        expect(box.getAttribute("data-expanded-layout")).toBe("true");
+        expect(parseInt(textarea.style.height, 10)).toBe(52);
+    });
 });

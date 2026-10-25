@@ -56,17 +56,21 @@ const autoHideFor = (notification: Notification): number | null => {
     return TOAST_AUTO_HIDE_MS;
 };
 
+/** Maps a boolean state to a `"true"` data-attribute token or omits the attribute. */
 const dataFlag = (on: boolean): "true" | undefined => (on ? "true" : undefined);
 
+/** Selects an ARIA live politeness level matching the notification severity. */
 const liveMode = (type: Notification["type"]): "assertive" | "polite" =>
     type === "error" ? "assertive" : "polite";
 
+/** Builds the surface class string for a static or navigable toast card. */
 const cardClasses = ({ clickable }: { clickable: boolean }) =>
     cn(
         "bettershape-toast pointer-events-auto relative w-full overflow-hidden rounded-xl border border-border-subtle bg-surface-3 px-3.5 py-2.5 text-left shadow-md",
         clickable && "cursor-pointer hover:border-border-secondary",
     );
 
+/** Attaches click and keyboard activation handlers only when the toast card is navigable. */
 const cardActivation = (notification: Notification, clickable: boolean) => ({
     onClick: clickable ? () => openNotificationTarget(notification) : undefined,
     onKeyDown: clickable
@@ -81,6 +85,7 @@ const cardActivation = (notification: Notification, clickable: boolean) => ({
     tabIndex: clickable ? 0 : undefined,
 });
 
+/** Flips to `true` after two animation frames so newly mounted toasts trigger CSS enter transitions. */
 const useToastEntered = (): boolean => {
     const [entered, setEntered] = React.useState(false);
 
@@ -100,6 +105,7 @@ const useToastEntered = (): boolean => {
     return entered;
 };
 
+/** Renders optional secondary body copy inside a notification toast. */
 const ToastDescription = ({ text }: { text?: string }) =>
     text ? (
         <p className="mt-0.5 text-xs leading-[16px] text-text-secondary whitespace-pre-line break-words line-clamp-4">
@@ -107,6 +113,7 @@ const ToastDescription = ({ text }: { text?: string }) =>
         </p>
     ) : null;
 
+/** Renders the linear auto-dismiss countdown bar along the bottom edge of a toast. */
 const AutoHideBar = ({
     ms,
     paused,
@@ -130,6 +137,7 @@ const AutoHideBar = ({
     );
 };
 
+/** Renders a single notification toast card with pause-aware auto-dismiss timing. */
 const ToastCard = ({
     notification,
     leaving,
@@ -238,6 +246,7 @@ const ToastCard = ({
     );
 };
 
+/** Renders the viewport-pinned stack of active notification toasts with shared hover and focus pause state. */
 const ToastStack = ({
     toasts,
     leavingIds,
@@ -281,6 +290,7 @@ const ToastStack = ({
     );
 };
 
+/** Subscribes to the global notification store and portals active toasts into `document.body`. */
 export const NotificationToasts = () => {
     const { notifications, toastIds } = useNotifications();
     const mounted = useIsMounted();
@@ -330,6 +340,7 @@ export const NotificationToasts = () => {
     );
 };
 
+/** Mounts the global notification toast portal alongside application children. */
 export const NotificationProvider = ({ children }: { children: React.ReactNode }) => (
     <>
         {children}

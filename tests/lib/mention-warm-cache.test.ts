@@ -57,7 +57,7 @@ describe("mention-warm-cache", () => {
     });
 
     it("deduplicates concurrent in-flight project file fetches and serves synchronous peek hits", async () => {
-        let resolveSearch!: (rows: Array<{ path: string; relative_path: string }>) => void;
+        let resolveSearch: (rows: Array<{ path: string; relative_path: string }>) => void = () => {};
         backend.searchProjectFiles.mockImplementation(
             () =>
                 new Promise((resolve) => {
