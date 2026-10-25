@@ -774,16 +774,18 @@ const Chat = ({
                 if (Math.abs(dy) > 4) {
                     el.style.transition = "none";
                     el.style.transform = `translate3d(0, ${Math.round(dy)}px, 0)`;
-                    el.getBoundingClientRect();
-                    el.style.transition =
-                        "transform var(--spring-panel-dur) var(--spring-panel)";
-                    el.style.transform = "translate3d(0, 0, 0)";
+                    const frame = window.requestAnimationFrame(() => {
+                        el.style.transition =
+                            "transform var(--spring-panel-dur) var(--spring-panel)";
+                        el.style.transform = "translate3d(0, 0, 0)";
+                    });
                     const clear = () => {
                         el.style.transition = "";
                         el.style.transform = "";
                     };
                     const timer = window.setTimeout(clear, 280);
                     return () => {
+                        window.cancelAnimationFrame(frame);
                         window.clearTimeout(timer);
                         clear();
                     };
