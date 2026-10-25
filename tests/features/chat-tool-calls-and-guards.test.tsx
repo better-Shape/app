@@ -26,17 +26,16 @@ import type { Chunk } from "@/features/chat/ui/md/renderer";
 let root: Root | null = null;
 let host: HTMLDivElement | null = null;
 
-function mount(node: React.ReactElement) {
+/** Mounts `node` inside a fresh DOM container with `TooltipProvider`, tearing down any prior mount. */
+const mount = (node: React.ReactElement) => {
     if (root) {
         const prevRoot = root;
-        root = null;
         act(() => {
             prevRoot.unmount();
         });
     }
     if (host) {
         host.remove();
-        host = null;
     }
     const nextHost = document.createElement("div");
     document.body.appendChild(nextHost);
@@ -47,7 +46,7 @@ function mount(node: React.ReactElement) {
         nextRoot.render(<TooltipProvider delayDuration={0}>{node}</TooltipProvider>);
     });
     return nextHost;
-}
+};
 
 afterEach(() => {
     clearChatDomHighlights();

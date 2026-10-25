@@ -149,14 +149,23 @@ const formatSubagentReadTag = (read: SubagentRead): string => {
     return `<cat${start}${end}>${read.path}</cat>`;
 };
 
+/** Trims an optional string field, returning `""` when missing. */
+const trimOptionalField = (value: string | undefined): string =>
+    value ? value.trim() : "";
+
+/** Formats file-read or fallback search lines for a subagent without a live transcript. */
+const formatSubagentFallbackLines = (card: SubagentCard): string => {
+    if (card.reads && card.reads.length > 0) {
+        return card.reads.map(formatSubagentReadTag).join("\n");
+    }
+    const fallbackActivity = trimOptionalField(card.activity);
+    return fallbackActivity ? `<search>${fallbackActivity}</search>` : "";
+};
+
 /** Formats a subagent's transcript, file reads, or search activity into workflow block XML. */
 export const subagentWorkflowContent = (card: SubagentCard): string => {
-    const transcript = card.transcript ? card.transcript.trim() : "";
-    if (transcript) return transcript;
-    const parts = (card.reads ?? []).map(formatSubagentReadTag);
-    const fallbackActivity = card.activity ? card.activity.trim() : "";
-    if (parts.length === 0 && fallbackActivity) parts.push(`<search>${fallbackActivity}</search>`);
-    return parts.join("\n");
+    const transcript = trimOptionalField(card.transcript);
+    return transcript || formatSubagentFallbackLines(card);
 };
 
 /** Returns the current immutable list of tracked subagent cards. */

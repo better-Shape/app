@@ -1027,6 +1027,7 @@ const CreateBranchDialog = ({
     onSubmit: (name: string) => void;
 }) => {
     const [branchName, setBranchName] = useState("");
+    /** Validates and submits the trimmed branch name when non-empty. */
     const submitIfValid = () => {
         const trimmed = branchName.trim();
         if (!trimmed) return;
