@@ -388,7 +388,11 @@ it("flushes edits made after native destruction has been requested", async () =>
         stageDirtyBuffer("/late.txt", "newer draft", "saved");
         window.dispatchEvent(new CustomEvent("bettershape-editor-changed", { detail: { path: "/late.txt" } }));
         // The pending debounce must already be durable before IPC completes.
-        expect([...Array(localStorage.length)].map((_, index) => localStorage.getItem(localStorage.key(index)!)).join("")).toContain("newer draft");
+        expect(
+            [...Array(localStorage.length)]
+                .map((_, index) => localStorage.getItem(localStorage.key(index) ?? "") ?? "")
+                .join(""),
+        ).toContain("newer draft");
     });
     expect(await requestGuardedWindowClose()).toBe(true);
     expect(nativeWindow.destroy).toHaveBeenCalledTimes(1);

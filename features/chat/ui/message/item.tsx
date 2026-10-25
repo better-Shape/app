@@ -88,6 +88,7 @@ type ChatMessageItemProps = {
     fullWidthBubbles?: boolean;
 };
 
+/** Renders an attached file or image thumbnail chip inside a sent user message. */
 function SentAttachment({ att }: { att: ParsedUserAttachment }) {
     if (att.kind === "image" && att.dataUrl) {
         return (
@@ -224,6 +225,7 @@ const MentionRichText = ({ text }: { text: string }) => {
     return <span className="select-text">{nodes}</span>;
 };
 
+/** Selects all text inside a DOM element for quick copy or inspection. */
 function selectNodeContents(el: HTMLElement | null) {
     if (!el) return;
     const range = document.createRange();
@@ -233,6 +235,7 @@ function selectNodeContents(el: HTMLElement | null) {
     sel?.addRange(range);
 }
 
+/** Decodes escaped XML attribute entities back into plain characters. */
 function decodeXmlAttr(value: string): string {
     return value
         .replace(/&quot;/g, "\"")
@@ -240,6 +243,7 @@ function decodeXmlAttr(value: string): string {
         .replace(/&amp;/g, "&");
 }
 
+/** Parses an inline `<chat_renamed>` system marker from message text. */
 function parseChatRenamed(content: string): { from: string; rest: string } | null {
     const match = content.match(/^<chat_renamed\b([^>]*)\/>\s*/);
     if (!match) return null;
@@ -247,6 +251,7 @@ function parseChatRenamed(content: string): { from: string; rest: string } | nul
     return { from, rest: content.slice(match[0].length) };
 }
 
+/** Formats a message timestamp as a short localized clock string (`HH:MM`). */
 function formatSentClock(timestamp: number): string {
     return new Date(toTimestampMs(timestamp)).toLocaleTimeString(undefined, {
         hour: "numeric",
@@ -254,6 +259,7 @@ function formatSentClock(timestamp: number): string {
     });
 }
 
+/** Formats a message timestamp as a full localized date and time tooltip. */
 function formatSentExact(timestamp: number): string {
     return new Date(toTimestampMs(timestamp)).toLocaleString(undefined, {
         weekday: "long",
@@ -266,6 +272,7 @@ function formatSentExact(timestamp: number): string {
     });
 }
 
+/** Renders a subtle message timestamp with full date-time details on hover. */
 function MessageSentTime({ timestamp }: { timestamp: number }) {
     if (!Number.isFinite(timestamp) || timestamp <= 0) return null;
     return (
@@ -280,6 +287,7 @@ function MessageSentTime({ timestamp }: { timestamp: number }) {
     );
 }
 
+/** Parses a `<forked_from>` lineage marker from the start of a conversation message. */
 function parseForkedFrom(content: string): { id: string; title: string; rest: string } | null {
     const match = content.match(/^<forked_from\b([^>]*)\/>\s*/);
     if (!match) return null;
@@ -860,6 +868,7 @@ const ChatMessageItemInner = ({
     );
 };
 
+/** Renders a key-value metadata row inside message inspection popovers. */
 function DetailRow({ label, value }: { label: string; value: string }) {
     return (
         <div className="flex items-start justify-between gap-4 px-1">

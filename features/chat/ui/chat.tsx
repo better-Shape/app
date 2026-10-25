@@ -673,8 +673,12 @@ const Chat = ({
                 return;
             }
             const md = formatTranscriptAsMarkdown(crumbTitleRef.current, msgs);
+            if (!("clipboard" in navigator)) {
+                notify.error("Copy failed", "Clipboard API is unavailable in this window.");
+                return;
+            }
             navigator.clipboard
-                ?.writeText(md)
+                .writeText(md)
                 .then(() => notify.success("Copied as Markdown", `${msgs.length} messages copied to clipboard.`))
                 .catch(() => notify.error("Copy failed", "Could not write transcript to clipboard."));
         };

@@ -46,11 +46,13 @@ import { humanizeToolName } from "@/lib/mcp/oauth";
 import { BrowseChatCard } from "./browse-frame";
 import { openSubagent, upsertSubagent } from "@/features/agent/subagents/store";
 
+/** Estimates reasoning duration in seconds from thought character length when untimed. */
 function estimateThoughtSeconds(content: string): number {
     const words = content.trim().split(/\s+/).filter(Boolean).length;
     return Math.max(1, Math.round(words / 12));
 }
 
+/** Returns the trailing basename of a file path. */
 function fileName(path: string): string {
     return path.split(/[\\/]/).pop() || path;
 }
@@ -185,6 +187,7 @@ const groupDetail = (names: string[]): string | null => {
     return `${unique[0]} + ${unique.length - 1} more`;
 };
 
+/** Formats a model identifier into a compact human-readable badge label. */
 function modelChipLabel(model?: string): string {
     const bare = (model || "").split("/").pop()?.trim() || "";
     if (!bare || bare === "auto") return bare === "auto" ? "Auto" : "";
@@ -207,6 +210,7 @@ const openSpawnedAgent = (block: Chunk) => {
     openSubagent(id);
 };
 
+/** Renders a single delegated subagent status row inside a workflow turn. */
 function SubagentRow({ block }: { block: Chunk }) {
     const name = block.query || "agent";
     const task = (block.type === "subagent_ref" ? block.content : "")?.trim();
@@ -229,6 +233,7 @@ function SubagentRow({ block }: { block: Chunk }) {
     );
 }
 
+/** Renders a grouped stack of parallel subagent invocations. */
 function SubagentSpawnGroup({ blocks }: { blocks: Chunk[] }) {
     const rowKey = createOccurrenceKeyer();
     return (
@@ -242,10 +247,12 @@ function SubagentSpawnGroup({ blocks }: { blocks: Chunk[] }) {
     );
 }
 
+/** Counts added and removed lines for a file-edit workflow chunk. */
 function editDelta(block: Chunk): { add: number; del: number } {
     return countChangedLines(block.original || "", block.replacement || "");
 }
 
+/** Checks whether a shell command string invokes a linter or static typechecker. */
 function isLintCommand(cmd: string): boolean {
     const lower = cmd.toLowerCase();
     return (
@@ -442,6 +449,7 @@ const ThoughtStep = ({
     );
 };
 
+/** Renders an expandable inline diff preview for a proposed or applied file edit. */
 function WorkflowEditPreview({
     original,
     replacement,
@@ -933,7 +941,7 @@ const renderWebSearchStep = (block: Chunk): React.ReactNode => (
     />
 );
 
-const STEP_ROW_RENDERERS: Record<string, (block: Chunk) => React.ReactNode> = {
+const STEP_ROW_RENDERERS: Partial<Record<string, (block: Chunk) => React.ReactNode>> = {
     browse_session: renderBrowseSessionStep,
     think: (block) => <ThoughtStep content={block.content || ""} isActive={block.isGenerating} />,
     thought: (block) => <ThoughtStep content={block.content || ""} isActive={block.isGenerating} />,
@@ -965,9 +973,10 @@ const STEP_ROW_RENDERERS: Record<string, (block: Chunk) => React.ReactNode> = {
 /** Renders the StepRow UI component. */
 const StepRow = ({ block }: { block: Chunk }) => {
     const render = STEP_ROW_RENDERERS[block.type];
-    return render ? <>{render(block)}</> : <ActionItem block={block} />;
+    return render ? render(block) : <ActionItem block={block} />;
 };
 
+/** Builds the collapsed summary headline for a completed assistant workflow turn. */
 function turnSummary(blocks: Chunk[], stats: ReturnType<typeof computeTurnStats>, isActive?: boolean, activityLabel?: string | null) {
     const status = [...blocks].reverse().find((b) => b.type === "status" && b.content?.trim());
     if (status?.content?.trim()) return status.content.trim();
@@ -988,6 +997,7 @@ function turnSummary(blocks: Chunk[], stats: ReturnType<typeof computeTurnStats>
     return isActive ? "Working" : "Worked";
 }
 
+/** Collects compact status badges and diff counters for a collapsed workflow turn. */
 function turnMarks(blocks: Chunk[]) {
     const urls: string[] = [];
     const toolkits: string[] = [];

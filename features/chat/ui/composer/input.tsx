@@ -614,7 +614,7 @@ export const ChatInput = React.memo(function ChatInput({
     const needsSignIn = !hasAnyUsableProvider(settings.ai.providers);
     const { catalog } = useBetterShapeCatalog();
     const allModels = React.useMemo(
-        () => resolveChatModels(catalog?.models ?? getCatalogModels()),
+        () => resolveChatModels(catalog ? catalog.models : getCatalogModels()),
         [catalog],
     );
     const concreteAllModels = React.useMemo(
