@@ -1,5 +1,5 @@
 /** Keep the mention/slash highlight overlay aligned 1:1 with the composer textarea, including scrollbar gutter shifts. */
-export function syncComposerOverlayScroll(
+export const syncComposerOverlayScroll = (
     source: { scrollLeft: number; scrollTop: number; clientWidth?: number },
     overlay:
         | {
@@ -9,7 +9,7 @@ export function syncComposerOverlayScroll(
           }
         | null
         | undefined,
-) {
+) => {
     if (!overlay) return;
     if (overlay.style && typeof source.clientWidth === "number" && source.clientWidth > 0) {
         const nextWidth = `${source.clientWidth}px`;
@@ -19,13 +19,13 @@ export function syncComposerOverlayScroll(
     }
     overlay.scrollLeft = source.scrollLeft;
     overlay.scrollTop = source.scrollTop;
-}
+};
 
 /** Determine whether a scrollable composer viewport has hidden content above or below its visible window. */
-export function computeComposerScrollMask(
+export const computeComposerScrollMask = (
     source: { scrollTop: number; scrollHeight: number; clientHeight: number },
     threshold = 2,
-): { top: boolean; bottom: boolean } {
+): { top: boolean; bottom: boolean } => {
     const maxScrollTop = Math.max(0, source.scrollHeight - source.clientHeight);
     if (maxScrollTop <= threshold) {
         return { top: false, bottom: false };
@@ -34,16 +34,16 @@ export function computeComposerScrollMask(
         top: source.scrollTop > threshold,
         bottom: maxScrollTop - source.scrollTop > threshold,
     };
-}
+};
 
 /**
  * Build a truthful two-layer CSS `mask-image` gradient that dissolves only edges with
  * genuine hidden overflow while keeping the 8px right scrollbar gutter crisp and unmasked.
  */
-export function buildComposerScrollMaskImage(
+export const buildComposerScrollMaskImage = (
     edges: { top: boolean; bottom: boolean },
     fadePx = 18,
-): string | undefined {
+): string | undefined => {
     if (!edges.top && !edges.bottom) return undefined;
     const topStop = edges.top ? `transparent 0px, black ${fadePx}px` : "black 0px, black 0px";
     const bottomStop = edges.bottom
@@ -52,10 +52,10 @@ export function buildComposerScrollMaskImage(
     const scrollbarKeep = "linear-gradient(to left, black 8px, transparent 8px)";
     const textEdgeFade = `linear-gradient(to bottom, ${topStop}, ${bottomStop})`;
     return `${scrollbarKeep}, ${textEdgeFade}`;
-}
+};
 
 /** If the caret is at the end of the text, scroll horizontally/vertically so newly typed characters stay in view. */
-export function revealComposerCaret(
+export const revealComposerCaret = (
     textarea: {
         selectionStart: number | null;
         value: string;
@@ -66,7 +66,7 @@ export function revealComposerCaret(
         clientHeight?: number;
         scrollTop?: number;
     },
-) {
+) => {
     const caret = textarea.selectionStart ?? textarea.value.length;
     if (caret < textarea.value.length) return textarea.scrollLeft;
     const maxLeft = Math.max(0, textarea.scrollWidth - textarea.clientWidth);
@@ -80,4 +80,4 @@ export function revealComposerCaret(
         textarea.scrollTop = Math.max(0, textarea.scrollHeight - textarea.clientHeight);
     }
     return maxLeft;
-}
+};

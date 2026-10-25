@@ -13,7 +13,8 @@ type AnalysisItem = {
     label: string;
 };
 
-export function CodebaseAnalysis({ items, isActive }: { items: AnalysisItem[]; isActive?: boolean }) {
+/** Renders the CodebaseAnalysis UI component. */
+export const CodebaseAnalysis = ({ items, isActive }: { items: AnalysisItem[]; isActive?: boolean }) => {
     const [isOpen, setIsOpen] = useState(false);
 
     const fileCount = items.filter((i) => i.type === "file").length;
@@ -73,4 +74,4 @@ export function CodebaseAnalysis({ items, isActive }: { items: AnalysisItem[]; i
             </ActionLine>
         </div>
     );
-}
+};

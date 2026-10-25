@@ -120,7 +120,7 @@ function SidebarPeek({
  * Agent View, left sidebar (agent / settings / git / files nav),
  * center chrome + content; expanded workspace is full-height; rail under chrome.
  */
-export function AgentLayout({ children }: { children: React.ReactNode }) {
+export const AgentLayout = ({ children }: { children: React.ReactNode }) => {
     const { project_path, active_file } = useProjectState();
     const [sidebarOpen, setSidebarOpen] = useState(true);
     const [workspaceOpen, setWorkspaceOpen] = useState(true);
@@ -162,15 +162,20 @@ export function AgentLayout({ children }: { children: React.ReactNode }) {
     // Warm start-command + route map when a project opens (or fingerprint changes).
     useEffect(() => {
         if (!project_path) return;
-        void import("@/features/preview/lib/project-warm").then(({ warmProjectAnalysis }) => {
-            void warmProjectAnalysis(project_path);
-        });
+        import("@/features/preview/lib/project-warm").then(({ warmProjectAnalysis }) => {
+            warmProjectAnalysis(project_path).catch(() => undefined);
+        }).catch(() => undefined);
     }, [project_path]);
 
-    useEffect(() => startAgentBackgroundExitToasts(), []);
+    useEffect(() => {
+        const stop = startAgentBackgroundExitToasts();
+        return () => {
+            stop();
+        };
+    }, []);
 
     useEffect(() => {
-        if (!splash) return;
+        if (!splash) return undefined;
         let t2: number | undefined;
         const raf = requestAnimationFrame(() => setSplashVisible(true));
         const t1 = window.setTimeout(() => {
@@ -435,14 +440,14 @@ export function AgentLayout({ children }: { children: React.ReactNode }) {
         window.addEventListener("resize", apply);
         let unlisten: (() => void) | undefined;
         let cancelled = false;
-        void import("@tauri-apps/api/window").then(async ({ getCurrentWindow }) => {
+        import("@tauri-apps/api/window").then(async ({ getCurrentWindow }) => {
             const stop = await getCurrentWindow().listen("tauri://resize", apply);
             if (cancelled) {
                 stop();
                 return;
             }
             unlisten = stop;
-        });
+        }).catch(() => undefined);
         return () => {
             cancelled = true;
             window.removeEventListener("resize", apply);
@@ -454,7 +459,7 @@ export function AgentLayout({ children }: { children: React.ReactNode }) {
         const wantWorkspace = workspaceOpen && Boolean(project_path);
         const minWidth = layoutMinWidth(sidebarOpen, wantWorkspace);
         let cancelled = false;
-        void import("@tauri-apps/api/window").then(async ({ getCurrentWindow }) => {
+        import("@tauri-apps/api/window").then(async ({ getCurrentWindow }) => {
             const { LogicalSize } = await import("@tauri-apps/api/dpi");
             const win = getCurrentWindow();
             await win.setMinSize(new LogicalSize(minWidth, WINDOW_MIN_HEIGHT));
@@ -623,7 +628,7 @@ src="/logos/logo.png"
                     windowControls={{
                         isMaximized,
                         onMinimize: minimize,
-                        onToggleMaximize: () => void toggleMaximize(),
+                        onToggleMaximize: () => { toggleMaximize().catch(() => undefined); },
                         onClose: close,
                     }}
                 />
@@ -721,7 +726,7 @@ src="/logos/logo.png"
                 <WindowControls
                     isMaximized={isMaximized}
                     onMinimize={minimize}
-                    onToggleMaximize={() => void toggleMaximize()}
+                    onToggleMaximize={() => { toggleMaximize().catch(() => undefined); }}
                     onClose={close}
                     surface="panel"
                     spacer={false}
@@ -729,4 +734,4 @@ src="/logos/logo.png"
             )}
         </div>
     );
-}
+};

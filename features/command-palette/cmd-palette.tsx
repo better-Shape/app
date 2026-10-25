@@ -96,7 +96,8 @@ function isBrowseMode(mode: string): boolean {
     return !mode || mode === "files";
 }
 
-function formatRelativeAgo(timestamp: number): string {
+/** Format relative ago. */
+const formatRelativeAgo = (timestamp: number): string => {
     const diffMs = Date.now() - toTimestampMs(timestamp);
     if (!Number.isFinite(diffMs) || diffMs < 0) return "";
     const minutes = Math.floor(diffMs / 60_000);
@@ -106,7 +107,7 @@ function formatRelativeAgo(timestamp: number): string {
     if (hours >= 1) return `${hours}h`;
     if (minutes < 1) return "now";
     return `${minutes}m`;
-}
+};
 
 function projectNameFromPath(path?: string | null): string {
     if (!path) return "";
@@ -174,7 +175,8 @@ function fuzzyScore(query: string, text: string): number {
     return qi === q.length ? 40 : 0;
 }
 
-function HighlightedLabel({ text, query }: { text: string; query: string }) {
+/** Renders the HighlightedLabel UI component. */
+const HighlightedLabel = ({ text, query }: { text: string; query: string }) => {
     const q = query.trim().toLowerCase();
     if (!q || !text) return text;
     const lower = text.toLowerCase();
@@ -220,7 +222,7 @@ function HighlightedLabel({ text, query }: { text: string; query: string }) {
         }
     }
     return <span>{nodes}</span>;
-}
+};
 
 function ShortcutBadge({ shortcut }: { shortcut: string }) {
     if (!shortcut) return null;
@@ -239,7 +241,8 @@ function ShortcutBadge({ shortcut }: { shortcut: string }) {
     );
 }
 
-export function CommandPalette() {
+/** Renders the CommandPalette UI component. */
+export const CommandPalette = () => {
     const overlayRoot = useOverlayRoot();
     const [open, setOpen] = useState(false);
     const [query, setQuery] = useState("");
@@ -335,8 +338,8 @@ export function CommandPalette() {
     // Load agents when browsing
     useEffect(() => {
         if (!open || !browse) return;
-        void import("@/lib/backend").then(({ commands }) => {
-            void Promise.all([
+        import("@/lib/backend").then(({ commands }) => {
+            Promise.all([
                 commands.getConversations(),
                 import("@/features/agent/subagents/store"),
             ]).then(([convs, sub]) => {
@@ -361,7 +364,7 @@ export function CommandPalette() {
                         model: lastModel || "auto",
                         muted: Boolean(conv.archived),
                         archive: () => {
-                            void commands.setConversationArchived(conv.id, !conv.archived).then(() => {
+                            commands.setConversationArchived(conv.id, !conv.archived).then(() => {
                                 setAgentActions((prev) =>
                                     prev.map((a) =>
                                         a.id === `agent:${conv.id}`
@@ -370,16 +373,16 @@ export function CommandPalette() {
                                     ),
                                 );
                                 window.dispatchEvent(new CustomEvent("bettershape-chat-refresh"));
-                            });
+                            }).catch(() => undefined);
                         },
                         run: () => openAgentConversation(conv.id),
                         delete: (e: React.MouseEvent) => {
                             e.stopPropagation();
                             e.preventDefault();
-                            void commands.deleteConversation(conv.id).then(() => {
+                            commands.deleteConversation(conv.id).then(() => {
                                 setAgentActions((prev) => prev.filter((a) => !a.id.startsWith(`agent:${conv.id}`)));
                                 window.dispatchEvent(new CustomEvent("bettershape-chat-refresh"));
-                            });
+                            }).catch(() => undefined);
                         },
                     });
                     const fromHistory = (conv.history || [])
@@ -442,7 +445,7 @@ export function CommandPalette() {
                 }
                 setAgentActions(actions);
             }).catch(() => setAgentActions([]));
-        });
+        }).catch(() => undefined);
     }, [open, browse]);
 
     if (open && browse && filterTab !== "all" && filterTab !== "files" && fileActions.length) {
@@ -451,16 +454,16 @@ export function CommandPalette() {
 
     // Load files when browsing files / all
     useEffect(() => {
-        if (!open || !browse) return;
-        if (filterTab !== "all" && filterTab !== "files") return;
+        if (!open || !browse) return undefined;
+        if (filterTab !== "all" && filterTab !== "files") return undefined;
         const handle = window.setTimeout(() => {
             if (query.length > 0 && query.length < 2 && filterTab === "files") {
                 setFileActions([]);
                 return;
             }
-            void import("@/lib/backend").then(({ commands }) => {
+            import("@/lib/backend").then(({ commands }) => {
                 if ((recentFiles || filterTab === "all") && !query.trim()) {
-                    void commands.getProjectState().then((state) => {
+                    commands.getProjectState().then((state) => {
                         const ordered = [...state.open_files].reverse().slice(0, 12);
                         setFileActions(
                             ordered.map((file) => ({
@@ -476,7 +479,7 @@ export function CommandPalette() {
                     }).catch(() => setFileActions([]));
                     return;
                 }
-                void commands.searchProjectFiles(query, 80)
+                commands.searchProjectFiles(query, 80)
                     .then((results) => {
                         setFileActions(
                             results.map((result) => ({
@@ -491,7 +494,7 @@ export function CommandPalette() {
                         );
                     })
                     .catch(() => setFileActions([]));
-            });
+            }).catch(() => undefined);
         }, query.trim() ? 140 : 0);
         return () => window.clearTimeout(handle);
     }, [open, browse, filterTab, query, recentFiles]);
@@ -518,7 +521,7 @@ export function CommandPalette() {
                 section: "Current File",
                 icon: name,
                 run: () => {
-                    void import("@/lib/backend").then(({ commands }) => commands.setActiveFile(path));
+                    import("@/lib/backend").then(({ commands }) => commands.setActiveFile(path)).catch(() => undefined);
                 },
             },
             {
@@ -754,9 +757,14 @@ export function CommandPalette() {
                         <SearchInput
                             borderless
                             stickyFade={false}
-                            ref={inputRef}
+                            ref={(node) => {
+                                inputRef.current = node;
+                                if (node && node.dataset.autofocused !== "1") {
+                                    node.dataset.autofocused = "1";
+                                    node.focus();
+                                }
+                            }}
                             placeholder={placeholder}
-                            autoFocus
                             value={query}
                             onChange={(e) => {
                                 setQuery(e.target.value);
@@ -890,7 +898,7 @@ export function CommandPalette() {
                                             <ContextMenuItem
                                                 onClick={() => {
                                                     const p = action.meta;
-                                                    if (p) void navigator.clipboard.writeText(p);
+                                                    if (p) navigator.clipboard.writeText(p).catch(() => undefined);
                                                 }}
                                             >
                                                 Copy Path
@@ -939,7 +947,7 @@ export function CommandPalette() {
             </Dialog.Portal>
         </Dialog.Root>
     );
-}
+};
 
 function browsePlaceholder(mode: string, filter: string): string {
     if (mode === "goto_line") return "Line : Column";
@@ -1058,15 +1066,15 @@ function getAppCommands(): EditorAction[] {
             label: "Developer: Toggle Developer Tools",
             shortcut: "",
             run: () => {
-                void import("@/lib/settings").then(({ getSettings, updateSettingSection }) => {
+                import("@/lib/settings").then(({ getSettings, updateSettingSection }) => {
                     const enabled = getSettings().developer?.enableDevTools === true;
                     if (!enabled) {
                         updateSettingSection("developer", { enableDevTools: true });
                     }
-                    void import("@/lib/window/tauri-window").then(({ toggleDevTools }) => {
-                        void toggleDevTools();
-                    });
-                });
+                    import("@/lib/window/tauri-window").then(({ toggleDevTools }) => {
+                        toggleDevTools().catch(() => undefined);
+                    }).catch(() => undefined);
+                }).catch(() => undefined);
             },
         },
         {
@@ -1121,8 +1129,7 @@ function getAppCommands(): EditorAction[] {
             run: () => {
                 import("@/features/editor/ui/main/ui/language-picker").then(({ openLanguageModePicker }) => {
                     // Get active file from editor status
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    const path = (window as any).__bettershapeActivePath || "";
+                    const path = (window as Window & { __bettershapeActivePath?: string }).__bettershapeActivePath || "";
                     openLanguageModePicker(path);
                 }).catch((e) => {
                     console.error("Failed to open language mode picker:", e);
@@ -1573,8 +1580,8 @@ function getAppCommands(): EditorAction[] {
             label: "File: Close Folder",
             shortcut: shortcut("Close Folder"),
             run: () => {
-                void import("@/lib/workspace/last-project").then(({ saveLastProject }) => saveLastProject(null));
-                void import("@/lib/backend").then(({ commands }) => commands.setProjectPath(null));
+                import("@/lib/workspace/last-project").then(({ saveLastProject }) => saveLastProject(null)).catch(() => undefined);
+                import("@/lib/backend").then(({ commands }) => commands.setProjectPath(null)).catch(() => undefined);
             },
         },
     ];

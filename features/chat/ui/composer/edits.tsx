@@ -45,7 +45,8 @@ const shortestUniqueParentHint = (parents: string[], peerParents: string[][]): s
     return parents.join("/");
 };
 
-export function PendingEditsPanel({
+/** Renders the PendingEditsPanel UI component. */
+export const PendingEditsPanel = ({
     edits,
     onAcceptAll,
     onRejectAll,
@@ -58,7 +59,7 @@ export function PendingEditsPanel({
     onAccept?: (id: string) => void;
     onReject?: (id: string) => void;
     embedded?: boolean;
-}) {
+}) => {
     const withStats = useMemo(() => {
         const parsed = edits.map((edit) => ({
             edit,
@@ -194,4 +195,4 @@ export function PendingEditsPanel({
             </DropdownMenuContent>
         </DropdownMenu>
     );
-}
+};

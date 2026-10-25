@@ -2,7 +2,7 @@ import { ChevronRight20Regular } from "@fluentui/react-icons/headless/svg/chevro
 import Link from "next/link";
 import { Children, Fragment, isValidElement } from "react";
 import type { ComponentType, ReactNode, Ref } from "react";
-import { cn } from "@/lib/utils";
+import { cn, createOccurrenceKeyer } from "@/lib/utils";
 import { Icon } from "@/components/ui/icon";
 
 
@@ -40,13 +40,14 @@ export interface BreadcrumbProps {
  * between items would otherwise be followed by a separator with nothing after it. The label
  * is a prop because a window can show two trails at once and each one has to be nameable.
  */
-export function Breadcrumb({
+export const Breadcrumb = ({
   children,
   "aria-label": ariaLabel = "Breadcrumb",
   className,
   ref,
-}: BreadcrumbProps) {
+}: BreadcrumbProps) => {
   const items = Children.toArray(children).filter(isValidElement);
+  const keyFor = createOccurrenceKeyer();
 
   return (
     <nav
@@ -58,9 +59,9 @@ export function Breadcrumb({
       )}
     >
       <ol className="flex min-w-0 items-center gap-1 px-1">
-        {items.map((item, index) => (
-          <Fragment key={item.key ?? index}>
-            {index > 0 && (
+        {items.map((item, pos) => (
+          <Fragment key={keyFor(String(item.key ?? "crumb"))}>
+            {pos > 0 && (
               <Icon icon={ChevronRight20Regular} className="icon-sm shrink-0 text-text-muted/70" />
             )}
             {item}
@@ -69,7 +70,7 @@ export function Breadcrumb({
       </ol>
     </nav>
   );
-}
+};
 
 export interface BreadcrumbItemProps {
   children?: ReactNode;

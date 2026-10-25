@@ -41,11 +41,27 @@ const stripControlTagsSlice = (segment: string): string =>
             },
         );
 
+/** Parse markdown fence line. */
+const parseMarkdownFenceLine = (
+    line: string,
+): { char: string; length: number; rest: string } | null => {
+    let idx = 0;
+    while (idx < 4 && idx < line.length && line.charCodeAt(idx) === 32) idx += 1;
+    if (idx > 3 || idx >= line.length) return null;
+    const ch = line.charAt(idx);
+    if (ch !== "`" && ch !== "~") return null;
+    let fenceEnd = idx;
+    while (fenceEnd < line.length && line.charAt(fenceEnd) === ch) fenceEnd += 1;
+    const runLen = fenceEnd - idx;
+    if (runLen < 3) return null;
+    return { char: ch, length: runLen, rest: line.slice(fenceEnd) };
+};
+
 /**
  * Strips hidden agent control tags while keeping prose, fenced code, tool output,
  * and edited file paths searchable.
  */
-export function extractSearchableMessageText(raw: string): string {
+export const extractSearchableMessageText = (raw: string): string => {
     if (!raw) return "";
     const normalized = raw.replace(/\r\n/g, "\n");
     const lines = normalized.split("\n");
@@ -55,23 +71,21 @@ export function extractSearchableMessageText(raw: string): string {
     let fenceLen = 0;
 
     for (const line of lines) {
-        const fenceMatch = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
-        const marker = fenceMatch?.[1];
-        const rest = fenceMatch?.[2] ?? "";
-        if (!fenceChar && marker) {
+        const fence = parseMarkdownFenceLine(line);
+        if (!fenceChar && fence) {
             if (proseBuf.length > 0) {
                 out.push(stripControlTagsSlice(proseBuf.join("\n")));
                 proseBuf.length = 0;
             }
-            fenceChar = marker.charAt(0);
-            fenceLen = marker.length;
+            fenceChar = fence.char;
+            fenceLen = fence.length;
             out.push(line);
         } else if (
             fenceChar &&
-            marker &&
-            marker.charAt(0) === fenceChar &&
-            marker.length >= fenceLen &&
-            /^[ \t]*$/.test(rest)
+            fence &&
+            fence.char === fenceChar &&
+            fence.length >= fenceLen &&
+            fence.rest.trim().length === 0
         ) {
             fenceChar = "";
             fenceLen = 0;
@@ -86,26 +100,28 @@ export function extractSearchableMessageText(raw: string): string {
         out.push(stripControlTagsSlice(proseBuf.join("\n")));
     }
     return out.join("\n").trim();
-}
+};
 
-function buildMatchSnippet(text: string, start: number, end: number, radius = 36): string {
+/** Build match snippet. */
+const buildMatchSnippet = (text: string, start: number, end: number, radius = 36): string => {
     const left = Math.max(0, start - radius);
     const right = Math.min(text.length, end + radius);
     const prefix = left > 0 ? "…" : "";
     const suffix = right < text.length ? "…" : "";
     return `${prefix}${text.slice(left, right).replace(/\s+/g, " ").trim()}${suffix}`;
-}
+};
 
-function escapeRegExp(literal: string): string {
+/** Escape reg exp. */
+const escapeRegExp = (literal: string): string => {
     return literal.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
+};
 
 /** Finds literal matches across user and assistant messages with snippet previews. */
-export function findTranscriptMatches(
+export const findTranscriptMatches = (
     messages: ReadonlyArray<{ role?: string; content?: string }>,
     query: string,
     optionsOrMax: number | TranscriptSearchOptions = 500,
-): TranscriptMatch[] {
+): TranscriptMatch[] => {
     const opts: TranscriptSearchOptions =
         typeof optionsOrMax === "number" ? { maxMatches: optionsOrMax } : optionsOrMax;
     const caseSensitive = Boolean(opts.caseSensitive);
@@ -149,4 +165,4 @@ export function findTranscriptMatches(
     }
 
     return results;
-}
+};

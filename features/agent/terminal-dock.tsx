@@ -50,7 +50,7 @@ const resolveAiTabSpec = (
 };
 
 /** Resizable bottom terminal dock scoped to the active project surface. */
-export function TerminalDock({ suppressed = false }: { suppressed?: boolean } = {}) {
+export const TerminalDock = ({ suppressed = false }: { suppressed?: boolean } = {}) => {
     const { project_path } = useProjectState();
     const cwdRef = useRef(project_path);
     useEffect(() => { cwdRef.current = project_path; }, [project_path]);
@@ -223,10 +223,10 @@ export function TerminalDock({ suppressed = false }: { suppressed?: boolean } = 
     }, []);
 
     useEffect(() => {
-        if (!visibleOpen) return;
+        if (!visibleOpen) return undefined;
         const t = window.setTimeout(() => {
-            void import("@/features/terminal/ui/terminal").then((m) => {
-                void m.refitAllTerminals();
+            import("@/features/terminal/ui/terminal").then((m) => {
+                m.refitAllTerminals().catch(() => undefined);
             }).catch(() => {
                 /* ignore */
             });
@@ -277,4 +277,4 @@ export function TerminalDock({ suppressed = false }: { suppressed?: boolean } = 
             </div>
         </div>
     );
-}
+};

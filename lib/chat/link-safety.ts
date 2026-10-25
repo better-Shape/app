@@ -13,7 +13,7 @@ const WINDOWS_DRIVE_PATH_RE = /^[a-zA-Z]:[\\/]/;
  * schemes (`javascript:`, `data:`, `vbscript:`, `file:`, `http_evil:`) never reach
  * `<a href>` or `openProjectFile`.
  */
-export function classifyMarkdownHref(rawHref: string | undefined | null): MarkdownHrefKind {
+export const classifyMarkdownHref = (rawHref: string | undefined | null): MarkdownHrefKind => {
     const trimmed = (rawHref ?? "").trim();
     if (!trimmed) return { kind: "blocked" };
 
@@ -35,8 +35,12 @@ export function classifyMarkdownHref(rawHref: string | undefined | null): Markdo
         return { kind: "blocked" };
     }
 
-    const cleanPath = trimmed.replace(/[?#][\s\S]*$/, "").trim();
+    const queryIdx = trimmed.indexOf("?");
+    const hashIdx = trimmed.indexOf("#");
+    const suffixStart =
+        queryIdx === -1 ? hashIdx : hashIdx === -1 ? queryIdx : Math.min(queryIdx, hashIdx);
+    const cleanPath = (suffixStart === -1 ? trimmed : trimmed.slice(0, suffixStart)).trim();
     if (!cleanPath) return { kind: "blocked" };
 
     return { kind: "workspace", path: cleanPath };
-}
+};

@@ -9,7 +9,8 @@ import { classifyMarkdownHref } from "@/lib/chat/link-safety";
 import { openProjectFile } from "@/lib/window/open-project-file";
 import { cn } from "@/lib/utils";
 
-export function ChatLinkChip({
+/** Renders the ChatLinkChip UI component. */
+export const ChatLinkChip = ({
     href,
     children,
     className,
@@ -17,7 +18,7 @@ export function ChatLinkChip({
     href?: string;
     children?: React.ReactNode;
     className?: string;
-}) {
+}) => {
     const target = classifyMarkdownHref(href);
 
     if (target.kind === "blocked") {
@@ -45,7 +46,7 @@ export function ChatLinkChip({
                     onClick={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
-                        void openProjectFile(target.path, name);
+                        openProjectFile(target.path, name).catch(() => undefined);
                     }}
                 >
                     <span className="chat-link-favicon">
@@ -66,7 +67,7 @@ export function ChatLinkChip({
             onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                void commands.openUrlExternal(target.href);
+                commands.openUrlExternal(target.href).catch(() => undefined);
             }}
         >
             {isHttp ? (
@@ -77,4 +78,4 @@ export function ChatLinkChip({
             <span className="truncate">{children}</span>
         </a>
     );
-}
+};

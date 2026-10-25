@@ -1,4 +1,14 @@
-﻿export * from "@/core/utils";
+export * from "@/core/utils";
+
+/**
+ * Focuses an input or element once when mounted, avoiding JSX `autoFocus`
+ * while preserving popover search focus behavior.
+ */
+export const focusOnMount = (node: HTMLElement | null) => {
+    if (!node || node.dataset.autofocused === "1") return;
+    node.dataset.autofocused = "1";
+    node.focus();
+};
 
 /**
  * Produces deterministic React keys (`"<seed>#1"`, `"<seed>#2"`, ...) so repeated
@@ -12,3 +22,4 @@ export const createOccurrenceKeyer = () => {
         return `${seed}#${next}`;
     };
 };
+

@@ -161,13 +161,15 @@ const PREFIX_TO_BRAND: Record<string, BrandKey> = {
     "meta-llama": "meta",
 };
 
-function lookupBrandPrefix(key: string): Provider | undefined {
+/** Lookup brand prefix. */
+const lookupBrandPrefix = (key: string): Provider | undefined => {
     return Object.hasOwn(PREFIX_TO_BRAND, key)
         ? PREFIX_TO_BRAND[key]
         : undefined;
-}
+};
 
-function providerFromModelId(modelId: string): Provider {
+/** Provider from model id. */
+const providerFromModelId = (modelId: string): Provider => {
     if (!modelId || modelId === "auto" || modelId === "openrouter/auto") {
         return "bettershape";
     }
@@ -180,7 +182,7 @@ function providerFromModelId(modelId: string): Provider {
     }
     const prefix = parts[0] ?? "";
     return lookupBrandPrefix(prefix) ?? "bettershape";
-}
+};
 
 function BrandIcon({ icon, size }: { icon: IconModule; size: number }) {
     const html = icon.variants.dark || icon.variants.default || icon.svg;
@@ -194,7 +196,8 @@ function BrandIcon({ icon, size }: { icon: IconModule; size: number }) {
     );
 }
 
-export function BetterShapeAutoIcon({
+/** Renders the BetterShapeAutoIcon UI component. */
+export const BetterShapeAutoIcon = ({
     size = 16,
     marquee = false,
     className,
@@ -202,9 +205,9 @@ export function BetterShapeAutoIcon({
     size?: number;
     marquee?: boolean;
     className?: string;
-}) {
+}) => {
     return <BetterShapeLogo size={size} marquee={marquee} className={className} />;
-}
+};
 
 export function providerIcon(modelId: string, size = 16): React.ReactNode {
     const provider = providerFromModelId(modelId);

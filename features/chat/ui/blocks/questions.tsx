@@ -47,7 +47,8 @@ export function parseQuestionsPayload(raw: string): {
     }
 }
 
-function formatAnswer(q: AgentQuestion, value: string | string[] | undefined): string {
+/** Format answer. */
+const formatAnswer = (q: AgentQuestion, value: string | string[] | undefined): string => {
     if (value == null) return "Skipped";
     const ids = Array.isArray(value) ? value : [value];
     if (ids.length === 0) return "Skipped";
@@ -57,14 +58,16 @@ function formatAnswer(q: AgentQuestion, value: string | string[] | undefined): s
             return opt?.label || id;
         })
         .join(", ");
-}
+};
 
-function isOptionSelected(value: string | string[] | undefined, optionId: string): boolean {
+/** Is option selected. */
+const isOptionSelected = (value: string | string[] | undefined, optionId: string): boolean => {
     if (Array.isArray(value)) return value.includes(optionId);
     return value === optionId;
-}
+};
 
-export function QuestionsCard({
+/** Renders the QuestionsCard UI component. */
+export const QuestionsCard = ({
     askId,
     status,
     questions,
@@ -74,7 +77,7 @@ export function QuestionsCard({
     status?: string;
     questions: AgentQuestion[];
     answers?: QuestionAnswers | null;
-}) {
+}) => {
     const pending = status === "pending" && Boolean(askId);
     const [index, setIndex] = useState(0);
     const [picked, setPicked] = useState<QuestionAnswers>(initialAnswers || {});
@@ -130,7 +133,7 @@ export function QuestionsCard({
                 setIndex(index + 1);
                 return;
             }
-            void submit(next);
+            submit(next).catch(() => undefined);
         },
         [index, questions.length, submit],
     );
@@ -311,7 +314,7 @@ export function QuestionsCard({
                         className="size-[24px] text-text-muted hover:text-text-primary enabled:active:scale-[0.95]"
                         aria-label="Skip questions"
                         disabled={!pending || submitting}
-                        onClick={() => void submit(picked, true)}
+                        onClick={() => { submit(picked, true).catch(() => undefined); }}
                     >
                         <Icon icon={Dismiss20Regular} />
                     </Button>
@@ -421,4 +424,4 @@ export function QuestionsCard({
             </div>
         </div>
     );
-}
+};

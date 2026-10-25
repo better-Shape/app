@@ -7,7 +7,8 @@ import { useProjectState } from "@/lib/backend";
 import { Breadcrumbs } from "@/features/editor/ui/main/ui/breadcrumb";
 import { OpenInMenu } from "@/features/chat/ui/shell/open-in";
 
-export function FileBar({ path }: { path: string }) {
+/** Renders the FileBar UI component. */
+export const FileBar = ({ path }: { path: string }) => {
     const { project_path } = useProjectState();
     const { getViewMode, setViewMode } = useEditorView();
     const markdown = /\.(md|mdx|markdown)$/i.test(path);
@@ -49,4 +50,4 @@ export function FileBar({ path }: { path: string }) {
             </div>
         </div>
     );
-}
+};

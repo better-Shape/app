@@ -7,7 +7,8 @@ import { Tooltip } from "@/components/ui/tooltip";
 const MAX_TICKS = 40;
 const LOCK_MS = 480;
 
-function truncateTurnLabel(raw: string, maxChars = 90): string {
+/** Truncate turn label. */
+const truncateTurnLabel = (raw: string, maxChars = 90): string => {
     const one = raw.replace(/\s+/g, " ").trim();
     if (!one) return "Turn";
     if (one.length <= maxChars) return one;
@@ -15,7 +16,7 @@ function truncateTurnLabel(raw: string, maxChars = 90): string {
     const lastSpace = cut.lastIndexOf(" ");
     const base = (lastSpace > 40 ? cut.slice(0, lastSpace) : cut).trimEnd();
     return `${base}...`;
-}
+};
 
 /** One tick per turn, capped at MAX_TICKS (evenly sampled when over). */
 function turnTicks(turnCount: number, activeIndex: number): number[] {
@@ -31,6 +32,7 @@ function turnTicks(turnCount: number, activeIndex: number): number[] {
     return [...out].sort((a, b) => a - b).slice(0, MAX_TICKS);
 }
 
+/** Renders the ChatHistoryStepper UI component. */
 export const ChatHistoryStepper = memo(function ChatHistoryStepper({
     turnCount,
     activeIndex,

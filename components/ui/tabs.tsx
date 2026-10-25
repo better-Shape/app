@@ -78,8 +78,8 @@ export const TabsList = React.forwardRef<
             <span
                 aria-hidden
                 className={cn(
-                    "pointer-events-none absolute top-0.5 bottom-0.5 rounded-md bg-[var(--btn-open)]",
-                    "transition-[transform,width,opacity] duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
+                    "pointer-events-none absolute top-0.5 bottom-0.5 rounded-md bg-[var(--row-selected)]",
+                    "transition-[transform,width,opacity] duration-[var(--spring-quick-dur)] ease-[var(--spring-quick)]",
                     indicator.ready ? "opacity-100" : "opacity-0",
                 )}
                 style={{

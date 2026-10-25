@@ -65,13 +65,14 @@ function formatReviewContent(raw: string): string | null {
     }
 }
 
-export function ReviewDebatePanel({
+/** Renders the ReviewDebatePanel UI component. */
+export const ReviewDebatePanel = ({
     content,
     model,
 }: {
     content: string;
     model?: string;
-}) {
+}) => {
     const [open, setOpen] = useState(false);
     const display = useMemo(() => formatReviewContent(content), [content]);
     const iconModel =
@@ -97,4 +98,4 @@ export function ReviewDebatePanel({
             </ActionLine>
         </div>
     );
-}
+};

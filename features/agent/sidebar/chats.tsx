@@ -142,7 +142,7 @@ function HeaderIconBtn({
 }
 
 /** The drain bar under the undo card. Keyed per entry so it restarts each time. */
-function UndoCountdown() {
+const UndoCountdown = () => {
     const [draining, setDraining] = useState(false);
     useEffect(() => {
         let inner = 0;
@@ -165,9 +165,10 @@ function UndoCountdown() {
             style={{ transitionDuration: `${CHAT_UNDO_WINDOW_MS}ms` }}
         />
     );
-}
+};
 
-function UndoBar() {
+/** Renders the UndoBar UI component. */
+const UndoBar = () => {
     const entry = useChatUndo();
     if (!entry) return null;
     return (
@@ -199,7 +200,7 @@ function UndoBar() {
             <UndoCountdown key={entry.id} />
         </div>
     );
-}
+};
 
 /** Keep menu and row labels consistent without coupling them to shelf state. */
 function chatLabels(chat: Conversation, projectPath: string | null | undefined) {
@@ -207,13 +208,13 @@ function chatLabels(chat: Conversation, projectPath: string | null | undefined) 
 }
 
 /** Render project sessions with shared lifecycle, keyboard and selection ownership. */
-export function ChatList({
+export const ChatList = ({
     onNewChat,
 }: {
     onNewChat: () => void;
     /** @deprecated unified Sessions list, ignored */
     listKind?: "chat";
-}) {
+}) => {
     const viewedChatId = useViewedConversationId();
     const { project_path } = useProjectState();
     const [chats, setChats] = useState<Conversation[]>([]);
@@ -326,9 +327,9 @@ export function ChatList({
     }, [project_path]);
 
     useEffect(() => {
-        void loadChats();
+        loadChats().catch(() => undefined);
         /** Reload chats through the version-fenced loader when a conversation event invalidates the list. */
-        const onRefresh = () => { void loadChats(); };
+        const onRefresh = () => { loadChats().catch(() => undefined); };
         window.addEventListener("bettershape-chat-refresh", onRefresh);
         window.addEventListener("bettershape-chats-changed", onRefresh);
         window.addEventListener("bettershape-chat-active", onRefresh);
@@ -833,4 +834,4 @@ export function ChatList({
             ) : null}
         </div>
     );
-}
+};

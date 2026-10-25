@@ -23,7 +23,8 @@ export type ComposerTaskItem = {
 
 export type ComposerActivityItem = { kind: "task" } & ComposerTaskItem;
 
-export function ComposerTasksStrip({ items }: { items: ComposerTaskItem[] }) {
+/** Renders the ComposerTasksStrip UI component. */
+export const ComposerTasksStrip = ({ items }: { items: ComposerTaskItem[] }) => {
     if (items.length === 0) return null;
 
     const active = items.find((i) => i.status === "running") ?? items[0];
@@ -82,7 +83,7 @@ export function ComposerTasksStrip({ items }: { items: ComposerTaskItem[] }) {
             </DropdownMenuContent>
         </DropdownMenu>
     );
-}
+};
 
 export function ComposerActivityStrip({
     items,

@@ -120,7 +120,7 @@ function IcoPath({ d }: { d: string }) {
  * reveals Use / Expand. Dialog chrome is name + arrows + collapse, with a
  * Notion-style inspect pill above the canvas.
  */
-export function DesignPreviewGallery({
+export const DesignPreviewGallery = ({
     previews,
     selectedId,
     pickId,
@@ -130,7 +130,7 @@ export function DesignPreviewGallery({
     selectedId?: string;
     pickId?: string;
     status?: string;
-}) {
+}) => {
     const items = useMemo(
         () => previews.filter((p) => Boolean(p.id?.trim()) && (Boolean(p.path?.trim()) || Boolean(p.source?.trim()))).slice(0, 3),
         [previews],
@@ -163,7 +163,7 @@ export function DesignPreviewGallery({
     }, [items, pending, pickId, selected]);
 
     useEffect(() => {
-        if (!open) return;
+        if (!open) return undefined;
         const onKey = (e: KeyboardEvent) => {
             if (e.key === "Escape") setOpen(false);
             if (e.key === "ArrowRight") setIndex((i) => Math.min(i + 1, items.length - 1));
@@ -448,7 +448,7 @@ export function DesignPreviewGallery({
                 : null}
         </div>
     );
-}
+};
 
 function TabBtn({
     active,

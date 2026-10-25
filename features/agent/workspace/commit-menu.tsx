@@ -249,7 +249,8 @@ function parseDiffFileStats(raw: string): Record<string, { plus: number; minus: 
     return stats;
 }
 
-export function CommitMenu({ projectPath }: { projectPath: string }) {
+/** Renders the CommitMenu UI component. */
+export const CommitMenu = ({ projectPath }: { projectPath: string }) => {
     const [repo, setRepo] = useState<string | null>(null);
     const [files, setFiles] = useState<GitFileParams[]>([]);
     const [stats, setStats] = useState<Record<string, { plus: number; minus: number }>>({});
@@ -311,8 +312,8 @@ export function CommitMenu({ projectPath }: { projectPath: string }) {
     }), [projectPath]);
 
     useEffect(() => {
-        void refresh();
-        const on = () => void refresh();
+        refresh().catch(() => undefined);
+        const on = () => { refresh().catch(() => undefined); };
         window.addEventListener("bettershape-git-refresh", on);
         return () => window.removeEventListener("bettershape-git-refresh", on);
     }, [refresh]);
@@ -413,7 +414,7 @@ export function CommitMenu({ projectPath }: { projectPath: string }) {
     };
 
     const commitAll = () => {
-        void commitPaths(files.map((file) => file.path), messageBody());
+        commitPaths(files.map((file) => file.path), messageBody()).catch(() => undefined);
     };
 
     const amend = () => {
@@ -422,7 +423,7 @@ export function CommitMenu({ projectPath }: { projectPath: string }) {
             return;
         }
         const message = title.trim() ? messageBody() : lastMessage;
-        void commitPaths(files.map((file) => file.path), message, true);
+        commitPaths(files.map((file) => file.path), message, true).catch(() => undefined);
     };
 
     const push = async () => {
@@ -539,7 +540,7 @@ export function CommitMenu({ projectPath }: { projectPath: string }) {
                     setMenuOpen(false);
                     return;
                 }
-                void (async () => {
+                (async () => {
                     const repos = await discoverGitRepos(projectPath).catch(() => []);
                     const found = pickDefaultRepo(projectPath, repos);
                     if (!found) {
@@ -550,7 +551,7 @@ export function CommitMenu({ projectPath }: { projectPath: string }) {
                     }
                     setRepo(found);
                     setMenuOpen(true);
-                })();
+                })().catch(() => undefined);
             }}
         >
             <DropdownMenuTrigger asChild>
@@ -650,42 +651,42 @@ export function CommitMenu({ projectPath }: { projectPath: string }) {
                                     disabled={busy || files.every((file) => !file.staged)}
                                     onSelect={() => {
                                         const staged = files.filter((file) => file.staged).map((file) => file.path);
-                                        void commitPaths(staged, messageBody());
+                                        commitPaths(staged, messageBody()).catch(() => undefined);
                                     }}
                                 >
                                     Commit staged
                                 </DropdownMenuItem>
                                 <DropdownMenuSeparator />
-                                <DropdownMenuItem disabled={files.length === 0 || busy} onSelect={() => void stageAll()}>
+                                <DropdownMenuItem disabled={files.length === 0 || busy} onSelect={() => { stageAll().catch(() => undefined); }}>
                                     Stage all
                                 </DropdownMenuItem>
-                                <DropdownMenuItem disabled={!repo || busy} onSelect={withRepo((path) => void runGit("Unstaged", () => commands.gitUnstageAll(path)))}>
+                                <DropdownMenuItem disabled={!repo || busy} onSelect={withRepo((path) => { runGit("Unstaged", () => commands.gitUnstageAll(path)).catch(() => undefined); })}>
                                     Unstage all
                                 </DropdownMenuItem>
-                                <DropdownMenuItem disabled={files.length === 0 || busy} onSelect={() => void discardAll()}>
+                                <DropdownMenuItem disabled={files.length === 0 || busy} onSelect={() => { discardAll().catch(() => undefined); }}>
                                     Discard all changes
                                 </DropdownMenuItem>
                                 <DropdownMenuSeparator />
-                                <DropdownMenuItem disabled={!hasRemote || busy} onSelect={withRepo((path) => void runGit("Fetched", () => commands.gitFetch(path)))}>
+                                <DropdownMenuItem disabled={!hasRemote || busy} onSelect={withRepo((path) => { runGit("Fetched", () => commands.gitFetch(path)).catch(() => undefined); })}>
                                     Fetch
                                 </DropdownMenuItem>
-                                <DropdownMenuItem disabled={!hasRemote || busy} onSelect={withRepo((path) => void runGit("Pulled", () => commands.gitPull(path)))}>
+                                <DropdownMenuItem disabled={!hasRemote || busy} onSelect={withRepo((path) => { runGit("Pulled", () => commands.gitPull(path)).catch(() => undefined); })}>
                                     Pull{behind > 0 ? ` (${behind})` : ""}
                                 </DropdownMenuItem>
-                                <DropdownMenuItem disabled={!hasRemote || busy} onSelect={() => void push()}>
+                                <DropdownMenuItem disabled={!hasRemote || busy} onSelect={() => { push().catch(() => undefined); }}>
                                     Push{ahead > 0 ? ` (${ahead})` : ""}
                                 </DropdownMenuItem>
-                                <DropdownMenuItem disabled={!hasRemote || busy} onSelect={withRepo((path) => void runGit("Synced", () => commands.gitSync(path)))}>
+                                <DropdownMenuItem disabled={!hasRemote || busy} onSelect={withRepo((path) => { runGit("Synced", () => commands.gitSync(path)).catch(() => undefined); })}>
                                     Sync
                                 </DropdownMenuItem>
                                 <DropdownMenuSeparator />
-                                <DropdownMenuItem disabled={files.length === 0 || busy} onSelect={withRepo((path) => void runGit("Stashed", () => commands.gitStashSave(path, title.trim() || "WIP", true)))}>
+                                <DropdownMenuItem disabled={files.length === 0 || busy} onSelect={withRepo((path) => { runGit("Stashed", () => commands.gitStashSave(path, title.trim() || "WIP", true)).catch(() => undefined); })}>
                                     Stash changes
                                 </DropdownMenuItem>
-                                <DropdownMenuItem disabled={!repo || busy} onSelect={withRepo((path) => void runGit("Stash applied", () => commands.gitStashPop(path, 0)))}>
+                                <DropdownMenuItem disabled={!repo || busy} onSelect={withRepo((path) => { runGit("Stash applied", () => commands.gitStashPop(path, 0)).catch(() => undefined); })}>
                                     Pop stash
                                 </DropdownMenuItem>
-                                <DropdownMenuItem disabled={!repo || busy} onSelect={() => void createBranch()}>
+                                <DropdownMenuItem disabled={!repo || busy} onSelect={() => { createBranch().catch(() => undefined); }}>
                                     New branch{branch ? ` from ${branch}` : ""}
                                 </DropdownMenuItem>
                                 <DropdownMenuItem disabled={!repo || busy || hasRemote} onSelect={() => setPublishOpen(true)}>
@@ -740,13 +741,13 @@ export function CommitMenu({ projectPath }: { projectPath: string }) {
             onClose={() => setPublishOpen(false)}
             onPublished={() => {
                 setPublishOpen(false);
-                void refresh();
+                refresh().catch(() => undefined);
             }}
         />
         <GitSetupPick open={setupOpen} onOpenChange={setSetupOpen} projectPath={projectPath} />
         </>
     );
-}
+};
 
 function PublishRepoDialog({
     open,

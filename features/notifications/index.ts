@@ -49,7 +49,8 @@ const MAX_TOASTS = 3;
 /** Drop from the bell menu after this (toasts dismiss sooner via autoHide). */
 const HISTORY_TTL_MS = 5 * 60 * 1000;
 
-function pruneExpired(now = Date.now()): NotificationState {
+/** Prune expired. */
+const pruneExpired = (now = Date.now()): NotificationState => {
     const notifications = state.notifications.filter(
         (n) => now - n.timestamp < HISTORY_TTL_MS,
     );
@@ -68,7 +69,7 @@ function pruneExpired(now = Date.now()): NotificationState {
         return state;
     }
     return { ...state, notifications: cleanedNotifications, toastIds };
-}
+};
 
 function emitChange() {
     listeners.forEach((listener) => listener());

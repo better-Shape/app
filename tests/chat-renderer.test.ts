@@ -309,6 +309,20 @@ describe("preprocessChatMarkdown", () => {
         expect(md).not.toContain("@import");
         expect(md).not.toContain("[edit_file]");
     });
+
+    it("handles quoted '>' inside HTML attributes and ignores prefix-only closing tags like </scriptx>", () => {
+        const quoted = preprocessChatMarkdown('<div title="a > b">Visible copy</div>');
+        expect(quoted).toContain("Visible copy");
+        expect(quoted).not.toContain('b">');
+
+        const scriptx = preprocessChatMarkdown(
+            "Intro\n<script>const leaked = 1;</scriptx>still secret</script>\nSafe conclusion",
+        );
+        expect(scriptx).toContain("Intro");
+        expect(scriptx).toContain("Safe conclusion");
+        expect(scriptx).not.toContain("leaked");
+        expect(scriptx).not.toContain("still secret");
+    });
 });
 
 it("renders the submitted image body when a filename contains a tag delimiter", async () => {

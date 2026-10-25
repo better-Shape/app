@@ -35,13 +35,15 @@ let mcpCache: TimedEntry<WarmMcpServer[]> | null = null;
 let mcpInflight: Promise<WarmMcpServer[]> | null = null;
 let mcpGeneration = 0;
 
-function isFresh<T>(entry: TimedEntry<T> | undefined | null): entry is TimedEntry<T> {
+/** Is fresh. */
+const isFresh = <T>(entry: TimedEntry<T> | undefined | null): entry is TimedEntry<T> => {
     return Boolean(entry && entry.expiresAt > Date.now());
-}
+};
 
-function scopeKey(projectPath?: string | null): string {
+/** Scope key. */
+const scopeKey = (projectPath?: string | null): string => {
     return projectPath ? projectPath : "__global__";
-}
+};
 
 /** Evicts oldest entries when a cache map grows past `maxEntries`. */
 const setBoundedTimedEntry = <T>(
@@ -58,14 +60,14 @@ const setBoundedTimedEntry = <T>(
 };
 
 /** Synchronously returns cached project file paths when still within TTL. */
-export function peekWarmProjectFiles(projectPath?: string | null): string[] | null {
+export const peekWarmProjectFiles = (projectPath?: string | null): string[] | null => {
     if (!projectPath) return null;
     const hit = filesCache.get(projectPath);
     if (!hit) return null;
     if (isFresh(hit)) return hit.value;
     filesCache.delete(projectPath);
     return null;
-}
+};
 
 /** Normalizes file search rows into forward-slash relative paths. */
 const normalizeFileRows = (rows: ReadonlyArray<{ relative_path?: string; path: string }>): string[] =>
@@ -116,7 +118,7 @@ const loadRootProjectFiles = (projectPath: string, limit: number): Promise<strin
 };
 
 /** Fetches and caches project file paths for `@` mention auto-completion. */
-export function fetchWarmProjectFiles(projectPath: string, query?: string, limit?: number): Promise<string[]> {
+export const fetchWarmProjectFiles = (projectPath: string, query?: string, limit?: number): Promise<string[]> => {
     if (projectPath) {
         latestRequestedProjectPath = projectPath;
     }
@@ -126,20 +128,20 @@ export function fetchWarmProjectFiles(projectPath: string, query?: string, limit
     if (trimmed) return queryProjectFilesFresh(trimmed, effectiveLimit);
     const hit = peekWarmProjectFiles(projectPath);
     return hit ? Promise.resolve(hit) : loadRootProjectFiles(projectPath, effectiveLimit);
-}
+};
 
 /** Synchronously returns cached recent conversations when still within TTL. */
-export function peekWarmRecentChats(projectPath?: string | null): WarmChatSummary[] | null {
+export const peekWarmRecentChats = (projectPath?: string | null): WarmChatSummary[] | null => {
     const key = scopeKey(projectPath);
     const hit = chatsCache.get(key);
     if (!hit) return null;
     if (isFresh(hit)) return hit.value;
     chatsCache.delete(key);
     return null;
-}
+};
 
 /** Fetches and caches recent conversations for `@chat` mention auto-completion. */
-export function fetchWarmRecentChats(projectPath?: string | null): Promise<WarmChatSummary[]> {
+export const fetchWarmRecentChats = (projectPath?: string | null): Promise<WarmChatSummary[]> => {
     if (typeof commands.getConversations !== "function") return Promise.resolve([]);
     const key = scopeKey(projectPath);
     const hit = peekWarmRecentChats(projectPath);
@@ -171,18 +173,19 @@ export function fetchWarmRecentChats(projectPath?: string | null): Promise<WarmC
         });
     chatsInflight.set(key, req);
     return req;
-}
+};
 
 let mcpListenerBound = false;
 
 /** Invalidates the cached MCP server status list when servers change at runtime. */
-export function invalidateWarmMcpCache(): void {
+export const invalidateWarmMcpCache = (): void => {
     mcpGeneration += 1;
     mcpCache = null;
     mcpInflight = null;
-}
+};
 
-function ensureMcpChangeListener(): void {
+/** Ensure mcp change listener. */
+const ensureMcpChangeListener = (): void => {
     if (mcpListenerBound || typeof window === "undefined") return;
     mcpListenerBound = true;
     window.addEventListener("mcp-servers-changed", invalidateWarmMcpCache);
@@ -191,19 +194,19 @@ function ensureMcpChangeListener(): void {
         .catch(() => {
             /* Browser preview without Tauri IPC */
         });
-}
+};
 
 /** Synchronously returns cached connected MCP servers when still within TTL. */
-export function peekWarmMcpServers(): WarmMcpServer[] | null {
+export const peekWarmMcpServers = (): WarmMcpServer[] | null => {
     ensureMcpChangeListener();
     if (!mcpCache) return null;
     if (isFresh(mcpCache)) return mcpCache.value;
     mcpCache = null;
     return null;
-}
+};
 
 /** Fetches and caches connected MCP servers for `@mcp` mention auto-completion. */
-export function fetchWarmMcpServers(): Promise<WarmMcpServer[]> {
+export const fetchWarmMcpServers = (): Promise<WarmMcpServer[]> => {
     ensureMcpChangeListener();
     if (typeof commands.getMcpStatus !== "function") return Promise.resolve([]);
     const hit = peekWarmMcpServers();
@@ -242,13 +245,13 @@ export function fetchWarmMcpServers(): Promise<WarmMcpServer[]> {
         });
     mcpInflight = req;
     return req;
-}
+};
 
 /**
  * Speculatively warm `@` / `/` popover sources + syntax highlighter during
  * idle frames when the user focuses or hovers the composer.
  */
-export function warmComposerResources(projectPath?: string | null): () => void {
+export const warmComposerResources = (projectPath?: string | null): () => void => {
     if (typeof window === "undefined") return () => undefined;
     let cancelled = false;
     const run = () => {
@@ -292,10 +295,10 @@ export function warmComposerResources(projectPath?: string | null): () => void {
         cancelled = true;
         window.clearTimeout(timer);
     };
-}
+};
 
 /** Clears warm mention caches and invalidates in-flight generations for tests. */
-export function resetMentionWarmCachesForTests(): void {
+export const resetMentionWarmCachesForTests = (): void => {
     filesGeneration += 1;
     chatsGeneration += 1;
     mcpGeneration += 1;
@@ -306,7 +309,7 @@ export function resetMentionWarmCachesForTests(): void {
     chatsInflight.clear();
     mcpCache = null;
     mcpInflight = null;
-}
+};
 
 if (typeof window !== "undefined") {
     window.addEventListener("bettershape-files-changed", () => {

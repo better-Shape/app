@@ -40,6 +40,7 @@ import { getCatalogDefaultEnabledIds, getCatalogModels, useBetterShapeCatalog } 
 import { assertSendAttachmentsUnchanged, messageWithAttachments, waitForSendAttachments } from "./send-attachments";
 import { formatQuotesPrefix, type QuotedExcerpt } from "../ui/quote-selection";
 import { hasAnyUsableProvider as hasUsableProvider } from "@/lib/ai/providers";
+import { readComposerPrefs, writeComposerPrefs } from "@/lib/chat/composer-prefs";
 import { matchSlashCommand } from "@/lib/chat/workflows";
 import { notify } from "@/features/notifications";
 import {
@@ -153,36 +154,6 @@ export function restoreRejectedAttachments(
     const present = new Set(current.map((file) => file.id));
     const missing = consumed.filter((file) => !present.has(file.id));
     return missing.length > 0 ? [...missing, ...current] : current;
-}
-
-const COMPOSER_PREFS_KEY = "bettershape-composer";
-
-type ComposerPrefs = { model?: string; effort?: ReasoningEffort; fast?: boolean };
-
-function readComposerPrefs(): ComposerPrefs {
-    if (typeof window === "undefined") return {};
-    try {
-        const raw = localStorage.getItem(COMPOSER_PREFS_KEY);
-        if (!raw) return {};
-        const parsed = JSON.parse(raw) as ComposerPrefs;
-        const effort = parsed.effort;
-        const known = effort === "low" || effort === "high" || effort === "ultra" || effort === "max" || effort === "super";
-        return {
-            model: typeof parsed.model === "string" ? parsed.model : undefined,
-            effort: known ? effort : undefined,
-            fast: typeof parsed.fast === "boolean" ? parsed.fast : undefined,
-        };
-    } catch {
-        return {};
-    }
-}
-
-function writeComposerPrefs(prefs: ComposerPrefs) {
-    try {
-        localStorage.setItem(COMPOSER_PREFS_KEY, JSON.stringify(prefs));
-    } catch {
-        /* ignore */
-    }
 }
 
 type PendingEditItem = {
@@ -310,10 +281,10 @@ export const applyInsertedPromptEvent = (
  * The scroll refs are created by the caller, not returned from this hook. Keeping refs out of the
  * returned session object lets components read session values during render.
  */
-export function useChatSession(
+export const useChatSession = (
     messagesEndRef: React.RefObject<HTMLDivElement | null>,
     scrollContainerRef: React.RefObject<HTMLDivElement | null>,
-) {
+) => {
     const [uploadedFiles, setUploadedFiles] = React.useState<ComposerAttachment[]>([]);
 
     const addUploadedFiles = React.useCallback((files: File[], peaks?: number[][]) => {
@@ -321,9 +292,9 @@ export function useChatSession(
         const pending = files.map((file, index) => createPendingAttachment(file, peaks?.[index]));
         setUploadedFiles((prev) => [...prev, ...pending]);
         for (const att of pending) {
-            void processAttachment(att).then((ready) => {
+            processAttachment(att).then((ready) => {
                 setUploadedFiles((prev) => prev.map((a) => (a.id === ready.id ? ready : a)));
-            });
+            }).catch(() => undefined);
         }
     }, []);
     const uploadedFilesRef = React.useRef(uploadedFiles);
@@ -481,19 +452,19 @@ export function useChatSession(
     const tabsReady = restoration !== null && (needsConversation ? tabsLoaded : !needsDraftView || viewedConversationId === null);
 
     React.useEffect(() => {
-        if (!restoration) return;
+        if (!restoration) return undefined;
         tabsHydratedForRef.current = chatTabsStorageKey(restoration.project);
         if (!restoration.persisted) {
             // Preserve the backend's existing view on first mount, but not across projects.
             if (restoration.switchedProject) showConversation(null);
-            return;
+            return undefined;
         }
         const activeId = restoration.activeId;
-        if (activeId === NEW_CHAT_TAB_ID) { showConversation(null); return; }
-        if (isEphemeralChatTabId(activeId)) return;
+        if (activeId === NEW_CHAT_TAB_ID) { showConversation(null); return undefined; }
+        if (isEphemeralChatTabId(activeId)) return undefined;
         let cancelled = false;
         const seq = showConversation(activeId);
-        void commands.loadConversation(activeId, restoration.project ?? undefined).then(async () => {
+        commands.loadConversation(activeId, restoration.project ?? undefined).then(async () => {
             if (cancelled || !isCurrentView(seq)) return false;
             clearAllDesignPreviewSessions();
             setContextSummarized(false);
@@ -513,7 +484,7 @@ export function useChatSession(
             return true;
         }).then(complete => {
             if (complete && !cancelled) setTabsLoaded(true);
-        });
+        }).catch(() => undefined);
         return () => { cancelled = true; };
     }, [restoration, setTabsLoaded, setContextSummarized, showConversation, reloadViewedMessages, hydrateViewedExtras, isCurrentView]);
 
@@ -525,10 +496,10 @@ export function useChatSession(
 
     React.useEffect(() => {
         let cancelled = false;
-        if (!project_path || !isWorkspaceTrusted(project_path)) return;
-        void listProjectRuleFiles(project_path).then((names) => {
+        if (!project_path || !isWorkspaceTrusted(project_path)) return undefined;
+        listProjectRuleFiles(project_path).then((names) => {
             if (!cancelled) setProjectRuleFiles(names);
-        });
+        }).catch(() => undefined);
         return () => {
             cancelled = true;
         };
@@ -748,49 +719,7 @@ export function useChatSession(
         }
     };
 
-    const handleRejectAll = async () => {
-        const failures: string[] = [];
-        for (const edit of pendingEdits) {
-            const resolved = resolveChatFilePath(edit.file, project_path);
-            try {
-                await commands.applyFileEdit(resolved, "", edit.baseline);
-            } catch (e) {
-                console.error("Failed to revert edit for", edit.file, e);
-                failures.push(edit.file.split(/[\\/]/).pop() || edit.file);
-            }
-            await markEditResolved(edit.file, "rejected", edit.replacement);
-            window.dispatchEvent(
-                new CustomEvent("bettershape-dismiss-diff", {
-                    detail: { path: resolved, rawPath: edit.file },
-                }),
-            );
-        }
-        if (failures.length > 0) {
-            notify.error(
-                "Undo failed",
-                `Could not restore ${failures.length === 1 ? failures[0] : `${failures.length} files`}.`,
-            );
-        }
-    };
-
-    const handleAcceptEdit = React.useCallback(async (editId: string) => {
-        const edit = pendingEdits.find((e) => e.id === editId);
-        if (!edit) return;
-        await markEditResolved(edit.file, "applied", edit.replacement);
-        const resolved = resolveChatFilePath(edit.file, project_path);
-        window.dispatchEvent(
-            new CustomEvent("bettershape-dismiss-diff", {
-                detail: { path: resolved, rawPath: edit.file },
-            }),
-        );
-    }, [pendingEdits, markEditResolved, project_path]);
-
-    const handleRejectEdit = async (editId: string) => {
-        const idx = pendingEdits.findIndex((e) => e.id === editId);
-        if (idx < 0) return;
-        const batch = pendingEdits.slice(idx);
-        const first = batch[0];
-        if (!first) return;
+    const revertPendingEditBatch = async (batch: PendingEditItem[]) => {
         const failures: string[] = [];
         for (const edit of batch) {
             const resolved = resolveChatFilePath(edit.file, project_path);
@@ -813,6 +742,31 @@ export function useChatSession(
                 `Could not restore ${failures.length === 1 ? failures[0] : `${failures.length} files`}.`,
             );
         }
+    };
+
+    const handleRejectAll = async () => {
+        await revertPendingEditBatch(pendingEdits);
+    };
+
+    const handleAcceptEdit = React.useCallback(async (editId: string) => {
+        const edit = pendingEdits.find((e) => e.id === editId);
+        if (!edit) return;
+        await markEditResolved(edit.file, "applied", edit.replacement);
+        const resolved = resolveChatFilePath(edit.file, project_path);
+        window.dispatchEvent(
+            new CustomEvent("bettershape-dismiss-diff", {
+                detail: { path: resolved, rawPath: edit.file },
+            }),
+        );
+    }, [pendingEdits, markEditResolved, project_path]);
+
+    const handleRejectEdit = async (editId: string) => {
+        const idx = pendingEdits.findIndex((e) => e.id === editId);
+        if (idx < 0) return;
+        const batch = pendingEdits.slice(idx);
+        const first = batch[0];
+        if (!first) return;
+        await revertPendingEditBatch(batch);
         const later = batch.length - 1;
         const notice =
             later > 0
@@ -828,7 +782,7 @@ export function useChatSession(
                 ...prev,
             ]);
         } else {
-            void handleSendMessageRef.current(notice);
+            handleSendMessageRef.current(notice).catch(() => undefined);
         }
     };
 
@@ -841,7 +795,7 @@ export function useChatSession(
         if (pendingEdits.length > prevPendingCountRef.current) {
             const newEdits = pendingEdits.slice(prevPendingCountRef.current);
             for (const edit of newEdits) {
-                void handleAcceptEdit(edit.id);
+                handleAcceptEdit(edit.id).catch(() => undefined);
             }
         }
         prevPendingCountRef.current = pendingEdits.length;
@@ -902,7 +856,7 @@ export function useChatSession(
 
     React.useEffect(() => {
         if (!tabsReady) return;
-        void refreshHistory();
+        refreshHistory().catch(() => undefined);
     }, [tabsReady, refreshHistory]);
 
     // Mirror the view into the backend-facing store and the tab strip.
@@ -944,7 +898,7 @@ export function useChatSession(
     // Incognito lives on the backend; adopt it so a reopened window agrees
     // with the chat that is actually being recorded.
     React.useEffect(() => {
-        void syncIncognitoFromBackend();
+        syncIncognitoFromBackend().catch(() => undefined);
     }, []);
 
     React.useEffect(() => {
@@ -1349,7 +1303,7 @@ export function useChatSession(
     const sendToChat = async (content: string, target: string): Promise<boolean> => {
         // The chat the build belongs to comes on screen first. `openConversation` puts it on
         // screen synchronously; its transcript load continues in the background.
-        if (target !== getViewedConversationId()) void openConversation(target);
+        if (target !== getViewedConversationId()) openConversation(target).catch(() => undefined);
         // Busy means a turn is running in the target, or (for the chat on screen) a composer
         // send is still in flight. Read from the store, not from a possibly stale closure.
         const busy =
@@ -1529,7 +1483,7 @@ export function useChatSession(
         messageQueueRef.current = taken.rest;
         setMessageQueue(taken.rest);
         const item = taken.item;
-        void handleSendMessageRef.current(item.content).then(
+        handleSendMessageRef.current(item.content).then(
             (sent) => {
                 if (!sent) restoreQueuedMessage(item);
             },
@@ -1537,7 +1491,7 @@ export function useChatSession(
                 console.error("Failed to send queued message:", err);
                 restoreQueuedMessage(item);
             },
-        );
+        ).catch(() => undefined);
     }, [isLoading, conversationId, queueDrainTick, restoreQueuedMessage]);
 
     const handleEditQueuedMessage = React.useCallback((id: string) => {
@@ -1589,10 +1543,10 @@ export function useChatSession(
             const target = custom.detail.conversationId || getViewedConversationId();
             if (!target) {
                 if (isLoadingRef.current) enqueueChatMessage(message, null);
-                else void handleSendMessageRef.current(message);
+                else handleSendMessageRef.current(message).catch(() => undefined);
                 return;
             }
-            void sendToChatRef.current(message, target);
+            sendToChatRef.current(message, target).catch(() => undefined);
         };
         window.addEventListener("bettershape-build-plan", handleBuildPlan);
         return () => window.removeEventListener("bettershape-build-plan", handleBuildPlan);
@@ -1768,7 +1722,7 @@ export function useChatSession(
                 syncOpenTabs(res.id, res.title);
                 const msgs = await reloadViewedMessages(seq);
                 hydrateViewedExtras(res.id, msgs);
-                void refreshHistory();
+                refreshHistory().catch(() => undefined);
             } catch (err) {
                 console.error("Failed to fork chat:", err);
             }
@@ -1796,7 +1750,7 @@ export function useChatSession(
                 }
             }
             if (idx < 0) return;
-            void handleForkChat(idx);
+            handleForkChat(idx).catch(() => undefined);
         };
         window.addEventListener("bettershape-chat-fork", onFork);
         return () => window.removeEventListener("bettershape-chat-fork", onFork);
@@ -1824,16 +1778,16 @@ export function useChatSession(
     React.useEffect(() => {
         let disposed = false;
         let unlisten: (() => void) | undefined;
-        void import("@tauri-apps/api/event").then(({ listen }) => {
-            void listen<{ path?: string }>("bettershape-design-preview-close", (event) => {
+        import("@tauri-apps/api/event").then(({ listen }) => {
+            listen<{ path?: string }>("bettershape-design-preview-close", (event) => {
                 const path = event.payload?.path;
                 if (!path) return;
-                void commands.closeFile(path).catch(() => { /* already closed */ });
+                commands.closeFile(path).catch(() => { /* already closed */ });
             }).then((fn) => {
                 if (disposed) fn();
                 else unlisten = fn;
-            });
-        });
+            }).catch(() => undefined);
+        }).catch(() => undefined);
         return () => {
             disposed = true;
             unlisten?.();
@@ -1844,10 +1798,10 @@ export function useChatSession(
         let disposed = false;
         const unlisteners: (() => void)[] = [];
         const register = (promise: Promise<() => void>) => {
-            void promise.then((fn) => {
+            promise.then((fn) => {
                 if (disposed) fn();
                 else unlisteners.push(fn);
-            });
+            }).catch(() => undefined);
         };
 
         register(
@@ -1855,7 +1809,7 @@ export function useChatSession(
                 const cid = event.payload?.conversationId?.trim();
                 const message = event.payload?.message;
                 if (!cid || !message) return;
-                void (async () => {
+                (async () => {
                     if (getViewedConversationId() !== cid) await openConversation(cid);
                     if (isChatGenerating(cid)) {
                         enqueueChatMessage(message, cid);
@@ -1866,7 +1820,7 @@ export function useChatSession(
                     } else {
                         await sendToChatRef.current(message, cid);
                     }
-                })();
+                })().catch(() => undefined);
             }),
         );
 
@@ -1895,9 +1849,9 @@ export function useChatSession(
             clearAllDesignPreviewSessions();
             setSendError(null);
             setContextSummarized(false);
-            void import("@/features/agent/subagents/store").then(({ resetSubagentsForParent }) => {
+            import("@/features/agent/subagents/store").then(({ resetSubagentsForParent }) => {
                 resetSubagentsForParent(conversationIdRef.current);
-            });
+            }).catch(() => undefined);
             setChatTitle("New Chat");
             setResolvedFiles(new Set());
             clearAllProposedEdits();
@@ -1906,7 +1860,7 @@ export function useChatSession(
                 return [{ id: NEW_CHAT_TAB_ID, title: "New Chat" }, ...others];
             });
             setActiveChatTabId(NEW_CHAT_TAB_ID);
-            void refreshHistory();
+            refreshHistory().catch(() => undefined);
         } catch (err) {
             console.error("Failed to start new chat:", err);
         }
@@ -1960,7 +1914,7 @@ export function useChatSession(
     const handleKeyDown = React.useCallback((e: React.KeyboardEvent) => {
         if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
-            void handleSendMessageRef.current().catch((err) => {
+            handleSendMessageRef.current().catch((err) => {
                 console.error("Failed to send message:", err);
             });
         }
@@ -2169,7 +2123,7 @@ export function useChatSession(
         const onLoad = (e: Event) => {
             const id = (e as CustomEvent<{ id?: string }>).detail?.id;
             if (!id) return;
-            void handleLoadConversation(id, { force: true });
+            handleLoadConversation(id, { force: true }).catch(() => undefined);
         };
         window.addEventListener("bettershape-chat-load", onLoad as EventListener);
         return () => window.removeEventListener("bettershape-chat-load", onLoad as EventListener);
@@ -2181,7 +2135,7 @@ export function useChatSession(
             const id = detail?.id?.trim();
             const title = detail?.title?.trim();
             if (!id || !title) return;
-            void commands.renameConversation(id, title).then(() => {
+            commands.renameConversation(id, title).then(() => {
                 syncOpenTabs(id, title);
                 if (conversationIdRef.current === id) setChatTitle(title);
                 window.dispatchEvent(new CustomEvent("bettershape-chats-changed"));
@@ -2341,4 +2295,4 @@ export function useChatSession(
         quotedExcerpts,
         removeQuotedExcerpt,
     };
-}
+};

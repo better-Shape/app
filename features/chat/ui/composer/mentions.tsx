@@ -25,7 +25,7 @@ import { type IconGlyph, Icon } from "@/components/ui/icon";
 import { FileIcon } from "@/components/ui/file-icon";
 import { Favicon } from "@/components/ui/favicon";
 import { SearchInput } from "@/components/ui/search";
-import { cn } from "@/lib/utils";
+import { cn, createOccurrenceKeyer } from "@/lib/utils";
 import { useProjectState } from "@/lib/backend";
 import { formatMentionToken, type ChatMention } from "@/lib/chat/mentions";
 import { DESIGN_TOKEN_MENTIONS, designTokenById } from "@/lib/chat/design-mentions";
@@ -70,13 +70,14 @@ const CATEGORIES: {
     { id: "design", label: "Design", icon: Color20Regular },
 ];
 
-function pathDir(path: string): string {
+/** Path dir. */
+const pathDir = (path: string): string => {
     const parts = path.replace(/\\/g, "/").split("/");
     if (parts.length <= 1) return "";
     const dir = parts.slice(0, -1).join("/");
     if (dir.length <= 28) return dir;
     return `...${dir.slice(-26)}`;
-}
+};
 
 /** True when a keydown event is part of an active IME composition session. */
 export const isImeKeyEvent = (e: Pick<KeyboardEvent, "isComposing" | "keyCode">): boolean =>
@@ -90,7 +91,8 @@ export const isPlainPickerConfirmKey = (
     return e.key === "Enter" || e.key === "Tab";
 };
 
-export function MentionPicker({
+/** Renders the MentionPicker UI component. */
+export const MentionPicker = ({
     open,
     query,
     onPick,
@@ -113,7 +115,7 @@ export function MentionPicker({
     caretIndex?: number;
     mode?: "mention" | "slash";
     workflows?: AgentWorkflow[];
-}) {
+}) => {
     const { project_path } = useProjectState();
     const [files, setFiles] = useState<string[]>(() => peekWarmProjectFiles(project_path) ?? []);
     const [chats, setChats] = useState<{ id: string; title: string }[]>(
@@ -141,7 +143,7 @@ export function MentionPicker({
     const q = filter.trim().toLowerCase();
 
     useLayoutEffect(() => {
-        if (!open) return;
+        if (!open) return undefined;
         const box = boxRef?.current ?? anchorRef?.current;
         const update = () => {
             if (!box) return;
@@ -206,7 +208,7 @@ export function MentionPicker({
     }
 
     useEffect(() => {
-        if (!open || !project_path) return;
+        if (!open || !project_path) return undefined;
         let cancelled = false;
         const trimmed = filter.trim();
         const warmRoot = peekWarmProjectFiles(project_path);
@@ -221,9 +223,9 @@ export function MentionPicker({
                     window.clearTimeout(t);
                 };
             }
-            void fetchWarmProjectFiles(project_path, "", 40).then((rows) => {
+            fetchWarmProjectFiles(project_path, "", 40).then((rows) => {
                 if (!cancelled) setFiles(rows);
-            });
+            }).catch(() => undefined);
             return () => {
                 cancelled = true;
             };
@@ -231,9 +233,9 @@ export function MentionPicker({
 
         // Seed immediate client-side matches from warm root while debouncing IPC search.
         const timer = window.setTimeout(() => {
-            void fetchWarmProjectFiles(project_path, trimmed, 40).then((rows) => {
+            fetchWarmProjectFiles(project_path, trimmed, 40).then((rows) => {
                 if (!cancelled) setFiles(rows);
-            });
+            }).catch(() => undefined);
         }, 55);
 
         return () => {
@@ -243,32 +245,32 @@ export function MentionPicker({
     }, [open, project_path, filter]);
 
     useEffect(() => {
-        if (!open) return;
+        if (!open) return undefined;
         let cancelled = false;
-        void fetchWarmRecentChats(project_path).then((rows) => {
+        fetchWarmRecentChats(project_path).then((rows) => {
             if (!cancelled) setChats(rows);
-        });
+        }).catch(() => undefined);
         return () => {
             cancelled = true;
         };
     }, [open, project_path]);
 
     useEffect(() => {
-        if (!open) return;
+        if (!open) return undefined;
         let cancelled = false;
-        void fetchWarmMcpServers().then((rows) => {
+        fetchWarmMcpServers().then((rows) => {
             if (!cancelled) setMcpServers(rows);
-        });
+        }).catch(() => undefined);
         return () => {
             cancelled = true;
         };
     }, [open]);
 
     useEffect(() => {
-        if (!open) return;
+        if (!open) return undefined;
         let cancelled = false;
         const cached = peekPluginsCache()?.plugins;
-        void fetchPlugins()
+        fetchPlugins()
             .then((data) => {
                 if (!cancelled) setPlugins(data.plugins);
             })
@@ -280,7 +282,14 @@ export function MentionPicker({
         };
     }, [open]);
 
-    useEffect(() => subscribeSkills(() => setSkills(listSkills())), []);
+    useEffect(() => {
+        const unsub = subscribeSkills(() => {
+            setSkills(listSkills());
+        });
+        return () => {
+            unsub();
+        };
+    }, []);
     // Find skills sitting in the project's or the user's skill folders.
     useEffect(() => {
         if (open) ensureFreshScan();
@@ -518,7 +527,7 @@ export function MentionPicker({
     const pickItem = useCallback(
         (item: ChatMention) => {
             if (item.kind === "design" && item.id) {
-                void trySelectPendingDesignConcept(item.id);
+                trySelectPendingDesignConcept(item.id).catch(() => undefined);
             }
             onPick(`${formatMentionToken(item)} `);
             onClose();
@@ -543,7 +552,7 @@ export function MentionPicker({
     }, [open, menuEl, highlight]);
 
     useEffect(() => {
-        if (!open) return;
+        if (!open) return undefined;
         const confirmHighlightedEntry = () => {
             if (mode === "slash") {
                 const entry = slashEntries.at(highlight);
@@ -728,21 +737,23 @@ export function MentionPicker({
                     <div className="px-2.5 py-2 text-sm text-text-muted">No matches</div>
                 ) : null}
 
-                {rootItems.map((item, idx) => (
-                    <button
-                        key={`${item.kind}-${item.id ?? item.path ?? item.label}-${idx}`}
-                        type="button"
-                        data-mention-highlighted={idx === highlight ? "true" : undefined}
-                        className={cn(
-                            "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
-                            idx === highlight
-                                ? "bg-[var(--row-selected)] text-text-primary hover:bg-[var(--row-selected-hover)]"
-                                : "text-text-primary hover:bg-[var(--row-hover)]",
-                        )}
-                        onMouseDown={(e) => e.preventDefault()}
-                        onMouseEnter={() => setHighlight(idx)}
-                        onClick={() => pickItem(item)}
-                    >
+                {(() => {
+                    const keyFor = createOccurrenceKeyer();
+                    return rootItems.map((item, pos) => (
+                        <button
+                            key={keyFor(`${item.kind}-${item.id ?? item.path ?? item.label}`)}
+                            type="button"
+                            data-mention-highlighted={pos === highlight ? "true" : undefined}
+                            className={cn(
+                                "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
+                                pos === highlight
+                                    ? "bg-[var(--row-selected)] text-text-primary hover:bg-[var(--row-selected-hover)]"
+                                    : "text-text-primary hover:bg-[var(--row-hover)]",
+                            )}
+                            onMouseDown={(e) => e.preventDefault()}
+                            onMouseEnter={() => setHighlight(pos)}
+                            onClick={() => pickItem(item)}
+                        >
                         {item.kind === "file" || item.kind === "folder" || item.kind === "docs" ? (
                             <FileIcon
                                 name={item.label}
@@ -797,7 +808,8 @@ export function MentionPicker({
                             </span>
                         ) : null}
                     </button>
-                ))}
+                    ));
+                })()}
 
                 {showCategories && visibleCategories.length > 0 ? (
                     <>
@@ -833,4 +845,4 @@ export function MentionPicker({
         </div>,
         document.body,
     );
-}
+};

@@ -48,7 +48,8 @@ export function hasContextWindowData(
     return SEGMENTS.some((seg) => asNumber(raw[seg.key]) > 0);
 }
 
-export function ContextWindowMenu({
+/** Renders the ContextWindowMenu UI component. */
+export const ContextWindowMenu = ({
     breakdown,
     inputTokens,
     outputTokens,
@@ -56,7 +57,7 @@ export function ContextWindowMenu({
     breakdown?: ContextBreakdown | null;
     inputTokens?: number;
     outputTokens?: number;
-}) {
+}) => {
     const raw = breakdown ?? {};
     const limit = asNumber(raw.contextLimit) || 0;
     const estimated = asNumber(raw.estimatedTotal);
@@ -123,4 +124,4 @@ export function ContextWindowMenu({
             </div>
         </div>
     );
-}
+};

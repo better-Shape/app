@@ -21,7 +21,7 @@ type ProjectStateStore = {
  * project_path → welcome flash → last-project restore (felt like random reloads
  * and GET / spam while stuck on the previous folder).
  */
-function getStore(): ProjectStateStore {
+const getStore = (): ProjectStateStore => {
     const g = globalThis as typeof globalThis & {
         __bettershapeProjectState?: ProjectStateStore;
     };
@@ -34,7 +34,7 @@ function getStore(): ProjectStateStore {
         };
     }
     return g.__bettershapeProjectState;
-}
+};
 
 function emitState() {
     const { subscribers } = getStore();
@@ -48,7 +48,8 @@ function pathsEqual(a: string | null | undefined, b: string | null | undefined):
     return /^[a-zA-Z]:[\\/]/.test(a) || a.includes("\\") || /^[a-zA-Z]:[\\/]/.test(b) || b.includes("\\") ? na.toLowerCase() === nb.toLowerCase() : na === nb;
 }
 
-function initializeStateBridge() {
+/** Initialize state bridge. */
+const initializeStateBridge = () => {
     const store = getStore();
     if (store.initialized || typeof window === "undefined") return;
     store.initialized = true;
@@ -101,7 +102,7 @@ function initializeStateBridge() {
             }),
         )
         .catch(() => undefined);
-}
+};
 
 function subscribe(listener: () => void) {
     initializeStateBridge();

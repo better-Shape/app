@@ -3,6 +3,7 @@
 
 import { memo } from "react";
 
+/** Renders the ChatEmptyState UI component. */
 export const ChatEmptyState = memo(function ChatEmptyState({
     onSelectMode: _onSelectMode,
 }: {

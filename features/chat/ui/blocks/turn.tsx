@@ -15,7 +15,7 @@ import { FileIcon } from "@/components/ui/file-icon";
 import { Icon } from "@/components/ui/icon";
 
 
-import { cn } from "@/lib/utils";
+import { cn, createOccurrenceKeyer } from "@/lib/utils";
 import type { Chunk } from "../md/renderer";
 import { openProjectFile } from "@/lib/window/open-project-file";
 import { commands } from "@/lib/backend/commands";
@@ -55,7 +55,8 @@ function fileName(path: string): string {
     return path.split(/[\\/]/).pop() || path;
 }
 
-function formatTurnDuration(ms: number): string {
+/** Format turn duration. */
+const formatTurnDuration = (ms: number): string => {
     const clamped = Math.max(0, ms);
     if (clamped < 10_000) {
         const tenths = Math.max(0.1, Math.round(clamped / 100) / 10);
@@ -66,18 +67,19 @@ function formatTurnDuration(ms: number): string {
     const mins = Math.floor(sec / 60);
     const rem = sec % 60;
     return `${mins}m ${String(rem).padStart(2, "0")}s`;
-}
+};
 
-function formatLineRange(start?: number, end?: number): string | null {
+/** Format line range. */
+const formatLineRange = (start?: number, end?: number): string | null => {
     if (typeof start !== "number" || !Number.isFinite(start)) return null;
     if (typeof end === "number" && Number.isFinite(end) && end > start) {
         return `L${start}-${end}`;
     }
     return `L${start}`;
-}
+};
 
 /** Action word bright; detail muted, with optional expandable file/query drill-down. */
-function GroupActionLabel({
+const GroupActionLabel = ({
     action,
     detail,
     icon,
@@ -97,7 +99,7 @@ function GroupActionLabel({
     }>;
     queries?: string[];
     previews?: string[];
-}) {
+}) => {
     const cleanFiles = (files ?? []).filter((f) => Boolean(f.path));
     const cleanQueries = [...new Set((queries ?? []).map((q) => q.trim()).filter(Boolean))];
     const cleanPreviews = (previews ?? []).map((p) => p.trim()).filter(Boolean);
@@ -113,74 +115,84 @@ function GroupActionLabel({
             action={action}
             detail={detail}
             icon={icon}
-            onClick={singleFile ? () => void openProjectFile(singleFile.path) : undefined}
+            onClick={singleFile ? () => { openProjectFile(singleFile.path).catch(() => undefined); } : undefined}
         >
             {expandable ? (
                 <div className="mt-0.5 mb-1 flex flex-col gap-0.5 pl-3.5">
-                    {cleanFiles.map((f, idx) => {
-                        const name = fileName(f.path);
-                        const lineStart = f.start ?? f.startLine;
-                        const lineEnd = f.end ?? f.endLine;
-                        const range = formatLineRange(lineStart, lineEnd);
-                        return (
-                            <button
-                                key={`${f.path}-${lineStart ?? ""}-${idx}`}
-                                type="button"
-                                onClick={() => void openProjectFile(f.path)}
-                                className="flex w-fit max-w-full items-center gap-1.5 rounded-md px-1 py-0.5 text-left text-xs text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--row-hover)] hover:text-text-primary"
-                            >
-                                <FileIcon name={name} className="size-3.5 shrink-0 opacity-85" />
-                                <span className="min-w-0 truncate">{name}</span>
-                                {range ? (
-                                    <span className="shrink-0 font-mono text-2xs tabular-nums text-text-muted/75">
-                                        {range}
-                                    </span>
-                                ) : null}
-                            </button>
-                        );
-                    })}
+                    {(() => {
+                        const fileKey = createOccurrenceKeyer();
+                        return cleanFiles.map((f) => {
+                            const name = fileName(f.path);
+                            const lineStart = f.start ?? f.startLine;
+                            const lineEnd = f.end ?? f.endLine;
+                            const range = formatLineRange(lineStart, lineEnd);
+                            return (
+                                <button
+                                    key={fileKey(`${f.path}:${lineStart ?? ""}:${lineEnd ?? ""}`)}
+                                    type="button"
+                                    onClick={() => { openProjectFile(f.path).catch(() => undefined); }}
+                                    className="flex w-fit max-w-full items-center gap-1.5 rounded-md px-1 py-0.5 text-left text-xs text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--row-hover)] hover:text-text-primary"
+                                >
+                                    <FileIcon name={name} className="size-3.5 shrink-0 opacity-85" />
+                                    <span className="min-w-0 truncate">{name}</span>
+                                    {range ? (
+                                        <span className="shrink-0 font-mono text-2xs tabular-nums text-text-muted/75">
+                                            {range}
+                                        </span>
+                                    ) : null}
+                                </button>
+                            );
+                        });
+                    })()}
                     {cleanQueries.length > 1
-                        ? cleanQueries.map((q, idx) => (
-                              <div
-                                  key={`${q}-${idx}`}
-                                  className="flex min-w-0 items-center gap-1.5 px-1 py-0.5 text-xs text-text-muted"
-                              >
-                                  <Icon
-                                      icon={DocumentSearch20Regular}
-                                      className="size-3.5 shrink-0 text-text-muted/75"
-                                  />
-                                  <span className="min-w-0 truncate font-mono text-2xs">{q}</span>
-                              </div>
-                          ))
+                        ? (() => {
+                              const queryKey = createOccurrenceKeyer();
+                              return cleanQueries.map((q) => (
+                                  <div
+                                      key={queryKey(q)}
+                                      className="flex min-w-0 items-center gap-1.5 px-1 py-0.5 text-xs text-text-muted"
+                                  >
+                                      <Icon
+                                          icon={DocumentSearch20Regular}
+                                          className="size-3.5 shrink-0 text-text-muted/75"
+                                      />
+                                      <span className="min-w-0 truncate font-mono text-2xs">{q}</span>
+                                  </div>
+                              ));
+                          })()
                         : null}
-                    {cleanPreviews.map((preview, idx) => (
-                        <pre
-                            key={`preview-${idx}`}
-                            className="mt-0.5 max-h-36 overflow-y-auto rounded-md border border-border-subtle/50 bg-surface-2/60 px-2 py-1.5 font-mono text-2xs leading-relaxed text-text-muted whitespace-pre-wrap break-words"
-                        >
-                            {preview}
-                        </pre>
-                    ))}
+                    {(() => {
+                        const previewKey = createOccurrenceKeyer();
+                        return cleanPreviews.map((preview) => (
+                            <pre
+                                key={previewKey(preview.slice(0, 64))}
+                                className="mt-0.5 max-h-36 overflow-y-auto rounded-md border border-border-subtle/50 bg-surface-2/60 px-2 py-1.5 font-mono text-2xs leading-relaxed text-text-muted whitespace-pre-wrap break-words"
+                            >
+                                {preview}
+                            </pre>
+                        ));
+                    })()}
                 </div>
             ) : null}
         </ActionLine>
     );
-}
+};
 
-function groupDetail(names: string[]): string | null {
+const groupDetail = (names: string[]): string | null => {
     const unique = [...new Set(names.map(fileName).filter(Boolean))];
     if (unique.length === 0) return null;
     if (unique.length === 1) return unique[0] ?? null;
     return `${unique[0]} + ${unique.length - 1} more`;
-}
+};
 
-function modelChipLabel(model?: string): string {
+/** Formats a model identifier into a compact chip label. */
+const modelChipLabel = (model?: string): string => {
     const bare = (model || "").split("/").pop()?.trim() || "";
     if (!bare || bare === "auto") return bare === "auto" ? "Auto" : "";
     return bare.replace(/[-_]/g, " ");
-}
+};
 
-function openSpawnedAgent(block: Chunk) {
+const openSpawnedAgent = (block: Chunk) => {
     const name = block.query || "agent";
     const id = block.file || name;
     upsertSubagent({
@@ -194,7 +206,7 @@ function openSpawnedAgent(block: Chunk) {
         status: (block.commandStatus as "running" | "done" | "error" | "pending") || "running",
     });
     openSubagent(id);
-}
+};
 
 function SubagentRow({ block }: { block: Chunk }) {
     const name = block.query || "agent";
@@ -234,7 +246,8 @@ function editDelta(block: Chunk): { add: number; del: number } {
     return countChangedLines(block.original || "", block.replacement || "");
 }
 
-function isLintCommand(cmd: string): boolean {
+/** Is lint command. */
+const isLintCommand = (cmd: string): boolean => {
     const lower = cmd.toLowerCase();
     return (
         lower.includes("eslint")
@@ -244,7 +257,7 @@ function isLintCommand(cmd: string): boolean {
         || lower.includes("tsc --noemit")
         || lower.includes("tsc -p")
     );
-}
+};
 
 const CLEAN_LINT_PATTERNS = [
     /no linter errors/i,
@@ -277,7 +290,8 @@ const isFailedWorkflowBlock = (b: Chunk): boolean => {
     return false;
 };
 
-function computeTurnStats(blocks: Chunk[]) {
+/** Compute turn stats. */
+const computeTurnStats = (blocks: Chunk[]) => {
     const readFiles = new Set<string>();
     let searches = 0;
     const editedFiles = new Set<string>();
@@ -357,15 +371,16 @@ function computeTurnStats(blocks: Chunk[]) {
         lintChecks,
         lintClean,
     };
-}
+};
 
-function ThoughtStep({
+/** Renders the ThoughtStep UI component. */
+const ThoughtStep = ({
     content,
     isActive,
 }: {
     content: string;
     isActive?: boolean;
-}) {
+}) => {
     const [open, setOpen] = useState(false);
     const trimmed = joinThoughtLines(content).trim();
     if (!trimmed) {
@@ -426,7 +441,7 @@ function ThoughtStep({
             ) : null}
         </ActionLine>
     );
-}
+};
 
 function WorkflowEditPreview({
     original,
@@ -438,11 +453,41 @@ function WorkflowEditPreview({
     return <ChatEditDiff original={original} replacement={replacement} />;
 }
 
+/** Subscribes a pending approval card to backend resolution events so cross-window decisions sync immediately. */
+const useBackendResolutionStatus = (
+    eventName: string,
+    commandId: string | undefined,
+    enabled: boolean,
+    approvedStatus: string,
+    onStatus: (status: string) => void,
+) => {
+    const onStatusRef = React.useRef(onStatus);
+    useEffect(() => {
+        onStatusRef.current = onStatus;
+    });
+    useEffect(() => {
+        if (!enabled || !commandId) return undefined;
+        let disposed = false;
+        const unlistenPromise = Promise.resolve()
+            .then(() =>
+                listen<{ id?: string; approved?: boolean }>(eventName, (event) => {
+                    if (disposed || event.payload?.id !== commandId) return;
+                    onStatusRef.current(event.payload?.approved ? approvedStatus : "rejected");
+                }),
+            )
+            .catch(() => () => undefined);
+        return () => {
+            disposed = true;
+            unlistenPromise.then((unlisten) => unlisten()).catch(() => undefined);
+        };
+    }, [approvedStatus, commandId, enabled, eventName]);
+};
+
 /**
  * Approval card for a staged file edit (require-edit-approval mode):
  * header with filename and +/− counts, expandable diff preview, Skip / Accept.
  */
-function EditApprovalRow({ block }: { block: Chunk }) {
+const EditApprovalRow = ({ block }: { block: Chunk }) => {
     const [localStatus, setLocalStatus] = useState<string | null>(null);
     const [isProcessing, setIsProcessing] = useState(false);
     const [diffOpen, setDiffOpen] = useState(true);
@@ -454,32 +499,22 @@ function EditApprovalRow({ block }: { block: Chunk }) {
         (approved: boolean) => {
             if (!block.commandId || isProcessing) return;
             setIsProcessing(true);
-            void commands
+            commands
                 .resolveEditApproval(block.commandId, approved)
                 .then(() => setLocalStatus(approved ? "applied" : "rejected"))
                 .catch(() => { /* backend upsert corrects the card */ })
-                .finally(() => setIsProcessing(false));
+                .finally(() => setIsProcessing(false)).catch(() => undefined);
         },
         [block.commandId, isProcessing],
     );
 
-    // Backend resolution (or another window) flips the card instantly.
-    useEffect(() => {
-        if (!block.commandId) return undefined;
-        let disposed = false;
-        const unlistenPromise = Promise.resolve()
-            .then(() =>
-                listen<{ id?: string; approved?: boolean }>("agent-edit-resolved", (event) => {
-                    if (disposed || event.payload?.id !== block.commandId) return;
-                    setLocalStatus(event.payload?.approved ? "applied" : "rejected");
-                }),
-            )
-            .catch(() => () => undefined);
-        return () => {
-            disposed = true;
-            unlistenPromise.then((unlisten) => unlisten()).catch(() => undefined);
-        };
-    }, [block.commandId]);
+    useBackendResolutionStatus(
+        "agent-edit-resolved",
+        block.commandId,
+        Boolean(block.commandId),
+        "applied",
+        setLocalStatus,
+    );
 
     const status = localStatus ?? block.commandStatus ?? "pending";
     if (status !== "pending") {
@@ -533,10 +568,10 @@ function EditApprovalRow({ block }: { block: Chunk }) {
             </Collapse>
         </ApprovalCard>
     );
-}
+};
 
 /** Applied (previously gated) edit, same presentation as a normal edit row. */
-function StepRowAppliedEdit({ block }: { block: Chunk }) {
+const StepRowAppliedEdit = ({ block }: { block: Chunk }) => {
     const { add, del } = editDelta(block);
     const file = block.file || "";
     const shortName = fileName(file);
@@ -552,7 +587,7 @@ function StepRowAppliedEdit({ block }: { block: Chunk }) {
                     ? {
                           label: `Open ${shortName}`,
                           icon: <Icon icon={Open20Regular} className="size-3.5" />,
-                          onClick: () => void openProjectFile(file),
+                          onClick: () => { openProjectFile(file).catch(() => undefined); },
                       }
                     : undefined
             }
@@ -565,9 +600,9 @@ function StepRowAppliedEdit({ block }: { block: Chunk }) {
             ) : null}
         </ActionLine>
     );
-}
+};
 
-function PluginCallStep({ block }: { block: Chunk }) {
+const PluginCallStep = ({ block }: { block: Chunk }) => {
     const [localStatus, setLocalStatus] = useState<string | null>(null);
     const [isProcessing, setIsProcessing] = useState(false);
     const status = localStatus ?? block.commandStatus ?? "ok";
@@ -576,41 +611,32 @@ function PluginCallStep({ block }: { block: Chunk }) {
     const label = humanizePluginActionName(slug, block.pluginLabel) || "Plugin";
     const discovery = slug === "plugin_list" || slug === "plugin_search" || slug === "plugin_tools";
 
-    useEffect(() => {
-        if (status !== "pending" || !block.commandId) return undefined;
-        let disposed = false;
-        const unlistenPromise = Promise.resolve()
-            .then(() =>
-                listen<{ id?: string; approved?: boolean }>("agent-command-resolved", (event) => {
-                    if (disposed || event.payload?.id !== block.commandId) return;
-                    setLocalStatus(event.payload?.approved ? "ok" : "rejected");
-                }),
-            )
-            .catch(() => () => undefined);
-        return () => {
-            disposed = true;
-            unlistenPromise.then((unlisten) => unlisten()).catch(() => undefined);
-        };
-    }, [status, block.commandId]);
+    useBackendResolutionStatus(
+        "agent-command-resolved",
+        block.commandId,
+        status === "pending",
+        "ok",
+        setLocalStatus,
+    );
 
     const handleAccept = useCallback(() => {
         if (!block.commandId || isProcessing) return;
         setIsProcessing(true);
-        void commands
+        commands
             .approveTerminalCommand(block.commandId)
             .then(() => setLocalStatus("ok"))
             .catch(() => setLocalStatus("error"))
-            .finally(() => setIsProcessing(false));
+            .finally(() => setIsProcessing(false)).catch(() => undefined);
     }, [block.commandId, isProcessing]);
 
     const handleReject = useCallback(() => {
         if (!block.commandId || isProcessing) return;
         setIsProcessing(true);
-        void commands
+        commands
             .rejectTerminalCommand(block.commandId)
             .then(() => setLocalStatus("rejected"))
             .catch(() => setLocalStatus("error"))
-            .finally(() => setIsProcessing(false));
+            .finally(() => setIsProcessing(false)).catch(() => undefined);
     }, [block.commandId, isProcessing]);
 
     if (discovery || status !== "pending") {
@@ -637,9 +663,10 @@ function PluginCallStep({ block }: { block: Chunk }) {
             onReject={handleReject}
         />
     );
-}
+};
 
-function StepRow({ block }: { block: Chunk }) {
+/** Renders the StepRow UI component. */
+const StepRow = ({ block }: { block: Chunk }) => {
     if (block.type === "browse_session") {
         let image = "";
         let x: number | undefined;
@@ -743,7 +770,9 @@ function StepRow({ block }: { block: Chunk }) {
                         </span>
                     ) : null
                 }
-                onClick={() => path && void openProjectFile(path)}
+                onClick={() => {
+                    if (path) openProjectFile(path).catch(() => undefined);
+                }}
             />
         );
     }
@@ -834,7 +863,7 @@ function StepRow({ block }: { block: Chunk }) {
                 detail={host}
                 favicons={url ? [url] : undefined}
                 busy={Boolean(block.isGenerating)}
-                onClick={visitUrl ? () => void commands.openUrlExternal(visitUrl) : undefined}
+                onClick={visitUrl ? () => { commands.openUrlExternal(visitUrl).catch(() => undefined); } : undefined}
             />
         );
     }
@@ -853,7 +882,7 @@ function StepRow({ block }: { block: Chunk }) {
                 secondaryAction={{
                     label: `Open ${shortName}`,
                     icon: <Icon icon={Open20Regular} className="size-3.5" />,
-                    onClick: () => void openProjectFile(file),
+                    onClick: () => { openProjectFile(file).catch(() => undefined); },
                 }}
             >
                 {add > 0 || del > 0 ? (
@@ -923,7 +952,7 @@ function StepRow({ block }: { block: Chunk }) {
 
     // ls, rename_chat, rich git groups, and anything else ActionItem knows.
     return <ActionItem block={block} />;
-}
+};
 
 function turnSummary(blocks: Chunk[], stats: ReturnType<typeof computeTurnStats>, isActive?: boolean, activityLabel?: string | null) {
     const status = [...blocks].reverse().find((b) => b.type === "status" && b.content?.trim());
@@ -945,7 +974,8 @@ function turnSummary(blocks: Chunk[], stats: ReturnType<typeof computeTurnStats>
     return isActive ? "Working" : "Worked";
 }
 
-function turnMarks(blocks: Chunk[]) {
+/** Turn marks. */
+const turnMarks = (blocks: Chunk[]) => {
     const urls: string[] = [];
     const toolkits: string[] = [];
     for (const block of blocks) {
@@ -973,9 +1003,10 @@ function turnMarks(blocks: Chunk[]) {
         urls: [...new Set(urls.filter(Boolean))].slice(0, 4),
         toolkits: [...new Set(toolkits.filter(Boolean))].slice(0, 4),
     };
-}
+};
 
-export function TurnWorkflowSummary({
+/** Renders the TurnWorkflowSummary UI component. */
+export const TurnWorkflowSummary = ({
     blocks,
     isActive,
     durationMs,
@@ -990,7 +1021,7 @@ export function TurnWorkflowSummary({
     /** When false, only the step pile is shown (for interleaved mid-turn groups). */
     showHeader?: boolean;
     children?: React.ReactNode;
-}) {
+}) => {
     const visible = blocks.filter((b) => isRenderableWorkflowBlock(b, isActive));
     const pendingBlocks = visible.filter(
         (b) =>
@@ -1084,19 +1115,22 @@ export function TurnWorkflowSummary({
         timingBadge = formatTurnDuration(effectiveDurationMs);
     }
 
-    const pendingApprovalRows = (
-        <div className="my-1 flex flex-col gap-1">
-            {pendingBlocks.map((b, i) =>
-                b.type === "edit_pending" ? (
-                    <EditApprovalRow key={b.commandId || `pending-edit-${i}`} block={b} />
-                ) : b.type === "plugin_call" ? (
-                    <PluginCallStep key={b.commandId || `pending-plugin-${i}`} block={b} />
-                ) : (
-                    <TerminalCommandStep key={b.commandId || `pending-${i}`} block={b} />
-                ),
-            )}
-        </div>
-    );
+    const pendingApprovalRows = (() => {
+        const pendingKey = createOccurrenceKeyer();
+        return (
+            <div className="my-1 flex flex-col gap-1">
+                {pendingBlocks.map((b) =>
+                    b.type === "edit_pending" ? (
+                        <EditApprovalRow key={b.commandId || pendingKey(`pending-edit:${b.file ?? ""}`)} block={b} />
+                    ) : b.type === "plugin_call" ? (
+                        <PluginCallStep key={b.commandId || pendingKey(`pending-plugin:${b.query ?? ""}`)} block={b} />
+                    ) : (
+                        <TerminalCommandStep key={b.commandId || pendingKey(`pending-cmd:${b.command ?? ""}`)} block={b} />
+                    ),
+                )}
+            </div>
+        );
+    })();
 
     const leadThoughtSlot = leadThought
         ? rows.findIndex(
@@ -1112,95 +1146,98 @@ export function TurnWorkflowSummary({
             {leadThought?.content?.trim() || leadThought?.isGenerating ? (
                 <ThoughtStep content={leadThought.content || ""} isActive={leadThought.isGenerating} />
             ) : null}
-            {rows.map((row, slot) => {
-                if (slot === leadThoughtSlot) return null;
-                const enterClass = isActive && slot === rows.length - 1 ? "t-step-enter" : undefined;
-                if (row.kind === "subagent_group") {
+            {(() => {
+                const rowKey = createOccurrenceKeyer();
+                return rows.map((row, pos) => {
+                    if (pos === leadThoughtSlot) return null;
+                    const enterClass = isActive && pos === rows.length - 1 ? "t-step-enter" : undefined;
+                    if (row.kind === "subagent_group") {
+                        return (
+                            <div key={rowKey(`subs:${row.blocks.length}`)} className={enterClass}>
+                                <SubagentSpawnGroup blocks={row.blocks} />
+                            </div>
+                        );
+                    }
+                    if (row.kind === "git_stage_group") {
+                        return (
+                            <div key={rowKey(`stage:${row.paths.join(",")}`)} className={enterClass}>
+                                <GitStageGroup paths={row.paths} />
+                            </div>
+                        );
+                    }
+                    if (row.kind === "read_group") {
+                        const firstRead = row.files.at(0);
+                        const firstName = firstRead ? fileName(firstRead.path) : "file.txt";
+                        return (
+                            <div key={rowKey(`reads:${firstRead?.path ?? ""}`)} className={enterClass}>
+                                <GroupActionLabel
+                                    action="Explored"
+                                    detail={groupDetail(row.files.map((f) => f.path))}
+                                    icon={<FileIcon name={firstName} className="size-3.5 shrink-0 opacity-85" />}
+                                    files={row.files}
+                                />
+                            </div>
+                        );
+                    }
+                    if (row.kind === "search_group") {
+                        return (
+                            <div key={rowKey(`searches:${row.queries[0] ?? ""}`)} className={enterClass}>
+                                <GroupActionLabel
+                                    action="Searched"
+                                    detail={row.count > 1 ? `${row.count} times` : groupDetail(row.queries)}
+                                    icon={
+                                        <Icon
+                                            icon={DocumentSearch20Regular}
+                                            className="size-3.5 text-text-muted/80"
+                                        />
+                                    }
+                                    queries={row.queries}
+                                    previews={row.previews}
+                                />
+                            </div>
+                        );
+                    }
+                    if (row.kind === "write_group") {
+                        const firstName = row.paths[0] ? fileName(row.paths[0]) : "file.txt";
+                        return (
+                            <div key={rowKey(`writes:${row.paths[0] ?? ""}`)} className={enterClass}>
+                                <GroupActionLabel
+                                    action="Edited"
+                                    detail={groupDetail(row.paths)}
+                                    icon={<FileIcon name={firstName} className="size-3.5 shrink-0 opacity-85" />}
+                                    files={row.paths.map((p) => ({ path: p }))}
+                                />
+                            </div>
+                        );
+                    }
+                    if (row.kind === "list_group") {
+                        return (
+                            <div key={rowKey(`lists:${row.count}`)} className={enterClass}>
+                                <GroupActionLabel
+                                    action="Listed"
+                                    detail={row.count > 1 ? `${row.count} folders` : "folders"}
+                                    icon={<Icon icon={Folder20Regular} className="size-3.5 text-text-muted/80" />}
+                                />
+                            </div>
+                        );
+                    }
+                    if (row.kind === "web_trail") {
+                        return (
+                            <div key={rowKey(`web:${row.blocks[0]?.query ?? ""}`)} className={enterClass}>
+                                <WebSearchTrail
+                                    blocks={row.blocks}
+                                    isActive={row.blocks.some((b) => b.isGenerating)}
+                                />
+                            </div>
+                        );
+                    }
                     return (
-                        <div key={`subs-${slot}`} className={enterClass}>
-                            <SubagentSpawnGroup blocks={row.blocks} />
+                        <div key={rowKey(`step:${row.block.type}:${row.block.file ?? row.block.commandId ?? ""}`)} className={enterClass}>
+                            <StepRow block={row.block} />
                         </div>
                     );
-                }
-                if (row.kind === "git_stage_group") {
-                    return (
-                        <div key={`stage-${slot}`} className={enterClass}>
-                            <GitStageGroup paths={row.paths} />
-                        </div>
-                    );
-                }
-                if (row.kind === "read_group") {
-                    const firstRead = row.files.at(0);
-                    const firstName = firstRead ? fileName(firstRead.path) : "file.txt";
-                    return (
-                        <div key={`reads-${slot}`} className={enterClass}>
-                            <GroupActionLabel
-                                action="Explored"
-                                detail={groupDetail(row.files.map((f) => f.path))}
-                                icon={<FileIcon name={firstName} className="size-3.5 shrink-0 opacity-85" />}
-                                files={row.files}
-                            />
-                        </div>
-                    );
-                }
-                if (row.kind === "search_group") {
-                    return (
-                        <div key={`searches-${slot}`} className={enterClass}>
-                            <GroupActionLabel
-                                action="Searched"
-                                detail={row.count > 1 ? `${row.count} times` : groupDetail(row.queries)}
-                                icon={
-                                    <Icon
-                                        icon={DocumentSearch20Regular}
-                                        className="size-3.5 text-text-muted/80"
-                                    />
-                                }
-                                queries={row.queries}
-                                previews={row.previews}
-                            />
-                        </div>
-                    );
-                }
-                if (row.kind === "write_group") {
-                    const firstName = row.paths[0] ? fileName(row.paths[0]) : "file.txt";
-                    return (
-                        <div key={`writes-${slot}`} className={enterClass}>
-                            <GroupActionLabel
-                                action="Edited"
-                                detail={groupDetail(row.paths)}
-                                icon={<FileIcon name={firstName} className="size-3.5 shrink-0 opacity-85" />}
-                                files={row.paths.map((p) => ({ path: p }))}
-                            />
-                        </div>
-                    );
-                }
-                if (row.kind === "list_group") {
-                    return (
-                        <div key={`lists-${slot}`} className={enterClass}>
-                            <GroupActionLabel
-                                action="Listed"
-                                detail={row.count > 1 ? `${row.count} folders` : "folders"}
-                                icon={<Icon icon={Folder20Regular} className="size-3.5 text-text-muted/80" />}
-                            />
-                        </div>
-                    );
-                }
-                if (row.kind === "web_trail") {
-                    return (
-                        <div key={`web-${slot}`} className={enterClass}>
-                            <WebSearchTrail
-                                blocks={row.blocks}
-                                isActive={row.blocks.some((b) => b.isGenerating)}
-                            />
-                        </div>
-                    );
-                }
-                return (
-                    <div key={`step-${slot}`} className={enterClass}>
-                        <StepRow block={row.block} />
-                    </div>
-                );
-            })}
+                });
+            })()}
             {showLintFooter && !lintShownInSteps ? (
                 <ActionLine
                     action="Checked"
@@ -1289,4 +1326,4 @@ export function TurnWorkflowSummary({
             {children}
         </div>
     );
-}
+};

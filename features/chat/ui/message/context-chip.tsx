@@ -16,7 +16,7 @@ import type { AgentWorkflow } from "@/lib/chat/workflows";
 import { cn } from "@/lib/utils";
 
 /** Shared @ / slash chip — same size in the composer and in sent messages. */
-export function ContextChip({
+export const ContextChip = ({
     icon,
     children,
     className,
@@ -26,7 +26,7 @@ export function ContextChip({
     children: ReactNode;
     className?: string;
     onClick?: () => void;
-}) {
+}) => {
     const classes = cn(
         "mx-0.5 inline-flex items-center gap-1 rounded-lg bg-accent-text-bg px-1.5 py-0.5 align-middle font-medium text-accent-text",
         onClick &&
@@ -49,7 +49,7 @@ export function ContextChip({
         );
     }
     return <span className={classes}>{body}</span>;
-}
+};
 
 export function MentionChipIcon({ mention }: { mention: ChatMention }) {
     const label = mentionDisplayLabel(mention);

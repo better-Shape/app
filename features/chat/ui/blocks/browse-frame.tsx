@@ -146,7 +146,8 @@ export function BrowseStage({
     );
 }
 
-export function BrowseChatCard({
+/** Renders the BrowseChatCard UI component. */
+export const BrowseChatCard = ({
     url,
     title,
     status,
@@ -164,9 +165,9 @@ export function BrowseChatCard({
     y?: number;
     consoleLines?: string[];
     followLive?: boolean;
-}) {
+}) => {
     const live = useBrowseFrame();
-    const driving = followLive && !!live && (live.status === "controlling" || live.status === "loading");
+    const driving = Boolean(followLive && live && (live.status === "controlling" || live.status === "loading"));
     const mirror = driving ? live : null;
     const savedStatus = (status as BrowseFrame["status"]) || "stopped";
     const frame = {
@@ -194,8 +195,8 @@ export function BrowseChatCard({
                         aria-label="Stop the agent browser"
                         className="absolute right-2 top-2 z-20 flex size-[24px] items-center justify-center rounded-md bg-surface-1/90 text-text-primary"
                         onClick={() => {
-                            void commands.agentBrowseStop();
-                            void commands.stopChatMessage();
+                            commands.agentBrowseStop().catch(() => undefined);
+                            commands.stopChatMessage().catch(() => undefined);
                         }}
                     >
                         <Icon icon={Dismiss20Regular} />
@@ -219,7 +220,7 @@ export function BrowseChatCard({
             ) : null}
         </div>
     );
-}
+};
 
 export function AgentControlBar() {
     const frame = useBrowseFrame();

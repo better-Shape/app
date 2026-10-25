@@ -927,7 +927,7 @@ export function normalizeProvidersSettings(
 }
 
 /** True when this connection can be routed right now. */
-export function isConnectionUsable(id: ProviderId, connections: Record<ProviderId, ProviderConnection>): boolean {
+export const isConnectionUsable = (id: ProviderId, connections: Record<ProviderId, ProviderConnection>): boolean => {
   const connection = connections[id];
   if (!connection?.enabled) return false;
   const preset = providerPreset(id);
@@ -938,7 +938,7 @@ export function isConnectionUsable(id: ProviderId, connections: Record<ProviderI
     return preset.keyless === true || providerAuthStyle(id, connection) === "none";
   }
   return true;
-}
+};
 
 /** Request headers for a connection: preset defaults, then the user's own. */
 export function providerHeaders(id: ProviderId, connection: ProviderConnection | undefined): Record<string, string> {
@@ -1006,17 +1006,26 @@ export function formatHeaderLines(headers: Record<string, string> | undefined): 
     .join("\n");
 }
 
-export function hasAnyUsableProvider(settings: ProvidersSettings): boolean {
+/** Has any usable provider. */
+export const hasAnyUsableProvider = (settings: ProvidersSettings): boolean => {
   return availableModels(settings).length > 0;
-}
+};
 
 /** True when at least one connection is enabled and usable (with credentials or keyless auth), even if model IDs still need to be added. */
-export function hasAnyConfiguredConnection(settings: ProvidersSettings): boolean {
+export const hasAnyConfiguredConnection = (settings: ProvidersSettings): boolean => {
   return PROVIDER_PRESETS.some((preset) => isConnectionUsable(preset.id, settings.connections));
-}
+};
+
+/** Diagnostics for why no provider model is currently routable, or `null` when ready. */
+export const providerSetupIssue = (
+  settings: ProvidersSettings,
+): "missing-models" | "missing-credentials" | null => {
+  if (hasAnyUsableProvider(settings)) return null;
+  return hasAnyConfiguredConnection(settings) ? "missing-models" : "missing-credentials";
+};
 
 /** Concrete model ID that `"auto"` routes to right now, or `null` when none is routable. */
-export function resolveActiveDefaultModelId(settings: ProvidersSettings): string | null {
+export const resolveActiveDefaultModelId = (settings: ProvidersSettings): string | null => {
   const models = availableModels(settings);
   if (models.length === 0) return null;
   const wanted = settings.defaultModel.trim();
@@ -1024,10 +1033,10 @@ export function resolveActiveDefaultModelId(settings: ProvidersSettings): string
     return wanted;
   }
   return models[0]?.id ?? null;
-}
+};
 
 /** Model ids offered by a connection: preset list plus anything the user added. */
-export function modelIdsFor(id: ProviderId, connections: Record<ProviderId, ProviderConnection>): string[] {
+export const modelIdsFor = (id: ProviderId, connections: Record<ProviderId, ProviderConnection>): string[] => {
   const connection = connections[id];
   const preset = providerPreset(id);
   const pinned = connection.models.length > 0 ? connection.models : preset.models.map((m) => m.id);
@@ -1044,7 +1053,7 @@ export function modelIdsFor(id: ProviderId, connections: Record<ProviderId, Prov
       return `${id}/${raw}`;
     });
   return [...new Set([...pinned, ...extra])];
-}
+};
 
 export type ModelOption = {
   id: string;

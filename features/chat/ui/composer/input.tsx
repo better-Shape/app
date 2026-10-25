@@ -130,10 +130,11 @@ const focusSearchOnMount = (node: HTMLInputElement | null) => {
 };
 
 /** Should composer break all. */
-export function shouldComposerBreakAll(value: string): boolean {
+export const shouldComposerBreakAll = (value: string): boolean => {
     if (!value) return false;
-    return /^(?:[ \t]+\S{16,}|[ \t]{10,}\S+)/m.test(value);
-}
+    if (/\S[ \t]+\S/.test(value)) return false;
+    return /^(?:[ \t]+\S{16,}|[ \t]{10,}\S+)/.test(value);
+};
 
 /** Format paste size label. */
 const formatPasteSizeLabel = (text: string): string => {

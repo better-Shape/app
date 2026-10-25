@@ -32,7 +32,8 @@ import {
     type WorkspaceTab,
 } from "./model";
 
-export function AgentWorkspace({
+/** Renders the AgentWorkspace UI component. */
+export const AgentWorkspace = ({
     projectPath,
     expanded,
     onExpand,
@@ -40,7 +41,7 @@ export function AgentWorkspace({
     projectPath: string;
     expanded: boolean;
     onExpand: () => void;
-}) {
+}) => {
     const { active_file } = useProjectState();
     const [tabs, setTabs] = useState<WorkspaceTab[]>(DEFAULT_TABS);
     const [activeId, setActiveId] = useState("graph");
@@ -365,4 +366,4 @@ export function AgentWorkspace({
             </div>
         </aside>
     );
-}
+};

@@ -9,6 +9,7 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { getBetterShapeSyntaxTheme } from "@/lib/ui/syntax-theme";
+import { createOccurrenceKeyer } from "@/lib/utils";
 import { FileIcon } from "@/components/ui/file-icon";
 import { openProjectFile } from "@/lib/window/open-project-file";
 import { Icon } from "@/components/ui/icon";
@@ -47,7 +48,8 @@ type PathProbeEntry = {
 const pathExistsCache = new Map<string, PathProbeEntry>();
 const pathExistsInflight = new Map<string, Promise<boolean>>();
 
-function peekCachedPathExists(resolvedPath: string): boolean | null {
+/** Peek cached path exists. */
+const peekCachedPathExists = (resolvedPath: string): boolean | null => {
     const hit = pathExistsCache.get(resolvedPath);
     if (!hit) return null;
     if (hit.expiresAt < Date.now()) {
@@ -58,9 +60,10 @@ function peekCachedPathExists(resolvedPath: string): boolean | null {
     pathExistsCache.delete(resolvedPath);
     pathExistsCache.set(resolvedPath, hit);
     return hit.exists;
-}
+};
 
-function storeCachedPathExists(resolvedPath: string, exists: boolean): void {
+/** Store cached path exists. */
+const storeCachedPathExists = (resolvedPath: string, exists: boolean): void => {
     if (pathExistsCache.has(resolvedPath)) {
         pathExistsCache.delete(resolvedPath);
     }
@@ -72,19 +75,27 @@ function storeCachedPathExists(resolvedPath: string, exists: boolean): void {
         const oldest = pathExistsCache.keys().next().value;
         if (oldest !== undefined) pathExistsCache.delete(oldest);
     }
-}
+};
 
 let pathExistsEpoch = 0;
 const pathExistsEpochListeners = new Set<() => void>();
 
-function probeProjectPathExists(resolvedPath: string): Promise<boolean> {
+/** Trim trailing slashes. */
+const trimTrailingSlashes = (value: string): string => {
+    let end = value.length;
+    while (end > 0 && value.charCodeAt(end - 1) === 47) end -= 1;
+    return end === value.length ? value : value.slice(0, end);
+};
+
+/** Probe project path exists. */
+const probeProjectPathExists = (resolvedPath: string): Promise<boolean> => {
     const cached = peekCachedPathExists(resolvedPath);
     if (cached !== null) return Promise.resolve(cached);
     const inflight = pathExistsInflight.get(resolvedPath);
     if (inflight) return inflight;
 
     const epochAtStart = pathExistsEpoch;
-    const normalized = resolvedPath.replace(/\\/g, "/").replace(/\/+$/, "");
+    const normalized = trimTrailingSlashes(resolvedPath.replace(/\\/g, "/"));
     const slashIdx = normalized.lastIndexOf("/");
     const parentDir = slashIdx > 0 ? normalized.slice(0, slashIdx) : slashIdx === 0 ? "/" : "";
     const baseName = slashIdx >= 0 ? normalized.slice(slashIdx + 1) : normalized;
@@ -107,7 +118,9 @@ function probeProjectPathExists(resolvedPath: string): Promise<boolean> {
     ): boolean | Promise<boolean> => {
         let hasCaseFoldedMatch = false;
         for (const entry of entries) {
-            const entryPath = entry?.path?.replace(/\\/g, "/").replace(/\/+$/, "");
+            const entryPath = entry?.path
+                ? trimTrailingSlashes(entry.path.replace(/\\/g, "/"))
+                : undefined;
             if (entry?.name === baseName || entryPath === normalized) {
                 return true;
             }
@@ -140,7 +153,7 @@ function probeProjectPathExists(resolvedPath: string): Promise<boolean> {
 
     pathExistsInflight.set(resolvedPath, req);
     return req;
-}
+};
 
 if (typeof window !== "undefined") {
     window.addEventListener("bettershape-files-changed", () => {
@@ -153,7 +166,8 @@ if (typeof window !== "undefined") {
     });
 }
 
-function ProjectPathLink({ path }: { path: string }) {
+/** Renders the ProjectPathLink UI component. */
+const ProjectPathLink = ({ path }: { path: string }) => {
     const resolved = resolveProjectFilePath(path, getProjectPath());
     const [cacheRev, setCacheRev] = useState(0);
     const [probeResult, setProbeResult] = useState<{ resolved: string; exists: boolean | null }>(
@@ -210,16 +224,17 @@ function ProjectPathLink({ path }: { path: string }) {
                 type="button"
                 className="text-accent-text underline decoration-accent-text/40 underline-offset-2 transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:decoration-accent-text"
                 onClick={() => {
-                    void openProjectFile(path);
+                    openProjectFile(path).catch(() => undefined);
                 }}
             >
                 {path}
             </button>
         </Tooltip>
     );
-}
+};
 
-function linkifyText(text: string): React.ReactNode {
+/** Linkify text. */
+const linkifyText = (text: string): React.ReactNode => {
     if (!text.includes(".") || (!text.includes("/") && !text.includes("\\"))) {
         return text;
     }
@@ -239,15 +254,17 @@ function linkifyText(text: string): React.ReactNode {
     if (last === 0) return text;
     if (last < text.length) nodes.push(text.slice(last));
     return nodes;
-}
+};
 
-function linkifyChildren(children: React.ReactNode): React.ReactNode {
+/** Linkify children. */
+const linkifyChildren = (children: React.ReactNode): React.ReactNode => {
     return React.Children.map(children, (child) => {
         if (typeof child === "string") return linkifyText(child);
         return child;
     });
-}
+};
 
+/** Renders the CodeBlock UI component. */
 const CodeBlock = React.memo(function CodeBlock({
     language,
     code,
@@ -425,17 +442,17 @@ const useRevealText = (full: string, live: boolean) => {
     const moreToShow = !reducedMotion && shown < len;
 
     useEffect(() => {
-        if (reducedMotion) return;
+        if (reducedMotion) return undefined;
         // Finished message that never streamed in this mount, show fully.
         if (!live && !wasLive.current) {
             setShown(len);
-            return;
+            return undefined;
         }
         if (shownRef.current > len) {
             setShown(len);
-            return;
+            return undefined;
         }
-        if (shownRef.current >= len) return;
+        if (shownRef.current >= len) return undefined;
 
         let raf = 0;
         let last = performance.now();
@@ -463,6 +480,7 @@ const useRevealText = (full: string, live: boolean) => {
     return reducedMotion ? full : full.slice(0, shown);
 };
 
+/** Renders the MarkdownSegment UI component. */
 const MarkdownSegment = React.memo(function MarkdownSegment({
     content,
     components,
@@ -478,6 +496,7 @@ const MarkdownSegment = React.memo(function MarkdownSegment({
     );
 });
 
+/** Renders the ChatMarkdown UI component. */
 export const ChatMarkdown = React.memo(({
     content,
     nested,
@@ -500,15 +519,15 @@ export const ChatMarkdown = React.memo(({
     // latches on during render, and only the release is timed, so the effect never sets state
     // synchronously and the reveal does not lose a frame at the start of generation.
     const [hold, setHold] = useState(false);
-    const holding = !!isGenerating && !!isLast;
+    const holding = Boolean(isGenerating) && Boolean(isLast);
     if (holding && !hold) setHold(true);
     useEffect(() => {
-        if (holding || !hold) return;
+        if (holding || !hold) return undefined;
         const t = window.setTimeout(() => setHold(false), 700);
         return () => window.clearTimeout(t);
     }, [holding, hold]);
 
-    const live = !nested && !!isLast && (!!isGenerating || hold);
+    const live = !nested && Boolean(isLast) && (Boolean(isGenerating) || hold);
     const visible = useRevealText(content, live);
 
     const settledComponents = React.useMemo(
@@ -544,13 +563,16 @@ export const ChatMarkdown = React.memo(({
 
     return (
         <div className="font-sans chat-markdown-body">
-            {settled.map((block, idx) => (
-                <MarkdownSegment
-                    key={`b-${idx}`}
-                    content={block}
-                    components={settledComponents}
-                />
-            ))}
+            {(() => {
+                const blockKey = createOccurrenceKeyer();
+                return settled.map((block) => (
+                    <MarkdownSegment
+                        key={blockKey(block.slice(0, 32))}
+                        content={block}
+                        components={settledComponents}
+                    />
+                ));
+            })()}
             {tail ? (
                 <MarkdownSegment
                     key={`tail-${settled.length}`}
@@ -562,6 +584,7 @@ export const ChatMarkdown = React.memo(({
     );
 });
 
+/** createMarkdownComponents helper. */
 function createMarkdownComponents(options?: { nested?: boolean; streamingFence?: boolean }) {
     const nested = options?.nested;
     const streamingFence = Boolean(options?.streamingFence);
@@ -639,7 +662,7 @@ function createMarkdownComponents(options?: { nested?: boolean; streamingFence?:
                             type="button"
                             className="mx-0.5 inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-panel-hover px-2 py-0.5 align-middle font-sans chat-text text-text-primary transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)]"
                             onClick={() => {
-                                void openProjectFile(fullPath, name);
+                                openProjectFile(fullPath, name).catch(() => undefined);
                             }}
                         >
                             <FileIcon name={name} className="h-4 w-4" />

@@ -48,13 +48,13 @@ const DropdownScrollScrim = ({ side, visible }: { side: "up" | "down"; visible: 
  * The max height is on this element and not on the content, so the sticky group headings
  * have a scroll container to stick to and the menu's own shadow is not clipped by it.
  */
-function DropdownScrollArea({
+const DropdownScrollArea = ({
     className,
     children,
 }: {
     className?: string;
     children: React.ReactNode;
-}) {
+}) => {
     const ref = React.useRef<HTMLDivElement>(null);
     const [canUp, setCanUp] = React.useState(false);
     const [canDown, setCanDown] = React.useState(false);
@@ -68,17 +68,23 @@ function DropdownScrollArea({
         const overflow = scrollHeight > clientHeight + 1;
         setCanUp(overflow && scrollTop > 2);
         setCanDown(overflow && scrollTop + clientHeight < scrollHeight - 2);
-        setHasStickySearch(!!el.querySelector("[data-dropdown-search]"));
+        setHasStickySearch(Boolean(el.querySelector("[data-dropdown-search]")));
     }, []);
 
     React.useLayoutEffect(() => {
         const el = ref.current;
-        if (!el) return;
+        if (!el) return undefined;
         update();
         const ro =
-            typeof ResizeObserver !== "undefined" ? new ResizeObserver(() => update()) : null;
+            typeof ResizeObserver !== "undefined"
+                ? new ResizeObserver(() => {
+                      update();
+                  })
+                : null;
         ro?.observe(el);
-        const mo = new MutationObserver(() => update());
+        const mo = new MutationObserver(() => {
+            update();
+        });
         mo.observe(el, { childList: true, subtree: true });
         return () => {
             ro?.disconnect();
@@ -103,7 +109,7 @@ function DropdownScrollArea({
             <DropdownScrollScrim side="down" visible={canDown} />
         </div>
     );
-}
+};
 
 /**
  * Dropdown Menu Components

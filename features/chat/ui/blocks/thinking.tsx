@@ -2,51 +2,30 @@
 
 import { ChevronDown20Regular } from "@fluentui/react-icons/headless/svg/chevron-down";
 import { ChevronUp20Regular } from "@fluentui/react-icons/headless/svg/chevron-up";
-import React, { useEffect, useRef } from "react";
+import React, { useRef } from "react";
 import { Icon } from "@/components/ui/icon";
-import { cn } from "@/lib/utils";
+import { cn, createOccurrenceKeyer } from "@/lib/utils";
 import {
-    CHAT_EXPAND_FOR_FIND_EVENT,
     notifyTranscriptDisclosureToggle,
+    useExpandForChatFind,
 } from "../shell/find-bar";
 import { Collapse } from "./collapse";
 import { GeneratingIndicator } from "./generating";
 
-export function ThinkingBlock({ content, isActive }: { content: string; isActive?: boolean }) {
+/** Renders the ThinkingBlock UI component. */
+export const ThinkingBlock = ({ content, isActive }: { content: string; isActive?: boolean }) => {
     const rootRef = useRef<HTMLDivElement>(null);
     const [isOpen, setIsOpen] = React.useState(true);
 
     const lines = content.split("\n").filter(Boolean);
     const showBottomCollapse = isOpen && lines.length >= 10;
 
-    useEffect(() => {
-        if (isOpen) return undefined;
-        const onExpandForFind = (e: Event) => {
-            const detail = (
-                e as CustomEvent<{
-                    messageIndex?: number;
-                    query?: string;
-                    caseSensitive?: boolean;
-                }>
-            ).detail;
-            const root = rootRef.current;
-            if (!root || detail?.messageIndex == null) return;
-            const msgEl = root.closest<HTMLElement>("[data-chat-message-index]");
-            if (!msgEl || Number(msgEl.getAttribute("data-chat-message-index")) !== detail.messageIndex) {
-                return;
-            }
-            const q = (detail.query ?? "").trim();
-            if (!q) return;
-            const matched = detail.caseSensitive
-                ? content.includes(q)
-                : content.toLowerCase().includes(q.toLowerCase());
-            if (matched) setIsOpen(true);
-        };
-        window.addEventListener(CHAT_EXPAND_FOR_FIND_EVENT, onExpandForFind as EventListener);
-        return () => {
-            window.removeEventListener(CHAT_EXPAND_FOR_FIND_EVENT, onExpandForFind as EventListener);
-        };
-    }, [isOpen, content]);
+    useExpandForChatFind({
+        enabled: !isOpen,
+        rootRef,
+        getSearchText: () => content,
+        onExpand: () => setIsOpen(true),
+    });
 
     const handleToggle = () => {
         notifyTranscriptDisclosureToggle(rootRef.current);
@@ -80,17 +59,20 @@ export function ThinkingBlock({ content, isActive }: { content: string; isActive
                     aria-busy={isActive || undefined}
                     className="mt-1 flex w-full min-w-0 flex-col gap-1 pl-3.5 text-sm leading-relaxed text-text-muted"
                 >
-                    {lines.map((line, i) => (
-                        <span
-                            key={`line-${i}-${line.slice(0, 16)}`}
-                            className={cn(
-                                "block",
-                                isActive && i === lines.length - 1 && "text-text-secondary",
-                            )}
-                        >
-                            {line}
-                        </span>
-                    ))}
+                    {(() => {
+                        const keyFor = createOccurrenceKeyer();
+                        return lines.map((line, pos) => (
+                            <span
+                                key={keyFor(line.slice(0, 24) || "blank")}
+                                className={cn(
+                                    "block",
+                                    isActive && pos === lines.length - 1 && "text-text-secondary",
+                                )}
+                            >
+                                {line}
+                            </span>
+                        ));
+                    })()}
                     {showBottomCollapse ? (
                         <div className="pt-1">
                             <button
@@ -107,4 +89,4 @@ export function ThinkingBlock({ content, isActive }: { content: string; isActive
             </Collapse>
         </div>
     );
-}
+};

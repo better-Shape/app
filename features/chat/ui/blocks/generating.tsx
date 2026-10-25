@@ -5,7 +5,8 @@ import { Eclipse } from "loading-dev";
 import { SwapText } from "@/components/ui/swap";
 import { cn } from "@/lib/utils";
 
-function formatElapsed(seconds: number): string {
+/** Format elapsed. */
+const formatElapsed = (seconds: number): string => {
     if (seconds < 60) return `${seconds}s`;
     const mins = Math.floor(seconds / 60);
     const rem = seconds % 60;

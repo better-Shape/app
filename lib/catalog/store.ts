@@ -40,19 +40,19 @@ export function getCatalogModels(): ModelInfo[] {
 }
 
 /** Concrete model that `"auto"` currently resolves to, or `null` when unconfigured. */
-export function getCatalogResolvedAutoModel(): ModelInfo | null {
+export const getCatalogResolvedAutoModel = (): ModelInfo | null => {
   const providers = getSettings().ai.providers;
   const activeId = resolveActiveDefaultModelId(providers);
   if (!activeId) return null;
   const list = toModelInfo(providers);
   return list.find((m) => m.id === activeId) ?? list[0] ?? null;
-}
+};
 
 /** True when an enabled connection (with an API key or keyless local endpoint) still has zero model IDs configured. */
-export function hasCatalogConnectionMissingModels(): boolean {
+export const hasCatalogConnectionMissingModels = (): boolean => {
   const providers = getSettings().ai.providers;
   return hasAnyConfiguredConnection(providers) && availableModels(providers).length === 0;
-}
+};
 
 /** Models offered by one provider id. */
 export function getCatalogModelsForProvider(providerId: string): ModelInfo[] {

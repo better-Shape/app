@@ -20,7 +20,8 @@ import {
     subscribeSubagents,
 } from "./store";
 
-export function SubagentChatView() {
+/** Renders the SubagentChatView UI component. */
+export const SubagentChatView = () => {
     const card = useSyncExternalStore(subscribeSubagents, getActiveSubagent, getActiveSubagent);
 
     useEffect(() => {
@@ -91,4 +92,4 @@ export function SubagentChatView() {
             </div>
         </div>
     );
-}
+};
