@@ -215,7 +215,7 @@ const formatSkillMentionToken = (mention: ChatMention): string => {
     return `@skill:${slugifyMentionLabel(source || mention.label || "skill")}`;
 };
 
-const MENTION_TOKEN_FORMATTERS: Record<string, (mention: ChatMention) => string> = {
+const MENTION_TOKEN_FORMATTERS: Partial<Record<string, (mention: ChatMention) => string>> = {
     codebase: () => "@codebase",
     selection: () => "@selection",
     design: (m) => `@${(m.label || m.id || "design").trim().replace(/\s+/g, "-")}`,

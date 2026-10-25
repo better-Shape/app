@@ -585,7 +585,7 @@ const advanceInlineCodeRange = (
 ): { nextRangeIndex: number; insideCode: boolean } => {
     let idx = rangeIndex;
     while (idx < codeRanges.length && codeRanges[idx][1] <= lt) idx += 1;
-    const active = codeRanges[idx];
+    const active = codeRanges.at(idx);
     return {
         nextRangeIndex: idx,
         insideCode: Boolean(active && lt >= active[0] && lt < active[1]),

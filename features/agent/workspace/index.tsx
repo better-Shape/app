@@ -43,7 +43,7 @@ const ADDABLE_TAB_TITLES: Partial<Record<TabKind, string>> = {
     blame: "blame",
 };
 
-const WORKSPACE_TAB_ALIASES: Record<string, TabKind> = {
+const WORKSPACE_TAB_ALIASES: Partial<Record<string, TabKind>> = {
     preview: "files",
     browser: "files",
     files: "files",

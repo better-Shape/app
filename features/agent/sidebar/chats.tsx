@@ -298,7 +298,7 @@ const useChatListEventBindings = ({
             const visibleChats = sections
                 .filter((section) => !collapsed.has(section.id))
                 .flatMap((section) => section.chats);
-            const chat = visibleChats[Number(event.key) - 1];
+            const chat = visibleChats.at(Number(event.key) - 1);
             if (!chat) return;
             event.preventDefault();
             event.stopPropagation();
@@ -1083,7 +1083,7 @@ const useChatRowPropsBuilder = ({
             active: chat.id === activeId,
             pinned: pinnedIds.has(chat.id),
             unread: unreadIds.has(chat.id),
-            color: colors[chat.id] || null,
+            color: (colors as Partial<typeof colors>)[chat.id] ?? null,
             subagents: allSubagents.filter((card) => card.parentId === chat.id),
             selecting: selectedIds.length > 0,
             selected: selectedIds.includes(chat.id),

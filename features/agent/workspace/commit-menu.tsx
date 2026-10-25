@@ -409,7 +409,7 @@ const resolveApprovedCommitPaths = async ({
 /** Sums diff `+` / `-` line counts across tracked files in the working tree. */
 const sumWorkingTreeDiffStats = (
     files: GitFileParams[],
-    stats: Record<string, { plus: number; minus: number }>,
+    stats: Partial<Record<string, { plus: number; minus: number }>>,
 ) => {
     let plus = 0;
     let minus = 0;

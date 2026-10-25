@@ -1011,7 +1011,7 @@ type WorkflowActionBuilder = (block: Chunk, inFlight: boolean | undefined) => {
     gitDiffMeta?: ReturnType<typeof parseGitDiffMeta>;
 };
 
-const WORKFLOW_ACTION_BUILDERS: Record<string, WorkflowActionBuilder> = {
+const WORKFLOW_ACTION_BUILDERS: Partial<Record<string, WorkflowActionBuilder>> = {
     think: (block, inFlight) => ({
         label: inFlight ? "Thinking" : "Thought",
         expandable: true,
