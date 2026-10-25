@@ -72,11 +72,6 @@ function dispatchChatPromptForProblem(prompt: string) {
     window.dispatchEvent(new CustomEvent("bettershape-chat-focus-input"));
     if (typeof window.requestAnimationFrame === "function") {
         window.requestAnimationFrame(() => {
-            window.dispatchEvent(
-                new CustomEvent("bettershape-chat-insert-prompt", {
-                    detail: { prompt, send: false },
-                }),
-            );
             window.dispatchEvent(new CustomEvent("bettershape-chat-focus-input"));
         });
     }

@@ -236,6 +236,22 @@ const focusInsertedChatSurface = (openWorkspace?: boolean): void => {
     );
 };
 
+/** True when the chat session is mid-stream or already admitting a send. */
+const isChatSendBusy = (isLoading: boolean, sendsInFlight: number): boolean =>
+    isLoading || sendsInFlight > 0;
+
+/** Restores a failed auto-submitted prompt into an empty composer draft. */
+const restoreFailedAutoSendDraft = (
+    prompt: string,
+    setInputValue: React.Dispatch<React.SetStateAction<string>>,
+): void => {
+    setInputValue((prev) => {
+        if (prev) return prev;
+        persistComposerDraft(prompt);
+        return prompt;
+    });
+};
+
 /** Sends or enqueues an auto-submitted prompt insertion depending on turn state. */
 const dispatchInsertedSend = (
     prompt: string,
@@ -243,15 +259,51 @@ const dispatchInsertedSend = (
     isBuiltin: boolean,
     enqueue: (text: string) => void,
     sendNow: (text: string) => Promise<boolean>,
+    onSendRejected: () => void,
 ): void => {
     const shouldQueue = isBusy ? !isBuiltin : false;
     if (shouldQueue) {
         enqueue(prompt);
         return;
     }
-    sendNow(prompt).catch(() => {
-        /* Handled inside handleSendMessage */
-    });
+    sendNow(prompt)
+        .then((sent) => {
+            if (!sent && !isBuiltin) onSendRejected();
+        })
+        .catch(() => {
+            if (!isBuiltin) onSendRejected();
+        });
+};
+
+/** Coordinates draft staging, surface focus, and optional dispatch for `bettershape-chat-insert-prompt`. */
+export const applyInsertedPromptEvent = (
+    detail: InsertPromptDetail | null | undefined,
+    deps: {
+        isBusy: boolean;
+        setInputValue: React.Dispatch<React.SetStateAction<string>>;
+        enqueue: (text: string) => void;
+        sendNow: (text: string) => Promise<boolean>;
+    },
+): void => {
+    const prompt = detail?.prompt;
+    if (!prompt) return;
+    if (!detail.send) {
+        deps.setInputValue((prev) => {
+            const next = mergeInsertedPrompt(prev, prompt, detail.append);
+            persistComposerDraft(next);
+            return next;
+        });
+    }
+    focusInsertedChatSurface(detail.openWorkspace);
+    if (!detail.send) return;
+    dispatchInsertedSend(
+        prompt,
+        deps.isBusy,
+        isAutoBuiltinInsert(detail),
+        deps.enqueue,
+        deps.sendNow,
+        () => restoreFailedAutoSendDraft(prompt, deps.setInputValue),
+    );
 };
 
 /**
@@ -1550,28 +1602,12 @@ export function useChatSession(
         /** Inserts or appends external prompt text into the active chat composer. */
         const handleInsertPrompt = (evt: Event) => {
             const detail = (evt as CustomEvent<InsertPromptDetail>).detail;
-            if (!detail?.prompt) return;
-            const prompt = detail.prompt;
-            const isAutoBuiltin = isAutoBuiltinInsert(detail);
-            const isBusy = isLoadingRef.current || sendsInFlightRef.current > 0;
-            const willQueueAutoSend = Boolean(detail.send) && isBusy && !isAutoBuiltin;
-            if (!isAutoBuiltin && !willQueueAutoSend) {
-                setInputValue((prev) => {
-                    const next = mergeInsertedPrompt(prev, prompt, detail.append);
-                    persistComposerDraft(next);
-                    return next;
-                });
-            }
-            focusInsertedChatSurface(detail.openWorkspace);
-            if (detail.send) {
-                dispatchInsertedSend(
-                    prompt,
-                    isBusy,
-                    isAutoBuiltin,
-                    enqueueChatMessage,
-                    handleSendMessageRef.current,
-                );
-            }
+            applyInsertedPromptEvent(detail, {
+                isBusy: isChatSendBusy(isLoadingRef.current, sendsInFlightRef.current),
+                setInputValue,
+                enqueue: enqueueChatMessage,
+                sendNow: handleSendMessageRef.current,
+            });
         };
         window.addEventListener("bettershape-chat-insert-prompt", handleInsertPrompt as EventListener);
         return () =>

@@ -29,7 +29,7 @@ function cleanMessageBodyForMarkdown(raw: string, role: "user" | "assistant"): s
                   .replace(/<bettershape_action\b[^>]*\/?>/gi, "")
                   .replace(/<edit\b([^>]*)>[\s\S]*?<\/edit>/gi, (_m, attrs: string) => {
                       const fileMatch = attrs.match(/\bfile=["']([^"']+)["']/i);
-                      const path = fileMatch && fileMatch[1] ? fileMatch[1].trim() : "";
+                      const path = fileMatch ? fileMatch[1].trim() : "";
                       return path ? `\n> Edited \`${path}\`\n` : "";
                   })
             : withoutAttachments;
