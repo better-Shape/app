@@ -34,6 +34,7 @@ import {
 import { Tooltip } from "@/components/ui/tooltip";
 import {
     formatMessageModelLabel,
+    isAutoModelId,
     type MessageUsageStats,
 } from "@/lib/chat/usage-display";
 import { parseBetterShapeContinueAction } from "@/lib/chat/continue-action";
@@ -53,7 +54,6 @@ import {
     splitLeadingQuoteBlock,
 } from "../quote-selection";
 import { GeneratingIndicator } from "../blocks/generating";
-import { isAutoModelId } from "@/lib/chat/usage-display";
 import { parseUserAttachments } from "../../lib/user-attachments";
 import type { ParsedUserAttachment } from "../../lib/user-attachments";
 import { MessageAttachmentPill } from "../composer/attachments";

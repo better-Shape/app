@@ -78,6 +78,178 @@ export const detectErrorBillingProvider = (
     return isOpenAi ? "openai" : null;
 };
 
+const QUOTA_ERROR_RE =
+    /insufficient_quota|insufficient\s+credits|credit\s+balance\s+is\s+too\s+low|exceeded\s+your\s+current\s+quota|billing_hard_limit|billing\s+limit/i;
+const CONTEXT_OVERFLOW_RE =
+    /context_length_exceeded|context\s*window\s*(?:exceeded|overflow|full|limit)|exceed(?:s|ed)?\s*(?:the\s*)?(?:maximum\s*)?context\s*(?:window|length)|maximum\s*context\s*length|prompt\s*is\s*too\s*long/i;
+const MODEL_BUSY_RE = /model_busy|model is busy|high\s*(load|demand)/i;
+const RATE_LIMIT_RE = /rate\s*limit|too many requests/i;
+
+const BILLING_DOCS_URLS: Record<string, string> = {
+    openrouter: "https://openrouter.ai/settings/credits",
+    openai: "https://platform.openai.com/settings/organization/billing/",
+};
+
+const BILLING_HINTS: Record<string, string> = {
+    openrouter: "(openrouter.ai) has exhausted its credits. Add credits to continue.",
+    openai: "(api.openai.com) has exhausted its credits. Add credits to continue.",
+};
+
+/** Checks whether a classified error represents a retryable rate-limit or model-busy condition. */
+const isTransientChatError = (
+    rawMessage: string,
+    code: number,
+    isQuota: boolean,
+    isContextOverflow: boolean,
+    isModelBusy: boolean,
+): boolean => {
+    if (!rawMessage || isQuota || isContextOverflow) return false;
+    return code === 2100 || isModelBusy || RATE_LIMIT_RE.test(rawMessage);
+};
+
+/** Resolves the primary dialog title for a classified chat error. */
+const resolveChatErrorTitle = (
+    fallbackTitle: string,
+    hasMessage: boolean,
+    isContextOverflow: boolean,
+    isTransient: boolean,
+    isModelBusy: boolean,
+): string => {
+    if (!hasMessage) return fallbackTitle;
+    if (isContextOverflow) return "Context window full";
+    if (!isTransient) return fallbackTitle;
+    return isModelBusy ? "Model busy" : "Rate limited";
+};
+
+/** Resolves the explanatory hint text for a classified chat error. */
+const resolveChatErrorHint = ({
+    hasMessage,
+    isContextOverflow,
+    isTransient,
+    isModelBusy,
+    billingProvider,
+    defaultDescription,
+}: {
+    hasMessage: boolean;
+    isContextOverflow: boolean;
+    isTransient: boolean;
+    isModelBusy: boolean;
+    billingProvider: string | null;
+    defaultDescription: string;
+}): string => {
+    if (!hasMessage) return "";
+    if (isContextOverflow) {
+        return "This thread has reached the model's context limit. Summarize older turns with /compact to free context and continue.";
+    }
+    if (isTransient) {
+        return isModelBusy
+            ? "This model is under heavy load. Wait a moment or switch models."
+            : "Try again or switch models.";
+    }
+    return (billingProvider ? BILLING_HINTS[billingProvider] : undefined) ?? defaultDescription;
+};
+
+/** Extracts raw diagnostic detail when distinct from `title` and `hint`. */
+const resolveChatErrorDetail = (rawMessage: string, title: string, hint: string): string => {
+    const trimmed = rawMessage.trim();
+    if (!trimmed || trimmed === title || trimmed === hint) return "";
+    return hint.includes(trimmed) ? "" : trimmed;
+};
+
+/** Computes title, hint, detail, docs link, and action flags for `ChatErrorDialog`. */
+const deriveChatErrorViewModel = (rawMessage: string) => {
+    const hasMessage = rawMessage.length > 0;
+    const entry = classifyAiError(rawMessage);
+    const isQuota = hasMessage && QUOTA_ERROR_RE.test(rawMessage);
+    const billingProvider = detectErrorBillingProvider(rawMessage, isQuota);
+    const isContextOverflow = hasMessage && CONTEXT_OVERFLOW_RE.test(rawMessage);
+    const isModelBusy = MODEL_BUSY_RE.test(rawMessage);
+    const isTransient = isTransientChatError(rawMessage, entry.code, isQuota, isContextOverflow, isModelBusy);
+    const title = resolveChatErrorTitle(entry.title, hasMessage, isContextOverflow, isTransient, isModelBusy);
+    const hint = resolveChatErrorHint({
+        hasMessage,
+        isContextOverflow,
+        isTransient,
+        isModelBusy,
+        billingProvider,
+        defaultDescription: entry.description,
+    });
+    return {
+        title,
+        hint,
+        detail: resolveChatErrorDetail(rawMessage, title, hint),
+        isContextOverflow,
+        isTransient,
+        hasBillingProvider: Boolean(billingProvider),
+        docsUrl: (billingProvider ? BILLING_DOCS_URLS[billingProvider] : undefined) ?? errorDocsUrl(entry.code),
+    };
+};
+
+/** Renders the action footer buttons for `ChatErrorDialog`. */
+const ChatErrorDialogFooter = ({
+    view,
+    onDismiss,
+    onRetry,
+}: {
+    view: ReturnType<typeof deriveChatErrorViewModel>;
+    onDismiss: () => void;
+    onRetry?: () => void;
+}) => {
+    if (view.isContextOverflow) {
+        return (
+            <>
+                <Button
+                    type="button"
+                    variant="secondary"
+                    size="lg"
+                    className="w-full bg-panel-hover"
+                    onClick={onDismiss}
+                >
+                    Dismiss
+                </Button>
+                <AlertDialogAction asChild>
+                    <Button
+                        type="button"
+                        size="lg"
+                        className="w-full"
+                        onClick={() => {
+                            window.dispatchEvent(
+                                new CustomEvent("bettershape-chat-insert-prompt", {
+                                    detail: { prompt: "/compact", send: true },
+                                }),
+                            );
+                        }}
+                    >
+                        Compact context
+                    </Button>
+                </AlertDialogAction>
+            </>
+        );
+    }
+    const secondaryLabel = view.hasBillingProvider ? "Add credits" : "Learn more";
+    const canRetry = Boolean(onRetry) && view.isTransient;
+    return (
+        <>
+            <Button
+                type="button"
+                variant="secondary"
+                size="lg"
+                className="w-full bg-panel-hover"
+                onClick={() => {
+                    commands.openUrlExternal(view.docsUrl).catch(() => undefined);
+                }}
+            >
+                {secondaryLabel}
+            </Button>
+            <AlertDialogAction asChild>
+                <Button type="button" size="lg" className="w-full" onClick={canRetry ? onRetry : undefined}>
+                    {canRetry ? "Try again" : "OK"}
+                </Button>
+            </AlertDialogAction>
+        </>
+    );
+};
+
 /** Renders the ChatErrorDialog UI component. */
 export const ChatErrorDialog = ({
     message,
@@ -88,67 +260,7 @@ export const ChatErrorDialog = ({
     onDismiss: () => void;
     onRetry?: () => void;
 }) => {
-    const rawMessage = message ?? "";
-    const hasMessage = rawMessage.length > 0;
-    const entry = classifyAiError(rawMessage);
-    const isQuota =
-        hasMessage &&
-        /insufficient_quota|insufficient\s+credits|credit\s+balance\s+is\s+too\s+low|exceeded\s+your\s+current\s+quota|billing_hard_limit|billing\s+limit/i.test(
-            rawMessage,
-        );
-    const billingProvider = detectErrorBillingProvider(rawMessage, isQuota);
-    const openaiBilling = billingProvider === "openai";
-    const openrouterBilling = billingProvider === "openrouter";
-    const isContextOverflow =
-        hasMessage &&
-        /context_length_exceeded|context\s*window\s*(?:exceeded|overflow|full|limit)|exceed(?:s|ed)?\s*(?:the\s*)?(?:maximum\s*)?context\s*(?:window|length)|maximum\s*context\s*length|prompt\s*is\s*too\s*long/i.test(
-            rawMessage,
-        );
-    const docsUrl = openrouterBilling
-        ? "https://openrouter.ai/settings/credits"
-        : openaiBilling
-          ? "https://platform.openai.com/settings/organization/billing/"
-          : errorDocsUrl(entry.code);
-    const isModelBusy = /model_busy|model is busy|high\s*(load|demand)/i.test(rawMessage);
-    const isTransient =
-        hasMessage &&
-        !isQuota &&
-        !isContextOverflow &&
-        (entry.code === 2100 ||
-            /rate\s*limit/i.test(rawMessage) ||
-            isModelBusy ||
-            /too many requests/i.test(rawMessage));
-
-    let title = entry.title;
-    if (hasMessage && isContextOverflow) {
-        title = "Context window full";
-    } else if (hasMessage && isTransient) {
-        title = isModelBusy ? "Model busy" : "Rate limited";
-    }
-
-    const hint = !hasMessage
-        ? ""
-        : isContextOverflow
-          ? "This thread has reached the model's context limit. Summarize older turns with /compact to free context and continue."
-          : isTransient
-            ? isModelBusy
-                ? "This model is under heavy load. Wait a moment or switch models."
-                : "Try again or switch models."
-            : openrouterBilling
-              ? "(openrouter.ai) has exhausted its credits. Add credits to continue."
-              : openaiBilling
-                ? "(api.openai.com) has exhausted its credits. Add credits to continue."
-                : entry.description;
-
-    const trimmedRawMessage = rawMessage.trim();
-    const detail =
-        hasMessage &&
-        trimmedRawMessage &&
-        trimmedRawMessage !== hint &&
-        trimmedRawMessage !== title &&
-        !hint.includes(trimmedRawMessage)
-            ? trimmedRawMessage
-            : "";
+    const view = deriveChatErrorViewModel(message ?? "");
 
     return (
         <AlertDialog
@@ -159,74 +271,21 @@ export const ChatErrorDialog = ({
         >
             <AlertDialogContent sizeClassName="max-w-[400px]">
                 <AlertDialogHeader>
-                    <AlertDialogTitle>{title}</AlertDialogTitle>
-                    <AlertDialogDescription className="sr-only">{hint || detail}</AlertDialogDescription>
+                    <AlertDialogTitle>{view.title}</AlertDialogTitle>
+                    <AlertDialogDescription className="sr-only">{view.hint || view.detail}</AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogBody className="flex flex-col gap-2 text-start">
-                    {hint ? (
-                        <p className="text-sm leading-snug text-text-secondary">{hint}</p>
+                    {view.hint ? (
+                        <p className="text-sm leading-snug text-text-secondary">{view.hint}</p>
                     ) : null}
-                    {detail ? (
+                    {view.detail ? (
                         <p className="max-h-28 overflow-y-auto rounded-md border border-border-subtle bg-surface-1 px-2.5 py-1.5 font-mono text-2xs leading-relaxed text-text-muted break-words">
-                            {detail}
+                            {view.detail}
                         </p>
                     ) : null}
                 </AlertDialogBody>
                 <AlertDialogFooter>
-                    {isContextOverflow ? (
-                        <>
-                            <Button
-                                type="button"
-                                variant="secondary"
-                                size="lg"
-                                className="w-full bg-panel-hover"
-                                onClick={onDismiss}
-                            >
-                                Dismiss
-                            </Button>
-                            <AlertDialogAction asChild>
-                                <Button
-                                    type="button"
-                                    size="lg"
-                                    className="w-full"
-                                    onClick={() => {
-                                        window.dispatchEvent(
-                                            new CustomEvent("bettershape-chat-insert-prompt", {
-                                                detail: { prompt: "/compact", send: true },
-                                            }),
-                                        );
-                                    }}
-                                >
-                                    Compact context
-                                </Button>
-                            </AlertDialogAction>
-                        </>
-                    ) : (
-                        <>
-                            <Button
-                                type="button"
-                                variant="secondary"
-                                size="lg"
-                                className="w-full bg-panel-hover"
-                                onClick={() => { commands.openUrlExternal(docsUrl).catch(() => undefined); }}
-                            >
-                                {openaiBilling || openrouterBilling ? "Add credits" : "Learn more"}
-                            </Button>
-                            {onRetry && isTransient ? (
-                                <AlertDialogAction asChild>
-                                    <Button type="button" size="lg" className="w-full" onClick={onRetry}>
-                                        Try again
-                                    </Button>
-                                </AlertDialogAction>
-                            ) : (
-                                <AlertDialogAction asChild>
-                                    <Button type="button" size="lg" className="w-full">
-                                        OK
-                                    </Button>
-                                </AlertDialogAction>
-                            )}
-                        </>
-                    )}
+                    <ChatErrorDialogFooter view={view} onDismiss={onDismiss} onRetry={onRetry} />
                 </AlertDialogFooter>
             </AlertDialogContent>
         </AlertDialog>

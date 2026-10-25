@@ -107,8 +107,8 @@ export function useChatTurnActive(
     const lockUntil = useRef(0);
     const rafRef = useRef(0);
     const activeRef = useRef(0);
-    const streamingRef = useRef(!!opts?.streaming);
-    useLayoutEffect(() => { streamingRef.current = !!opts?.streaming; }, [opts?.streaming]);
+    const streamingRef = useRef(Boolean(opts?.streaming));
+    useLayoutEffect(() => { streamingRef.current = Boolean(opts?.streaming); }, [opts?.streaming]);
     const nodesCache = useRef<HTMLElement[]>([]);
 
     useEffect(() => {
@@ -122,7 +122,7 @@ export function useChatTurnActive(
 
     useEffect(() => {
         const root = scrollRoot.current;
-        if (!root || turnCount === 0) return;
+        if (!root || turnCount === 0) return undefined;
 
         const nearTop = () => root.scrollTop < 48;
         const nearBottom = () =>

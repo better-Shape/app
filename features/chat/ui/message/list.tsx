@@ -59,9 +59,13 @@ const ChatMessageListInner = ({
             ) : (
                 messageGroups.map((group, groupIdx) => {
                     const isLiveTurn = isLoading && groupIdx === lastGroupIdx;
+                    const firstItem = group.at(0);
+                    const turnKey = firstItem
+                        ? `turn-${firstItem.msg.timestamp}-${firstItem.msgIdx}`
+                        : "turn-empty";
                     return (
                         <div
-                            key={`turn-${group[0]?.msg.timestamp ?? group[0]?.msgIdx ?? "empty"}`}
+                            key={turnKey}
                             data-chat-turn={groupIdx}
                             style={isLiveTurn ? undefined : SETTLED_TURN_STYLE}
                             className="relative mb-3 flex flex-col gap-2 first:mt-2 last:mb-10 scroll-mt-4"

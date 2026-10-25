@@ -136,10 +136,10 @@ export const useExpandForChatFind = ({
                     messageIndex?: number;
                     query?: string;
                     caseSensitive?: boolean;
-                }>
+                } | null>
             ).detail;
             const root = rootRef.current;
-            if (!root || detail?.messageIndex == null) return;
+            if (!root || !detail || detail.messageIndex == null) return;
             const msgEl = root.closest<HTMLElement>("[data-chat-message-index]");
             if (!msgEl || Number(msgEl.getAttribute("data-chat-message-index")) !== detail.messageIndex) {
                 return;

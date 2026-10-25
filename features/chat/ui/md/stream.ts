@@ -34,8 +34,7 @@ export const looksLikeLeakedToolCode = (body: string): boolean => {
         if (LEAKED_FUNCTIONS_CALL_RE.test(line)) return true;
         if (hasExecute && GENERIC_FUNCTIONS_CALL_RE.test(line)) return true;
     }
-    if (/<(?:tool_call|function_call|minimax:tool_call|tool_code)\b/i.test(t)) return true;
-    return false;
+    return /<(?:tool_call|function_call|minimax:tool_call|tool_code)\b/i.test(t);
 };
 
 /**
@@ -551,6 +550,80 @@ const findPairedClosingTagEnd = (lowerInput: string, tagName: string, searchFrom
     return -1;
 };
 
+type ParsedHtmlTagHeader = {
+    isClosing: boolean;
+    tagName: string;
+    afterNamePos: number;
+    isPairedStripTag: boolean;
+};
+
+/** Checks whether the character immediately following an HTML tag name is a valid delimiter. */
+const isHtmlTagNameBoundary = (ch: string): boolean =>
+    ch === "" || ch === ">" || ch === "/" || /\s/.test(ch);
+
+/** Parses `<tagName` or `</tagName` starting at `lt`; returns `null` when not a candidate HTML tag. */
+const parseHtmlTagHeaderAt = (input: string, lt: number): ParsedHtmlTagHeader | null => {
+    const len = input.length;
+    const isClosing = lt + 1 < len && input.charAt(lt + 1) === "/";
+    let pos = isClosing ? lt + 2 : lt + 1;
+    if (pos >= len || !isAsciiAlpha(input.charAt(pos))) return null;
+    const nameStart = pos;
+    while (pos < len && /[a-zA-Z0-9]/.test(input.charAt(pos))) pos++;
+    const tagName = input.slice(nameStart, pos).toLowerCase();
+    const validBoundary = isHtmlTagNameBoundary(pos < len ? input.charAt(pos) : "");
+    const isPairedStripTag =
+        (validBoundary && PAIRED_STRIP_TAGS.has(tagName)) || tagName.startsWith("script");
+    if (!validBoundary && !isPairedStripTag) return null;
+    return { isClosing, tagName, afterNamePos: pos, isPairedStripTag };
+};
+
+/** Advances `rangeIndex` and checks whether `lt` lies inside an inline backtick code span. */
+const advanceInlineCodeRange = (
+    codeRanges: Array<[number, number]>,
+    rangeIndex: number,
+    lt: number,
+): { nextRangeIndex: number; insideCode: boolean } => {
+    let idx = rangeIndex;
+    while (idx < codeRanges.length && codeRanges[idx][1] <= lt) idx += 1;
+    const active = codeRanges[idx];
+    return {
+        nextRangeIndex: idx,
+        insideCode: Boolean(active && lt >= active[0] && lt < active[1]),
+    };
+};
+
+/** Resolves the replacement text (`""`, `"\n"`, or original slice) for a non-paired HTML tag. */
+const resolveStandardHtmlTagReplacement = (
+    input: string,
+    lt: number,
+    gt: number,
+    header: ParsedHtmlTagHeader,
+): { chunk: string; nextCursor: number } => {
+    if (gt === -1 || !hasPlausibleHtmlTagTail(input, header.afterNamePos, gt, header.isClosing)) {
+        return { chunk: "<", nextCursor: lt + 1 };
+    }
+    if (header.tagName === "br" && !header.isClosing) return { chunk: "\n", nextCursor: gt + 1 };
+    if (header.tagName === "img" && !header.isClosing) return { chunk: "", nextCursor: gt + 1 };
+    if (LAYOUT_HTML_TAGS.has(header.tagName)) {
+        return { chunk: header.isClosing ? "\n" : "", nextCursor: gt + 1 };
+    }
+    return { chunk: input.slice(lt, gt + 1), nextCursor: gt + 1 };
+};
+
+/** Resolves the next scanner cursor when stripping a paired `<script>`/`<style>` tag. */
+const resolvePairedStripCursor = (
+    input: string,
+    gt: number,
+    header: ParsedHtmlTagHeader,
+    cachedLower: string | null,
+): { nextCursor: number; lowerInput: string | null } => {
+    if (gt === -1) return { nextCursor: input.length, lowerInput: cachedLower };
+    if (header.isClosing) return { nextCursor: gt + 1, lowerInput: cachedLower };
+    const lowerInput = cachedLower ?? input.toLowerCase();
+    const closeEnd = findPairedClosingTagEnd(lowerInput, header.tagName, gt + 1);
+    return { nextCursor: closeEnd !== -1 ? closeEnd : gt + 1, lowerInput };
+};
+
 /** Single linear character-scanner pass stripping raw HTML tags without regex backtracking. */
 const stripHtmlTagsOnce = (input: string): string => {
     const codeRanges = collectInlineCodeRanges(input);
@@ -558,94 +631,32 @@ const stripHtmlTagsOnce = (input: string): string => {
     let lowerInput: string | null = null;
     let out = "";
     let cursor = 0;
-    const len = input.length;
 
-    while (cursor < len) {
+    while (cursor < input.length) {
         const lt = input.indexOf("<", cursor);
-        if (lt === -1) {
-            out += input.slice(cursor);
-            break;
-        }
+        if (lt === -1) return out + input.slice(cursor);
         out += input.slice(cursor, lt);
 
-        while (rangeIndex < codeRanges.length && codeRanges[rangeIndex][1] <= lt) {
-            rangeIndex += 1;
-        }
-        const activeRange = codeRanges[rangeIndex];
-        if (activeRange && lt >= activeRange[0] && lt < activeRange[1]) {
+        const rangeCheck = advanceInlineCodeRange(codeRanges, rangeIndex, lt);
+        rangeIndex = rangeCheck.nextRangeIndex;
+        const header = rangeCheck.insideCode ? null : parseHtmlTagHeaderAt(input, lt);
+        if (!header) {
             out += "<";
             cursor = lt + 1;
             continue;
         }
 
-        let pos = lt + 1;
-        let isClosing = false;
-        if (pos < len && input.charAt(pos) === "/") {
-            isClosing = true;
-            pos++;
-        }
-
-        if (pos >= len || !isAsciiAlpha(input.charAt(pos))) {
-            out += "<";
-            cursor = lt + 1;
+        const gt = findHtmlTagClose(input, header.afterNamePos);
+        if (header.isPairedStripTag) {
+            const paired = resolvePairedStripCursor(input, gt, header, lowerInput);
+            lowerInput = paired.lowerInput;
+            cursor = paired.nextCursor;
             continue;
         }
 
-        const nameStart = pos;
-        while (pos < len && /[a-zA-Z0-9]/.test(input.charAt(pos))) pos++;
-        const tagName = input.slice(nameStart, pos).toLowerCase();
-        const nextChar = pos < len ? input.charAt(pos) : "";
-        const validBoundary =
-            tagName.length > 0 &&
-            (nextChar === "" || nextChar === ">" || nextChar === "/" || /\s/.test(nextChar));
-
-        const isPairedStripTag =
-            (validBoundary && PAIRED_STRIP_TAGS.has(tagName)) || tagName.startsWith("script");
-
-        if (!validBoundary && !isPairedStripTag) {
-            out += "<";
-            cursor = lt + 1;
-            continue;
-        }
-
-        const gt = findHtmlTagClose(input, pos);
-        if (isPairedStripTag) {
-            if (gt === -1) break;
-            if (!isClosing) {
-                lowerInput ??= input.toLowerCase();
-                const closeEnd = findPairedClosingTagEnd(lowerInput, tagName, gt + 1);
-                if (closeEnd !== -1) {
-                    cursor = closeEnd;
-                    continue;
-                }
-            }
-            cursor = gt + 1;
-            continue;
-        }
-
-        if (gt === -1 || !hasPlausibleHtmlTagTail(input, pos, gt, isClosing)) {
-            out += "<";
-            cursor = lt + 1;
-            continue;
-        }
-
-        if (tagName === "br" && !isClosing) {
-            out += "\n";
-            cursor = gt + 1;
-            continue;
-        }
-        if (tagName === "img" && !isClosing) {
-            cursor = gt + 1;
-            continue;
-        }
-        if (LAYOUT_HTML_TAGS.has(tagName)) {
-            if (isClosing) out += "\n";
-            cursor = gt + 1;
-            continue;
-        }
-
-        out += input.slice(lt, gt + 1);
-        cursor = gt + 1;
+        const step = resolveStandardHtmlTagReplacement(input, lt, gt, header);
+        out += step.chunk;
+        cursor = step.nextCursor;
     }
 
     return out;

@@ -30,14 +30,15 @@ export function ThinkingEffortControl({
     disabled?: boolean;
 }) {
     const options = effortsForModel(modelId);
-    const selected = options.some((stop) => stop.value === effort) ? effort : options[options.length - 1]!.value;
+    const fallbackEffort = options.at(-1)?.value ?? effort;
+    const selected = options.some((stop) => stop.value === effort) ? effort : fallbackEffort;
     const index = Math.max(0, options.findIndex((stop) => stop.value === selected));
     const maxIndex = Math.max(0, options.length - 1);
     const [dragPos, setDragPos] = useState<number | null>(null);
     const pointerCancelled = useRef(false);
     const pos = dragPos ?? index;
     const fill = maxIndex === 0 ? 1 : pos / maxIndex;
-    const shown = options[clamp(Math.round(pos), maxIndex)] ?? options[index]!;
+    const shown = options.at(clamp(Math.round(pos), maxIndex)) ?? options.at(index) ?? { value: selected, label: selected, description: "" };
 
     // A new effort level (from the model or a click) ends any drag in progress.
     const [seenIndex, setSeenIndex] = useState(index);

@@ -34,8 +34,7 @@ import { ChevronRight20Regular } from "@fluentui/react-icons/headless/svg/chevro
 import { Color20Regular } from "@fluentui/react-icons/headless/svg/color";
 import { Collections20Regular } from "@fluentui/react-icons/headless/svg/collections";
 import { MoreHorizontal20Regular } from "@fluentui/react-icons/headless/svg/more-horizontal";
-import { Pin20Filled } from "@fluentui/react-icons/headless/svg/pin";
-import { Pin20Regular } from "@fluentui/react-icons/headless/svg/pin";
+import { Pin20Filled, Pin20Regular } from "@fluentui/react-icons/headless/svg/pin";
 import { Eclipse } from "loading-dev";
 
 import { Icon } from "@/components/ui/icon";

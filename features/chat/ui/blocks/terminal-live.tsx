@@ -20,7 +20,7 @@ import { WindowConsole20Regular } from "@fluentui/react-icons/headless/svg/windo
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { cn } from "@/lib/utils";
+import { cn, createOccurrenceKeyer } from "@/lib/utils";
 import { Icon } from "@/components/ui/icon";
 
 import { Button } from "@/components/ui/button";
@@ -210,28 +210,31 @@ export function LiveTerminalOutput({
             className="my-1 overflow-y-auto custom-scrollbar font-mono text-sm leading-[1.55] text-text-secondary"
         >
             {/*
-              The buffer only appends and the gutter prints the number it renders, so a line's
-              position is its identity: a content key would collide on repeated log lines.
+              The buffer only appends and the gutter prints the number it renders; an occurrence
+              keyer gives repeated identical log lines deterministic unique keys.
             */}
-            {lines.map((line, lineNo) => {
-                const warn = /\[warn\]|\bwarn(ing)?:/i.test(line);
-                const err = /\[error\]|\berror:/i.test(line);
-                return (
-                    <div
-                        key={lineNo}
-                        className={cn(
-                            "flex gap-3 px-1 py-px whitespace-pre-wrap break-words",
-                            warn && "bg-warning/15 text-warning",
-                            err && "text-error",
-                        )}
-                    >
-                        <span className="shrink-0 select-none tabular-nums text-text-disabled">
-                            {String(lineNo + 1).padStart(2, " ")}
-                        </span>
-                        <span>{line || " "}</span>
-                    </div>
-                );
-            })}
+            {(() => {
+                const lineKey = createOccurrenceKeyer();
+                return lines.map((line, lineNo) => {
+                    const warn = /\[warn\]|\bwarn(ing)?:/i.test(line);
+                    const err = /\[error\]|\berror:/i.test(line);
+                    return (
+                        <div
+                            key={lineKey(line)}
+                            className={cn(
+                                "flex gap-3 px-1 py-px whitespace-pre-wrap break-words",
+                                warn && "bg-warning/15 text-warning",
+                                err && "text-error",
+                            )}
+                        >
+                            <span className="shrink-0 select-none tabular-nums text-text-disabled">
+                                {String(lineNo + 1).padStart(2, " ")}
+                            </span>
+                            <span>{line || " "}</span>
+                        </div>
+                    );
+                });
+            })()}
         </div>
     );
 }
@@ -425,7 +428,7 @@ function AutoRunModePicker({ disabled }: { disabled?: boolean }) {
                             key={opt.value}
                             onClick={() => {
                                 updateSettingSection("ai", { autoRunMode: opt.value });
-                                void commands.updateTurnPolicy({ autoRunMode: opt.value });
+                                commands.updateTurnPolicy({ autoRunMode: opt.value }).catch(() => undefined);
                             }}
                             className={cn("items-start gap-2 py-2", selected && "bg-panel-hover")}
                         >

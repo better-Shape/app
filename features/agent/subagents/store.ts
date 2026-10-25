@@ -63,49 +63,73 @@ export function subagentsForParent(parentId: string): SubagentCard[] {
     return cards.filter((c) => c.parentId === parentId);
 }
 
-export function extractSubagentsFromText(text: string, parentId?: string): Array<{
+const SUBAGENT_STATUS_MAP: Partial<Record<string, SubagentStatus>> = {
+    error: "error",
+    failed: "error",
+    done: "done",
+    completed: "done",
+    pending: "pending",
+    running: "running",
+};
+
+/** Normalizes a raw XML status attribute to a `SubagentStatus`. */
+const parseSubagentStatus = (statusRaw?: string): SubagentStatus =>
+    SUBAGENT_STATUS_MAP[(statusRaw || "").toLowerCase()] ?? "done";
+
+type ExtractedSubagentEntry = {
     id: string;
     title: string;
     task: string;
     model?: string;
     transcript?: string;
     status: SubagentStatus;
-}> {
-    const out: Array<{
-        id: string;
-        title: string;
-        task: string;
-        model?: string;
-        transcript?: string;
-        status: SubagentStatus;
-    }> = [];
-    const seen = new Set<string>();
-    const attr = (tag: string, name: string) => tag.match(new RegExp(`${name}="([^"]*)"`))?.[1] ?? "";
-    const push = (id: string, title: string, task: string, model?: string, transcript?: string, statusRaw?: string) => {
-        const key = id || title;
-        if (!key || seen.has(key)) return;
-        seen.add(key);
-        const raw = (statusRaw || "").toLowerCase();
-        const status: SubagentStatus =
-            raw === "error" || raw === "failed"
-                ? "error"
-                : raw === "done" || raw === "completed"
-                  ? "done"
-                  : raw === "pending"
-                    ? "pending"
-                    : raw === "running"
-                      ? "running"
-                      : "done";
-        out.push({ id: key, title, task, model, transcript, status });
-        void parentId;
+};
+
+/** Reads a quoted XML attribute value from a `<subagent>` or `<subagent_ref>` tag header. */
+const readXmlAttr = (tag: string, name: string): string =>
+    tag.match(new RegExp(`${name}="([^"]*)"`))?.[1] ?? "";
+
+/** Resolves a non-empty subagent display title from `<subagent>` XML attributes. */
+const resolveXmlSubagentTitle = (tag: string): string =>
+    readXmlAttr(tag, "agent") || readXmlAttr(tag, "name") || "Subagent";
+
+/** Builds an `ExtractedSubagentEntry` from a matched `<subagent>` or `<subagent_ref>` tag. */
+const toExtractedSubagent = (tag: string, rawBody?: string): ExtractedSubagentEntry => {
+    const title = resolveXmlSubagentTitle(tag);
+    const id = readXmlAttr(tag, "id") || title;
+    const model = readXmlAttr(tag, "model");
+    return {
+        id,
+        title,
+        task: readXmlAttr(tag, "task"),
+        model: model ? model : undefined,
+        transcript: rawBody?.trim(),
+        status: parseSubagentStatus(readXmlAttr(tag, "status")),
     };
-    for (const m of text.matchAll(/<subagent_ref\b([^>]*)\/>/gi)) {
-        const tag = m[1] || "";
-        push(attr(tag, "id"), attr(tag, "agent") || "Subagent", attr(tag, "task"), attr(tag, "model") || undefined, undefined, attr(tag, "status"));
-    }
-    for (const m of text.matchAll(/<subagent\b([^>]*)>([\s\S]*?)<\/subagent>/gi)) {
-        const tag = m[1] || "";
-        push(attr(tag, "id"), attr(tag, "agent") || attr(tag, "name") || "Subagent", attr(tag, "task"), attr(tag, "model") || undefined, (m[2] || "").trim(), attr(tag, "status"));
+};
+
+/** Collects parsed subagent entries from a regex match iterator. */
+const collectXmlSubagentMatches = (
+    text: string,
+    pattern: RegExp,
+    hasBody: boolean,
+): ExtractedSubagentEntry[] =>
+    Array.from(text.matchAll(pattern), (m) =>
+        toExtractedSubagent(m.at(1) ?? "", hasBody ? (m.at(2) ?? "") : undefined),
+    );
+
+export function extractSubagentsFromText(text: string, _parentId?: string): ExtractedSubagentEntry[] {
+    const out: ExtractedSubagentEntry[] = [];
+    const seen = new Set<string>();
+    const candidates = [
+        ...collectXmlSubagentMatches(text, /<subagent_ref\b([^>]*)\/>/gi, false),
+        ...collectXmlSubagentMatches(text, /<subagent\b([^>]*)>([\s\S]*?)<\/subagent>/gi, true),
+    ];
+    for (const entry of candidates) {
+        if (entry.id && !seen.has(entry.id)) {
+            seen.add(entry.id);
+            out.push(entry);
+        }
     }
     return out;
 }
@@ -157,28 +181,60 @@ function parseReadsFromActivity(activity: string): SubagentRead[] {
     return reads;
 }
 
-/** Upsert subagent. */
-export const upsertSubagent = (next: Omit<SubagentCard, "updatedAt"> & { updatedAt?: number }) => {
-    const existing = cards.find((c) => c.id === next.id);
-    const activity = next.activity || existing?.activity || "Working…";
-    const card: SubagentCard = {
-        ...existing,
-        ...next,
-        model: next.model ?? existing?.model,
+type SubagentUpsertInput = Omit<SubagentCard, "updatedAt"> & { updatedAt?: number };
+
+/** Resolves activity text, phase, and parsed file reads for an upserted subagent card. */
+const resolveSubagentActivity = (next: SubagentUpsertInput, existing: SubagentCard | undefined) => {
+    const activity = pickDefined(next.activity || undefined, existing?.activity || undefined, "Working…") ?? "Working…";
+    const priorPhase = pickDefined(next.phase, existing?.phase);
+    const priorReads = pickDefined(next.reads, existing?.reads);
+    return {
         activity,
-        task: next.task ?? existing?.task,
-        transcript: next.transcript ?? existing?.transcript,
-        parentId: next.parentId ?? existing?.parentId ?? parentConversationId ?? undefined,
-        phase: inferPhase(activity, next.phase ?? existing?.phase),
-        reads: next.reads ?? existing?.reads ?? parseReadsFromActivity(activity),
-        tokens: next.tokens ?? existing?.tokens,
-        truncated: next.truncated ?? existing?.truncated,
-        startedAt: next.startedAt ?? existing?.startedAt ?? Date.now(),
-        updatedAt: next.updatedAt ?? Date.now(),
+        phase: inferPhase(activity, priorPhase),
+        reads: priorReads ?? parseReadsFromActivity(activity),
     };
-    const idx = cards.findIndex((c) => c.id === card.id);
-    if (idx >= 0) cards = cards.map((c, i) => (i === idx ? { ...c, ...card } : c));
-    else cards = [...cards, card];
+};
+
+/** Picks the first defined value between incoming, existing, and fallback fields. */
+const pickDefined = <T>(primary: T | undefined, secondary: T | undefined, fallback?: T): T | undefined => {
+    if (primary !== undefined) return primary;
+    return secondary !== undefined ? secondary : fallback;
+};
+
+/** Resolves parent conversation ownership and timestamps for an upserted subagent card. */
+const resolveSubagentLineage = (next: SubagentUpsertInput, existing: SubagentCard | undefined) => {
+    const now = Date.now();
+    return {
+        parentId: pickDefined(next.parentId, existing?.parentId, parentConversationId ?? undefined),
+        startedAt: pickDefined(next.startedAt, existing?.startedAt, now) ?? now,
+        updatedAt: next.updatedAt ?? now,
+    };
+};
+
+/** Strips `undefined` keys so partial updates preserve prior `SubagentCard` metadata. */
+const stripUndefinedFields = <T extends Record<string, unknown>>(obj: T): Partial<T> =>
+    Object.fromEntries(Object.entries(obj).filter(([, value]) => value !== undefined)) as Partial<T>;
+
+/** Merges optional card metadata with an existing subagent entry when present. */
+const mergeSubagentCard = (
+    next: SubagentUpsertInput,
+    existing: SubagentCard | undefined,
+): SubagentCard => ({
+    ...(existing ?? {}),
+    ...stripUndefinedFields(next),
+    id: next.id,
+    title: next.title,
+    status: next.status,
+    ...resolveSubagentActivity(next, existing),
+    ...resolveSubagentLineage(next, existing),
+});
+
+/** Upsert subagent. */
+export const upsertSubagent = (next: SubagentUpsertInput) => {
+    const idx = cards.findIndex((c) => c.id === next.id);
+    const existing = idx >= 0 ? cards[idx] : undefined;
+    const card = mergeSubagentCard(next, existing);
+    cards = idx >= 0 ? cards.map((c, i) => (i === idx ? card : c)) : [...cards, card];
     emit();
 };
 

@@ -900,13 +900,16 @@ export function normalizeProvidersSettings(
   const connections = {} as Record<ProviderId, ProviderConnection>;
   for (const preset of PROVIDER_PRESETS) {
     const saved = raw.connections?.[preset.id];
+    const savedModels = saved?.models;
+    const savedExtra = saved?.extraModels;
+    const savedAuth = saved?.authStyle;
     connections[preset.id] = {
       ...emptyConnection(preset),
       ...(saved ?? {}),
-      models: Array.isArray(saved?.models) ? saved!.models.filter(Boolean) : [],
-      extraModels: Array.isArray(saved?.extraModels) ? saved!.extraModels.filter(Boolean) : [],
+      models: Array.isArray(savedModels) ? savedModels.filter(Boolean) : [],
+      extraModels: Array.isArray(savedExtra) ? savedExtra.filter(Boolean) : [],
       headers: normalizeHeaders(saved?.headers),
-      authStyle: isAuthStyle(saved?.authStyle) ? saved!.authStyle : "",
+      authStyle: isAuthStyle(savedAuth) ? savedAuth : "",
     };
   }
   return {

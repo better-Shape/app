@@ -28,7 +28,8 @@ import {
     openChatFindBar,
 } from "./find-bar";
 
-async function downloadDiagnostics() {
+/** Builds and triggers a browser download of the client diagnostic bundle. */
+const downloadDiagnostics = () => {
     const payload = {
         exportedAt: new Date().toISOString(),
         userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "",
@@ -43,7 +44,7 @@ async function downloadDiagnostics() {
     anchor.click();
     URL.revokeObjectURL(url);
     notify.success("Diagnostics", "Diagnostic bundle downloaded.");
-}
+};
 
 /** Renders the ChatMoreMenu UI component. */
 export const ChatMoreMenu = () => {
@@ -115,7 +116,7 @@ export const ChatMoreMenu = () => {
                 >
                     Usage
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => { downloadDiagnostics().catch(() => undefined); }}>
+                <DropdownMenuItem onClick={() => { downloadDiagnostics(); }}>
                     Download Diagnostics
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />

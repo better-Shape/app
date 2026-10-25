@@ -142,15 +142,16 @@ const TerminalInstance = ({ tab, isActive }: { tab: TerminalTab, isActive: boole
         // Don't give up forever, wait for a real resize if the panel was still settling.
         return await new Promise<boolean>((resolve) => {
             let done = false;
-// Settles the wait once: the observer and the timeout both reach here, and
-        // the observer has to be disconnected by whichever arrives first.
+            let ro: ResizeObserver | null = null;
+            // Settles the wait once: the observer and the timeout both reach here, and
+            // the observer has to be disconnected by whichever arrives first.
             const finish = (ok: boolean) => {
                 if (done) return;
                 done = true;
-                ro.disconnect();
+                ro?.disconnect();
                 resolve(ok);
             };
-            const ro = new ResizeObserver(() => {
+            ro = new ResizeObserver(() => {
                 const rect = node.getBoundingClientRect();
                 if (isActive && rect.width >= 120 && rect.height >= 80) finish(true);
             });
@@ -166,6 +167,7 @@ const TerminalInstance = ({ tab, isActive }: { tab: TerminalTab, isActive: boole
         let fitAddon: FitAddonType | undefined;
         let ptyId: number | undefined;
         let unlistenOutput: (() => void) | undefined;
+        let detachCopy: (() => void) | undefined;
         let pendingPasteTimer: ReturnType<typeof setTimeout> | undefined;
 
 // Reserves the pty outside render, and re-checks `isMounted` after every await
@@ -441,7 +443,7 @@ const TerminalInstance = ({ tab, isActive }: { tab: TerminalTab, isActive: boole
                     }
                 }
 
-                term.onData(data => { if (ptyId !== undefined) invoke("pty_write", { id: ptyId, data }).catch(() => { }); });
+                term.onData(data => { if (ptyId !== undefined) invoke("pty_write", { id: ptyId, data }).catch(() => undefined); });
                 term.onResize(size => {
                     // ConPTY reprints the viewport on pty_resize. Doing that while the
                     // pane is still being dragged wraps/duplicates the buffer.
@@ -506,7 +508,6 @@ const TerminalInstance = ({ tab, isActive }: { tab: TerminalTab, isActive: boole
         init().catch((e) => {
             console.error("Failed to initialize terminal:", e);
         });
-        let detachCopy: (() => void) | undefined;
         let fitTimer: ReturnType<typeof setTimeout> | undefined;
 // Two modes on purpose: the immediate fit runs now, the delayed one collapses a
         // splitter drag's resize burst into one fit.
@@ -836,7 +837,9 @@ const Terminal = ({
             const inst = globalTerminalStore.instances.get(id);
             const killId = inst && inst.ptyId >= 0 ? inst.ptyId : closing?.boundPtyId;
             if (typeof killId === "number" && killId >= 0) {
-                import("@tauri-apps/api/core").then(({ invoke }) => invoke("pty_kill", { id: killId }).catch(() => { })).catch(() => { });
+                import("@tauri-apps/api/core")
+                    .then(({ invoke }) => invoke("pty_kill", { id: killId }).catch(() => undefined))
+                    .catch(() => undefined);
             }
             if (inst) {
                 inst.unlistenOutput();

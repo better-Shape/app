@@ -667,8 +667,7 @@ export const ChatInput = React.memo(function ChatInput({
             if (needsSignIn || isPreparing) return false;
             if (uploadedFiles.some((att) => att.status === "processing")) return false;
             if (isLoading && uploadedFiles.length > 0) return false;
-            if (/^\/compact\b/i.test(trimmed)) return false;
-            return true;
+            return !/^\/compact\b/i.test(trimmed);
         },
         [isLoading, isPreparing, needsSignIn, uploadedFiles],
     );
@@ -1028,12 +1027,20 @@ export const ChatInput = React.memo(function ChatInput({
                 knownWidth > 120
                     ? Math.max(0, Math.floor((knownWidth - 32) / maxAsciiGlyphPx))
                     : 0;
+            let printableAscii = true;
+            for (let ci = 0; ci < inputValue.length; ci += 1) {
+                const code = inputValue.charCodeAt(ci);
+                if (code < 32 || code > 126) {
+                    printableAscii = false;
+                    break;
+                }
+            }
             const canUseSingleLineFastPath =
                 !isExpanded
                 && !composerTallRef.current
                 && !hasNewline
                 && inputValue.length <= safeSingleLineChars
-                && !/[^\x20-\x7e]/.test(inputValue);
+                && printableAscii;
 
             if (canUseSingleLineFastPath) {
                 composerTallRef.current = false;
@@ -1793,8 +1800,8 @@ export const ChatInput = React.memo(function ChatInput({
                         {pendingEdits.length > 0 ? (
                         <PendingEditsPanel
                             edits={pendingEdits}
-                            onAcceptAll={onAcceptAllEdits ?? (() => {})}
-                            onRejectAll={onRejectAllEdits ?? (() => {})}
+                            onAcceptAll={onAcceptAllEdits ?? (() => undefined)}
+                            onRejectAll={onRejectAllEdits ?? (() => undefined)}
                             onAccept={onAcceptEdit}
                             onReject={onRejectEdit}
                         />

@@ -879,15 +879,16 @@ export const ChatStreamProvider = ({ children }: { children: React.ReactNode }) 
                 listen<{ id?: string; approved?: boolean; conversationId?: string; turnId?: string }>(
                     eventName,
                     (event) => {
+                        const payload = event.payload;
                         patchLive(
-                            event.payload?.conversationId,
+                            payload.conversationId,
                             (live) => {
                                 live.turnPhase =
-                                    event.payload?.approved === false ? "thinking" : approvedPhase;
+                                    payload.approved === false ? "thinking" : approvedPhase;
                                 live.activityLabel =
-                                    event.payload?.approved === false ? "Thinking" : approvedLabel;
+                                    payload.approved === false ? "Thinking" : approvedLabel;
                             },
-                            event.payload?.turnId,
+                            payload.turnId,
                         );
                     },
                 ),

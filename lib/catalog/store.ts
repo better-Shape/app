@@ -90,9 +90,8 @@ export function useBetterShapeCatalog() {
 }
 
 /** Kept for callers that awaited a refresh; there is nothing to fetch now. */
-export async function refreshBetterShapeCatalog(): Promise<{ models: ModelInfo[] }> {
-  return { models: getCatalogModels() };
-}
+export const refreshBetterShapeCatalog = (): Promise<{ models: ModelInfo[] }> =>
+  Promise.resolve({ models: getCatalogModels() });
 
 export function clearBetterShapeCatalog() {
   /* no server state to clear */

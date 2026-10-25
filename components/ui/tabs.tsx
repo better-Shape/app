@@ -45,7 +45,7 @@ export const TabsList = React.forwardRef<
 
     React.useEffect(() => {
         const list = listRef.current;
-        if (!list) return;
+        if (!list) return undefined;
         // One callback for three signals: the indicator is measured from the DOM, so a
         // tab that changed state, the list resizing and the window resizing all mean the
         // same thing to it.

@@ -55,9 +55,9 @@ export const ModelAvatarStack = ({
     size?: number;
     className?: string;
 }) => {
-    const raw = models.filter(Boolean);
-    const isAuto = raw.length === 0 || raw.every((m) => isAutoModelId(m));
-    const id = isAuto ? AUTO_DISPLAY_MODEL : (raw[0] ?? AUTO_DISPLAY_MODEL);
+    const firstNamed = models.find((m) => Boolean(m) && !isAutoModelId(m));
+    const isAuto = !firstNamed;
+    const id = firstNamed ?? AUTO_DISPLAY_MODEL;
 
     return (
         <Tooltip content={isAuto ? "Auto" : formatMessageModelLabel(id)}>

@@ -331,8 +331,11 @@ export async function startPluginConnect(toolkit: string): Promise<{ redirectUrl
 export async function disconnectPlugin(toolkit: string): Promise<void> {
     const { plugins } = await fetchPlugins({ force: true });
     const accountIds = plugins
-        .filter((row) => row.toolkit.toLowerCase() === toolkit.toLowerCase() && row.accountId)
-        .map((row) => row.accountId!);
+        .filter(
+            (row): row is typeof row & { accountId: string } =>
+                row.toolkit.toLowerCase() === toolkit.toLowerCase() && Boolean(row.accountId),
+        )
+        .map((row) => row.accountId);
     for (const id of accountIds) {
         await composioFetch<void>(`/connected_accounts/${encodeURIComponent(id)}`, {
             method: "DELETE",

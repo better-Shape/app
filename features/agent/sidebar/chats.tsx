@@ -207,129 +207,149 @@ function chatLabels(chat: Conversation, projectPath: string | null | undefined) 
     return { title: chat.title?.trim() || "Untitled", path: chat.project_path || projectPath || "" };
 }
 
-/** Render project sessions with shared lifecycle, keyboard and selection ownership. */
-export const ChatList = ({
-    onNewChat,
-}: {
-    onNewChat: () => void;
-    /** @deprecated unified Sessions list, ignored */
-    listKind?: "chat";
-}) => {
-    const viewedChatId = useViewedConversationId();
-    const { project_path } = useProjectState();
-    const [chats, setChats] = useState<Conversation[]>([]);
-    const [searchOpen, setSearchOpen] = useState(false);
-    const [searchText, setSearchText] = useState("");
-    const [searchQuery, setSearchQuery] = useState("");
-    const composing = useRef(false);
-    const searchInput = useRef<HTMLInputElement>(null);
-    const [grouping, setGrouping] = useState<ChatGrouping>("none");
-    const [sort, setSort] = useState<ChatSort>("recent");
-    const [filter, setFilter] = useState<ChatFilter>("all");
-    const [selectedIds, setSelectedIds] = useState<string[]>([]);
-    const [activeId, setActiveId] = useState<string | null>(viewedChatId);
-    const [collapsed, setCollapsed] = useState<ReadonlySet<ChatShelfId>>(() => new Set());
-    const [collectionDraft, setCollectionDraft] = useState<string[] | null>(null);
+const CHAT_SELECTION_PRIMITIVES = {
+    Item: (props: { onClick?: () => void; className?: string; children?: ReactNode }) => (
+        <DropdownMenuItem {...props} />
+    ),
+    Separator: () => <DropdownMenuSeparator />,
+};
 
-    const dispositions = useSyncExternalStore(subscribeChatDispositions, getChatDispositions, getChatDispositionsServer);
-    const pinnedIds = useSyncExternalStore(subscribePinnedChats, getPinnedChatIds, getPinnedChatIdsServer);
-    const unreadIds = useSyncExternalStore(subscribeUnreadChats, getUnreadChatIds, getUnreadChatIdsServer);
-    const colors = useSyncExternalStore(subscribeChatColors, getChatColors, getChatColorsServer);
-    const collections = useSyncExternalStore(subscribeCollections, getCollections, getCollectionsServer);
-    const generatingIds = useGeneratingChatIds();
-    const activities = useChatActivities();
-    // Same store, different projection: a chat inside a live archive or delete
-    // entry is off screen until the entry is undone or swept.
-    const hiddenIds = useSyncExternalStore(
-        subscribeChatUndo,
-        pendingRemovalChatIds,
-        pendingRemovalChatIdsServer,
-    );
-    const allSubagents = useSyncExternalStore(subscribeSubagents, getSubagents, getSubagents);
-
-    const hydrated = useIsMounted();
-    const [restoredPreferences, setRestoredPreferences] = useState(false);
-    if (hydrated && !restoredPreferences) {
-        setRestoredPreferences(true);
-        setSort(loadSort());
-        try {
-            const stored = window.localStorage.getItem(GROUP_KEY);
-            if (stored === "collection" || stored === "project") setGrouping(stored);
-        } catch { /* Use the default when storage is unavailable. */ }
-
+/** Reads persisted chat grouping (`collection` or `project`) from `localStorage`. */
+const loadStoredGrouping = (): ChatGrouping | undefined => {
+    try {
+        const stored = window.localStorage.getItem(GROUP_KEY);
+        return stored === "collection" || stored === "project" ? stored : undefined;
+    } catch {
+        return undefined;
     }
+};
 
-    useEffect(() => { if (searchOpen) searchInput.current?.focus(); }, [searchOpen]);
-
-    /** Accept known grouping modes and retain the in-session choice even when persistence is unavailable. */
-    const persistGrouping = (value: string) => {
-        if (value !== "none" && value !== "collection" && value !== "project") return;
-        setGrouping(value);
-        try { window.localStorage.setItem(GROUP_KEY, value); } catch { /* Session-local fallback. */ }
-    };
-
+/** Subscribes subagent events, active-chat sync, unread tracking, and sidebar keyboard shortcuts. */
+const useChatListEventBindings = ({
+    activeId,
+    setActiveId,
+    sections,
+    collapsed,
+    openChat,
+}: {
+    activeId: string | null;
+    setActiveId: React.Dispatch<React.SetStateAction<string | null>>;
+    sections: ReturnType<typeof buildShelves>;
+    collapsed: ReadonlySet<ChatShelfId>;
+    openChat: (id: string) => void;
+}) => {
     useEffect(() => {
         let unlisten: (() => void) | undefined;
         let cancelled = false;
         listen("agent-subagent", (event) => {
             applySubagentEvent((event.payload ?? {}) as Parameters<typeof applySubagentEvent>[0]);
-        }).then((fn) => {
-            if (cancelled) fn();
-            else unlisten = fn;
-        }).catch(() => {
-            if (!cancelled) notify.error("Could not receive subagent updates", "Reload the app to retry.");
-        });
-        return () => { cancelled = true; unlisten?.(); };
+        })
+            .then((fn) => {
+                if (cancelled) fn();
+                else unlisten = fn;
+            })
+            .catch(() => {
+                if (!cancelled) notify.error("Could not receive subagent updates", "Reload the app to retry.");
+            });
+        return () => {
+            cancelled = true;
+            unlisten?.();
+        };
     }, []);
 
-    const persistSort = useCallback((next: ChatSort) => {
-        setSort(next);
-        try {
-            window.localStorage.setItem(SORT_KEY, next);
-        } catch {
-            /* ignore */
-        }
+    useEffect(() => {
+        /** Syncs the highlighted session row and clears its unread badge when opened. */
+        const onActive = (e: Event) => {
+            const id = (e as CustomEvent<{ id?: string } | null>).detail?.id;
+            const next = id && id !== NEW_CHAT_TAB_ID ? id : null;
+            setActiveId(next);
+            if (next) clearChatUnread(next);
+        };
+        window.addEventListener("bettershape-chat-active", onActive as EventListener);
+        return () => window.removeEventListener("bettershape-chat-active", onActive as EventListener);
+    }, [setActiveId]);
+
+    useEffect(() => {
+        /** Marks background sessions unread when a streaming turn completes off-screen. */
+        const onGenerating = (event: Event) => {
+            const detail = (event as CustomEvent<{ id?: string; generating?: boolean } | null>).detail;
+            if (detail?.id && !detail.generating && detail.id !== activeId) markChatUnread(detail.id);
+        };
+        window.addEventListener("bettershape-chat-generating", onGenerating as EventListener);
+        return () => window.removeEventListener("bettershape-chat-generating", onGenerating as EventListener);
+    }, [activeId]);
+
+    useEffect(() => {
+        /** Consumes primary-modifier undo when a sidebar action is pending. */
+        const onKey = (event: KeyboardEvent) => {
+            if (!isSidebarShortcut(event) || event.key.toLowerCase() !== "z") return;
+            if (!undoChat()) return;
+            event.preventDefault();
+            event.stopPropagation();
+        };
+        window.addEventListener("keydown", onKey, true);
+        return () => window.removeEventListener("keydown", onKey, true);
     }, []);
 
+    useEffect(() => {
+        /** Opens numbered visible chats (`Mod+1..9`) outside editable surfaces. */
+        const jump = (event: KeyboardEvent) => {
+            if (!isSidebarShortcut(event) || !/^[1-9]$/.test(event.key)) return;
+            const visibleChats = sections
+                .filter((section) => !collapsed.has(section.id))
+                .flatMap((section) => section.chats);
+            const chat = visibleChats[Number(event.key) - 1];
+            if (!chat) return;
+            event.preventDefault();
+            event.stopPropagation();
+            openChat(chat.id);
+        };
+        window.addEventListener("keydown", jump);
+        return () => window.removeEventListener("keydown", jump);
+    }, [sections, collapsed, openChat]);
+};
+
+/** Loads project conversations with version fencing and refreshes on conversation lifecycle events. */
+const useProjectConversationsLoader = (
+    projectPath: string | null,
+    setChats: React.Dispatch<React.SetStateAction<Conversation[]>>,
+) => {
     const chatsVersion = useRef(0);
     const refreshFailed = useRef(false);
-    const [listOwner, setListOwner] = useState(project_path);
-    if (listOwner !== project_path) {
-        setListOwner(project_path);
-        setChats([]);
-        setSelectedIds([]);
-    }
-    // A read already in flight belongs to the project the sidebar just left. Retire it in the
-    // commit that switches projects - a layout effect runs before the effect below reloads, and
-    // a stale read landing between the two would otherwise fill the new project's shelves (and
-    // stay there if the new project's read failed).
-    const loadedProject = useRef(project_path);
+    const loadedProject = useRef(projectPath);
+
     useLayoutEffect(() => {
-        if (loadedProject.current === project_path) return;
-        loadedProject.current = project_path;
+        if (loadedProject.current === projectPath) return;
+        loadedProject.current = projectPath;
         chatsVersion.current += 1;
-    }, [project_path]);
+    }, [projectPath]);
+
     const loadChats = useCallback(() => {
         const version = ++chatsVersion.current;
-        if (!project_path) return Promise.resolve();
-        return commands.getConversations(project_path).then(next => {
-            if (version !== chatsVersion.current) return;
-            setChats(next);
-            if (refreshFailed.current) {
-                refreshFailed.current = false;
-                notify.success("Chats refreshed");
-            }
-        }).catch(() => {
-            if (version !== chatsVersion.current) return;
-            refreshFailed.current = true;
-            notify.error("Could not refresh chats", "Showing the last loaded chats. Try again.");
-        });
-    }, [project_path]);
+        if (!projectPath) return Promise.resolve();
+        return commands
+            .getConversations(projectPath)
+            .then((next) => {
+                if (version !== chatsVersion.current) return;
+                setChats(next);
+                if (refreshFailed.current) {
+                    refreshFailed.current = false;
+                    notify.success("Chats refreshed");
+                }
+            })
+            .catch(() => {
+                if (version !== chatsVersion.current) return;
+                refreshFailed.current = true;
+                notify.error("Could not refresh chats", "Showing the last loaded chats. Try again.");
+            });
+    }, [projectPath, setChats]);
 
     useEffect(() => {
         loadChats().catch(() => undefined);
-        /** Reload chats through the version-fenced loader when a conversation event invalidates the list. */
-        const onRefresh = () => { loadChats().catch(() => undefined); };
+        /** Reloads chats through the version-fenced loader when conversation events fire. */
+        const onRefresh = () => {
+            loadChats().catch(() => undefined);
+        };
         window.addEventListener("bettershape-chat-refresh", onRefresh);
         window.addEventListener("bettershape-chats-changed", onRefresh);
         window.addEventListener("bettershape-chat-active", onRefresh);
@@ -341,42 +361,250 @@ export const ChatList = ({
             window.removeEventListener("bettershape-chat-active", onRefresh);
         };
     }, [loadChats]);
+};
 
-    useEffect(() => {
-        const onActive = (e: Event) => {
-            const id = (e as CustomEvent<{ id?: string }>).detail?.id;
-            const next = id && id !== NEW_CHAT_TAB_ID ? id : null;
-            setActiveId(next);
-            if (next) clearChatUnread(next);
-        };
-        window.addEventListener("bettershape-chat-active", onActive as EventListener);
-        return () => window.removeEventListener("bettershape-chat-active", onActive as EventListener);
-    }, []);
+/** Renders the Sessions header toolbar (`Search`, `Filter`, `Sessions actions`, and `New chat`). */
+const ChatListHeaderToolbar = ({
+    searchOpen,
+    onToggleSearch,
+    filter,
+    onFilterChange,
+    grouping,
+    onGroupingChange,
+    sort,
+    onSortChange,
+    selectedIds,
+    selectedTargets,
+    handlers,
+    onOpenCollectionDraft,
+    onClearSelection,
+    hasMultipleSections,
+    allCollapsed,
+    onToggleAllCollapsed,
+    onNewChat,
+}: {
+    searchOpen: boolean;
+    onToggleSearch: () => void;
+    filter: ChatFilter;
+    onFilterChange: (next: ChatFilter) => void;
+    grouping: ChatGrouping;
+    onGroupingChange: (value: string) => void;
+    sort: ChatSort;
+    onSortChange: (next: ChatSort) => void;
+    selectedIds: string[];
+    selectedTargets: ChatLifecycleTarget[];
+    handlers: ChatLifecycleHandlers;
+    onOpenCollectionDraft: () => void;
+    onClearSelection: () => void;
+    hasMultipleSections: boolean;
+    allCollapsed: boolean;
+    onToggleAllCollapsed: () => void;
+    onNewChat: () => void;
+}) => (
+    <div className="flex items-center justify-between pl-3 pr-1 pb-1 pt-3">
+        <span className="text-sm font-medium text-text-muted">Sessions</span>
+        <div className="flex items-center">
+            <HeaderIconBtn label="Search" active={searchOpen} onClick={onToggleSearch}>
+                <Icon icon={Search20Regular} />
+            </HeaderIconBtn>
+            <DropdownMenu modal={false}>
+                <Tooltip content="Filter" side="bottom" delayDuration={80}>
+                    <DropdownMenuTrigger asChild>
+                        <button
+                            type="button"
+                            aria-label="Filter"
+                            className="flex size-7 items-center justify-center rounded-md text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary data-[state=open]:bg-[var(--btn-open)] data-[state=open]:hover:bg-[var(--btn-open-hover)] data-[state=open]:text-text-primary"
+                        >
+                            <Icon icon={Filter20Regular} />
+                        </button>
+                    </DropdownMenuTrigger>
+                </Tooltip>
+                <DropdownMenuContent align="end" className="min-w-40">
+                    <DropdownMenuLabel>Show</DropdownMenuLabel>
+                    <DropdownMenuRadioGroup value={filter} onValueChange={(v) => onFilterChange(v as ChatFilter)}>
+                        {FILTER_OPTIONS.map((opt) => (
+                            <DropdownMenuRadioItem key={opt.value} value={opt.value}>
+                                {opt.label}
+                            </DropdownMenuRadioItem>
+                        ))}
+                    </DropdownMenuRadioGroup>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuLabel>Group by</DropdownMenuLabel>
+                    <DropdownMenuRadioGroup value={grouping} onValueChange={onGroupingChange}>
+                        {GROUP_OPTIONS.map((option) => (
+                            <DropdownMenuRadioItem key={option.value} value={option.value}>
+                                {option.label}
+                            </DropdownMenuRadioItem>
+                        ))}
+                    </DropdownMenuRadioGroup>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuLabel>Sort</DropdownMenuLabel>
+                    <DropdownMenuRadioGroup value={sort} onValueChange={(v) => onSortChange(v as ChatSort)}>
+                        {SORT_OPTIONS.map((opt) => (
+                            <DropdownMenuRadioItem key={opt.value} value={opt.value}>
+                                {opt.label}
+                            </DropdownMenuRadioItem>
+                        ))}
+                    </DropdownMenuRadioGroup>
+                </DropdownMenuContent>
+            </DropdownMenu>
+            <DropdownMenu modal={false}>
+                <Tooltip content="Sessions actions" side="bottom" delayDuration={80}>
+                    <DropdownMenuTrigger asChild>
+                        <button
+                            type="button"
+                            aria-label="Sessions actions"
+                            className="flex size-7 items-center justify-center rounded-md text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary data-[state=open]:bg-[var(--btn-open)] data-[state=open]:hover:bg-[var(--btn-open-hover)] data-[state=open]:text-text-primary"
+                        >
+                            <Icon icon={MoreHorizontal20Regular} />
+                        </button>
+                    </DropdownMenuTrigger>
+                </Tooltip>
+                <DropdownMenuContent align="end" className="min-w-48">
+                    <DropdownMenuLabel>
+                        {selectedIds.length > 0 ? `${selectedIds.length} selected` : "Sessions"}
+                    </DropdownMenuLabel>
+                    {selectedTargets.length > 0 ? (
+                        <>
+                            {renderLifecycleActions(
+                                buildChatLifecycleActions(selectedTargets, handlers),
+                                CHAT_SELECTION_PRIMITIVES,
+                            )}
+                            <DropdownMenuItem onClick={onOpenCollectionDraft}>
+                                <Icon icon={Collections20Regular} />
+                                Add to collection
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                        </>
+                    ) : null}
+                    <DropdownMenuItem disabled={selectedIds.length === 0} onClick={onClearSelection}>
+                        Clear selection
+                    </DropdownMenuItem>
+                    {hasMultipleSections ? (
+                        <DropdownMenuItem onClick={onToggleAllCollapsed}>
+                            {allCollapsed ? "Expand all sections" : "Collapse all sections"}
+                        </DropdownMenuItem>
+                    ) : null}
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={onNewChat}>
+                        <Icon icon={Compose20Regular} />
+                        New chat
+                    </DropdownMenuItem>
+                </DropdownMenuContent>
+            </DropdownMenu>
+            <HeaderIconBtn label="New chat" onClick={onNewChat}>
+                <Icon icon={Compose20Regular} />
+            </HeaderIconBtn>
+        </div>
+    </div>
+);
 
-    useEffect(() => {
-        const onGenerating = (event: Event) => {
-            const detail = (event as CustomEvent<{ id?: string; generating?: boolean }>).detail;
-            if (!detail?.id || detail.generating) return;
-            if (detail.id !== activeId) markChatUnread(detail.id);
-        };
-        window.addEventListener("bettershape-chat-generating", onGenerating as EventListener);
-        return () => window.removeEventListener("bettershape-chat-generating", onGenerating as EventListener);
-    }, [activeId]);
-
-    // Highlight the chat on screen. The backend's current chat can be another one while a
-    // background chat runs, so it is not used here.
-
-    const [viewScope, setViewScope] = useState(viewedChatId);
-    if (viewScope !== viewedChatId) {
-        setViewScope(viewedChatId);
-        setActiveId(viewedChatId);
+/** Renders the scrollable body of the Sessions sidebar (empty project, empty search, empty list, or shelves). */
+const ChatListViewportBody = ({
+    projectPath,
+    filteredCount,
+    searchQuery,
+    onNewChat,
+    sections,
+    rowProps,
+    collapsed,
+    onToggleShelf,
+    onMoveChat,
+    grouping,
+    collections,
+}: {
+    projectPath: string | null;
+    filteredCount: number;
+    searchQuery: string;
+    onNewChat: () => void;
+    sections: ReturnType<typeof buildShelves>;
+    rowProps: (chat: Conversation) => React.ComponentProps<typeof ChatShelves>["rowProps"] extends (c: Conversation) => infer R ? R : never;
+    collapsed: ReadonlySet<ChatShelfId>;
+    onToggleShelf: (shelf: ChatShelfId) => void;
+    onMoveChat: (id: string, shelf: DropShelf) => void;
+    grouping: ChatGrouping;
+    collections: ReturnType<typeof getCollections>;
+}) => {
+    if (!projectPath) {
+        return (
+            <button
+                type="button"
+                onClick={() => window.dispatchEvent(new Event("bettershape-new-project"))}
+                className="mt-1 flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--row-hover)] hover:text-text-secondary"
+            >
+                <Icon icon={FolderOpen20Regular} />
+                New project
+            </button>
+        );
     }
+    if (filteredCount === 0 && searchQuery.trim()) {
+        return <p role="status" className="px-2.5 py-2 text-sm text-text-muted">No matching sessions</p>;
+    }
+    if (filteredCount === 0) {
+        return (
+            <button
+                type="button"
+                onClick={onNewChat}
+                className="mt-1 flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--row-hover)] hover:text-text-secondary"
+            >
+                <Icon icon={Compose20Regular} className="shrink-0" />
+                <span>New chat</span>
+            </button>
+        );
+    }
+    return (
+        <ChatShelves
+            sections={sections}
+            rowProps={rowProps}
+            collapsed={collapsed}
+            onToggleShelf={onToggleShelf}
+            onMoveChat={onMoveChat}
+            grouping={grouping}
+            collections={collections}
+        />
+    );
+};
 
-    const openChat = useCallback((id: string) => {
-        clearChatUnread(id);
-        window.dispatchEvent(new CustomEvent("bettershape-chat-load", { detail: { id } }));
-    }, []);
+/** Executes archive or delete persistence for a batch of chat IDs after undo expiry. */
+const commitChatListRemoval = async (
+    targets: readonly string[],
+    kind: "archive" | "delete",
+    setChats: React.Dispatch<React.SetStateAction<Conversation[]>>,
+    refresh: () => void,
+) => {
+    await Promise.all(
+        targets.map(async (id) => {
+            try {
+                if (kind === "archive") await commands.setConversationArchived(id, true);
+                else await commands.deleteConversation(id);
+                setChats((previous) => previous.filter((chat) => chat.id !== id));
+                window.dispatchEvent(new CustomEvent("bettershape-chat-close-tab", { detail: { id } }));
+            } catch (error) {
+                notify.error(error instanceof Error ? error.message : `Could not ${kind} session`);
+            }
+        }),
+    );
+    refresh();
+};
 
+/** Builds lifecycle callbacks (`pinChats`, `handlers`, `moveChat`) for `ChatList`. */
+const useChatListLifecycle = ({
+    chats,
+    sections,
+    selectedIds,
+    selectedTargets,
+    openChat,
+    setChats,
+    setCollectionDraft,
+}: {
+    chats: Conversation[];
+    sections: ReturnType<typeof buildShelves>;
+    selectedIds: string[];
+    selectedTargets: ChatLifecycleTarget[];
+    openChat: (id: string) => void;
+    setChats: React.Dispatch<React.SetStateAction<Conversation[]>>;
+    setCollectionDraft: React.Dispatch<React.SetStateAction<string[] | null>>;
+}) => {
     const refresh = useCallback(() => {
         window.dispatchEvent(new CustomEvent("bettershape-chat-refresh"));
     }, []);
@@ -416,47 +644,37 @@ export const ChatList = ({
         (ids: readonly string[], kind: "archive" | "delete") => {
             const targets = [...new Set(ids)].filter((id) => !pendingRemovalChatIds().has(id));
             if (targets.length === 0) return;
-            // Both operations wait for undo to expire. Keep every row hidden until
-            // persistence has finished; successful rows are removed before reloading.
             pushChatUndo({
                 kind,
                 chatId: targets[0],
                 chatIds: targets,
                 label: `${kind === "archive" ? "Archived" : "Deleted"} ${nameOf(targets)}`,
-                commit: async () => {
-                    await Promise.all(targets.map(async (id) => {
-                        try {
-                            if (kind === "archive") await commands.setConversationArchived(id, true);
-                            else await commands.deleteConversation(id);
-                            setChats((previous) => previous.filter((chat) => chat.id !== id));
-                            window.dispatchEvent(new CustomEvent("bettershape-chat-close-tab", { detail: { id } }));
-                        } catch (error) {
-                            notify.error(error instanceof Error ? error.message : `Could not ${kind} session`);
-                        }
-                    }));
-                    refresh();
+                commit: () => commitChatListRemoval(targets, kind, setChats, refresh),
+            });
+        },
+        [nameOf, refresh, setChats],
+    );
+
+    const changeDisposition = useCallback(
+        (ids: readonly string[], state: ChatDisposition["state"]) => {
+            if (ids.length === 0) return;
+            const current = getChatDispositions();
+            const previous = new Map(ids.map((id) => [id, current[id]]));
+            const value = dispositionForShelf(state);
+            const action = SHELF_ACTIONS[state];
+            for (const id of ids) setChatDisposition(id, value);
+            pushChatUndo({
+                kind: action.kind,
+                chatId: ids[0],
+                chatIds: ids,
+                label: `${action.past} ${nameOf(ids)}`,
+                revert: () => {
+                    for (const [id, old] of previous) setChatDisposition(id, old);
                 },
             });
         },
-        [nameOf, refresh],
+        [nameOf],
     );
-    const archiveChats = useCallback((ids: readonly string[]) => removeFromList(ids, "archive"), [removeFromList]);
-    const removeChats = useCallback((ids: readonly string[]) => removeFromList(ids, "delete"), [removeFromList]);
-
-    const changeDisposition = useCallback((ids: readonly string[], state: ChatDisposition["state"]) => {
-        if (ids.length === 0) return;
-        const dispositions = getChatDispositions();
-        const previous = new Map(ids.map((id) => [id, dispositions[id]]));
-        const value = dispositionForShelf(state);
-        const action = SHELF_ACTIONS[state];
-        for (const id of ids) setChatDisposition(id, value);
-        pushChatUndo({
-            kind: action.kind,
-            chatId: ids[0], chatIds: ids,
-            label: `${action.past} ${nameOf(ids)}`,
-            revert: () => { for (const [id, old] of previous) setChatDisposition(id, old); },
-        });
-    }, [nameOf]);
 
     const handlers = useMemo<ChatLifecycleHandlers>(
         () => ({
@@ -470,45 +688,249 @@ export const ChatList = ({
             revealFolder: (path) => {
                 commands.revealPath(path).catch(() => notify.error("Could not reveal project folder"));
             },
-            archive: archiveChats,
-            remove: removeChats,
+            archive: (ids) => removeFromList(ids, "archive"),
+            remove: (ids) => removeFromList(ids, "delete"),
             addToCollection: (ids) => setCollectionDraft([...ids]),
         }),
-        [openChat, pinChats, archiveChats, removeChats, changeDisposition],
+        [changeDisposition, openChat, pinChats, removeFromList, setCollectionDraft],
     );
 
+    const moveChat = useCallback(
+        (id: string, shelf: DropShelf) => {
+            const ids = selectedIds.includes(id) ? selectedTargets.map((target) => target.id) : [id];
+            const movableIds = new Set(
+                sections.flatMap((section) =>
+                    section.id === shelf ? [] : section.chats.map((chat) => chat.id),
+                ),
+            );
+            const targets = ids.filter((item) => movableIds.has(item));
+            if (targets.length) moveChatsToShelf(targets, shelf, nameOf(targets));
+        },
+        [nameOf, sections, selectedIds, selectedTargets],
+    );
+
+    return { pinChats, handlers, moveChat };
+};
+
+/** Subscribes external sidebar stores (`dispositions`, `pinned`, `unread`, `colors`, `collections`, `undo`, `subagents`). */
+const useChatListExternalStores = () => ({
+    dispositions: useSyncExternalStore(subscribeChatDispositions, getChatDispositions, getChatDispositionsServer),
+    pinnedIds: useSyncExternalStore(subscribePinnedChats, getPinnedChatIds, getPinnedChatIdsServer),
+    unreadIds: useSyncExternalStore(subscribeUnreadChats, getUnreadChatIds, getUnreadChatIdsServer),
+    colors: useSyncExternalStore(subscribeChatColors, getChatColors, getChatColorsServer),
+    collections: useSyncExternalStore(subscribeCollections, getCollections, getCollectionsServer),
+    generatingIds: useGeneratingChatIds(),
+    activities: useChatActivities(),
+    hiddenIds: useSyncExternalStore(subscribeChatUndo, pendingRemovalChatIds, pendingRemovalChatIdsServer),
+    allSubagents: useSyncExternalStore(subscribeSubagents, getSubagents, getSubagents),
+});
+
+/** Syncs render-scoped `project_path` and `viewedChatId` transitions for `ChatList`. */
+const useChatListScopedState = (
+    projectPath: string | null,
+    viewedChatId: string | null,
+    setChats: React.Dispatch<React.SetStateAction<Conversation[]>>,
+    setSelectedIds: React.Dispatch<React.SetStateAction<string[]>>,
+) => {
+    const [activeId, setActiveId] = useState<string | null>(viewedChatId);
+    const [listOwner, setListOwner] = useState(projectPath);
+    if (listOwner !== projectPath) {
+        setListOwner(projectPath);
+        setChats([]);
+        setSelectedIds([]);
+    }
+    const [viewScope, setViewScope] = useState(viewedChatId);
+    if (viewScope !== viewedChatId) {
+        setViewScope(viewedChatId);
+        setActiveId(viewedChatId);
+    }
+    return [activeId, setActiveId] as const;
+};
+
+/** Manages grouping, sort, filter, and search bar state for `ChatList`. */
+const useChatListPreferences = () => {
+    const [searchOpen, setSearchOpen] = useState(false);
+    const [searchText, setSearchText] = useState("");
+    const [searchQuery, setSearchQuery] = useState("");
+    const composing = useRef(false);
+    const searchInput = useRef<HTMLInputElement>(null);
+    const [grouping, setGrouping] = useState<ChatGrouping>("none");
+    const [sort, setSort] = useState<ChatSort>("recent");
+    const [filter, setFilter] = useState<ChatFilter>("all");
+
+    const hydrated = useIsMounted();
+    const [restoredPreferences, setRestoredPreferences] = useState(false);
+    if (hydrated && !restoredPreferences) {
+        setRestoredPreferences(true);
+        setSort(loadSort());
+        const storedGrouping = loadStoredGrouping();
+        if (storedGrouping) setGrouping(storedGrouping);
+    }
+
     useEffect(() => {
-        /** Consume primary-modifier undo only when a sidebar action is pending and text editing does not own the key. */
-        const onKey = (event: KeyboardEvent) => {
-            if (!isSidebarShortcut(event) || event.key.toLowerCase() !== "z") return;
-            // Capture phase, and only swallow the key once something came back:
-            // with nothing pending, another surface's own mod+Z still fires.
-            const entry = undoChat();
-            if (!entry) return;
-            event.preventDefault();
-            event.stopPropagation();
-        };
-        window.addEventListener("keydown", onKey, true);
-        return () => window.removeEventListener("keydown", onKey, true);
+        if (searchOpen) searchInput.current?.focus();
+    }, [searchOpen]);
+
+    const persistGrouping = useCallback((value: string) => {
+        if (value !== "none" && value !== "collection" && value !== "project") return;
+        setGrouping(value);
+        try {
+            window.localStorage.setItem(GROUP_KEY, value);
+        } catch {
+            /* Session-local fallback. */
+        }
     }, []);
 
-    const live = useMemo(() => chats.filter((chat) => !chat.archived), [chats]);
+    const persistSort = useCallback((next: ChatSort) => {
+        setSort(next);
+        try {
+            window.localStorage.setItem(SORT_KEY, next);
+        } catch {
+            /* ignore */
+        }
+    }, []);
 
-    const filtered = useMemo(() => {
-        return live.filter((chat) => {
-            if (filter === "pinned" && !pinnedIds.has(chat.id)) return false;
-            if (filter === "unread" && !unreadIds.has(chat.id)) return false;
-            const collection = collections.find((entry) => entry.chatIds.includes(chat.id));
-            return matchesChatSearch(chat, searchQuery, collection?.name);
-        });
-    }, [live, filter, pinnedIds, unreadIds, collections, searchQuery]);
+    const closeSearch = useCallback(() => {
+        setSearchOpen(false);
+        setSearchText("");
+        setSearchQuery("");
+        composing.current = false;
+    }, []);
+
+    return {
+        searchOpen,
+        setSearchOpen,
+        searchText,
+        setSearchText,
+        searchQuery,
+        setSearchQuery,
+        composing,
+        searchInput,
+        grouping,
+        persistGrouping,
+        sort,
+        persistSort,
+        filter,
+        setFilter,
+        closeSearch,
+    };
+};
+
+/** Finds the first visible conversation across expanded shelves for Enter-to-open search navigation. */
+const firstVisibleSearchMatch = (
+    searchQuery: string,
+    sections: ReturnType<typeof buildShelves>,
+    collapsed: ReadonlySet<ChatShelfId>,
+) => {
+    if (!searchQuery.trim()) return undefined;
+    return sections.find((section) => !collapsed.has(section.id))?.chats.at(0);
+};
+
+/** Opens the first visible matching chat when pressing Enter in Sessions search. */
+const openFirstSearchMatchOnEnter = (
+    event: React.KeyboardEvent<HTMLInputElement>,
+    searchQuery: string,
+    sections: ReturnType<typeof buildShelves>,
+    collapsed: ReadonlySet<ChatShelfId>,
+    openChat: (id: string) => void,
+) => {
+    const first = firstVisibleSearchMatch(searchQuery, sections, collapsed);
+    if (!first) return;
+    event.preventDefault();
+    openChat(first.id);
+};
+
+/** Handles Escape dismissal and Enter navigation inside the Sessions search input. */
+const handleSessionSearchKeyDown = ({
+    event,
+    composing,
+    searchQuery,
+    sections,
+    collapsed,
+    closeSearch,
+    openChat,
+}: {
+    event: React.KeyboardEvent<HTMLInputElement>;
+    composing: boolean;
+    searchQuery: string;
+    sections: ReturnType<typeof buildShelves>;
+    collapsed: ReadonlySet<ChatShelfId>;
+    closeSearch: () => void;
+    openChat: (id: string) => void;
+}) => {
+    if (composing || isComposingKey(event.nativeEvent)) return;
+    if (event.key === "Escape") {
+        event.preventDefault();
+        closeSearch();
+    } else if (event.key === "Enter") {
+        openFirstSearchMatchOnEnter(event, searchQuery, sections, collapsed, openChat);
+    }
+};
+
+/** Checks whether a chat passes the active `pinned` / `unread` / `all` filter tab. */
+const passesChatFilterTab = (
+    chatId: string,
+    filter: ChatFilter,
+    pinnedIds: ReadonlySet<string>,
+    unreadIds: ReadonlySet<string>,
+): boolean => {
+    if (filter === "pinned") return pinnedIds.has(chatId);
+    if (filter === "unread") return unreadIds.has(chatId);
+    return true;
+};
+
+/** Resolves a conversation's archive/search/filter eligibility inside `useChatListProjection`. */
+const isChatMatchingFilter = (
+    chat: Conversation,
+    filter: ChatFilter,
+    pinnedIds: ReadonlySet<string>,
+    unreadIds: ReadonlySet<string>,
+    collections: ReturnType<typeof getCollections>,
+    searchQuery: string,
+): boolean => {
+    if (chat.archived || !passesChatFilterTab(chat.id, filter, pinnedIds, unreadIds)) return false;
+    const collectionName = findCollectionNameForChat(chat.id, collections) || undefined;
+    return matchesChatSearch(chat, searchQuery, collectionName);
+};
+
+/** Derives filtered conversations, pruned selection, shelves, and row prop builders for `ChatList`. */
+const useChatListProjection = ({
+    chats,
+    projectPath,
+    activeId,
+    filter,
+    sort,
+    grouping,
+    searchQuery,
+    selectedIds,
+    setSelectedIds,
+    stores,
+}: {
+    chats: Conversation[];
+    projectPath: string | null;
+    activeId: string | null;
+    filter: ChatFilter;
+    sort: ChatSort;
+    grouping: ChatGrouping;
+    searchQuery: string;
+    selectedIds: string[];
+    setSelectedIds: React.Dispatch<React.SetStateAction<string[]>>;
+    stores: ReturnType<typeof useChatListExternalStores>;
+}) => {
+    const { dispositions, pinnedIds, unreadIds, collections, generatingIds, hiddenIds } = stores;
+
+    const filtered = useMemo(
+        () =>
+            chats.filter((chat) =>
+                isChatMatchingFilter(chat, filter, pinnedIds, unreadIds, collections, searchQuery),
+            ),
+        [chats, collections, filter, pinnedIds, searchQuery, unreadIds],
+    );
 
     const visibleSelection = useMemo(() => {
-        const visible = new Set(filtered.filter(chat => !hiddenIds.has(chat.id)).map(chat => chat.id));
-        return selectedIds.filter(id => visible.has(id));
+        const visible = new Set(filtered.filter((chat) => !hiddenIds.has(chat.id)).map((chat) => chat.id));
+        return selectedIds.filter((id) => visible.has(id));
     }, [filtered, hiddenIds, selectedIds]);
-    // Counts, lifecycle actions and collection assignment share one selection.
-    // Prune during render so no committed menu can target a filtered-out chat.
     if (visibleSelection.length !== selectedIds.length) setSelectedIds(visibleSelection);
 
     const sections = useMemo(
@@ -524,23 +946,219 @@ export const ChatList = ({
                 grouping,
                 collections,
             }),
-        [filtered, sort, pinnedIds, generatingIds, activeId, hiddenIds, dispositions, grouping, collections],
+        [activeId, collections, dispositions, filtered, generatingIds, grouping, hiddenIds, pinnedIds, sort],
     );
 
-    useEffect(() => {
-        /** Open a numbered visible chat without stealing IME input or shortcuts from text-editing surfaces. */
-        const jump = (event: KeyboardEvent) => {
-            if (!isSidebarShortcut(event) || !/^[1-9]$/.test(event.key)) return;
-            const chats = sections.filter((section) => !collapsed.has(section.id)).flatMap((section) => section.chats);
-            const chat = chats[Number(event.key) - 1];
-            if (!chat) return;
-            event.preventDefault();
-            event.stopPropagation();
-            openChat(chat.id);
-        };
-        window.addEventListener("keydown", jump);
-        return () => window.removeEventListener("keydown", jump);
-    }, [sections, collapsed, openChat]);
+    const dispositionOf = useCallback(
+        (id: string) => {
+            const entry = id in dispositions ? dispositions[id] : undefined;
+            return entry ? entry.state : id === activeId ? "active" : "settled";
+        },
+        [activeId, dispositions],
+    );
+
+    const selectedTargets = useMemo<ChatLifecycleTarget[]>(
+        () =>
+            filtered
+                .filter((chat) => selectedIds.includes(chat.id))
+                .map((chat) => ({
+                    id: chat.id,
+                    ...chatLabels(chat, projectPath),
+                    pinned: pinnedIds.has(chat.id),
+                    disposition: dispositionOf(chat.id),
+                })),
+        [dispositionOf, filtered, pinnedIds, projectPath, selectedIds],
+    );
+
+    return { filtered, sections, dispositionOf, selectedTargets };
+};
+
+/** Resolves activity state for a single sidebar conversation row. */
+const resolveRowActivity = (
+    chatId: string,
+    activities: ReturnType<typeof useChatActivities>,
+    generatingIds: ReadonlySet<string>,
+) => activities.get(chatId) ?? (generatingIds.has(chatId) ? ("working" as const) : ("ready" as const));
+
+/** Resolves the first matching collection name for a conversation ID. */
+const findCollectionNameForChat = (
+    chatId: string,
+    collections: ReturnType<typeof getCollections>,
+): string | null => collections.find((entry) => entry.chatIds.includes(chatId))?.name ?? null;
+
+/** Builds the memoized `rowProps` projector for `ChatShelves`. */
+const useChatRowPropsBuilder = ({
+    projectPath,
+    activeId,
+    selectedIds,
+    stores,
+    dispositionOf,
+    toggleSelect,
+    openChat,
+    pinChats,
+    handlers,
+}: {
+    projectPath: string | null;
+    activeId: string | null;
+    selectedIds: string[];
+    stores: ReturnType<typeof useChatListExternalStores>;
+    dispositionOf: (id: string) => ChatDisposition["state"];
+    toggleSelect: (id: string) => void;
+    openChat: (id: string) => void;
+    pinChats: (ids: readonly string[], next: boolean) => void;
+    handlers: ChatLifecycleHandlers;
+}) => {
+    const { activities, generatingIds, collections, pinnedIds, unreadIds, colors, allSubagents } = stores;
+    return useCallback(
+        (chat: Conversation) => ({
+            activity: resolveRowActivity(chat.id, activities, generatingIds),
+            disposition: dispositionOf(chat.id),
+            ...chatLabels(chat, projectPath),
+            timestamp: chat.timestamp || 0,
+            collection: findCollectionNameForChat(chat.id, collections),
+            active: chat.id === activeId,
+            pinned: pinnedIds.has(chat.id),
+            unread: unreadIds.has(chat.id),
+            color: colors[chat.id] ?? null,
+            subagents: allSubagents.filter((card) => card.parentId === chat.id),
+            selecting: selectedIds.length > 0,
+            selected: selectedIds.includes(chat.id),
+            onToggleSelect: () => toggleSelect(chat.id),
+            onOpen: () => openChat(chat.id),
+            onTogglePin: (next: boolean) => pinChats([chat.id], next),
+            handlers,
+        }),
+        [
+            activeId,
+            activities,
+            allSubagents,
+            collections,
+            colors,
+            dispositionOf,
+            generatingIds,
+            handlers,
+            openChat,
+            pinChats,
+            pinnedIds,
+            projectPath,
+            selectedIds,
+            toggleSelect,
+            unreadIds,
+        ],
+    );
+};
+
+/** Renders the collapsible search input bar beneath the Sessions header when open. */
+const ChatListSearchSection = ({
+    searchOpen,
+    searchInputRef,
+    composingRef,
+    searchText,
+    searchQuery,
+    setSearchText,
+    setSearchQuery,
+    closeSearch,
+    sections,
+    collapsed,
+    openChat,
+}: {
+    searchOpen: boolean;
+    searchInputRef: React.RefObject<HTMLInputElement | null>;
+    composingRef: React.MutableRefObject<boolean>;
+    searchText: string;
+    searchQuery: string;
+    setSearchText: React.Dispatch<React.SetStateAction<string>>;
+    setSearchQuery: React.Dispatch<React.SetStateAction<string>>;
+    closeSearch: () => void;
+    sections: ReturnType<typeof buildShelves>;
+    collapsed: ReadonlySet<ChatShelfId>;
+    openChat: (id: string) => void;
+}) => {
+    if (!searchOpen) return null;
+    return (
+        <div className="px-3 pb-1">
+            <SearchInput
+                ref={searchInputRef}
+                value={searchText}
+                aria-label="Search sessions"
+                placeholder="Search sessions"
+                onChange={(event) => {
+                    setSearchText(event.target.value);
+                    if (!composingRef.current) setSearchQuery(event.target.value);
+                }}
+                onCompositionStart={() => {
+                    composingRef.current = true;
+                }}
+                onCompositionEnd={(event) => {
+                    composingRef.current = false;
+                    setSearchText(event.currentTarget.value);
+                    setSearchQuery(event.currentTarget.value);
+                }}
+                onKeyDown={(event) =>
+                    handleSessionSearchKeyDown({
+                        event,
+                        composing: composingRef.current,
+                        searchQuery,
+                        sections,
+                        collapsed,
+                        closeSearch,
+                        openChat,
+                    })
+                }
+            />
+        </div>
+    );
+};
+
+/** Render project sessions with shared lifecycle, keyboard and selection ownership. */
+export const ChatList = ({
+    onNewChat,
+}: {
+    onNewChat: () => void;
+    /** @deprecated unified Sessions list, ignored */
+    listKind?: "chat";
+}) => {
+    const viewedChatId = useViewedConversationId();
+    const { project_path } = useProjectState();
+    const [chats, setChats] = useState<Conversation[]>([]);
+    const [selectedIds, setSelectedIds] = useState<string[]>([]);
+    const [collapsed, setCollapsed] = useState<ReadonlySet<ChatShelfId>>(() => new Set());
+    const [collectionDraft, setCollectionDraft] = useState<string[] | null>(null);
+    const [activeId, setActiveId] = useChatListScopedState(project_path, viewedChatId, setChats, setSelectedIds);
+    const stores = useChatListExternalStores();
+    const prefs = useChatListPreferences();
+
+    const openChat = useCallback((id: string) => {
+        clearChatUnread(id);
+        window.dispatchEvent(new CustomEvent("bettershape-chat-load", { detail: { id } }));
+    }, []);
+
+    useProjectConversationsLoader(project_path, setChats);
+
+    const { filtered, sections, dispositionOf, selectedTargets } = useChatListProjection({
+        chats,
+        projectPath: project_path,
+        activeId,
+        filter: prefs.filter,
+        sort: prefs.sort,
+        grouping: prefs.grouping,
+        searchQuery: prefs.searchQuery,
+        selectedIds,
+        setSelectedIds,
+        stores,
+    });
+
+    useChatListEventBindings({ activeId, setActiveId, sections, collapsed, openChat });
+
+    const { pinChats, handlers, moveChat } = useChatListLifecycle({
+        chats,
+        sections,
+        selectedIds,
+        selectedTargets,
+        openChat,
+        setChats,
+        setCollectionDraft,
+    });
 
     const toggleSelect = useCallback((id: string) => {
         setSelectedIds((current) =>
@@ -557,274 +1175,79 @@ export const ChatList = ({
         });
     }, []);
 
-    /** Read stored disposition without interpreting ordinary viewing as an explicit Resume. */
-    const dispositionOf = useCallback((id: string) =>
-        dispositions[id]?.state ?? (id === activeId ? "active" : "settled"), [dispositions, activeId]);
-
-    const selectedTargets = useMemo<ChatLifecycleTarget[]>(
-        () =>
-            filtered
-                .filter((chat) => selectedIds.includes(chat.id))
-                .map((chat) => ({
-                    id: chat.id,
-                    ...chatLabels(chat, project_path),
-                    pinned: pinnedIds.has(chat.id),
-                    disposition: dispositionOf(chat.id),
-                })),
-        [filtered, selectedIds, pinnedIds, project_path, dispositionOf],
-    );
-
-    const collectionOf = useCallback(
-        (chatId: string) => collections.find((entry) => entry.chatIds.includes(chatId))?.name ?? null,
-        [collections],
-    );
-
-    const rowProps = useCallback(
-        (chat: Conversation) => ({
-            activity: activities.get(chat.id) ?? (generatingIds.has(chat.id) ? "working" as const : "ready" as const),
-            disposition: dispositionOf(chat.id),
-            ...chatLabels(chat, project_path),
-            timestamp: chat.timestamp || 0,
-            collection: collectionOf(chat.id),
-            active: chat.id === activeId,
-            pinned: pinnedIds.has(chat.id),
-            unread: unreadIds.has(chat.id),
-            color: colors[chat.id] ?? null,
-            subagents: allSubagents.filter((card) => card.parentId === chat.id),
-            selecting: selectedIds.length > 0,
-            selected: selectedIds.includes(chat.id),
-            onToggleSelect: () => toggleSelect(chat.id),
-            onOpen: () => openChat(chat.id),
-            onTogglePin: (next: boolean) => pinChats([chat.id], next),
-            handlers,
-        }),
-        [
-            activeId,
-            activities,
-            generatingIds,
-            dispositionOf,
-            allSubagents,
-            collectionOf,
-            colors,
-            handlers,
-            openChat,
-            pinChats,
-            pinnedIds,
-            project_path,
-            selectedIds,
-            toggleSelect,
-            unreadIds,
-        ],
-    );
-
-    const moveChat = useCallback((id: string, shelf: DropShelf) => {
-        const ids = selectedIds.includes(id) ? selectedTargets.map((target) => target.id) : [id];
-        // Filter each selected row, not only the dragged row: mixed selections may
-        // still move other rows without renewing an already-snoozed destination.
-        const movableIds = new Set(sections.flatMap(section => section.id === shelf ? [] : section.chats.map(chat => chat.id)));
-        const targets = ids.filter((id) => movableIds.has(id));
-        if (targets.length) moveChatsToShelf(targets, shelf, nameOf(targets));
-    }, [sections, nameOf, selectedIds, selectedTargets]);
-
-    /** Close search and clear both visible/composed text and the committed filter query. */
-    const closeSearch = () => {
-        setSearchOpen(false);
-        setSearchText("");
-        setSearchQuery("");
-        composing.current = false;
-    };
+    const rowProps = useChatRowPropsBuilder({
+        projectPath: project_path,
+        activeId,
+        selectedIds,
+        stores,
+        dispositionOf,
+        toggleSelect,
+        openChat,
+        pinChats,
+        handlers,
+    });
 
     const allCollapsed = sections.length > 1 && sections.every((section) => collapsed.has(section.id));
-    const setAllCollapsed = (next: boolean) => {
-        setCollapsed(next ? new Set<ChatShelfId>(sections.map((section) => section.id)) : new Set<ChatShelfId>());
-    };
-
-    const selectionPrimitives = {
-        Item: (props: { onClick?: () => void; className?: string; children?: ReactNode }) => (
-            <DropdownMenuItem {...props} />
-        ),
-        Separator: () => <DropdownMenuSeparator />,
-    };
-
-    /** Open only the first visible matching result; empty queries and collapsed shelves are not commands. */
-    const openSearchResult = (event: React.KeyboardEvent<HTMLInputElement>) => {
-        if (!searchQuery.trim()) return;
-        const first = sections.find(section => !collapsed.has(section.id))?.chats[0];
-        if (!first) return;
-        event.preventDefault();
-        openChat(first.id);
-    };
-
-    /** Keep composition input separate from search navigation and dismissal. */
-    const onSearchKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
-        if (composing.current || isComposingKey(event.nativeEvent)) return;
-        switch (event.key) {
-            case "Escape": event.preventDefault(); closeSearch(); break;
-            case "Enter": openSearchResult(event); break;
-            default: break; // Ordinary text keys remain owned by the input.
-        }
-    };
 
     return (
         <div className="flex min-h-0 flex-1 flex-col">
-            <div className="flex items-center justify-between pl-3 pr-1 pb-1 pt-3">
-                <span className="text-sm font-medium text-text-muted">Sessions</span>
-                <div className="flex items-center">
-                    <HeaderIconBtn label="Search" active={searchOpen} onClick={() => { if (searchOpen) closeSearch(); else setSearchOpen(true); }}>
-                        <Icon icon={Search20Regular} />
-                    </HeaderIconBtn>
-                    <DropdownMenu modal={false}>
-                        <Tooltip content="Filter" side="bottom" delayDuration={80}>
-                            <DropdownMenuTrigger asChild>
-                                <button
-                                    type="button"
-                                    aria-label="Filter"
-                                    className="flex size-7 items-center justify-center rounded-md text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary data-[state=open]:bg-[var(--btn-open)] data-[state=open]:hover:bg-[var(--btn-open-hover)] data-[state=open]:text-text-primary"
-                                >
-                                    <Icon icon={Filter20Regular} />
-                                </button>
-                            </DropdownMenuTrigger>
-                        </Tooltip>
-                        <DropdownMenuContent align="end" className="min-w-40">
-                            <DropdownMenuLabel>Show</DropdownMenuLabel>
-                            <DropdownMenuRadioGroup
-                                value={filter}
-                                onValueChange={(value) => setFilter(value as ChatFilter)}
-                            >
-                                {FILTER_OPTIONS.map((opt) => (
-                                    <DropdownMenuRadioItem key={opt.value} value={opt.value}>
-                                        {opt.label}
-                                    </DropdownMenuRadioItem>
-                                ))}
-                            </DropdownMenuRadioGroup>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuLabel>Group by</DropdownMenuLabel>
-                            <DropdownMenuRadioGroup value={grouping} onValueChange={persistGrouping}>
-                                {GROUP_OPTIONS.map((option) => (
-                                    <DropdownMenuRadioItem key={option.value} value={option.value}>{option.label}</DropdownMenuRadioItem>
-                                ))}
-                            </DropdownMenuRadioGroup>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuLabel>Sort</DropdownMenuLabel>
-                            <DropdownMenuRadioGroup
-                                value={sort}
-                                onValueChange={(value) => persistSort(value as ChatSort)}
-                            >
-                                {SORT_OPTIONS.map((opt) => (
-                                    <DropdownMenuRadioItem key={opt.value} value={opt.value}>
-                                        {opt.label}
-                                    </DropdownMenuRadioItem>
-                                ))}
-                            </DropdownMenuRadioGroup>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
-                    <DropdownMenu modal={false}>
-                        <Tooltip content="Sessions actions" side="bottom" delayDuration={80}>
-                            <DropdownMenuTrigger asChild>
-                                <button
-                                    type="button"
-                                    aria-label="Sessions actions"
-                                    className="flex size-7 items-center justify-center rounded-md text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary data-[state=open]:bg-[var(--btn-open)] data-[state=open]:hover:bg-[var(--btn-open-hover)] data-[state=open]:text-text-primary"
-                                >
-                                    <Icon icon={MoreHorizontal20Regular} />
-                                </button>
-                            </DropdownMenuTrigger>
-                        </Tooltip>
-                        <DropdownMenuContent align="end" className="min-w-48">
-                            <DropdownMenuLabel>
-                                {selectedIds.length > 0 ? `${selectedIds.length} selected` : "Sessions"}
-                            </DropdownMenuLabel>
-                            {selectedTargets.length > 0 ? (
-                                <>
-                                    {renderLifecycleActions(
-                                        buildChatLifecycleActions(selectedTargets, handlers),
-                                        selectionPrimitives,
-                                    )}
-                                    <DropdownMenuItem onClick={() => setCollectionDraft([...selectedIds])}>
-                                        <Icon icon={Collections20Regular} />
-                                        Add to collection
-                                    </DropdownMenuItem>
-                                    <DropdownMenuSeparator />
-                                </>
-                            ) : null}
-                            <DropdownMenuItem
-                                disabled={selectedIds.length === 0}
-                                onClick={() => setSelectedIds([])}
-                            >
-                                Clear selection
-                            </DropdownMenuItem>
-                            {sections.length > 1 ? (
-                                <DropdownMenuItem onClick={() => setAllCollapsed(!allCollapsed)}>
-                                    {allCollapsed ? "Expand all sections" : "Collapse all sections"}
-                                </DropdownMenuItem>
-                            ) : null}
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem onClick={onNewChat}>
-                                <Icon icon={Compose20Regular} />
-                                New chat
-                            </DropdownMenuItem>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
-                    <HeaderIconBtn label="New chat" onClick={onNewChat}>
-                        <Icon icon={Compose20Regular} />
-                    </HeaderIconBtn>
-                </div>
-            </div>
+            <ChatListHeaderToolbar
+                searchOpen={prefs.searchOpen}
+                onToggleSearch={() => {
+                    if (prefs.searchOpen) prefs.closeSearch();
+                    else prefs.setSearchOpen(true);
+                }}
+                filter={prefs.filter}
+                onFilterChange={prefs.setFilter}
+                grouping={prefs.grouping}
+                onGroupingChange={prefs.persistGrouping}
+                sort={prefs.sort}
+                onSortChange={prefs.persistSort}
+                selectedIds={selectedIds}
+                selectedTargets={selectedTargets}
+                handlers={handlers}
+                onOpenCollectionDraft={() => setCollectionDraft([...selectedIds])}
+                onClearSelection={() => setSelectedIds([])}
+                hasMultipleSections={sections.length > 1}
+                allCollapsed={allCollapsed}
+                onToggleAllCollapsed={() =>
+                    setCollapsed(
+                        allCollapsed
+                            ? new Set<ChatShelfId>()
+                            : new Set<ChatShelfId>(sections.map((section) => section.id)),
+                    )
+                }
+                onNewChat={onNewChat}
+            />
 
-            {searchOpen ? (
-                <div className="px-3 pb-1">
-                    <SearchInput
-                        ref={searchInput}
-                        value={searchText}
-                        aria-label="Search sessions"
-                        placeholder="Search sessions"
-                        onChange={(event) => {
-                            setSearchText(event.target.value);
-                            if (!composing.current) setSearchQuery(event.target.value);
-                        }}
-                        onCompositionStart={() => { composing.current = true; }}
-                        onCompositionEnd={(event) => {
-                            composing.current = false;
-                            setSearchText(event.currentTarget.value);
-                            setSearchQuery(event.currentTarget.value);
-                        }}
-                        onKeyDown={onSearchKeyDown}
-                    />
-                </div>
-            ) : null}
+            <ChatListSearchSection
+                searchOpen={prefs.searchOpen}
+                searchInputRef={prefs.searchInput}
+                composingRef={prefs.composing}
+                searchText={prefs.searchText}
+                searchQuery={prefs.searchQuery}
+                setSearchText={prefs.setSearchText}
+                setSearchQuery={prefs.setSearchQuery}
+                closeSearch={prefs.closeSearch}
+                sections={sections}
+                collapsed={collapsed}
+                openChat={openChat}
+            />
 
             <ScrollArea fadeFrom="from-sidebar" className="min-h-0 flex-1 px-1.5 pb-2">
-                {!project_path ? (
-                    <button
-                        type="button"
-                        onClick={() => window.dispatchEvent(new Event("bettershape-new-project"))}
-                        className="mt-1 flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--row-hover)] hover:text-text-secondary"
-                    >
-                        <Icon icon={FolderOpen20Regular} />
-                        New project
-                    </button>
-                ) : filtered.length === 0 && searchQuery.trim() ? (
-                    <p role="status" className="px-2.5 py-2 text-sm text-text-muted">No matching sessions</p>
-                ) : filtered.length === 0 ? (
-                    <button
-                        type="button"
-                        onClick={onNewChat}
-                        className="mt-1 flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--row-hover)] hover:text-text-secondary"
-                    >
-                        <Icon icon={Compose20Regular} className="shrink-0" />
-                        <span>New chat</span>
-                    </button>
-                ) : (
-                    <ChatShelves
-                        sections={sections}
-                        rowProps={rowProps}
-                        collapsed={collapsed}
-                        onToggleShelf={toggleShelf}
-                        onMoveChat={moveChat}
-                        grouping={grouping}
-                        collections={collections}
-                    />
-                )}
+                <ChatListViewportBody
+                    projectPath={project_path}
+                    filteredCount={filtered.length}
+                    searchQuery={prefs.searchQuery}
+                    onNewChat={onNewChat}
+                    sections={sections}
+                    rowProps={rowProps}
+                    collapsed={collapsed}
+                    onToggleShelf={toggleShelf}
+                    onMoveChat={moveChat}
+                    grouping={prefs.grouping}
+                    collections={stores.collections}
+                />
             </ScrollArea>
 
             <UndoBar />

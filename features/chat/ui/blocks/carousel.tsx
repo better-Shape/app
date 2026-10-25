@@ -56,7 +56,7 @@ export function DesignPreviewCarousel({
     );
 
     useEffect(() => {
-        if (compact) return;
+        if (compact) return undefined;
         const onKey = (e: KeyboardEvent) => {
             if (e.key === "ArrowUp" || e.key === "ArrowLeft") {
                 e.preventDefault();
@@ -75,7 +75,7 @@ export function DesignPreviewCarousel({
     const src = convertFileSrc(item.path);
     const html = isHtmlPreview(item);
     const isSelected = selectedId === item.id;
-    const canSelect = !!onSelect && !locked;
+    const canSelect = Boolean(onSelect) && !locked;
 
     return (
         <div className={cn("flex min-h-0 w-full flex-col", compact ? "gap-2" : "h-full")}>

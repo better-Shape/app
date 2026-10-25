@@ -52,7 +52,52 @@ function isFlyoutUiTarget(target: EventTarget | null) {
     return Boolean(target.closest("[data-sidebar-peek], [data-sidebar-peek-toggle]"));
 }
 
-function SidebarPeek({
+const WORKSPACE_TAB_TARGETS = new Set([
+    "files",
+    "explorer",
+    "preview",
+    "browser",
+    "source",
+    "graph",
+    "git",
+    "prs",
+    "pulls",
+    "agents",
+]);
+
+/** Reads initial layout preferences (`workspaceWidth`, `workspaceOpen`, `sidebarOpen`, `zenMode`, `splash`) from storage. */
+const readStoredAgentLayoutPrefs = () => {
+    try {
+        const w = Number(localStorage.getItem("bettershape-agent-workspace-width"));
+        return {
+            workspaceWidth: w >= MIN_WORKSPACE && w <= MAX_WORKSPACE_PX ? w : undefined,
+            workspaceOpen: localStorage.getItem("bettershape-agent-workspace") !== "false",
+            sidebarOpen: localStorage.getItem("bettershape-agent-sidebar") !== "false",
+            zenMode: localStorage.getItem(ZEN_KEY) === "1",
+            splash: sessionStorage.getItem(SPLASH_KEY) !== "1",
+        };
+    } catch {
+        return { workspaceOpen: true, sidebarOpen: true, zenMode: false, splash: false };
+    }
+};
+
+/** Keeps the peek list mounted briefly after close so its spring exit can complete. */
+const useSidebarPeekMount = (shown: boolean, reducedMotion: boolean) => {
+    const [mounted, setMounted] = useState(shown);
+    const shouldStayMounted = shown || (!reducedMotion && mounted);
+    if (shouldStayMounted !== mounted) setMounted(shouldStayMounted);
+
+    useEffect(() => {
+        if (shown || !shouldStayMounted) return undefined;
+        const timeoutId = window.setTimeout(() => setMounted(false), 160);
+        return () => window.clearTimeout(timeoutId);
+    }, [shown, shouldStayMounted]);
+
+    return shouldStayMounted;
+};
+
+/** Renders the hover flyout sidebar rail peek when the primary sidebar is collapsed. */
+const SidebarPeek = ({
     shown,
     onEnter,
     onLeave,
@@ -60,22 +105,11 @@ function SidebarPeek({
     shown: boolean;
     onEnter: () => void;
     onLeave: () => void;
-}) {
-    // Keep the list mounted briefly after close so its exit can finish.
+}) => {
     const reducedMotion = useReducedMotion();
     const [host, setHost] = useState<HTMLElement>();
-    const [mounted, setMounted] = useState(shown);
-    if (shown && !mounted) setMounted(true);
-    if (!shown && reducedMotion && mounted) setMounted(false);
+    const shouldRenderList = useSidebarPeekMount(shown, reducedMotion);
     const attachHost = useCallback((el: HTMLDivElement | null) => setHost(el ?? undefined), []);
-
-    useEffect(() => {
-        if (shown || reducedMotion || !mounted) return;
-        const timeoutId = window.setTimeout(() => setMounted(false), 160);
-        return () => {
-            window.clearTimeout(timeoutId);
-        };
-    }, [shown, reducedMotion, mounted]);
 
     return (
         <div
@@ -86,22 +120,18 @@ function SidebarPeek({
             inert={!shown}
             className={cn(
                 "fixed z-30 flex w-82 flex-col overflow-visible origin-left",
-                // Comes out of the rail button rather than fading in at a fixed spot:
-                // the layer grows from the edge the pointer is on and travels the last
-                // few pixels, which is what makes the rail feel like a handle.
                 "transition-[opacity,transform,translate] duration-[var(--spring-quick-dur)] ease-[var(--spring-quick)]",
                 shown ? "opacity-100 translate-x-0" : "pointer-events-none opacity-0 -translate-x-1.5",
             )}
             style={{ top: 0, bottom: 8, left: 8 }}
             onMouseEnter={onEnter}
             onMouseLeave={(e) => {
-                if (isFlyoutUiTarget(e.relatedTarget)) return;
-                onLeave();
+                if (!isFlyoutUiTarget(e.relatedTarget)) onLeave();
             }}
         >
             <div className="h-titlebar w-10 shrink-0" aria-hidden />
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden squircle-2xl border border-border-subtle bg-sidebar shadow-md/40">
-                {(shown || mounted) && host ? (
+                {shouldRenderList && host ? (
                     <OverlayRootProvider value={host}>
                         <ChatList
                             onNewChat={() => {
@@ -114,66 +144,14 @@ function SidebarPeek({
             </div>
         </div>
     );
-}
+};
 
-/**
- * Agent View, left sidebar (agent / settings / git / files nav),
- * center chrome + content; expanded workspace is full-height; rail under chrome.
- */
-export const AgentLayout = ({ children }: { children: React.ReactNode }) => {
-    const { project_path, active_file } = useProjectState();
-    const [sidebarOpen, setSidebarOpen] = useState(true);
-    const [workspaceOpen, setWorkspaceOpen] = useState(true);
-    const [zenMode, setZenMode] = useState(false);
-    const [overlay, setOverlay] = useState<AgentOverlay>(null);
-    const [workspaceWidth, setWorkspaceWidth] = useState(560);
-    const [workspaceFits, setWorkspaceFits] = useState(true);
-    const [splash, setSplash] = useState(false);
-    const [splashVisible, setSplashVisible] = useState(false);
-    const [isResizing, setIsResizing] = useState(false);
-
-    const [sidebarFlyout, setSidebarFlyout] = useState(false);
-    const flyoutTimer = useRef<number | null>(null);
-    const dragging = useRef(false);
-    const widthRef = useRef(560);
-    useLayoutEffect(() => { widthRef.current = workspaceWidth; }, [workspaceWidth]);
-
-    const hydrated = useIsMounted();
-    const [restoredPreferences, setRestoredPreferences] = useState(false);
-    if (hydrated && !restoredPreferences) {
-        setRestoredPreferences(true);
-        try {
-            const w = Number(localStorage.getItem("bettershape-agent-workspace-width"));
-            if (w >= MIN_WORKSPACE && w <= MAX_WORKSPACE_PX) {
-                setWorkspaceWidth(w);
-            }
-            setWorkspaceOpen(localStorage.getItem("bettershape-agent-workspace") !== "false");
-            setSidebarOpen(localStorage.getItem("bettershape-agent-sidebar") !== "false");
-            setZenMode(localStorage.getItem(ZEN_KEY) === "1");
-            if (sessionStorage.getItem(SPLASH_KEY) !== "1") {
-                setSplash(true);
-            }
-        } catch {
-            /* ignore */
-        }
-
-    }
-
-    // Warm start-command + route map when a project opens (or fingerprint changes).
-    useEffect(() => {
-        if (!project_path) return;
-        import("@/features/preview/lib/project-warm").then(({ warmProjectAnalysis }) => {
-            warmProjectAnalysis(project_path).catch(() => undefined);
-        }).catch(() => undefined);
-    }, [project_path]);
-
-    useEffect(() => {
-        const stop = startAgentBackgroundExitToasts();
-        return () => {
-            stop();
-        };
-    }, []);
-
+/** Drives the one-time session splash fade-in and fade-out lifecycle. */
+const useAgentSplashLifecycle = (
+    splash: boolean,
+    setSplash: React.Dispatch<React.SetStateAction<boolean>>,
+    setSplashVisible: React.Dispatch<React.SetStateAction<boolean>>,
+) => {
     useEffect(() => {
         if (!splash) return undefined;
         let t2: number | undefined;
@@ -191,48 +169,37 @@ export const AgentLayout = ({ children }: { children: React.ReactNode }) => {
         }, 700);
         return () => {
             cancelAnimationFrame(raf);
-            if (t1 !== undefined) window.clearTimeout(t1);
+            window.clearTimeout(t1);
             if (t2 !== undefined) window.clearTimeout(t2);
         };
-    }, [splash]);
+    }, [setSplash, setSplashVisible, splash]);
+};
 
-    // Resolve sidebar nav portal target when overlay / explorer needs it.
-    const navSlot = useElementById(AGENT_SIDEBAR_NAV_SLOT, Boolean(overlay));
-
-    const persistWorkspace = useCallback((next: boolean) => {
-        setWorkspaceOpen(next);
-        try {
-            localStorage.setItem("bettershape-agent-workspace", String(next));
-        } catch {
-            /* ignore */
-        }
-    }, []);
-
-    const clampWorkspace = useCallback(
-        (x: number, winW = typeof window === "undefined" ? 1280 : window.innerWidth) => {
-            const sidebar = sidebarOpen ? SIDEBAR_EXPANDED : 0;
-            const maxByChat = Math.max(0, winW - sidebar - MIN_CHAT - WORKSPACE_GUTTER);
-            const maxByRatio = Math.min(MAX_WORKSPACE_PX, Math.floor(winW * MAX_WORKSPACE_RATIO));
-            const max = Math.min(maxByChat, maxByRatio);
-            if (max < MIN_WORKSPACE_SOFT) return 0;
-            return Math.min(max, Math.max(MIN_WORKSPACE_SOFT, x));
-        },
-        [sidebarOpen],
-    );
-
+/** Syncs center-view, new-chat, active-file, and diff navigation events with layout overlay state. */
+const useAgentOverlaySync = ({
+    activeFile,
+    overlay,
+    setOverlay,
+    persistWorkspace,
+}: {
+    activeFile: string | null;
+    overlay: AgentOverlay;
+    setOverlay: React.Dispatch<React.SetStateAction<AgentOverlay>>;
+    persistWorkspace: (next: boolean) => void;
+}) => {
     const prevActiveFile = useRef<string | null>(null);
     useEffect(() => {
-        if (!active_file || active_file === prevActiveFile.current) {
-            prevActiveFile.current = active_file;
+        if (!activeFile || activeFile === prevActiveFile.current) {
+            prevActiveFile.current = activeFile;
             return;
         }
-        prevActiveFile.current = active_file;
+        prevActiveFile.current = activeFile;
         setOverlay(null);
         persistWorkspace(true);
         window.dispatchEvent(
-            new CustomEvent("bettershape-open-workspace-file", { detail: { path: active_file } }),
+            new CustomEvent("bettershape-open-workspace-file", { detail: { path: activeFile } }),
         );
-    }, [active_file, persistWorkspace]);
+    }, [activeFile, persistWorkspace, setOverlay]);
 
     const overlayRef = useRef<AgentOverlay>(overlay);
     const pendingNewChatRef = useRef(false);
@@ -249,14 +216,10 @@ export const AgentLayout = ({ children }: { children: React.ReactNode }) => {
         /** Dismisses any active overlay when switching center views (`editor` or `chat`). */
         const onView = (event: Event) => {
             const view = (event as CustomEvent<string>).detail;
-            if (view === "editor") {
+            if (view === "editor" || view === "chat") {
                 overlayRef.current = null;
                 setOverlay(null);
-                persistWorkspace(true);
-            }
-            if (view === "chat") {
-                overlayRef.current = null;
-                setOverlay(null);
+                if (view === "editor") persistWorkspace(true);
             }
         };
         /** Closes any active overlay and schedules new-chat focus handoff once unmounted. */
@@ -280,98 +243,114 @@ export const AgentLayout = ({ children }: { children: React.ReactNode }) => {
             window.removeEventListener("bettershape-chat-new", onChatNew);
             window.removeEventListener("bettershape-open-file-diff", onFileDiff as EventListener);
         };
-    }, [persistWorkspace]);
+    }, [persistWorkspace, setOverlay]);
+};
 
-    const toggleSidebar = useCallback(() => {
-        setSidebarFlyout(false);
-        setSidebarOpen((prev) => {
-            const next = !prev;
-            try {
-                localStorage.setItem("bettershape-agent-sidebar", String(next));
-            } catch {
-                /* ignore */
-            }
-            return next;
-        });
-    }, []);
+const SIDEBAR_TOGGLE_IDS = new Set(["primary-sidebar", "agent-sidebar"]);
+const WORKSPACE_TOGGLE_IDS = new Set(["secondary-sidebar", "agent-workspace"]);
+const PANEL_OVERLAY_CLEAR_IDS = new Set(["panel", "terminal"]);
+const EXPLORER_TOGGLE_IDS = new Set(["files-mode", "explorer"]);
 
-    const openSidebarFlyout = useCallback(() => {
-        if (flyoutTimer.current) window.clearTimeout(flyoutTimer.current);
-        flyoutTimer.current = null;
-        setSidebarFlyout(true);
-    }, []);
+/** Opens the explorer workspace tab and clears any center overlay. */
+const openExplorerFromLayoutToggle = (
+    persistWorkspace: (next: boolean) => void,
+    setOverlay: React.Dispatch<React.SetStateAction<AgentOverlay>>,
+) => {
+    setOverlay(null);
+    persistWorkspace(true);
+    window.setTimeout(() => {
+        window.dispatchEvent(new CustomEvent("bettershape-set-active-tab", { detail: "files" }));
+    }, 80);
+};
 
-    const closeSidebarFlyout = useCallback(() => {
-        if (flyoutTimer.current) window.clearTimeout(flyoutTimer.current);
-        flyoutTimer.current = window.setTimeout(() => setSidebarFlyout(false), 180);
-    }, []);
+/** Applies an explicit boolean or toggle action to the secondary workspace pane. */
+const applyWorkspaceToggleValue = (
+    value: boolean | undefined,
+    persistWorkspace: (next: boolean) => void,
+    toggleWorkspace: () => void,
+) => {
+    if (typeof value === "boolean") persistWorkspace(value);
+    else toggleWorkspace();
+};
 
-    const toggleWorkspace = useCallback(() => {
-        if (!project_path) return;
-        setWorkspaceOpen((prev) => {
-            const next = !prev;
-            try {
-                localStorage.setItem("bettershape-agent-workspace", String(next));
-            } catch {
-                /* ignore */
-            }
-            return next;
-        });
-    }, [project_path]);
-
+/** Dispatches layout toggle detail payloads to sidebar, workspace, terminal, or explorer actions. */
+const dispatchAgentLayoutToggle = ({
+    detail,
+    toggleSidebar,
+    toggleWorkspace,
+    persistWorkspace,
+    setOverlay,
+}: {
+    detail: { id?: string; value?: boolean } | null | undefined;
+    toggleSidebar: () => void;
+    toggleWorkspace: () => void;
+    persistWorkspace: (next: boolean) => void;
+    setOverlay: React.Dispatch<React.SetStateAction<AgentOverlay>>;
+}) => {
+    const id = detail ? detail.id || "" : "";
+    const handlers: Array<[ReadonlySet<string>, () => void]> = [
+        [SIDEBAR_TOGGLE_IDS, toggleSidebar],
+        [WORKSPACE_TOGGLE_IDS, () => applyWorkspaceToggleValue(detail?.value, persistWorkspace, toggleWorkspace)],
+        [PANEL_OVERLAY_CLEAR_IDS, () => setOverlay(null)],
+        [EXPLORER_TOGGLE_IDS, () => openExplorerFromLayoutToggle(persistWorkspace, setOverlay)],
+    ];
+    handlers.find(([ids]) => ids.has(id))?.[1]();
+};
+/** Handles layout-toggle, overlay, pull-request, terminal, zen-mode, and layout-reset window events. */
+const useAgentLayoutWindowChannels = ({
+    projectPath,
+    persistWorkspace,
+    toggleSidebar,
+    toggleWorkspace,
+    setOverlay,
+    setSidebarOpen,
+    setZenMode,
+    setWorkspaceWidth,
+    setWorkspaceFits,
+    widthRef,
+}: {
+    projectPath: string | null;
+    persistWorkspace: (next: boolean) => void;
+    toggleSidebar: () => void;
+    toggleWorkspace: () => void;
+    setOverlay: React.Dispatch<React.SetStateAction<AgentOverlay>>;
+    setSidebarOpen: React.Dispatch<React.SetStateAction<boolean>>;
+    setZenMode: React.Dispatch<React.SetStateAction<boolean>>;
+    setWorkspaceWidth: React.Dispatch<React.SetStateAction<number>>;
+    setWorkspaceFits: React.Dispatch<React.SetStateAction<boolean>>;
+    widthRef: React.MutableRefObject<number>;
+}) => {
     useEffect(() => {
+        /** Opens the right workspace when a workspace-hosted tab id is requested. */
         const onTab = (e: Event) => {
             const tabId = (e as CustomEvent<string>).detail?.toLowerCase();
-            if (!tabId || !project_path) return;
-            if (tabId === "files" || tabId === "explorer") {
-                setOverlay(null);
-                persistWorkspace(true);
-                return;
-            }
-            if (["preview", "browser", "source", "graph", "git", "prs", "pulls", "agents"].includes(tabId)) {
+            if (tabId && projectPath && WORKSPACE_TAB_TARGETS.has(tabId)) {
                 setOverlay(null);
                 persistWorkspace(true);
             }
         };
+        /** Dispatches sidebar, workspace, terminal, and explorer layout toggle commands. */
         const onToggle = (e: Event) => {
-            const detail = (e as CustomEvent<{ id?: string; value?: boolean }>).detail;
-            const id = detail?.id;
-            if (id === "primary-sidebar" || id === "agent-sidebar") {
-                toggleSidebar();
-            }
-            if (id === "secondary-sidebar" || id === "agent-workspace") {
-                if (detail?.value === false) persistWorkspace(false);
-                else if (detail?.value === true) persistWorkspace(true);
-                else toggleWorkspace();
-            }
-            if (id === "panel" || id === "terminal") {
-                setOverlay(null);
-                return;
-            }
-            if (id === "files-mode" || id === "explorer") {
-                setOverlay(null);
-                persistWorkspace(true);
-                window.setTimeout(() => {
-                    window.dispatchEvent(
-                        new CustomEvent("bettershape-set-active-tab", { detail: "files" }),
-                    );
-                }, 80);
-            }
+            dispatchAgentLayoutToggle({
+                detail: (e as CustomEvent<{ id?: string; value?: boolean }>).detail,
+                toggleSidebar,
+                toggleWorkspace,
+                persistWorkspace,
+                setOverlay,
+            });
         };
+        /** Opens or clears center overlays (`settings`, `git` -> `graph`, etc.). */
         const onOverlay = (e: Event) => {
             const detail = (e as CustomEvent<AgentOverlay>).detail;
-            if (!detail || !detail.type) {
+            if (!detail?.type) {
                 setOverlay(null);
                 return;
             }
-            // Git Manager overlay removed, Graph lives in the right workspace tab.
             if (detail.type === "git") {
                 setOverlay(null);
                 persistWorkspace(true);
                 window.setTimeout(() => {
-                    window.dispatchEvent(
-                        new CustomEvent("bettershape-set-active-tab", { detail: "graph" }),
-                    );
+                    window.dispatchEvent(new CustomEvent("bettershape-set-active-tab", { detail: "graph" }));
                 }, 80);
                 return;
             }
@@ -383,6 +362,7 @@ export const AgentLayout = ({ children }: { children: React.ReactNode }) => {
                 /* ignore */
             }
         };
+        /** Opens the Pull Requests workspace tab and clears any overlay. */
         const onPrs = () => {
             setOverlay(null);
             persistWorkspace(true);
@@ -398,131 +378,28 @@ export const AgentLayout = ({ children }: { children: React.ReactNode }) => {
             window.removeEventListener("bettershape-agent-overlay", onOverlay as EventListener);
             window.removeEventListener("bettershape-open-pull-requests", onPrs);
         };
-    }, [project_path, persistWorkspace, toggleSidebar, toggleWorkspace]);
+    }, [persistWorkspace, projectPath, setOverlay, setSidebarOpen, toggleSidebar, toggleWorkspace]);
 
     useEffect(() => {
-        const onMove = (e: MouseEvent) => {
-            if (!dragging.current) return;
-            const next = clampWorkspace(window.innerWidth - e.clientX);
-            if (next < MIN_WORKSPACE_SOFT) return;
-            widthRef.current = next;
-            setWorkspaceWidth(next);
-        };
-        const onUp = () => {
-            if (!dragging.current) return;
-            dragging.current = false;
-            setIsResizing(false);
-            document.body.style.cursor = "";
-            document.body.style.userSelect = "";
-            try {
-                localStorage.setItem("bettershape-agent-workspace-width", String(widthRef.current));
-            } catch {
-                /* ignore */
-            }
-        };
-        window.addEventListener("mousemove", onMove);
-        window.addEventListener("mouseup", onUp);
-        return () => {
-            window.removeEventListener("mousemove", onMove);
-            window.removeEventListener("mouseup", onUp);
-        };
-    }, [clampWorkspace]);
-
-    useEffect(() => {
-        const apply = () => {
-            const next = clampWorkspace(widthRef.current);
-            setWorkspaceFits(next > 0);
-            if (next > 0) {
-                setWorkspaceWidth((prev) => (prev === next ? prev : next));
-            }
-        };
-        apply();
-        window.addEventListener("resize", apply);
-        let unlisten: (() => void) | undefined;
-        let cancelled = false;
-        import("@tauri-apps/api/window").then(async ({ getCurrentWindow }) => {
-            const stop = await getCurrentWindow().listen("tauri://resize", apply);
-            if (cancelled) {
-                stop();
-                return;
-            }
-            unlisten = stop;
-        }).catch(() => undefined);
-        return () => {
-            cancelled = true;
-            window.removeEventListener("resize", apply);
-            unlisten?.();
-        };
-    }, [clampWorkspace, sidebarOpen]);
-
-    useEffect(() => {
-        const wantWorkspace = workspaceOpen && Boolean(project_path);
-        const minWidth = layoutMinWidth(sidebarOpen, wantWorkspace);
-        let cancelled = false;
-        import("@tauri-apps/api/window").then(async ({ getCurrentWindow }) => {
-            const { LogicalSize } = await import("@tauri-apps/api/dpi");
-            const win = getCurrentWindow();
-            await win.setMinSize(new LogicalSize(minWidth, WINDOW_MIN_HEIGHT));
-            if (cancelled) return;
-            const maximized = await win.isMaximized().catch(() => false);
-            if (cancelled || maximized) return;
-            const factor = await win.scaleFactor();
-            const inner = await win.innerSize();
-            const logicalW = inner.width / factor;
-            const logicalH = inner.height / factor;
-            if (logicalW + 1 < minWidth) {
-                await win.setSize(new LogicalSize(minWidth, logicalH));
-            }
-        }).catch(() => {
-            /* browser / tests */
-        });
-        return () => {
-            cancelled = true;
-        };
-    }, [project_path, sidebarOpen, workspaceOpen]);
-
-    useEffect(() => {
+        /** Opens the Files workspace tab on design-mode or browser launch events. */
         const onOpenFiles = () => {
-            if (!project_path) return;
+            if (!projectPath) return;
             persistWorkspace(true);
+            window.dispatchEvent(new CustomEvent("bettershape-set-active-tab", { detail: "files" }));
+        };
+        /** Opens the chat-column terminal dock and dismisses any center overlay. */
+        const openWorkspaceTerminal = () => {
+            setOverlay(null);
             window.dispatchEvent(
-                new CustomEvent("bettershape-set-active-tab", { detail: "files" }),
+                new CustomEvent("bettershape-layout-toggle", { detail: { id: "terminal", value: true } }),
             );
         };
-        window.addEventListener("bettershape-toggle-design-mode", onOpenFiles);
-        window.addEventListener("bettershape-open-browser", onOpenFiles);
-        return () => {
-            window.removeEventListener("bettershape-toggle-design-mode", onOpenFiles);
-            window.removeEventListener("bettershape-open-browser", onOpenFiles);
-        };
-    }, [project_path, persistWorkspace]);
-
-    /** Terminal lives in the chat column dock, not the right workspace. */
-    const openWorkspaceTerminal = useCallback(() => {
-        setOverlay(null);
-        window.dispatchEvent(
-            new CustomEvent("bettershape-layout-toggle", { detail: { id: "terminal", value: true } }),
-        );
-    }, []);
-
-    useEffect(() => {
-        const onOpenTerminal = () => openWorkspaceTerminal();
+        /** Opens the terminal dock on global terminal shortcut events. */
         const onShortcut = (e: Event) => {
-            const detail = (e as CustomEvent<{ action?: string }>).detail;
-            if (detail?.action === "open" || detail?.action === "toggle" || !detail?.action) {
-                openWorkspaceTerminal();
-            }
+            const action = (e as CustomEvent<{ action?: string } | null>).detail?.action;
+            if (!action || action === "open" || action === "toggle") openWorkspaceTerminal();
         };
-        window.addEventListener("bettershape-open-workspace-terminal", onOpenTerminal);
-        window.addEventListener("bettershape-terminal-shortcut", onShortcut as EventListener);
-        return () => {
-            window.removeEventListener("bettershape-open-workspace-terminal", onOpenTerminal);
-            window.removeEventListener("bettershape-terminal-shortcut", onShortcut as EventListener);
-        };
-    }, [openWorkspaceTerminal]);
-
-    useEffect(() => {
-        // Window ▸ Reset Layout: back to the default panes, widths and no zen.
+        /** Restores default panes, widths, and zen mode on `bettershape-layout-reset`. */
         const onReset = () => {
             setZenMode(false);
             setWorkspaceWidth(560);
@@ -538,11 +415,7 @@ export const AgentLayout = ({ children }: { children: React.ReactNode }) => {
                 /* ignore */
             }
         };
-        window.addEventListener("bettershape-layout-reset", onReset);
-        return () => window.removeEventListener("bettershape-layout-reset", onReset);
-    }, [persistWorkspace]);
-
-    useEffect(() => {
+        /** Toggles zen mode without mutating saved sidebar/workspace preferences. */
         const onZen = () => {
             setZenMode((prev) => {
                 const next = !prev;
@@ -554,179 +427,641 @@ export const AgentLayout = ({ children }: { children: React.ReactNode }) => {
                 return next;
             });
         };
+        window.addEventListener("bettershape-toggle-design-mode", onOpenFiles);
+        window.addEventListener("bettershape-open-browser", onOpenFiles);
+        window.addEventListener("bettershape-open-workspace-terminal", openWorkspaceTerminal);
+        window.addEventListener("bettershape-terminal-shortcut", onShortcut as EventListener);
+        window.addEventListener("bettershape-layout-reset", onReset);
         window.addEventListener("bettershape-toggle-zen-mode", onZen);
-        return () => window.removeEventListener("bettershape-toggle-zen-mode", onZen);
-    }, []);
+        return () => {
+            window.removeEventListener("bettershape-toggle-design-mode", onOpenFiles);
+            window.removeEventListener("bettershape-open-browser", onOpenFiles);
+            window.removeEventListener("bettershape-open-workspace-terminal", openWorkspaceTerminal);
+            window.removeEventListener("bettershape-terminal-shortcut", onShortcut as EventListener);
+            window.removeEventListener("bettershape-layout-reset", onReset);
+            window.removeEventListener("bettershape-toggle-zen-mode", onZen);
+        };
+    }, [
+        persistWorkspace,
+        projectPath,
+        setOverlay,
+        setSidebarOpen,
+        setWorkspaceFits,
+        setWorkspaceWidth,
+        setZenMode,
+        widthRef,
+    ]);
+};
 
+/** Handles workspace separator drag resizing, viewport clamping, and Tauri native min-width enforcement. */
+const useAgentWorkspaceGeometry = ({
+    projectPath,
+    sidebarOpen,
+    workspaceOpen,
+    clampWorkspace,
+    draggingRef,
+    widthRef,
+    setIsResizing,
+    setWorkspaceFits,
+    setWorkspaceWidth,
+}: {
+    projectPath: string | null;
+    sidebarOpen: boolean;
+    workspaceOpen: boolean;
+    clampWorkspace: (x: number, winW?: number) => number;
+    draggingRef: React.MutableRefObject<boolean>;
+    widthRef: React.MutableRefObject<number>;
+    setIsResizing: React.Dispatch<React.SetStateAction<boolean>>;
+    setWorkspaceFits: React.Dispatch<React.SetStateAction<boolean>>;
+    setWorkspaceWidth: React.Dispatch<React.SetStateAction<number>>;
+}) => {
+    useEffect(() => {
+        /** Updates workspace width during separator drag. */
+        const onMove = (e: MouseEvent) => {
+            if (!draggingRef.current) return;
+            const next = clampWorkspace(window.innerWidth - e.clientX);
+            if (next < MIN_WORKSPACE_SOFT) return;
+            widthRef.current = next;
+            setWorkspaceWidth(next);
+        };
+        /** Commits workspace width on mouseup and clears drag cursor styles. */
+        const onUp = () => {
+            if (!draggingRef.current) return;
+            draggingRef.current = false;
+            setIsResizing(false);
+            document.body.style.cursor = "";
+            document.body.style.userSelect = "";
+            try {
+                localStorage.setItem("bettershape-agent-workspace-width", String(widthRef.current));
+            } catch {
+                /* ignore */
+            }
+        };
+        window.addEventListener("mousemove", onMove);
+        window.addEventListener("mouseup", onUp);
+        return () => {
+            window.removeEventListener("mousemove", onMove);
+            window.removeEventListener("mouseup", onUp);
+        };
+    }, [clampWorkspace, draggingRef, setIsResizing, setWorkspaceWidth, widthRef]);
+
+    useEffect(() => {
+        /** Clamps workspace width whenever the viewport or native window resizes. */
+        const apply = () => {
+            const next = clampWorkspace(widthRef.current);
+            setWorkspaceFits(next > 0);
+            if (next > 0) setWorkspaceWidth((prev) => (prev === next ? prev : next));
+        };
+        apply();
+        window.addEventListener("resize", apply);
+        let unlisten: (() => void) | undefined;
+        let cancelled = false;
+        import("@tauri-apps/api/window")
+            .then(async ({ getCurrentWindow }) => {
+                const stop = await getCurrentWindow().listen("tauri://resize", apply);
+                if (cancelled) stop();
+                else unlisten = stop;
+            })
+            .catch(() => undefined);
+        return () => {
+            cancelled = true;
+            window.removeEventListener("resize", apply);
+            unlisten?.();
+        };
+    }, [clampWorkspace, setWorkspaceFits, setWorkspaceWidth, sidebarOpen, widthRef]);
+
+    useEffect(() => {
+        const minWidth = layoutMinWidth(sidebarOpen, workspaceOpen && Boolean(projectPath));
+        let cancelled = false;
+        import("@tauri-apps/api/window")
+            .then(async ({ getCurrentWindow }) => {
+                const { LogicalSize } = await import("@tauri-apps/api/dpi");
+                const win = getCurrentWindow();
+                await win.setMinSize(new LogicalSize(minWidth, WINDOW_MIN_HEIGHT));
+                const maximized = cancelled || (await win.isMaximized().catch(() => false));
+                if (maximized) return;
+                const factor = await win.scaleFactor();
+                const inner = await win.innerSize();
+                if (inner.width / factor + 1 < minWidth) {
+                    await win.setSize(new LogicalSize(minWidth, inner.height / factor));
+                }
+            })
+            .catch(() => undefined);
+        return () => {
+            cancelled = true;
+        };
+    }, [projectPath, sidebarOpen, workspaceOpen]);
+};
+
+/** Renders the one-time startup logo splash overlay when active. */
+const AgentStartupSplash = ({ splash, splashVisible }: { splash: boolean; splashVisible: boolean }) => {
+    if (!splash) return null;
+    const opacityClass = splashVisible ? "opacity-100" : "opacity-0";
+    return (
+        <div
+            className={cn(
+                "pointer-events-none absolute inset-0 z-[100] flex items-center justify-center bg-transparent",
+                "transition-opacity duration-300 ease-[var(--ease-out)]",
+                opacityClass,
+            )}
+            aria-hidden
+        >
+            <Image
+                src="/logos/logo.png"
+                alt="BetterShape"
+                width={52}
+                height={52}
+                priority
+                style={{ width: 52, height: 52 }}
+                className={cn("logo-invert transition-opacity duration-500 ease-[var(--ease-out)]", opacityClass)}
+            />
+        </div>
+    );
+};
+
+/** Renders the primary center surface (`AgentOverlayView`, project `Chat`, or fallback `children`). */
+const AgentCenterViewport = ({
+    overlay,
+    projectPath,
+    navSlot,
+    sidebarOpen,
+    onCloseOverlay,
+    children,
+}: {
+    overlay: AgentOverlay;
+    projectPath: string | null;
+    navSlot: HTMLElement | null;
+    sidebarOpen: boolean;
+    onCloseOverlay: () => void;
+    children: React.ReactNode;
+}) => {
+    if (overlay) {
+        return (
+            <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
+                <AgentOverlayView
+                    overlay={overlay}
+                    onClose={onCloseOverlay}
+                    navPortalTarget={navSlot}
+                    sidebarExpanded={sidebarOpen}
+                />
+            </div>
+        );
+    }
+    if (projectPath) {
+        return (
+            <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
+                <Chat key={normalizePath(projectPath).toLowerCase()} className="bg-transparent" />
+            </div>
+        );
+    }
+    return (
+        <div className="h-full overflow-hidden bg-transparent" data-tauri-drag-region>
+            {children}
+        </div>
+    );
+};
+
+/** Computes hairline highlight tone for the vertical workspace separator. */
+const workspaceHairlineTone = (rightExpanded: boolean, isResizing: boolean): string => {
+    if (isResizing) return "bg-accent/60";
+    return rightExpanded ? "group-hover:bg-accent/40" : "";
+};
+
+/** Computes class names and inline width for the right-hand workspace dock. */
+const deriveWorkspaceDockChrome = (rightExpanded: boolean, isResizing: boolean, workspaceWidth: number) => ({
+    separatorClass: cn("group relative z-30 w-0 shrink-0", !rightExpanded && "pointer-events-none opacity-0"),
+    hairlineClass: cn(
+        "pointer-events-none absolute inset-y-3 left-0 w-px transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
+        workspaceHairlineTone(rightExpanded, isResizing),
+    ),
+    outerWidth: rightExpanded ? workspaceWidth + 12 : 0,
+    outerClass: cn(
+        "h-full min-w-0 overflow-hidden",
+        rightExpanded ? "py-2 pr-2" : "pointer-events-none p-0",
+        !isResizing && "transition-[width] duration-[var(--spring-quick-dur)] ease-[var(--spring-quick)]",
+    ),
+});
+
+/** Renders the resizable right-hand workspace pane and its vertical drag separator. */
+const AgentWorkspaceDock = ({
+    showWorkspace,
+    projectPath,
+    rightExpanded,
+    isResizing,
+    workspaceWidth,
+    onStartResize,
+    onExpand,
+}: {
+    showWorkspace: boolean;
+    projectPath: string | null;
+    rightExpanded: boolean;
+    isResizing: boolean;
+    workspaceWidth: number;
+    onStartResize: (e: React.MouseEvent) => void;
+    onExpand: () => void;
+}) => {
+    if (!showWorkspace || !projectPath) return null;
+    const chrome = deriveWorkspaceDockChrome(rightExpanded, isResizing, workspaceWidth);
+    return (
+        <>
+            <div
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="Resize workspace"
+                className={chrome.separatorClass}
+                onMouseDown={onStartResize}
+            >
+                <div className="absolute inset-y-3 -left-1.5 w-3 cursor-col-resize" />
+                <div aria-hidden className={chrome.hairlineClass} />
+            </div>
+            <div
+                style={{ width: chrome.outerWidth, flex: "0 0 auto" }}
+                className={chrome.outerClass}
+                aria-hidden={!rightExpanded}
+            >
+                {rightExpanded ? (
+                    <div
+                        style={{ width: workspaceWidth }}
+                        className="relative flex h-full overflow-hidden rounded-xl bg-sidebar border border-border-subtle"
+                    >
+                        <AgentWorkspace projectPath={projectPath} expanded onExpand={onExpand} />
+                    </div>
+                ) : null}
+            </div>
+        </>
+    );
+};
+
+/** Hydrates saved layout preferences once on the client without hydration mismatch. */
+const useHydratedAgentLayoutPrefs = ({
+    setWorkspaceWidth,
+    setWorkspaceOpen,
+    setSidebarOpen,
+    setZenMode,
+    setSplash,
+}: {
+    setWorkspaceWidth: React.Dispatch<React.SetStateAction<number>>;
+    setWorkspaceOpen: React.Dispatch<React.SetStateAction<boolean>>;
+    setSidebarOpen: React.Dispatch<React.SetStateAction<boolean>>;
+    setZenMode: React.Dispatch<React.SetStateAction<boolean>>;
+    setSplash: React.Dispatch<React.SetStateAction<boolean>>;
+}) => {
+    const hydrated = useIsMounted();
+    const [restoredPreferences, setRestoredPreferences] = useState(false);
+    if (!hydrated || restoredPreferences) return;
+    setRestoredPreferences(true);
+    const prefs = readStoredAgentLayoutPrefs();
+    if (prefs.workspaceWidth !== undefined) setWorkspaceWidth(prefs.workspaceWidth);
+    setWorkspaceOpen(prefs.workspaceOpen);
+    setSidebarOpen(prefs.sidebarOpen);
+    setZenMode(prefs.zenMode);
+    if (prefs.splash) setSplash(true);
+};
+
+/** Checks whether the right-hand workspace pane fits and is unhidden by Zen mode. */
+const isWorkspacePaneAvailable = (workspaceOpen: boolean, workspaceFits: boolean, zenMode: boolean): boolean => {
+    if (zenMode || !workspaceOpen) return false;
+    return workspaceFits;
+};
+
+/** Computes boolean pane visibility flags for `AgentLayout`. */
+const deriveAgentLayoutFlags = ({
+    projectPath,
+    overlay,
+    workspaceOpen,
+    workspaceFits,
+    sidebarOpen,
+    zenMode,
+}: {
+    projectPath: string | null;
+    overlay: AgentOverlay;
+    workspaceOpen: boolean;
+    workspaceFits: boolean;
+    sidebarOpen: boolean;
+    zenMode: boolean;
+}) => {
     const overlayOpen = overlay != null;
-    const showWorkspace = Boolean(project_path) && !overlayOpen;
-    // Zen mode hides the side panes without touching the persisted layout prefs.
-    const rightExpanded = workspaceOpen && showWorkspace && workspaceFits && !zenMode;
-    const sidebarShown = sidebarOpen && !zenMode;
+    const hasProject = Boolean(projectPath);
+    const showWorkspace = hasProject && !overlayOpen;
+    const available = isWorkspacePaneAvailable(workspaceOpen, workspaceFits, zenMode);
+    return {
+        overlayOpen,
+        hasProject,
+        showWorkspace,
+        rightExpanded: showWorkspace && available,
+        sidebarShown: sidebarOpen && !zenMode,
+    };
+};
+
+/** Encapsulates sidebar, flyout, and workspace toggle callbacks plus clamping math for `AgentLayout`. */
+const useAgentLayoutPaneControllers = ({
+    projectPath,
+    sidebarOpen,
+    setSidebarOpen,
+    setSidebarFlyout,
+    setWorkspaceOpen,
+}: {
+    projectPath: string | null;
+    sidebarOpen: boolean;
+    setSidebarOpen: React.Dispatch<React.SetStateAction<boolean>>;
+    setSidebarFlyout: React.Dispatch<React.SetStateAction<boolean>>;
+    setWorkspaceOpen: React.Dispatch<React.SetStateAction<boolean>>;
+}) => {
+    const flyoutTimerRef = useRef<number | null>(null);
+    const persistWorkspace = useCallback((next: boolean) => {
+        setWorkspaceOpen(next);
+        try {
+            localStorage.setItem("bettershape-agent-workspace", String(next));
+        } catch {
+            /* ignore */
+        }
+    }, [setWorkspaceOpen]);
+
+    const clampWorkspace = useCallback(
+        (x: number, winW = typeof window === "undefined" ? 1280 : window.innerWidth) => {
+            const sidebar = sidebarOpen ? SIDEBAR_EXPANDED : 0;
+            const maxByChat = Math.max(0, winW - sidebar - MIN_CHAT - WORKSPACE_GUTTER);
+            const maxByRatio = Math.min(MAX_WORKSPACE_PX, Math.floor(winW * MAX_WORKSPACE_RATIO));
+            const max = Math.min(maxByChat, maxByRatio);
+            return max < MIN_WORKSPACE_SOFT ? 0 : Math.min(max, Math.max(MIN_WORKSPACE_SOFT, x));
+        },
+        [sidebarOpen],
+    );
+
+    const toggleSidebar = useCallback(() => {
+        setSidebarFlyout(false);
+        setSidebarOpen((prev) => {
+            const next = !prev;
+            try {
+                localStorage.setItem("bettershape-agent-sidebar", String(next));
+            } catch {
+                /* ignore */
+            }
+            return next;
+        });
+    }, [setSidebarFlyout, setSidebarOpen]);
+
+    const openSidebarFlyout = useCallback(() => {
+        if (flyoutTimerRef.current) window.clearTimeout(flyoutTimerRef.current);
+        flyoutTimerRef.current = null;
+        setSidebarFlyout(true);
+    }, [setSidebarFlyout]);
+
+    const closeSidebarFlyout = useCallback(() => {
+        if (flyoutTimerRef.current) window.clearTimeout(flyoutTimerRef.current);
+        flyoutTimerRef.current = window.setTimeout(() => setSidebarFlyout(false), 180);
+    }, [setSidebarFlyout]);
+
+    const toggleWorkspace = useCallback(() => {
+        if (!projectPath) return;
+        setWorkspaceOpen((prev) => {
+            const next = !prev;
+            try {
+                localStorage.setItem("bettershape-agent-workspace", String(next));
+            } catch {
+                /* ignore */
+            }
+            return next;
+        });
+    }, [projectPath, setWorkspaceOpen]);
+
+    return {
+        persistWorkspace,
+        clampWorkspace,
+        toggleSidebar,
+        openSidebarFlyout,
+        closeSidebarFlyout,
+        toggleWorkspace,
+    };
+};
+
+/** Renders the main center + workspace shell column inside `AgentLayout`. */
+const AgentMainShellColumn = ({
+    flags,
+    projectPath,
+    overlay,
+    navSlot,
+    sidebarOpen,
+    isResizing,
+    workspaceWidth,
+    onStartResize,
+    setOverlay,
+    controllers,
+    windowControls,
+    children,
+}: {
+    flags: ReturnType<typeof deriveAgentLayoutFlags>;
+    projectPath: string | null;
+    overlay: AgentOverlay;
+    navSlot: HTMLElement | null;
+    sidebarOpen: boolean;
+    isResizing: boolean;
+    workspaceWidth: number;
+    onStartResize: (e: React.MouseEvent) => void;
+    setOverlay: React.Dispatch<React.SetStateAction<AgentOverlay>>;
+    controllers: ReturnType<typeof useAgentLayoutPaneControllers>;
+    windowControls: {
+        isMaximized: boolean;
+        onMinimize: () => void;
+        onToggleMaximize: () => void;
+        onClose: () => void;
+    };
+    children: React.ReactNode;
+}) => (
+    <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-panel rounded-xl border-l border-border">
+        <AgentChrome
+            rightOpen={flags.rightExpanded}
+            onToggleRight={controllers.toggleWorkspace}
+            canToggleRight={flags.showWorkspace}
+            showRightToggle={!flags.overlayOpen}
+            padWindowControls
+            sidebarOpen={sidebarOpen}
+            onToggleSidebar={controllers.toggleSidebar}
+            onSidebarHoverStart={controllers.openSidebarFlyout}
+            onSidebarHoverEnd={controllers.closeSidebarFlyout}
+            windowControls={windowControls}
+        />
+        <InterruptedTurns />
+        <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
+            <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
+                <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+                    <AgentCenterViewport
+                        overlay={overlay}
+                        projectPath={projectPath}
+                        navSlot={navSlot}
+                        sidebarOpen={sidebarOpen}
+                        onCloseOverlay={() => setOverlay(null)}
+                    >
+                        {children}
+                    </AgentCenterViewport>
+                    {flags.hasProject ? <TerminalDock suppressed={flags.overlayOpen} /> : null}
+                </div>
+            </div>
+            <AgentWorkspaceDock
+                showWorkspace={flags.showWorkspace}
+                projectPath={projectPath}
+                rightExpanded={flags.rightExpanded}
+                isResizing={isResizing}
+                workspaceWidth={workspaceWidth}
+                onStartResize={onStartResize}
+                onExpand={() => controllers.persistWorkspace(true)}
+            />
+        </div>
+        {flags.hasProject ? <Status /> : null}
+    </div>
+);
+
+/**
+ * Agent View, left sidebar (agent / settings / git / files nav),
+ * center chrome + content; expanded workspace is full-height; rail under chrome.
+ */
+export const AgentLayout = ({ children }: { children: React.ReactNode }) => {
+    const { project_path, active_file } = useProjectState();
+    const [sidebarOpen, setSidebarOpen] = useState(true);
+    const [workspaceOpen, setWorkspaceOpen] = useState(true);
+    const [zenMode, setZenMode] = useState(false);
+    const [overlay, setOverlay] = useState<AgentOverlay>(null);
+    const [workspaceWidth, setWorkspaceWidth] = useState(560);
+    const [workspaceFits, setWorkspaceFits] = useState(true);
+    const [splash, setSplash] = useState(false);
+    const [splashVisible, setSplashVisible] = useState(false);
+    const [isResizing, setIsResizing] = useState(false);
+    const [sidebarFlyout, setSidebarFlyout] = useState(false);
+    const draggingRef = useRef(false);
+    const widthRef = useRef(560);
+    useLayoutEffect(() => { widthRef.current = workspaceWidth; }, [workspaceWidth]);
+
+    useHydratedAgentLayoutPrefs({
+        setWorkspaceWidth,
+        setWorkspaceOpen,
+        setSidebarOpen,
+        setZenMode,
+        setSplash,
+    });
+
+    useEffect(() => {
+        if (!project_path) return;
+        import("@/features/preview/lib/project-warm")
+            .then(({ warmProjectAnalysis }) => warmProjectAnalysis(project_path).catch(() => undefined))
+            .catch(() => undefined);
+    }, [project_path]);
+
+    useEffect(() => startAgentBackgroundExitToasts(), []);
+    useAgentSplashLifecycle(splash, setSplash, setSplashVisible);
+
+    const navSlot = useElementById(AGENT_SIDEBAR_NAV_SLOT, Boolean(overlay));
+    const controllers = useAgentLayoutPaneControllers({
+        projectPath: project_path,
+        sidebarOpen,
+        setSidebarOpen,
+        setSidebarFlyout,
+        setWorkspaceOpen,
+    });
+
+    useAgentOverlaySync({
+        activeFile: active_file,
+        overlay,
+        setOverlay,
+        persistWorkspace: controllers.persistWorkspace,
+    });
+    useAgentLayoutWindowChannels({
+        projectPath: project_path,
+        persistWorkspace: controllers.persistWorkspace,
+        toggleSidebar: controllers.toggleSidebar,
+        toggleWorkspace: controllers.toggleWorkspace,
+        setOverlay,
+        setSidebarOpen,
+        setZenMode,
+        setWorkspaceWidth,
+        setWorkspaceFits,
+        widthRef,
+    });
+    useAgentWorkspaceGeometry({
+        projectPath: project_path,
+        sidebarOpen,
+        workspaceOpen,
+        clampWorkspace: controllers.clampWorkspace,
+        draggingRef,
+        widthRef,
+        setIsResizing,
+        setWorkspaceFits,
+        setWorkspaceWidth,
+    });
+
+    const flags = deriveAgentLayoutFlags({
+        projectPath: project_path,
+        overlay,
+        workspaceOpen,
+        workspaceFits,
+        sidebarOpen,
+        zenMode,
+    });
     const { isMaximized, minimize, toggleMaximize, close } = useWindowControls();
     const isMac = usePlatform() === "macos";
+    const winControls = {
+        isMaximized,
+        onMinimize: minimize,
+        onToggleMaximize: () => { toggleMaximize().catch(() => undefined); },
+        onClose: close,
+    };
+    const startWorkspaceResize = useCallback(
+        (e: React.MouseEvent) => {
+            if (!flags.rightExpanded) return;
+            e.preventDefault();
+            draggingRef.current = true;
+            setIsResizing(true);
+            document.body.style.cursor = "col-resize";
+            document.body.style.userSelect = "none";
+        },
+        [flags.rightExpanded],
+    );
 
     return (
         <div className="relative flex h-full min-h-0 w-full overflow-hidden bg-sidebar">
             <DevRunHost />
             <ProjectQuickPickHost />
             <NewFilePromptHost />
-            {splash ? (
-                <div
-                    className={cn(
-                        "pointer-events-none absolute inset-0 z-[100] flex items-center justify-center bg-transparent",
-                        // Ambient, not interactive: the splash is not something the user
-                        // drives, so it keeps the bezier. See the Motion block in globals.css.
-                        "transition-opacity duration-300 ease-[var(--ease-out)]",
-                        splashVisible ? "opacity-100" : "opacity-0",
-                    )}
-                    aria-hidden
-                >
-                    <Image
-src="/logos/logo.png"
-                        alt="BetterShape"
-                        width={52}
-                        height={52}
-                        priority
-                        style={{ width: 52, height: 52 }}
-                        className={cn(
-                            "logo-invert transition-opacity duration-500 ease-[var(--ease-out)]",
-                            splashVisible ? "opacity-100" : "opacity-0",
-                        )}
-                    />
-                </div>
-            ) : null}
+            <AgentStartupSplash splash={splash} splashVisible={splashVisible} />
 
             <AgentSidebar
                 expanded
-                open={sidebarShown}
+                open={flags.sidebarShown}
                 overlay={overlay}
-                onToggleSidebar={toggleSidebar}
+                onToggleSidebar={controllers.toggleSidebar}
                 onSearch={() => {
                     window.dispatchEvent(
-                        new CustomEvent("bettershape-command-palette", {
-                            detail: { placeholder: "Search…" },
-                        }),
+                        new CustomEvent("bettershape-command-palette", { detail: { placeholder: "Search…" } }),
                     );
                 }}
             />
-            {sidebarShown ? null : (
-                <SidebarPeek shown={sidebarFlyout} onEnter={openSidebarFlyout} onLeave={closeSidebarFlyout} />
+            {flags.sidebarShown ? null : (
+                <SidebarPeek
+                    shown={sidebarFlyout}
+                    onEnter={controllers.openSidebarFlyout}
+                    onLeave={controllers.closeSidebarFlyout}
+                />
             )}
 
-            <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-panel rounded-xl border-l border-border">
-                <AgentChrome
-                    rightOpen={rightExpanded}
-                    onToggleRight={toggleWorkspace}
-                    canToggleRight={Boolean(project_path) && !overlayOpen}
-                    showRightToggle={!overlayOpen}
-                    padWindowControls
-                    sidebarOpen={sidebarOpen}
-                    onToggleSidebar={toggleSidebar}
-                    onSidebarHoverStart={openSidebarFlyout}
-                    onSidebarHoverEnd={closeSidebarFlyout}
-                    windowControls={{
-                        isMaximized,
-                        onMinimize: minimize,
-                        onToggleMaximize: () => { toggleMaximize().catch(() => undefined); },
-                        onClose: close,
-                    }}
-                />
-                <InterruptedTurns />
-                <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
-                <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
-                    <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-                            {overlay ? (
-                                <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
-                                    <AgentOverlayView
-                                        overlay={overlay}
-                                        onClose={() => setOverlay(null)}
-                                        navPortalTarget={navSlot}
-                                        sidebarExpanded={sidebarOpen}
-                                    />
-                                </div>
-                            ) : project_path ? (
-                                <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
-                                    <Chat
-                                        key={normalizePath(project_path).toLowerCase()}
-                                        className="bg-transparent"
-                                    />
-                                </div>
-                            ) : (
-                                <div className="h-full overflow-hidden bg-transparent" data-tauri-drag-region>
-                                    {children}
-                                </div>
-                            )}
-                            {project_path ? <TerminalDock suppressed={overlayOpen} /> : null}
-                    </div>
-                </div>
-                {showWorkspace && project_path ? (
-                    <>
-                        <div
-                            role="separator"
-                            aria-orientation="vertical"
-                            aria-label="Resize workspace"
-                            className={cn(
-                                "group relative z-30 w-0 shrink-0",
-                                !rightExpanded && "pointer-events-none opacity-0",
-                            )}
-                            onMouseDown={(e) => {
-                                if (!rightExpanded) return;
-                                e.preventDefault();
-                                dragging.current = true;
-                                setIsResizing(true);
-                                document.body.style.cursor = "col-resize";
-                                document.body.style.userSelect = "none";
-                            }}
-                        >
-                            <div className="absolute inset-y-3 -left-1.5 w-3 cursor-col-resize" />
-                            {/* Matches the panel separators: a hairline that lights up on
-                                hover and stays lit while the drag is live. */}
-                            <div
-                                aria-hidden
-                                className={cn(
-                                    "pointer-events-none absolute inset-y-3 left-0 w-px transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
-                                    rightExpanded && "group-hover:bg-accent/40",
-                                    isResizing && "bg-accent/60",
-                                )}
-                            />
-                        </div>
-                        <div
-                            style={{
-                                width: rightExpanded ? workspaceWidth + 12 : 0,
-                                flex: "0 0 auto",
-                            }}
-                            className={cn(
-                                "h-full min-w-0 overflow-hidden",
-                                rightExpanded ? "py-2 pr-2" : "pointer-events-none p-0",
-                                !isResizing &&
-                                    "transition-[width] duration-[var(--spring-quick-dur)] ease-[var(--spring-quick)]",
-                            )}
-                            aria-hidden={!rightExpanded}
-                        >
-                            {rightExpanded ? (
-                                <div
-                                    style={{ width: workspaceWidth }}
-                                    className="relative flex h-full overflow-hidden rounded-xl bg-sidebar border border-border-subtle"
-                                >
-                                    <AgentWorkspace
-                                        projectPath={project_path}
-                                        expanded
-                                        onExpand={() => persistWorkspace(true)}
-                                    />
-                                </div>
-                            ) : null}
-                        </div>
-                    </>
-                ) : null}
-                </div>
-                {project_path ? <Status /> : null}
-            </div>
+            <AgentMainShellColumn
+                flags={flags}
+                projectPath={project_path}
+                overlay={overlay}
+                navSlot={navSlot}
+                sidebarOpen={sidebarOpen}
+                isResizing={isResizing}
+                workspaceWidth={workspaceWidth}
+                onStartResize={startWorkspaceResize}
+                setOverlay={setOverlay}
+                controllers={controllers}
+                windowControls={winControls}
+            >
+                {children}
+            </AgentMainShellColumn>
             {isMac ? null : (
                 <WindowControls
                     isMaximized={isMaximized}
                     onMinimize={minimize}
-                    onToggleMaximize={() => { toggleMaximize().catch(() => undefined); }}
+                    onToggleMaximize={winControls.onToggleMaximize}
                     onClose={close}
                     surface="panel"
                     spacer={false}

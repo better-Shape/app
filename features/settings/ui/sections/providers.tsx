@@ -119,9 +119,9 @@ function useVaultStatus(unsaved: number, retrying: boolean): boolean | null {
     );
     React.useEffect(() => {
         let cancelled = false;
-        void vaultAvailable().then((supported) => {
+        vaultAvailable().then((supported) => {
             if (!cancelled) setAvailable(supported);
-        });
+        }).catch(() => undefined);
         return () => {
             cancelled = true;
         };

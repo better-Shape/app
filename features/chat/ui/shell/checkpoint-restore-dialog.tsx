@@ -67,7 +67,7 @@ export function CheckpointRestoreDialog() {
     );
 
     useEffect(() => {
-        if (!open) return;
+        if (!open) return undefined;
         const onKey = (e: KeyboardEvent) => {
             if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
