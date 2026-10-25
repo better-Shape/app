@@ -249,7 +249,7 @@ export function fetchWarmMcpServers(): Promise<WarmMcpServer[]> {
  * idle frames when the user focuses or hovers the composer.
  */
 export function warmComposerResources(projectPath?: string | null): () => void {
-    if (typeof window === "undefined") return () => {};
+    if (typeof window === "undefined") return () => undefined;
     let cancelled = false;
     const run = () => {
         if (cancelled) return;
@@ -264,13 +264,13 @@ export function warmComposerResources(projectPath?: string | null): () => void {
             /* ignore */
         }
         if (projectPath) {
-            void fetchWarmProjectFiles(projectPath, "", 40);
+            fetchWarmProjectFiles(projectPath, "", 40).catch(() => undefined);
         }
-        void fetchWarmRecentChats(projectPath);
-        void fetchWarmMcpServers();
+        fetchWarmRecentChats(projectPath).catch(() => undefined);
+        fetchWarmMcpServers().catch(() => undefined);
         try {
             if (!peekPluginsCache()) {
-                void fetchPlugins().catch(() => {});
+                fetchPlugins().catch(() => undefined);
             }
         } catch {
             /* ignore */

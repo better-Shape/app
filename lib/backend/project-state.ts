@@ -61,13 +61,13 @@ function initializeStateBridge() {
             store.currentState = next;
             emitState();
         })
-        .catch(() => {});
+        .catch(() => undefined);
 
     try {
         listen<string[]>("bettershape-files-changed", (event) => {
             commands.invalidateAllFileCaches();
             window.dispatchEvent(new CustomEvent("bettershape-files-changed", { detail: Array.isArray(event.payload) ? event.payload : [] }));
-        }).catch(() => {});
+        }).catch(() => undefined);
     } catch {
         /* outside Tauri event bridge */
     }
@@ -93,7 +93,7 @@ function initializeStateBridge() {
                 };
                 emitState();
             }
-        }).catch(() => {});
+        }).catch(() => undefined);
     } catch {
         /* outside Tauri event bridge */
     }

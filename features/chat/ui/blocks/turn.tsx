@@ -465,7 +465,7 @@ function EditApprovalRow({ block }: { block: Chunk }) {
 
     // Backend resolution (or another window) flips the card instantly.
     useEffect(() => {
-        if (!block.commandId) return;
+        if (!block.commandId) return undefined;
         let disposed = false;
         let unlistenPromise: Promise<() => void>;
         try {
@@ -475,13 +475,13 @@ function EditApprovalRow({ block }: { block: Chunk }) {
                     if (disposed || event.payload?.id !== block.commandId) return;
                     setLocalStatus(event.payload?.approved ? "applied" : "rejected");
                 },
-            ).catch(() => () => {});
+            ).catch(() => () => undefined);
         } catch {
-            unlistenPromise = Promise.resolve(() => {});
+            unlistenPromise = Promise.resolve(() => undefined);
         }
         return () => {
             disposed = true;
-            void unlistenPromise.then((unlisten) => unlisten());
+            unlistenPromise.then((unlisten) => unlisten()).catch(() => undefined);
         };
     }, [block.commandId]);
 
@@ -581,7 +581,7 @@ function PluginCallStep({ block }: { block: Chunk }) {
     const discovery = slug === "plugin_list" || slug === "plugin_search" || slug === "plugin_tools";
 
     useEffect(() => {
-        if (status !== "pending" || !block.commandId) return;
+        if (status !== "pending" || !block.commandId) return undefined;
         let disposed = false;
         let unlistenPromise: Promise<() => void>;
         try {
@@ -591,13 +591,13 @@ function PluginCallStep({ block }: { block: Chunk }) {
                     if (disposed || event.payload?.id !== block.commandId) return;
                     setLocalStatus(event.payload?.approved ? "ok" : "rejected");
                 },
-            ).catch(() => () => {});
+            ).catch(() => () => undefined);
         } catch {
-            unlistenPromise = Promise.resolve(() => {});
+            unlistenPromise = Promise.resolve(() => undefined);
         }
         return () => {
             disposed = true;
-            void unlistenPromise.then((unlisten) => unlisten());
+            unlistenPromise.then((unlisten) => unlisten()).catch(() => undefined);
         };
     }, [status, block.commandId]);
 
