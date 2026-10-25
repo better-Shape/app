@@ -474,9 +474,12 @@ export const ChatMarkdown = React.memo(({
     isGenerating?: boolean;
     isLast?: boolean;
 }) => {
+    const hasCodeFence = content.includes("```") || content.includes("~~~");
     useEffect(() => {
-        preloadSyntaxHighlighter();
-    }, []);
+        if (hasCodeFence) {
+            preloadSyntaxHighlighter();
+        }
+    }, [hasCodeFence]);
 
     // Keep revealing briefly after generation ends so a late dump still types in. The hold
     // latches on during render, and only the release is timed, so the effect never sets state

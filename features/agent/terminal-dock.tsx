@@ -20,10 +20,11 @@ function clearBodyResize() {
     document.body.classList.remove("resizing-vertical");
 }
 
-/** Normalizes a terminal AI action command into a concise tab title. */
-const formatAiTerminalTitle = (command?: string): string => {
+/** Normalizes a terminal AI action command into a concise code-point-safe tab title. */
+export const formatAiTerminalTitle = (command?: string): string => {
     if (!command) return "Agent";
-    const cleaned = command.replace(/\s+/g, " ").trim().slice(0, 48);
+    const normalized = command.replace(/\s+/g, " ").trim();
+    const cleaned = Array.from(normalized).slice(0, 48).join("");
     return cleaned ? cleaned : "Agent";
 };
 

@@ -24,7 +24,7 @@ import {
     runAllTests,
     runFailedTests,
 } from "../runner";
-import { getFailedPattern, resetTestStore, useTestStore } from "../store";
+import { getFailedPattern, resetTestStore, setTestError, useTestStore } from "../store";
 import type { TestCase, TestStatus } from "../types";
 
 function relativeSuitePath(filePath: string, projectPath: string | null): string {
@@ -59,7 +59,9 @@ export function buildFailingTestPrompt(
             : `Fix ${failures.length} failing tests:`;
     const lines = shown.map((f) => {
         const rel = relativeSuitePath(f.suiteFile, projectPath);
-        const firstErrLine = (f.error ?? "").trim().split("\n")[0]?.slice(0, 140) ?? "";
+        const trimmedErr = (f.error ?? "").trim();
+        const nlIdx = trimmedErr.indexOf("\n");
+        const firstErrLine = (nlIdx >= 0 ? trimmedErr.slice(0, nlIdx) : trimmedErr).slice(0, 140);
         return firstErrLine
             ? `- @${rel} :: "${f.testName}" (${firstErrLine})`
             : `- @${rel} :: "${f.testName}"`;
@@ -186,8 +188,12 @@ export default function TestPanel() {
     const [expandedFiles, setExpandedFiles] = useState<Record<string, boolean>>({});
 
     useEffect(() => {
-        initTestRunnerEvents().catch(() => {
-            /* ignore listener initialization errors */
+        initTestRunnerEvents().catch((err) => {
+            setTestError(
+                err instanceof Error && err.message
+                    ? `Test event listener failed: ${err.message}`
+                    : "Test event listener failed to initialize.",
+            );
         });
     }, []);
 
@@ -201,8 +207,14 @@ export default function TestPanel() {
                 cancelled = true;
             };
         }
-        discoverProjectTests(project_path, () => !cancelled).catch(() => {
-            /* ignore discovery errors */
+        discoverProjectTests(project_path, () => !cancelled).catch((err) => {
+            if (!cancelled) {
+                setTestError(
+                    err instanceof Error && err.message
+                        ? err.message
+                        : "Failed to discover project tests.",
+                );
+            }
         });
         return () => {
             cancelled = true;
@@ -218,6 +230,7 @@ export default function TestPanel() {
     const activeSummary = matchesProject ? summary : null;
     const framework = activeDiscovery?.framework ?? "none";
     const hasFramework = framework !== "none";
+    const discoveredFileCount = activeDiscovery ? activeDiscovery.test_files.length : 0;
 
     const totals = useMemo(() => {
         if (activeSummary) return activeSummary;
@@ -365,8 +378,8 @@ export default function TestPanel() {
                 })}
                 {project_path && hasFramework && activeSuites.length === 0 && !running && !error ? (
                     <div className="px-4 py-6 text-sm text-text-muted">
-                        {activeDiscovery?.test_files.length
-                            ? `${activeDiscovery.test_files.length} test file(s) found. Click Run All to execute.`
+                        {discoveredFileCount > 0
+                            ? `${discoveredFileCount} test file(s) found. Click Run All to execute.`
                             : "No test files found. Click Run All to scan and run tests."}
                     </div>
                 ) : null}

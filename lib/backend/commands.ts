@@ -855,7 +855,16 @@ export const commands = {
         }>("get_ai_config"),
     aiProviderStatus: () => invokeCommand<string[]>("ai_provider_status"),
     /** Probe one provider: key validity, base URL, and the models it serves. */
-    aiTestProvider: (providerId: string, kind?: string, apiKey?: string, baseUrl?: string) =>
+    aiTestProvider: (
+        providerId: string,
+        kind?: string,
+        apiKey?: string,
+        baseUrl?: string,
+        opts?: {
+            headers?: Record<string, string>;
+            authStyle?: string;
+        },
+    ) =>
         invokeCommand<{
             ok: boolean;
             status: number;
@@ -867,6 +876,8 @@ export const commands = {
             kind: kind ?? null,
             apiKey: apiKey ?? null,
             baseUrl: baseUrl ?? null,
+            ...(opts?.headers ? { headers: opts.headers } : {}),
+            ...(opts?.authStyle ? { authStyle: opts.authStyle } : {}),
         }),
     /**
      * Send one tiny completion through the same wire the agent uses, to prove a

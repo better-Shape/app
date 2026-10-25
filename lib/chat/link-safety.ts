@@ -35,7 +35,7 @@ export function classifyMarkdownHref(rawHref: string | undefined | null): Markdo
         return { kind: "blocked" };
     }
 
-    const cleanPath = trimmed.split("#")[0]?.split("?")[0]?.trim() ?? "";
+    const cleanPath = trimmed.replace(/[?#][\s\S]*$/, "").trim();
     if (!cleanPath) return { kind: "blocked" };
 
     return { kind: "workspace", path: cleanPath };

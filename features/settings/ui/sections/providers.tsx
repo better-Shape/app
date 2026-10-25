@@ -212,6 +212,10 @@ function ProviderCard({ id, providers }: { id: ProviderId; providers: ProvidersS
                 preset.kind,
                 connection.apiKey,
                 connection.baseUrl || preset.baseUrl,
+                {
+                    headers: providerHeaders(id, connection),
+                    authStyle: providerAuthStyle(id, connection),
+                },
             );
             if (!isValidProviderReport(rawReport)) {
                 throw new Error(

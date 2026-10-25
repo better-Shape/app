@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
+import { formatAiTerminalTitle } from "@/features/agent/terminal-dock";
 import { applyInsertedPromptEvent } from "@/features/chat/lib/use-chat-session";
+import { detectErrorBillingProvider } from "@/features/chat/ui/blocks/error";
+import { isImeKeyEvent, isPlainPickerConfirmKey } from "@/features/chat/ui/composer/mentions";
 import { formatRowsAsMarkdownTable } from "@/features/chat/ui/md/data-table";
 import { parseMessageContent } from "@/features/chat/ui/md/renderer";
 import { preprocessChatMarkdown, repairStreamGlitches } from "@/features/chat/ui/md/stream";
@@ -8,6 +11,12 @@ import {
     insertCommandIntoWorkspaceTerminal,
     terminalSessionStore,
 } from "@/features/terminal/session";
+import {
+    applyTestResultEvent,
+    getTestStoreSnapshot,
+    resetTestStore,
+    setTestRunning,
+} from "@/features/testing/store";
 import { defaultProvidersSettings, modelIdsFor } from "@/lib/ai/providers";
 import { syncChatDomHighlights } from "@/lib/chat/dom-highlights";
 import { formatTranscriptAsMarkdown } from "@/lib/chat/export-markdown";
@@ -427,5 +436,92 @@ describe("PR #53 review regression coverage", () => {
         );
         await Promise.resolve();
         expect(draft).toBe("@Card.tsx check contrast");
+    });
+
+    it("guards picker confirmation keys, preserves code-fenced XML in assistant exports, isolates project terminals/tests, and routes OpenRouter billing", () => {
+        expect(isImeKeyEvent({ isComposing: true, keyCode: 13 })).toBe(true);
+        expect(isImeKeyEvent({ isComposing: false, keyCode: 229 })).toBe(true);
+        expect(
+            isPlainPickerConfirmKey({
+                key: "Enter",
+                shiftKey: true,
+                metaKey: false,
+                ctrlKey: false,
+                altKey: false,
+            }),
+        ).toBe(false);
+        expect(
+            isPlainPickerConfirmKey({
+                key: "Enter",
+                shiftKey: false,
+                metaKey: false,
+                ctrlKey: false,
+                altKey: false,
+            }),
+        ).toBe(true);
+
+        const md = formatTranscriptAsMarkdown("Assistant code fences", [
+            {
+                role: "assistant",
+                content: [
+                    "<thinking>internal scratchpad</thinking>",
+                    "Example control tags in docs:",
+                    "```xml",
+                    "<thinking>example reasoning</thinking>",
+                    '<edit file="src/demo.ts">kept</edit>',
+                    "```",
+                    "Inline `<todos>sample</todos>` stays intact too.",
+                ].join("\n"),
+            },
+        ]);
+        expect(md).not.toContain("internal scratchpad");
+        expect(md).toContain("<thinking>example reasoning</thinking>");
+        expect(md).toContain('<edit file="src/demo.ts">kept</edit>');
+        expect(md).toContain("`<todos>sample</todos>`");
+
+        const foreignPaste = vi.fn();
+        terminalSessionStore.tabs = [
+            { id: "other-tab", title: "wsl", cwd: "/other-repo", shell: "wsl", group: "left" },
+        ];
+        terminalSessionStore.instances.set("other-tab", {
+            ptyId: 1,
+            term: { paste: foreignPaste },
+            fitAddon: null,
+            unlistenOutput: () => {},
+        });
+        terminalSessionStore.panel = { visible: true, cwd: "/active-repo" };
+        terminalSessionStore.pendingCommandInsert = null;
+        terminalSessionStore.pendingCommandTargetTabId = null;
+        insertCommandIntoWorkspaceTerminal("npm test");
+        expect(foreignPaste).not.toHaveBeenCalled();
+        expect(terminalSessionStore.peekPendingCommandInsert()).toBe("npm test");
+        terminalSessionStore.instances.delete("other-tab");
+        terminalSessionStore.tabs = [];
+
+        resetTestStore("/repo-a");
+        setTestRunning(true, null, "/repo-a");
+        resetTestStore("/repo-b");
+        applyTestResultEvent({
+            event_type: "test",
+            framework: "vitest",
+            test: {
+                id: "stale-1",
+                name: "old repo failure",
+                file: "/repo-a/foo.test.ts",
+                suite: "foo",
+                status: "failed",
+                error: "stale failure",
+            },
+        });
+        expect(getTestStoreSnapshot().suites).toHaveLength(0);
+        resetTestStore(null);
+
+        expect(detectErrorBillingProvider("OpenRouter API error: insufficient credits for openrouter/openai/gpt-5", true)).toBe("openrouter");
+        expect(detectErrorBillingProvider("OpenAI API error: insufficient_quota on gpt-5", true)).toBe("openai");
+
+        const emojiCmd = `${"a".repeat(47)}🚀 trailing`;
+        const title = formatAiTerminalTitle(emojiCmd);
+        expect(Array.from(title)).toHaveLength(48);
+        expect(title.endsWith("🚀")).toBe(true);
     });
 });

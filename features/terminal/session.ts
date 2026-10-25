@@ -201,6 +201,33 @@ class TerminalSessionStore {
 /** Singleton, Terminal UI and DevRunHost share this. */
 export const terminalSessionStore = new TerminalSessionStore();
 
+/** Selects the interactive shell tab belonging to the active project `cwd`, if any. */
+const findTargetProjectShellTab = (cwd: string | null): TerminalTab | undefined => {
+    const isProjectShell = (tab: TerminalTab) =>
+        tab.shell !== "ai" && (!cwd || tab.cwd === cwd);
+    const preferredTabId = cwd ? terminalSessionStore.activeProjectTabs[cwd] : null;
+    const preferredTab = preferredTabId
+        ? terminalSessionStore.tabs.find((tab) => tab.id === preferredTabId && isProjectShell(tab))
+        : undefined;
+    if (preferredTab) return preferredTab;
+    const instantiatedTab = terminalSessionStore.tabs.find(
+        (tab) => isProjectShell(tab) && terminalSessionStore.instances.has(tab.id),
+    );
+    if (instantiatedTab) return instantiatedTab;
+    return cwd ? terminalSessionStore.tabs.find(isProjectShell) : undefined;
+};
+
+/** Queues `cleaned` for insertion once the target shell tab attaches its xterm instance. */
+const enqueuePendingTerminalCommand = (cleaned: string, nextTargetId: string | null): void => {
+    const existing = terminalSessionStore.pendingCommandInsert;
+    if (existing && terminalSessionStore.pendingCommandTargetTabId === nextTargetId) {
+        terminalSessionStore.pendingCommandInsert = `${existing}\n${cleaned}`;
+        return;
+    }
+    terminalSessionStore.pendingCommandInsert = cleaned;
+    terminalSessionStore.pendingCommandTargetTabId = nextTargetId;
+};
+
 /**
  * Opens the workspace Terminal dock and safely inserts `rawCommand` into the
  * active interactive shell tab using xterm's bracketed-paste-aware `paste()`
@@ -214,17 +241,8 @@ export function insertCommandIntoWorkspaceTerminal(rawCommand: string): boolean 
         window.dispatchEvent(new CustomEvent("bettershape-open-workspace-terminal"));
     }
 
-    const cwd = terminalSessionStore.panel.cwd;
-    const preferredTabId = cwd ? terminalSessionStore.activeProjectTabs[cwd] : null;
-    const preferredTab = preferredTabId
-        ? terminalSessionStore.tabs.find((t) => t.id === preferredTabId && t.shell !== "ai")
-        : undefined;
-    const fallbackTab = terminalSessionStore.tabs.find(
-        (t) => t.shell !== "ai" && terminalSessionStore.instances.has(t.id),
-    );
-    const targetTab = preferredTab ?? fallbackTab;
+    const targetTab = findTargetProjectShellTab(terminalSessionStore.panel.cwd);
     const inst = targetTab ? terminalSessionStore.instances.get(targetTab.id) : undefined;
-
     if (inst?.term && typeof inst.term.paste === "function") {
         inst.term.paste(cleaned);
         inst.term.focus?.();
@@ -232,16 +250,7 @@ export function insertCommandIntoWorkspaceTerminal(rawCommand: string): boolean 
         return true;
     }
 
-    const nextTargetId = targetTab?.id ?? null;
-    if (
-        terminalSessionStore.pendingCommandInsert &&
-        terminalSessionStore.pendingCommandTargetTabId === nextTargetId
-    ) {
-        terminalSessionStore.pendingCommandInsert = `${terminalSessionStore.pendingCommandInsert}\n${cleaned}`;
-    } else {
-        terminalSessionStore.pendingCommandInsert = cleaned;
-        terminalSessionStore.pendingCommandTargetTabId = nextTargetId;
-    }
+    enqueuePendingTerminalCommand(cleaned, targetTab?.id ?? null);
     return true;
 }
 

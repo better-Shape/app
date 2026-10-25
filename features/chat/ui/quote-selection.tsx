@@ -288,7 +288,8 @@ export function ChatSelectionQuoteToolbar({
             if (active) clearSelectionState();
         };
         const onKeyDown = (e: KeyboardEvent) => {
-            if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === ".") {
+            const isPeriodShortcut = e.key === ">" || e.key === "." || e.code === "Period";
+            if ((e.metaKey || e.ctrlKey) && e.shiftKey && isPeriodShortcut) {
                 const container = containerRef.current;
                 const sel = window.getSelection();
                 if (!container || !sel || sel.isCollapsed || sel.rangeCount === 0) return;

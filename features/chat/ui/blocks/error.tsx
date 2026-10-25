@@ -15,6 +15,33 @@ import {
 import { classifyAiError, errorDocsUrl } from "@/lib/errors/catalog";
 import { commands } from "@/lib/backend";
 
+const OPENROUTER_BILLING_HINTS = ["openrouter.ai"] as const;
+const OPENAI_BILLING_URLS = [
+    "platform.openai.com/account/billing",
+    "platform.openai.com/settings/organization/billing",
+    "api.openai.com",
+] as const;
+
+const includesAnySubstring = (haystack: string, needles: readonly string[]): boolean =>
+    needles.some((needle) => haystack.includes(needle));
+
+/** Billing provider detected from a raw AI error string (`"openrouter"` takes precedence over `"openai"`). */
+export const detectErrorBillingProvider = (
+    rawMessage: string,
+    isQuota: boolean,
+): "openrouter" | "openai" | null => {
+    if (!rawMessage) return null;
+    const lower = rawMessage.toLowerCase();
+    const isOpenRouter =
+        includesAnySubstring(lower, OPENROUTER_BILLING_HINTS) ||
+        (isQuota && /\bopenrouter\b/.test(lower));
+    if (isOpenRouter) return "openrouter";
+    const isOpenAi =
+        includesAnySubstring(lower, OPENAI_BILLING_URLS) ||
+        (isQuota && /\bopenai\b/.test(lower));
+    return isOpenAi ? "openai" : null;
+};
+
 export function ChatErrorDialog({
     message,
     onDismiss,
@@ -24,37 +51,38 @@ export function ChatErrorDialog({
     onDismiss: () => void;
     onRetry?: () => void;
 }) {
-    const entry = classifyAiError(message ?? "");
-    const lowerMessage = (message ?? "").toLowerCase();
+    const rawMessage = message ?? "";
+    const hasMessage = rawMessage.length > 0;
+    const entry = classifyAiError(rawMessage);
     const isQuota =
-        Boolean(message) &&
+        hasMessage &&
         /insufficient_quota|insufficient\s+credits|credit\s+balance\s+is\s+too\s+low|exceeded\s+your\s+current\s+quota|billing_hard_limit|billing\s+limit/i.test(
-            message ?? "",
+            rawMessage,
         );
-    const openaiBilling =
-        Boolean(message) &&
-        ((isQuota && lowerMessage.includes("openai")) ||
-            lowerMessage.includes("platform.openai.com/account/billing") ||
-            lowerMessage.includes("platform.openai.com/settings/organization/billing"));
+    const billingProvider = detectErrorBillingProvider(rawMessage, isQuota);
+    const openaiBilling = billingProvider === "openai";
+    const openrouterBilling = billingProvider === "openrouter";
     const isContextOverflow =
-        Boolean(message) &&
+        hasMessage &&
         /context_length_exceeded|context\s*window\s*(?:exceeded|overflow|full|limit)|exceed(?:s|ed)?\s*(?:the\s*)?(?:maximum\s*)?context\s*(?:window|length)|maximum\s*context\s*length|prompt\s*is\s*too\s*long/i.test(
-            message ?? "",
+            rawMessage,
         );
-    const docsUrl = openaiBilling
-        ? "https://platform.openai.com/settings/organization/billing/"
-        : errorDocsUrl(entry.code);
-    const isModelBusy = /model_busy|model is busy|high\s*(load|demand)/i.test(message ?? "");
+    const docsUrl = openrouterBilling
+        ? "https://openrouter.ai/settings/credits"
+        : openaiBilling
+          ? "https://platform.openai.com/settings/organization/billing/"
+          : errorDocsUrl(entry.code);
+    const isModelBusy = /model_busy|model is busy|high\s*(load|demand)/i.test(rawMessage);
     const isTransient =
-        Boolean(message) &&
+        hasMessage &&
         !isQuota &&
         !isContextOverflow &&
         (entry.code === 2100 ||
-            /rate\s*limit/i.test(message ?? "") ||
+            /rate\s*limit/i.test(rawMessage) ||
             isModelBusy ||
-            /too many requests/i.test(message ?? ""));
+            /too many requests/i.test(rawMessage));
 
-    const title = !message
+    const title = !hasMessage
         ? entry.title
         : isContextOverflow
           ? "Context window full"
@@ -64,7 +92,7 @@ export function ChatErrorDialog({
                 : "Rate limited"
             : entry.title;
 
-    const hint = !message
+    const hint = !hasMessage
         ? ""
         : isContextOverflow
           ? "This thread has reached the model's context limit. Summarize older turns with /compact to free context and continue."
@@ -72,10 +100,10 @@ export function ChatErrorDialog({
             ? isModelBusy
                 ? "This model is under heavy load. Wait a moment or switch models."
                 : "Try again or switch models."
-            : openaiBilling || (isQuota && /openai api error/i.test(message))
-              ? "(api.openai.com) has exhausted its credits. Add credits to continue."
-              : isQuota && /openrouter api error/i.test(message)
-                ? "(openrouter.ai) has exhausted its credits. Add credits to continue."
+            : openrouterBilling
+              ? "(openrouter.ai) has exhausted its credits. Add credits to continue."
+              : openaiBilling
+                ? "(api.openai.com) has exhausted its credits. Add credits to continue."
                 : entry.description;
 
     return (
@@ -133,7 +161,7 @@ export function ChatErrorDialog({
                                 className="w-full bg-panel-hover"
                                 onClick={() => void commands.openUrlExternal(docsUrl)}
                             >
-                                {openaiBilling ? "Add credits" : "Learn more"}
+                                {openaiBilling || openrouterBilling ? "Add credits" : "Learn more"}
                             </Button>
                             {onRetry && isTransient ? (
                                 <AlertDialogAction asChild>

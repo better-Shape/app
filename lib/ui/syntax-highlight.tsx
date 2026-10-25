@@ -40,12 +40,26 @@ function loadPrismModule(): Promise<HighlighterComponent> {
     return inflightLoad;
 }
 
+let idlePreloadScheduled = false;
+
 /** Warm the syntax highlighter chunk during idle time so first code block renders synchronously. */
 export function preloadSyntaxHighlighter(): void {
-    if (resolvedPrism || typeof window === "undefined") return;
-    void loadPrismModule().catch(() => {
-        /* retryable on next preload or mount */
-    });
+    if (resolvedPrism || inflightLoad || idlePreloadScheduled || typeof window === "undefined") return;
+    idlePreloadScheduled = true;
+    const run = () => {
+        idlePreloadScheduled = false;
+        if (resolvedPrism) return;
+        loadPrismModule().catch(() => {
+            /* retryable on next preload or mount */
+        });
+    };
+    const ric = (window as Window & { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number })
+        .requestIdleCallback;
+    if (typeof ric === "function") {
+        ric(run, { timeout: 1200 });
+    } else {
+        window.setTimeout(run, 120);
+    }
 }
 
 /** Lazy-loaded Prism syntax highlighter with retryable chunk loading and `<pre>` fallback. */

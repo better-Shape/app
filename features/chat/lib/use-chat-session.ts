@@ -1619,7 +1619,7 @@ export function useChatSession(
             const detail = (e as CustomEvent<{ id?: string; text?: string }>).detail;
             const text = detail?.text?.trim();
             if (!text) return;
-            const id = detail?.id || `${Date.now()}-${randomSuffix(5)}`;
+            const id = detail.id || `${Date.now()}-${randomSuffix(5)}`;
             setQuotedExcerpts((prev) => {
                 if (prev.some((q) => q.text === text)) return prev;
                 return [...prev.slice(-7), { id, text }];
