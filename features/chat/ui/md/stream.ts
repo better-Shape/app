@@ -454,10 +454,60 @@ const collectInlineCodeRanges = (input: string): Array<[number, number]> => {
     return ranges;
 };
 
+/** True when `ch` is an ASCII letter (`A-Z` or `a-z`). */
+const isAsciiAlpha = (ch: string): boolean => {
+    if (!ch) return false;
+    const code = ch.charCodeAt(0);
+    return (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
+};
+
+/**
+ * Validates the substring between `<tagName` and `>` for layout HTML tags so
+ * math/code expressions like `f(a<b, c>d)` or `x<b && c>y` are never stripped.
+ */
+const hasPlausibleHtmlTagTail = (
+    input: string,
+    start: number,
+    end: number,
+    isClosing: boolean,
+): boolean => {
+    if (isClosing) {
+        for (let i = start; i < end; i++) {
+            if (!/\s/.test(input.charAt(i))) return false;
+        }
+        return true;
+    }
+    let quote: string | null = null;
+    for (let i = start; i < end; i++) {
+        const ch = input.charAt(i);
+        if (quote) {
+            if (ch === quote) quote = null;
+            continue;
+        }
+        if (ch === '"' || ch === "'") {
+            quote = ch;
+            continue;
+        }
+        if (
+            ch === "<" ||
+            ch === "&" ||
+            ch === "|" ||
+            ch === "," ||
+            ch === ";" ||
+            ch === "(" ||
+            ch === ")"
+        ) {
+            return false;
+        }
+    }
+    return quote === null;
+};
+
 /** Single linear character-scanner pass stripping raw HTML tags without regex backtracking. */
 function stripHtmlTagsOnce(input: string): string {
     const codeRanges = collectInlineCodeRanges(input);
     let rangeIndex = 0;
+    let lowerInput: string | null = null;
     let out = "";
     let cursor = 0;
     const len = input.length;
@@ -481,12 +531,16 @@ function stripHtmlTagsOnce(input: string): string {
         }
 
         let pos = lt + 1;
-        while (pos < len && /\s/.test(input.charAt(pos))) pos++;
         let isClosing = false;
         if (pos < len && input.charAt(pos) === "/") {
             isClosing = true;
             pos++;
-            while (pos < len && /\s/.test(input.charAt(pos))) pos++;
+        }
+
+        if (pos >= len || !isAsciiAlpha(input.charAt(pos))) {
+            out += "<";
+            cursor = lt + 1;
+            continue;
         }
 
         const nameStart = pos;
@@ -509,11 +563,11 @@ function stripHtmlTagsOnce(input: string): string {
         if (matchedPairedPrefix) {
             if (gt === -1) break;
             if (!isClosing && PAIRED_STRIP_TAGS.has(tagName)) {
-                const lowerRest = input.slice(gt + 1).toLowerCase();
+                lowerInput ??= input.toLowerCase();
                 const closeNeedle = `</${tagName}`;
-                const closeRel = lowerRest.indexOf(closeNeedle);
-                if (closeRel !== -1) {
-                    const closeGt = input.indexOf(">", gt + 1 + closeRel + closeNeedle.length);
+                const closeIdx = lowerInput.indexOf(closeNeedle, gt + 1);
+                if (closeIdx !== -1) {
+                    const closeGt = input.indexOf(">", closeIdx + closeNeedle.length);
                     cursor = closeGt === -1 ? len : closeGt + 1;
                     continue;
                 }
@@ -522,7 +576,7 @@ function stripHtmlTagsOnce(input: string): string {
             continue;
         }
 
-        if (gt === -1) {
+        if (gt === -1 || !hasPlausibleHtmlTagTail(input, pos, gt, isClosing)) {
             out += "<";
             cursor = lt + 1;
             continue;

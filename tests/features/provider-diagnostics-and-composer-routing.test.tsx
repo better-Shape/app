@@ -78,7 +78,7 @@ function resetProvidersSettings() {
     });
 }
 
-describe("Pass 8: Settings -> Providers Check chat & Test connection diagnostics guards", () => {
+describe("Settings -> Providers Check chat and Test connection diagnostics guards", () => {
     beforeEach(() => {
         vi.clearAllMocks();
         resetProvidersSettings();
@@ -188,7 +188,7 @@ describe("Pass 8: Settings -> Providers Check chat & Test connection diagnostics
     });
 });
 
-describe("Pass 8: Provider usability, model routing edge cases, & brand icons", () => {
+describe("Provider usability, model routing edge cases, and brand icons", () => {
     it("distinguishes configured 0-model custom/local endpoints from routable providers", () => {
         const settings = defaultProvidersSettings();
         expect(hasAnyUsableProvider(settings)).toBe(false);
@@ -257,7 +257,7 @@ describe("Pass 8: Provider usability, model routing edge cases, & brand icons", 
     });
 });
 
-describe("Pass 8: Composer Open Providers bottom-right slot, marquees, & live provider swap", () => {
+describe("Composer Open Providers bottom-right slot, marquees, and live provider swap", () => {
     beforeEach(() => {
         resetProvidersSettings();
     });
@@ -363,7 +363,7 @@ describe("Pass 8: Composer Open Providers bottom-right slot, marquees, & live pr
     });
 });
 
-describe("Pass 8: Native DESIGN.md anti-slop toast & quote surfaces", () => {
+describe("Native DESIGN.md toast and quote surfaces", () => {
     beforeEach(() => {
         notificationStore.clearAll();
     });

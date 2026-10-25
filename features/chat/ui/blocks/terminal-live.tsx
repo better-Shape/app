@@ -73,11 +73,9 @@ function safeListen<T>(
     eventName: string,
     handler: (event: { payload: T }) => void,
 ): Promise<() => void> {
-    try {
-        return listen<T>(eventName, handler).catch(() => () => undefined);
-    } catch {
-        return Promise.resolve(() => undefined);
-    }
+    return Promise.resolve()
+        .then(() => listen<T>(eventName, handler))
+        .catch(() => () => undefined);
 }
 
 /**

@@ -82,6 +82,8 @@ export type DictationHandlers = {
     onState?: (state: DictationState) => void;
     /** Normalized 0..1 voice level emitted per audio buffer while listening. */
     onLevel?: (level: number) => void;
+    /** Invoked when continuous recording reaches `MAX_DICTATION_BUFFER_SECONDS` and auto-commits. */
+    onMaxDurationReached?: () => void;
 };
 
 export type DictationSession = {
@@ -123,34 +125,27 @@ function concatFloat32(chunks: Float32Array[]): Float32Array {
     return out;
 }
 
-/** Appends a PCM chunk while evicting oldest samples once `maxSamples` is exceeded. */
+/**
+ * Appends a PCM chunk up to `maxSamples`, preserving the start of speech rather
+ * than evicting opening words when the duration cap is reached.
+ */
 export const appendBoundedAudioChunk = (
     chunks: Float32Array[],
     incoming: Float32Array,
     currentSamples: number,
     maxSamples: number,
 ): number => {
-    if (incoming.length === 0 || maxSamples <= 0) return currentSamples;
-    if (incoming.length >= maxSamples) {
-        chunks.length = 0;
-        const tail = incoming.slice(incoming.length - maxSamples);
-        chunks.push(tail);
-        return tail.length;
+    if (incoming.length === 0 || maxSamples <= 0 || currentSamples >= maxSamples) {
+        return currentSamples;
     }
-    chunks.push(incoming);
-    let total = currentSamples + incoming.length;
-    while (total > maxSamples && chunks.length > 0) {
-        const head = chunks[0];
-        const excess = total - maxSamples;
-        if (head.length <= excess) {
-            chunks.shift();
-            total -= head.length;
-        } else {
-            chunks[0] = head.subarray(excess);
-            total -= excess;
-        }
+    const remaining = maxSamples - currentSamples;
+    if (incoming.length <= remaining) {
+        chunks.push(incoming);
+        return currentSamples + incoming.length;
     }
-    return total;
+    const clipped = incoming.slice(0, remaining);
+    chunks.push(clipped);
+    return currentSamples + clipped.length;
 };
 
 /** Computes a normalized `0..1` voice-level meter reading from a mono PCM buffer. */
@@ -239,21 +234,8 @@ export async function startDictation(
         Math.round(effectiveRate * MAX_DICTATION_BUFFER_SECONDS),
     );
     let bufferedSamples = 0;
-
-    processor.onaudioprocess = (event) => {
-        const channel = event.inputBuffer.getChannelData(0);
-        bufferedSamples = appendBoundedAudioChunk(
-            chunks,
-            new Float32Array(channel),
-            bufferedSamples,
-            maxBufferedSamples,
-        );
-        if (handlers.onLevel && channel.length > 0) {
-            handlers.onLevel(computeAudioBufferLevel(channel));
-        }
-    };
-
     let disposed = false;
+
     const teardown = () => {
         if (disposed) return;
         disposed = true;
@@ -281,34 +263,54 @@ export async function startDictation(
         return false;
     };
 
-    return {
-        commit: () => {
-            if (disposed) return;
-            const samples = concatFloat32(chunks);
-            teardown();
-            if (!hasAudibleSignal(samples)) {
+    const commitCapture = () => {
+        if (disposed) return;
+        const samples = concatFloat32(chunks);
+        teardown();
+        if (!hasAudibleSignal(samples)) {
+            invoke.stop().catch(() => {
+                /* ignore recognizer teardown errors */
+            });
+            setState("idle");
+            return;
+        }
+        setState("processing");
+        const pcm = resampleTo16k(samples, context.sampleRate);
+        const wav = encodeWavPcm16(pcm, DICTATION_SAMPLE_RATE);
+        // The recognizer stays up: `dictation_stop` kills the child process, and doing
+        // that now would race the recognition that `dictation_push` only just queued.
+        // It is torn down once the recognition response arrives or is cancelled.
+        invoke
+            .push(Array.from(wav))
+            .catch((error: unknown) => {
                 invoke.stop().catch(() => {
                     /* ignore recognizer teardown errors */
                 });
-                setState("idle");
-                return;
-            }
-            setState("processing");
-            const pcm = resampleTo16k(samples, context.sampleRate);
-            const wav = encodeWavPcm16(pcm, DICTATION_SAMPLE_RATE);
-            // The recognizer stays up: `dictation_stop` kills the child process, and doing
-            // that now would race the recognition that `dictation_push` only just queued.
-            // It is torn down once the recognition response arrives or is cancelled.
-            invoke
-                .push(Array.from(wav))
-                .catch((error: unknown) => {
-                    invoke.stop().catch(() => {
-                        /* ignore recognizer teardown errors */
-                    });
-                    setState("error");
-                    handlers.onError(describeDictationError(error));
-                });
-        },
+                setState("error");
+                handlers.onError(describeDictationError(error));
+            });
+    };
+
+    processor.onaudioprocess = (event) => {
+        if (disposed) return;
+        const channel = event.inputBuffer.getChannelData(0);
+        bufferedSamples = appendBoundedAudioChunk(
+            chunks,
+            new Float32Array(channel),
+            bufferedSamples,
+            maxBufferedSamples,
+        );
+        if (handlers.onLevel && channel.length > 0) {
+            handlers.onLevel(computeAudioBufferLevel(channel));
+        }
+        if (bufferedSamples >= maxBufferedSamples) {
+            handlers.onMaxDurationReached?.();
+            commitCapture();
+        }
+    };
+
+    return {
+        commit: commitCapture,
         dispose: () => {
             teardown();
             invoke.stop().catch(() => {

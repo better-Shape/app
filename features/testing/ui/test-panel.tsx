@@ -29,7 +29,8 @@ import type { TestCase, TestStatus } from "../types";
 
 function relativeSuitePath(filePath: string, projectPath: string | null): string {
     const cleanFile = filePath.replace(/\\/g, "/");
-    const cleanRoot = (projectPath ?? "").replace(/\\/g, "/").replace(/\/+$/, "");
+    let cleanRoot = (projectPath ?? "").replace(/\\/g, "/");
+    while (cleanRoot.endsWith("/")) cleanRoot = cleanRoot.slice(0, -1);
     if (cleanRoot && cleanFile.toLowerCase().startsWith(`${cleanRoot.toLowerCase()}/`)) {
         return cleanFile.slice(cleanRoot.length + 1);
     }

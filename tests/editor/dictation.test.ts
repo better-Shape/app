@@ -287,7 +287,7 @@ describe("startDictationCapture audio graph & RMS levels", () => {
         vi.unstubAllGlobals();
     });
 
-    it("caps buffered PCM samples on unattended dictation so memory cannot grow without limit", async () => {
+    it("caps buffered PCM samples by preserving opening speech and auto-committing at the 5-minute limit", async () => {
         const chunks: Float32Array[] = [];
         let total = 0;
         total = appendBoundedAudioChunk(chunks, new Float32Array([1, 2, 3, 4]), total, 6);
@@ -295,10 +295,11 @@ describe("startDictationCapture audio graph & RMS levels", () => {
         expect(total).toBe(6);
         const retained = chunks.reduce((sum, part) => sum + part.length, 0);
         expect(retained).toBe(6);
-        expect(Array.from(chunks[0] ?? [])).toEqual([3, 4]);
-        expect(Array.from(chunks[1] ?? [])).toEqual([5, 6, 7, 8]);
+        expect(Array.from(chunks.at(0) ?? [])).toEqual([1, 2, 3, 4]);
+        expect(Array.from(chunks.at(1) ?? [])).toEqual([5, 6]);
 
         let capturedWavLength = 0;
+        let maxDurationCallbacks = 0;
         const pushInvoke = vi.fn(async (wav: number[]) => {
             capturedWavLength = wav.length;
         });
@@ -342,7 +343,13 @@ describe("startDictationCapture audio graph & RMS levels", () => {
         });
 
         const session = await startDictation(
-            { onText: () => {}, onError: () => {} },
+            {
+                onText: () => {},
+                onError: () => {},
+                onMaxDurationReached: () => {
+                    maxDurationCallbacks += 1;
+                },
+            },
             true,
             {
                 start: async () => {},
@@ -360,6 +367,7 @@ describe("startDictationCapture audio graph & RMS levels", () => {
                 inputBuffer: { getChannelData: () => frame },
             });
         }
+        expect(maxDurationCallbacks).toBe(1);
         session.commit();
 
         expect(pushInvoke).toHaveBeenCalledTimes(1);

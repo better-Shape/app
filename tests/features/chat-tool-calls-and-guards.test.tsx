@@ -52,7 +52,7 @@ afterEach(() => {
     }
 });
 
-describe("Pass 5 composer undo-safe insertion, prompt recall guards, and shell prompt stripping", () => {
+describe("Composer undo-safe insertion, prompt recall guards, and shell prompt stripping", () => {
     it("uses native execCommand('insertText') when supported so Cmd+Z undo history stays intact", () => {
         const ta = document.createElement("textarea");
         ta.value = "check docs now";
@@ -116,7 +116,7 @@ describe("Pass 5 composer undo-safe insertion, prompt recall guards, and shell p
     });
 });
 
-describe("Pass 5 sub-node CSS.highlights search & case sensitivity", () => {
+describe("Sub-node CSS.highlights search and case sensitivity", () => {
     it("supports case-sensitive findTranscriptMatches and registers CSS.highlights ranges without mutating DOM text nodes", () => {
         const msgs = [
             { role: "user", content: "Check TokenStore vs tokenstore" },
@@ -171,7 +171,7 @@ describe("Pass 5 sub-node CSS.highlights search & case sensitivity", () => {
     });
 });
 
-describe("Pass 5 HITL single-owner shortcuts, tool-call presentation, and workbench bridges", () => {
+describe("HITL single-owner shortcuts, tool-call presentation, and workbench bridges", () => {
     it("routes Ctrl+Enter to only the earliest pending ApprovalCard when multiple cards are mounted", () => {
         const acceptFirst = vi.fn();
         const acceptSecond = vi.fn();

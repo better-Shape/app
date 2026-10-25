@@ -95,7 +95,7 @@ function dispatchPointerClick(el: Element) {
     });
 }
 
-describe("Pass 7: ModeMenu & BYOK pre-key composer controls", () => {
+describe("ModeMenu and BYOK pre-key composer controls", () => {
     beforeEach(() => {
         providerState.usable = false;
     });
@@ -162,7 +162,7 @@ describe("Pass 7: ModeMenu & BYOK pre-key composer controls", () => {
     });
 });
 
-describe("Pass 7: Continuous 3-column composer morph & @ mention guards", () => {
+describe("Continuous 3-column composer morph and @ mention guards", () => {
     beforeEach(() => {
         providerState.usable = true;
     });
@@ -259,7 +259,7 @@ describe("Pass 7: Continuous 3-column composer morph & @ mention guards", () => 
     });
 });
 
-describe("Pass 7: Lazy Collapse first-open spring, ActionLine Find-in-Chat, & Workbench polish", () => {
+describe("Lazy Collapse first-open spring, ActionLine Find-in-Chat, and workbench polish", () => {
     afterEach(() => {
         notificationStore.clearAll();
     });

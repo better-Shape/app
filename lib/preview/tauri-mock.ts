@@ -779,7 +779,7 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
             current: { apiKey: "", revision: "preview-rev-1" },
         }),
         ai_test_provider: (args) => {
-            const providerId = String(args.providerId ?? "").trim();
+            const providerId = typeof args.providerId === "string" ? args.providerId.trim() : "";
             const apiKey = typeof args.apiKey === "string" ? args.apiKey.trim() : "";
             const baseUrl = typeof args.baseUrl === "string" ? args.baseUrl.trim() : "";
             const authStyle = typeof args.authStyle === "string" ? args.authStyle.trim().toLowerCase() : "";
@@ -828,7 +828,7 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
             };
         },
         ai_check_provider: (args) => {
-            const providerId = String(args.providerId ?? "").trim();
+            const providerId = typeof args.providerId === "string" ? args.providerId.trim() : "";
             const apiKey = typeof args.apiKey === "string" ? args.apiKey.trim() : "";
             const baseUrl = typeof args.baseUrl === "string" ? args.baseUrl.trim() : "";
             const model = typeof args.model === "string" ? args.model.trim() : "";

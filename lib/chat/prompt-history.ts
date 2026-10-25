@@ -150,7 +150,7 @@ export function stepPromptHistoryUp(
 ): { cursor: PromptHistoryCursor; value: string } | null {
     if (prompts.length === 0) return null;
     if (!cursor) {
-        const value = prompts[0];
+        const value = prompts.at(0);
         if (value === undefined) return null;
         return {
             cursor: { index: 0, stashedDraft: currentValue, recalledValue: value },
@@ -159,7 +159,7 @@ export function stepPromptHistoryUp(
     }
     const nextIndex = Math.min(cursor.index + 1, prompts.length - 1);
     if (nextIndex === cursor.index) return null;
-    const value = prompts[nextIndex];
+    const value = prompts.at(nextIndex);
     if (value === undefined) return null;
     return {
         cursor: { index: nextIndex, stashedDraft: cursor.stashedDraft, recalledValue: value },

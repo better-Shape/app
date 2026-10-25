@@ -39,16 +39,16 @@ export function registerMountedChatSurface(): () => void {
 }
 
 /**
- * Runs `action` immediately if `<Chat />` is mounted; otherwise switches center
- * view to `"chat"` and runs `action` as soon as `<Chat />` mounts its listeners.
+ * Switches center view to `"chat"` and runs `action` immediately if `<Chat />`
+ * is mounted, or queues `action` until `<Chat />` registers its listeners.
  */
 export function dispatchToChatSurface(action: () => void) {
     if (typeof window === "undefined") return;
+    window.dispatchEvent(new CustomEvent("bettershape-center-view", { detail: "chat" }));
     if (mountedChatSurfaceCount > 0) {
         action();
         return;
     }
-    window.dispatchEvent(new CustomEvent("bettershape-center-view", { detail: "chat" }));
     const entry = {
         run: action,
         timer: window.setTimeout(() => {
@@ -62,18 +62,13 @@ export function dispatchToChatSurface(action: () => void) {
 /** Opens the in-conversation Find bar, switching back from overlays if needed. */
 export function openChatFindBar(initialQuery?: string) {
     if (typeof window === "undefined") return;
-    const fire = () => {
+    dispatchToChatSurface(() => {
         window.dispatchEvent(
             new CustomEvent(CHAT_FIND_OPEN_EVENT, {
                 detail: initialQuery ? { query: initialQuery } : undefined,
             }),
         );
-    };
-    if (mountedChatSurfaceCount > 0) {
-        fire();
-        return;
-    }
-    dispatchToChatSurface(fire);
+    });
 }
 
 /** Signals that a transcript disclosure toggled so Stick-to-Bottom preserves scroll anchor. */

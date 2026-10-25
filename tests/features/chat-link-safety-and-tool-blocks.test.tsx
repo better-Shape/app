@@ -55,7 +55,7 @@ afterEach(() => {
     }
 });
 
-describe("Pass 6 URI scheme allowlist & ChatLinkChip security", () => {
+describe("URI scheme allowlist and ChatLinkChip security", () => {
     it("blocks dangerous or unknown schemes and preserves safe external, anchor, and workspace targets", () => {
         expect(classifyMarkdownHref("javascript:alert(1)").kind).toBe("blocked");
         expect(classifyMarkdownHref("DATA:text/html,<script>alert(1)</script>").kind).toBe("blocked");
@@ -93,7 +93,7 @@ describe("Pass 6 URI scheme allowlist & ChatLinkChip security", () => {
     });
 });
 
-describe("Pass 6 PlanningBlock sliding focus window & Find-in-Chat expansion", () => {
+describe("PlanningBlock sliding focus window and Find-in-Chat expansion", () => {
     it("anchors collapsed preview around the active or next pending step instead of pinning step 0", () => {
         const steps = [
             { status: "done" as const, label: "Audit CSS tokens" },
@@ -137,7 +137,7 @@ describe("Pass 6 PlanningBlock sliding focus window & Find-in-Chat expansion", (
     });
 });
 
-describe("Pass 6 QuestionsCard multi-select, IME composition guard, and anti-slop badge removal", () => {
+describe("QuestionsCard multi-select and IME composition guard", () => {
     it("toggles multiple options when allowMultiple is true, omits Recommended pills, and guards IME Enter", async () => {
         const answerSpy = vi.spyOn(commands, "answerAskUser").mockResolvedValue(undefined as never);
 
@@ -207,7 +207,7 @@ describe("Pass 6 QuestionsCard multi-select, IME composition guard, and anti-slo
     });
 });
 
-describe("Pass 6 PluginActivityCard pending arg inspection, WebSearchBlock fallback, ReviewDebatePanel, and DOM highlights", () => {
+describe("PluginActivityCard pending arg inspection, WebSearchBlock fallback, ReviewDebatePanel, and DOM highlights", () => {
     it("allows inspecting JSON arguments while PluginActivityCard is pending and routes Ctrl+Enter", () => {
         const allowSpy = vi.fn();
         const rejectSpy = vi.fn();
@@ -331,7 +331,7 @@ describe("Pass 6 PluginActivityCard pending arg inspection, WebSearchBlock fallb
     });
 });
 
-describe("Pass 6 source-level anti-slop guards", () => {
+describe("Chat surface token and styling invariants", () => {
     it("keeps transitions.css, dom-highlights.ts, and chat UI free of pulsing dots, nested timeline rails, style-jsx, and raw hex colors", () => {
         const rootDir = process.cwd();
         const transitionsCss = fs.readFileSync(path.join(rootDir, "app/transitions.css"), "utf8");

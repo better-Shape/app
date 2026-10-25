@@ -28,11 +28,9 @@ function safeListen<T>(
     eventName: string,
     handler: (event: { payload: T }) => void,
 ): Promise<() => void> {
-    try {
-        return listen<T>(eventName, handler).catch(() => () => undefined);
-    } catch {
-        return Promise.resolve(() => undefined);
-    }
+    return Promise.resolve()
+        .then(() => listen<T>(eventName, handler))
+        .catch(() => () => undefined);
 }
 
 /**
@@ -202,6 +200,17 @@ export const DictationButton = memo(function DictationButton() {
                     },
                     onLevel: (next) => {
                         if (startAttemptIdRef.current === attemptId) setLevel(next);
+                    },
+                    onMaxDurationReached: () => {
+                        if (startAttemptIdRef.current !== attemptId) return;
+                        session.current = null;
+                        setLevel(0);
+                        setElapsedSec(0);
+                        notificationStore.add(
+                            "Dictation limit reached",
+                            "info",
+                            "Reached the 5-minute recording limit. Transcribing your speech now.",
+                        );
                     },
                 },
                 microphoneConstraints(settings.voice.deviceId),

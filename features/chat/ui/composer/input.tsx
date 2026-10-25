@@ -63,6 +63,7 @@ import { QueuedMessagesPanel, type QueuedMessage } from "./queue";
 import { ComposerAttachments, isImageFile, isAudioFile, type ComposerAttachment } from "./attachments";
 import { DictationButton } from "./dictation-button";
 import { MediaLightbox } from "../blocks/lightbox";
+import { dispatchToChatSurface } from "../shell/find-bar";
 import { formatMentionToken, mentionRanges, shortenMentionTokensInText } from "@/lib/chat/mentions";
 import {
     BETTERSHAPE_CLIP_CODE,
@@ -819,7 +820,7 @@ export const ChatInput = React.memo(function ChatInput({
         if (quotedExcerpts !== undefined) return undefined;
         let focusRaf = 0;
         const onQuote = (event: Event) => {
-            const detail = (event as CustomEvent<{ id?: string; text?: string }>).detail;
+            const detail = (event as CustomEvent<{ id?: string; text?: string } | undefined>).detail;
             if (!detail) return;
             const text = detail.text?.trim();
             if (!text) return;
@@ -1206,9 +1207,39 @@ export const ChatInput = React.memo(function ChatInput({
         }
     }, [inputValue]);
 
+    const isComposerMountedRef = React.useRef(true);
+    React.useEffect(() => {
+        isComposerMountedRef.current = true;
+        return () => {
+            isComposerMountedRef.current = false;
+        };
+    }, []);
+
     const swapAttachmentInline = React.useCallback(
         (targetFile: File, rawText: string) => {
             setUploadedFiles((prev) => prev.filter((att) => att.file !== targetFile));
+            if (!isComposerMountedRef.current || !textareaRef.current?.isConnected) {
+                try {
+                    const saved = localStorage.getItem("bettershape-chat-input") ?? "";
+                    const merged = saved.trim().length > 0 ? `${saved.trimEnd()}\n\n${rawText}` : rawText;
+                    localStorage.setItem("bettershape-chat-input", merged);
+                } catch {
+                    /* ignore storage errors */
+                }
+                dispatchToChatSurface(() => {
+                    window.dispatchEvent(
+                        new CustomEvent("bettershape-chat-insert-prompt", {
+                            detail: { prompt: rawText, send: false, append: true },
+                        }),
+                    );
+                    window.dispatchEvent(
+                        new CustomEvent("bettershape-chat-focus-input", {
+                            detail: { caretEnd: true },
+                        }),
+                    );
+                });
+                return;
+            }
             const cur = inputValueRef.current;
             const pad = cur.trim().length > 0 ? `${cur.trimEnd()}\n\n` : "";
             const next = `${pad}${rawText}`;
@@ -1823,7 +1854,11 @@ export const ChatInput = React.memo(function ChatInput({
                                         className="mt-0.5 size-3.5 shrink-0 text-text-muted"
                                     />
                                     <span className="min-w-0 flex-1 line-clamp-2 break-words leading-[16px] text-text-secondary">
-                                        {q.text.replace(/\s*\n+\s*/g, " ↵ ").trim()}
+                                        {q.text
+                                            .split("\n")
+                                            .map((line) => line.trim())
+                                            .filter(Boolean)
+                                            .join(" ↵ ")}
                                     </span>
                                     <Tooltip content="Remove quote">
                                         <button
