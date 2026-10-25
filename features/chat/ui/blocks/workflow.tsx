@@ -1443,9 +1443,15 @@ export function ActionItem({
                 detail={name}
                 icon={providerIcon(block.command || "auto", 14)}
                 onClick={() => {
-                    const subStatus =
-                        (block.commandStatus as "running" | "done" | "error" | "pending") ||
-                        "running";
+                    const rawStatus = (block.commandStatus || "").toLowerCase();
+                    const subStatus: "running" | "done" | "error" | "pending" =
+                        rawStatus === "done" || rawStatus === "completed"
+                            ? "done"
+                            : rawStatus === "error" || rawStatus === "failed"
+                              ? "error"
+                              : rawStatus === "pending"
+                                ? "pending"
+                                : "running";
                     const subActivity =
                         subStatus === "done"
                             ? "Completed"
@@ -1458,7 +1464,7 @@ export function ActionItem({
                                 id,
                                 title: name,
                                 agent: name,
-                                model: block.command,
+                                model: block.command || undefined,
                                 activity: subActivity,
                                 task: block.type === "subagent_ref" ? block.content : undefined,
                                 transcript: block.type === "subagent" ? block.content : undefined,

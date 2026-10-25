@@ -138,7 +138,7 @@ export function DesignPreviewGallery({
     const pending = status === "pending" && Boolean(pickId);
     const selected = status === "selected" ? selectedId?.trim() || "" : "";
     const initialIndex = Math.max(0, items.findIndex((p) => p.id === selected));
-    const [index, setIndex] = useState(initialIndex >= 0 ? initialIndex : 0);
+    const [index, setIndex] = useState(initialIndex);
     const [open, setOpen] = useState(false);
     const mounted = useIsMounted();
     const [submitting, setSubmitting] = useState(false);
@@ -246,7 +246,11 @@ export function DesignPreviewGallery({
         );
 
     return (
-        <div className="my-2 w-full max-w-[340px]">
+        <div
+            className="my-2 w-full max-w-[340px]"
+            data-pending-approval={canPick ? "true" : undefined}
+            data-pending-approval-kind={canPick ? "approval" : undefined}
+        >
             <div
                 className={cn(
                     "group/screen relative aspect-[16/10] overflow-hidden rounded-xl bg-surface-3",

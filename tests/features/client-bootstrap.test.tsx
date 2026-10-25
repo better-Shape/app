@@ -24,7 +24,10 @@ vi.mock("@/features/agent/workbench", () => ({ Titlebar: () => null }));
 vi.mock("@/features/loading/context", () => ({ LoadingProvider: ({ children }: { children: ReactNode }) => children }));
 vi.mock("@/components/ui/notification", () => ({ NotificationProvider: ({ children }: { children: ReactNode }) => children }));
 vi.mock("@/core/providers/menu", () => ({ GlobalContextMenu: ({ children }: { children: ReactNode }) => children }));
-vi.mock("@/features/chat/lib/chat-stream-store", () => ({ ChatStreamProvider: ({ children }: { children: ReactNode }) => children }));
+vi.mock("@/features/chat/lib/chat-stream-store", () => ({
+    ChatStreamProvider: ({ children }: { children: ReactNode }) => children,
+    useChatStreamStatus: () => ({ isLoading: false, viewedConversationId: null }),
+}));
 vi.mock("@/features/git/ui/manager/filter-context", () => ({ FilterProvider: ({ children }: { children: ReactNode }) => children }));
 vi.mock("@/features/chat/ui/shell/checkpoint-restore-dialog", () => ({ CheckpointRestoreDialog: () => null }));
 vi.mock("@/components/ui/suppress-native-tooltips", () => ({ SuppressNativeTooltips: () => null }));

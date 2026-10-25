@@ -240,12 +240,53 @@ const ToastCard = ({
     );
 };
 
+const ToastStack = ({
+    toasts,
+    leavingIds,
+    pageHidden,
+    onDismiss,
+}: {
+    toasts: readonly Notification[];
+    leavingIds: ReadonlySet<string>;
+    pageHidden: boolean;
+    onDismiss: (id: string) => void;
+}) => {
+    const [hovered, setHovered] = React.useState(false);
+    const [focusedWithin, setFocusedWithin] = React.useState(false);
+    const paused = hovered || focusedWithin || pageHidden;
+
+    return (
+        <div
+            className={TOAST_STACK_CLASS}
+            data-toast-stack=""
+            onMouseEnter={() => setHovered(true)}
+            onMouseLeave={() => setHovered(false)}
+            onFocusCapture={() => setFocusedWithin(true)}
+            onBlurCapture={(e) => {
+                if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+                    setFocusedWithin(false);
+                }
+            }}
+        >
+            <div className="flex flex-col gap-2">
+                {toasts.map((notification) => (
+                    <ToastCard
+                        key={notification.id}
+                        notification={notification}
+                        leaving={leavingIds.has(notification.id)}
+                        paused={paused}
+                        onDismiss={() => onDismiss(notification.id)}
+                    />
+                ))}
+            </div>
+        </div>
+    );
+};
+
 export const NotificationToasts = () => {
     const { notifications, toastIds } = useNotifications();
     const mounted = useIsMounted();
     const [leavingIds, setLeavingIds] = React.useState<ReadonlySet<string>>(() => new Set());
-    const [hovered, setHovered] = React.useState(false);
-    const [focusedWithin, setFocusedWithin] = React.useState(false);
     const [pageHidden, setPageHidden] = React.useState(false);
     const reducedMotion = useReducedMotion();
 
@@ -296,33 +337,13 @@ export const NotificationToasts = () => {
 
     if (!mounted || toasts.length === 0) return null;
 
-    const paused = hovered || focusedWithin || pageHidden;
-
     return createPortal(
-        <div
-            className={TOAST_STACK_CLASS}
-            data-toast-stack=""
-            onMouseEnter={() => setHovered(true)}
-            onMouseLeave={() => setHovered(false)}
-            onFocusCapture={() => setFocusedWithin(true)}
-            onBlurCapture={(e) => {
-                if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
-                    setFocusedWithin(false);
-                }
-            }}
-        >
-            <div className="flex flex-col gap-2">
-                {toasts.map((notification) => (
-                    <ToastCard
-                        key={notification.id}
-                        notification={notification}
-                        leaving={leavingIds.has(notification.id)}
-                        paused={paused}
-                        onDismiss={() => dismiss(notification.id)}
-                    />
-                ))}
-            </div>
-        </div>,
+        <ToastStack
+            toasts={toasts}
+            leavingIds={leavingIds}
+            pageHidden={pageHidden}
+            onDismiss={dismiss}
+        />,
         document.body,
     );
 };

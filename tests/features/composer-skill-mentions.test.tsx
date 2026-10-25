@@ -238,6 +238,17 @@ describe("mention picker: skills", () => {
         expect(document.body.textContent).toContain("/compact");
         expect(document.body.textContent).toContain("[focus]");
 
+        const externalInput = document.createElement("input");
+        document.body.appendChild(externalInput);
+        await act(async () => {
+            externalInput.dispatchEvent(
+                new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+            );
+        });
+        expect(picked).toEqual([]);
+        expect(closed).toBe(false);
+        externalInput.remove();
+
         await act(async () => {
             window.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true }));
         });

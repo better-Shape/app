@@ -205,10 +205,7 @@ const createRunMatchRange = (
 };
 
 const buildQueryMatcher = (trimmed: string, caseSensitive: boolean): RegExp => {
-    const pattern = trimmed
-        .split(/\s+/)
-        .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
-        .join("\\s+");
+    const pattern = trimmed.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     return new RegExp(pattern, caseSensitive ? "g" : "gi");
 };
 

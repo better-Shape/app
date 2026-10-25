@@ -241,6 +241,7 @@ export function AgentLayout({ children }: { children: React.ReactNode }) {
     }, [overlay]);
 
     useEffect(() => {
+        /** Dismisses any active overlay when switching center views (`editor` or `chat`). */
         const onView = (event: Event) => {
             const view = (event as CustomEvent<string>).detail;
             if (view === "editor") {
@@ -253,12 +254,14 @@ export function AgentLayout({ children }: { children: React.ReactNode }) {
                 setOverlay(null);
             }
         };
+        /** Closes any active overlay and schedules new-chat focus handoff once unmounted. */
         const onChatNew = () => {
             if (overlayRef.current === null) return;
             overlayRef.current = null;
             pendingNewChatRef.current = true;
             setOverlay(null);
         };
+        /** Clears any active overlay and opens the workspace pane when viewing a file diff. */
         const onFileDiff = () => {
             overlayRef.current = null;
             setOverlay(null);

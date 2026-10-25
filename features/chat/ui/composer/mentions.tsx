@@ -564,8 +564,36 @@ export function MentionPicker({
                 if (cat) setActiveCategory(cat.id);
             }
         };
+        const isPickerOwnedNode = (node: Node | null): boolean => {
+            if (!node) return false;
+            return Boolean(
+                anchorRef?.current?.contains(node) ||
+                    boxRef?.current?.contains(node) ||
+                    menuEl?.contains(node),
+            );
+        };
         const onKey = (e: KeyboardEvent) => {
             if (isImeKeyEvent(e)) return;
+            const targetNode = e.target instanceof Node ? e.target : null;
+            const isDocumentLevelTarget =
+                targetNode === null ||
+                (typeof document !== "undefined" &&
+                    (targetNode === document ||
+                        targetNode === document.body ||
+                        targetNode === document.documentElement));
+            if (!isDocumentLevelTarget) {
+                if (!isPickerOwnedNode(targetNode)) return;
+            } else if (typeof document !== "undefined") {
+                const activeEl = document.activeElement;
+                if (
+                    activeEl &&
+                    activeEl !== document.body &&
+                    activeEl !== document.documentElement &&
+                    !isPickerOwnedNode(activeEl)
+                ) {
+                    return;
+                }
+            }
             if (e.key === "Escape") {
                 e.preventDefault();
                 if (mode === "mention" && activeCategory) setActiveCategory(null);
@@ -591,6 +619,9 @@ export function MentionPicker({
         return () => window.removeEventListener("keydown", onKey, true);
     }, [
         open,
+        anchorRef,
+        boxRef,
+        menuEl,
         activeCategory,
         rootItems,
         slashEntries,

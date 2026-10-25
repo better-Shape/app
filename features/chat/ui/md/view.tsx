@@ -627,6 +627,7 @@ function createMarkdownComponents(options?: { nested?: boolean; streamingFence?:
                 && !children.includes("(")
                 && (children.includes("/")
                     || children.includes("\\")
+                    || /^(?:dockerfile|makefile)(?:\.[a-z0-9_-]+)?$/i.test(children)
                     || /\.(?:tsx?|jsx?|mjs|cjs|jsonc?|mdx?|scss|css|less|html?|vue|svelte|astro|rs|toml|ya?ml|py|go|rb|php|java|kt|swift|cpp|cc|csv|cs|c|hpp|h|bash|zsh|sh|ps1|sql|graphql|gql|proto|svg|png|jpe?g|webp|gif|ico|pdf|lock|env|gitignore|dockerfile|makefile|txt|log)$/i.test(children));
 
             if (isFilePath) {
