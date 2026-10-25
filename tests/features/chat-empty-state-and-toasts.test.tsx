@@ -56,19 +56,19 @@ describe("Composer leading-space wrapping guard (shouldComposerBreakAll)", () =>
                 "   https://github.com/better-Shape/app/pull/52/commits/7d073ac",
             ),
         ).toBe(true);
-        expect(
-            shouldComposerBreakAll(
-                "Normal first line\n aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            ),
-        ).toBe(true);
         expect(shouldComposerBreakAll("            indentedToken")).toBe(true);
     });
 
-    it("preserves normal word-boundary wrapping for ordinary prose", () => {
+    it("preserves normal word-boundary wrapping for ordinary prose, even alongside indented lines", () => {
         expect(shouldComposerBreakAll("")).toBe(false);
         expect(
             shouldComposerBreakAll(
                 "Map out a clean implementation plan for authentication and session recovery",
+            ),
+        ).toBe(false);
+        expect(
+            shouldComposerBreakAll(
+                "Normal first line that wraps at word boundaries\n aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             ),
         ).toBe(false);
         expect(shouldComposerBreakAll(" hello world how are you")).toBe(false);

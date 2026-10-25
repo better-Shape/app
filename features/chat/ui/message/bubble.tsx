@@ -10,13 +10,13 @@ import { formatMessageModelLabel, isAutoModelId } from "@/lib/chat/usage-display
 export const AUTO_DISPLAY_MODEL = "deepseek/deepseek-v4-flash";
 
 /** Grey rounded card for user messages (no blue, no iMessage tail). */
-export function UserMessageCard({
+export const UserMessageCard = ({
     className,
     children,
 }: {
     className?: string;
     children: React.ReactNode;
-}) {
+}) => {
     return (
         <div
             className={cn(
@@ -27,7 +27,7 @@ export function UserMessageCard({
             {children}
         </div>
     );
-}
+};
 
 /** Circular spinner while the assistant is typing. */
 export function TypingDots({ className }: { className?: string }) {
@@ -46,7 +46,7 @@ export function WorkingDots({ className }: { className?: string }) {
 }
 
 /** Stack of provider icons — Auto shows DeepSeek only (not a multi-grid). */
-export function ModelAvatarStack({
+export const ModelAvatarStack = ({
     models,
     size = 16,
     className,
@@ -54,10 +54,10 @@ export function ModelAvatarStack({
     models: string[];
     size?: number;
     className?: string;
-}) {
+}) => {
     const raw = models.filter(Boolean);
     const isAuto = raw.length === 0 || raw.every((m) => isAutoModelId(m));
-    const id = isAuto ? AUTO_DISPLAY_MODEL : raw[0]!;
+    const id = isAuto ? AUTO_DISPLAY_MODEL : (raw[0] ?? AUTO_DISPLAY_MODEL);
 
     return (
         <Tooltip content={isAuto ? "Auto" : formatMessageModelLabel(id)}>
@@ -71,7 +71,7 @@ export function ModelAvatarStack({
             </span>
         </Tooltip>
     );
-}
+};
 
 /** Compact mention / tool pill. */
 export function EntityPill({

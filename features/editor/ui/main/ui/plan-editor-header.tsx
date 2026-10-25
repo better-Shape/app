@@ -57,7 +57,8 @@ export function MarkdownViewSwitch({
     );
 }
 
-export function PlanEditorHeader({
+/** Renders the PlanEditorHeader UI component. */
+export const PlanEditorHeader = ({
     path,
     title: titleProp,
     raw = false,
@@ -69,7 +70,7 @@ export function PlanEditorHeader({
     raw?: boolean;
     onRawChange?: (raw: boolean) => void;
     onSaveToWorkspace?: () => void;
-}) {
+}) => {
     const { isLoading } = useChatStreamStatus();
     const { project_path } = useProjectState();
     const [checking, setChecking] = React.useState(false);
@@ -99,7 +100,7 @@ export function PlanEditorHeader({
         const onKeyDown = (e: KeyboardEvent) => {
             if (!(e.ctrlKey || e.metaKey) || e.key !== "Enter") return;
             e.preventDefault();
-            void handleBuild();
+            handleBuild().catch(() => undefined);
         };
         window.addEventListener("keydown", onKeyDown);
         return () => window.removeEventListener("keydown", onKeyDown);
@@ -115,7 +116,7 @@ export function PlanEditorHeader({
                 <Button
                     type="button"
                     disabled={isLoading || checking}
-                    onClick={() => { void handleBuild(); }}
+                    onClick={() => { handleBuild().catch(() => undefined); }}
                     variant="default"
                     size="sm"
                 >
@@ -167,4 +168,4 @@ export function PlanEditorHeader({
             </div>
         </div>
     );
-}
+};

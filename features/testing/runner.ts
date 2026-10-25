@@ -13,7 +13,8 @@ import type { TestDiscovery, TestFramework, TestResultEvent } from "./types";
 let listenerInitialized = false;
 let unlisten: (() => void) | null = null;
 
-export async function initTestRunnerEvents() {
+/** Init test runner events. */
+export const initTestRunnerEvents = async () => {
     if (listenerInitialized) return;
     listenerInitialized = true;
     try {
@@ -24,7 +25,7 @@ export async function initTestRunnerEvents() {
         listenerInitialized = false;
         throw err;
     }
-}
+};
 
 export function disposeTestRunnerEvents() {
     unlisten?.();
@@ -33,10 +34,10 @@ export function disposeTestRunnerEvents() {
 }
 
 /** Discovers project test suites and updates the store if `projectPath` is still active. */
-export async function discoverProjectTests(
+export const discoverProjectTests = async (
     projectPath: string,
     shouldApply: () => boolean = () => true,
-): Promise<TestDiscovery> {
+): Promise<TestDiscovery> => {
     const discovery = await commands.discoverTests(projectPath);
     const normalized: TestDiscovery = {
         framework: normalizeFramework(discovery.framework),
@@ -46,7 +47,7 @@ export async function discoverProjectTests(
         setTestDiscovery(normalized, projectPath);
     }
     return normalized;
-}
+};
 
 function normalizeFramework(value: string): TestFramework {
     const lower = value.toLowerCase();
@@ -59,7 +60,8 @@ function normalizeFramework(value: string): TestFramework {
     return "none";
 }
 
-export async function runAllTests(projectPath: string, framework: TestFramework) {
+/** Run all tests. */
+export const runAllTests = async (projectPath: string, framework: TestFramework) => {
     if (framework === "none") {
         setTestError("No test framework detected in this project.");
         return;
@@ -72,9 +74,10 @@ export async function runAllTests(projectPath: string, framework: TestFramework)
             setTestError(e instanceof Error ? e.message : String(e));
         }
     }
-}
+};
 
-export async function runFailedTests(projectPath: string, framework: TestFramework, pattern: string) {
+/** Run failed tests. */
+export const runFailedTests = async (projectPath: string, framework: TestFramework, pattern: string) => {
     if (framework === "none") {
         setTestError("No test framework detected in this project.");
         return;
@@ -87,7 +90,7 @@ export async function runFailedTests(projectPath: string, framework: TestFramewo
             setTestError(e instanceof Error ? e.message : String(e));
         }
     }
-}
+};
 
 export function clearTestResults() {
     resetTestStore();

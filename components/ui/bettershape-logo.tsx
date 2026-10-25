@@ -5,7 +5,8 @@ import { cn } from "@/lib/utils";
 /** The photoreal mark needs a bit of room before its highlights read. */
 const PHOTOREAL_MIN_SIZE = 24;
 
-export function BetterShapeLogo({
+/** Renders the BetterShapeLogo UI component. */
+export const BetterShapeLogo = ({
     size = 32,
     marquee = false,
     className,
@@ -14,7 +15,7 @@ export function BetterShapeLogo({
     /** Opt-in middle-course brick marquee (`origin/main` `clip0_68_233` SVG). */
     marquee?: boolean;
     className?: string;
-}) {
+}) => {
     const src = marquee
         ? "/logos/logo_animated.svg"
         : size < PHOTOREAL_MIN_SIZE
@@ -42,4 +43,4 @@ export function BetterShapeLogo({
             draggable={false}
         />
     );
-}
+};

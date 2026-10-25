@@ -27,6 +27,17 @@ let root: Root | null = null;
 let host: HTMLDivElement | null = null;
 
 function mount(node: React.ReactElement) {
+    if (root) {
+        const prevRoot = root;
+        root = null;
+        act(() => {
+            prevRoot.unmount();
+        });
+    }
+    if (host) {
+        host.remove();
+        host = null;
+    }
     const nextHost = document.createElement("div");
     document.body.appendChild(nextHost);
     const nextRoot = createRoot(nextHost);

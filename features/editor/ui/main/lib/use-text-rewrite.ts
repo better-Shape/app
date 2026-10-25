@@ -3,7 +3,7 @@
 import { useCallback, useState } from "react";
 import { commands } from "@/lib/backend/commands";
 import { notificationStore } from "@/features/notifications";
-import { hasAnyUsableProvider } from "@/lib/ai/providers";
+import { hasAnyConfiguredConnection, hasAnyUsableProvider } from "@/lib/ai/providers";
 import { getSettings } from "@/lib/settings";
 
 export type TextRewriteAction =
@@ -34,9 +34,12 @@ export function useTextRewrite(_model = "auto") {
     const [loading, setLoading] = useState(false);
 
     const rewrite = useCallback(async (text: string, action: TextRewriteAction): Promise<string | null> => {
-        if (!hasAnyUsableProvider(getSettings().ai.providers)) {
+        const providers = getSettings().ai.providers;
+        if (!hasAnyUsableProvider(providers)) {
             notificationStore.add(
-                "Add an API key in Settings → Providers",
+                hasAnyConfiguredConnection(providers)
+                    ? "Add a model ID in Settings -> Providers"
+                    : "Add an API key in Settings -> Providers",
                 "warning",
                 undefined,
                 { autoHide: true },

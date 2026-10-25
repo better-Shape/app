@@ -41,7 +41,8 @@ interface IncrementalSplitCache {
 
 let incrementalCache: IncrementalSplitCache | null = null;
 
-function isClosingFence(line: string, fenceChar: string, fenceLen: number): boolean {
+/** Is closing fence. */
+const isClosingFence = (line: string, fenceChar: string, fenceLen: number): boolean => {
     let spaces = 0;
     while (spaces < line.length && spaces < 4 && line.charCodeAt(spaces) === 32) {
         spaces++;
@@ -61,7 +62,7 @@ function isClosingFence(line: string, fenceChar: string, fenceLen: number): bool
         i++;
     }
     return true;
-}
+};
 
 /** Strips leading CommonMark blockquote markers (`>`) without regex backtracking. */
 const stripBlockquoteMarkers = (line: string): string => {
@@ -82,16 +83,17 @@ const stripBlockquoteMarkers = (line: string): string => {
     return pos === 0 ? line : line.slice(pos);
 };
 
-function isBlankLine(line: string): boolean {
+/** Is blank line. */
+const isBlankLine = (line: string): boolean => {
     for (let i = 0; i < line.length; i++) {
         const ch = line.charCodeAt(i);
         if (ch !== 32 && ch !== 9 && ch !== 13) return false;
     }
     return true;
-}
+};
 
 /** Returns true when `markdown` ends inside an unclosed fenced code block. */
-export function hasUnclosedMarkdownFence(markdown: string): boolean {
+export const hasUnclosedMarkdownFence = (markdown: string): boolean => {
     if (!markdown || (!markdown.includes("```") && !markdown.includes("~~~"))) {
         return false;
     }
@@ -114,12 +116,13 @@ export function hasUnclosedMarkdownFence(markdown: string): boolean {
         }
     }
     return activeFence !== null;
-}
+};
 
-function parseSliceBlocks(slice: string): {
+/** Parse slice blocks. */
+const parseSliceBlocks = (slice: string): {
     hasRefDef: boolean;
     blocks: Array<{ text: string; startOffset: number }>;
-} {
+} => {
     const lines = slice.split("\n");
     const blocks: Array<{ text: string; startOffset: number }> = [];
 
@@ -199,10 +202,10 @@ function parseSliceBlocks(slice: string): {
     }
 
     return { hasRefDef: false, blocks };
-}
+};
 
 /** Splits streaming Markdown into settled top-level blocks and a mutable tail block in O(tail). */
-export function splitStreamingMarkdownBlocks(markdown: string): StreamingMarkdownSplit {
+export const splitStreamingMarkdownBlocks = (markdown: string): StreamingMarkdownSplit => {
     if (!markdown) {
         return { settled: [], tail: "" };
     }
@@ -271,4 +274,4 @@ export function splitStreamingMarkdownBlocks(markdown: string): StreamingMarkdow
     };
 
     return { settled, tail: lastBlock.text };
-}
+};

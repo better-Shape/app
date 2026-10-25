@@ -160,7 +160,7 @@ const computeAudioBufferLevel = (channel: Float32Array): number => {
 };
 
 /** Record one utterance and push it to the recognizer. */
-export async function startDictation(
+export const startDictation = async (
     handlers: DictationHandlers,
     constraints: MediaTrackConstraints | boolean,
     invoke: {
@@ -168,7 +168,7 @@ export async function startDictation(
         stop: () => Promise<void>;
         push: (wav: number[]) => Promise<void>;
     },
-): Promise<DictationSession> {
+): Promise<DictationSession> => {
     const setState = handlers.onState ?? (() => {});
     setState("listening");
 
@@ -319,4 +319,4 @@ export async function startDictation(
             setState("idle");
         },
     };
-}
+};

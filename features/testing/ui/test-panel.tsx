@@ -17,6 +17,7 @@ import { Icon } from "@/components/ui/icon";
 import { Button } from "@/components/ui/button";
 import { Collapse } from "@/components/ui/collapse";
 import { Tooltip } from "@/components/ui/tooltip";
+import { stagePromptInChatComposer } from "@/features/chat/ui/shell/find-bar";
 import { cn } from "@/lib/utils";
 import {
     discoverProjectTests,
@@ -27,7 +28,8 @@ import {
 import { getFailedPattern, resetTestStore, setTestError, useTestStore } from "../store";
 import type { TestCase, TestStatus } from "../types";
 
-function relativeSuitePath(filePath: string, projectPath: string | null): string {
+/** Relative suite path. */
+const relativeSuitePath = (filePath: string, projectPath: string | null): string => {
     const cleanFile = filePath.replace(/\\/g, "/");
     let cleanRoot = (projectPath ?? "").replace(/\\/g, "/");
     while (cleanRoot.endsWith("/")) cleanRoot = cleanRoot.slice(0, -1);
@@ -35,13 +37,13 @@ function relativeSuitePath(filePath: string, projectPath: string | null): string
         return cleanFile.slice(cleanRoot.length + 1);
     }
     return cleanFile;
-}
+};
 
 /** Builds a targeted prompt asking the agent to fix one or more failing tests. */
-export function buildFailingTestPrompt(
+export const buildFailingTestPrompt = (
     failures: ReadonlyArray<{ suiteFile: string; testName: string; error?: string }>,
     projectPath: string | null,
-): string {
+): string => {
     if (failures.length === 0) return "";
     if (failures.length === 1) {
         const firstFailure = failures.at(0);
@@ -68,34 +70,15 @@ export function buildFailingTestPrompt(
             : `- @${rel} :: "${f.testName}"`;
     });
     return `${header}\n${lines.join("\n")}`;
-}
+};
 
-function sendTestPromptToChat(prompt: string) {
-    if (!prompt.trim() || typeof window === "undefined") return;
-    try {
-        localStorage.setItem("bettershape-chat-input", prompt);
-    } catch {
-        /* ignore */
-    }
-    window.dispatchEvent(
-        new CustomEvent("bettershape-center-view", {
-            detail: "chat",
-        }),
-    );
-    window.dispatchEvent(
-        new CustomEvent("bettershape-chat-insert-prompt", {
-            detail: { prompt, send: false },
-        }),
-    );
-    window.dispatchEvent(new CustomEvent("bettershape-chat-focus-input"));
-    if (typeof window.requestAnimationFrame === "function") {
-        window.requestAnimationFrame(() => {
-            window.dispatchEvent(new CustomEvent("bettershape-chat-focus-input"));
-        });
-    }
-}
+/** Send test prompt to chat. */
+const sendTestPromptToChat = (prompt: string) => {
+    stagePromptInChatComposer(prompt);
+};
 
-function StatusIcon({ status }: { status: TestStatus }) {
+/** Renders the StatusIcon UI component. */
+const StatusIcon = ({ status }: { status: TestStatus }) => {
     switch (status) {
         case "passed":
             return <Icon icon={CheckmarkCircle20Filled} className="shrink-0 text-success" />;
@@ -106,9 +89,10 @@ function StatusIcon({ status }: { status: TestStatus }) {
         default:
             return <Icon icon={Circle20Regular} className="shrink-0 text-text-muted" />;
     }
-}
+};
 
-function TestRow({
+/** Renders the TestRow UI component. */
+const TestRow = ({
     test,
     suiteFile,
     projectPath,
@@ -116,7 +100,7 @@ function TestRow({
     test: TestCase;
     suiteFile: string;
     projectPath: string | null;
-}) {
+}) => {
     const [expanded, setExpanded] = useState(() => test.status === "failed");
     const [prevStatus, setPrevStatus] = useState(test.status);
     if (test.status !== prevStatus) {
@@ -181,9 +165,10 @@ function TestRow({
             </Collapse>
         </div>
     );
-}
+};
 
-export default function TestPanel() {
+/** Renders the TestPanel UI component. */
+const TestPanel = () => {
     const { project_path } = useProjectState();
     const { projectPath: storeProjectPath, discovery, suites, summary, running, error } = useTestStore();
     const [expandedFiles, setExpandedFiles] = useState<Record<string, boolean>>({});
@@ -264,14 +249,14 @@ export default function TestPanel() {
 
     const handleRunAll = () => {
         if (!project_path || !hasFramework) return;
-        void runAllTests(project_path, framework);
+        runAllTests(project_path, framework).catch(() => undefined);
     };
 
     const handleRunFailed = () => {
         if (!project_path || !hasFramework) return;
         const pattern = getFailedPattern();
         if (!pattern) return;
-        void runFailedTests(project_path, framework, pattern);
+        runFailedTests(project_path, framework, pattern).catch(() => undefined);
     };
 
     const hasFailed = totals.failed > 0;
@@ -387,4 +372,5 @@ export default function TestPanel() {
             </div>
         </div>
     );
-}
+};
+export default TestPanel;

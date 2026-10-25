@@ -10,7 +10,7 @@ import { TextQuote20Regular } from "@fluentui/react-icons/headless/svg/text-quot
 
 import React from "react";
 import { useChatStreamGetters } from "@/features/chat/lib/chat-stream-store";
-import { cn } from "@/lib/utils";
+import { cn, createOccurrenceKeyer } from "@/lib/utils";
 import { toTimestampMs } from "@/lib/ui/timestamp";
 import { MessageRenderer, parseMessageContent, extractWebSearchResults } from "../md/renderer";
 import { Icon } from "@/components/ui/icon";
@@ -102,7 +102,8 @@ function SentAttachment({ att }: { att: ParsedUserAttachment }) {
     return <MessageAttachmentPill name={att.name} />;
 }
 
-function MentionRichText({ text }: { text: string }) {
+/** Renders the MentionRichText UI component. */
+const MentionRichText = ({ text }: { text: string }) => {
     const workflows = useSettings().ai.workflows ?? [];
     const mentionRs = mentionRanges(text);
     const slashRs = slashCommandRanges(text, workflows);
@@ -127,11 +128,10 @@ function MentionRichText({ text }: { text: string }) {
         const re = /(`[^`\n]+`)|((?<![\w.-])(?<![\w.-][\\/])(?:[A-Za-z]:)?(?:[\w.-]+[\\/])+[\w.-]+\.\w+)/g;
         let last = 0;
         let m: RegExpExecArray | null;
-        let i = 0;
         while ((m = re.exec(chunk)) !== null) {
             if (m.index > last) {
                 out.push(
-                    <span key={`${keyPrefix}-t-${i}`} className="whitespace-pre-wrap">
+                    <span key={`${keyPrefix}-t-${last}`} className="whitespace-pre-wrap">
                         {chunk.slice(last, m.index)}
                     </span>,
                 );
@@ -140,7 +140,7 @@ function MentionRichText({ text }: { text: string }) {
                 const inner = m[1].slice(1, -1);
                 out.push(
                     <code
-                        key={`${keyPrefix}-c-${i}`}
+                        key={`${keyPrefix}-c-${m.index}`}
                         className="rounded bg-panel px-1 py-0.5 font-mono text-[0.9em] text-accent-text"
                     >
                         {inner}
@@ -150,12 +150,12 @@ function MentionRichText({ text }: { text: string }) {
                 const path = m[2];
                 const name = path.split(/[\\/]/).pop() || path;
                 out.push(
-                    <Tooltip key={`${keyPrefix}-p-${i}`} content={path}>
+                    <Tooltip key={`${keyPrefix}-p-${m.index}`} content={path}>
                         <button
                             type="button"
                             data-chat-find-text
                             data-quote-allow=""
-                            onClick={() => void openProjectFile(path, name)}
+                            onClick={() => { openProjectFile(path, name).catch(() => undefined); }}
                             className="inline cursor-pointer font-mono text-[0.9em] text-accent-text underline-offset-2 transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:underline"
                         >
                             {path}
@@ -164,7 +164,6 @@ function MentionRichText({ text }: { text: string }) {
                 );
             }
             last = m.index + m[0].length;
-            i += 1;
         }
         if (last < chunk.length) {
             out.push(
@@ -181,24 +180,24 @@ function MentionRichText({ text }: { text: string }) {
     }
     const nodes: React.ReactNode[] = [];
     let cursor = 0;
-    merged.forEach((range, i) => {
+    merged.forEach((range) => {
         if (range.start > cursor) {
-            nodes.push(...paintPlain(text.slice(cursor, range.start), `pre-${i}`));
+            nodes.push(...paintPlain(text.slice(cursor, range.start), `pre-${range.start}`));
         }
         if (range.kind === "slash") {
             nodes.push(
-                <ContextChip key={`s-${i}`} icon={<WorkflowChipIcon workflow={range.workflow} />}>
+                <ContextChip key={`s-${range.start}`} icon={<WorkflowChipIcon workflow={range.workflow} />}>
                     {range.token}
                 </ContextChip>,
             );
         } else {
             const { mention } = range;
             const openable =
-                (mention.kind === "file" || mention.kind === "folder") && !!mention.path;
+                (mention.kind === "file" || mention.kind === "folder") && Boolean(mention.path);
             const label = mentionDisplayLabel(mention);
             nodes.push(
                 <ContextChip
-                    key={`m-${i}`}
+                    key={`m-${range.start}`}
                     icon={<MentionChipIcon mention={mention} />}
                     onClick={
                         openable
@@ -208,7 +207,7 @@ function MentionRichText({ text }: { text: string }) {
                                       mention.kind === "folder" && !base.endsWith("/")
                                           ? `${base}/`
                                           : base;
-                                  void openProjectFile(path, label);
+                                  openProjectFile(path, label).catch(() => undefined);
                               }
                             : undefined
                     }
@@ -223,7 +222,7 @@ function MentionRichText({ text }: { text: string }) {
         nodes.push(...paintPlain(text.slice(cursor), "end"));
     }
     return <span className="select-text">{nodes}</span>;
-}
+};
 
 function selectNodeContents(el: HTMLElement | null) {
     if (!el) return;
@@ -290,7 +289,8 @@ function parseForkedFrom(content: string): { id: string; title: string; rest: st
     return { id, title, rest: content.slice(match[0].length) };
 }
 
-function ChatMessageItemInner({
+/** Renders the ChatMessageItemInner UI component. */
+const ChatMessageItemInner = ({
     role,
     content,
     timestamp,
@@ -304,7 +304,7 @@ function ChatMessageItemInner({
     onRestore,
     onFork,
     isFileEditResolved,
-}: ChatMessageItemProps) {
+}: ChatMessageItemProps) => {
     const { getViewedMessages } = useChatStreamGetters();
     const [expanded, setExpanded] = React.useState(false);
     const [copied, setCopied] = React.useState(false);
@@ -401,7 +401,7 @@ function ChatMessageItemInner({
             if (!selected || !bodyRef.current?.contains(sel?.anchorNode ?? null)) {
                 e.preventDefault();
                 e.stopPropagation();
-                void navigator.clipboard.writeText(getCopyText());
+                navigator.clipboard.writeText(getCopyText()).catch(() => undefined);
             }
         }
     };
@@ -451,18 +451,23 @@ function ChatMessageItemInner({
                             >
                                 {userParts.attachments.length > 0 && (
                                     <div className="mb-2 flex flex-wrap items-end gap-1.5">
-                                        {userParts.attachments.map((att, i) => (
-                                            <SentAttachment key={`${att.name}-${i}`} att={att} />
-                                        ))}
+                                        {(() => {
+                                            const attKey = createOccurrenceKeyer();
+                                            return userParts.attachments.map((att) => (
+                                                <SentAttachment key={attKey(att.name)} att={att} />
+                                            ));
+                                        })()}
                                     </div>
                                 )}
                                 {userQuotes.length > 0 ? (
                                     <div className={cn("flex flex-col gap-1.5", displayText && "mb-2")}>
-                                        {userQuotes.map((qText, qi) => (
-                                            <blockquote
-                                                key={`quote-${qi}-${qText.slice(0, 16)}`}
-                                                className="flex items-start gap-2 rounded-xl border border-border-subtle bg-surface-2 px-3 py-2 text-xs leading-relaxed text-text-secondary whitespace-pre-wrap"
-                                            >
+                                        {(() => {
+                                            const quoteKey = createOccurrenceKeyer();
+                                            return userQuotes.map((qText) => (
+                                                <blockquote
+                                                    key={quoteKey(qText.slice(0, 24))}
+                                                    className="flex items-start gap-2 rounded-xl border border-border-subtle bg-surface-2 px-3 py-2 text-xs leading-relaxed text-text-secondary whitespace-pre-wrap"
+                                                >
                                                 <Icon
                                                     icon={TextQuote20Regular}
                                                     className="mt-0.5 size-3.5 shrink-0 text-text-muted"
@@ -471,7 +476,8 @@ function ChatMessageItemInner({
                                                     {qText}
                                                 </span>
                                             </blockquote>
-                                        ))}
+                                            ));
+                                        })()}
                                     </div>
                                 ) : null}
                                 {displayText || userQuotes.length === 0 ? (
@@ -852,7 +858,7 @@ function ChatMessageItemInner({
         </AlertDialog>
         </>
     );
-}
+};
 
 function DetailRow({ label, value }: { label: string; value: string }) {
     return (

@@ -233,7 +233,7 @@ const enqueuePendingTerminalCommand = (cleaned: string, nextTargetId: string | n
  * active interactive shell tab using xterm's bracketed-paste-aware `paste()`
  * (stripping leading `$ ` prompt prefixes and never auto-executing raw newlines).
  */
-export function insertCommandIntoWorkspaceTerminal(rawCommand: string): boolean {
+export const insertCommandIntoWorkspaceTerminal = (rawCommand: string): boolean => {
     const cleaned = stripShellPromptPrefix(rawCommand);
     if (!cleaned) return false;
 
@@ -255,7 +255,7 @@ export function insertCommandIntoWorkspaceTerminal(rawCommand: string): boolean 
 
     enqueuePendingTerminalCommand(cleaned, targetTab?.id ?? null);
     return true;
-}
+};
 
 export function registerBoundTerminalTab(opts: {
     title: string;

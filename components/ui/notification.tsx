@@ -317,7 +317,9 @@ export const NotificationToasts = () => {
         for (const id of leavingIds) {
             notificationStore.dismissToast(id);
         }
-        setLeavingIds(new Set());
+        queueMicrotask(() => {
+            setLeavingIds((prev) => (prev.size === 0 ? prev : new Set()));
+        });
     }, [leavingIds, reducedMotion]);
 
     const toasts = toastIds

@@ -2,7 +2,7 @@
 
 import { ChevronRight20Regular } from "@fluentui/react-icons/headless/svg/chevron-right";
 
-import { isValidElement, useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { isValidElement, useId, useRef, useState, type ReactNode } from "react";
 import { Icon } from "@/components/ui/icon";
 import { Favicon } from "@/components/ui/favicon";
 import { SwapText } from "@/components/ui/swap";
@@ -10,8 +10,8 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { hostnameOf } from "@/lib/ui/favicon";
 import {
-    CHAT_EXPAND_FOR_FIND_EVENT,
     notifyTranscriptDisclosureToggle,
+    useExpandForChatFind,
 } from "../shell/find-bar";
 import { Collapse } from "./collapse";
 
@@ -37,7 +37,8 @@ export function splitActionLabel(sentence: string): { action: string; detail?: s
     return { action: text.slice(0, split), detail: text.slice(split + 1) };
 }
 
-function extractReactNodeText(node: ReactNode, depth = 0): string {
+/** Extract react node text. */
+const extractReactNodeText = (node: ReactNode, depth = 0): string => {
     if (depth > 6 || node == null || typeof node === "boolean") return "";
     if (typeof node === "string" || typeof node === "number") return String(node);
     if (Array.isArray(node)) {
@@ -55,13 +56,13 @@ function extractReactNodeText(node: ReactNode, depth = 0): string {
         return parts.join(" ");
     }
     return "";
-}
+};
 
 /**
  * One workflow row. The action word is the lighter lead; detail, counts,
  * site marks, secondary quick-action, and a collapse body are optional slots.
  */
-export function ActionLine({
+export const ActionLine = ({
     action,
     detail,
     add = 0,
@@ -103,7 +104,7 @@ export function ActionLine({
     shimmer?: boolean;
     className?: string;
     title?: string;
-}) {
+}) => {
     const rootRef = useRef<HTMLDivElement>(null);
     const collapseId = useId();
     const isBusy = Boolean(busy || shimmer);
@@ -120,39 +121,16 @@ export function ActionLine({
         if (open === undefined) setUncontrolled(next);
     };
 
-    // Auto-open collapsed disclosures when Find in Chat targets this message.
-    useEffect(() => {
-        if (!collapsible || isOpen) return undefined;
-        const onExpandForFind = (e: Event) => {
-            const detailPayload = (
-                e as CustomEvent<{
-                    messageIndex?: number;
-                    query?: string;
-                    caseSensitive?: boolean;
-                }>
-            ).detail;
-            const root = rootRef.current;
-            if (!root || detailPayload?.messageIndex == null) return;
-            const msgEl = root.closest<HTMLElement>("[data-chat-message-index]");
-            if (!msgEl) return;
-            if (Number(msgEl.getAttribute("data-chat-message-index")) !== detailPayload.messageIndex) {
-                return;
-            }
-            const rawQuery = (detailPayload.query ?? "").trim();
-            if (!rawQuery) return;
-            const bodyText = `${root.textContent ?? ""} ${extractReactNodeText(children)}`;
-            const matched = detailPayload.caseSensitive
-                ? bodyText.includes(rawQuery)
-                : bodyText.toLowerCase().includes(rawQuery.toLowerCase());
-            if (!matched) return;
+    useExpandForChatFind({
+        enabled: collapsible && !isOpen,
+        rootRef,
+        getSearchText: () =>
+            `${rootRef.current?.textContent ?? ""} ${extractReactNodeText(children)}`,
+        onExpand: () => {
             onOpenChange?.(true);
             if (open === undefined) setUncontrolled(true);
-        };
-        window.addEventListener(CHAT_EXPAND_FOR_FIND_EVENT, onExpandForFind as EventListener);
-        return () => {
-            window.removeEventListener(CHAT_EXPAND_FOR_FIND_EVENT, onExpandForFind as EventListener);
-        };
-    }, [children, collapsible, isOpen, onOpenChange, open]);
+        },
+    });
 
     const Tag = interactive ? "button" : "div";
 
@@ -177,7 +155,11 @@ export function ActionLine({
             )}
         >
             {icon ? <span className="inline-flex shrink-0 items-center">{icon}</span> : null}
-            <span className="min-w-0 truncate">
+            <span
+                role={isBusy ? "status" : undefined}
+                aria-live={isBusy ? "polite" : undefined}
+                className="min-w-0 truncate"
+            >
                 <span
                     className={cn(
                         tone === "error"
@@ -261,7 +243,7 @@ export function ActionLine({
     );
 
     return (
-        <div ref={rootRef} className="w-full min-w-0" aria-busy={isBusy || undefined}>
+        <div ref={rootRef} className="w-full min-w-0">
             {headerRow}
             {collapsible ? (
                 <Collapse id={collapseId} open={isOpen}>
@@ -270,4 +252,4 @@ export function ActionLine({
             ) : null}
         </div>
     );
-}
+};

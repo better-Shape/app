@@ -45,7 +45,8 @@ function latestRename(messages: { content?: string }[] | undefined): string | nu
     return null;
 }
 
-function firstPromptTitle(messages: { role?: string; content?: string }[] | undefined): string | null {
+/** First prompt title. */
+const firstPromptTitle = (messages: { role?: string; content?: string }[] | undefined): string | null => {
     const user = messages?.find((m) => m.role === "user")?.content || "";
     const line = user
         .replace(/<[^>]+>/g, " ")
@@ -56,7 +57,7 @@ function firstPromptTitle(messages: { role?: string; content?: string }[] | unde
     return codePoints.length > 48
         ? `${codePoints.slice(0, 48).join("").trimEnd()}...`
         : line;
-}
+};
 
 export function resolveChatCrumbTitle(opts: {
     chatTitle: string;
@@ -100,6 +101,7 @@ function chatSubagents(parentId: string | null, extra: SubagentCard[]): Subagent
     return [...map.values()];
 }
 
+/** Renders the ChatTitlebar UI component. */
 export const ChatTitlebar = memo(function ChatTitlebar({
     title,
     conversationId,

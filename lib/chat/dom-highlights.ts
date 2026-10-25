@@ -14,6 +14,7 @@ const HIGHLIGHT_STYLE_ID = "bettershape-chat-find-highlights";
 let ownedMatchesHighlight: unknown = null;
 let ownedActiveHighlight: unknown = null;
 
+/** Ensure highlight stylesheet. */
 const ensureHighlightStylesheet = (): void => {
     if (typeof document === "undefined") return;
     const head = document.head as HTMLHeadElement | null;
@@ -35,37 +36,39 @@ interface CustomHighlightRegistry {
 
 type HighlightConstructor = new (...ranges: AbstractRange[]) => unknown;
 
-function getHighlightApi(): {
+/** Get highlight api. */
+const getHighlightApi = (): {
     registry: CustomHighlightRegistry;
     HighlightCtor: HighlightConstructor;
-} | null {
+} | null => {
     if (typeof window === "undefined") return null;
     const cssObj = (window as unknown as { CSS?: { highlights?: CustomHighlightRegistry } }).CSS;
     const HighlightCtor = (window as unknown as { Highlight?: HighlightConstructor }).Highlight;
     if (!cssObj?.highlights || typeof HighlightCtor !== "function") return null;
     return { registry: cssObj.highlights, HighlightCtor };
-}
+};
 
 /** Returns true when the browser supports the CSS Custom Highlight API. */
-export function isCssHighlightsSupported(): boolean {
+export const isCssHighlightsSupported = (): boolean => {
     return getHighlightApi() !== null;
-}
+};
 
-function deleteOwnedHighlight(
+/** Delete owned highlight. */
+const deleteOwnedHighlight = (
     registry: CustomHighlightRegistry,
     name: string,
     ownedInstance: unknown,
-): void {
+): void => {
     if (!ownedInstance) return;
     if (typeof registry.get === "function") {
         const current = registry.get(name);
         if (current != null && !Object.is(current, ownedInstance)) return;
     }
     registry.delete(name);
-}
+};
 
 /** Removes owned chat transcript highlight entries without disturbing other highlights. */
-export function clearChatDomHighlights(): void {
+export const clearChatDomHighlights = (): void => {
     const api = getHighlightApi();
     if (!api) {
         ownedMatchesHighlight = null;
@@ -76,9 +79,10 @@ export function clearChatDomHighlights(): void {
     deleteOwnedHighlight(api.registry, CHAT_FIND_ACTIVE_HIGHLIGHT_NAME, ownedActiveHighlight);
     ownedMatchesHighlight = null;
     ownedActiveHighlight = null;
-}
+};
 
-function shouldSkipTextNode(node: Text, root: HTMLElement): boolean {
+/** Should skip text node. */
+const shouldSkipTextNode = (node: Text, root: HTMLElement): boolean => {
     const parent = node.parentElement;
     if (!parent) return true;
     const tag = parent.tagName;
@@ -104,7 +108,7 @@ function shouldSkipTextNode(node: Text, root: HTMLElement): boolean {
         cur = cur.parentElement;
     }
     return false;
-}
+};
 
 export interface DomMatchRange {
     range: Range;
@@ -127,12 +131,14 @@ interface MessageTextRun {
 const BLOCK_ANCESTOR_SELECTOR =
     "p, li, pre, blockquote, h1, h2, h3, h4, h5, h6, tr, td, th, div, section, article";
 
+/** Resolve message index. */
 const resolveMessageIndex = (textNode: Text): number | null => {
     const msgEl = textNode.parentElement?.closest<HTMLElement>("[data-chat-message-index]") ?? null;
     const parsed = msgEl ? Number(msgEl.getAttribute("data-chat-message-index")) : Number.NaN;
     return Number.isFinite(parsed) ? parsed : null;
 };
 
+/** Collect message text runs. */
 const collectMessageTextRuns = (container: HTMLElement): MessageTextRun[] => {
     const runs: MessageTextRun[] = [];
     const byKey = new Map<string, MessageTextRun>();
@@ -145,7 +151,8 @@ const collectMessageTextRuns = (container: HTMLElement): MessageTextRun[] => {
         if (!raw || shouldSkipTextNode(textNode, container)) continue;
 
         const messageIndex = resolveMessageIndex(textNode);
-        const key = messageIndex === null ? "__root__" : String(messageIndex);
+        if (messageIndex === null) continue;
+        const key = String(messageIndex);
         let run = byKey.get(key);
         if (!run) {
             run = { messageIndex, text: "", segments: [], lastBlock: null };
@@ -164,6 +171,7 @@ const collectMessageTextRuns = (container: HTMLElement): MessageTextRun[] => {
     return runs;
 };
 
+/** Locate dom boundary. */
 const locateDomBoundary = (
     segments: readonly TextSegment[],
     offset: number,
@@ -190,6 +198,7 @@ const locateDomBoundary = (
     return { node: found.node, offset: localOffset };
 };
 
+/** Create run match range. */
 const createRunMatchRange = (
     segments: readonly TextSegment[],
     matchStart: number,
@@ -204,6 +213,7 @@ const createRunMatchRange = (
     return range;
 };
 
+/** Build query matcher. */
 const buildQueryMatcher = (trimmed: string, caseSensitive: boolean): RegExp => {
     const pattern = trimmed.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     return new RegExp(pattern, caseSensitive ? "g" : "gi");
@@ -214,7 +224,7 @@ const buildQueryMatcher = (trimmed: string, caseSensitive: boolean): RegExp => {
  * paints `CSS.highlights` when supported, and returns the ordered ranges so the
  * caller can scroll precisely to `ranges[activeIndex].range.getBoundingClientRect()`.
  */
-export function syncChatDomHighlights(
+export const syncChatDomHighlights = (
     container: HTMLElement | null,
     query: string,
     options: {
@@ -224,7 +234,7 @@ export function syncChatDomHighlights(
         targetOccurrenceInMessage?: number | null;
         maxRanges?: number;
     } = {},
-): { ranges: DomMatchRange[]; activeRange: Range | null } {
+): { ranges: DomMatchRange[]; activeRange: Range | null } => {
     const trimmed = query.trim();
     if (!container || !trimmed || typeof document === "undefined") {
         clearChatDomHighlights();
@@ -303,4 +313,4 @@ export function syncChatDomHighlights(
     }
 
     return { ranges: collected, activeRange };
-}
+};

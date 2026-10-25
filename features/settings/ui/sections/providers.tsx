@@ -151,7 +151,8 @@ function TextInput({
     );
 }
 
-function ProviderCard({ id, providers }: { id: ProviderId; providers: ProvidersSettings }) {
+/** Renders the ProviderCard UI component. */
+const ProviderCard = ({ id, providers }: { id: ProviderId; providers: ProvidersSettings }) => {
     const preset = providerPreset(id);
     const connection = providers.connections[id];
     const [modelsOpen, setModelsOpen] = React.useState(false);
@@ -324,7 +325,7 @@ function ProviderCard({ id, providers }: { id: ProviderId; providers: ProvidersS
                                     type="button"
                                     aria-label={`Get a ${preset.label} key`}
                                     className="shrink-0 text-text-muted hover:text-text-primary"
-                                    onClick={() => void commands.openUrlExternal(preset.docsUrl)}
+                                    onClick={() => { commands.openUrlExternal(preset.docsUrl).catch(() => undefined); }}
                                 >
                                     <Icon icon={Link20Regular} />
                                 </button>
@@ -382,7 +383,7 @@ function ProviderCard({ id, providers }: { id: ProviderId; providers: ProvidersS
                         variant="secondary"
                         className={SETTING_CONTROL_BTN}
                         disabled={testing}
-                        onClick={() => void testConnection()}
+                        onClick={() => { testConnection().catch(() => undefined); }}
                     >
                         {testing ? "Testing…" : "Test connection"}
                     </Button>
@@ -396,7 +397,7 @@ function ProviderCard({ id, providers }: { id: ProviderId; providers: ProvidersS
                                 ? `Sends one short completion with ${checkModel}`
                                 : "Add a model id for this connection first"
                         }
-                        onClick={() => void checkConnection()}
+                        onClick={() => { checkConnection().catch(() => undefined); }}
                     >
                         {checking ? "Checking…" : "Check chat"}
                     </Button>
@@ -581,7 +582,7 @@ function ProviderCard({ id, providers }: { id: ProviderId; providers: ProvidersS
             </div>
         </SettingCard>
     );
-}
+};
 
 export function ProvidersSettingsView() {
     const settings = useSettings();

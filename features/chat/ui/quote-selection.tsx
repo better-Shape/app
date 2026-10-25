@@ -35,7 +35,7 @@ const BLOCK_TAGS = new Set([
  * Walk a Range inside `messageRoot` and collect user-visible text while skipping
  * toolbar buttons, status badges, and `[data-quote-skip]` chrome.
  */
-export function extractCleanSelectionText(range: Range, messageRoot: HTMLElement): string {
+export const extractCleanSelectionText = (range: Range, messageRoot: HTMLElement): string => {
     if (!messageRoot.contains(range.startContainer) || !messageRoot.contains(range.endContainer)) {
         return "";
     }
@@ -96,10 +96,10 @@ export function extractCleanSelectionText(range: Range, messageRoot: HTMLElement
     if (!cleaned) return "";
     if (cleaned.length <= MAX_QUOTE_CHARS) return cleaned;
     return `${cleaned.slice(0, MAX_QUOTE_CHARS - 3).trimEnd()}...`;
-}
+};
 
 /** Format pending composer quotes as clean Markdown blockquotes ahead of a prompt. */
-export function formatQuotesPrefix(quotes: readonly QuotedExcerpt[]): string {
+export const formatQuotesPrefix = (quotes: readonly QuotedExcerpt[]): string => {
     if (quotes.length === 0) return "";
     return quotes
         .map((q) =>
@@ -109,13 +109,13 @@ export function formatQuotesPrefix(quotes: readonly QuotedExcerpt[]): string {
                 .join("\n"),
         )
         .join("\n\n");
-}
+};
 
 /**
  * Split leading Markdown blockquote groups out of a sent user message so they render
  * as structured quote callouts above the user's question rather than raw `>` markers.
  */
-export function splitLeadingQuoteBlock(text: string): { quotes: string[]; rest: string } {
+export const splitLeadingQuoteBlock = (text: string): { quotes: string[]; rest: string } => {
     if (!text.startsWith(">")) return { quotes: [], rest: text };
     const lines = text.split("\n");
     const quotes: string[] = [];
@@ -152,10 +152,10 @@ export function splitLeadingQuoteBlock(text: string): { quotes: string[]; rest: 
         return { quotes: [], rest: text };
     }
     return { quotes: cleanedQuotes, rest };
-}
+};
 
 /** Dispatches a quoted excerpt to the active chat composer. */
-export function dispatchChatQuote(text: string) {
+export const dispatchChatQuote = (text: string) => {
     const trimmed = text.trim();
     if (!trimmed) return;
     const capped =
@@ -167,16 +167,16 @@ export function dispatchChatQuote(text: string) {
             detail: { id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, text: capped },
         }),
     );
-}
+};
 
 /**
  * Floating "Quote" pill anchored to an active single-message selection inside `containerRef`.
  */
-export function ChatSelectionQuoteToolbar({
+export const ChatSelectionQuoteToolbar = ({
     containerRef,
 }: {
     containerRef: React.RefObject<HTMLElement | null>;
-}) {
+}) => {
     const [active, setActive] = useState<{
         text: string;
         anchorTop: number;
@@ -394,4 +394,4 @@ export function ChatSelectionQuoteToolbar({
         </button>,
         document.body,
     );
-}
+};

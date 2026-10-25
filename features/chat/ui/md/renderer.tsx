@@ -2,7 +2,7 @@
 
 
 import React, { useEffect, useMemo } from "react";
-import { cn } from "@/lib/utils";
+import { cn, createOccurrenceKeyer } from "@/lib/utils";
 import { stripLeakedToolCode, stripOrphanThinkTags } from "./stream";
 import { ChatMarkdown } from "./view";
 import { syncSubagentsFromChunks } from "@/features/agent/subagents/store";
@@ -158,7 +158,8 @@ export type Chunk = {
     answers?: QuestionAnswers | null;
 };
 
-export function parseMessageContent(text: string): Chunk[] {
+/** Parse message content. */
+export const parseMessageContent = (text: string): Chunk[] => {
     text = stripLeakedToolCode(text);
     const chunks: Chunk[] = [];
     let currentIndex = 0;
@@ -917,7 +918,7 @@ function unescapeXml(s: string): string {
     }
 
     return dedupeTerminalChunks(chunks);
-}
+};
 
 /** Merge consecutive plain-text segments so markdown renders as one block. */
 function mergeAdjacentTextChunks(chunks: Chunk[]): Chunk[] {
@@ -1010,7 +1011,8 @@ function buildSegments(chunks: Chunk[]): Segment[] {
     return segments;
 }
 
-export function MessageRenderer({
+/** Renders the MessageRenderer UI component. */
+export const MessageRenderer = ({
     content,
     isGenerating,
     activityLabel,
@@ -1023,7 +1025,7 @@ export function MessageRenderer({
     isFileEditResolved?: (file: string, replacement?: string) => boolean;
     durationMs?: number;
     skipSubagentSync?: boolean;
-}) {
+}) => {
     const chunks = useMemo(() => {
         const parsed = parseMessageContent(content);
         if (isGenerating) return parsed;
@@ -1082,7 +1084,7 @@ export function MessageRenderer({
     const proseIsStreaming =
         lastSegment?.kind === 'chunk'
         && lastSegment.chunk.type === 'text'
-        && !!lastSegment.chunk.content?.trim();
+        && Boolean(lastSegment.chunk.content?.trim());
     const hasPendingApproval =
         workflowSegments.some((s) =>
             s.blocks.some(
@@ -1094,9 +1096,9 @@ export function MessageRenderer({
         || contentChunks.some((b) => b.type === 'question' && b.commandStatus === 'pending')
         || contentChunks.some((b) => b.type === 'design_previews' && b.commandStatus === 'pending');
     const lastWorkflowBlock = workflowSegments.at(-1)?.blocks.at(-1);
-    const isThinking = !!isGenerating
+    const isThinking = Boolean(isGenerating)
         && (lastWorkflowBlock?.type === 'think' || lastWorkflowBlock?.type === 'thought')
-        && !!lastWorkflowBlock.isGenerating;
+        && Boolean(lastWorkflowBlock.isGenerating);
     const lastIsEdit = lastWorkflowBlock?.type === "edit" || lastWorkflowBlock?.type === "edit_pending";
     const activityIsEdit = /\bedit/i.test(activityLabel ?? "");
     const editFileName = [...(workflowSegments.at(-1)?.blocks ?? [])]
@@ -1113,24 +1115,25 @@ export function MessageRenderer({
           ? `Editing ${editFileName || "file"}`
           : (activityLabel?.trim() || (isThinking ? "Thinking" : (workflowSegments.length > 0 ? "Working" : undefined)));
     const showStatusLine =
-        !!isGenerating
+        Boolean(isGenerating)
         && !proseIsStreaming
         && (
             hasPendingApproval
-            || !!statusLabel
+            || Boolean(statusLabel)
         );
 
-    const renderedSegments = segments.map((segment, index) => {
-        const isLastSegment = index === segments.length - 1;
+    const segmentKey = createOccurrenceKeyer();
+    const renderedSegments = segments.map((segment, pos) => {
+        const isLastSegment = pos === segments.length - 1;
 
         if (segment.kind === 'workflow') {
-            const isFirst = index === firstWorkflowIndex;
-            const isLastWf = index === lastWorkflowIndex;
+            const isFirst = pos === firstWorkflowIndex;
+            const isLastWf = pos === lastWorkflowIndex;
             return (
                 <TurnWorkflowSummary
-                    key={`wf-${index}`}
+                    key={segmentKey(`wf:${segment.blocks.length}`)}
                     blocks={segment.blocks}
-                    isActive={!!isGenerating && isLastWf}
+                    isActive={Boolean(isGenerating) && isLastWf}
                     durationMs={isFirst ? durationMs : undefined}
                     activityLabel={isLastWf ? activityLabel : null}
                 />
@@ -1143,7 +1146,7 @@ export function MessageRenderer({
             if (!text?.trim()) return null;
             return (
                 <div
-                    key={`text-${index}`}
+                    key={segmentKey(`text:${text.slice(0, 24)}`)}
                     className={cn(
                         "text-sm font-medium text-text-primary leading-[var(--conversation-line-height)] mb-0 w-full overflow-hidden prose-compact chat-markdown",
                         isGenerating && isLastSegment && "t-step-enter",
@@ -1158,7 +1161,7 @@ export function MessageRenderer({
             const path = chunk.file || '';
             return (
                 <PlanSavedBlock
-                    key={`plan-saved-${index}`}
+                    key={segmentKey(`plan-saved:${path || title}`)}
                     title={title}
                     path={path}
                     markdown={chunk.planMarkdown}
@@ -1176,7 +1179,7 @@ export function MessageRenderer({
             const completedCount = steps.filter((s) => s.status === 'done').length;
             return (
                 <PlanningBlock
-                    key={`plan-${index}`}
+                    key={segmentKey(`plan:${title}`)}
                     title={title}
                     steps={steps}
                     completedCount={completedCount}
@@ -1193,7 +1196,7 @@ export function MessageRenderer({
             const completedCount = steps.filter((s) => s.status === 'done').length;
             return (
                 <PlanningBlock
-                    key={`todos-${index}`}
+                    key={segmentKey(`todos:${chunk.content || "todos"}`)}
                     title={chunk.content || 'Todos'}
                     steps={steps}
                     completedCount={completedCount}
@@ -1203,13 +1206,13 @@ export function MessageRenderer({
             );
         }
         if (chunk.type === 'chart') {
-            return <ChartBlock key={`chart-${index}`} content={chunk.content} />;
+            return <ChartBlock key={segmentKey(`chart:${(chunk.content || "").slice(0, 24)}`)} content={chunk.content} />;
         }
         if (chunk.type === 'insight_card') {
-            return <InsightCard key={`insight-${index}`} content={chunk.content} />;
+            return <InsightCard key={segmentKey(`insight:${(chunk.content || "").slice(0, 24)}`)} content={chunk.content} />;
         }
         if (chunk.type === 'browse_session') {
-            if (index !== lastBrowseIndex) return null;
+            if (pos !== lastBrowseIndex) return null;
             let image = "";
             let x: number | undefined;
             let y: number | undefined;
@@ -1223,7 +1226,7 @@ export function MessageRenderer({
             }
             return (
                 <BrowseChatCard
-                    key={`browse-${index}`}
+                    key={segmentKey(`browse:${chunk.visitUrl || ""}`)}
                     url={chunk.visitUrl}
                     title={chunk.visitTitle}
                     status={chunk.commandStatus}
@@ -1231,14 +1234,14 @@ export function MessageRenderer({
                     x={x}
                     y={y}
                     consoleLines={consoleLines}
-                    followLive={index === lastBrowseIndex}
+                    followLive={pos === lastBrowseIndex}
                 />
             );
         }
         if (chunk.type === 'sent_file') {
             return (
                 <SentFileCard
-                    key={`file-${index}`}
+                    key={segmentKey(`file:${chunk.file || ""}`)}
                     name={chunk.file || "File"}
                     title={chunk.mediaPrompt}
                     mime={chunk.query || ""}
@@ -1252,7 +1255,7 @@ export function MessageRenderer({
             return (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
-                    key={`image-${index}`}
+                    key={segmentKey(`image:${chunk.file || src.slice(0, 24)}`)}
                     src={src}
                     alt={chunk.file || ""}
                     className="my-2 max-h-80 max-w-[420px] rounded-xl border border-border-subtle object-contain"
@@ -1267,7 +1270,7 @@ export function MessageRenderer({
                 .filter(Boolean)
                 .join(" · ");
             return (
-                <p key={`design-previews-${index}`} className="my-1 text-sm text-text-muted">
+                <p key={segmentKey(`design-previews:${names || String(n)}`)} className="my-1 text-sm text-text-muted">
                     {names || `${n} design concept${n === 1 ? "" : "s"}`}
                 </p>
             );
@@ -1275,7 +1278,7 @@ export function MessageRenderer({
         if (chunk.type === 'generated_svg' || chunk.type === 'generated_image' || chunk.type === 'generated_audio') {
             return (
                 <GeneratedMediaCard
-                    key={`media-${index}`}
+                    key={segmentKey(`media:${chunk.type}:${(chunk.mediaPrompt || chunk.query || "").slice(0, 24)}`)}
                     kind={
                         chunk.type === "generated_svg"
                             ? "svg"
@@ -1286,14 +1289,14 @@ export function MessageRenderer({
                     src={chunk.content}
                     prompt={chunk.mediaPrompt || chunk.query}
                     credits={chunk.mediaCredits}
-                    loading={!!chunk.isGenerating && !chunk.content?.trim()}
+                    loading={Boolean(chunk.isGenerating) && !chunk.content?.trim()}
                 />
             );
         }
         if (chunk.type === 'review_debate') {
             return (
                 <ReviewDebatePanel
-                    key={`review-debate-${index}`}
+                    key={segmentKey(`review-debate:${chunk.reviewModel || ""}`)}
                     content={chunk.content || ''}
                     model={chunk.reviewModel}
                 />
@@ -1302,7 +1305,7 @@ export function MessageRenderer({
         if (chunk.type === 'persona_review') {
             return (
                 <PersonaReviewPanel
-                    key={`persona-review-${chunk.commandId || index}`}
+                    key={chunk.commandId ? `persona-review-${chunk.commandId}` : segmentKey(`persona-review:${chunk.visitUrl || ""}`)}
                     reviewId={chunk.commandId}
                     url={chunk.visitUrl}
                     status={chunk.commandStatus}
@@ -1313,7 +1316,7 @@ export function MessageRenderer({
         if (chunk.type === 'question') {
             return (
                 <QuestionsCard
-                    key={`question-${chunk.commandId || index}`}
+                    key={chunk.commandId ? `question-${chunk.commandId}` : segmentKey("question")}
                     askId={chunk.commandId}
                     status={chunk.commandStatus}
                     questions={chunk.questions || []}
@@ -1332,6 +1335,6 @@ export function MessageRenderer({
             )}
         </div>
     );
-}
+};
 
 export { ChatMarkdown as StreamingMarkdown } from "./view";

@@ -9,6 +9,7 @@ import { Warning20Regular } from "@fluentui/react-icons/headless/svg/warning";
 import { FileIcon } from "@/components/ui/file-icon";
 import { Icon, type IconGlyph } from "@/components/ui/icon";
 import { Tooltip } from "@/components/ui/tooltip";
+import { stagePromptInChatComposer } from "@/features/chat/ui/shell/find-bar";
 import { cn } from "@/lib/utils";
 import "./motion.css";
 import {
@@ -50,40 +51,20 @@ function countLabel(count: number, noun: string): string | null {
     return `${count} ${count === 1 ? noun : `${noun}s`}`;
 }
 
-function dispatchChatPromptForProblem(prompt: string) {
-    if (typeof window === "undefined") return;
-    // Persist the draft before clearing any workspace overlay so a freshly mounted
-    // `Chat` surface picks up the prompt even when it was unmounted behind an overlay.
-    try {
-        localStorage.setItem("bettershape-chat-input", prompt);
-    } catch {
-        /* ignore */
-    }
-    window.dispatchEvent(
-        new CustomEvent("bettershape-center-view", {
-            detail: "chat",
-        }),
-    );
-    window.dispatchEvent(
-        new CustomEvent("bettershape-chat-insert-prompt", {
-            detail: { prompt, send: false },
-        }),
-    );
-    window.dispatchEvent(new CustomEvent("bettershape-chat-focus-input"));
-    if (typeof window.requestAnimationFrame === "function") {
-        window.requestAnimationFrame(() => {
-            window.dispatchEvent(new CustomEvent("bettershape-chat-focus-input"));
-        });
-    }
-}
+/** Dispatch chat prompt for problem. */
+const dispatchChatPromptForProblem = (prompt: string) => {
+    stagePromptInChatComposer(prompt);
+};
 
-function formatSingleProblemPrompt(problem: Problem, fileLabel: string): string {
+/** Format single problem prompt. */
+const formatSingleProblemPrompt = (problem: Problem, fileLabel: string): string => {
     const pos = formatPosition(problem.line, problem.column);
     const rule = problem.ruleId ? ` (${problem.ruleId})` : "";
     return `Fix the ESLint ${problem.severity} in @${fileLabel} at ${pos}${rule}: ${problem.message}`;
-}
+};
 
-function formatAllProblemsPrompt(groups: ProblemGroup[]): string {
+/** Format all problems prompt. */
+const formatAllProblemsPrompt = (groups: ProblemGroup[]): string => {
     const MAX_PROMPT_PROBLEMS = 100;
     const total = groups.reduce((sum, group) => sum + group.problems.length, 0);
     const lines: string[] = ["Fix these ESLint problems:"];
@@ -104,9 +85,10 @@ function formatAllProblemsPrompt(groups: ProblemGroup[]): string {
         );
     }
     return lines.join("\n");
-}
+};
 
-function ProblemRow({
+/** Renders the ProblemRow UI component. */
+const ProblemRow = ({
     problem,
     fileLabel,
     onOpen,
@@ -114,7 +96,7 @@ function ProblemRow({
     problem: Problem;
     fileLabel: string;
     onOpen: (target: ProblemTarget) => void;
-}) {
+}) => {
     const label = SEVERITY_LABEL[problem.severity];
     const position = formatPosition(problem.line, problem.column);
     return (
@@ -150,9 +132,10 @@ function ProblemRow({
             </Tooltip>
         </li>
     );
-}
+};
 
-function GroupHeading({ group, onOpenFile }: { group: ProblemGroup; onOpenFile: (group: ProblemGroup) => void }) {
+/** Renders the GroupHeading UI component. */
+const GroupHeading = ({ group, onOpenFile }: { group: ProblemGroup; onOpenFile: (group: ProblemGroup) => void }) => {
     const counts = [
         countLabel(group.counts.error, "error"),
         countLabel(group.counts.warning, "warning"),
@@ -172,7 +155,7 @@ function GroupHeading({ group, onOpenFile }: { group: ProblemGroup; onOpenFile: 
             <span className="shrink-0 text-xs text-text-muted">{counts.join(", ")}</span>
         </div>
     );
-}
+};
 
 function PartialErrors({
     errors,
@@ -198,7 +181,8 @@ function PartialErrors({
     );
 }
 
-export function ProblemsPanel({
+/** Renders the ProblemsPanel UI component. */
+export const ProblemsPanel = ({
     state,
     busy,
     onOpen,
@@ -208,7 +192,7 @@ export function ProblemsPanel({
     busy: boolean;
     onOpen: (target: ProblemTarget) => void;
     onRerun: () => void;
-}) {
+}) => {
     return (
         <div className="flex h-full min-h-0 flex-col bg-panel">
             <div className="flex shrink-0 items-center gap-2 px-3 py-2">
@@ -294,4 +278,4 @@ export function ProblemsPanel({
             ) : null}
         </div>
     );
-}
+};

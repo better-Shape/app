@@ -15,7 +15,7 @@ import { type IconGlyph, Icon } from "@/components/ui/icon";
 
 
 import { FileIcon } from "@/components/ui/file-icon";
-import { cn } from "@/lib/utils";
+import { cn, createOccurrenceKeyer } from "@/lib/utils";
 import { commands, getProjectPath } from "@/lib/backend";
 import { countChangedLines } from "@/lib/ui/diff-count";
 import { ChatPatchDiff } from "./chat-diff";
@@ -274,7 +274,8 @@ export function coalesceConsecutiveSameFileEdits(blocks: Chunk[]): Chunk[] {
     return out;
 }
 
-export function groupWorkflowRows(blocks: Chunk[]): WorkflowRow[] {
+/** Group workflow rows. */
+export const groupWorkflowRows = (blocks: Chunk[]): WorkflowRow[] => {
     const rows: WorkflowRow[] = [];
     let stagePaths: string[] = [];
     let readFiles: { path: string; start?: number; end?: number }[] = [];
@@ -440,7 +441,7 @@ export function groupWorkflowRows(blocks: Chunk[]): WorkflowRow[] {
     }
     flushAll();
     return rows;
-}
+};
 
 function GitStatusBadge({ status }: { status: string }) {
     const letter = status.trim().charAt(0).toUpperCase() || "?";
@@ -541,7 +542,8 @@ function GitActionChip({
     );
 }
 
-export function GeneratedMediaStep({ block }: { block: Chunk }) {
+/** Renders the GeneratedMediaStep UI component. */
+export const GeneratedMediaStep = ({ block }: { block: Chunk }) => {
     const src = (block.content || "").trim();
     const labelNoun =
         block.type === "generated_svg" ? "SVG" : block.type === "generated_audio" ? "audio" : "image";
@@ -584,7 +586,7 @@ export function GeneratedMediaStep({ block }: { block: Chunk }) {
             </div>
         </GitActionChip>
     );
-}
+};
 
 export function GitStageGroup({ paths }: { paths: string[] }) {
     const unique = [...new Set(paths.filter(Boolean))];
@@ -616,6 +618,22 @@ export function GitStageGroup({ paths }: { paths: string[] }) {
     );
 }
 
+const GitStatusFileRow = ({ line }: { line: GitStatusLine }) => {
+    const baseName = line.path.split(/[\\/]/).pop() || line.path;
+    return (
+        <DropdownMenuItem
+            className="gap-2"
+            onClick={() => {
+                openProjectFile(line.path, baseName).catch(() => undefined);
+            }}
+        >
+            <FileIcon name={baseName} className="size-4 shrink-0" />
+            <span className="min-w-0 flex-1 truncate">{baseName}</span>
+            <GitStatusBadge status={line.status} />
+        </DropdownMenuItem>
+    );
+};
+
 function GitStatusGroup({ lines }: { lines: GitStatusLine[] }) {
     const staged = lines.filter((l) => l.area === "staged");
     const unstaged = lines.filter((l) => l.area === "unstaged");
@@ -635,46 +653,14 @@ function GitStatusGroup({ lines }: { lines: GitStatusLine[] }) {
                     <div className="flex flex-col py-0.5">
                         <span className="px-2 py-1 text-xs text-text-disabled">Staged</span>
                         {staged.map((line) => (
-                            <DropdownMenuItem
-                                key={`staged-${line.path}`}
-                                className="gap-2"
-                                onClick={() => {
-                                    const name = line.path.split(/[\\/]/).pop() || line.path;
-                                    void openProjectFile(line.path, name);
-                                }}
-                            >
-                                <FileIcon
-                                    name={line.path.split(/[\\/]/).pop() || line.path}
-                                    className="size-4 shrink-0"
-                                />
-                                <span className="min-w-0 flex-1 truncate">
-                                    {line.path.split(/[\\/]/).pop() || line.path}
-                                </span>
-                                <GitStatusBadge status={line.status} />
-                            </DropdownMenuItem>
+                            <GitStatusFileRow key={`staged-${line.path}`} line={line} />
                         ))}
                     </div>
                 ) : null}
                 {unstaged.length > 0 ? (
                     <div className="flex flex-col py-0.5">
                         {unstaged.map((line) => (
-                            <DropdownMenuItem
-                                key={`unstaged-${line.path}`}
-                                className="gap-2"
-                                onClick={() => {
-                                    const name = line.path.split(/[\\/]/).pop() || line.path;
-                                    void openProjectFile(line.path, name);
-                                }}
-                            >
-                                <FileIcon
-                                    name={line.path.split(/[\\/]/).pop() || line.path}
-                                    className="size-4 shrink-0"
-                                />
-                                <span className="min-w-0 flex-1 truncate">
-                                    {line.path.split(/[\\/]/).pop() || line.path}
-                                </span>
-                                <GitStatusBadge status={line.status} />
-                            </DropdownMenuItem>
+                            <GitStatusFileRow key={`unstaged-${line.path}`} line={line} />
                         ))}
                     </div>
                 ) : null}
@@ -851,7 +837,8 @@ function computeGroupHeader(visible: Chunk[]): { icon: IconGlyph; label: string 
     return { icon: Sparkle20Filled, label: "Worked" };
 }
 
-export function getWorkflowActionConfig(block: Chunk, isActive?: boolean) {
+/** Get workflow action config. */
+export const getWorkflowActionConfig = (block: Chunk, isActive?: boolean) => {
     const inFlight = isActive ?? block.isGenerating;
     switch (block.type) {
         case "think":
@@ -865,14 +852,14 @@ export function getWorkflowActionConfig(block: Chunk, isActive?: boolean) {
             return {
                 label: inFlight ? "Searching" : "Searched",
                 query: block.query || block.content,
-                expandable: !!block.content && block.content !== block.query,
+                expandable: Boolean(block.content) && block.content !== block.query,
                 content: block.content,
             };
         case "search_result":
             return {
                 label: "Searched",
                 query: block.query,
-                expandable: !!block.content,
+                expandable: Boolean(block.content),
                 content: block.content,
             };
         case "web_search":
@@ -887,7 +874,7 @@ export function getWorkflowActionConfig(block: Chunk, isActive?: boolean) {
             return {
                 label: block.type === "web_result" || !block.isGenerating ? "Searched web" : "Searching web",
                 query: block.query,
-                expandable: !!block.content,
+                expandable: Boolean(block.content),
                 content: block.content,
                 resultUrls: hits.slice(0, 5),
             };
@@ -907,7 +894,7 @@ export function getWorkflowActionConfig(block: Chunk, isActive?: boolean) {
                 faviconUrl: block.visitUrl || block.visitHost,
                 onClick: () => {
                     const href = block.visitUrl;
-                    if (href) void commands.openUrlExternal(href);
+                    if (href) commands.openUrlExternal(href).catch(() => undefined);
                 },
             };
         case "inspect_runtime": {
@@ -925,7 +912,7 @@ export function getWorkflowActionConfig(block: Chunk, isActive?: boolean) {
             return {
                 label: inFlight ? "Inspecting" : "Inspected",
                 query: detail || kind || "runtime",
-                expandable: !!block.content?.trim(),
+                expandable: Boolean(block.content?.trim()),
                 content: block.content,
                 chromiumIcon: true,
             };
@@ -959,7 +946,7 @@ export function getWorkflowActionConfig(block: Chunk, isActive?: boolean) {
             return {
                 label: inFlight ? "Grepping" : "Grepped",
                 query: block.query || block.content,
-                expandable: !!block.content,
+                expandable: Boolean(block.content),
                 content: block.content,
             };
         case "cat":
@@ -969,7 +956,7 @@ export function getWorkflowActionConfig(block: Chunk, isActive?: boolean) {
                 expandable: false,
                 onClick: () => {
                     if (block.content) {
-                        void openProjectFile(block.content);
+                        openProjectFile(block.content).catch(() => undefined);
                     }
                 },
             };
@@ -1047,7 +1034,7 @@ export function getWorkflowActionConfig(block: Chunk, isActive?: boolean) {
                           ? "Running in background"
                           : "Ran",
                 query: block.command || block.content,
-                expandable: !!block.content && block.content.trim() !== block.command?.trim(),
+                expandable: Boolean(block.content && block.content.trim() !== block.command?.trim()),
                 content: block.content ? block.content.replace(block.command || "", "").trim() : "",
                 commandId: block.commandId,
                 commandStatus: block.commandStatus,
@@ -1112,7 +1099,7 @@ export function getWorkflowActionConfig(block: Chunk, isActive?: boolean) {
         default:
             return null;
     }
-}
+};
 
 export function isRenderableWorkflowBlock(block: Chunk, isActive?: boolean) {
     if (block.type === "browse_session") return true;
@@ -1131,7 +1118,7 @@ const INLINE_GROUP_MAX = 3;
  * line ("Explored codebase · 12 steps") once the turn finishes. The message's
  * single bottom status indicator owns the spinner  -  no spinner here.
  */
-export function AgentWorkflow({
+export const AgentWorkflow = ({
     blocks,
     isActive,
     isFileEditResolved,
@@ -1139,17 +1126,17 @@ export function AgentWorkflow({
     blocks: Chunk[];
     isActive?: boolean;
     isFileEditResolved?: (file: string, replacement?: string) => boolean;
-}) {
+}) => {
     const visibleBlocks = blocks.filter((b) => isRenderableWorkflowBlock(b, isActive));
     const collapsible = visibleBlocks.length > INLINE_GROUP_MAX;
 
     // Open while streaming, collapse once the run finishes. Render-time state
     // adjustment (not an effect) per React guidance.
-    const [isOpen, setIsOpen] = useState(!!isActive);
+    const [isOpen, setIsOpen] = useState(Boolean(isActive));
     const [prevActive, setPrevActive] = useState(isActive);
     if (isActive !== prevActive) {
         setPrevActive(isActive);
-        setIsOpen(!!isActive);
+        setIsOpen(Boolean(isActive));
     }
 
     if (visibleBlocks.length === 0) return null;
@@ -1160,139 +1147,145 @@ export function AgentWorkflow({
               The rows are a projection of the parsed message and only ever append, so a row
               keeps its position: a content key would collide when the same file is read twice.
             */}
-            {groupWorkflowRows(visibleBlocks).map((row, slot) => {
-                if (row.kind === "git_stage_group") {
-                    return <GitStageGroup key={`stage-${slot}`} paths={row.paths} />;
-                }
-                if (row.kind === "read_group") {
-                    const names = [
-                        ...new Set(
-                            row.files
-                                .map((f) => f.path.split(/[\\/]/).pop() || f.path)
-                                .filter(Boolean),
-                        ),
-                    ];
-                    const detail =
-                        names.length === 0
-                            ? null
-                            : names.length === 1
-                              ? names[0]
-                              : `${names[0]} and more`;
+            {(() => {
+                const rowKey = createOccurrenceKeyer();
+                return groupWorkflowRows(visibleBlocks).map((row) => {
+                    if (row.kind === "git_stage_group") {
+                        return <GitStageGroup key={rowKey(`stage:${row.paths.join(",")}`)} paths={row.paths} />;
+                    }
+                    if (row.kind === "read_group") {
+                        const names = [
+                            ...new Set(
+                                row.files
+                                    .map((f) => f.path.split(/[\\/]/).pop() || f.path)
+                                    .filter(Boolean),
+                            ),
+                        ];
+                        const detail =
+                            names.length === 0
+                                ? null
+                                : names.length === 1
+                                  ? names[0]
+                                  : `${names[0]} and more`;
+                        return (
+                            <ActionLine
+                                key={rowKey(`reads:${names[0] ?? ""}`)}
+                                action="Explored"
+                                detail={detail}
+                            />
+                        );
+                    }
+                    if (row.kind === "search_group") {
+                        const hasDetails = row.queries.length > 0 || Boolean(row.previews?.length);
+                        const summaryDetail =
+                            row.count > 1 ? `${row.count} times` : row.queries[0] || undefined;
+                        const queryKey = createOccurrenceKeyer();
+                        const previewKey = createOccurrenceKeyer();
+                        return (
+                            <ActionLine
+                                key={rowKey(`searches:${summaryDetail ?? ""}`)}
+                                action="Searched"
+                                detail={summaryDetail}
+                            >
+                                {hasDetails ? (
+                                    <div className="flex flex-col gap-1.5 py-1 text-xs text-text-muted">
+                                        {row.queries.map((queryText) => (
+                                            <div
+                                                key={queryKey(queryText)}
+                                                className="truncate font-mono text-text-secondary"
+                                            >
+                                                {queryText}
+                                            </div>
+                                        ))}
+                                        {row.previews?.slice(0, 3).map((previewText) => (
+                                            <pre
+                                                key={previewKey(previewText.slice(0, 48))}
+                                                className="max-h-28 overflow-auto whitespace-pre-wrap break-words rounded-md bg-surface-2 px-2 py-1 font-mono text-2xs text-text-muted"
+                                            >
+                                                {previewText}
+                                            </pre>
+                                        ))}
+                                    </div>
+                                ) : null}
+                            </ActionLine>
+                        );
+                    }
+                    if (row.kind === "web_trail") {
+                        const queries = row.blocks
+                            .map((b) => (b.query || "").trim())
+                            .filter(Boolean);
+                        const results = row.blocks.flatMap((b) => {
+                            if (b.type === "web_visit") {
+                                return [{
+                                    title: b.visitTitle || b.visitHost || "Visited",
+                                    url: b.visitUrl || "",
+                                    snippet: b.visitHost ? `Visited ${b.visitHost}` : "",
+                                }];
+                            }
+                            return parseWebSearchHits(b.content || "");
+                        });
+                        const seen = new Set<string>();
+                        const unique = results.filter((hit) => {
+                            const key = hit.url || hit.title;
+                            if (!key || seen.has(key)) return false;
+                            seen.add(key);
+                            return true;
+                        });
+                        return (
+                            <WebSearchBlock
+                                key={rowKey(`web:${queries[0] ?? ""}`)}
+                                query={queries[queries.length - 1]}
+                                searches={queries.length}
+                                results={unique}
+                                isActive={row.blocks.some((b) => b.isGenerating)}
+                            />
+                        );
+                    }
+                    if (row.kind === "write_group") {
+                        const names = [...new Set(row.paths.map((p) => p.split(/[\\/]/).pop() || p).filter(Boolean))];
+                        const detail =
+                            names.length === 0
+                                ? null
+                                : names.length === 1
+                                  ? names[0]
+                                  : `${names[0]} and more`;
+                        return (
+                            <ActionLine
+                                key={rowKey(`writes:${names[0] ?? ""}`)}
+                                action="Edited"
+                                detail={detail}
+                            />
+                        );
+                    }
+                    if (row.kind === "list_group") {
+                        return (
+                            <ActionLine
+                                key={rowKey(`lists:${row.count}`)}
+                                action="Listed"
+                                detail={row.count > 1 ? `${row.count} folders` : "folders"}
+                            />
+                        );
+                    }
+                    if (row.kind === "subagent_group") {
+                        const subKey = createOccurrenceKeyer();
+                        return (
+                            <div key={rowKey(`subs:${row.blocks.length}`)} className="flex flex-col">
+                                <ActionLine action="Spawning" detail="subagents" />
+                                {row.blocks.map((block) => (
+                                    <ActionItem key={subKey(block.file || block.type)} block={block} isFileEditResolved={isFileEditResolved} />
+                                ))}
+                            </div>
+                        );
+                    }
                     return (
-                        <ActionLine
-                            key={`reads-${slot}`}
-                            action="Explored"
-                            detail={detail}
+                        <ActionItem
+                            key={rowKey(`action:${row.block.type}:${row.block.file ?? row.block.commandId ?? ""}`)}
+                            block={row.block}
+                            isFileEditResolved={isFileEditResolved}
                         />
                     );
-                }
-                if (row.kind === "search_group") {
-                    const hasDetails = row.queries.length > 0 || Boolean(row.previews?.length);
-                    const summaryDetail =
-                        row.count > 1 ? `${row.count} times` : row.queries[0] || undefined;
-                    return (
-                        <ActionLine
-                            key={`searches-${slot}`}
-                            action="Searched"
-                            detail={summaryDetail}
-                        >
-                            {hasDetails ? (
-                                <div className="flex flex-col gap-1.5 py-1 text-xs text-text-muted">
-                                    {row.queries.map((queryText, qIdx) => (
-                                        <div
-                                            key={`${queryText}-${qIdx}`}
-                                            className="truncate font-mono text-text-secondary"
-                                        >
-                                            {queryText}
-                                        </div>
-                                    ))}
-                                    {row.previews?.slice(0, 3).map((previewText, pIdx) => (
-                                        <pre
-                                            key={`preview-${pIdx}`}
-                                            className="max-h-28 overflow-auto whitespace-pre-wrap break-words rounded-md bg-surface-2 px-2 py-1 font-mono text-2xs text-text-muted"
-                                        >
-                                            {previewText}
-                                        </pre>
-                                    ))}
-                                </div>
-                            ) : null}
-                        </ActionLine>
-                    );
-                }
-                if (row.kind === "web_trail") {
-                    const queries = row.blocks
-                        .map((b) => (b.query || "").trim())
-                        .filter(Boolean);
-                    const results = row.blocks.flatMap((b) => {
-                        if (b.type === "web_visit") {
-                            return [{
-                                title: b.visitTitle || b.visitHost || "Visited",
-                                url: b.visitUrl || "",
-                                snippet: b.visitHost ? `Visited ${b.visitHost}` : "",
-                            }];
-                        }
-                        return parseWebSearchHits(b.content || "");
-                    });
-                    const seen = new Set<string>();
-                    const unique = results.filter((hit) => {
-                        const key = hit.url || hit.title;
-                        if (!key || seen.has(key)) return false;
-                        seen.add(key);
-                        return true;
-                    });
-                    return (
-                        <WebSearchBlock
-                            key={`web-${slot}`}
-                            query={queries[queries.length - 1]}
-                            searches={queries.length}
-                            results={unique}
-                            isActive={row.blocks.some((b) => b.isGenerating)}
-                        />
-                    );
-                }
-                if (row.kind === "write_group") {
-                    const names = [...new Set(row.paths.map((p) => p.split(/[\\/]/).pop() || p).filter(Boolean))];
-                    const detail =
-                        names.length === 0
-                            ? null
-                            : names.length === 1
-                              ? names[0]
-                              : `${names[0]} and more`;
-                    return (
-                        <ActionLine
-                            key={`writes-${slot}`}
-                            action="Edited"
-                            detail={detail}
-                        />
-                    );
-                }
-                if (row.kind === "list_group") {
-                    return (
-                        <ActionLine
-                            key={`lists-${slot}`}
-                            action="Listed"
-                            detail={row.count > 1 ? `${row.count} folders` : "folders"}
-                        />
-                    );
-                }
-                if (row.kind === "subagent_group") {
-                    return (
-                        <div key={`subs-${slot}`} className="flex flex-col">
-                            <ActionLine action="Spawning" detail="subagents" />
-                            {row.blocks.map((block, index) => (
-                                <ActionItem key={block.file || index} block={block} isFileEditResolved={isFileEditResolved} />
-                            ))}
-                        </div>
-                    );
-                }
-                return (
-                    <ActionItem
-                        key={`action-${slot}`}
-                        block={row.block}
-                        isFileEditResolved={isFileEditResolved}
-                    />
-                );
-            })}
+                });
+            })()}
         </div>
     );
 
@@ -1314,7 +1307,7 @@ export function AgentWorkflow({
             </ActionLine>
         </div>
     );
-}
+};
 
 function FilePill({ path, onClick }: { path: string; onClick?: () => void }) {
     const fileName = path.split(/[\\/]/).pop() || path;
@@ -1338,6 +1331,7 @@ function FilePill({ path, onClick }: { path: string; onClick?: () => void }) {
     );
 }
 
+/** ActionItem helper. */
 export function ActionItem({
     block,
     isFileEditResolved,
@@ -1485,7 +1479,7 @@ export function ActionItem({
         || block.type === "search_result"
         || block.type === "web_result"
         || block.type === "inspect_runtime"
-        || (block.type === "search" && !!config.content && looksLikeProseMarkdown(config.content));
+        || (block.type === "search" && Boolean(config.content && looksLikeProseMarkdown(config.content)));
 
     const editResolved = isEdit && block.file
         ? (isFileEditResolved?.(block.file, block.replacement) ?? false)

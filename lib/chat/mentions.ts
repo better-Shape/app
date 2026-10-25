@@ -125,6 +125,20 @@ export function mentionDisplayLabel(mention: ChatMention): string {
     return mention.label;
 }
 
+/** Trim trailing slashes. */
+const trimTrailingSlashes = (value: string): string => {
+    let end = value.length;
+    while (end > 0 && value.charCodeAt(end - 1) === 47) end -= 1;
+    return end === value.length ? value : value.slice(0, end);
+};
+
+/** Is simple relative path. */
+const isSimpleRelativePath = (value: string): boolean => {
+    if (!value) return false;
+    const parts = value.split("/");
+    return parts.every((seg) => seg.length > 0 && /^[\w.-]+$/.test(seg));
+};
+
 /** Disambiguates basename mention tokens when another path already claimed `shortToken`. */
 const disambiguatePathToken = (
     shortToken: string,
@@ -136,13 +150,13 @@ const disambiguatePathToken = (
     if (!existing?.path || existing.path.replace(/\\/g, "/") === normalized) {
         return shortToken;
     }
-    const cleanRel = normalized.replace(/\/+$/, "");
+    const cleanRel = trimTrailingSlashes(normalized);
     if (kind === "folder") {
-        return /^(?:[\w.-]+\/)*[\w.-]+$/.test(cleanRel)
+        return isSimpleRelativePath(cleanRel)
             ? `@${cleanRel}/`
             : `@folder:${slugifyMentionLabel(cleanRel)}/`;
     }
-    return /^(?:[\w.-]+\/)*[\w.-]+$/.test(cleanRel)
+    return isSimpleRelativePath(cleanRel)
         ? `@${cleanRel}`
         : `@${kind}:${slugifyMentionLabel(cleanRel)}`;
 };
@@ -151,7 +165,7 @@ const disambiguatePathToken = (
  * Insert short tokens into the composer (`@favicon.ico`) and register the full
  * path so send-time resolution still works.
  */
-export function formatMentionToken(mention: ChatMention): string {
+export const formatMentionToken = (mention: ChatMention): string => {
     let token: string;
     if (mention.kind === "codebase") token = "@codebase";
     else if (mention.kind === "selection") token = "@selection";
@@ -204,7 +218,7 @@ export function formatMentionToken(mention: ChatMention): string {
         label: mentionDisplayLabel(mention),
     });
     return token;
-}
+};
 
 function resolveDesignMention(token: string): ChatMention | null {
     const key = normalizeDesignKey(token);

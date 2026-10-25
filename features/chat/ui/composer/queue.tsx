@@ -19,13 +19,15 @@ export type QueuedMessage = {
     content: string;
 };
 
-function previewText(text: string, max = 120) {
+/** Preview text. */
+const previewText = (text: string, max = 120) => {
     const one = text.replace(/\s+/g, " ").trim();
     if (one.length <= max) return one;
     return `${one.slice(0, max - 3)}...`;
-}
+};
 
-export function QueuedMessagesPanel({
+/** Renders the QueuedMessagesPanel UI component. */
+export const QueuedMessagesPanel = ({
     items,
     onEdit,
     onRemove,
@@ -35,7 +37,7 @@ export function QueuedMessagesPanel({
     onEdit: (id: string) => void;
     onRemove: (id: string) => void;
     onSendNow?: (id: string) => void;
-}) {
+}) => {
     if (items.length === 0) return null;
 
     return (
@@ -99,4 +101,4 @@ export function QueuedMessagesPanel({
             </DropdownMenuContent>
         </DropdownMenu>
     );
-}
+};

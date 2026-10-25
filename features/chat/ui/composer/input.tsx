@@ -116,18 +116,28 @@ import type { QuotedExcerpt } from "../quote-selection";
 export type { ReasoningEffort };
 
 /**
- * When a line begins with horizontal whitespace followed by a long unbroken token (e.g.
- * `" ccffffffff..."` or `" https://..."`), CSS `pre-wrap` + `break-words` treats the leading
- * space as a soft-wrap opportunity and pushes the token onto line 2, leaving a blank top row.
- * Switching both the mirror overlay and `<textarea>` to `break-all` in lockstep keeps line 1
- * filled from column 0 while preserving normal word wrapping for ordinary prose.
+ * When a prompt has no multi-word prose and starts with horizontal whitespace followed by a
+ * long unbroken token (e.g. `" ccffffffff..."` or `"   https://..."`), CSS `pre-wrap` +
+ * `break-words` treats the leading space as a soft-wrap opportunity and pushes the token onto
+ * line 2, leaving a blank top row. Switching both the mirror overlay and `<textarea>` to
+ * `break-all` in lockstep keeps line 1 filled from column 0 while never breaking ordinary
+ * multi-word prose mid-word.
  */
-export function shouldComposerBreakAll(value: string): boolean {
-    if (!value) return false;
-    return /^(?:[ \t]+\S{16,}|[ \t]{10,}\S+)/m.test(value);
-}
+const focusSearchOnMount = (node: HTMLInputElement | null) => {
+    if (!node || node.dataset.autofocused === "1") return;
+    node.dataset.autofocused = "1";
+    node.focus();
+};
 
-function formatPasteSizeLabel(text: string): string {
+/** Should composer break all. */
+export const shouldComposerBreakAll = (value: string): boolean => {
+    if (!value) return false;
+    if (/\S[ \t]+\S/.test(value)) return false;
+    return /^(?:[ \t]+\S{16,}|[ \t]{10,}\S+)/.test(value);
+};
+
+/** Format paste size label. */
+const formatPasteSizeLabel = (text: string): string => {
     let lines = 1;
     for (let i = 0; i < text.length; i++) {
         if (text.charCodeAt(i) === 10) lines += 1;
@@ -137,7 +147,7 @@ function formatPasteSizeLabel(text: string): string {
             ? `${(text.length / 1000).toFixed(1)}k chars`
             : `${text.length} chars`;
     return `${lines.toLocaleString()} ${lines === 1 ? "line" : "lines"} (${chars})`;
-}
+};
 
 type ChatInputProps = {
     inputValue: string;
@@ -182,12 +192,14 @@ type ChatInputProps = {
     variant?: "default" | "empty";
 };
 
-function formatContextWindow(raw?: string): string {
+/** Format context window. */
+const formatContextWindow = (raw?: string): string => {
     const t = (raw ?? "").trim();
     if (!t) return "";
     return t.replace(/(?<![0-9.])([0-9.]+)\s*K\b/i, "$1k").replace(/(?<![0-9.])([0-9.]+)\s*M\b/i, "$1m");
-}
+};
 
+/** Renders the ModelTooltip UI component. */
 const ModelTooltip = ({
     model,
     effort,
@@ -227,6 +239,7 @@ const ModelTooltip = ({
     );
 };
 
+/** Renders the ModelItem UI component. */
 const ModelItem = ({
     model,
     isSelected,
@@ -365,12 +378,14 @@ function isVideoFile(file: File): boolean {
     return VIDEO_EXTENSIONS.has(getFileExtension(file.name));
 }
 
-function isAllowedFile(file: File): boolean {
+/** Checks whether an attachment file type is allowed in the composer. */
+const isAllowedFile = (file: File): boolean => {
     if (isVideoFile(file)) return false;
     return isImageFile(file) || isCodeFile(file) || isAudioFile(file) || isAssetFile(file);
-}
+};
 
-function ComposerContextHighlight({ text }: { text: string }) {
+/** Renders the ComposerContextHighlight UI component. */
+const ComposerContextHighlight = ({ text }: { text: string }) => {
     return (
         <span className="relative">
             <span
@@ -380,7 +395,7 @@ function ComposerContextHighlight({ text }: { text: string }) {
             <span className="relative text-accent-text">{text}</span>
         </span>
     );
-}
+};
 
 const CHAT_MODES = [
     { id: "Code", icon: CodeTextEdit20Filled, color: "#3B82F6", bg: "rgba(59, 130, 246, 0.16)", description: "Build and edit files in the project" },
@@ -418,6 +433,7 @@ const ACTIVE_COMPOSER_HINTS = [
 const PREPARING_COMPOSER_HINT = "Preparing context... Esc to cancel";
 const COMPOSER_LINE_HEIGHT = 22;
 
+/** Renders the RotatingComposerHint UI component. */
 const RotatingComposerHint = React.memo(function RotatingComposerHint({
     paused,
     mode,
@@ -492,6 +508,7 @@ const RotatingComposerHint = React.memo(function RotatingComposerHint({
     );
 });
 
+/** Renders the ModeMenu UI component. */
 const ModeMenu = React.memo(function ModeMenu({
     selectedMode,
     setSelectedMode,
@@ -550,6 +567,7 @@ const ModeMenu = React.memo(function ModeMenu({
 });
 
 
+/** Renders the ChatInput UI component. */
 export const ChatInput = React.memo(function ChatInput({
     inputValue,
     isLoading,
@@ -595,10 +613,10 @@ export const ChatInput = React.memo(function ChatInput({
     // Chat needs at least one BYOK provider with at least one routable model; everything else is local.
     const needsSignIn = !hasAnyUsableProvider(settings.ai.providers);
     const { catalog } = useBetterShapeCatalog();
-    const allModels = React.useMemo(() => {
-        void catalog;
-        return resolveChatModels(getCatalogModels());
-    }, [catalog]);
+    const allModels = React.useMemo(
+        () => resolveChatModels(catalog?.models ?? getCatalogModels()),
+        [catalog],
+    );
     const concreteAllModels = React.useMemo(
         () => allModels.filter((m) => m.id !== "auto"),
         [allModels],
@@ -843,6 +861,23 @@ export const ChatInput = React.memo(function ChatInput({
         };
     }, [quotedExcerpts]);
 
+    const applySteppedPromptHistory = React.useCallback(
+        (
+            e: React.KeyboardEvent<HTMLTextAreaElement>,
+            stepped: { cursor: typeof historyCursorRef.current; value: string },
+        ) => {
+            e.preventDefault();
+            historyCursorRef.current = stepped.cursor;
+            onInputChange({ target: { value: stepped.value } } as React.ChangeEvent<HTMLTextAreaElement>);
+            requestAnimationFrame(() => {
+                const node = textareaRef.current;
+                if (!node) return;
+                node.setSelectionRange(stepped.value.length, stepped.value.length);
+            });
+        },
+        [onInputChange],
+    );
+
     const onComposerKeyDown = React.useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
         if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "e") {
             if (canExpandComposer || isExpanded || (Boolean(inputValue) && composerTall)) {
@@ -890,14 +925,7 @@ export const ChatInput = React.memo(function ChatInput({
             ) {
                 const stepped = stepPromptHistoryUp(historyCursorRef.current, inputValue, recallablePrompts);
                 if (stepped) {
-                    e.preventDefault();
-                    historyCursorRef.current = stepped.cursor;
-                    onInputChange({ target: { value: stepped.value } } as React.ChangeEvent<HTMLTextAreaElement>);
-                    requestAnimationFrame(() => {
-                        const node = textareaRef.current;
-                        if (!node) return;
-                        node.setSelectionRange(stepped.value.length, stepped.value.length);
-                    });
+                    applySteppedPromptHistory(e, stepped);
                     return;
                 }
             }
@@ -918,14 +946,7 @@ export const ChatInput = React.memo(function ChatInput({
                 if (isCaretOnLastLogicalLine(inputValue, el.selectionStart, el.selectionEnd)) {
                     const stepped = stepPromptHistoryDown(historyCursorRef.current, recallablePrompts);
                     if (stepped) {
-                        e.preventDefault();
-                        historyCursorRef.current = stepped.cursor;
-                        onInputChange({ target: { value: stepped.value } } as React.ChangeEvent<HTMLTextAreaElement>);
-                        requestAnimationFrame(() => {
-                            const node = textareaRef.current;
-                            if (!node) return;
-                            node.setSelectionRange(stepped.value.length, stepped.value.length);
-                        });
+                        applySteppedPromptHistory(e, stepped);
                         return;
                     }
                 }
@@ -966,6 +987,7 @@ export const ChatInput = React.memo(function ChatInput({
         }
         onKeyDown(e);
     }, [
+        applySteppedPromptHistory,
         canExpandComposer,
         canRecordPromptHistory,
         composerTall,
@@ -1182,7 +1204,7 @@ export const ChatInput = React.memo(function ChatInput({
     }, []);
 
     React.useEffect(() => {
-        if (!isLoading && !isPreparing) return;
+        if (!isLoading && !isPreparing) return undefined;
         const onKey = (e: KeyboardEvent) => {
             if (e.key !== "Escape" || e.defaultPrevented || e.isComposing || e.keyCode === 229) return;
             if (mentionOpen || slashOpen) return;
@@ -1638,7 +1660,14 @@ export const ChatInput = React.memo(function ChatInput({
     const [plusPlugins, setPlusPlugins] = React.useState<PluginRow[]>(() => peekPluginsCache()?.plugins ?? []);
     const [pluginQuery, setPluginQuery] = React.useState("");
     const [skills, setSkills] = React.useState<Skill[]>(() => listSkills());
-    React.useEffect(() => subscribeSkills(() => setSkills(listSkills())), []);
+    React.useEffect(() => {
+        const unsubscribe = subscribeSkills(() => {
+            setSkills(listSkills());
+        });
+        return () => {
+            unsubscribe();
+        };
+    }, []);
 
     const concreteModels = React.useMemo(
         () => MODELS.filter((m) => m.id !== "auto"),
@@ -1922,7 +1951,7 @@ export const ChatInput = React.memo(function ChatInput({
                                     if (!open) return;
                                     const cached = peekPluginsCache()?.plugins;
                                     if (cached) setPlusPlugins(cached);
-                                    void fetchPlugins()
+                                    fetchPlugins()
                                         .then((data) => setPlusPlugins(data.plugins))
                                         .catch(() => {
                                             if (!cached) setPlusPlugins([]);
@@ -1965,9 +1994,9 @@ export const ChatInput = React.memo(function ChatInput({
                                         </DropdownMenuSubTrigger>
                                         <DropdownMenuSubContent className="w-56">
                                             <SearchInput
+                                                ref={focusSearchOnMount}
                                                 borderless
                                                 placeholder="Search plugins"
-                                                autoFocus
                                                 value={pluginQuery}
                                                 onChange={(e) => setPluginQuery(e.target.value)}
                                                 onKeyDown={(e) => e.stopPropagation()}
@@ -2103,13 +2132,13 @@ export const ChatInput = React.memo(function ChatInput({
                                     }
                                     const nodes: React.ReactNode[] = [];
                                     let cursor = 0;
-                                    merged.forEach((range, i) => {
+                                    merged.forEach((range) => {
                                         if (range.start > cursor) {
                                             nodes.push(inputValue.slice(cursor, range.start));
                                         }
                                         nodes.push(
                                             <ComposerContextHighlight
-                                                key={`${range.kind}-${i}`}
+                                                key={`${range.kind}-${range.start}`}
                                                 text={inputValue.slice(range.start, range.end)}
                                             />,
                                         );
@@ -2203,7 +2232,7 @@ export const ChatInput = React.memo(function ChatInput({
                                     </ContextMenuItem>
                                     <ContextMenuItem
                                         onClick={() => {
-                                            void navigator.clipboard
+                                            navigator.clipboard
                                                 .readText()
                                                 .then((text) => {
                                                     const el = textareaRef.current;
@@ -2400,7 +2429,7 @@ export const ChatInput = React.memo(function ChatInput({
                                     size="xs"
                                     onClick={() => {
                                         setModelMenuOpen(false);
-                                        void openSettingsWindow({ category: "providers" });
+                                        openSettingsWindow({ category: "providers" }).catch(() => undefined);
                                     }}
                                     className={cn(
                                         "h-7 min-w-0 shrink rounded-md px-2 font-normal text-text-secondary",
@@ -2445,9 +2474,9 @@ export const ChatInput = React.memo(function ChatInput({
                                     {modelMenuOpen ? (
                                     <DropdownMenuContent align="end" className="w-70 max-w-[calc(100vw-24px)]">
                                                 <SearchInput
+                                                    ref={focusSearchOnMount}
                                                     borderless
                                                     placeholder="Search models"
-                                                    autoFocus
                                                     value={modelQuery}
                                                     onChange={(e) => setModelQuery(e.target.value)}
                                                     onKeyDown={(e) => e.stopPropagation()}
@@ -2511,13 +2540,7 @@ export const ChatInput = React.memo(function ChatInput({
                                                                                 onCheckedChange={(checked) => {
                                                                                     if (!allowed) return;
                                                                                     if (checked) {
-                                                                                        if (selectedModel === "auto" || !selectedWorkerModels.length) {
-                                                                                            if (selectedModel !== m.id) {
-                                                                                                setSelectedWorkerModels?.(
-                                                                                                    [...selectedWorkerModels.filter((id) => id !== m.id), m.id],
-                                                                                                );
-                                                                                            }
-                                                                                        } else if (selectedModel !== m.id) {
+                                                                                        if (selectedModel !== m.id) {
                                                                                             setSelectedWorkerModels?.(
                                                                                                 [...selectedWorkerModels.filter((id) => id !== m.id), m.id],
                                                                                             );

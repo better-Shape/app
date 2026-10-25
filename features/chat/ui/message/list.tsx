@@ -15,7 +15,8 @@ import { cn } from "@/lib/utils";
  */
 const SETTLED_TURN_STYLE = { contain: "layout style" } as const;
 
-function ChatMessageListInner({
+/** Renders the ChatMessageListInner UI component. */
+const ChatMessageListInner = ({
     messageGroups,
     messages,
     isLoading,
@@ -47,7 +48,7 @@ function ChatMessageListInner({
     stickyTurnIndex?: number;
     fullWidthBubbles?: boolean;
     highlightedMessageIndex?: number | null;
-}) {
+}) => {
     const lastGroupIdx = messageGroups.length - 1;
     return (
         <>
@@ -60,7 +61,7 @@ function ChatMessageListInner({
                     const isLiveTurn = isLoading && groupIdx === lastGroupIdx;
                     return (
                         <div
-                            key={`turn-${group[0]?.msg.timestamp ?? groupIdx}`}
+                            key={`turn-${group[0]?.msg.timestamp ?? group[0]?.msgIdx ?? "empty"}`}
                             data-chat-turn={groupIdx}
                             style={isLiveTurn ? undefined : SETTLED_TURN_STYLE}
                             className="relative mb-3 flex flex-col gap-2 first:mt-2 last:mb-10 scroll-mt-4"
@@ -115,6 +116,7 @@ function ChatMessageListInner({
             <div ref={messagesEndRef} className="h-4 shrink-0" aria-hidden />
         </>
     );
-}
+};
 
+/** Renders the ChatMessageList UI component. */
 export const ChatMessageList = React.memo(ChatMessageListInner);

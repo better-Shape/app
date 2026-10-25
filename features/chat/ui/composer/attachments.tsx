@@ -30,13 +30,14 @@ const TEXT_PREVIEW_EXTENSIONS = new Set([
     "css", "scss", "html", "xml", "sh", "sql", "graphql", "env", "ini", "cfg", "conf",
 ]);
 
-function isPreviewableTextAttachment(att: ComposerAttachment): boolean {
+/** Is previewable text attachment. */
+const isPreviewableTextAttachment = (att: ComposerAttachment): boolean => {
     if (att.status !== "ready" || att.size <= 0 || att.size > 256_000) return false;
     if (att.kind === "terminal" || att.kind === "code") return true;
     if (att.kind !== "file") return false;
     if (att.mimeType.startsWith("text/") || att.mimeType === "application/json") return true;
     return TEXT_PREVIEW_EXTENSIONS.has(getFileExtension(att.name));
-}
+};
 const IMAGE_EXTENSIONS = new Set([
     "png", "jpg", "jpeg", "gif", "bmp", "webp", "svg", "ico", "tiff", "tif", "avif", "heic", "heif",
 ]);
@@ -219,7 +220,8 @@ function KindIcon({ kind, name }: { kind: AttachmentKind; name: string }) {
     return <Icon icon={Glyph} className="text-text-muted" />;
 }
 
-function RemoveButton({ name, onRemove }: { name: string; onRemove: () => void }) {
+/** Renders the RemoveButton UI component. */
+const RemoveButton = ({ name, onRemove }: { name: string; onRemove: () => void }) => {
     return (
         <Tooltip content={`Remove ${name}`} side="top">
             <button
@@ -232,10 +234,10 @@ function RemoveButton({ name, onRemove }: { name: string; onRemove: () => void }
             </button>
         </Tooltip>
     );
-}
+};
 
 /** Composer chip: image preview thumbnail or file-kind icon + filename. */
-export function ComposerFileTile({
+export const ComposerFileTile = ({
     kind,
     name,
     size,
@@ -251,7 +253,7 @@ export function ComposerFileTile({
     busy?: boolean;
     failed?: boolean;
     onPreview?: () => void;
-}) {
+}) => {
     const sizeText = typeof size === "number" && size > 0 ? formatAttachmentSize(size) : "";
     const tooltipLabel = [
         name,
@@ -309,10 +311,10 @@ export function ComposerFileTile({
             )}
         </Tooltip>
     );
-}
+};
 
 /** Sent-message chip: filename only. */
-export function MessageAttachmentPill({ name }: { kind?: AttachmentKind; name: string }) {
+export const MessageAttachmentPill = ({ name }: { kind?: AttachmentKind; name: string }) => {
     return (
         <Tooltip content={name} side="top" delayDuration={220}>
             <span className="inline-flex h-7 max-w-52 items-center rounded-full border border-border-subtle bg-surface-1 px-2.5 text-xs text-text-primary">
@@ -320,9 +322,10 @@ export function MessageAttachmentPill({ name }: { kind?: AttachmentKind; name: s
             </span>
         </Tooltip>
     );
-}
+};
 
-function AttachmentPill({
+/** Renders the AttachmentPill UI component. */
+const AttachmentPill = ({
     attachment,
     onRemove,
     onPreview,
@@ -330,7 +333,7 @@ function AttachmentPill({
     attachment: ComposerAttachment;
     onRemove: () => void;
     onPreview?: (attachment: ComposerAttachment) => void;
-}) {
+}) => {
     const preview = useObjectUrl(
         attachment.kind === "image" ? attachment.file : null,
         attachment.dataUrl,
@@ -352,9 +355,10 @@ function AttachmentPill({
             <RemoveButton name={attachment.name} onRemove={onRemove} />
         </div>
     );
-}
+};
 
-export function ComposerAttachments({
+/** Renders the ComposerAttachments UI component. */
+export const ComposerAttachments = ({
     attachments,
     onRemove,
     onInsertInline,
@@ -362,7 +366,7 @@ export function ComposerAttachments({
     attachments: ComposerAttachment[];
     onRemove: (id: string) => void;
     onInsertInline?: (id: string, text: string) => void;
-}) {
+}) => {
     const overlayRoot = useOverlayRoot();
     const previewReqIdRef = React.useRef(0);
     const [previewing, setPreviewing] = React.useState<{
@@ -375,7 +379,7 @@ export function ComposerAttachments({
 
     const handleOpenPreview = React.useCallback((att: ComposerAttachment) => {
         const reqId = ++previewReqIdRef.current;
-        void att.file
+        att.file
             .text()
             .then((raw) => {
                 if (previewReqIdRef.current !== reqId) return;
@@ -475,4 +479,4 @@ export function ComposerAttachments({
             </Dialog.Root>
         </>
     );
-}
+};

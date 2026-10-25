@@ -8,18 +8,21 @@ let resolvedPrism: HighlighterComponent | null = null;
 let inflightLoad: Promise<HighlighterComponent> | null = null;
 const prismListeners = new Set<() => void>();
 
-function subscribePrism(listener: () => void): () => void {
+/** Subscribe prism. */
+const subscribePrism = (listener: () => void): () => void => {
     prismListeners.add(listener);
     return () => {
         prismListeners.delete(listener);
     };
-}
+};
 
-function getPrismReadySnapshot(): boolean {
+/** Get prism ready snapshot. */
+const getPrismReadySnapshot = (): boolean => {
     return resolvedPrism !== null;
-}
+};
 
-function loadPrismModule(): Promise<HighlighterComponent> {
+/** Load prism module. */
+const loadPrismModule = (): Promise<HighlighterComponent> => {
     if (resolvedPrism) return Promise.resolve(resolvedPrism);
     if (!inflightLoad) {
         inflightLoad = import("react-syntax-highlighter")
@@ -38,12 +41,12 @@ function loadPrismModule(): Promise<HighlighterComponent> {
             });
     }
     return inflightLoad;
-}
+};
 
 let idlePreloadScheduled = false;
 
 /** Warm the syntax highlighter chunk during idle time so first code block renders synchronously. */
-export function preloadSyntaxHighlighter(): void {
+export const preloadSyntaxHighlighter = (): void => {
     if (resolvedPrism || inflightLoad || idlePreloadScheduled || typeof window === "undefined") return;
     idlePreloadScheduled = true;
     const run = () => {
@@ -60,10 +63,10 @@ export function preloadSyntaxHighlighter(): void {
     } else {
         window.setTimeout(run, 120);
     }
-}
+};
 
 /** Lazy-loaded Prism syntax highlighter with retryable chunk loading and `<pre>` fallback. */
-export function SyntaxHighlighter({
+export const SyntaxHighlighter = ({
     children,
     fallback,
     ...props
@@ -71,7 +74,7 @@ export function SyntaxHighlighter({
     children?: ReactNode;
     fallback?: ReactNode;
     [key: string]: unknown;
-}) {
+}) => {
     const isReady = useSyncExternalStore(
         subscribePrism,
         getPrismReadySnapshot,
@@ -80,7 +83,7 @@ export function SyntaxHighlighter({
 
     useEffect(() => {
         if (isReady) return;
-        void loadPrismModule().catch(() => {
+        loadPrismModule().catch(() => {
             /* graceful fallback to <pre>; later mounts can retry */
         });
     }, [isReady]);
@@ -93,4 +96,4 @@ export function SyntaxHighlighter({
         return fallback;
     }
     return <pre className="m-0 overflow-x-auto font-mono text-sm">{children}</pre>;
-}
+};

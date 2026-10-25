@@ -1,24 +1,26 @@
 "use client";
 
 import { useMemo } from "react";
-import { cn } from "@/lib/utils";
+import { cn, createOccurrenceKeyer } from "@/lib/utils";
 import {
     parseUnifiedDiffBody,
     unifiedDiffRows,
     type UnifiedDiffRow,
 } from "@/lib/ui/diff-count";
 
-function DiffRows({ rows }: { rows: UnifiedDiffRow[] }) {
+/** Renders the DiffRows UI component. */
+const DiffRows = ({ rows }: { rows: UnifiedDiffRow[] }) => {
     if (rows.length === 0) return null;
+    const keyFor = createOccurrenceKeyer();
     return (
         <div className="custom-scrollbar relative mt-1 mb-1 max-h-56 w-full overflow-auto rounded-xl border border-border-subtle bg-transparent px-1.5 py-2 font-mono text-sm leading-6">
-            {rows.map((row, i) => {
+            {rows.map((row) => {
                 if (row.type === "hunk") return null;
                 const num = row.type === "remove" ? row.oldNum : row.newNum ?? row.oldNum;
                 const marker = row.type === "add" ? "+" : row.type === "remove" ? "-" : " ";
                 return (
                     <div
-                        key={`${row.type}-${i}`}
+                        key={keyFor(`${row.type}:${row.oldNum ?? ""}:${row.newNum ?? ""}`)}
                         className={cn(
                             "flex min-w-full",
                             row.type === "add" && "bg-success/10 text-success",
@@ -46,7 +48,7 @@ function DiffRows({ rows }: { rows: UnifiedDiffRow[] }) {
             })}
         </div>
     );
-}
+};
 
 /** Unified edit preview from before/after content. */
 export function ChatEditDiff({

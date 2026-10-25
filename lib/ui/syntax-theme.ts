@@ -47,9 +47,9 @@ const BETTER_SHAPE_SYNTAX_THEME: Record<string, CSSProperties> = {
 };
 
 /** Token-aware syntax highlighting theme for react-syntax-highlighter */
-export function getBetterShapeSyntaxTheme(): Record<string, CSSProperties> {
+export const getBetterShapeSyntaxTheme = (): Record<string, CSSProperties> => {
     return BETTER_SHAPE_SYNTAX_THEME;
-}
+};
 
 export function getGitStatusColor(status: string): string | undefined {
     if (status === "M") return "var(--git-modified)";

@@ -8,9 +8,9 @@ import { ChevronDown20Regular } from "@fluentui/react-icons/headless/svg/chevron
 import { Dismiss20Regular } from "@fluentui/react-icons/headless/svg/dismiss";
 import { TaskListSquareLtr20Regular } from "@fluentui/react-icons/headless/svg/task-list-square-ltr";
 import { Eclipse } from "loading-dev";
-import React, { useEffect, useRef } from "react";
+import React, { useRef } from "react";
 import { Icon } from "@/components/ui/icon";
-import { cn } from "@/lib/utils";
+import { cn, createOccurrenceKeyer } from "@/lib/utils";
 import { commands, useProjectState } from "@/lib/backend";
 import { useChatStreamStatus } from "@/features/chat/lib/chat-stream-store";
 import { displayPlanName, parsePlanMarkdown, splitPlanDocument, type PlanPreview } from "@/lib/plan/preview";
@@ -22,8 +22,8 @@ import {
 } from "@/lib/chat/planning-block";
 import { Button } from "@/components/ui/button";
 import {
-    CHAT_EXPAND_FOR_FIND_EVENT,
     notifyTranscriptDisclosureToggle,
+    useExpandForChatFind,
 } from "../shell/find-bar";
 import { Collapse } from "./collapse";
 import { recordPlanOrigin, resolveProjectPlanPath } from "@/features/chat/lib/plan-origin";
@@ -34,14 +34,15 @@ type PlanStep = {
     status: "done" | "active" | "pending" | "cancelled";
 };
 
-export function PlanningBlock({ steps, completedCount, totalCount, isGenerating }: {
+/** Renders the PlanningBlock UI component. */
+export const PlanningBlock = ({ steps, completedCount, totalCount, isGenerating }: {
     title?: string;
     steps: PlanStep[];
     completedCount: number;
     totalCount: number;
     /** When false, freeze "active" steps so they don't spin after the turn ends. */
     isGenerating?: boolean;
-}) {
+}) => {
     const rootRef = useRef<HTMLDivElement>(null);
     const collapseId = React.useId();
     const [manualOpen, setManualOpen] = React.useState<boolean | null>(null);
@@ -62,35 +63,12 @@ export function PlanningBlock({ steps, completedCount, totalCount, isGenerating 
           : previewWindow.items.map((item) => item.step);
     const canToggle = totalCount > 1;
 
-    useEffect(() => {
-        if (!canToggle || isOpen) return undefined;
-        const onExpandForFind = (e: Event) => {
-            const detail = (
-                e as CustomEvent<{
-                    messageIndex?: number;
-                    query?: string;
-                    caseSensitive?: boolean;
-                }>
-            ).detail;
-            const root = rootRef.current;
-            if (!root || detail?.messageIndex == null) return;
-            const msgEl = root.closest<HTMLElement>("[data-chat-message-index]");
-            if (!msgEl || Number(msgEl.getAttribute("data-chat-message-index")) !== detail.messageIndex) {
-                return;
-            }
-            const q = (detail.query ?? "").trim();
-            if (!q) return;
-            const haystack = displaySteps.map((s) => s.label).join(" ");
-            const matched = detail.caseSensitive
-                ? haystack.includes(q)
-                : haystack.toLowerCase().includes(q.toLowerCase());
-            if (matched) setManualOpen(true);
-        };
-        window.addEventListener(CHAT_EXPAND_FOR_FIND_EVENT, onExpandForFind as EventListener);
-        return () => {
-            window.removeEventListener(CHAT_EXPAND_FOR_FIND_EVENT, onExpandForFind as EventListener);
-        };
-    }, [canToggle, isOpen, displaySteps]);
+    useExpandForChatFind({
+        enabled: canToggle && !isOpen,
+        rootRef,
+        getSearchText: () => displaySteps.map((s) => s.label).join(" "),
+        onExpand: () => setManualOpen(true),
+    });
 
     const handleToggle = () => {
         if (!canToggle) return;
@@ -182,18 +160,19 @@ export function PlanningBlock({ steps, completedCount, totalCount, isGenerating 
             {!isOpen && summarySteps.length > 0 ? renderSteps(summarySteps) : null}
         </div>
     );
-}
+};
 
-function PlanBuildButton({ missing, busy, onBuild }: {
+/** Renders the PlanBuildButton UI component. */
+const PlanBuildButton = ({ missing, busy, onBuild }: {
     missing: boolean;
     busy: boolean;
     onBuild: () => Promise<void>;
-}) {
+}) => {
     const label = missing ? "Plan missing" : busy ? "Building…" : "Build";
     return (
         <Button
             disabled={busy || missing}
-            onClick={() => { void onBuild(); }}
+            onClick={() => { onBuild().catch(() => undefined); }}
             variant={missing ? "outline" : "default"}
             size="sm"
             className={cn("gap-1", missing && "text-error border-error/40")}
@@ -207,10 +186,10 @@ function PlanBuildButton({ missing, busy, onBuild }: {
             ) : null}
         </Button>
     );
-}
+};
 
 /** Display a saved plan, recover its supplied markdown when necessary, and keep Build tied to its originating chat. */
-export function PlanSavedBlock({
+export const PlanSavedBlock = ({
     title,
     path,
     markdown,
@@ -218,7 +197,7 @@ export function PlanSavedBlock({
     title: string;
     path: string;
     markdown?: string;
-}) {
+}) => {
     const rootRef = useRef<HTMLDivElement>(null);
     const { project_path } = useProjectState();
     const { isLoading, viewedConversationId } = useChatStreamStatus();
@@ -249,7 +228,7 @@ export function PlanSavedBlock({
 
     React.useEffect(() => {
         let cancelled = false;
-        void commands.readFile(absPath).then((content) => {
+        commands.readFile(absPath).then((content) => {
             if (!cancelled) {
                 applyPlan(content);
                 setMissing(false);
@@ -260,35 +239,12 @@ export function PlanSavedBlock({
         return () => { cancelled = true; };
     }, [absPath, markdown]);
 
-    useEffect(() => {
-        if (open) return undefined;
-        const onExpandForFind = (e: Event) => {
-            const detail = (
-                e as CustomEvent<{
-                    messageIndex?: number;
-                    query?: string;
-                    caseSensitive?: boolean;
-                }>
-            ).detail;
-            const root = rootRef.current;
-            if (!root || detail?.messageIndex == null) return;
-            const msgEl = root.closest<HTMLElement>("[data-chat-message-index]");
-            if (!msgEl || Number(msgEl.getAttribute("data-chat-message-index")) !== detail.messageIndex) {
-                return;
-            }
-            const q = (detail.query ?? "").trim();
-            if (!q) return;
-            const haystack = `${displayTitle} ${body} ${(preview?.todos ?? []).join(" ")}`;
-            const matched = detail.caseSensitive
-                ? haystack.includes(q)
-                : haystack.toLowerCase().includes(q.toLowerCase());
-            if (matched) setOpen(true);
-        };
-        window.addEventListener(CHAT_EXPAND_FOR_FIND_EVENT, onExpandForFind as EventListener);
-        return () => {
-            window.removeEventListener(CHAT_EXPAND_FOR_FIND_EVENT, onExpandForFind as EventListener);
-        };
-    }, [open, displayTitle, body, preview]);
+    useExpandForChatFind({
+        enabled: !open,
+        rootRef,
+        getSearchText: () => `${displayTitle} ${body} ${(preview?.todos ?? []).join(" ")}`,
+        onExpand: () => setOpen(true),
+    });
 
     const ensurePlanFile = async (): Promise<boolean> => {
         try {
@@ -372,14 +328,17 @@ export function PlanSavedBlock({
 
                     {todoCount > 0 ? (
                         <ul className="flex flex-col gap-1">
-                            {todos.map((todo, i) => (
-                                <li key={`${todo}-${i}`} className="flex items-start gap-2">
-                                    <span className="flex size-4 shrink-0 items-center justify-center">
-                                        <span className="size-3.5 rounded-full border border-text-muted/55" />
-                                    </span>
-                                    <span className="text-sm text-text-primary leading-snug">{todo}</span>
-                                </li>
-                            ))}
+                            {(() => {
+                                const keyFor = createOccurrenceKeyer();
+                                return todos.map((todo) => (
+                                    <li key={keyFor(todo)} className="flex items-start gap-2">
+                                        <span className="flex size-4 shrink-0 items-center justify-center">
+                                            <span className="size-3.5 rounded-full border border-text-muted/55" />
+                                        </span>
+                                        <span className="text-sm text-text-primary leading-snug">{todo}</span>
+                                    </li>
+                                ));
+                            })()}
                         </ul>
                     ) : null}
 
@@ -390,4 +349,4 @@ export function PlanSavedBlock({
             </Collapse>
         </div>
     );
-}
+};

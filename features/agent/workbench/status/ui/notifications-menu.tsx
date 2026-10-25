@@ -20,10 +20,11 @@ import {
     notificationStore,
     useUnreadNotificationCount,
 } from "@/features/notifications";
-import { cn } from "@/lib/utils";
+import { cn, createOccurrenceKeyer } from "@/lib/utils";
 import { CopyButton } from "./copy-button";
 
-export function NotificationsMenu() {
+/** Renders the NotificationsMenu UI component. */
+export const NotificationsMenu = () => {
     const { notifications } = useNotifications();
     const unreadCount = useUnreadNotificationCount();
 
@@ -93,19 +94,22 @@ export function NotificationsMenu() {
                                     <div className="text-sm text-text-primary">{notification.message}</div>
                                     {notification.description && (
                                         <div className="mt-0.5 space-y-0.5">
-                                            {notification.description.split(/\n/).map((line, i) => (
-                                                <div
-                                                    key={i}
-                                                    className={cn(
-                                                        "text-xs wrap-break-word",
-                                                        i === 0
-                                                            ? "text-text-secondary"
-                                                            : "text-text-muted line-clamp-2",
-                                                    )}
-                                                >
-                                                    {line}
-                                                </div>
-                                            ))}
+                                            {(() => {
+                                                const keyFor = createOccurrenceKeyer();
+                                                return notification.description.split(/\n/).map((line, pos) => (
+                                                    <div
+                                                        key={keyFor(line || "blank")}
+                                                        className={cn(
+                                                            "text-xs wrap-break-word",
+                                                            pos === 0
+                                                                ? "text-text-secondary"
+                                                                : "text-text-muted line-clamp-2",
+                                                        )}
+                                                    >
+                                                        {line}
+                                                    </div>
+                                                ));
+                                            })()}
                                         </div>
                                     )}
                                 </div>
@@ -127,4 +131,4 @@ export function NotificationsMenu() {
             </DropdownMenuContent>
         </DropdownMenu>
     );
-}
+};

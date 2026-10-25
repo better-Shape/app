@@ -92,7 +92,8 @@ function merge(card: PersonaCard, live: PersonaLive | undefined): PersonaCard {
     };
 }
 
-function PersonaRow({ card, live }: { card: PersonaCard; live?: PersonaLive }) {
+/** Renders the PersonaRow UI component. */
+const PersonaRow = ({ card, live }: { card: PersonaCard; live?: PersonaLive }) => {
     const [open, setOpen] = useState(false);
     const collapseId = React.useId();
     const running = card.status === "running";
@@ -134,9 +135,10 @@ function PersonaRow({ card, live }: { card: PersonaCard; live?: PersonaLive }) {
             </Collapse>
         </div>
     );
-}
+};
 
-export function PersonaReviewPanel({
+/** Renders the PersonaReviewPanel UI component. */
+export const PersonaReviewPanel = ({
     reviewId,
     url,
     content,
@@ -145,7 +147,7 @@ export function PersonaReviewPanel({
     url?: string;
     status?: string;
     content: string;
-}) {
+}) => {
     const [open, setOpen] = useState(true);
     const collapseId = React.useId();
     const parsed = useMemo(() => parseCards(content), [content]);
@@ -190,4 +192,4 @@ export function PersonaReviewPanel({
             </Collapse>
         </div>
     );
-}
+};

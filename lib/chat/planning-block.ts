@@ -28,10 +28,10 @@ export interface PlanningPreviewWindow<T extends PlanningStepItem = PlanningStep
  * long plans follow the currently active (or next pending) step instead of pinning the
  * first two completed steps forever.
  */
-export function selectPlanningPreviewSteps<T extends PlanningStepItem>(
+export const selectPlanningPreviewSteps = <T extends PlanningStepItem>(
     steps: readonly T[],
     maxVisible = 2,
-): PlanningPreviewWindow<T> {
+): PlanningPreviewWindow<T> => {
     if (maxVisible <= 0 || steps.length === 0) {
         return { items: [], hiddenCount: steps.length };
     }
@@ -99,4 +99,4 @@ export function selectPlanningPreviewSteps<T extends PlanningStepItem>(
         items: ordered,
         hiddenCount: Math.max(0, steps.length - ordered.length),
     };
-}
+};

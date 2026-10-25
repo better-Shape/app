@@ -125,7 +125,8 @@ export function reapOrphanedTerminalSessions() {
 
 
 
-function TerminalInstance({ tab, isActive }: { tab: TerminalTab, isActive: boolean }) {
+/** Renders the TerminalInstance UI component. */
+const TerminalInstance = ({ tab, isActive }: { tab: TerminalTab, isActive: boolean }) => {
     const terminalRef = useRef<HTMLDivElement>(null);
     const xtermRef = useRef<XTermType | null>(null);
     const fitAddonRef = useRef<FitAddonType | null>(null);
@@ -159,7 +160,7 @@ function TerminalInstance({ tab, isActive }: { tab: TerminalTab, isActive: boole
     }, [isActive]);
 
     useEffect(() => {
-        if (!terminalRef.current) return;
+        if (!terminalRef.current) return undefined;
         let isMounted = true;
         let term: XTermType | undefined;
         let fitAddon: FitAddonType | undefined;
@@ -280,7 +281,15 @@ function TerminalInstance({ tab, isActive }: { tab: TerminalTab, isActive: boole
                 if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "l") {
                     const rawSelected = term?.hasSelection() ? term.getSelection() : "";
                     if (!rawSelected.trim()) return;
-                    const selected = rawSelected.replace(/[\r\n]+$/, "");
+                    let trimEnd = rawSelected.length;
+                    while (
+                        trimEnd > 0 &&
+                        (rawSelected.charCodeAt(trimEnd - 1) === 10 ||
+                            rawSelected.charCodeAt(trimEnd - 1) === 13)
+                    ) {
+                        trimEnd -= 1;
+                    }
+                    const selected = rawSelected.slice(0, trimEnd);
                     event.preventDefault();
                     event.stopPropagation();
                     const file = terminalAttachmentFile(selected, tab.title || "Terminal");
@@ -370,9 +379,9 @@ function TerminalInstance({ tab, isActive }: { tab: TerminalTab, isActive: boole
                         if (devMatch) {
                             setLastDevUrl(devMatch[0]);
                         }
-                        void import("@/features/preview/run-status").then(({ noteDevRunOutput }) => {
+                        import("@/features/preview/run-status").then(({ noteDevRunOutput }) => {
                             noteDevRunOutput(e.payload.data);
-                        });
+                        }).catch(() => undefined);
                     }
                 });
                 const unlistenExit = await listen<{ id: number; exit_code: number | null }>("pty-exit", (e) => {
@@ -380,9 +389,9 @@ function TerminalInstance({ tab, isActive }: { tab: TerminalTab, isActive: boole
                         const code = e.payload.exit_code ?? 0;
                         term.write(`\r\n\x1b[38;2;120;120;120m[Process exited with code ${code}]\x1b[0m\r\n`);
                         term.scrollToBottom();
-                        void import("@/features/preview/run-status").then(({ noteDevRunExit }) => {
+                        import("@/features/preview/run-status").then(({ noteDevRunExit }) => {
                             noteDevRunExit(code);
-                        });
+                        }).catch(() => undefined);
                     }
                 });
                 const originalUnlistenOutput = unlistenOutput;
@@ -488,13 +497,13 @@ function TerminalInstance({ tab, isActive }: { tab: TerminalTab, isActive: boole
                 }
                 unlistenOutput?.();
                 if (term) term.write(`\r\n\x1b[31mError spawning terminal: ${e}\x1b[0m\r\n`);
-                void import("@/features/notifications").then(({ notify }) => {
+                import("@/features/notifications").then(({ notify }) => {
                     notify.error("Terminal", `Error spawning terminal: ${e}`, { code: 4400 });
-                });
+                }).catch(() => undefined);
             }
         };
 
-        void init().catch((e) => {
+        init().catch((e) => {
             console.error("Failed to initialize terminal:", e);
         });
         let detachCopy: (() => void) | undefined;
@@ -586,7 +595,7 @@ function TerminalInstance({ tab, isActive }: { tab: TerminalTab, isActive: boole
         area.select();
         document.execCommand("copy");
         area.remove();
-        void navigator.clipboard.writeText(selected).catch(() => undefined);
+        navigator.clipboard.writeText(selected).catch(() => undefined);
     };
 
 // A denied or empty clipboard is not an error: pasting nothing beats throwing
@@ -631,7 +640,7 @@ function TerminalInstance({ tab, isActive }: { tab: TerminalTab, isActive: boole
                     Copy
                     <ContextMenuShortcut>Ctrl+Shift+C</ContextMenuShortcut>
                 </ContextMenuItem>
-                <ContextMenuItem onClick={() => void pasteClipboard()}>
+                <ContextMenuItem onClick={() => { pasteClipboard().catch(() => undefined); }}>
                     Paste
                     <ContextMenuShortcut>Ctrl+Shift+V</ContextMenuShortcut>
                 </ContextMenuItem>
@@ -650,9 +659,10 @@ function TerminalInstance({ tab, isActive }: { tab: TerminalTab, isActive: boole
             </ContextMenuContent>
         </ContextMenu>
     );
-}
+};
 
-export default function Terminal({
+/** Renders the Terminal UI component. */
+const Terminal = ({
     onClose,
     isOpen,
     terminalOnly = false,
@@ -661,7 +671,7 @@ export default function Terminal({
     isOpen?: boolean;
     /** Hide Problems/Output/Tests chrome, terminal tabs only. */
     terminalOnly?: boolean;
-}) {
+}) => {
     const { project_path } = useProjectState();
     const [terminalTabs, setTerminalTabs] = useState<TerminalTab[]>(globalTerminalStore.tabs);
     const [projectActiveTabs, setProjectActiveTabs] = useState<Record<string, string | null>>(globalTerminalStore.activeProjectTabs);
@@ -717,7 +727,7 @@ export default function Terminal({
 // Pulls the browser tab module in on demand; the event fires once and the
         // terminal does not need that module to render.
         const handleOpenBrowser = () => {
-            void import("@/lib/window/browser-tab").then(({ openBrowserTab }) => openBrowserTab());
+            import("@/lib/window/browser-tab").then(({ openBrowserTab }) => openBrowserTab()).catch(() => undefined);
         };
         const handleOpenWorkspaceTerminal = () => {
             setActiveView("terminal");
@@ -741,7 +751,7 @@ export default function Terminal({
             if (isLayoutResizing()) return;
             if (timer) clearTimeout(timer);
             timer = setTimeout(() => {
-                if (!isLayoutResizing()) void refitAllTerminals();
+                if (!isLayoutResizing()) refitAllTerminals().catch(() => undefined);
             }, 200);
         };
 // Refits on the visible transition only: a hidden document measures zero, so a
@@ -753,11 +763,11 @@ export default function Terminal({
         window.addEventListener("focus", refit);
         let unlistenResize: (() => void) | undefined;
         if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) {
-            void import("@tauri-apps/api/window").then(({ getCurrentWindow }) => {
-                void getCurrentWindow().onResized(() => refit()).then((fn) => {
+            import("@tauri-apps/api/window").then(({ getCurrentWindow }) => {
+                getCurrentWindow().onResized(() => refit()).then((fn) => {
                     unlistenResize = fn;
-                });
-            });
+                }).catch(() => undefined);
+            }).catch(() => undefined);
         }
         return () => {
             if (timer) clearTimeout(timer);
@@ -767,13 +777,18 @@ export default function Terminal({
         };
     }, []);
 
-    useEffect(() => globalTerminalStore.subscribe(() => {
-        setTerminalTabs([...globalTerminalStore.tabs]);
-        setProjectActiveTabs({ ...globalTerminalStore.activeProjectTabs });
-        setSecondaryActiveTabs({ ...globalTerminalStore.activeSecondaryTabs });
-        setFocusedGroups({ ...globalTerminalStore.focusedGroup });
-        setUnreadTabs(new Set(globalTerminalStore.unreadTabs));
-    }), []);
+    useEffect(() => {
+        const unsub = globalTerminalStore.subscribe(() => {
+            setTerminalTabs([...globalTerminalStore.tabs]);
+            setProjectActiveTabs({ ...globalTerminalStore.activeProjectTabs });
+            setSecondaryActiveTabs({ ...globalTerminalStore.activeSecondaryTabs });
+            setFocusedGroups({ ...globalTerminalStore.focusedGroup });
+            setUnreadTabs(new Set(globalTerminalStore.unreadTabs));
+        });
+        return () => {
+            unsub();
+        };
+    }, []);
 
     const setActiveTerminalId = useCallback((id: string | null) => {
         globalTerminalStore.setActive(safeCwd, id);
@@ -851,7 +866,7 @@ export default function Terminal({
             }
             return next;
         });
-        setTimeout(() => void refitAllTerminals(), 50);
+        setTimeout(() => { refitAllTerminals().catch(() => undefined); }, 50);
     }, [activeTerminalId, secondaryTerminalId, onClose, safeCwd, setActiveTerminalId, setSecondaryTerminalId]);
 
     const addTab = useCallback((shell: TerminalShell, group: TerminalGroupId = "left") => {
@@ -869,7 +884,7 @@ export default function Terminal({
             globalTerminalStore.setFocusedGroup(safeCwd, "left");
         }
         setActiveView("terminal");
-        setTimeout(() => void refitAllTerminals(), 80);
+        setTimeout(() => { refitAllTerminals().catch(() => undefined); }, 80);
     }, [safeCwd, setActiveTerminalId, setSecondaryTerminalId, ensurePanelOpen]);
 
     /** Split like the editor: open a new terminal in the right pane (reuse split if present). */
@@ -1024,7 +1039,7 @@ export default function Terminal({
             document.body.style.cursor = "";
             document.body.style.userSelect = "";
             document.body.removeAttribute("data-resizing");
-            void refitAllTerminals();
+            refitAllTerminals().catch(() => undefined);
         };
         window.addEventListener("mousemove", onMove);
         window.addEventListener("mouseup", onUp);
@@ -1358,4 +1373,5 @@ export default function Terminal({
             </div>
         </div>
     );
-}
+};
+export default Terminal;

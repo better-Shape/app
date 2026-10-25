@@ -101,7 +101,8 @@ const formatExplorerMentionToken = (entryPath: string, projectPath: string, isDi
     })} `;
 };
 
-function TreeNode({
+/** Renders the TreeNode UI component. */
+const TreeNode = ({
     entry,
     depth,
     projectPath,
@@ -129,7 +130,7 @@ function TreeNode({
     cutPaths?: Set<string>;
     onSelect?: (entry: FileEntry) => void;
     onClipboard?: (action: ClipboardAction, entry: FileEntry) => void;
-}) {
+}) => {
     const [open, setOpen] = useState(false);
     const [children, setChildren] = useState<FileEntry[] | null>(null);
     const seq = useRef(0);
@@ -149,7 +150,7 @@ function TreeNode({
     }, [revealed]);
 
     const load = useCallback(() => {
-        if (!entry.is_dir) return;
+        if (!entry.is_dir) return undefined;
         const id = ++seq.current;
         return commands.lsDir(entry.path).then(entries => {
             if (seq.current === id) setChildren(sortEntries(entries));
@@ -159,12 +160,12 @@ function TreeNode({
     }, [entry.is_dir, entry.path]);
 
     useEffect(() => {
-        if (isExpanded && children === null) void load();
+        if (isExpanded && children === null) load();
     }, [isExpanded, children, load]);
 
     useEffect(() => {
-        if (!isExpanded || !entry.is_dir) return;
-        const fn = () => { void load(); };
+        if (!isExpanded || !entry.is_dir) return undefined;
+        const fn = () => { load(); };
         window.addEventListener("bettershape-files-changed", fn);
         return () => window.removeEventListener("bettershape-files-changed", fn);
     }, [isExpanded, entry.is_dir, load]);
@@ -174,10 +175,10 @@ function TreeNode({
     const needle = query.trim().toLowerCase();
 
     const reveal = () => {
-        void commands.revealPath(entry.path).catch(() => {});
+        commands.revealPath(entry.path).catch(() => {});
     };
     const copyPath = () => {
-        void navigator.clipboard.writeText(entry.path);
+        navigator.clipboard.writeText(entry.path).catch(() => undefined);
     };
     const addToChat = () => {
         const token = formatExplorerMentionToken(entry.path, projectPath, entry.is_dir);
@@ -316,9 +317,10 @@ function TreeNode({
             </ContextMenuContent>
         </ContextMenu>
     );
-}
+};
 
-export function FileTree({
+/** Renders the FileTree UI component. */
+export const FileTree = ({
     projectPath,
     activePath,
     onOpenFile,
@@ -326,7 +328,7 @@ export function FileTree({
     projectPath: string;
     activePath: string | null;
     onOpenFile: (path: string) => void;
-}) {
+}) => {
     const [roots, setRoots] = useState<FileEntry[]>([]);
     const [error, setError] = useState<string | null>(null);
     const [query, setQuery] = useState("");
@@ -352,7 +354,14 @@ export function FileTree({
     const selectedRef = useRef<FileEntry | null>(null);
     const [clipboardError, setClipboardError] = useState<string | null>(null);
     const [clipboardTick, setClipboardTick] = useState(0);
-    useEffect(() => subscribeFileClipboard(() => setClipboardTick((n) => n + 1)), []);
+    useEffect(() => {
+        const unsub = subscribeFileClipboard(() => {
+            setClipboardTick((n) => n + 1);
+        });
+        return () => {
+            unsub();
+        };
+    }, []);
     const cutPaths = useMemo(() => {
         const set = new Set<string>();
         const clip = getFileClipboard();
@@ -376,7 +385,7 @@ export function FileTree({
             return;
         }
         const targetDir = entry.is_dir ? entry.path : parentDir(entry.path);
-        void pasteFileClipboard(targetDir).catch((e) => {
+        pasteFileClipboard(targetDir).catch((e) => {
             setClipboardError(e instanceof Error ? e.message : String(e));
         });
     }, [select]);
@@ -409,7 +418,7 @@ export function FileTree({
 
     useEffect(() => {
         let cancelled = false;
-        void (async () => {
+        (async () => {
             try {
                 const list = sortEntries(await commands.lsDir(projectPath));
                 if (!cancelled) {
@@ -422,7 +431,7 @@ export function FileTree({
                     setRoots([]);
                 }
             }
-        })();
+        })().catch(() => undefined);
         return () => {
             cancelled = true;
         };
@@ -430,7 +439,7 @@ export function FileTree({
 
     useEffect(() => {
         let cancelled = false;
-        void commands.gitStatus(projectPath).then((files) => {
+        commands.gitStatus(projectPath).then((files) => {
             if (cancelled) return;
             const next = new Map<string, string>();
             const root = projectPath.replace(/\\/g, "/").replace(/(?<!\/)\/+$/, "").toLowerCase();
@@ -503,4 +512,4 @@ export function FileTree({
             </div>
         </div>
     );
-}
+};

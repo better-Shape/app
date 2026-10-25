@@ -46,17 +46,17 @@ export const getTestStoreSnapshot = (): TestStoreState => {
 };
 
 /** Subscribes components to the shared test runner state. */
-export function useTestStore() {
+export const useTestStore = () => {
     return useSyncExternalStore(subscribe, getTestStoreSnapshot, getTestStoreSnapshot);
-}
+};
 
 /** True when `projectPath` still owns the shared test runner store. */
-export function isActiveTestProject(projectPath: string): boolean {
+export const isActiveTestProject = (projectPath: string): boolean => {
     return state.projectPath === null || state.projectPath === projectPath;
-}
+};
 
 /** Resets all discovered suites and results, optionally binding to `projectPath`. */
-export function resetTestStore(projectPath: string | null = null) {
+export const resetTestStore = (projectPath: string | null = null) => {
     const switchedProjectsWhileRunning =
         state.running && projectPath !== null && projectPath !== state.projectPath;
     state = {
@@ -70,10 +70,10 @@ export function resetTestStore(projectPath: string | null = null) {
         lastPattern: null,
     };
     emit();
-}
+};
 
 /** Records discovered test files for `projectPath`. */
-export function setTestDiscovery(discovery: TestDiscovery, projectPath: string | null = null) {
+export const setTestDiscovery = (discovery: TestDiscovery, projectPath: string | null = null) => {
     const previewSuites = discovery.test_files.map((file) => ({
         id: file,
         name: file.split(/[\\/]/).pop() || file,
@@ -92,13 +92,14 @@ export function setTestDiscovery(discovery: TestDiscovery, projectPath: string |
         error: null,
     };
     emit();
-}
+};
 
-export function setTestRunning(
+/** Set test running. */
+export const setTestRunning = (
     running: boolean,
     pattern: string | null = null,
     projectPath: string | null = null,
-) {
+) => {
     state = {
         ...state,
         running,
@@ -108,7 +109,7 @@ export function setTestRunning(
         summary: running ? null : state.summary,
     };
     emit();
-}
+};
 
 export function setTestError(message: string) {
     state = { ...state, running: false, error: message };
@@ -151,13 +152,14 @@ function upsertTest(test: TestCase) {
     emit();
 }
 
-export function applyTestResultEvent(event: {
+/** Apply test result event. */
+export const applyTestResultEvent = (event: {
     event_type: string;
     framework: string;
     test?: TestCase;
     summary?: TestRunSummary;
     message?: string;
-}) {
+}) => {
     if (
         state.projectPath !== null &&
         state.runProjectPath !== null &&
@@ -199,7 +201,7 @@ export function applyTestResultEvent(event: {
             emit();
             break;
     }
-}
+};
 
 export function getFailedTests(): TestCase[] {
     return state.suites.flatMap((s) => s.tests.filter((t) => t.status === "failed"));

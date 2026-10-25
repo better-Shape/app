@@ -15,14 +15,14 @@ import { People20Regular } from "@fluentui/react-icons/headless/svg/people";
 import { Person20Regular } from "@fluentui/react-icons/headless/svg/person";
 import { Search20Regular } from "@fluentui/react-icons/headless/svg/search";
 
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import { type IconGlyph, Icon } from "@/components/ui/icon";
 import { Button } from "@/components/ui/button";
 import { PluginLogo } from "@/components/ui/plugin-logo";
-import { cn } from "@/lib/utils";
+import { cn, createOccurrenceKeyer } from "@/lib/utils";
 import {
-    CHAT_EXPAND_FOR_FIND_EVENT,
     notifyTranscriptDisclosureToggle,
+    useExpandForChatFind,
 } from "../shell/find-bar";
 import { useApprovalKeyboardShortcut } from "./approval";
 import { Collapse } from "./collapse";
@@ -193,7 +193,8 @@ function factIcon(label: string): IconGlyph | null {
     return null;
 }
 
-function formatInspectableBody(raw: string): string | null {
+/** Format inspectable body. */
+const formatInspectableBody = (raw: string): string | null => {
     const trimmed = raw.trim();
     if (!trimmed || trimmed === "Awaiting approval" || /^(Rejected|Cancelled)$/i.test(trimmed)) {
         return null;
@@ -203,9 +204,10 @@ function formatInspectableBody(raw: string): string | null {
     } catch {
         return trimmed;
     }
-}
+};
 
-export function PluginActivityCard({
+/** Renders the PluginActivityCard UI component. */
+export const PluginActivityCard = ({
     toolkit,
     slug,
     label,
@@ -225,7 +227,7 @@ export function PluginActivityCard({
     busy?: boolean;
     onAllow?: () => void;
     onReject?: () => void;
-}) {
+}) => {
     const cardRef = useRef<HTMLDivElement>(null);
     const [open, setOpen] = useState(false);
     const collapseId = useId();
@@ -257,34 +259,12 @@ export function PluginActivityCard({
         onSkip: onReject,
     });
 
-    useEffect(() => {
-        if (!canExpand || open) return undefined;
-        const onExpandForFind = (e: Event) => {
-            const detail = (
-                e as CustomEvent<{
-                    messageIndex?: number;
-                    query?: string;
-                    caseSensitive?: boolean;
-                }>
-            ).detail;
-            const root = cardRef.current;
-            if (!root || detail?.messageIndex == null) return;
-            const msgEl = root.closest<HTMLElement>("[data-chat-message-index]");
-            if (!msgEl || Number(msgEl.getAttribute("data-chat-message-index")) !== detail.messageIndex) {
-                return;
-            }
-            const q = (detail.query ?? "").trim();
-            if (!q) return;
-            const matched = detail.caseSensitive
-                ? body.includes(q)
-                : body.toLowerCase().includes(q.toLowerCase());
-            if (matched) setOpen(true);
-        };
-        window.addEventListener(CHAT_EXPAND_FOR_FIND_EVENT, onExpandForFind as EventListener);
-        return () => {
-            window.removeEventListener(CHAT_EXPAND_FOR_FIND_EVENT, onExpandForFind as EventListener);
-        };
-    }, [canExpand, open, body]);
+    useExpandForChatFind({
+        enabled: canExpand && !open,
+        rootRef: cardRef,
+        getSearchText: () => body,
+        onExpand: () => setOpen(true),
+    });
 
     const handleToggle = () => {
         if (!canExpand) return;
@@ -389,12 +369,15 @@ export function PluginActivityCard({
                 <div className="max-h-48 overflow-y-auto px-3 pb-2.5 custom-scrollbar">
                     {summary.rows.length > 0 ? (
                         <div className="flex flex-col gap-1">
-                            {summary.rows.map((row, index) => (
-                                <div key={`${row.title}-${index}`} className="flex min-w-0 items-baseline gap-2 text-xs">
-                                    <span className="min-w-0 flex-1 truncate text-text-primary">{row.title}</span>
-                                    {row.meta ? <span className="shrink-0 truncate text-text-muted">{row.meta}</span> : null}
-                                </div>
-                            ))}
+                            {(() => {
+                                const keyFor = createOccurrenceKeyer();
+                                return summary.rows.map((row) => (
+                                    <div key={keyFor(`${row.title}:${row.meta}`)} className="flex min-w-0 items-baseline gap-2 text-xs">
+                                        <span className="min-w-0 flex-1 truncate text-text-primary">{row.title}</span>
+                                        {row.meta ? <span className="shrink-0 truncate text-text-muted">{row.meta}</span> : null}
+                                    </div>
+                                ));
+                            })()}
                         </div>
                     ) : summary.facts.length > 0 ? (
                         <div className="flex flex-col gap-1">
@@ -414,4 +397,4 @@ export function PluginActivityCard({
             </Collapse>
         </div>
     );
-}
+};

@@ -30,7 +30,7 @@ function download(name: string, src: string) {
 }
 
 /** A file the agent handed over: icon, title, type, and a download. */
-export function SentFileCard({
+export const SentFileCard = ({
     name,
     title,
     mime,
@@ -40,7 +40,7 @@ export function SentFileCard({
     title?: string;
     mime: string;
     src: string;
-}) {
+}) => {
     const kind = kindOf(mime, name);
     const heading = title?.trim() || name.replace(/\.[^.]+$/, "") || name;
     const canDownload = Boolean(src.trim());
@@ -65,4 +65,4 @@ export function SentFileCard({
             </Button>
         </div>
     );
-}
+};

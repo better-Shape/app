@@ -164,7 +164,7 @@ export function DesignPreviewCarousel({
                                 type="button"
                                 title={preview.name}
                                 className={cn(
-                                    "h-1.5 w-1.5 rounded-full transition-colors duration-[var(--transition-fast)] ease-[var(--ease-out)]",
+                                    "h-1.5 w-1.5 rounded-full transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
                                     index === activeIndex
                                         ? "bg-text-primary"
                                         : "bg-text-disabled hover:bg-text-muted",

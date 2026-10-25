@@ -1,37 +1,42 @@
 /** Remove stray thinking tags that leaked into plain text. */
-export function stripOrphanThinkTags(text: string): string {
+export const stripOrphanThinkTags = (text: string): string => {
     if (!text.includes("<")) return text;
     return text
         .replace(/<\/?redacted_thinking[^>]*>\s*/gi, "")
         .replace(/<\/?thinking[^>]*>\s*/gi, "")
         .replace(/<\/?reasoning[^>]*>\s*/gi, "")
         .replace(/<\/?think[^>]*>\s*/gi, "");
-}
+};
 
 const LEAKED_TOOL_CALL_FN_RE =
     /(?:default_api\.[a-zA-Z_]\w*|render_design_previews|read_file|edit_file|write_file|grep_search|run_terminal|web_search|list_terminals|terminal_read|terminal_input)/;
+const LEAKED_PRINT_FN_RE = new RegExp(`\\bprint\\s*\\(\\s*${LEAKED_TOOL_CALL_FN_RE.source}\\s*\\(`);
+const LEAKED_FUNCTIONS_CALL_RE = new RegExp(`^functions\\.${LEAKED_TOOL_CALL_FN_RE.source}\\s*\\(`);
+const GENERIC_FUNCTIONS_CALL_RE = /^functions\.[a-zA-Z_][a-zA-Z0-9_]*\s*\(/;
 
 /** True when a fenced/JSON blob is a leaked model tool invocation, not user-facing code. */
-export function looksLikeLeakedToolCode(body: string): boolean {
+export const looksLikeLeakedToolCode = (body: string): boolean => {
     const t = body.trim();
     if (!t) return false;
     if (/"tool_code"\s*:/.test(t)) return true;
+    const hasExecute = t.includes("_execute");
     if (
-        new RegExp(`\\bprint\\s*\\(\\s*${LEAKED_TOOL_CALL_FN_RE.source}\\s*\\(`).test(t) ||
-        /\bprint\s*\(\s*[a-zA-Z_][a-zA-Z0-9_]*\s*\(/.test(t) && t.includes("_execute")
+        LEAKED_PRINT_FN_RE.test(t) ||
+        (hasExecute && /\bprint\s*\(\s*[a-zA-Z_][a-zA-Z0-9_]*\s*\(/.test(t))
     ) {
         return true;
     }
-    if (/^\s*tool_code\s*$/m.test(t) && /\bprint\s*\(/.test(t)) return true;
-    if (
-        new RegExp(`^\\s*functions\\.${LEAKED_TOOL_CALL_FN_RE.source}\\s*\\(`, "m").test(t) ||
-        /^\s*functions\.[a-zA-Z_][a-zA-Z0-9_]*\s*\(/m.test(t) && t.includes("_execute")
-    ) {
-        return true;
+    const hasPrintCall = /\bprint\s*\(/.test(t);
+    for (const rawLine of t.split("\n")) {
+        const line = rawLine.trim();
+        if (!line) continue;
+        if (hasPrintCall && line === "tool_code") return true;
+        if (LEAKED_FUNCTIONS_CALL_RE.test(line)) return true;
+        if (hasExecute && GENERIC_FUNCTIONS_CALL_RE.test(line)) return true;
     }
     if (/<(?:tool_call|function_call|minimax:tool_call|tool_code)\b/i.test(t)) return true;
     return false;
-}
+};
 
 /**
  * XML / sentinel tags that models leak into `content` instead of structured
@@ -188,7 +193,7 @@ const mapOutsideCodeFences = (text: string, fn: (prose: string) => string): stri
  * Kimi/Llama/Gemma `<|…|>` sentinels, Gemini `<function_calls>` / `tool_code`,
  * Mistral `[TOOL_CALLS]`, plus BetterShape terminal UI chunks.
  */
-export function stripLeakedToolMarkup(text: string): string {
+export const stripLeakedToolMarkup = (text: string): string => {
     const hasAngle = text.includes("<");
     const hasDsml = text.includes(FW_BAR);
     const hasMistral = text.includes("[TOOL_CALLS]");
@@ -252,7 +257,7 @@ export function stripLeakedToolMarkup(text: string): string {
     });
 
     return s.includes("\n\n\n") ? s.replace(/\n{3,}/g, "\n\n") : s;
-}
+};
 
 /**
  * Strip Gemini/OpenRouter-style tool leaks that models sometimes paste as
@@ -262,7 +267,7 @@ export function stripLeakedToolMarkup(text: string): string {
  * ```
  * Also strips cross-model XML / sentinel tool grammars from prose.
  */
-export function stripLeakedToolCode(text: string): string {
+export const stripLeakedToolCode = (text: string): string => {
     let s = text;
 
     if (s.includes("```")) {
@@ -313,10 +318,10 @@ export function stripLeakedToolCode(text: string): string {
     s = stripLeakedToolMarkup(s);
 
     return s.includes("\n\n\n") ? s.replace(/\n{3,}/g, "\n\n") : s;
-}
+};
 
 /** Repair cumulative-stream glitches and obvious duplicate phrases in assistant text. */
-export function repairStreamGlitches(text: string): string {
+export const repairStreamGlitches = (text: string): string => {
     if (text.length < 40) return text;
 
     const maxAdjLen = Math.min(120, Math.floor(text.length / 2));
@@ -373,16 +378,17 @@ export function repairStreamGlitches(text: string): string {
     }
 
     return text;
-}
+};
 
 /** Normalize assistant markdown before ReactMarkdown. */
-export function looksLikeProseMarkdown(text: string): boolean {
+export const looksLikeProseMarkdown = (text: string): boolean => {
     return /(^|\n)#{1,6}\s+\S/.test(text)
         || /(^|\n)[-*+]\s+\S/.test(text)
         || /(^|\n)\d+\.\s+\S/.test(text);
-}
+};
 
-function demoteIndentedMarkdown(text: string): string {
+/** Demote indented markdown. */
+const demoteIndentedMarkdown = (text: string): string => {
     if (!text.includes("    ") && !text.includes("\t")) return text;
     return text
         .split("\n")
@@ -394,9 +400,10 @@ function demoteIndentedMarkdown(text: string): string {
             return line;
         })
         .join("\n");
-}
+};
 
-function unwrapOuterProseFence(text: string): string {
+/** Unwrap outer prose fence. */
+const unwrapOuterProseFence = (text: string): string => {
     const trimmed = text.trim();
     if (!trimmed.startsWith("```")) return text;
     const outer = /^```(?:[\w-]*)?\s*\n([\s\S]*?)\n```\s*$/.exec(trimmed);
@@ -404,7 +411,7 @@ function unwrapOuterProseFence(text: string): string {
         return outer[1];
     }
     return text;
-}
+};
 
 const PAIRED_STRIP_TAG_LIST = ["iframe", "script", "style", "object", "embed"] as const;
 const PAIRED_STRIP_TAGS = new Set<string>(PAIRED_STRIP_TAG_LIST);
@@ -503,8 +510,49 @@ const hasPlausibleHtmlTagTail = (
     return quote === null;
 };
 
+/**
+ * Finds the closing `>` of an HTML tag starting at `start`, ignoring `>` inside
+ * single- or double-quoted attribute values on the same line.
+ */
+const findHtmlTagClose = (input: string, start: number): number => {
+    const len = input.length;
+    let quote: string | null = null;
+    for (let i = start; i < len; i++) {
+        const ch = input.charAt(i);
+        if (quote) {
+            if (ch === quote) quote = null;
+            else if (ch === "\n") return input.indexOf(">", start);
+            continue;
+        }
+        if (ch === '"' || ch === "'") {
+            quote = ch;
+            continue;
+        }
+        if (ch === ">") return i;
+    }
+    return -1;
+};
+
+/** Finds the matching `</tagName>` boundary, rejecting longer prefixes such as `</scriptx>`. */
+const findPairedClosingTagEnd = (lowerInput: string, tagName: string, searchFrom: number): number => {
+    const closeNeedle = `</${tagName}`;
+    let from = searchFrom;
+    while (from < lowerInput.length) {
+        const closeIdx = lowerInput.indexOf(closeNeedle, from);
+        if (closeIdx === -1) return -1;
+        const afterNamePos = closeIdx + closeNeedle.length;
+        const afterChar = afterNamePos < lowerInput.length ? lowerInput.charAt(afterNamePos) : "";
+        if (afterChar === ">" || /\s/.test(afterChar)) {
+            const closeGt = lowerInput.indexOf(">", afterNamePos);
+            return closeGt === -1 ? lowerInput.length : closeGt + 1;
+        }
+        from = afterNamePos;
+    }
+    return -1;
+};
+
 /** Single linear character-scanner pass stripping raw HTML tags without regex backtracking. */
-function stripHtmlTagsOnce(input: string): string {
+const stripHtmlTagsOnce = (input: string): string => {
     const codeRanges = collectInlineCodeRanges(input);
     let rangeIndex = 0;
     let lowerInput: string | null = null;
@@ -551,24 +599,23 @@ function stripHtmlTagsOnce(input: string): string {
             tagName.length > 0 &&
             (nextChar === "" || nextChar === ">" || nextChar === "/" || /\s/.test(nextChar));
 
-        const matchedPairedPrefix = PAIRED_STRIP_TAG_LIST.find((t) => tagName.startsWith(t));
+        const isPairedStripTag =
+            (validBoundary && PAIRED_STRIP_TAGS.has(tagName)) || tagName.startsWith("script");
 
-        if (!validBoundary && !matchedPairedPrefix) {
+        if (!validBoundary && !isPairedStripTag) {
             out += "<";
             cursor = lt + 1;
             continue;
         }
 
-        const gt = input.indexOf(">", pos);
-        if (matchedPairedPrefix) {
+        const gt = findHtmlTagClose(input, pos);
+        if (isPairedStripTag) {
             if (gt === -1) break;
-            if (!isClosing && PAIRED_STRIP_TAGS.has(tagName)) {
+            if (!isClosing) {
                 lowerInput ??= input.toLowerCase();
-                const closeNeedle = `</${tagName}`;
-                const closeIdx = lowerInput.indexOf(closeNeedle, gt + 1);
-                if (closeIdx !== -1) {
-                    const closeGt = input.indexOf(">", closeIdx + closeNeedle.length);
-                    cursor = closeGt === -1 ? len : closeGt + 1;
+                const closeEnd = findPairedClosingTagEnd(lowerInput, tagName, gt + 1);
+                if (closeEnd !== -1) {
+                    cursor = closeEnd;
                     continue;
                 }
             }
@@ -602,7 +649,7 @@ function stripHtmlTagsOnce(input: string): string {
     }
 
     return out;
-}
+};
 
 /** Strips raw HTML tags from prose while preserving fenced and inline code blocks. */
 const stripRawHtml = (text: string): string => {

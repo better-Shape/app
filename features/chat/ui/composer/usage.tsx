@@ -7,7 +7,8 @@ import { useSettings } from "@/lib/settings";
 import { LAST_TURN_TTL_MS, resolveChatUsageDisplay } from "@/lib/chat/usage-display";
 import { getLastTurnUsage, subscribeLastTurnUsage } from "@/lib/chat/last-turn-usage";
 
-export function UsageRing({
+/** Renders the UsageRing UI component. */
+export const UsageRing = ({
     percent,
     size = 20,
     className,
@@ -17,7 +18,7 @@ export function UsageRing({
     size?: number;
     className?: string;
     title?: string;
-}) {
+}) => {
     const clamped = Math.max(0, Math.min(100, percent));
     const stroke = 1.75;
     const radius = (size - stroke) / 2;
@@ -64,23 +65,23 @@ export function UsageRing({
             />
         </svg>
     );
-}
+};
 
-export function ChatUsageButton({ compact = false }: { compact?: boolean }) {
+/** Renders the ChatUsageButton UI component. */
+export const ChatUsageButton = ({ compact = false }: { compact?: boolean }) => {
     const settings = useSettings();
     const lastTurnUsage = useSyncExternalStore(subscribeLastTurnUsage, getLastTurnUsage, getLastTurnUsage);
     // The last-turn figure is only re-evaluated on render, so without this the
     // ring keeps showing a turn that has already aged past its TTL.
-    const [tick, expireTick] = useReducer((n: number) => n + 1, 0);
+    const [, expireTick] = useReducer((n: number) => n + 1, 0);
     const expiresAt = lastTurnUsage ? lastTurnUsage.at + LAST_TURN_TTL_MS : null;
     useEffect(() => {
-        if (expiresAt === null) return;
+        if (expiresAt === null) return undefined;
         const remaining = expiresAt - Date.now();
-        if (remaining <= 0) return;
+        if (remaining <= 0) return undefined;
         const id = setTimeout(expireTick, remaining);
         return () => clearTimeout(id);
     }, [expiresAt]);
-    void tick;
 
     const usage = resolveChatUsageDisplay(settings.ai.defaultModel, lastTurnUsage);
 
@@ -90,9 +91,9 @@ export function ChatUsageButton({ compact = false }: { compact?: boolean }) {
                 type="button"
                 className="flex h-7 shrink-0 items-center gap-1.5 rounded-md px-1.5 text-sm text-text-muted transition-[background-color,color,transform] duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] motion-reduce:transform-none motion-reduce:transition-none hover:bg-[var(--btn-hover)] hover:text-text-primary active:scale-[0.96]"
                 onClick={() =>
-                    void import("@/lib/window/open-settings").then(({ openSettingsWindow }) =>
+                    { import("@/lib/window/open-settings").then(({ openSettingsWindow }) =>
                         openSettingsWindow({ category: "providers" }),
-                    )
+                    ).catch(() => undefined); }
                 }
                 aria-label={usage.tooltip || "Usage"}
             >
@@ -103,4 +104,4 @@ export function ChatUsageButton({ compact = false }: { compact?: boolean }) {
             </button>
         </Tooltip>
     );
-}
+};

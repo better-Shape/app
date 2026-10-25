@@ -132,10 +132,10 @@ const PREFETCH_EVENT = "bettershape-chat-prefetch";
  * Speculatively warm a conversation's transcript in the bounded resident LRU cache
  * on hover/focus without requiring caller components to sit inside `ChatStreamProvider`.
  */
-export function prefetchChatConversation(id: string | null | undefined): void {
+export const prefetchChatConversation = (id: string | null | undefined): void => {
     if (!id || id === NEW_CHAT_TAB_ID || typeof window === "undefined") return;
     window.dispatchEvent(new CustomEvent(PREFETCH_EVENT, { detail: { id } }));
-}
+};
 
 function appendAssistantChunk(prev: ChatMessage[], chunk: string): ChatMessage[] {
     const latest = prev[prev.length - 1];
@@ -153,7 +153,8 @@ function appendAssistantChunk(prev: ChatMessage[], chunk: string): ChatMessage[]
     ];
 }
 
-export function ChatStreamProvider({ children }: { children: React.ReactNode }) {
+/** Renders the ChatStreamProvider UI component. */
+export const ChatStreamProvider = ({ children }: { children: React.ReactNode }) => {
     const [isLoading, setIsLoading] = React.useState(defaultState.isLoading);
     const [messages, setMessages] = React.useState<ChatMessage[]>(defaultState.messages);
     const [activityLabel, setActivityLabel] = React.useState<string | null>(null);
@@ -478,10 +479,10 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
         let disposed = false;
         const unlisteners: (() => void)[] = [];
         const register = (promise: Promise<() => void>) => {
-            void promise.then((fn) => {
+            promise.then((fn) => {
                 if (disposed) fn();
                 else unlisteners.push(fn);
-            });
+            }).catch(() => undefined);
         };
 
         const turnOrder = turnOrderRef.current;
@@ -701,14 +702,14 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
                     cancelledTurnsRef.current.set(conversationId, turnId);
                     // Stop removed the live owner, but its saved transcript still belongs to
                     // this exact turn. Never refresh over a replacement optimistic send.
-                    if (!current && viewingIdRef.current === conversationId) void reloadViewedMessages();
+                    if (!current && viewingIdRef.current === conversationId) reloadViewedMessages().catch(() => undefined);
                     return;
                 }
                 if (conversationId && turnId && !current && cancelledTurnsRef.current.get(conversationId) === turnId) {
                     // The cancelled turn is finishing its own persistence, after Stop already
                     // released the UI. Its transcript is the one it just wrote, so resync to
                     // it — still never over a replacement optimistic send (`!current`).
-                    if (viewingIdRef.current === conversationId) void reloadViewedMessages();
+                    if (viewingIdRef.current === conversationId) reloadViewedMessages().catch(() => undefined);
                     return;
                 }
                 if (turnId && turnId !== current?.turnId) return;
@@ -721,13 +722,13 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
                 }
                 setChatActivity(conversationId, error === "Cancelled" ? "cancelled" : error ? "failed" : "completed", error);
                 if (!error && stats) {
-                    void import("@/lib/chat/last-turn-usage").then(({ setLastTurnUsage }) => {
+                    import("@/lib/chat/last-turn-usage").then(({ setLastTurnUsage }) => {
                         setLastTurnUsage({
                             tokens: stats.tokens ?? ((stats.inputTokens ?? 0) + (stats.outputTokens ?? 0)),
                             inputTokens: stats.inputTokens,
                             usedAuto: stats.usedAuto,
                         });
-                    });
+                    }).catch(() => undefined);
                 }
                 if (conversationId) {
                     setChatGenerating(conversationId, false);
@@ -740,17 +741,17 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
                     liveTurnsRef.current.delete(PENDING_KEY);
                 }
                 setChatGenerating(NEW_CHAT_TAB_ID, false);
-                const shown = !!conversationId && viewingIdRef.current === conversationId;
+                const shown = Boolean(conversationId) && viewingIdRef.current === conversationId;
                 if (!shown) {
                     if (conversationId) {
-                        void import("@/lib/sidebar/chat-list-meta").then(({ markChatUnread }) => {
+                        import("@/lib/sidebar/chat-list-meta").then(({ markChatUnread }) => {
                             markChatUnread(conversationId);
-                        });
+                        }).catch(() => undefined);
                     }
                     if (!error) {
-                        void import("@/lib/notifications/desktop").then(({ showDesktopNotification }) =>
+                        import("@/lib/notifications/desktop").then(({ showDesktopNotification }) =>
                             showDesktopNotification("generationComplete", "BetterShape", "Generation finished"),
-                        );
+                        ).catch(() => undefined);
                     }
                     return;
                 }
@@ -764,15 +765,15 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
                 if (error && error !== "Cancelled") {
                     setSendError(error);
                 } else if (!error) {
-                    void import("@/lib/notifications/desktop").then(({ showDesktopNotification }) =>
+                    import("@/lib/notifications/desktop").then(({ showDesktopNotification }) =>
                         showDesktopNotification("generationComplete", "BetterShape", "Generation finished"),
-                    );
+                    ).catch(() => undefined);
                 }
                 // Cancelled turns are persisted server-side — resync so Stop
                 // doesn't leave a wiped/empty assistant bubble.
                 if (error === "Cancelled") {
                     if (conversationId && turnId) cancelledTurnsRef.current.set(conversationId, turnId);
-                    void reloadViewedMessages();
+                    reloadViewedMessages().catch(() => undefined);
                     return;
                 }
                 setMessages((prev) => {
@@ -795,7 +796,7 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
                         (priorUser?.content?.includes("Selected design concept") ||
                             priorUser?.content?.includes('<bettershape_action type="design_selected"'))
                     ) {
-                        void commands.cleanupDesignSandbox();
+                        commands.cleanupDesignSandbox().catch(() => undefined);
                     }
                     return updated;
                 });
@@ -809,9 +810,9 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
             const key = id?.trim() || `${title}:${body}`;
             if (notifiedApprovalIds.has(key)) return;
             notifiedApprovalIds.add(key);
-            void import("@/lib/notifications/desktop").then(({ showDesktopNotification }) =>
+            import("@/lib/notifications/desktop").then(({ showDesktopNotification }) =>
                 showDesktopNotification("approvalRequired", title, body),
-            );
+            ).catch(() => undefined);
         };
 
         register(
@@ -869,22 +870,29 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
         );
 
         // Clear sticky approval labels once the user resolves the gate.
-        register(
-            listen<{ id?: string; approved?: boolean; conversationId?: string; turnId?: string }>("agent-command-resolved", (event) => {
-                patchLive(event.payload?.conversationId, (live) => {
-                    live.turnPhase = event.payload?.approved === false ? "thinking" : "running_command";
-                    live.activityLabel = event.payload?.approved === false ? "Thinking" : "Running command";
-                }, event.payload?.turnId);
-            }),
-        );
-        register(
-            listen<{ id?: string; approved?: boolean; conversationId?: string; turnId?: string }>("agent-edit-resolved", (event) => {
-                patchLive(event.payload?.conversationId, (live) => {
-                    live.turnPhase = event.payload?.approved === false ? "thinking" : "editing";
-                    live.activityLabel = event.payload?.approved === false ? "Thinking" : "Editing file";
-                }, event.payload?.turnId);
-            }),
-        );
+        const approvalResolutions = [
+            ["agent-command-resolved", "running_command", "Running command"],
+            ["agent-edit-resolved", "editing", "Editing file"],
+        ] as const;
+        for (const [eventName, approvedPhase, approvedLabel] of approvalResolutions) {
+            register(
+                listen<{ id?: string; approved?: boolean; conversationId?: string; turnId?: string }>(
+                    eventName,
+                    (event) => {
+                        patchLive(
+                            event.payload?.conversationId,
+                            (live) => {
+                                live.turnPhase =
+                                    event.payload?.approved === false ? "thinking" : approvedPhase;
+                                live.activityLabel =
+                                    event.payload?.approved === false ? "Thinking" : approvedLabel;
+                            },
+                            event.payload?.turnId,
+                        );
+                    },
+                ),
+            );
+        }
 
         register(
             listen<{ phase?: string; tool?: string; label?: string; conversationId?: string; turnId?: string }>("chat_status", (event) => {
@@ -909,7 +917,7 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
             }),
         );
 
-        void bootstrapFromBackend();
+        bootstrapFromBackend().catch(() => undefined);
 
         return () => {
             disposed = true;
@@ -1013,31 +1021,32 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
             </ChatStreamViewedIdContext.Provider>
         </ChatStreamGettersContext.Provider>
     );
-}
+};
 
-export function useChatStream() {
+/** Use chat stream. */
+export const useChatStream = () => {
     const ctx = React.useContext(ChatStreamContext);
     if (!ctx) {
         throw new Error("useChatStream must be used within ChatStreamProvider");
     }
     return ctx;
-}
+};
 
 /** Safe variant for editor surfaces that may render outside ChatStreamProvider (e.g. popout). */
-export function useChatStreamOptional(): ChatStreamState {
+export const useChatStreamOptional = (): ChatStreamState => {
     const ctx = React.useContext(ChatStreamContext);
     return ctx ?? defaultState;
-}
+};
 
 /** Subscribe only to `{ isLoading, viewedConversationId }` (never re-renders on `chat_token`). */
-export function useChatStreamStatus(): ChatStreamStatusState {
+export const useChatStreamStatus = (): ChatStreamStatusState => {
     return React.useContext(ChatStreamStatusContext);
-}
+};
 
 /** Subscribe only to `viewedConversationId` (never re-renders on `chat_token` or `isLoading`). */
-export function useViewedConversationId(): string | null {
+export const useViewedConversationId = (): string | null => {
     return React.useContext(ChatStreamViewedIdContext);
-}
+};
 
 /** Static getter accessors that never trigger context re-renders. */
 export function useChatStreamGetters(): ChatStreamGettersValue {

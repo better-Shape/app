@@ -9,6 +9,7 @@ import { Icon } from "@/components/ui/icon";
 
 import { Button } from "@/components/ui/button";
 import { SearchInput } from "@/components/ui/search";
+import { focusOnMount } from "@/lib/utils";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -42,7 +43,8 @@ export function openChatHistoryMenu() {
     );
 }
 
-export function ChatHistoryMenu({
+/** Renders the ChatHistoryMenu UI component. */
+export const ChatHistoryMenu = ({
     activeConversationId,
     onSelectConversation,
     projectPath,
@@ -58,7 +60,7 @@ export function ChatHistoryMenu({
     variant?: "icon" | "text";
     tooltip?: string;
     triggerClassName?: string;
-}) {
+}) => {
     const [open, setOpen] = useState(false);
     const [query, setQuery] = useState("");
     const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -77,7 +79,7 @@ export function ChatHistoryMenu({
 
     useEffect(() => {
         if (!open) return;
-        void loadConversations();
+        loadConversations().catch(() => undefined);
     }, [open, loadConversations]);
 
     useEffect(() => {
@@ -137,6 +139,7 @@ export function ChatHistoryMenu({
                 <DropdownMenuContent align={align} className="w-72 p-0">
                 <div className="-mx-[var(--menu-pad)] -mt-[var(--menu-pad)] mb-1 border-b border-border-subtle">
                     <SearchInput
+                        ref={focusOnMount}
                         borderless
                         value={query}
                         onChange={(e) => setQuery(e.target.value)}
@@ -144,7 +147,6 @@ export function ChatHistoryMenu({
                         onKeyDown={(e) => e.stopPropagation()}
                         onClick={(e) => e.stopPropagation()}
                         className="bettershape-menu__search"
-                        autoFocus
                     />
                 </div>
                 <div className="max-h-[320px] overflow-y-auto custom-scrollbar">
@@ -167,7 +169,7 @@ export function ChatHistoryMenu({
                                     onFocus={() => {
                                         if (!active) prefetchChatConversation(conversation.id);
                                     }}
-                                    onSelect={() => void handleSelect(conversation)}
+                                    onSelect={() => { handleSelect(conversation).catch(() => undefined); }}
                                 >
                                     <span
                                         className={cn(
@@ -188,7 +190,7 @@ export function ChatHistoryMenu({
                                         onClick={(e) => {
                                             e.preventDefault();
                                             e.stopPropagation();
-                                            void handleDelete(conversation.id);
+                                            handleDelete(conversation.id).catch(() => undefined);
                                         }}
                                     >
                                         <Icon icon={Delete20Filled} />
@@ -201,4 +203,4 @@ export function ChatHistoryMenu({
             </DropdownMenuContent>
         </DropdownMenu>
     );
-}
+};

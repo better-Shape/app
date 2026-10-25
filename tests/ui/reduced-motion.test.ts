@@ -93,10 +93,6 @@ describe("the reduced-motion guard", () => {
         const guarded = [
             "imsg-dot", // .imsg-typing span -> slowed
             "send-spiral-pulse", // guarded in globals.css
-            "git-generate-shimmer", // stopped here
-            "preview-blob-a", // guarded in globals.css
-            "preview-blob-b",
-            "preview-blob-c",
             "bettershape-orb-breathe", // app.dead: .onboard-orb is applied to nothing
         ];
         expect(new Set(declared)).toEqual(new Set(guarded));

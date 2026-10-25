@@ -1,22 +1,23 @@
 "use client";
 
 import React from "react";
-import { cn } from "@/lib/utils";
+import { cn, createOccurrenceKeyer } from "@/lib/utils";
 import { CopyButton } from "@/components/ui/copy-button";
 import { providerIcon } from "@/lib/ui/provider-icon";
 import { tableCellModelId } from "@/lib/chat/fence-tables";
 import styles from "./data-table.module.css";
 
-function escapeMdCell(cell: string): string {
+/** Escape md cell. */
+const escapeMdCell = (cell: string): string => {
     return cell
         .replace(/\r?\n/g, " ")
         .replace(/\\/g, "\\\\")
         .replace(/\|/g, "\\|")
         .trim();
-}
+};
 
 /** Formats header and body cells into an escaped GFM pipe table. */
-export function formatRowsAsMarkdownTable(headers: string[], rows: string[][]): string {
+export const formatRowsAsMarkdownTable = (headers: string[], rows: string[][]): string => {
     const colCount = Math.max(
         headers.length,
         rows.reduce((max, r) => Math.max(max, r.length), 0),
@@ -36,9 +37,10 @@ export function formatRowsAsMarkdownTable(headers: string[], rows: string[][]): 
         }),
     ];
     return lines.join("\n");
-}
+};
 
-function extractDomTableAsMarkdown(container: HTMLElement | null): string {
+/** Extract dom table as markdown. */
+const extractDomTableAsMarkdown = (container: HTMLElement | null): string => {
     const table = container?.querySelector("table");
     if (!table) return "";
     const headers = Array.from(table.querySelectorAll("thead th")).map(
@@ -56,7 +58,7 @@ function extractDomTableAsMarkdown(container: HTMLElement | null): string {
         }
     }
     return formatRowsAsMarkdownTable(headers, bodyRows);
-}
+};
 
 function CellInner({ value }: { value: string }) {
     const modelId = tableCellModelId(value);
@@ -68,13 +70,14 @@ function CellInner({ value }: { value: string }) {
     );
 }
 
-export function ChatDataTable({
+/** Renders the ChatDataTable UI component. */
+export const ChatDataTable = ({
     headers,
     rows,
 }: {
     headers: string[];
     rows: string[][];
-}) {
+}) => {
     const markdownText = React.useMemo(
         () => formatRowsAsMarkdownTable(headers, rows),
         [headers, rows],
@@ -103,22 +106,29 @@ export function ChatDataTable({
                     </thead>
                 ) : null}
                 <tbody>
-                    {rows.map((row, i) => (
-                        <tr key={i} className={styles.tr}>
-                            {row.map((cell, j) => (
-                                <td key={j} className={styles.td}>
-                                    <CellInner value={cell} />
-                                </td>
-                            ))}
-                        </tr>
-                    ))}
+                    {(() => {
+                        const rowKey = createOccurrenceKeyer();
+                        return rows.map((row) => {
+                            const cellKey = createOccurrenceKeyer();
+                            return (
+                                <tr key={rowKey(row.join("|"))} className={styles.tr}>
+                                    {row.map((cell) => (
+                                        <td key={cellKey(cell)} className={styles.td}>
+                                            <CellInner value={cell} />
+                                        </td>
+                                    ))}
+                                </tr>
+                            );
+                        });
+                    })()}
                 </tbody>
             </table>
         </div>
     );
-}
+};
 
-export function ChatKeyedRowsTable({ rows }: { rows: Record<string, string>[] }) {
+/** Renders the ChatKeyedRowsTable UI component. */
+export const ChatKeyedRowsTable = ({ rows }: { rows: Record<string, string>[] }) => {
     const headers = React.useMemo(() => {
         const keys: string[] = [];
         for (const row of rows) {
@@ -130,9 +140,10 @@ export function ChatKeyedRowsTable({ rows }: { rows: Record<string, string>[] })
     }, [rows]);
     const body = rows.map((row) => headers.map((h) => row[h] ?? ""));
     return <ChatDataTable headers={headers} rows={body} />;
-}
+};
 
-export function MarkdownTableShell({ children }: { children?: React.ReactNode }) {
+/** Renders the MarkdownTableShell UI component. */
+export const MarkdownTableShell = ({ children }: { children?: React.ReactNode }) => {
     const wrapRef = React.useRef<HTMLDivElement>(null);
     const [mdText, setMdText] = React.useState("");
 
@@ -162,4 +173,4 @@ export function MarkdownTableShell({ children }: { children?: React.ReactNode })
             {children}
         </div>
     );
-}
+};

@@ -10,6 +10,7 @@ import { Icon } from "@/components/ui/icon";
 
 
 import { SearchInput } from "@/components/ui/search";
+import { focusOnMount } from "@/lib/utils";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -22,6 +23,7 @@ import { useGitBranch } from "@/features/agent/workbench/hooks/use-git-branch";
 
 const MAX_VISIBLE = 40;
 
+/** Renders the WorkspaceBranchSwitch UI component. */
 export const WorkspaceBranchSwitch = memo(function WorkspaceBranchSwitch() {
     const { project_path } = useProjectState();
     const { scmRepoPath } = useGitRepos(project_path);
@@ -32,9 +34,9 @@ export const WorkspaceBranchSwitch = memo(function WorkspaceBranchSwitch() {
     const [menuOpen, setMenuOpen] = useState(false);
 
     useEffect(() => {
-        if (!repoPath) return;
+        if (!repoPath) return undefined;
         let cancelled = false;
-        void commands
+        commands
             .gitBranches(repoPath)
             .then((list) => {
                 if (!cancelled) setBranches(list);
@@ -59,13 +61,13 @@ export const WorkspaceBranchSwitch = memo(function WorkspaceBranchSwitch() {
 
     const switchTo = (name: string) => {
         if (!repoPath) return;
-        void commands
+        commands
             .gitSwitchBranch(repoPath, name)
             .then(() => {
                 window.dispatchEvent(new Event("bettershape-git-refresh"));
             })
             .catch((err) => {
-                void import("@/features/notifications").then(({ notify }) => notify.gitError(err));
+                import("@/features/notifications").then(({ notify }) => notify.gitError(err)).catch(() => undefined);
             });
     };
 
@@ -88,12 +90,12 @@ export const WorkspaceBranchSwitch = memo(function WorkspaceBranchSwitch() {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-64 p-0">
                 <SearchInput
+                    ref={focusOnMount}
                     borderless
                     stickyFade
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
                     placeholder="Search branches"
-                    autoFocus
                 />
                 {filtered.length === 0 ? (
                     <div className="px-2 py-3 text-center text-xs text-text-muted">No branches</div>

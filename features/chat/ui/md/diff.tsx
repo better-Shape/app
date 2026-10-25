@@ -18,6 +18,7 @@ type DiffRow = {
     newNumber?: number;
 };
 
+/** Get language. */
 const getLanguage = (path: string) => {
     const ext = path.split('.').pop()?.toLowerCase();
     switch (ext) {
@@ -98,12 +99,13 @@ const buildDiffRows = (original: string, replacement: string): DiffRow[] => {
     return rows;
 };
 
-export function InlineDiff({ file, original, replacement, isGenerating }: {
+/** Renders the InlineDiff UI component. */
+export const InlineDiff = ({ file, original, replacement, isGenerating }: {
     file: string;
     original: string;
     replacement: string;
     isGenerating?: boolean;
-}) {
+}) => {
     const [status, setStatus] = React.useState<"pending" | "applying" | "accepted" | "rejected" | "error">("pending");
     const [selected, setSelected] = React.useState<Record<string, boolean>>({});
     const [appliedContent, setAppliedContent] = React.useState<string | null>(null);
@@ -267,7 +269,7 @@ export function InlineDiff({ file, original, replacement, isGenerating }: {
 
             <div className="max-h-[260px] overflow-y-auto custom-scrollbar">
                 {rows.map((row) => {
-                    const selectedRow = row.type === 'equal' ? true : !!selected[row.id];
+                    const selectedRow = row.type === 'equal' ? true : Boolean(selected[row.id]);
                     const leftBg = row.type === 'remove' ? (selectedRow ? "bg-error/12" : "bg-error/5") : "bg-transparent";
                     const rightBg = row.type === 'add' ? (selectedRow ? "bg-success/12" : "bg-success/5") : "bg-transparent";
                     const note = row.type === 'add'
@@ -355,4 +357,4 @@ export function InlineDiff({ file, original, replacement, isGenerating }: {
             </div>
         </div>
     );
-}
+};

@@ -22,7 +22,7 @@ const pendingChatSurfaceActions: Array<{ run: () => void; timer: number }> = [];
  * Registers an active `<Chat />` listener mount and flushes any palette/menu
  * actions that dismissed an overlay to reach the chat surface.
  */
-export function registerMountedChatSurface(): () => void {
+export const registerMountedChatSurface = (): () => void => {
     mountedChatSurfaceCount += 1;
     if (pendingChatSurfaceActions.length > 0 && typeof window !== "undefined") {
         const queued = pendingChatSurfaceActions.splice(0, pendingChatSurfaceActions.length);
@@ -36,13 +36,13 @@ export function registerMountedChatSurface(): () => void {
     return () => {
         mountedChatSurfaceCount = Math.max(0, mountedChatSurfaceCount - 1);
     };
-}
+};
 
 /**
  * Switches center view to `"chat"` and runs `action` immediately if `<Chat />`
  * is mounted, or queues `action` until `<Chat />` registers its listeners.
  */
-export function dispatchToChatSurface(action: () => void) {
+export const dispatchToChatSurface = (action: () => void) => {
     if (typeof window === "undefined") return;
     window.dispatchEvent(new CustomEvent("bettershape-center-view", { detail: "chat" }));
     if (mountedChatSurfaceCount > 0) {
@@ -57,10 +57,35 @@ export function dispatchToChatSurface(action: () => void) {
         }, 2000),
     };
     pendingChatSurfaceActions.push(entry);
-}
+};
+
+/**
+ * Stages `prompt` in the chat composer, switches the center view to `"chat"`,
+ * and focuses the composer input even when `Chat` mounts asynchronously from an overlay.
+ */
+export const stagePromptInChatComposer = (prompt: string) => {
+    if (!prompt.trim() || typeof window === "undefined") return;
+    try {
+        localStorage.setItem("bettershape-chat-input", prompt);
+    } catch {
+        /* storage unavailable */
+    }
+    window.dispatchEvent(new CustomEvent("bettershape-center-view", { detail: "chat" }));
+    window.dispatchEvent(
+        new CustomEvent("bettershape-chat-insert-prompt", {
+            detail: { prompt, send: false },
+        }),
+    );
+    window.dispatchEvent(new CustomEvent("bettershape-chat-focus-input"));
+    if (typeof window.requestAnimationFrame === "function") {
+        window.requestAnimationFrame(() => {
+            window.dispatchEvent(new CustomEvent("bettershape-chat-focus-input"));
+        });
+    }
+};
 
 /** Opens the in-conversation Find bar, switching back from overlays if needed. */
-export function openChatFindBar(initialQuery?: string) {
+export const openChatFindBar = (initialQuery?: string) => {
     if (typeof window === "undefined") return;
     dispatchToChatSurface(() => {
         window.dispatchEvent(
@@ -69,20 +94,73 @@ export function openChatFindBar(initialQuery?: string) {
             }),
         );
     });
-}
+};
 
 /** Signals that a transcript disclosure toggled so Stick-to-Bottom preserves scroll anchor. */
-export function notifyTranscriptDisclosureToggle(element?: HTMLElement | null) {
+export const notifyTranscriptDisclosureToggle = (element?: HTMLElement | null) => {
     if (typeof window === "undefined") return;
     window.dispatchEvent(
         new CustomEvent("bettershape-transcript-disclosure-toggle", {
             detail: { element: element ?? null },
         }),
     );
-}
+};
+
+/**
+ * Expands a collapsed chat disclosure when Find in Chat jumps to a match inside
+ * the enclosing `[data-chat-message-index]` row.
+ */
+export const useExpandForChatFind = ({
+    enabled,
+    rootRef,
+    getSearchText,
+    onExpand,
+}: {
+    enabled: boolean;
+    rootRef: React.RefObject<HTMLElement | null>;
+    getSearchText: () => string;
+    onExpand: () => void;
+}) => {
+    const getTextRef = useRef(getSearchText);
+    const onExpandRef = useRef(onExpand);
+    useEffect(() => {
+        getTextRef.current = getSearchText;
+        onExpandRef.current = onExpand;
+    });
+
+    useEffect(() => {
+        if (!enabled) return undefined;
+        const handleExpand = (event: Event) => {
+            const detail = (
+                event as CustomEvent<{
+                    messageIndex?: number;
+                    query?: string;
+                    caseSensitive?: boolean;
+                }>
+            ).detail;
+            const root = rootRef.current;
+            if (!root || detail?.messageIndex == null) return;
+            const msgEl = root.closest<HTMLElement>("[data-chat-message-index]");
+            if (!msgEl || Number(msgEl.getAttribute("data-chat-message-index")) !== detail.messageIndex) {
+                return;
+            }
+            const query = (detail.query ?? "").trim();
+            if (!query) return;
+            const haystack = getTextRef.current();
+            const matched = detail.caseSensitive
+                ? haystack.includes(query)
+                : haystack.toLowerCase().includes(query.toLowerCase());
+            if (matched) onExpandRef.current();
+        };
+        window.addEventListener(CHAT_EXPAND_FOR_FIND_EVENT, handleExpand as EventListener);
+        return () => {
+            window.removeEventListener(CHAT_EXPAND_FOR_FIND_EVENT, handleExpand as EventListener);
+        };
+    }, [enabled, rootRef]);
+};
 
 /** Compact floating search bar for finding text within the active chat transcript. */
-export function ChatFindBar({
+export const ChatFindBar = ({
     open,
     query,
     matchCount,
@@ -104,7 +182,7 @@ export function ChatFindBar({
     onNext: () => void;
     onPrev: () => void;
     onClose: () => void;
-}) {
+}) => {
     const inputRef = useRef<HTMLInputElement>(null);
     const [everOpened, setEverOpened] = React.useState(open);
 
@@ -229,4 +307,4 @@ export function ChatFindBar({
             </div>
         </div>
     );
-}
+};

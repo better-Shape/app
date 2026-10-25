@@ -112,18 +112,19 @@ function writeDismissed(keys: ReadonlySet<string>) {
 }
 
 /** Opens a chat the way the sidebar, the palette and the history list all do. */
-export function openConversationById(id: string) {
+export const openConversationById = (id: string) => {
     window.dispatchEvent(new CustomEvent("bettershape-center-view", { detail: "chat" }));
     window.dispatchEvent(new CustomEvent("bettershape-chat-load", { detail: { id } }));
-}
+};
 
-function JournalRow({
+/** Renders the JournalRow UI component. */
+const JournalRow = ({
     journal,
     onDismiss,
 }: {
     journal: TurnJournal;
     onDismiss: (journal: TurnJournal) => void;
-}) {
+}) => {
     const summary = describeJournal(journal);
     return (
         <li data-interrupted-turn={journalKey(journal)} className="flex items-center gap-2">
@@ -160,9 +161,10 @@ function JournalRow({
             </button>
         </li>
     );
-}
+};
 
-export function InterruptedTurns() {
+/** Renders the InterruptedTurns UI component. */
+export const InterruptedTurns = () => {
     const [state, setState] = useState<InterruptedTurnsState>({ kind: "checking" });
     // Read once, during the first render. Nothing renders from this set until the
     // journals land, so the prerender and the hydration paint both show nothing
@@ -178,7 +180,7 @@ export function InterruptedTurns() {
         const issued = token.current + 1;
         token.current = issued;
         setState({ kind: "checking" });
-        void commands
+        commands
             .getOpenTurnJournals()
             .then((journals) => {
                 if (token.current !== issued) return;
@@ -270,4 +272,4 @@ export function InterruptedTurns() {
             </ul>
         </div>
     );
-}
+};

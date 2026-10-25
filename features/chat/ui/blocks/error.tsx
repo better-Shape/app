@@ -15,6 +15,7 @@ import {
 import { classifyAiError, errorDocsUrl } from "@/lib/errors/catalog";
 import { commands } from "@/lib/backend";
 
+/** Extract error urls. */
 const extractErrorUrls = (rawMessage: string): URL[] => {
     const matches = rawMessage.match(/\bhttps?:\/\/[^\s"'<>)\]]+/gi);
     if (!matches) return [];
@@ -29,9 +30,11 @@ const extractErrorUrls = (rawMessage: string): URL[] => {
     return urls;
 };
 
+/** Is open router hostname. */
 const isOpenRouterHostname = (hostname: string): boolean =>
     hostname === "openrouter.ai" || hostname.endsWith(".openrouter.ai");
 
+/** Is open router billing url. */
 const isOpenRouterBillingUrl = (url: URL): boolean =>
     isOpenRouterHostname(url.hostname) &&
     (url.pathname === "/credits" ||
@@ -39,6 +42,7 @@ const isOpenRouterBillingUrl = (url: URL): boolean =>
         url.pathname === "/settings/credits" ||
         url.pathname.startsWith("/settings/credits/"));
 
+/** Is open ai billing url. */
 const isOpenAiBillingUrl = (url: URL): boolean =>
     url.hostname === "platform.openai.com" &&
     (url.pathname === "/account/billing" ||
@@ -74,7 +78,8 @@ export const detectErrorBillingProvider = (
     return isOpenAi ? "openai" : null;
 };
 
-export function ChatErrorDialog({
+/** Renders the ChatErrorDialog UI component. */
+export const ChatErrorDialog = ({
     message,
     onDismiss,
     onRetry,
@@ -82,7 +87,7 @@ export function ChatErrorDialog({
     message: string | null;
     onDismiss: () => void;
     onRetry?: () => void;
-}) {
+}) => {
     const rawMessage = message ?? "";
     const hasMessage = rawMessage.length > 0;
     const entry = classifyAiError(rawMessage);
@@ -135,6 +140,16 @@ export function ChatErrorDialog({
                 ? "(api.openai.com) has exhausted its credits. Add credits to continue."
                 : entry.description;
 
+    const trimmedRawMessage = rawMessage.trim();
+    const detail =
+        hasMessage &&
+        trimmedRawMessage &&
+        trimmedRawMessage !== hint &&
+        trimmedRawMessage !== title &&
+        !hint.includes(trimmedRawMessage)
+            ? trimmedRawMessage
+            : "";
+
     return (
         <AlertDialog
             open={Boolean(message)}
@@ -145,11 +160,16 @@ export function ChatErrorDialog({
             <AlertDialogContent sizeClassName="max-w-[400px]">
                 <AlertDialogHeader>
                     <AlertDialogTitle>{title}</AlertDialogTitle>
-                    <AlertDialogDescription className="sr-only">{hint}</AlertDialogDescription>
+                    <AlertDialogDescription className="sr-only">{hint || detail}</AlertDialogDescription>
                 </AlertDialogHeader>
-                <AlertDialogBody className="flex flex-col text-start">
+                <AlertDialogBody className="flex flex-col gap-2 text-start">
                     {hint ? (
                         <p className="text-sm leading-snug text-text-secondary">{hint}</p>
+                    ) : null}
+                    {detail ? (
+                        <p className="max-h-28 overflow-y-auto rounded-md border border-border-subtle bg-surface-1 px-2.5 py-1.5 font-mono text-2xs leading-relaxed text-text-muted break-words">
+                            {detail}
+                        </p>
                     ) : null}
                 </AlertDialogBody>
                 <AlertDialogFooter>
@@ -188,7 +208,7 @@ export function ChatErrorDialog({
                                 variant="secondary"
                                 size="lg"
                                 className="w-full bg-panel-hover"
-                                onClick={() => void commands.openUrlExternal(docsUrl)}
+                                onClick={() => { commands.openUrlExternal(docsUrl).catch(() => undefined); }}
                             >
                                 {openaiBilling || openrouterBilling ? "Add credits" : "Learn more"}
                             </Button>
@@ -211,4 +231,4 @@ export function ChatErrorDialog({
             </AlertDialogContent>
         </AlertDialog>
     );
-}
+};

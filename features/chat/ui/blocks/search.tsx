@@ -6,7 +6,7 @@ import { Globe20Regular } from "@fluentui/react-icons/headless/svg/globe";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "@/components/ui/icon";
 import { Favicon } from "@/components/ui/favicon";
-import { cn } from "@/lib/utils";
+import { cn, createOccurrenceKeyer } from "@/lib/utils";
 import { Collapse } from "./collapse";
 import { hostnameOf } from "@/lib/ui/favicon";
 import { splitActionLabel } from "./action-line";
@@ -18,8 +18,8 @@ import {
 import { Tooltip } from "@/components/ui/tooltip";
 import type { WebSearchResultItem } from "../md/renderer";
 import {
-    CHAT_EXPAND_FOR_FIND_EVENT,
     notifyTranscriptDisclosureToggle,
+    useExpandForChatFind,
 } from "../shell/find-bar";
 import { GeneratingIndicator } from "./generating";
 
@@ -73,15 +73,17 @@ const failedBrandSlugs = new Set<string>();
 const failedBrandListeners = new Set<(slug: string) => void>();
 const hostMemo = new Map<string, string>();
 
-function markBrandSlugFailed(slug: string): void {
+/** Mark brand slug failed. */
+const markBrandSlugFailed = (slug: string): void => {
     if (failedBrandSlugs.has(slug)) return;
     failedBrandSlugs.add(slug);
     for (const listener of failedBrandListeners) {
         listener(slug);
     }
-}
+};
 
-function memoizedHostname(url: string): string {
+/** Memoized hostname. */
+const memoizedHostname = (url: string): string => {
     const key = url.trim();
     if (!key) return "";
     const cached = hostMemo.get(key);
@@ -90,7 +92,7 @@ function memoizedHostname(url: string): string {
     if (hostMemo.size > 512) hostMemo.clear();
     hostMemo.set(key, computed);
     return computed;
-}
+};
 
 function brandFromText(text: string): Brand | null {
     const value = text.trim();
@@ -112,7 +114,8 @@ function safeHref(url: string): string | null {
     }
 }
 
-function brandForStep(query: string, sources: WebSearchResult[]): Brand | null {
+/** Brand for step. */
+const brandForStep = (query: string, sources: WebSearchResult[]): Brand | null => {
     const hosts = sources.map((source) => memoizedHostname(source.url)).filter(Boolean);
     if (hosts.length > 0) {
         const matched = hosts.map((host) => brandFromText(host));
@@ -121,9 +124,10 @@ function brandForStep(query: string, sources: WebSearchResult[]): Brand | null {
         return null;
     }
     return brandFromText(query);
-}
+};
 
-function SiteMark({ url, brand, size = 14 }: { url?: string; brand?: Brand | null; size?: number }) {
+/** Renders the SiteMark UI component. */
+const SiteMark = ({ url, brand, size = 14 }: { url?: string; brand?: Brand | null; size?: number }) => {
     const resolved = brand ?? (url ? brandFromText(memoizedHostname(url)) : null);
     const slug = resolved?.slug ?? null;
     const [failedSlug, setFailedSlug] = useState<string | null>(() =>
@@ -164,8 +168,9 @@ function SiteMark({ url, brand, size = 14 }: { url?: string; brand?: Brand | nul
     }
     if (url) return <Favicon url={url} size={size} />;
     return <Icon icon={Globe20Regular} className="shrink-0 text-text-muted" />;
-}
+};
 
+/** Renders the SourceRow UI component. */
 const SourceRow = React.memo(function SourceRow({ result }: { result: WebSearchResult }) {
     const host = memoizedHostname(result.url);
     const href = safeHref(result.url);
@@ -204,24 +209,26 @@ const SourceRow = React.memo(function SourceRow({ result }: { result: WebSearchR
 
 const MARK_CAP = 6;
 
-function SourceStack({ sources }: { sources: WebSearchResult[] }) {
+/** Renders the SourceStack UI component. */
+const SourceStack = ({ sources }: { sources: WebSearchResult[] }) => {
     const shown = sources.slice(0, MARK_CAP);
     const rest = sources.length - shown.length;
+    const keyFor = createOccurrenceKeyer();
     return (
         <span className="inline-flex items-center">
-            {shown.map((source, index) => {
+            {shown.map((source, pos) => {
                 const host = memoizedHostname(source.url);
                 const href = safeHref(source.url);
                 const mark = (
                     <span
                         className="relative flex size-4 items-center justify-center rounded-full bg-surface-2 ring-2 ring-panel transition-transform duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] motion-reduce:transform-none hover:z-20 hover:-translate-y-0.5"
-                        style={{ marginLeft: index === 0 ? 0 : -6, zIndex: shown.length - index }}
+                        style={{ marginLeft: pos === 0 ? 0 : -6, zIndex: shown.length - pos }}
                     >
                         <SiteMark url={source.url} size={12} />
                     </span>
                 );
                 return (
-                    <Tooltip key={`${source.url}-${index}`} content={host ? `${source.title} · ${host}` : source.title}>
+                    <Tooltip key={keyFor(source.url || source.title)} content={host ? `${source.title} · ${host}` : source.title}>
                         {href ? (
                             <a href={href} target="_blank" rel="noopener noreferrer" className="relative">
                                 {mark}
@@ -235,42 +242,20 @@ function SourceStack({ sources }: { sources: WebSearchResult[] }) {
             {rest > 0 ? <span className="ml-1.5 text-xs tabular-nums text-text-muted">+{rest}</span> : null}
         </span>
     );
-}
+};
 
-function SourcesBranch({ sources }: { sources: WebSearchResult[] }) {
+/** Renders the SourcesBranch UI component. */
+const SourcesBranch = ({ sources }: { sources: WebSearchResult[] }) => {
     const rootRef = useRef<HTMLDivElement>(null);
     const [open, setOpen] = useState(true);
     const collapseId = React.useId();
 
-    useEffect(() => {
-        if (open) return undefined;
-        const onExpandForFind = (e: Event) => {
-            const detail = (
-                e as CustomEvent<{
-                    messageIndex?: number;
-                    query?: string;
-                    caseSensitive?: boolean;
-                }>
-            ).detail;
-            const root = rootRef.current;
-            if (!root || detail?.messageIndex == null) return;
-            const msgEl = root.closest<HTMLElement>("[data-chat-message-index]");
-            if (!msgEl || Number(msgEl.getAttribute("data-chat-message-index")) !== detail.messageIndex) {
-                return;
-            }
-            const q = (detail.query ?? "").trim();
-            if (!q) return;
-            const haystack = sources.map((s) => `${s.title} ${s.url} ${s.snippet}`).join(" ");
-            const matched = detail.caseSensitive
-                ? haystack.includes(q)
-                : haystack.toLowerCase().includes(q.toLowerCase());
-            if (matched) setOpen(true);
-        };
-        window.addEventListener(CHAT_EXPAND_FOR_FIND_EVENT, onExpandForFind as EventListener);
-        return () => {
-            window.removeEventListener(CHAT_EXPAND_FOR_FIND_EVENT, onExpandForFind as EventListener);
-        };
-    }, [open, sources]);
+    useExpandForChatFind({
+        enabled: !open,
+        rootRef,
+        getSearchText: () => sources.map((s) => `${s.title} ${s.url} ${s.snippet}`).join(" "),
+        onExpand: () => setOpen(true),
+    });
 
     return (
         <div ref={rootRef} className="mt-1 w-full min-w-0">
@@ -296,14 +281,17 @@ function SourcesBranch({ sources }: { sources: WebSearchResult[] }) {
             </button>
             <Collapse id={collapseId} open={open}>
                 <div className="mt-0.5 flex flex-col pl-3.5">
-                    {sources.map((result, index) => (
-                        <SourceRow key={`${result.url}-${index}`} result={result} />
-                    ))}
+                    {(() => {
+                        const keyFor = createOccurrenceKeyer();
+                        return sources.map((result) => (
+                            <SourceRow key={keyFor(result.url || result.title)} result={result} />
+                        ));
+                    })()}
                 </div>
             </Collapse>
         </div>
     );
-}
+};
 
 export type TrailBlock = {
     type: string;
@@ -403,13 +391,13 @@ function TrailStepRow({ step }: { step: TrailStep }) {
 }
 
 /** Research trail: each query is a step, and a step with hits branches once into Sources. */
-export function WebSearchTrail({
+export const WebSearchTrail = ({
     blocks,
     isActive,
 }: {
     blocks: TrailBlock[];
     isActive?: boolean;
-}) {
+}) => {
     const steps = useMemo(() => buildTrailSteps(blocks), [blocks]);
     const searches = steps.filter((step) => step.kind === "search").length;
 
@@ -433,15 +421,19 @@ export function WebSearchTrail({
                     </span>
                 </div>
             ) : null}
-            {steps.map((step, index) => (
-                <TrailStepRow key={`${step.kind}-${step.query}-${index}`} step={step} />
-            ))}
+            {(() => {
+                const keyFor = createOccurrenceKeyer();
+                return steps.map((step) => (
+                    <TrailStepRow key={keyFor(`${step.kind}:${step.query}`)} step={step} />
+                ));
+            })()}
             {isActive ? <GeneratingIndicator label="Searching" showTimer={false} /> : null}
         </div>
     );
-}
+};
 
-export function WebSearchBlock({
+/** Renders the WebSearchBlock UI component. */
+export const WebSearchBlock = ({
     query,
     results,
     isActive,
@@ -450,7 +442,7 @@ export function WebSearchBlock({
     results: WebSearchResult[];
     isActive?: boolean;
     searches?: number;
-}) {
+}) => {
     const hits = results
         .map((result) => `### ${result.title}\nURL: ${result.url}\n${result.snippet}`)
         .join("\n---\n");
@@ -463,10 +455,12 @@ export function WebSearchBlock({
             ]}
         />
     );
-}
+};
 
-export function WebSourcesMenu({ results }: { results: WebSearchResult[] }) {
+/** Renders the WebSourcesMenu UI component. */
+export const WebSourcesMenu = ({ results }: { results: WebSearchResult[] }) => {
     if (results.length === 0) return null;
+    const keyFor = createOccurrenceKeyer();
 
     return (
         <DropdownMenu>
@@ -483,10 +477,10 @@ export function WebSourcesMenu({ results }: { results: WebSearchResult[] }) {
             </Tooltip>
             <DropdownMenuContent align="start" className="w-80 p-1.5">
                 <div className="px-1.5 py-1 text-xs font-medium text-text-muted">Sources</div>
-                {results.map((result, i) => (
-                    <SourceRow key={`${result.url}-${i}`} result={result} />
+                {results.map((result) => (
+                    <SourceRow key={keyFor(result.url || result.title)} result={result} />
                 ))}
             </DropdownMenuContent>
         </DropdownMenu>
     );
-}
+};

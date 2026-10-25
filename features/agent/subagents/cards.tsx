@@ -33,7 +33,8 @@ function clockLabel(card: SubagentCard): string {
     return at.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
 }
 
-function Card({ card }: { card: SubagentCard }) {
+/** Renders the Card UI component. */
+const Card = ({ card }: { card: SubagentCard }) => {
     const live = card.status === "running" || card.status === "pending";
     const reviewing = live && card.phase === "reviewing" && (card.reads?.length ?? 0) > 0;
     const editing = live && card.phase === "editing";
@@ -123,9 +124,10 @@ function Card({ card }: { card: SubagentCard }) {
             )}
         </div>
     );
-}
+};
 
-export function SubagentCards({ className }: { className?: string }) {
+/** Renders the SubagentCards UI component. */
+export const SubagentCards = ({ className }: { className?: string }) => {
     const cards = useSyncExternalStore(subscribeSubagents, getSubagents, getSubagents);
 
     useEffect(() => {
@@ -138,7 +140,7 @@ export function SubagentCards({ className }: { className?: string }) {
         if (!tauri || typeof tauri.invoke !== "function" || typeof tauri.transformCallback !== "function") {
             return undefined;
         }
-        void listen<{
+        listen<{
             id?: string;
             title?: string;
             activity?: string;
@@ -147,7 +149,7 @@ export function SubagentCards({ className }: { className?: string }) {
             applySubagentEvent(event.payload);
         }).then((fn) => {
             unlisten = fn;
-        });
+        }).catch(() => undefined);
         return () => unlisten?.();
     }, []);
 
@@ -177,4 +179,4 @@ export function SubagentCards({ className }: { className?: string }) {
             ))}
         </div>
     );
-}
+};

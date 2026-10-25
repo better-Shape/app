@@ -157,7 +157,8 @@ function parseReadsFromActivity(activity: string): SubagentRead[] {
     return reads;
 }
 
-export function upsertSubagent(next: Omit<SubagentCard, "updatedAt"> & { updatedAt?: number }) {
+/** Upsert subagent. */
+export const upsertSubagent = (next: Omit<SubagentCard, "updatedAt"> & { updatedAt?: number }) => {
     const existing = cards.find((c) => c.id === next.id);
     const activity = next.activity || existing?.activity || "Working…";
     const card: SubagentCard = {
@@ -179,7 +180,7 @@ export function upsertSubagent(next: Omit<SubagentCard, "updatedAt"> & { updated
     if (idx >= 0) cards = cards.map((c, i) => (i === idx ? { ...c, ...card } : c));
     else cards = [...cards, card];
     emit();
-}
+};
 
 export function clearFinishedSubagents() {
     cards = cards.filter((c) => c.status === "running" || c.status === "pending");

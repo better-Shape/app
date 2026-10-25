@@ -69,24 +69,24 @@ type AgentTerminalEvent = {
 };
 
 /** Subscribes to a Tauri event while safely falling back to a no-op outside the desktop bridge. */
-function safeListen<T>(
+const safeListen = <T,>(
     eventName: string,
     handler: (event: { payload: T }) => void,
-): Promise<() => void> {
+): Promise<() => void> => {
     return Promise.resolve()
         .then(() => listen<T>(eventName, handler))
         .catch(() => () => undefined);
-}
+};
 
 /**
  * Subscribe to live output for one command. `enabled` avoids piling up
  * listeners for historical (already finished) transcript rows.
  */
-export function useAgentTerminalStream(
+export const useAgentTerminalStream = (
     commandId: string | undefined,
     enabled: boolean,
     sessionIdHint?: number,
-): StreamState {
+): StreamState => {
     const [state, setState] = useState<StreamState>({
         phase: "idle",
         output: "",
@@ -98,7 +98,7 @@ export function useAgentTerminalStream(
     const bufferRef = useRef("");
 
     useEffect(() => {
-        if (!commandId || !enabled) return;
+        if (!commandId || !enabled) return undefined;
         let disposed = false;
         const unlistenStream = safeListen<AgentTerminalEvent>("agent-terminal-stream", (event) => {
             const payload = event.payload;
@@ -166,13 +166,13 @@ export function useAgentTerminalStream(
         });
         return () => {
             disposed = true;
-            void unlistenStream.then((unlisten) => unlisten()).catch(() => { /* ignore */ });
-            void unlistenPty.then((unlisten) => unlisten()).catch(() => { /* ignore */ });
+            unlistenStream.then((unlisten) => unlisten()).catch(() => { /* ignore */ });
+            unlistenPty.then((unlisten) => unlisten()).catch(() => { /* ignore */ });
         };
     }, [commandId, enabled, sessionIdHint]);
 
     return state;
-}
+};
 
 /** Auto-scrolling monospace output box (last lines of a running command). */
 export function LiveTerminalOutput({
@@ -242,14 +242,17 @@ const AUTO_RUN_OPTIONS: Array<{ value: AutoRunModeSetting; label: string; descri
     { value: "always", label: "Run everything", description: "Run all commands without asking." },
 ];
 
-function commandSummary(command: string, max = 56): string {
+/** Command summary. */
+const commandSummary = (command: string, max = 56): string => {
     const one = command.replace(/\s+/g, " ").trim();
     if (!one) return "";
-    if (one.length <= max) return one;
-    return `${one.slice(0, max - 3)}...`;
-}
+    const codePoints = Array.from(one);
+    if (codePoints.length <= max) return one;
+    return `${codePoints.slice(0, Math.max(1, max - 3)).join("")}...`;
+};
 
-function TerminalCommandMenu({ command }: { command: string }) {
+/** Renders the TerminalCommandMenu UI component. */
+const TerminalCommandMenu = ({ command }: { command: string }) => {
     const settings = useSettings();
 
     return (
@@ -272,7 +275,7 @@ function TerminalCommandMenu({ command }: { command: string }) {
                             key={opt.value}
                             onClick={() => {
                                 updateSettingSection("ai", { autoRunMode: opt.value });
-                                void commands.updateTurnPolicy({ autoRunMode: opt.value });
+                                commands.updateTurnPolicy({ autoRunMode: opt.value }).catch(() => undefined);
                             }}
                             className={cn("flex flex-col items-start py-2")}
                         >
@@ -285,17 +288,17 @@ function TerminalCommandMenu({ command }: { command: string }) {
                     );
                 })}
                 <DropdownMenuItem
-                    onClick={() => void navigator.clipboard.writeText(command)}
+                    onClick={() => { navigator.clipboard.writeText(command).catch(() => undefined); }}
                 >
                     Copy command
                 </DropdownMenuItem>
             </DropdownMenuContent>
         </DropdownMenu>
     );
-}
+};
 
 /** Inline text row matching staged/checked arrow UI, action bright, detail muted; expand shows output only. */
-function TerminalCommandRow({
+const TerminalCommandRow = ({
     command,
     statusLabel,
     output,
@@ -313,7 +316,7 @@ function TerminalCommandRow({
     exitCode?: number | null;
     defaultOpen?: boolean;
     notice?: string;
-}) {
+}) => {
     const [expanded, setExpanded] = useState(defaultOpen || Boolean(failed && output.trim()));
     const [elapsedSec, setElapsedSec] = useState(0);
     const summary = commandSummary(command);
@@ -395,7 +398,7 @@ function TerminalCommandRow({
             ) : null}
         </ActionLine>
     );
-}
+};
 
 function AutoRunModePicker({ disabled }: { disabled?: boolean }) {
     const settings = useSettings();
@@ -486,7 +489,7 @@ export function CommandApprovalCard({
 }
 
 /** Compact terminal row for finished/rejected states + live card while running. */
-export function TerminalCommandStep({ block }: { block: Chunk }) {
+export const TerminalCommandStep = ({ block }: { block: Chunk }) => {
     const command = (block.command || block.content || "").trim();
     const chunkStatus = block.commandStatus || "completed";
     const [localStatus, setLocalStatus] = useState<string | null>(null);
@@ -510,7 +513,7 @@ export function TerminalCommandStep({ block }: { block: Chunk }) {
 
     // Approval resolution flips the card before any stream/chunk update lands.
     useEffect(() => {
-        if (chunkStatus !== "pending" || !block.commandId) return;
+        if (chunkStatus !== "pending" || !block.commandId) return undefined;
         let disposed = false;
         const unlistenPromise = safeListen<{ id?: string; approved?: boolean }>(
             "agent-command-resolved",
@@ -521,7 +524,7 @@ export function TerminalCommandStep({ block }: { block: Chunk }) {
         );
         return () => {
             disposed = true;
-            void unlistenPromise.then((unlisten) => unlisten());
+            unlistenPromise.then((unlisten) => unlisten()).catch(() => undefined);
         };
     }, [chunkStatus, block.commandId]);
 
@@ -554,21 +557,21 @@ export function TerminalCommandStep({ block }: { block: Chunk }) {
     const handleRun = useCallback(() => {
         if (!block.commandId || isProcessing) return;
         setIsProcessing(true);
-        void commands
+        commands
             .approveTerminalCommand(block.commandId)
             .then(() => setLocalStatus("running"))
             .catch(() => setLocalStatus("error"))
-            .finally(() => setIsProcessing(false));
+            .finally(() => setIsProcessing(false)).catch(() => undefined);
     }, [block.commandId, isProcessing]);
 
     const handleSkip = useCallback(() => {
         if (!block.commandId || isProcessing) return;
         setIsProcessing(true);
-        void commands
+        commands
             .rejectTerminalCommand(block.commandId)
             .then(() => setLocalStatus("rejected"))
             .catch(() => setLocalStatus("error"))
-            .finally(() => setIsProcessing(false));
+            .finally(() => setIsProcessing(false)).catch(() => undefined);
     }, [block.commandId, isProcessing]);
 
     if (effectiveStatus === "pending") {
@@ -626,7 +629,7 @@ export function TerminalCommandStep({ block }: { block: Chunk }) {
             exitCode={exitCode}
         />
     );
-}
+};
 
 /** Output portion of a persisted terminal chunk (body minus the command line). */
 function stripTerminalChunkOutput(block: Chunk): string {

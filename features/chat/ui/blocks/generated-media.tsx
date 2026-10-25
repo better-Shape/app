@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 
-export function GeneratedMediaCard({
+/** Renders the GeneratedMediaCard UI component. */
+export const GeneratedMediaCard = ({
     kind,
     src,
     prompt,
@@ -14,10 +15,10 @@ export function GeneratedMediaCard({
     prompt?: string;
     credits?: string;
     loading?: boolean;
-}) {
+}) => {
     const url = (src || "").trim();
     const [ready, setReady] = useState(() => url.startsWith("data:") || kind === "audio");
-    const showShimmer = loading || (!!url && !ready && kind !== "audio");
+    const showShimmer = loading || (Boolean(url) && !ready && kind !== "audio");
 
     if (!url && !loading) {
         return (
@@ -100,4 +101,4 @@ export function GeneratedMediaCard({
             </div>
         </div>
     );
-}
+};

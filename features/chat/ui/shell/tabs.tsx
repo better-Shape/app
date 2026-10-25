@@ -47,7 +47,8 @@ export function isEphemeralChatTabId(id: string): boolean {
     return id === NEW_CHAT_TAB_ID;
 }
 
-function SortableChatTab({
+/** Renders the SortableChatTab UI component. */
+const SortableChatTab = ({
     tab,
     isActive,
     canClose,
@@ -65,7 +66,7 @@ function SortableChatTab({
     onCloseOthers?: (id: string) => void;
     onCloseToRight?: (id: string) => void;
     onCloseAll?: () => void;
-}) {
+}) => {
     const {
         attributes,
         listeners,
@@ -206,7 +207,7 @@ function SortableChatTab({
             </ContextMenuContent>
         </ContextMenu>
     );
-}
+};
 
 /** Chat conversation tabs, same TabBarShell as workspace / editor tabs. */
 export function ChatTabBar({

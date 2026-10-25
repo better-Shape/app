@@ -45,7 +45,8 @@ async function downloadDiagnostics() {
     notify.success("Diagnostics", "Diagnostic bundle downloaded.");
 }
 
-export function ChatMoreMenu() {
+/** Renders the ChatMoreMenu UI component. */
+export const ChatMoreMenu = () => {
     const modLabel = getPlatform() === "macos" ? "⌘F" : "Ctrl+F";
 
     return (
@@ -110,30 +111,30 @@ export function ChatMoreMenu() {
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
-                    onClick={() => void openSettingsWindow({ category: "general" })}
+                    onClick={() => { openSettingsWindow({ category: "general" }).catch(() => undefined); }}
                 >
                     Usage
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => void downloadDiagnostics()}>
+                <DropdownMenuItem onClick={() => { downloadDiagnostics().catch(() => undefined); }}>
                     Download Diagnostics
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
-                    onClick={() => void openSettingsWindow({ category: "ai", section: "rules" })}
+                    onClick={() => { openSettingsWindow({ category: "ai", section: "rules" }).catch(() => undefined); }}
                 >
                     Configure Rules
                 </DropdownMenuItem>
                 <DropdownMenuItem
-                    onClick={() => void openSettingsWindow({ category: "ai", section: "workflows" })}
+                    onClick={() => { openSettingsWindow({ category: "ai", section: "workflows" }).catch(() => undefined); }}
                 >
                     Configure Workflows
                 </DropdownMenuItem>
                 <DropdownMenuItem
-                    onClick={() => void openSettingsWindow({ category: "agents", section: "mcp" })}
+                    onClick={() => { openSettingsWindow({ category: "agents", section: "mcp" }).catch(() => undefined); }}
                 >
                     Configure MCP
                 </DropdownMenuItem>
             </DropdownMenuContent>
         </DropdownMenu>
     );
-}
+};

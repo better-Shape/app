@@ -45,14 +45,15 @@ import {
     upsertSubagent,
 } from "@/features/agent/subagents/store";
 
-function stickyPromptText(content: string): string {
+/** Sticky prompt text. */
+const stickyPromptText = (content: string): string => {
     const cleaned = content
         .replace(/<attached_(?:image|file|asset)\b[^>]*>[\s\S]*?<\/attached_(?:image|file|asset)>\n*/g, "")
         .trim()
         .replace(/\s+/g, " ");
     if (cleaned.length <= 120) return cleaned;
     return `${cleaned.slice(0, 117)}...`;
-}
+};
 
 /** True when an ancestor inside `boundary` is vertically scrollable and still has room to scroll up. */
 const canNestedAncestorScrollUp = (
@@ -73,10 +74,10 @@ const canNestedAncestorScrollUp = (
 };
 
 /** Detects pending human-in-the-loop approval or question blocks in the transcript. */
-export function detectPendingHitl(
+export const detectPendingHitl = (
     messages: readonly { role?: string; content?: string }[],
     isLoading: boolean,
-): { kind: "approval" | "question"; count: number } | null {
+): { kind: "approval" | "question"; count: number } | null => {
     for (let i = messages.length - 1; i >= 0; i--) {
         const msg = messages.at(i);
         if (!msg || msg.role !== "assistant") continue;
@@ -119,12 +120,13 @@ export function detectPendingHitl(
         break;
     }
     return null;
-}
+};
 
 const EMPTY_TASK_ITEMS: ComposerTaskItem[] = [];
 const EMPTY_SUBAGENTS: ReturnType<typeof getSubagents> = [];
 
-export default function Chat({
+/** Renders the Chat UI component. */
+const Chat = ({
     className,
     embedded,
 }: {
@@ -134,7 +136,7 @@ export default function Chat({
     onClose?: () => void;
     sidebarSide?: "left" | "right";
     embedWindowControls?: React.ReactNode;
-}) {
+}) => {
     const messagesEndRef = React.useRef<HTMLDivElement>(null);
     const scrollContainerRef = React.useRef<HTMLDivElement>(null);
     const transcriptContentRef = React.useRef<HTMLDivElement>(null);
@@ -175,14 +177,14 @@ export default function Chat({
         const onOpen = (e: Event) => {
             const detail = (e as CustomEvent<{ id?: string; parentId?: string }>).detail;
             if (detail?.parentId && detail.parentId !== sessionRef.current.conversationId) {
-                void sessionRef.current.handleSelectChatTab(detail.parentId);
+                sessionRef.current.handleSelectChatTab(detail.parentId).catch(() => undefined);
             }
             if (detail?.id) openSubagent(detail.id);
         };
         const onOpenForParent = (e: Event) => {
             const parentId = (e as CustomEvent<{ parentId?: string }>).detail?.parentId;
             if (parentId && parentId !== sessionRef.current.conversationId && parentId !== sessionRef.current.activeChatTabId) {
-                void sessionRef.current.handleSelectChatTab(parentId);
+                sessionRef.current.handleSelectChatTab(parentId).catch(() => undefined);
             }
             const fromMessages = sessionRef.current.messages
                 .map((m) => extractSubagentsFromText(m.content || "", parentId))
@@ -212,7 +214,7 @@ export default function Chat({
             const id = (e as CustomEvent<{ id?: string }>).detail?.id;
             if (!id) return;
             if (!sessionRef.current.openChatTabs.some((tab) => tab.id === id)) return;
-            void sessionRef.current.handleCloseChatTab(id);
+            sessionRef.current.handleCloseChatTab(id).catch(() => undefined);
         };
         window.addEventListener("bettershape-open-subagent", onOpen as EventListener);
         window.addEventListener("bettershape-open-subagents-for", onOpenForParent as EventListener);
@@ -266,13 +268,13 @@ export default function Chat({
 
     React.useEffect(() => {
         const onNewChat = () => {
-            void newChatRef.current();
+            newChatRef.current().catch(() => undefined);
         };
         const onRestoreLast = () => {
             const msgs = session.messages;
             for (let i = msgs.length - 1; i >= 0; i--) {
                 if (msgs[i]?.role === "user") {
-                    void restoreRef.current(i);
+                    restoreRef.current(i).catch(() => undefined);
                     return;
                 }
             }
@@ -346,28 +348,28 @@ export default function Chat({
         sessionRef.current.handleKeyDown(e);
     }, []);
     const handleComposerSend = React.useCallback(() => {
-        void sessionRef.current.handleSendMessage();
+        sessionRef.current.handleSendMessage().catch(() => undefined);
     }, []);
     const handleComposerStop = React.useCallback(() => {
-        void sessionRef.current.handleStopMessage();
+        sessionRef.current.handleStopMessage().catch(() => undefined);
     }, []);
     const handleComposerAcceptAll = React.useCallback(() => {
-        void sessionRef.current.handleAcceptAll();
+        sessionRef.current.handleAcceptAll().catch(() => undefined);
     }, []);
     const handleComposerRejectAll = React.useCallback(() => {
-        void sessionRef.current.handleRejectAll();
+        sessionRef.current.handleRejectAll().catch(() => undefined);
     }, []);
     const handleComposerAcceptEdit = React.useCallback((id: string) => {
-        void sessionRef.current.handleAcceptEdit(id);
+        sessionRef.current.handleAcceptEdit(id).catch(() => undefined);
     }, []);
     const handleComposerRejectEdit = React.useCallback((id: string) => {
-        void sessionRef.current.handleRejectEdit(id);
+        sessionRef.current.handleRejectEdit(id).catch(() => undefined);
     }, []);
     const handleComposerSendQueuedNow = React.useCallback((id: string) => {
-        void sessionRef.current.handleSendQueuedNow(id);
+        sessionRef.current.handleSendQueuedNow(id).catch(() => undefined);
     }, []);
     const handleComposerNewChat = React.useCallback(() => {
-        void sessionRef.current.handleNewChat();
+        sessionRef.current.handleNewChat().catch(() => undefined);
     }, []);
     const activeHitlKindRef = React.useRef<"approval" | "question" | null>(null);
     const handleJumpToBottom = React.useCallback(() => {
@@ -671,7 +673,7 @@ export default function Chat({
                 return;
             }
             const md = formatTranscriptAsMarkdown(crumbTitleRef.current, msgs);
-            void navigator.clipboard
+            navigator.clipboard
                 ?.writeText(md)
                 .then(() => notify.success("Copied as Markdown", `${msgs.length} messages copied to clipboard.`))
                 .catch(() => notify.error("Copy failed", "Could not write transcript to clipboard."));
@@ -1077,4 +1079,5 @@ export default function Chat({
             ) : null}
         </div>
     );
-}
+};
+export default Chat;
