@@ -514,15 +514,14 @@ function unescapeXml(s: string): string {
         while (footerIdx >= 0 && rawLines[footerIdx]?.trim().length === 0) {
             footerIdx--;
         }
-        const footerLine = footerIdx >= 0 ? rawLines[footerIdx] : undefined;
+        const footerLine = footerIdx >= 0 ? rawLines[footerIdx] ?? "" : "";
         const isTrailingApprovalFooter =
             (commandStatus === "pending" || commandStatus === "blocked") &&
-            footerLine !== undefined &&
             /^(?:Awaiting approval:|Blocked:)\s/.test(footerLine);
         const reasonIdx = isTrailingApprovalFooter ? footerIdx : -1;
         const reason =
             (reasonAttrMatch ? decodeXmlAttr(reasonAttrMatch[1]).trim() : "")
-            || (isTrailingApprovalFooter && footerLine
+            || (isTrailingApprovalFooter
                 ? footerLine.replace(/^(?:Awaiting approval:|Blocked:)\s*/, "").trim()
                 : undefined);
 

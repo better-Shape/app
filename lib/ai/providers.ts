@@ -1036,7 +1036,8 @@ export function modelIdsFor(id: ProviderId, connections: Record<ProviderId, Prov
     .filter(Boolean)
     .map((raw) => {
       if (raw.startsWith(`${id}/`)) return raw;
-      const head = raw.includes("/") ? raw.split("/")[0] ?? "" : "";
+      const slashIdx = raw.indexOf("/");
+      const head = slashIdx > 0 ? raw.slice(0, slashIdx) : "";
       if (id !== "custom" && head && canonicalProviderId(head) === id) {
         return `${id}/${raw.slice(head.length + 1)}`;
       }

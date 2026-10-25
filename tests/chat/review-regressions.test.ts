@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { applyInsertedPromptEvent } from "@/features/chat/lib/use-chat-session";
 import { formatRowsAsMarkdownTable } from "@/features/chat/ui/md/data-table";
 import { parseMessageContent } from "@/features/chat/ui/md/renderer";
 import { preprocessChatMarkdown, repairStreamGlitches } from "@/features/chat/ui/md/stream";
@@ -375,5 +376,56 @@ describe("PR #53 review regression coverage", () => {
         expect(parsed).toHaveLength(2);
         expect(parsed.at(0)?.path).toBe("src/shared/config.ts");
         expect(parsed.at(1)?.path).toBe("packages/core/config.ts");
+    });
+
+    it("keeps composer clean on idle auto-send, preserves drafts when busy, and restores rejected auto-sends", async () => {
+        let draft = "";
+        const setInputValue = (updater: string | ((prev: string) => string)) => {
+            draft = typeof updater === "function" ? updater(draft) : updater;
+        };
+        const enqueued: string[] = [];
+        const sent: string[] = [];
+
+        applyInsertedPromptEvent(
+            { prompt: "@Button.tsx tighten padding", send: true },
+            {
+                isBusy: false,
+                setInputValue,
+                enqueue: (text) => enqueued.push(text),
+                sendNow: async (text) => {
+                    sent.push(text);
+                    return true;
+                },
+            },
+        );
+        await Promise.resolve();
+        expect(sent).toEqual(["@Button.tsx tighten padding"]);
+        expect(draft).toBe("");
+
+        draft = "work-in-progress note";
+        applyInsertedPromptEvent(
+            { prompt: "@Header.tsx align icon", send: true },
+            {
+                isBusy: true,
+                setInputValue,
+                enqueue: (text) => enqueued.push(text),
+                sendNow: vi.fn(async () => true),
+            },
+        );
+        expect(enqueued).toEqual(["@Header.tsx align icon"]);
+        expect(draft).toBe("work-in-progress note");
+
+        draft = "";
+        applyInsertedPromptEvent(
+            { prompt: "@Card.tsx check contrast", send: true },
+            {
+                isBusy: false,
+                setInputValue,
+                enqueue: (text) => enqueued.push(text),
+                sendNow: async () => false,
+            },
+        );
+        await Promise.resolve();
+        expect(draft).toBe("@Card.tsx check contrast");
     });
 });
