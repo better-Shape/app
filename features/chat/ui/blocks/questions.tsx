@@ -100,17 +100,18 @@ export function QuestionsCard({
         if (!answered && pending) return null;
         const effectiveAnswers = skipped ? (initialAnswers ?? {}) : (initialAnswers || picked);
         return questions.map((q) => ({
+            id: q.id,
             prompt: q.prompt,
             answer: formatAnswer(q, effectiveAnswers[q.id]),
         }));
     }, [answered, pending, skipped, questions, initialAnswers, picked]);
 
     const submit = useCallback(
-        async (next: QuestionAnswers, skipped = false) => {
+        async (next: QuestionAnswers, isSkipped = false) => {
             if (!askId || submitting) return;
             setSubmitting(true);
             try {
-                await commands.answerAskUser(askId, JSON.stringify(next), skipped);
+                await commands.answerAskUser(askId, JSON.stringify(next), isSkipped);
             } catch (err) {
                 setSubmitting(false);
                 const detail =
@@ -236,7 +237,7 @@ export function QuestionsCard({
             <div className="my-2 overflow-hidden rounded-xl border border-border-subtle bg-surface-3 p-3">
                 <div className="flex flex-col gap-2.5">
                     {recap.map((row) => (
-                        <div key={row.prompt} className="flex items-start gap-2 min-w-0">
+                        <div key={row.id} className="flex items-start gap-2 min-w-0">
                             <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center text-success">
                                 <DrawnCheck motion="compact" />
                             </span>

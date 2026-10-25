@@ -48,7 +48,7 @@ export function getCatalogResolvedAutoModel(): ModelInfo | null {
   return list.find((m) => m.id === activeId) ?? list[0] ?? null;
 }
 
-/** True when a connection is enabled & credentialed, but still has zero model IDs configured. */
+/** True when an enabled connection (with an API key or keyless local endpoint) still has zero model IDs configured. */
 export function hasCatalogConnectionMissingModels(): boolean {
   const providers = getSettings().ai.providers;
   return hasAnyConfiguredConnection(providers) && availableModels(providers).length === 0;

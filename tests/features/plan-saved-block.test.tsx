@@ -7,7 +7,10 @@ vi.mock("@/lib/backend", () => ({
     commands: { readFile: mocks.read, createFile: mocks.create, saveFile: mocks.save },
     useProjectState: () => ({ project_path: "/project" }),
 }));
-vi.mock("@/features/chat/lib/chat-stream-store", () => ({ useChatStream: () => ({ isLoading: mocks.loading, viewedConversationId: "origin-chat" }) }));
+vi.mock("@/features/chat/lib/chat-stream-store", () => ({
+    useChatStream: () => ({ isLoading: mocks.loading, viewedConversationId: "origin-chat" }),
+    useChatStreamStatus: () => ({ isLoading: mocks.loading, viewedConversationId: "origin-chat" }),
+}));
 vi.mock("@/features/chat/ui/md/view", () => ({ ChatMarkdown: ({ content }: { content: string }) => <div>{content}</div> }));
 vi.mock("@/features/notifications", () => ({ notify: { error: mocks.error } }));
 import { PlanSavedBlock } from "@/features/chat/ui/blocks/plan";

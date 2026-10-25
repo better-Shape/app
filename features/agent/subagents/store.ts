@@ -163,6 +163,7 @@ export function upsertSubagent(next: Omit<SubagentCard, "updatedAt"> & { updated
     const card: SubagentCard = {
         ...existing,
         ...next,
+        model: next.model ?? existing?.model,
         activity,
         task: next.task ?? existing?.task,
         transcript: next.transcript ?? existing?.transcript,

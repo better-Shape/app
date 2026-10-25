@@ -15,17 +15,36 @@ import {
 import { classifyAiError, errorDocsUrl } from "@/lib/errors/catalog";
 import { commands } from "@/lib/backend";
 
-const OPENROUTER_BILLING_URLS = [
-    "openrouter.ai/settings/credits",
-    "openrouter.ai/credits",
-] as const;
-const OPENAI_BILLING_URLS = [
-    "platform.openai.com/account/billing",
-    "platform.openai.com/settings/organization/billing",
-] as const;
+const extractErrorUrls = (rawMessage: string): URL[] => {
+    const matches = rawMessage.match(/\bhttps?:\/\/[^\s"'<>)\]]+/gi);
+    if (!matches) return [];
+    const urls: URL[] = [];
+    for (const candidate of matches) {
+        try {
+            urls.push(new URL(candidate));
+        } catch {
+            /* ignore malformed URL token */
+        }
+    }
+    return urls;
+};
 
-const includesAnySubstring = (haystack: string, needles: readonly string[]): boolean =>
-    needles.some((needle) => haystack.includes(needle));
+const isOpenRouterHostname = (hostname: string): boolean =>
+    hostname === "openrouter.ai" || hostname.endsWith(".openrouter.ai");
+
+const isOpenRouterBillingUrl = (url: URL): boolean =>
+    isOpenRouterHostname(url.hostname) &&
+    (url.pathname === "/credits" ||
+        url.pathname.startsWith("/credits/") ||
+        url.pathname === "/settings/credits" ||
+        url.pathname.startsWith("/settings/credits/"));
+
+const isOpenAiBillingUrl = (url: URL): boolean =>
+    url.hostname === "platform.openai.com" &&
+    (url.pathname === "/account/billing" ||
+        url.pathname.startsWith("/account/billing/") ||
+        url.pathname === "/settings/organization/billing" ||
+        url.pathname.startsWith("/settings/organization/billing/"));
 
 /** Billing provider detected from a raw AI error string (`"openrouter"` takes precedence over `"openai"`). */
 export const detectErrorBillingProvider = (
@@ -33,14 +52,25 @@ export const detectErrorBillingProvider = (
     isQuota: boolean,
 ): "openrouter" | "openai" | null => {
     if (!rawMessage) return null;
-    const lower = rawMessage.toLowerCase();
+    const urls = extractErrorUrls(rawMessage);
+    const proseWithoutUrls = rawMessage
+        .replace(/\bhttps?:\/\/[^\s"'<>)\]]+/gi, " ")
+        .toLowerCase();
     const isOpenRouter =
-        includesAnySubstring(lower, OPENROUTER_BILLING_URLS) ||
-        (isQuota && (/\bopenrouter\b/.test(lower) || lower.includes("openrouter.ai")));
+        urls.some(isOpenRouterBillingUrl) ||
+        (isQuota &&
+            (/\bopenrouter\b/.test(proseWithoutUrls) ||
+                urls.some((url) => isOpenRouterHostname(url.hostname))));
     if (isOpenRouter) return "openrouter";
     const isOpenAi =
-        includesAnySubstring(lower, OPENAI_BILLING_URLS) ||
-        (isQuota && (/\bopenai\b/.test(lower) || lower.includes("api.openai.com")));
+        urls.some(isOpenAiBillingUrl) ||
+        (isQuota &&
+            (/\bopenai\b/.test(proseWithoutUrls) ||
+                urls.some(
+                    (url) =>
+                        url.hostname === "api.openai.com" ||
+                        url.hostname === "platform.openai.com",
+                )));
     return isOpenAi ? "openai" : null;
 };
 

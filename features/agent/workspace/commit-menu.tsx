@@ -613,7 +613,9 @@ export function CommitMenu({ projectPath }: { projectPath: string }) {
                                     setDescription(event.target.value);
                                 }}
                                 onKeyDown={(event) => {
-                                    event.stopPropagation();
+                                    if (event.key !== "Escape") {
+                                        event.stopPropagation();
+                                    }
                                     if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
                                         event.preventDefault();
                                         commitAll();

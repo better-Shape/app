@@ -131,7 +131,7 @@ function TestRow({
             <div className="flex w-full items-center gap-1 pr-3 transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--row-hover)]">
                 <button
                     type="button"
-                    aria-expanded={Boolean(test.error) ? expanded : undefined}
+                    aria-expanded={test.error ? expanded : undefined}
                     className="flex min-w-0 flex-1 items-start gap-2 py-1.5 pl-6 pr-2 text-left"
                     onClick={() => setExpanded((v) => !v)}
                 >

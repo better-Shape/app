@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
+import { getSubagents, resetSubagents, upsertSubagent } from "@/features/agent/subagents/store";
 import { formatAiTerminalTitle } from "@/features/agent/terminal-dock";
 import { applyInsertedPromptEvent } from "@/features/chat/lib/use-chat-session";
 import { detectErrorBillingProvider } from "@/features/chat/ui/blocks/error";
+import { detectPendingHitl } from "@/features/chat/ui/chat";
 import { isImeKeyEvent, isPlainPickerConfirmKey } from "@/features/chat/ui/composer/mentions";
 import { formatRowsAsMarkdownTable } from "@/features/chat/ui/md/data-table";
 import { parseMessageContent } from "@/features/chat/ui/md/renderer";
@@ -521,6 +523,10 @@ describe("PR #53 review regression coverage", () => {
         expect(detectErrorBillingProvider("401 Unauthorized calling https://openrouter.ai/api/v1/chat/completions", false)).toBeNull();
         expect(detectErrorBillingProvider("401 Unauthorized calling https://api.openai.com/v1/responses", false)).toBeNull();
         expect(detectErrorBillingProvider("Add credits at https://openrouter.ai/settings/credits", false)).toBe("openrouter");
+        expect(detectErrorBillingProvider("Top up at https://platform.openai.com/account/billing", false)).toBe("openai");
+        expect(detectErrorBillingProvider("Quota exceeded at https://evil-openrouter.ai/settings/credits", true)).toBeNull();
+        expect(detectErrorBillingProvider("Quota exceeded at https://openrouter.ai.attacker.example/credits", true)).toBeNull();
+        expect(detectErrorBillingProvider("Quota exceeded at https://api.openai.com.attacker.example/v1", true)).toBeNull();
 
         const emojiCmd = `${"a".repeat(47)}🚀 trailing`;
         const title = formatAiTerminalTitle(emojiCmd);
@@ -537,11 +543,64 @@ describe("PR #53 review regression coverage", () => {
 
         const spanHost = document.createElement("div");
         spanHost.innerHTML =
-            '<div data-chat-message-index="0"><p><span>const</span> <strong>tokenStore</strong> = 1;</p></div>';
+            '<div data-chat-message-index="0"><p><span>const</span> <strong>tokenStore</strong> = 1;</p><p>alpha</p><p>beta</p></div>';
         document.body.appendChild(spanHost);
         const crossNode = syncChatDomHighlights(spanHost, "const tokenStore");
         expect(crossNode.ranges).toHaveLength(1);
-        expect(crossNode.ranges[0]?.range.toString()).toBe("const tokenStore");
+        expect(crossNode.ranges.at(0)?.range.toString()).toBe("const tokenStore");
+        const crossBlock = syncChatDomHighlights(spanHost, "alpha beta");
+        expect(crossBlock.ranges).toHaveLength(0);
+        expect(
+            findTranscriptMatches(
+                [{ role: "assistant", content: "alpha\n\nbeta" }],
+                "alpha beta",
+            ),
+        ).toHaveLength(0);
         spanHost.remove();
+
+        expect(
+            detectPendingHitl(
+                [
+                    {
+                        role: "assistant",
+                        content:
+                            '<design_previews id="dp-1" status="pending"><design_preview id="c1" name="Concept 1" kind="html"><div>ok</div></design_preview></design_previews>',
+                    },
+                ],
+                false,
+            ),
+        ).toEqual({ kind: "approval", count: 1 });
+        expect(
+            detectPendingHitl(
+                [
+                    {
+                        role: "assistant",
+                        content:
+                            '<design_previews id="dp-1" status="selected" selected="c1"><design_preview id="c1" name="Concept 1" kind="html"><div>ok</div></design_preview></design_previews>',
+                    },
+                ],
+                true,
+            ),
+        ).toBeNull();
+
+        resetSubagents();
+        upsertSubagent({
+            id: "sub-preserve-model",
+            title: "Reviewer",
+            model: "anthropic/claude-sonnet-4.5",
+            activity: "Working...",
+            status: "running",
+        });
+        upsertSubagent({
+            id: "sub-preserve-model",
+            title: "Reviewer",
+            model: undefined,
+            activity: "Completed",
+            status: "done",
+        });
+        expect(getSubagents().find((c) => c.id === "sub-preserve-model")?.model).toBe(
+            "anthropic/claude-sonnet-4.5",
+        );
+        resetSubagents();
     });
 });

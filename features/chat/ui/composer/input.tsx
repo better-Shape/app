@@ -708,13 +708,23 @@ export const ChatInput = React.memo(function ChatInput({
         }
     }, [onInputChange]);
 
+    const applyProgrammaticInputValue = React.useCallback(
+        (nextValue: string) => {
+            historyCursorRef.current = null;
+            onInputChange({
+                target: { value: nextValue },
+            } as React.ChangeEvent<HTMLTextAreaElement>);
+        },
+        [onInputChange],
+    );
+
     // Collapse any long path mentions already in the composer (e.g. pasted / leftover).
     React.useEffect(() => {
         const shortened = shortenMentionTokensInText(inputValue);
         if (shortened !== inputValue) {
-            onInputChange({ target: { value: shortened } } as React.ChangeEvent<HTMLTextAreaElement>);
+            applyProgrammaticInputValue(shortened);
         }
-    }, [inputValue, onInputChange]);
+    }, [applyProgrammaticInputValue, inputValue]);
 
     const insertMention = React.useCallback((token: string) => {
         const textarea = textareaRef.current;
@@ -726,12 +736,12 @@ export const ChatInput = React.memo(function ChatInput({
         const atIndex = before.lastIndexOf("@");
         if (atIndex === -1) return;
         const next = `${before.slice(0, atIndex)}${token}${after}`;
-        onInputChange({ target: { value: next } } as React.ChangeEvent<HTMLTextAreaElement>);
+        applyProgrammaticInputValue(next);
         setMentionOpen(false);
         setMentionQuery("");
         setSlashOpen(false);
         requestAnimationFrame(() => textarea.focus());
-    }, [inputValue, onInputChange]);
+    }, [applyProgrammaticInputValue, inputValue]);
 
     const appendToken = React.useCallback((token: string) => {
         const textarea = textareaRef.current;
@@ -741,9 +751,9 @@ export const ChatInput = React.memo(function ChatInput({
         const after = val.slice(caret);
         const pad = before.length > 0 && !/\s$/.test(before) ? " " : "";
         const next = `${before}${pad}${token} ${after.replace(/^\s/, "")}`;
-        onInputChange({ target: { value: next } } as React.ChangeEvent<HTMLTextAreaElement>);
+        applyProgrammaticInputValue(next);
         requestAnimationFrame(() => textarea?.focus());
-    }, [inputValue, onInputChange]);
+    }, [applyProgrammaticInputValue, inputValue]);
 
     const insertSlash = React.useCallback((token: string) => {
         const textarea = textareaRef.current;
@@ -755,11 +765,11 @@ export const ChatInput = React.memo(function ChatInput({
         const slashIndex = before.lastIndexOf("/");
         if (slashIndex === -1) return;
         const next = `${before.slice(0, slashIndex)}${token}${after}`;
-        onInputChange({ target: { value: next } } as React.ChangeEvent<HTMLTextAreaElement>);
+        applyProgrammaticInputValue(next);
         setSlashOpen(false);
         setSlashQuery("");
         requestAnimationFrame(() => textarea.focus());
-    }, [inputValue, onInputChange]);
+    }, [applyProgrammaticInputValue, inputValue]);
 
     const [composerTall, setComposerTall] = React.useState(false);
     const [isExpanded, setIsExpanded] = React.useState(false);
@@ -1184,6 +1194,12 @@ export const ChatInput = React.memo(function ChatInput({
     const inputValueRef = React.useRef(inputValue);
     React.useLayoutEffect(() => {
         inputValueRef.current = inputValue;
+        if (
+            historyCursorRef.current !== null &&
+            !isUnmodifiedHistoryRecall(historyCursorRef.current, inputValue)
+        ) {
+            historyCursorRef.current = null;
+        }
     }, [inputValue]);
 
     const swapAttachmentInline = React.useCallback(
@@ -1192,9 +1208,7 @@ export const ChatInput = React.memo(function ChatInput({
             const cur = inputValueRef.current;
             const pad = cur.trim().length > 0 ? `${cur.trimEnd()}\n\n` : "";
             const next = `${pad}${rawText}`;
-            onInputChange({
-                target: { value: next },
-            } as React.ChangeEvent<HTMLTextAreaElement>);
+            applyProgrammaticInputValue(next);
             requestAnimationFrame(() => {
                 const node = textareaRef.current;
                 if (!node) return;
@@ -1202,7 +1216,7 @@ export const ChatInput = React.memo(function ChatInput({
                 node.setSelectionRange(next.length, next.length);
             });
         },
-        [onInputChange, setUploadedFiles],
+        [applyProgrammaticInputValue, setUploadedFiles],
     );
 
     // Files stay files. Huge text, terminal copies, and editor selections become attachments.
@@ -1327,6 +1341,7 @@ export const ChatInput = React.memo(function ChatInput({
             );
             if (wrapped) {
                 e.preventDefault();
+                historyCursorRef.current = null;
                 insertTextareaRangeWithUndo(
                     textarea,
                     wrapped.start,
@@ -1334,9 +1349,7 @@ export const ChatInput = React.memo(function ChatInput({
                     wrapped.replacement,
                     wrapped.nextValue,
                     (nextValue, nextCaret) => {
-                        onInputChange({
-                            target: { value: nextValue },
-                        } as React.ChangeEvent<HTMLTextAreaElement>);
+                        applyProgrammaticInputValue(nextValue);
                         requestAnimationFrame(() => {
                             const node = textareaRef.current;
                             if (!node) return;
@@ -1351,7 +1364,7 @@ export const ChatInput = React.memo(function ChatInput({
                 );
             }
         }
-    }, [addUploadedFiles, inputValue, onInputChange, swapAttachmentInline]);
+    }, [addUploadedFiles, applyProgrammaticInputValue, inputValue, swapAttachmentInline]);
 
     const [dragOver, setDragOver] = React.useState(false);
     const dragDepth = React.useRef(0);
@@ -1401,6 +1414,7 @@ export const ChatInput = React.memo(function ChatInput({
                 const start = el ? el.selectionStart : current.length;
                 const end = el ? el.selectionEnd : current.length;
                 const nextValue = `${current.slice(0, start)}${droppedText}${current.slice(end)}`;
+                historyCursorRef.current = null;
                 if (el) {
                     insertTextareaRangeWithUndo(
                         el,
@@ -1409,9 +1423,7 @@ export const ChatInput = React.memo(function ChatInput({
                         droppedText,
                         nextValue,
                         (fallbackVal, nextCaret) => {
-                            onInputChange({
-                                target: { value: fallbackVal },
-                            } as React.ChangeEvent<HTMLTextAreaElement>);
+                            applyProgrammaticInputValue(fallbackVal);
                             requestAnimationFrame(() => {
                                 el.focus();
                                 el.setSelectionRange(nextCaret, nextCaret);
@@ -1419,13 +1431,11 @@ export const ChatInput = React.memo(function ChatInput({
                         },
                     );
                 } else {
-                    onInputChange({
-                        target: { value: nextValue },
-                    } as React.ChangeEvent<HTMLTextAreaElement>);
+                    applyProgrammaticInputValue(nextValue);
                 }
             }
         }
-    }, [addUploadedFiles, inputValue, onInputChange]);
+    }, [addUploadedFiles, applyProgrammaticInputValue, inputValue]);
 
     const handleDragEnter = React.useCallback((e: React.DragEvent) => {
         e.preventDefault();
@@ -1462,7 +1472,7 @@ export const ChatInput = React.memo(function ChatInput({
             const lead = before && !/\s$/.test(before) ? " " : "";
             const trail = after && /^\s/.test(after) ? "" : " ";
             const next = `${before}${lead}${token}${trail}${after}`;
-            onInputChange({ target: { value: next } } as React.ChangeEvent<HTMLTextAreaElement>);
+            applyProgrammaticInputValue(next);
             const pos = before.length + lead.length + token.length + trail.length;
             if (focusRaf) cancelAnimationFrame(focusRaf);
             focusRaf = requestAnimationFrame(() => {
@@ -1476,7 +1486,7 @@ export const ChatInput = React.memo(function ChatInput({
             if (focusRaf) cancelAnimationFrame(focusRaf);
             window.removeEventListener("bettershape-chat-attach-element", onElement as EventListener);
         };
-    }, [inputValue, onInputChange]);
+    }, [applyProgrammaticInputValue, inputValue]);
 
     // External surfaces (e.g. Terminal selection) can attach files directly into the composer.
     React.useEffect(() => {
@@ -1485,12 +1495,13 @@ export const ChatInput = React.memo(function ChatInput({
             const detail = (e as CustomEvent<{ files?: File[]; prompt?: string }>).detail;
             const incoming = (detail?.files ?? []).filter(Boolean);
             if (incoming.length > 0) {
+                historyCursorRef.current = null;
                 addUploadedFiles(incoming);
             }
             if (detail?.prompt) {
                 const pad = inputValue.trim().length > 0 ? `${inputValue.trimEnd()}\n` : "";
                 const next = `${pad}${detail.prompt}`;
-                onInputChange({ target: { value: next } } as React.ChangeEvent<HTMLTextAreaElement>);
+                applyProgrammaticInputValue(next);
             }
             if (focusRaf) cancelAnimationFrame(focusRaf);
             focusRaf = requestAnimationFrame(() => {
@@ -1503,7 +1514,7 @@ export const ChatInput = React.memo(function ChatInput({
             if (focusRaf) cancelAnimationFrame(focusRaf);
             window.removeEventListener("bettershape-chat-attach-files", onAttachFiles as EventListener);
         };
-    }, [addUploadedFiles, inputValue, onInputChange]);
+    }, [addUploadedFiles, applyProgrammaticInputValue, inputValue]);
 
     // Filter file uploads to only allowed types
     const handleFilteredFileUpload = React.useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1638,7 +1649,7 @@ export const ChatInput = React.memo(function ChatInput({
             const after = val.slice(caret);
             const pad = before.length > 0 && !/\s$/.test(before) ? " " : "";
             const next = `${before}${pad}${text}${after.replace(/^\s/, "")}`;
-            onInputChange({ target: { value: next } } as React.ChangeEvent<HTMLTextAreaElement>);
+            applyProgrammaticInputValue(next);
             if (focusRaf) cancelAnimationFrame(focusRaf);
             focusRaf = requestAnimationFrame(() => {
                 focusRaf = 0;
@@ -1650,7 +1661,7 @@ export const ChatInput = React.memo(function ChatInput({
             if (focusRaf) cancelAnimationFrame(focusRaf);
             window.removeEventListener("bettershape-dictation-text", onDictation as EventListener);
         };
-    }, [inputValue, onInputChange]);
+    }, [applyProgrammaticInputValue, inputValue]);
 
     const hasContextStrip =
         (pendingEdits?.length ?? 0) > 0 ||
@@ -1836,7 +1847,7 @@ export const ChatInput = React.memo(function ChatInput({
                             setUploadedFiles((prev) => prev.filter((a) => a.id !== id));
                             const pad = inputValue.trim().length > 0 ? `${inputValue.trimEnd()}\n\n` : "";
                             const next = `${pad}${text}`;
-                            onInputChange({ target: { value: next } } as React.ChangeEvent<HTMLTextAreaElement>);
+                            applyProgrammaticInputValue(next);
                             requestAnimationFrame(() => {
                                 const node = textareaRef.current;
                                 if (!node) return;
@@ -2197,6 +2208,7 @@ export const ChatInput = React.memo(function ChatInput({
                                                     } catch {
                                                         insertedNatively = false;
                                                     }
+                                                    historyCursorRef.current = null;
                                                     if (!insertedNatively) {
                                                         const nextValue = wrapped
                                                             ? wrapped.nextValue
@@ -2206,9 +2218,7 @@ export const ChatInput = React.memo(function ChatInput({
                                                         const nextCaret = wrapped
                                                             ? wrapped.nextCaret
                                                             : start + text.length;
-                                                        onInputChange({
-                                                            target: { value: nextValue },
-                                                        } as React.ChangeEvent<HTMLTextAreaElement>);
+                                                        applyProgrammaticInputValue(nextValue);
                                                         requestAnimationFrame(() => {
                                                             el.focus();
                                                             el.setSelectionRange(nextCaret, nextCaret);

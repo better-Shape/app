@@ -162,7 +162,7 @@ const PREFIX_TO_BRAND: Record<string, BrandKey> = {
 };
 
 function lookupBrandPrefix(key: string): Provider | undefined {
-    return Object.prototype.hasOwnProperty.call(PREFIX_TO_BRAND, key)
+    return Object.hasOwn(PREFIX_TO_BRAND, key)
         ? PREFIX_TO_BRAND[key]
         : undefined;
 }

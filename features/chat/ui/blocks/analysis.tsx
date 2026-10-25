@@ -2,7 +2,7 @@
 
 import { DocumentSearch20Regular } from "@fluentui/react-icons/headless/svg/document-search";
 import { Folder20Regular } from "@fluentui/react-icons/headless/svg/folder";
-import React, { useState } from "react";
+import { useState } from "react";
 import { FileIcon } from "@/components/ui/file-icon";
 import { Icon } from "@/components/ui/icon";
 import { openProjectFile } from "@/lib/window/open-project-file";

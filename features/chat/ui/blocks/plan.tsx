@@ -12,7 +12,7 @@ import React, { useEffect, useRef } from "react";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 import { commands, useProjectState } from "@/lib/backend";
-import * as chatStreamStore from "@/features/chat/lib/chat-stream-store";
+import { useChatStreamStatus } from "@/features/chat/lib/chat-stream-store";
 import { displayPlanName, parsePlanMarkdown, splitPlanDocument, type PlanPreview } from "@/lib/plan/preview";
 import { ChatMarkdown } from "@/features/chat/ui/md/view";
 import {
@@ -204,11 +204,7 @@ export function PlanSavedBlock({
 }) {
     const rootRef = useRef<HTMLDivElement>(null);
     const { project_path } = useProjectState();
-    const useStatus =
-        "useChatStreamStatus" in (chatStreamStore as Record<string, unknown>)
-            ? chatStreamStore.useChatStreamStatus
-            : chatStreamStore.useChatStream;
-    const { isLoading, viewedConversationId } = useStatus();
+    const { isLoading, viewedConversationId } = useChatStreamStatus();
     const [missing, setMissing] = React.useState(false);
     const [checking, setChecking] = React.useState(false);
     const [preview, setPreview] = React.useState<PlanPreview | null>(() =>

@@ -67,6 +67,7 @@ export function detectPendingHitl(
             raw.includes("<terminal_command") ||
             raw.includes("<edit_pending") ||
             raw.includes("<plugin_call") ||
+            raw.includes("<design_previews") ||
             raw.includes("<question")
         ) {
             const chunks = parseMessageContent(raw);
@@ -82,7 +83,15 @@ export function detectPendingHitl(
                 ) {
                     approvalCount += 1;
                 }
-                if (c.type === "question" && c.commandStatus === "pending" && Boolean(c.commandId)) {
+                if (
+                    c.type === "design_previews" &&
+                    c.commandStatus === "pending" &&
+                    c.commandId &&
+                    (c.designPreviews?.length ?? 0) > 0
+                ) {
+                    approvalCount += 1;
+                }
+                if (c.type === "question" && c.commandStatus === "pending" && c.commandId) {
                     questionCount += 1;
                 }
             }
@@ -342,9 +351,10 @@ export default function Chat({
     const handleComposerNewChat = React.useCallback(() => {
         void sessionRef.current.handleNewChat();
     }, []);
+    const activeHitlKindRef = React.useRef<"approval" | "question" | null>(null);
     const handleJumpToBottom = React.useCallback(() => {
         const container = scrollContainerRef.current;
-        if (container) {
+        if (activeHitlKindRef.current && container) {
             const pendingCards = Array.from(
                 container.querySelectorAll<HTMLElement>("[data-pending-approval='true']"),
             );
@@ -681,6 +691,9 @@ export default function Chat({
     const showTopVeil = !emptyStage && session.scrolledFromTop;
     const effectiveHitlDirection = pendingHitlKind ? pendingHitlDirection : null;
     const activeHitlKind = effectiveHitlDirection ? pendingHitlKind : null;
+    React.useLayoutEffect(() => {
+        activeHitlKindRef.current = activeHitlKind;
+    }, [activeHitlKind]);
     const showBottomVeil = !emptyStage && session.scrolledFromBottom;
     const showFloatingPill = !emptyStage && (session.scrolledFromBottom || Boolean(activeHitlKind));
 
