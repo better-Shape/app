@@ -10,7 +10,7 @@ This is the BetterShape baseline that UI review checks against. The values live 
 4. Every interactive element has a visible focus state from `--focus`.
 5. Icon-only controls have `aria-label`. Toggles have `aria-pressed`.
 6. Copy is sentence case and uses `...` rather than the ellipsis character.
-7. Motion uses tokens from `app/transitions.css` and respects `prefers-reduced-motion`.
+7. Motion follows `engineering/motion-design.md`, uses shared fast/base/spatial tokens, stays immediate for frequent and keyboard-driven actions, and respects both the OS and app reduced-motion preference. One-shot JavaScript motion uses `lib/ui/motion.ts`; components with timers or repeated changes use the live `useReducedMotion` hook from `lib/ui/use-reduced-motion.ts`.
 8. Status colors carry state. Do not use them for decoration.
 9. A control may preview its next state on hover or focus, and then only partway: the midpoint, never the finished state. Full state changes belong to the click. See the panel rail in `app/transitions.css`.
    - The same ladder covers rows and icon buttons, not only a rail: `--row-hover` is exactly half of `--row-selected`, and a control that is already committed still steps up (`--row-selected-hover`) instead of going inert. Hover and selected must never share one tone. That is the defect Microsoft filed against its own combobox, and it leaves the surface with nothing to anticipate along.

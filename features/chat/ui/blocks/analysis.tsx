@@ -39,15 +39,21 @@ export function CodebaseAnalysis({ items, isActive }: { items: AnalysisItem[]; i
                 onOpenChange={items.length > 0 ? setIsOpen : undefined}
             >
                 {items.length > 0 ? (
-                    <div className="mt-0.5 mb-1 flex w-full min-w-0 flex-col gap-0.5 pl-3.5">
-                        {items.map((item, i) => {
+                    <div
+                        aria-busy={isActive || undefined}
+                        className="mt-0.5 mb-1 flex w-full min-w-0 flex-col gap-0.5 pl-3.5"
+                    >
+                        {items.map((item, idx) => {
+                            const key = `${item.type}:${item.label}:${idx}`;
                             if (item.type === "file") {
                                 const name = item.label.split(/[\\/]/).pop() || item.label;
                                 return (
                                     <button
-                                        key={`${item.label}-${i}`}
+                                        key={key}
                                         type="button"
-                                        onClick={() => void openProjectFile(item.label)}
+                                        onClick={() => {
+                                            openProjectFile(item.label).catch(() => undefined);
+                                        }}
                                         className="flex min-h-[24px] w-fit max-w-full items-center gap-1.5 rounded-md px-1 py-0.5 text-left text-xs text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--row-hover)] hover:text-text-primary"
                                     >
                                         <FileIcon name={name} className="size-3.5 shrink-0 opacity-85" />
@@ -57,7 +63,7 @@ export function CodebaseAnalysis({ items, isActive }: { items: AnalysisItem[]; i
                             }
                             return (
                                 <div
-                                    key={`${item.label}-${i}`}
+                                    key={key}
                                     className="flex min-h-[24px] items-center gap-1.5 px-1 py-0.5 text-xs text-text-muted"
                                 >
                                     <Icon

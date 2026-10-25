@@ -23,6 +23,7 @@ import { startAgentBackgroundExitToasts } from "@/features/chat/lib/agent-termin
 import { useWindowControls } from "@/features/agent/workbench/titlebar/hooks/use-window-controls";
 import { WindowControls } from "@/features/agent/workbench/titlebar/ui/window-controls";
 import { usePlatform } from "@/lib/platform";
+import { useReducedMotion } from "@/lib/ui/use-reduced-motion";
 import { normalizePath } from "@/lib/path/utils";
 import { NewFilePromptHost } from "./workspace/new-file-prompt";
 import { InterruptedTurns } from "./recovery/interrupted-turns";
@@ -39,6 +40,7 @@ const MAX_WORKSPACE_PX = 1200;
 const SPLASH_KEY = "bettershape-agent-splash-seen";
 const ZEN_KEY = "bettershape-zen-mode";
 
+/** Keeps each open work area usable without shrinking the native window below its shell floor. */
 function layoutMinWidth(sidebarOpen: boolean, workspaceOpen: boolean) {
     const sidebar = sidebarOpen ? SIDEBAR_EXPANDED : 0;
     const workspace = workspaceOpen ? MIN_WORKSPACE + WORKSPACE_GUTTER : 0;
@@ -59,26 +61,29 @@ function SidebarPeek({
     onEnter: () => void;
     onLeave: () => void;
 }) {
-    // The list stays mounted for a moment after the flyout hides, so its exit can finish.
-    // It is shown while `shown` is true, or until that delay ends.
+    // Keep the list mounted briefly after close so its exit can finish.
+    const reducedMotion = useReducedMotion();
     const [host, setHost] = useState<HTMLElement>();
     const [mounted, setMounted] = useState(shown);
-    // Opening from hidden must mount the list too, so a later hide can run its exit delay.
-    // Adjusted during render instead of in an effect.
     if (shown && !mounted) setMounted(true);
+    if (!shown && reducedMotion && mounted) setMounted(false);
     const attachHost = useCallback((el: HTMLDivElement | null) => setHost(el ?? undefined), []);
 
     useEffect(() => {
-        if (shown) return;
-        const t = window.setTimeout(() => setMounted(false), 200);
-        return () => window.clearTimeout(t);
-    }, [shown]);
+        if (shown || reducedMotion || !mounted) return;
+        const timeoutId = window.setTimeout(() => setMounted(false), 160);
+        return () => {
+            window.clearTimeout(timeoutId);
+        };
+    }, [shown, reducedMotion, mounted]);
 
     return (
         <div
             ref={attachHost}
             role="presentation"
             data-sidebar-peek=""
+            aria-hidden={!shown}
+            inert={!shown}
             className={cn(
                 "fixed z-30 flex w-82 flex-col overflow-visible origin-left",
                 // Comes out of the rail button rather than fading in at a fixed spot:
@@ -164,9 +169,6 @@ export function AgentLayout({ children }: { children: React.ReactNode }) {
 
     useEffect(() => startAgentBackgroundExitToasts(), []);
 
-    // Resolve sidebar nav portal target when overlay / explorer needs it.
-    const navSlot = useElementById(AGENT_SIDEBAR_NAV_SLOT, Boolean(overlay));
-
     useEffect(() => {
         if (!splash) return;
         let t2: number | undefined;
@@ -188,6 +190,9 @@ export function AgentLayout({ children }: { children: React.ReactNode }) {
             if (t2 !== undefined) window.clearTimeout(t2);
         };
     }, [splash]);
+
+    // Resolve sidebar nav portal target when overlay / explorer needs it.
+    const navSlot = useElementById(AGENT_SIDEBAR_NAV_SLOT, Boolean(overlay));
 
     const persistWorkspace = useCallback((next: boolean) => {
         setWorkspaceOpen(next);

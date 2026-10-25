@@ -184,20 +184,25 @@ Shell structure:
 
 ## 6. Motion
 
-Timing is in `app/transitions.css` and the `--transition-*` and `--ease-*` tokens in `app/globals.css`. Do not write timings inline.
+Read `engineering/motion-design.md` before changing motion. Timing is in `app/transitions.css` and the `--transition-*` and `--ease-*` tokens in `app/globals.css`. Use those tokens rather than inventing a duration per component.
 
-| Token | Value |
-| --- | --- |
-| `--transition-fast` | 90ms |
-| `--transition-base` | 140ms |
-| `--ease-out` / `--ease-spring` | `cubic-bezier(0.16, 1, 0.3, 1)` |
-| `--ease-in` | `cubic-bezier(0.7, 0, 0.84, 0)` |
-| `--swap-dur` / `--swap-ease` | 380ms / `cubic-bezier(0.22, 1, 0.36, 1)`: how long a replaced value keeps its slot |
-| `--reveal-dur` / `--reveal-ease` | 200ms / `--ease-out`: a section or disclosure body growing to its height |
-| `--ease-overshoot` | `linear(0, 0.28 18%, 0.87 42%, 1.06 62%, 1.01 78%, 1)`, `@supports` only |
+| Token | Value | Use |
+| --- | --- | --- |
+| `--transition-fast` | 90ms | Small state and color feedback; chevrons and indicators |
+| `--transition-base` | 140ms | Compact content changes, press release, and fades |
+| `--transition-spatial` | 180ms | Larger pane or sidebar movement where location helps orientation |
+| `--ease-out` / `--ease-spring` | `cubic-bezier(0.16, 1, 0.3, 1)` | Decelerating motion; `--ease-spring` is retained as a legacy alias, not a bounce |
+| `--ease-in` | `cubic-bezier(0.7, 0, 0.84, 0)` | Short exits |
+| `--swap-dur` / `--swap-ease` | 380ms / `cubic-bezier(0.22, 1, 0.36, 1)` | How long a replaced value keeps its slot |
+| `--reveal-dur` / `--reveal-ease` | 200ms / `--ease-out` | A section or disclosure body growing to its height |
+| `--ease-overshoot` | `linear(0, 0.28 18%, 0.87 42%, 1.06 62%, 1.01 78%, 1)`, `@supports` only | Popover entrance overshoot |
 
-Specific systems:
+Motion rules:
 
+- Keep high-frequency and keyboard-driven actions immediate: command surfaces, menu selection, tab/content switching, direct manipulation, and repeated controls should not wait for an entrance animation. The tab indicator may move briefly; tab content does not animate in. Menus can use a jump cut.
+- Use motion only when it clarifies state, gives a small acknowledgement, or preserves spatial orientation. Prefer transform and opacity; do not add continuous decorative motion to a dense work surface.
+- Use `--transition-spatial` for pane geometry, `--transition-base` for compact changes, and `--transition-fast` for small feedback. Direct manipulation bypasses transitions while dragging. Let CSS transitions retarget naturally when the state changes again; cancel WAAPI work before starting a replacement.
+- A closing disclosure must become `aria-hidden` and `inert` immediately, even if its visual exit remains mounted briefly.
 - Dropdown: open 140ms, close 90ms. Pre-scale 0.97, closing scale 0.99. Ease `cubic-bezier(0.22, 1, 0.36, 1)`.
 - Morph (the expanding menu): open 320ms, close 240ms. Fade 180ms with a 40ms delay. Closed size 40px square, open size 260 by 180px, radius 16px.
 - Press: `.press-spring` scales to `--press-scale` 0.985. Press-in 80ms with `cubic-bezier(0.3, 0, 0.2, 1)`. Press-out 220ms with `cubic-bezier(0.22, 1, 0.36, 1)`. Hover brightens to 1.05, pressed darkens to 0.94.
@@ -213,7 +218,7 @@ Specific systems:
 - Terminal activity: `.t-tab-dot` marks a terminal tab that produced output while the user was looking elsewhere. One dot, one meaning, no pulse, because the strip is on screen for the whole session and constant motion there is noise. It shares the close button's reserved slot and hands it over on hover.
 - Spring: only the popover entrance overshoots, through `--ease-overshoot` behind `@supports (animation-timing-function: linear(0, 1))`. `cubic-bezier` is clamped to its endpoints, so `linear()` is the only curve that can pass 1. It is not applied to the press release: returning from `--press-scale` 0.985 means a 12% overshoot moves the control 0.2% of its size, which is invisible.
 
-Reduced motion: `app/globals.css` carries the blanket reset (every animation to `0.01ms` for a single iteration, every transition to `0.01ms`), and `app/transitions.css` carries the exception layer on top of it. Decorative waits stop; informational motion (`.animate-spin`, `.imsg-typing span`) slows to 2.4s and **keeps iterating**, since a frozen spinner is indistinguishable from a hung app, and `animation-iteration-count: infinite !important` has to be re-asserted because the blanket reset sets it to `1`, which would otherwise turn a slowed spinner into one slow turn and then a still image. A new animation needs a decision in that block, and a guard on a class that no element carries is worse than no guard because it reads as coverage. `tests/ui/reduced-motion.test.ts` holds the source contract; `scripts/qa/probe-reduced-motion.cjs` holds the computed result in a real engine.
+Reduced motion: the default is to follow the OS. `Settings → Application → Motion` can override it with “Reduce motion”; the preference is stored as `appearance.motionPreference` and applied before hydration to `data-motion-preference`. JavaScript, WAAPI and timed sequences must use `prefersReducedMotion` from `lib/ui/motion.ts` and jump directly to their final state. `app/globals.css` carries the blanket reset (every animation to `0.01ms` for a single iteration, every transition to `0.01ms`), and `app/transitions.css` carries the exception layer on top of it. Decorative waits stop; informational motion (`.animate-spin`, `.imsg-typing span`) slows to 2.4s and **keeps iterating**, since a frozen spinner is indistinguishable from a hung app, and `animation-iteration-count: infinite !important` has to be re-asserted because the blanket reset sets it to `1`, which would otherwise turn a slowed spinner into one slow turn and then a still image. A new animation needs a decision in that block, and a guard on a class that no element carries is worse than no guard because it reads as coverage. `tests/ui/reduced-motion.test.ts` holds the source contract; `scripts/qa/probe-reduced-motion.cjs` holds the computed result in a real engine.
 
 ## 7. Components
 
@@ -229,7 +234,7 @@ The shared set lives in `components/ui/`. Extend these before you write a new pr
 | Slider | `slider.tsx` | Radix slider |
 | Tabs | `tabs.tsx` | Radix tabs |
 | Dropdown, context | `dropdown.tsx`, `context.tsx` | Radix dropdown and context menus. Tokens `--menu-*` |
-| Morph menu | `morph-menu.tsx` | Expanding menu, `--morph-*` tokens |
+| Morph menu | `morph-menu.tsx` | Legacy opt-in with no in-repo consumer. Do not use for command or keyboard menus. See `engineering/motion-design.md` |
 | Tooltip | `tooltip.tsx` | Radix tooltip, `--z-tooltip` 1200 |
 | Dialog and alert | `alert-dialog.tsx` | Radix alert dialog |
 | Notification | `notification.tsx` | Custom toast stack. `--z-notification` 1300 |

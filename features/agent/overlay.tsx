@@ -81,7 +81,6 @@ export function AgentOverlayView({
         <div className="h-full min-h-0 w-full overflow-hidden">
             <FilterProvider>
                 <GitManager
-                    embedded
                     navPortalTarget={navPortalTarget}
                     sidebarExpanded={sidebarExpanded}
                     onClose={onClose}

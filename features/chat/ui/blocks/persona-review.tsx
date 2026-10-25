@@ -94,6 +94,7 @@ function merge(card: PersonaCard, live: PersonaLive | undefined): PersonaCard {
 
 function PersonaRow({ card, live }: { card: PersonaCard; live?: PersonaLive }) {
     const [open, setOpen] = useState(false);
+    const collapseId = React.useId();
     const running = card.status === "running";
     const image = live?.image || card.image;
     const note = running
@@ -105,8 +106,9 @@ function PersonaRow({ card, live }: { card: PersonaCard; live?: PersonaLive }) {
             <button
                 type="button"
                 aria-expanded={open}
+                aria-controls={collapseId}
                 onClick={() => setOpen((v) => !v)}
-                className="flex min-h-[24px] w-fit max-w-full min-w-0 items-center gap-1.5 py-0.5 text-left chat-text font-normal text-text-primary"
+                className="flex min-h-[24px] w-fit max-w-full min-w-0 items-center gap-1.5 py-0.5 text-left chat-text font-normal text-text-primary focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus"
             >
                 <span className="shrink-0 text-text-muted">{running ? "Reviewing" : "Reviewed"}</span>
                 <span className="min-w-0 truncate">{card.name}</span>
@@ -118,7 +120,7 @@ function PersonaRow({ card, live }: { card: PersonaCard; live?: PersonaLive }) {
                     )}
                 />
             </button>
-            <Collapse open={open}>
+            <Collapse id={collapseId} open={open}>
                 <div className="mt-1 flex flex-col gap-1.5">
                     {note ? <p className="chat-text leading-relaxed text-text-muted">{note}</p> : null}
                     {image ? (
@@ -145,6 +147,7 @@ export function PersonaReviewPanel({
     content: string;
 }) {
     const [open, setOpen] = useState(true);
+    const collapseId = React.useId();
     const parsed = useMemo(() => parseCards(content), [content]);
     const live = usePersonaReview(reviewId);
     const liveById = useMemo(() => new Map(live.map((p) => [p.personaId, p])), [live]);
@@ -164,8 +167,9 @@ export function PersonaReviewPanel({
             <button
                 type="button"
                 aria-expanded={open}
+                aria-controls={collapseId}
                 onClick={() => setOpen((v) => !v)}
-                className="flex min-h-[24px] w-fit max-w-full items-center gap-1.5 text-left chat-text font-normal text-text-primary"
+                className="flex min-h-[24px] w-fit max-w-full items-center gap-1.5 text-left chat-text font-normal text-text-primary focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus"
             >
                 <span>Design review</span>
                 {host ? <span className="min-w-0 truncate text-text-muted">{host}</span> : null}
@@ -177,7 +181,7 @@ export function PersonaReviewPanel({
                     )}
                 />
             </button>
-            <Collapse open={open}>
+            <Collapse id={collapseId} open={open}>
                 <div className="mt-0.5 flex flex-col">
                     {cards.map((card) => (
                         <PersonaRow key={card.id} card={card} live={liveById.get(card.id)} />

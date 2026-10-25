@@ -35,6 +35,16 @@ test.describe("@visual baselines", () => {
         await gotoRoute(page, "/settings");
         await expectPreviewActive(page, "welcome");
         await expect(page.locator("#bettershape-settings")).toBeVisible();
+
+        const settingsNav = page.locator("#bettershape-settings nav");
+        await settingsNav.getByRole("button", { name: "Motion", exact: true }).click();
+        await expect(page.getByRole("heading", { name: "Motion", exact: true, level: 1 })).toBeVisible();
+        await settingsNav.getByRole("button", { name: "Providers", exact: true }).click();
+        await expect(page.getByRole("heading", { name: "Providers", exact: true, level: 1 })).toBeVisible();
+        await page.evaluate(() => {
+            if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+        });
+
         await expect(page).toHaveScreenshot("settings.png", {
             fullPage: true,
             animations: "disabled",

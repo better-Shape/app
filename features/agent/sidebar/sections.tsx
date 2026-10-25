@@ -740,7 +740,7 @@ function ShelfHeader({
             aria-expanded={open}
             onClick={() => { if (!dragging) onToggle(shelf); }}
             className={cn(
-                "flex h-6 w-full items-center gap-1 rounded-md pr-2 pl-1 text-xs font-medium text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
+                "flex h-6 w-full items-center gap-1 rounded-md pr-2 pl-1 text-xs font-medium text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus",
                 isOver
                     ? "bg-[var(--row-selected)] text-text-primary hover:bg-[var(--row-selected-hover)]"
                     : "hover:bg-[var(--row-hover)] hover:text-text-secondary",

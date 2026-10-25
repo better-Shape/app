@@ -12,7 +12,9 @@ import {
 } from "@/features/notifications";
 import { commands } from "@/lib/backend";
 import { errorDocsUrl } from "@/lib/errors/catalog";
+import { prefersReducedMotion } from "@/lib/ui/motion";
 import { useIsMounted } from "@/lib/ui/use-mounted";
+import { useReducedMotion } from "@/lib/ui/use-reduced-motion";
 import { cn } from "@/lib/utils";
 
 export const TOAST_AUTO_HIDE_MS = 5500;
@@ -296,20 +298,37 @@ export const NotificationToasts = () => {
     const mounted = useIsMounted();
     const [leavingIds, setLeavingIds] = React.useState<ReadonlySet<string>>(() => new Set());
     const [pageHidden, setPageHidden] = React.useState(false);
+    const reducedMotion = useReducedMotion();
 
     React.useEffect(() => {
         if (typeof document === "undefined") return undefined;
-        const onVisibility = () => setPageHidden(document.visibilityState === "hidden");
+        const onVisibility = () => {
+            setPageHidden(document.visibilityState === "hidden");
+        };
         onVisibility();
         document.addEventListener("visibilitychange", onVisibility);
-        return () => document.removeEventListener("visibilitychange", onVisibility);
+        return () => {
+            document.removeEventListener("visibilitychange", onVisibility);
+        };
     }, []);
+
+    React.useEffect(() => {
+        if (!reducedMotion || leavingIds.size === 0) return;
+        for (const id of leavingIds) {
+            notificationStore.dismissToast(id);
+        }
+        setLeavingIds(new Set());
+    }, [leavingIds, reducedMotion]);
 
     const toasts = toastIds
         .map((id) => notifications.find((n) => n.id === id))
         .filter((n): n is Notification => Boolean(n));
 
     const dismiss = React.useCallback((id: string) => {
+        if (typeof document !== "undefined" && prefersReducedMotion(document.documentElement)) {
+            notificationStore.dismissToast(id);
+            return;
+        }
         setLeavingIds((prev) => {
             if (prev.has(id)) return prev;
             const next = new Set(prev);

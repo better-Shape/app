@@ -85,10 +85,7 @@ export function GenerateStarButton({
                     className,
                 )}
             >
-                <Icon
-                    icon={Sparkle20Filled}
-                    className={cn(loading && "animate-pulse")}
-                />
+                <Icon icon={Sparkle20Filled} />
             </button>
         </Tooltip>
     );

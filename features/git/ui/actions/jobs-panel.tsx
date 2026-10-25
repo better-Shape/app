@@ -1,5 +1,6 @@
 "use client";
 
+import { useId } from "react";
 import { GithubMark } from "@/components/ui/github-mark";
 import { ChevronRight20Regular } from "@fluentui/react-icons/headless/svg/chevron-right";
 import { WindowConsole20Regular } from "@fluentui/react-icons/headless/svg/window-console";
@@ -59,6 +60,8 @@ export function JobsPanel({
     onOpenUrl: (url?: string) => void;
     onSelectStep?: (jobId: number, step: WorkflowStep) => void;
 }) {
+    const idPrefix = useId();
+
     if (mode === "steps") {
         const flat = jobs.flatMap((job) =>
             (job.steps ?? []).map((step) => ({ job, step })),
@@ -121,6 +124,7 @@ export function JobsPanel({
                 ) : (
                     jobs.map((job) => {
                         const open = expandedJobs.has(job.id);
+                        const stepsId = `${idPrefix}-steps-${job.id}`;
                         return (
                             <div
                                 key={job.id}
@@ -131,6 +135,8 @@ export function JobsPanel({
                             >
                                 <Button
                                     variant="ghost"
+                                    aria-expanded={open}
+                                    aria-controls={stepsId}
                                     className={cn(
                                         GIT_ROW.job,
                                         // The selected row steps up as a whole, so the header
@@ -164,7 +170,7 @@ export function JobsPanel({
                                         </div>
                                     </div>
                                 </Button>
-                                <Collapse open={open}>
+                                <Collapse id={stepsId} open={open}>
                                     {job.steps && job.steps.length > 0 ? (
                                         <ul className="pb-2 pl-7 pr-2">
                                             {job.steps.map((step) => (

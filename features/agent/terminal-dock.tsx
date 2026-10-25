@@ -248,6 +248,7 @@ export function TerminalDock({ suppressed = false }: { suppressed?: boolean } = 
             )}
             style={{ height: visibleOpen ? height + 10 : 0 }}
             aria-hidden={!visibleOpen}
+            inert={!visibleOpen}
         >
             <div
                 className="relative flex h-full flex-col overflow-hidden rounded-xl squircle-2xl border border-border bg-panel px-2 pb-2"

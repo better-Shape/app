@@ -43,6 +43,7 @@ export function PlanningBlock({ steps, completedCount, totalCount, isGenerating 
     isGenerating?: boolean;
 }) {
     const rootRef = useRef<HTMLDivElement>(null);
+    const collapseId = React.useId();
     const [manualOpen, setManualOpen] = React.useState<boolean | null>(null);
     const isOpen = manualOpen ?? totalCount <= 5;
     const displaySteps = React.useMemo(
@@ -53,10 +54,12 @@ export function PlanningBlock({ steps, completedCount, totalCount, isGenerating 
         () => selectPlanningPreviewSteps(displaySteps, 2),
         [displaySteps],
     );
-    const visibleSteps = isOpen
-        ? displaySteps
-        : previewWindow.items.map((item) => item.step);
-
+    const active = displaySteps.find((step) => step.status === "active");
+    const summarySteps = isOpen
+        ? []
+        : active
+          ? [active]
+          : previewWindow.items.map((item) => item.step);
     const canToggle = totalCount > 1;
 
     useEffect(() => {
@@ -95,6 +98,45 @@ export function PlanningBlock({ steps, completedCount, totalCount, isGenerating 
         setManualOpen((prev) => !(prev ?? totalCount <= 5));
     };
 
+    const renderSteps = (items: PlanStep[]) => {
+        const labelOccurrences = new Map<string, number>();
+        return (
+            <div className="flex flex-col gap-0.5 px-2.5 pb-2">
+                {items.map((step) => {
+                    const occurrence = labelOccurrences.get(step.label) ?? 0;
+                    labelOccurrences.set(step.label, occurrence + 1);
+                    const key = JSON.stringify([step.label, occurrence]);
+                    return (
+                        <div key={key} className="flex min-h-7 items-start gap-2 py-1">
+                            <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center">
+                                {step.status === "done" ? (
+                                    <Icon icon={CheckmarkCircle20Filled} className="size-4 text-success" />
+                                ) : step.status === "active" ? (
+                                    <Eclipse size={14} className="text-accent" />
+                                ) : step.status === "cancelled" ? (
+                                    <Icon icon={Dismiss20Regular} className="size-4 text-text-disabled" />
+                                ) : (
+                                    <span className="size-3.5 rounded-full border border-text-muted/55" />
+                                )}
+                            </span>
+                            <span
+                                className={cn(
+                                    "min-w-0 flex-1 break-words text-sm leading-snug",
+                                    step.status === "done" && "text-text-muted",
+                                    step.status === "active" && "font-medium text-text-primary",
+                                    step.status === "pending" && "text-text-muted",
+                                    step.status === "cancelled" && "text-text-disabled line-through",
+                                )}
+                            >
+                                {step.label}
+                            </span>
+                        </div>
+                    );
+                })}
+            </div>
+        );
+    };
+
     return (
         <div
             ref={rootRef}
@@ -103,6 +145,7 @@ export function PlanningBlock({ steps, completedCount, totalCount, isGenerating 
             <button
                 type="button"
                 aria-expanded={canToggle ? isOpen : undefined}
+                aria-controls={collapseId}
                 onClick={handleToggle}
                 className={cn(
                     "flex w-full items-center gap-2 px-2.5 py-2 text-left select-none",
@@ -133,36 +176,10 @@ export function PlanningBlock({ steps, completedCount, totalCount, isGenerating 
                 ) : null}
             </button>
 
-            <Collapse open={visibleSteps.length > 0}>
-                <div className="flex flex-col gap-0.5 px-2.5 pb-2">
-                    {visibleSteps.map((step, i) => (
-                        <div key={`${step.label}-${i}`} className="flex min-h-7 items-start gap-2 py-1">
-                            <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center">
-                                {step.status === "done" ? (
-                                    <Icon icon={CheckmarkCircle20Filled} className="size-4 text-success" />
-                                ) : step.status === "active" ? (
-                                    <Eclipse size={14} className="text-accent" />
-                                ) : step.status === "cancelled" ? (
-                                    <Icon icon={Dismiss20Regular} className="size-4 text-text-disabled" />
-                                ) : (
-                                    <span className="size-3.5 rounded-full border border-text-muted/55" />
-                                )}
-                            </span>
-                            <span
-                                className={cn(
-                                    "min-w-0 flex-1 break-words text-sm leading-snug",
-                                    step.status === "done" && "text-text-muted",
-                                    step.status === "active" && "font-medium text-text-primary",
-                                    step.status === "pending" && "text-text-muted",
-                                    step.status === "cancelled" && "text-text-disabled line-through",
-                                )}
-                            >
-                                {step.label}
-                            </span>
-                        </div>
-                    ))}
-                </div>
+            <Collapse id={collapseId} open={isOpen}>
+                {renderSteps(displaySteps)}
             </Collapse>
+            {!isOpen && summarySteps.length > 0 ? renderSteps(summarySteps) : null}
         </div>
     );
 }
@@ -214,6 +231,7 @@ export function PlanSavedBlock({
         markdown ? splitPlanDocument(markdown).body : "",
     );
     const [open, setOpen] = React.useState(true);
+    const collapseId = React.useId();
 
     const applyPlan = (content: string) => {
         setPreview(parsePlanMarkdown(content));
@@ -322,11 +340,12 @@ export function PlanSavedBlock({
             <button
                 type="button"
                 aria-expanded={open}
+                aria-controls={collapseId}
                 onClick={() => {
                     notifyTranscriptDisclosureToggle(rootRef.current);
                     setOpen((v) => !v);
                 }}
-                className="flex w-full items-center gap-2 text-left transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]"
+                className="flex w-full items-center gap-2 text-left transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus"
             >
                 <span className="flex size-4 shrink-0 items-center justify-center text-text-muted">
                     <Icon icon={CalendarCheckmark24Filled} className="icon-sm" />
@@ -343,7 +362,7 @@ export function PlanSavedBlock({
                 />
             </button>
 
-            <Collapse open={open}>
+            <Collapse id={collapseId} open={open}>
                 <div className="flex flex-col gap-2 pt-2">
                     {body.trim() ? (
                         <div className="chat-markdown px-1 text-sm text-text-primary">

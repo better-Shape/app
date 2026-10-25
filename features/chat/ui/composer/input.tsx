@@ -29,6 +29,7 @@ import { Icon } from "@/components/ui/icon";
 
 
 import { cn } from "@/lib/utils";
+import { useReducedMotion } from "@/lib/ui/use-reduced-motion";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -441,6 +442,7 @@ const RotatingComposerHint = React.memo(function RotatingComposerHint({
     const [phase, setPhase] = React.useState<"in" | "out" | "enter">("in");
     const [prevModeKey, setPrevModeKey] = React.useState(modeKey);
     const indexRef = React.useRef(0);
+    const reducedMotion = useReducedMotion();
 
     if (prevModeKey !== modeKey) {
         setPrevModeKey(modeKey);
@@ -448,7 +450,7 @@ const RotatingComposerHint = React.memo(function RotatingComposerHint({
         setPhase("in");
     }
 
-    const shouldPause = paused || mode === "preparing" || hints.length <= 1;
+    const shouldPause = paused || reducedMotion || mode === "preparing" || hints.length <= 1;
     if (shouldPause && phase !== "in") setPhase("in");
 
     React.useLayoutEffect(() => {
@@ -456,7 +458,7 @@ const RotatingComposerHint = React.memo(function RotatingComposerHint({
     }, [index]);
 
     React.useEffect(() => {
-        if (shouldPause) return;
+        if (shouldPause) return undefined;
         let exitTimer: ReturnType<typeof setTimeout> | undefined;
         let enterTimer: ReturnType<typeof setTimeout> | undefined;
         const hold = window.setInterval(() => {

@@ -2,61 +2,57 @@
 
 import React from "react";
 import { cn } from "@/lib/utils";
+import { prefersReducedMotion } from "@/lib/ui/motion";
+
+const EXIT_MS = 180;
 
 /**
  * Spring-animated expand/collapse wrapper for chat workflow & disclosure bodies.
  *
- * Uses `grid-template-rows: 0fr ↔ 1fr` on `--reveal-dur` / `--reveal-ease` (`--spring-quick`)
- * so height transitions are interruptible mid-flight and never guess `max-height`.
- * Sections initially mounted closed defer DOM allocation until `open` becomes `true`,
- * then mount at `0fr` and promote to `1fr` on the next animation frame; sections
- * mounted already open render expanded immediately without an initial-mount flash.
+ * Uses `grid-template-rows: 0fr ↔ 1fr` on `.chat-collapse` (`--spring-quick`) so height
+ * transitions are interruptible mid-flight and collapsed bodies cost zero child DOM
+ * nodes until expanded.
  */
-export function Collapse({
+export const Collapse = ({
     open,
     children,
     className,
     innerClassName,
+    id,
 }: {
     open: boolean;
     children: React.ReactNode;
     className?: string;
     innerClassName?: string;
-}) {
+    id?: string;
+}) => {
     const [mounted, setMounted] = React.useState(open);
-    const [expanded, setExpanded] = React.useState(open);
-
-    if (open && !mounted) {
-        setMounted(true);
-    }
-    if (!open && expanded) {
-        setExpanded(false);
-    }
+    const reducedMotion = prefersReducedMotion();
+    if (open && !mounted) setMounted(true);
+    if (!open && reducedMotion && mounted) setMounted(false);
 
     React.useEffect(() => {
-        if (!open || expanded) return undefined;
-        const id = window.requestAnimationFrame(() => {
-            setExpanded(true);
-        });
-        return () => window.cancelAnimationFrame(id);
-    }, [open, expanded]);
+        if (open || !mounted || reducedMotion) return undefined;
+        const timer = window.setTimeout(() => setMounted(false), EXIT_MS);
+        return () => {
+            window.clearTimeout(timer);
+        };
+    }, [open, mounted, reducedMotion]);
 
-    if (!mounted && !open) return null;
-
-    const active = open && expanded;
+    const renderChildren = open || (mounted && !reducedMotion);
 
     return (
         <div
-            className={cn(
-                "grid transition-[grid-template-rows,opacity] duration-[var(--reveal-dur)] ease-[var(--reveal-ease)]",
-                active ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
-                className,
-            )}
+            id={id}
+            className={cn("chat-collapse", className)}
             data-open={open ? "true" : "false"}
+            aria-hidden={!open}
+            inert={!open}
+            hidden={!renderChildren}
         >
-            <div className={cn("min-h-0 overflow-hidden", innerClassName)} inert={!open}>
-                {children}
-            </div>
+            {renderChildren ? (
+                <div className={cn("chat-collapse-inner", innerClassName)}>{children}</div>
+            ) : null}
         </div>
     );
-}
+};

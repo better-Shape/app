@@ -1,4 +1,5 @@
 import { DEFAULT_SETTINGS, getSettings, updateSettingSection, type BetterShapeSettings } from "@/lib/settings";
+import { SETTINGS_STORAGE_KEY } from "@/lib/settings/constants";
 
 /**
  * A settings patch, partial at the section level and inside each section.
@@ -14,15 +15,16 @@ export type SettingsPatch = {
 };
 
 export function resetSettings() {
-    localStorage.setItem("bettershape-settings-v1", JSON.stringify(DEFAULT_SETTINGS));
+    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(DEFAULT_SETTINGS));
     updateSettingSection("editor", { ...DEFAULT_SETTINGS.editor });
     updateSettingSection("skills", { ...DEFAULT_SETTINGS.skills });
+    updateSettingSection("appearance", { ...DEFAULT_SETTINGS.appearance });
 }
 
 export function withSettings(patch: SettingsPatch) {
     const current = getSettings();
     localStorage.setItem(
-        "bettershape-settings-v1",
+        SETTINGS_STORAGE_KEY,
         JSON.stringify({
             ...current,
             ...patch,
@@ -35,6 +37,7 @@ export function withSettings(patch: SettingsPatch) {
             lsp: { ...current.lsp, ...patch.lsp },
             node: { ...current.node, ...patch.node },
             ai: { ...current.ai, ...patch.ai },
+            appearance: { ...current.appearance, ...patch.appearance },
         }),
     );
     if (patch.editor) updateSettingSection("editor", patch.editor);
@@ -43,4 +46,5 @@ export function withSettings(patch: SettingsPatch) {
     if (patch.node) updateSettingSection("node", patch.node);
     if (patch.terminal) updateSettingSection("terminal", patch.terminal);
     if (patch.ai) updateSettingSection("ai", patch.ai);
+    if (patch.appearance) updateSettingSection("appearance", patch.appearance);
 }

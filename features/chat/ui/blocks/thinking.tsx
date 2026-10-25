@@ -76,13 +76,16 @@ export function ThinkingBlock({ content, isActive }: { content: string; isActive
             </button>
 
             <Collapse open={isOpen}>
-                <div className="mt-1 flex w-full min-w-0 flex-col gap-1 pl-3.5 text-sm leading-relaxed text-text-muted">
-                    {lines.map((line, i) => (
+                <div
+                    aria-busy={isActive || undefined}
+                    className="mt-1 flex w-full min-w-0 flex-col gap-1 pl-3.5 text-sm leading-relaxed text-text-muted"
+                >
+                    {lines.map((line, idx) => (
                         <span
-                            key={`line-${i}-${line.slice(0, 16)}`}
+                            key={`line-${idx}-${line.slice(0, 16)}`}
                             className={cn(
                                 "block",
-                                isActive && i === lines.length - 1 && "text-text-secondary",
+                                isActive && idx === lines.length - 1 && "text-text-secondary",
                             )}
                         >
                             {line}

@@ -22,7 +22,13 @@ import { prefetchChatConversation } from "@/features/chat/lib/chat-stream-store"
 import { SearchInput } from "@/components/ui/search";
 
 import { getShortcutForLabel } from "@/lib/ui/shortcuts";
-import { BETTERSHAPE_MODAL_PANEL_CLASS, BETTERSHAPE_OVERLAY_CLASS, BETTERSHAPE_OVERLAY_CONTENT_CLASS } from "@/lib/ui/modal-overlay";
+import {
+    BETTERSHAPE_INSTANT_OVERLAY_CLASS,
+    BETTERSHAPE_INSTANT_PANEL_CLASS,
+    BETTERSHAPE_MODAL_PANEL_CLASS,
+    BETTERSHAPE_OVERLAY_CLASS,
+    BETTERSHAPE_OVERLAY_CONTENT_CLASS,
+} from "@/lib/ui/modal-overlay";
 import { useOverlayRoot } from "@/lib/ui/overlay-root";
 import { cn } from "@/lib/utils";
 import { isPopoutPath } from "@/lib/window/tauri-window";
@@ -733,10 +739,13 @@ export function CommandPalette() {
     return (
         <Dialog.Root open={open} onOpenChange={handleOpenChange}>
             <Dialog.Portal container={overlayRoot}>
-                <Dialog.Overlay className={BETTERSHAPE_OVERLAY_CLASS} />
+                <Dialog.Overlay
+                    className={cn(BETTERSHAPE_OVERLAY_CLASS, BETTERSHAPE_INSTANT_OVERLAY_CLASS)}
+                />
                 <Dialog.Content className={cn(
                     BETTERSHAPE_OVERLAY_CONTENT_CLASS,
                     BETTERSHAPE_MODAL_PANEL_CLASS,
+                    BETTERSHAPE_INSTANT_PANEL_CLASS,
                     "absolute top-[12%] left-1/2 z-50 -translate-x-1/2 flex squircle-2xl! w-[min(600px,calc(100%-2rem))] flex-col overflow-hidden focus:outline-none",
                 )}>
                     <Dialog.Title className="sr-only">Command Palette</Dialog.Title>

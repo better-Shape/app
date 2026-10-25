@@ -1,49 +1,13 @@
-.rainbow {
-  --rainbow-cyan: #4cc9f0;
-  --rainbow-mint: #80ed99;
-  --rainbow-amber: #ffb703;
-  --rainbow-rose: #ff4d6d;
-  --rainbow-violet: #c77dff;
-  background-image: linear-gradient(
-    90deg,
-    var(--rainbow-cyan) 0%,
-    var(--rainbow-mint) 10%,
-    var(--rainbow-amber) 20%,
-    var(--rainbow-rose) 30%,
-    var(--rainbow-violet) 40%,
-    var(--rainbow-cyan) 50%,
-    var(--rainbow-mint) 60%,
-    var(--rainbow-amber) 70%,
-    var(--rainbow-rose) 80%,
-    var(--rainbow-violet) 90%,
-    var(--rainbow-cyan) 100%
-  );
-  background-size: 200% 100%;
-  animation: rainbow 2.8s linear infinite;
-}
-
-.particle {
+.fill {
   position: absolute;
-  top: 50%;
-  width: 3px;
-  height: 3px;
-  margin-top: -1.5px;
-  border-radius: 999px;
-  background: var(--text-primary);
-  opacity: 0;
-  animation: fly 1.7s linear infinite;
+  inset: 0;
+  transform-origin: left center;
+  background-color: var(--accent);
+  transition: transform var(--transition-base) var(--ease-out);
 }
 
-.particleB {
-  width: 2px;
-  height: 2px;
-  animation-duration: 2.2s;
-  animation-delay: 0.45s;
-}
-
-.particleC {
-  animation-duration: 1.35s;
-  animation-delay: 0.9s;
+.isDragging .fill {
+  transition: none;
 }
 
 /* 35px thumb centered on the 6px track. */
@@ -51,6 +15,19 @@
   appearance: none;
   background: transparent;
   height: 6px;
+  touch-action: pan-y;
+}
+
+.range:focus-visible {
+  outline: none;
+}
+
+.range:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px var(--accent);
+}
+
+.range:focus-visible::-moz-range-thumb {
+  box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px var(--accent);
 }
 
 .range::-webkit-slider-runnable-track {
@@ -66,8 +43,9 @@
   margin-top: calc((6px - 35px) / 2);
   border: none;
   border-radius: 999px;
-  background: var(--text-primary);
-  box-shadow: var(--shadow-sm);
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+  cursor: ew-resize;
 }
 
 .range::-moz-range-track {
@@ -81,27 +59,7 @@
   height: 35px;
   border: none;
   border-radius: 999px;
-  background: var(--text-primary);
-  box-shadow: var(--shadow-sm);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .rainbow {
-    animation: none;
-  }
-  .particle {
-    animation: none;
-    display: none;
-  }
-}
-
-@keyframes rainbow {
-  from { background-position: 0% 0; }
-  to { background-position: 100% 0; }
-}
-
-@keyframes fly {
-  0% { left: 0; opacity: 0; }
-  18% { opacity: 0.95; }
-  100% { left: calc(100% - 3px); opacity: 0; }
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+  cursor: ew-resize;
 }

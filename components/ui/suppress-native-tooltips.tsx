@@ -3,9 +3,9 @@
 import { useEffect } from "react";
 
 /**
- * Strip native `title` tooltips app-wide. Custom BetterShape tooltips stay; bare `title=`
- * attributes otherwise show the browser bubble. The original text is kept on
- * `data-native-title` in case something needs it later.
+ * Strip incidental native `title` tooltips app-wide. Controls marked
+ * `data-preserve-native-title` keep an intentional browser tooltip; other title
+ * text is retained on `data-native-title` if something needs it later.
  *
  * The strip runs when the pointer or the focus arrives, which is the moment the bubble
  * could appear, and not ahead of time. Sweeping the whole tree from an effect rewrote
@@ -18,6 +18,7 @@ export const SuppressNativeTooltips = () => {
         // second sweep over an element this already touched finds no `title` to read
         // and would otherwise drop the wording the app wrote.
         const stripEl = (el: Element) => {
+            if (el.hasAttribute("data-preserve-native-title") || !el.hasAttribute("title")) return;
             const value = el.getAttribute("title");
             if (value == null) return;
             el.setAttribute("data-native-title", value);

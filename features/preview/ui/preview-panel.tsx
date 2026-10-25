@@ -322,7 +322,7 @@ export default function PreviewPanel({
             </div>
             )}
 
-            <div className="relative min-h-0 flex-1 bg-panel">
+            <div className="relative min-h-0 flex-1 bg-panel" aria-busy={loading || undefined}>
                 {iframeSrc ? (
                     <iframe
                         key={`${iframeSrc}::${reloadKey}`}
@@ -337,7 +337,7 @@ export default function PreviewPanel({
                     />
                 ) : null}
                 {loading ? (
-                    <div className="pointer-events-none absolute inset-x-0 top-0 h-0.5 animate-pulse bg-accent" />
+                    <div role="progressbar" aria-label="Loading preview" className="bettershape-loading-progress pointer-events-none absolute left-0 top-0 h-0.5 bg-accent" />
                 ) : null}
                 <DesignInspectOverlay
                     iframeRef={iframeRef}

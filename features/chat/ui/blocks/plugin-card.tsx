@@ -15,7 +15,7 @@ import { People20Regular } from "@fluentui/react-icons/headless/svg/people";
 import { Person20Regular } from "@fluentui/react-icons/headless/svg/person";
 import { Search20Regular } from "@fluentui/react-icons/headless/svg/search";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { type IconGlyph, Icon } from "@/components/ui/icon";
 import { Button } from "@/components/ui/button";
 import { PluginLogo } from "@/components/ui/plugin-logo";
@@ -228,6 +228,7 @@ export function PluginActivityCard({
 }) {
     const cardRef = useRef<HTMLDivElement>(null);
     const [open, setOpen] = useState(false);
+    const collapseId = useId();
     const summary = useMemo(() => summarizePluginPayload(body), [body]);
     const rawDetail = useMemo(() => formatInspectableBody(body), [body]);
     const title = summary.title || label;
@@ -312,9 +313,10 @@ export function PluginActivityCard({
                 <button
                     type="button"
                     aria-expanded={canExpand ? open : undefined}
+                    aria-controls={canExpand ? collapseId : undefined}
                     onClick={handleToggle}
                     className={cn(
-                        "flex min-w-0 flex-1 flex-col text-left",
+                        "flex min-w-0 flex-1 flex-col text-left focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus",
                         canExpand ? "cursor-pointer" : "cursor-default",
                     )}
                 >
@@ -357,9 +359,10 @@ export function PluginActivityCard({
                     <button
                         type="button"
                         aria-expanded={canExpand ? open : undefined}
+                        aria-controls={canExpand ? collapseId : undefined}
                         onClick={handleToggle}
                         className={cn(
-                            "flex min-h-[24px] shrink-0 items-center gap-1.5 text-xs text-text-secondary",
+                            "flex min-h-[24px] shrink-0 items-center gap-1.5 text-xs text-text-secondary focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus",
                             canExpand ? "cursor-pointer" : "cursor-default",
                         )}
                     >
@@ -382,7 +385,7 @@ export function PluginActivityCard({
                     </button>
                 )}
             </div>
-            <Collapse open={open}>
+            <Collapse id={collapseId} open={open}>
                 <div className="max-h-48 overflow-y-auto px-3 pb-2.5 custom-scrollbar">
                     {summary.rows.length > 0 ? (
                         <div className="flex flex-col gap-1">

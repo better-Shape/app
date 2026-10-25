@@ -14,6 +14,10 @@ const watchIgnored = [
   "**/src-tauri/runtime/**",
   "**/target/**",
 ];
+const forwardedDevOrigins = (process.env.NEXT_DEV_ALLOWED_ORIGINS ?? "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 
 const extraDevOrigins = (process.env.BETTERSHAPE_ALLOWED_DEV_ORIGINS ?? "")
   .split(",")
@@ -22,10 +26,9 @@ const extraDevOrigins = (process.env.BETTERSHAPE_ALLOWED_DEV_ORIGINS ?? "")
 
 const nextConfig: NextConfig = {
   output: isProd ? "export" : undefined,
-  // Dev only: Playwright and browser-preview workflows drive the dev server
-  // via 127.0.0.1 (see playwright.config.ts); without this, Next blocks HMR
-  // for that origin. Extra exact origins can be passed via BETTERSHAPE_ALLOWED_DEV_ORIGINS.
-  allowedDevOrigins: ["127.0.0.1", "localhost", ...extraDevOrigins],
+  // Dev only: local Playwright uses loopback; forwarded previews and explicit dev
+  // origin overrides can add exact host patterns without opening wildcard origins.
+  allowedDevOrigins: ["127.0.0.1", "localhost", ...forwardedDevOrigins, ...extraDevOrigins],
   // Use root-absolute asset URLs so secondary windows (/settings/, /git/, etc.)
   // load CSS/JS from /_next/... instead of broken nested /_next/... paths.
   trailingSlash: isProd ? true : undefined,

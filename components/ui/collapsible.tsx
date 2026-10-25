@@ -4,7 +4,7 @@ import { ChevronRight20Regular } from "@fluentui/react-icons/headless/svg/chevro
 
 
 import { Icon } from "./icon";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useId } from "react";
 import { cn } from "@/lib/utils";
 
 interface CollapsibleSectionProps {
@@ -83,6 +83,7 @@ export const CollapsibleSection = ({
     headerActions,
     storageKey,
 }: CollapsibleSectionProps) => {
+    const contentId = useId();
     const [isOpen, setIsOpen] = useState(() => readStoredOpen(storageKey, defaultOpen));
 
     /** Writes inside the updater so the stored value cannot disagree with the one on
@@ -107,10 +108,11 @@ export const CollapsibleSection = ({
                 <button
                     type="button"
                     aria-expanded={isOpen}
-                    className="flex min-w-0 flex-1 items-center text-left"
+                    aria-controls={contentId}
+                    className="flex min-w-0 flex-1 items-center text-left outline-none focus-visible:rounded-sm focus-visible:ring-1 focus-visible:ring-border-focus"
                     onClick={toggle}
                 >
-                    <div className="w-5 flex items-center justify-center transition-transform duration-100">
+                    <div className="w-5 flex items-center justify-center">
                         <Icon icon={ChevronRight20Regular} className={chevronClass(isOpen)} />
                     </div>
                     <span className="ml-1 truncate text-sm font-normal">{title}</span>
@@ -122,7 +124,7 @@ export const CollapsibleSection = ({
                 ) : null}
             </div>
 
-            <div className={bodyClass(isOpen)}>
+            <div id={contentId} aria-hidden={!isOpen} inert={!isOpen} className={bodyClass(isOpen)}>
                 <div className="overflow-hidden min-h-0 flex flex-col flex-1 h-full">{children}</div>
             </div>
         </section>

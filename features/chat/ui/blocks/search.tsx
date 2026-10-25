@@ -240,6 +240,7 @@ function SourceStack({ sources }: { sources: WebSearchResult[] }) {
 function SourcesBranch({ sources }: { sources: WebSearchResult[] }) {
     const rootRef = useRef<HTMLDivElement>(null);
     const [open, setOpen] = useState(true);
+    const collapseId = React.useId();
 
     useEffect(() => {
         if (open) return undefined;
@@ -276,11 +277,12 @@ function SourcesBranch({ sources }: { sources: WebSearchResult[] }) {
             <button
                 type="button"
                 aria-expanded={open}
+                aria-controls={collapseId}
                 onClick={() => {
                     notifyTranscriptDisclosureToggle(rootRef.current);
                     setOpen((value) => !value);
                 }}
-                className="group/line flex w-fit max-w-full items-center gap-1.5 rounded-md px-1 -mx-1 py-0.5 text-left chat-text text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--row-hover)]"
+                className="group/line flex w-fit max-w-full items-center gap-1.5 rounded-md px-1 -mx-1 py-0.5 text-left chat-text text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--row-hover)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus"
             >
                 <span className="text-text-secondary group-hover/line:text-text-primary">Sources</span>
                 {open ? null : <SourceStack sources={sources} />}
@@ -292,7 +294,7 @@ function SourcesBranch({ sources }: { sources: WebSearchResult[] }) {
                     )}
                 />
             </button>
-            <Collapse open={open}>
+            <Collapse id={collapseId} open={open}>
                 <div className="mt-0.5 flex flex-col pl-3.5">
                     {sources.map((result, index) => (
                         <SourceRow key={`${result.url}-${index}`} result={result} />

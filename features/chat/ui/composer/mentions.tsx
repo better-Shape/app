@@ -640,7 +640,7 @@ export function MentionPicker({
     return createPortal(
         <div
             ref={setMenuEl}
-            className="bettershape-popover-content fixed z-dropdown overflow-hidden rounded-xl border border-border-secondary bg-surface-4 shadow-lg"
+            className="bettershape-popover-content bettershape-menu-content fixed z-dropdown overflow-hidden rounded-xl border border-border-secondary bg-surface-4 shadow-lg"
             style={{ left: pos.left, top: pos.top, width: pos.width }}
         >
             <SearchInput

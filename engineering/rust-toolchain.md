@@ -53,9 +53,10 @@ which puts the binaries flat in `$PREFIX/bin`. This script assembles a sysroot u
 `$RUST_TOOLS_DIR/sysroot/bin`. Point one source's `--env` output at the other source's directory and
 the tools are simply not found. Pick one source per shell and do not mix them.
 
-## The cargo flag every Rust gate needs here
+## Offline Cargo environment
 
-`cargo test` needs it; `cargo clippy` runs without it.
+With the vendored Rust 1.89.0 toolchain, no `--ignore-rust-version` workaround is needed.
+Configure Cargo to use the local registry and keep its build artifacts outside the workspace.
 
 ```bash
 SV="${SV:?export SV to the payload root printed by the section 5 fetch recipe}"

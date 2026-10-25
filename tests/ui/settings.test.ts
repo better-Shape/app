@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { getEditorOptionsFromSettings, updateSettingSection } from "@/lib/settings";
 
+const ESTABLISHED_SETTINGS_STORAGE_KEY = "bettershape-settings-v1";
+
 describe("settings", () => {
     it("editor options", () => {
         updateSettingSection("editor", { fontFamily: "Fira Code", fontSize: 18 });
@@ -28,8 +30,22 @@ describe("settings", () => {
 
     it("persist", () => {
         updateSettingSection("editor", { tabSize: 4, fontSize: 15 });
-        const parsed = JSON.parse(localStorage.getItem("bettershape-settings-v1")!);
+        const stored = localStorage.getItem(ESTABLISHED_SETTINGS_STORAGE_KEY);
+        if (stored === null) throw new Error("Settings were not persisted");
+        const parsed = JSON.parse(stored);
         expect(parsed.editor.tabSize).toBe(4);
         expect(parsed.editor.fontSize).toBe(15);
+    });
+
+    it("persists the reduced-motion preference and applies it immediately", () => {
+        updateSettingSection("appearance", { motionPreference: "reduced" });
+        const stored = localStorage.getItem(ESTABLISHED_SETTINGS_STORAGE_KEY);
+        if (stored === null) throw new Error("Settings were not persisted");
+        const parsed = JSON.parse(stored);
+        expect(parsed.appearance.motionPreference).toBe("reduced");
+        expect(document.documentElement.dataset.motionPreference).toBe("reduced");
+
+        updateSettingSection("appearance", { motionPreference: "system" });
+        expect(document.documentElement.dataset.motionPreference).toBeUndefined();
     });
 });

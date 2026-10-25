@@ -33,6 +33,11 @@ export function normalizeUpdateChannel(value: unknown): UpdateChannel {
     return "stable";
 }
 export type ColorThemeSetting = ColorThemeId;
+export type MotionPreferenceSetting = "system" | "reduced";
+
+export function normalizeMotionPreference(value: unknown): MotionPreferenceSetting {
+    return value === "reduced" ? "reduced" : "system";
+}
 /** How agent terminal commands are approved: ask for everything, safe-list
  * auto-runs (default), or run everything except hard-blocked commands. */
 export type AutoRunModeSetting = "ask" | "auto" | "always";
@@ -231,6 +236,7 @@ export interface BetterShapeSettings {
     appearance: {
         /** Color theme. */
         colorTheme: ColorThemeSetting;
+        motionPreference: MotionPreferenceSetting;
     };
     skills: {
         /** Extra folders scanned for skill files, in the order the user added them. */
@@ -383,6 +389,7 @@ export const DEFAULT_SETTINGS: BetterShapeSettings = {
     },
     appearance: {
         colorTheme: "dark",
+        motionPreference: "system",
     },
 };
 
@@ -723,6 +730,11 @@ function mergeSettings(
                 patch.appearance?.colorTheme ??
                     base.appearance?.colorTheme ??
                     DEFAULT_SETTINGS.appearance.colorTheme,
+            ),
+            motionPreference: normalizeMotionPreference(
+                patch.appearance?.motionPreference ??
+                    base.appearance?.motionPreference ??
+                    DEFAULT_SETTINGS.appearance.motionPreference,
             ),
         },
     };
@@ -1113,7 +1125,7 @@ export function updateSettingSection<K extends keyof BetterShapeSettings>(
     section: K,
     patch: Partial<BetterShapeSettings[K]>
 ): void {
-    updateSettings({ [section]: { ...currentSettings[section], ...patch } } as Partial<BetterShapeSettings>);
+    updateSettings({ [section]: patch } as Partial<BetterShapeSettings>);
 }
 
 /**
@@ -1157,6 +1169,11 @@ export function applyAppearanceSettings(settings: BetterShapeSettings) {
     document.documentElement.style.setProperty("--editor-font-family", settings.editor.fontFamily);
     document.documentElement.style.setProperty("--editor-font-size", `${settings.editor.fontSize}px`);
     document.documentElement.style.setProperty("--font-mono", settings.editor.fontFamily);
+    if (settings.appearance.motionPreference === "reduced") {
+        document.documentElement.dataset.motionPreference = "reduced";
+    } else {
+        delete document.documentElement.dataset.motionPreference;
+    }
     paintDarkTheme();
 }
 

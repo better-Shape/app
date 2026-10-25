@@ -2,10 +2,9 @@
 
 import { ChevronRight20Regular } from "@fluentui/react-icons/headless/svg/chevron-right";
 
-import { isValidElement, useEffect, useRef, useState, type ReactNode } from "react";
+import { isValidElement, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Icon } from "@/components/ui/icon";
 import { Favicon } from "@/components/ui/favicon";
-import { ShimmerText } from "@/components/ui/shimmer-text";
 import { SwapText } from "@/components/ui/swap";
 import { Tooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -77,6 +76,7 @@ export function ActionLine({
     open,
     defaultOpen = false,
     onOpenChange,
+    busy = false,
     shimmer = false,
     className,
     title,
@@ -99,11 +99,14 @@ export function ActionLine({
     open?: boolean;
     defaultOpen?: boolean;
     onOpenChange?: (open: boolean) => void;
+    busy?: boolean;
     shimmer?: boolean;
     className?: string;
     title?: string;
 }) {
     const rootRef = useRef<HTMLDivElement>(null);
+    const collapseId = useId();
+    const isBusy = Boolean(busy || shimmer);
     const [uncontrolled, setUncontrolled] = useState(defaultOpen);
     const isOpen = open ?? uncontrolled;
     const collapsible = children != null && children !== false;
@@ -157,6 +160,7 @@ export function ActionLine({
         <Tag
             type={interactive ? "button" : undefined}
             aria-expanded={collapsible ? isOpen : undefined}
+            aria-controls={collapsible ? collapseId : undefined}
             onClick={
                 interactive
                     ? () => {
@@ -168,7 +172,7 @@ export function ActionLine({
             className={cn(
                 "group/line flex w-fit max-w-full items-center gap-1.5 rounded-md py-0.5 text-left chat-text font-normal text-text-muted",
                 interactive &&
-                    "cursor-pointer px-1 -mx-1 transition-[background-color,color,transform] duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] motion-reduce:transform-none hover:bg-[var(--row-hover)] active:scale-[0.985]",
+                    "cursor-pointer px-1 -mx-1 transition-[background-color,color,transform] duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] motion-reduce:transform-none hover:bg-[var(--row-hover)] active:scale-[0.985] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus",
                 className,
             )}
         >
@@ -180,14 +184,27 @@ export function ActionLine({
                             ? "text-error"
                             : tone === "warning"
                               ? "text-warning"
-                              : "text-text-secondary",
+                              : isBusy
+                                ? "text-text-primary"
+                                : "text-text-secondary",
                         interactive && tone === "default" && "group-hover/line:text-text-primary",
                     )}
                 >
                     <SwapText
                         value={action}
                         durationMs={160}
-                        render={(val) => (shimmer ? <ShimmerText>{val}</ShimmerText> : val)}
+                        render={(val) =>
+                            isBusy ? (
+                                <span className="t-think">
+                                    <span className="t-think-sizer">{val}</span>
+                                    <span className="t-think-text" data-text={val}>
+                                        {val}
+                                    </span>
+                                </span>
+                            ) : (
+                                val
+                            )
+                        }
                     />
                 </span>
                 {detail ? <span className="text-text-muted"> {detail}</span> : null}
@@ -244,9 +261,13 @@ export function ActionLine({
     );
 
     return (
-        <div ref={rootRef} className="w-full min-w-0">
+        <div ref={rootRef} className="w-full min-w-0" aria-busy={isBusy || undefined}>
             {headerRow}
-            {collapsible ? <Collapse open={isOpen}>{children}</Collapse> : null}
+            {collapsible ? (
+                <Collapse id={collapseId} open={isOpen}>
+                    {children}
+                </Collapse>
+            ) : null}
         </div>
     );
 }

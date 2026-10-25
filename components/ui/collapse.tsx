@@ -7,6 +7,8 @@ export interface CollapseProps {
     open: boolean;
     children: ReactNode;
     className?: string;
+    /** Id for `aria-controls` on the trigger that owns this region. */
+    id?: string;
     /** Classes on the clipping wrapper, when a surface needs its own layout. */
     innerClassName?: string;
 }
@@ -27,9 +29,11 @@ export interface CollapseProps {
  * 3. Children stay mounted either way, so opening again does not refetch or reset
  *    what is inside.
  */
-export const Collapse = ({ open, children, className, innerClassName }: CollapseProps) => {
+export const Collapse = ({ open, children, className, innerClassName, id }: CollapseProps) => {
     return (
         <div
+            id={id}
+            aria-hidden={!open}
             className={cn(
                 "grid transition-[grid-template-rows,opacity] duration-[var(--reveal-dur)] ease-[var(--reveal-ease)]",
                 open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",

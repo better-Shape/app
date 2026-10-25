@@ -315,6 +315,7 @@ function ChatMessageItemInner({
     const [menuModel, setMenuModel] = React.useState(model);
     const [advanced, setAdvanced] = React.useState(false);
     const [contextVeil, setContextVeil] = React.useState(true);
+    const contextWindowId = React.useId();
     const bodyRef = React.useRef<HTMLDivElement>(null);
     const shownStats = menuStats ?? stats;
     const shownModel = menuModel ?? model;
@@ -756,12 +757,11 @@ function ChatMessageItemInner({
                                 {hasContextWindowData(shownStats?.contextBreakdown, shownStats?.inputTokens, shownStats?.outputTokens) ? (
                                     <>
                                         <div
+                                            id={contextWindowId}
+                                            aria-hidden={!advanced}
+                                            inert={!advanced}
                                             className="grid transition-[grid-template-rows] duration-[var(--spring-panel-dur)] ease-[var(--spring-panel)] motion-reduce:transition-none"
                                             style={{ gridTemplateRows: advanced ? "1fr" : "0fr" }}
-                                            onTransitionEnd={(e) => {
-                                                if (e.propertyName !== "grid-template-rows") return;
-                                                if (advanced) setContextVeil(false);
-                                            }}
                                         >
                                             <div className="min-h-0 overflow-hidden px-2 pt-1 pb-1">
                                                 <ContextWindowMenu
@@ -773,7 +773,7 @@ function ChatMessageItemInner({
                                         </div>
                                         <div
                                             className={cn(
-                                                "pointer-events-none absolute inset-x-0 bottom-0 z-[1] h-30 bg-linear-to-t from-sidebar to-transparent transition-opacity duration-[var(--spring-quick-dur)] ease-[var(--spring-quick)]",
+                                                "pointer-events-none absolute inset-x-0 bottom-0 z-[1] h-30 bg-linear-to-t from-surface-4 to-transparent transition-opacity duration-[var(--spring-quick-dur)] ease-[var(--spring-quick)]",
                                                 contextVeil && !advanced ? "opacity-100" : "opacity-0",
                                             )}
                                             aria-hidden
@@ -781,7 +781,9 @@ function ChatMessageItemInner({
                                         {!advanced ? (
                                             <button
                                                 type="button"
-                                                className="relative z-10 flex w-35 mx-auto rounded-lg bg-panel-hover px-1.5 py-1 items-center justify-center gap-1 text-md font-medium text-text-secondary transition-[color,transform] duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:text-text-primary active:scale-[0.97]"
+                                                aria-expanded={advanced}
+                                                aria-controls={contextWindowId}
+                                                className="relative z-10 mx-auto flex w-35 items-center justify-center gap-1 rounded-lg bg-panel-hover px-1.5 py-1 text-md font-medium text-text-secondary transition-[color,transform] duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:text-text-primary active:scale-[0.97]"
                                                 onClick={() => {
                                                     setAdvanced(true);
                                                     setContextVeil(false);

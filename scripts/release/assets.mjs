@@ -40,11 +40,12 @@ const ARCH_TARGETS = {
 const UNIX_BUNDLE_DIRS = ["deb", "rpm", "appimage", "dmg", "macos"];
 
 function parseArgs(argv) {
-    const out = { outDir: join(root, "dist", "release"), arch: "x86_64", target: null };
+    const out = { outDir: join(root, "dist", "release"), arch: "x86_64", target: null, bundles: null };
     for (let i = 0; i < argv.length; i++) {
         if (argv[i] === "--out-dir") out.outDir = argv[++i];
         else if (argv[i] === "--arch") out.arch = argv[++i];
         else if (argv[i] === "--target") out.target = argv[++i];
+        else if (argv[i] === "--bundles") out.bundles = argv[++i];
     }
     return out;
 }
@@ -123,10 +124,37 @@ function validAppBundle(directory) {
     });
 }
 
+function validateBundles(outDir, bundlesStr) {
+    const requested = bundlesStr.split(",").map((s) => s.trim()).filter(Boolean);
+    const files = existsSync(outDir) ? readdirSync(outDir) : [];
+    const missing = [];
+    for (const bundle of requested) {
+        const extMap = {
+            deb: ".deb",
+            rpm: ".rpm",
+            appimage: ".AppImage",
+            dmg: ".dmg",
+            app: ".app.tar.gz",
+            nsis: "-setup.exe",
+        };
+        const ext = extMap[bundle.toLowerCase()];
+        if (!ext) continue;
+        const found = files.some((f) => f.endsWith(ext));
+        if (!found) missing.push(bundle);
+    }
+    if (missing.length) {
+        console.log(`::error::Missing requested bundles: ${missing.join(", ")} (requested: ${bundlesStr}, found: ${files.join(", ")})`);
+        process.exit(1);
+    }
+    console.log(`Validated bundles: ${requested.join(", ")} present`);
+}
+
 /**
  * macOS/Linux: the bundler already emits cleanly-named, single files
  * (`.dmg`, `.deb`, `.rpm`, `.AppImage`), so just copy them to --out-dir.
  * `.app` is a directory and cannot be a release asset on its own — tar it.
+ * When multiple archs are built, their .app archives must not overwrite each other,
+ * so the arch is baked into the tarball name (e.g. BetterShape-aarch64.app.tar.gz).
  */
 export function collectUnixBundles(releaseDir, outDir, arch, platform = process.platform) {
     const bundleRoot = join(releaseDir, "bundle");
@@ -176,7 +204,7 @@ function archiveDirectory(dir, outDir, arch) {
 }
 
 function main() {
-    const { outDir, arch, target } = parseArgs(process.argv.slice(2));
+    const { outDir, arch, target, bundles } = parseArgs(process.argv.slice(2));
     const releaseDir = releaseDirForArch(arch, target);
 
     mkdirSync(outDir, { recursive: true });
@@ -184,6 +212,7 @@ function main() {
     if (!IS_WINDOWS) {
         console.log(`Collecting ${process.platform} assets from ${releaseDir}`);
         collectUnixBundles(releaseDir, outDir, arch);
+        if (bundles) validateBundles(outDir, bundles);
         return;
     }
 

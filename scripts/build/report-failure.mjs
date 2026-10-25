@@ -18,5 +18,5 @@ export async function failureAnnotationFromStream(input) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
     process.stdin.setEncoding("utf8");
-    console.error(await failureAnnotationFromStream(process.stdin));
+    console.log(await failureAnnotationFromStream(process.stdin));
 }
