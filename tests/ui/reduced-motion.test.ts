@@ -74,7 +74,7 @@ describe("the reduced-motion guard", () => {
         // A guard on a class nothing carries reads as coverage. That is how
         // `.bettershape-orb-breathe`, a keyframe name rather than the orb's class, sat in
         // the guard doing nothing.
-        for (const cls of [".animate-pulse", ".git-generate-shimmer", ".animate-spin", ".imsg-typing span"]) {
+        for (const cls of [".animate-pulse", ".animate-spin", ".imsg-typing span"]) {
             const selector = cls.split(" ")[0];
             expect(block).toContain(cls);
             expect(

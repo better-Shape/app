@@ -948,8 +948,7 @@
    * `.onboard-orb` is the app's other infinite animation and nothing renders it. Wiring
    * that blob up needs a guard here that also restores the keyframe's resting state.
    */
-  .animate-pulse,
-  .git-generate-shimmer {
+  .animate-pulse {
     animation: none !important;
   }
 
