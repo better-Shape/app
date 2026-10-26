@@ -597,9 +597,9 @@ const Chat = ({
             });
             if (!activeFindMatch) return;
             sessionRef.current.notifyUserScrollUp();
-            const reduced =
-                typeof window !== "undefined" &&
-                Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches);
+            const reduced = Boolean(
+                window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches,
+            );
 
             if (activeRange) {
                 const rect = activeRange.getBoundingClientRect();
@@ -765,9 +765,9 @@ const Chat = ({
             const fromTop = emptyComposerTopRef.current;
             prevEmptyStageRef.current = false;
             emptyComposerTopRef.current = null;
-            const reduceMotion =
-                typeof window !== "undefined" &&
-                window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+            const reduceMotion = Boolean(
+                window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches,
+            );
             if (!reduceMotion && fromTop !== null) {
                 const toTop = el.getBoundingClientRect().top;
                 const dy = fromTop - toTop;
