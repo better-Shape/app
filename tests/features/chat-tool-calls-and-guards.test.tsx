@@ -23,7 +23,7 @@ import {
     shouldComposerBreakAll,
 } from "@/features/chat/ui/composer/input";
 import { parseMessageContent, type Chunk } from "@/features/chat/ui/md/renderer";
-import { preprocessChatMarkdown } from "@/features/chat/ui/md/stream";
+import { preprocessChatMarkdown, repairStreamGlitches } from "@/features/chat/ui/md/stream";
 import { ChatMarkdown } from "@/features/chat/ui/md/view";
 import { ChatMessageItem } from "@/features/chat/ui/message/item";
 import {
@@ -700,6 +700,10 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
 
         const yamlBlock = "```yaml\nitems:\n    - nested: true\n```";
         expect(preprocessChatMarkdown(yamlBlock)).toBe(yamlBlock);
+
+        const legitimateRepeat =
+            "Step one verifies the schema. Step one verifies the schema.";
+        expect(repairStreamGlitches(legitimateRepeat)).toBe(legitimateRepeat);
 
         expect(insertDictatedSlice("fix    now", 3, "this bug").next).toBe(
             "fix this bug now",
