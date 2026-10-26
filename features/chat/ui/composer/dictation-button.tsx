@@ -2,7 +2,7 @@
 
 import { MicPulse20Regular } from "@fluentui/react-icons/headless/svg/mic-pulse";
 import { Arc } from "loading-dev";
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import React, { memo, useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { commands } from "@/lib/backend";
 import { notificationStore } from "@/features/notifications";
@@ -12,6 +12,7 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import {
     startDictation,
+    type DictationHandlers,
     type DictationSession,
     type DictationState,
 } from "@/lib/editor/dictation";
@@ -27,11 +28,373 @@ const formatElapsed = (sec: number): string => {
 const safeListen = <T,>(
     eventName: string,
     handler: (event: { payload: T }) => void,
-): Promise<() => void> => {
-    return Promise.resolve()
+): Promise<() => void> =>
+    Promise.resolve()
         .then(() => listen<T>(eventName, handler))
         .catch(() => () => undefined);
+
+/** Registers an async event listener onto `unlisteners`, or disposes immediately if unmounted. */
+const attachSafeListener = <T,>(
+    eventName: string,
+    handler: (event: { payload: T }) => void,
+    isCancelled: () => boolean,
+    unlisteners: Array<() => void>,
+): void => {
+    safeListen<T>(eventName, handler)
+        .then((stop) => {
+            if (isCancelled()) stop();
+            else unlisteners.push(stop);
+        })
+        .catch(() => {
+            /* ignore listener setup failures */
+        });
 };
+
+type DictationRefs = {
+    session: React.MutableRefObject<DictationSession | null>;
+    startingRef: React.MutableRefObject<boolean>;
+    processingRef: React.MutableRefObject<boolean>;
+    startAttemptIdRef: React.MutableRefObject<number>;
+    abortRef: React.MutableRefObject<AbortController | null>;
+};
+
+/** Checks whether dictation currently owns an active session, startup, or recognizer push. */
+const hasPendingOrActiveDictation = (refs: DictationRefs): boolean =>
+    refs.session.current !== null ||
+    refs.startingRef.current ||
+    refs.processingRef.current;
+
+/** Cancels in-flight startup or processing bookkeeping on `refs` and stops any processing push. */
+const abortPendingDictationPhases = (
+    refs: DictationRefs,
+    setIsStarting: React.Dispatch<React.SetStateAction<boolean>>,
+): void => {
+    refs.abortRef.current?.abort();
+    refs.abortRef.current = null;
+    if (refs.startingRef.current || refs.processingRef.current) {
+        refs.startAttemptIdRef.current += 1;
+        refs.startingRef.current = false;
+        setIsStarting(false);
+    }
+    if (refs.processingRef.current) {
+        refs.processingRef.current = false;
+        commands.dictationStop().catch(() => {
+            /* ignore recognizer teardown errors */
+        });
+    }
+};
+
+type DictationUiSetters = {
+    setState: React.Dispatch<React.SetStateAction<DictationState>>;
+    setIsStarting: React.Dispatch<React.SetStateAction<boolean>>;
+    setLevel: React.Dispatch<React.SetStateAction<number>>;
+    setElapsedSec: React.Dispatch<React.SetStateAction<number>>;
+};
+
+/** Handles a `dictation-text` backend event by stopping the recognizer and dispatching text. */
+const handleRecognizedDictationEvent = (
+    rawText: string | undefined,
+    refs: DictationRefs,
+    ui: DictationUiSetters,
+): void => {
+    const text = rawText?.trim();
+    refs.processingRef.current = false;
+    commands.dictationStop().catch(() => {
+        /* ignore recognizer teardown errors */
+    });
+    ui.setState("idle");
+    ui.setLevel(0);
+    if (!text) return;
+    window.dispatchEvent(
+        new CustomEvent("bettershape-dictation-text", { detail: { text } }),
+    );
+};
+
+/** Handles a `dictation-error` backend event by tearing down active capture and surfacing an error. */
+const handleBackendDictationError = (
+    rawMessage: string | undefined,
+    refs: DictationRefs,
+    ui: DictationUiSetters,
+): void => {
+    const message = rawMessage?.trim();
+    if (message) notificationStore.add(message, "error");
+    refs.abortRef.current?.abort();
+    refs.abortRef.current = null;
+    refs.startAttemptIdRef.current += 1;
+    refs.startingRef.current = false;
+    refs.processingRef.current = false;
+    ui.setIsStarting(false);
+    refs.session.current?.dispose();
+    refs.session.current = null;
+    ui.setState("error");
+    ui.setLevel(0);
+};
+
+/** Subscribes to `dictation-text` and `dictation-error` backend events for the lifetime of the control. */
+const useDictationIpcListeners = (
+    refs: DictationRefs,
+    ui: DictationUiSetters,
+    dispose: () => void,
+): void => {
+    useEffect(() => {
+        let cancelled = false;
+        const unlisteners: Array<() => void> = [];
+        const isCancelled = (): boolean => cancelled;
+
+        attachSafeListener<string>(
+            "dictation-text",
+            (event) => handleRecognizedDictationEvent(event.payload, refs, ui),
+            isCancelled,
+            unlisteners,
+        );
+        attachSafeListener<string>(
+            "dictation-error",
+            (event) => handleBackendDictationError(event.payload, refs, ui),
+            isCancelled,
+            unlisteners,
+        );
+
+        return () => {
+            cancelled = true;
+            for (const stop of unlisteners) stop();
+            dispose();
+        };
+    }, [dispose, refs, ui]);
+};
+
+/** Starts an elapsed-seconds interval while `isListening` is active, returning its timer ID. */
+const startListeningTimer = (
+    isListening: boolean,
+    setElapsedSec: React.Dispatch<React.SetStateAction<number>>,
+): number | null => {
+    if (!isListening) return null;
+    const started = Date.now();
+    return window.setInterval(() => {
+        setElapsedSec(Math.floor((Date.now() - started) / 1000));
+    }, 500);
+};
+
+/** Starts a 10-second safety timeout while `isProcessing` is active, returning its timer ID. */
+const startProcessingSafetyTimeout = (
+    isProcessing: boolean,
+    dispose: () => void,
+): number | null =>
+    isProcessing ? window.setTimeout(dispose, 10_000) : null;
+
+/** Clears nullable `intervalId` and `timeoutId` browser timers. */
+const clearOptionalTimers = (
+    intervalId: number | null,
+    timeoutId: number | null,
+): void => {
+    if (intervalId !== null) window.clearInterval(intervalId);
+    if (timeoutId !== null) window.clearTimeout(timeoutId);
+};
+
+/** Wires elapsed timer, processing watchdog, and Escape-to-cancel capture listener. */
+const useDictationTimersAndEscape = (
+    flags: { isListening: boolean; isStarting: boolean; isProcessing: boolean },
+    refs: DictationRefs,
+    setElapsedSec: React.Dispatch<React.SetStateAction<number>>,
+    dispose: () => void,
+): void => {
+    const { isListening, isStarting, isProcessing } = flags;
+    useEffect(() => {
+        if (!isListening && !isStarting && !isProcessing) return undefined;
+        const timer = startListeningTimer(isListening, setElapsedSec);
+        const processingTimeout = startProcessingSafetyTimeout(
+            isProcessing,
+            dispose,
+        );
+        const onKey = (event: KeyboardEvent): void => {
+            if (event.key !== "Escape" || !hasPendingOrActiveDictation(refs)) {
+                return;
+            }
+            event.preventDefault();
+            event.stopPropagation();
+            dispose();
+        };
+        window.addEventListener("keydown", onKey, true);
+        return () => {
+            clearOptionalTimers(timer, processingTimeout);
+            window.removeEventListener("keydown", onKey, true);
+        };
+    }, [dispose, isListening, isProcessing, isStarting, refs, setElapsedSec]);
+};
+
+/** Builds attempt-scoped `DictationHandlers` carrying `signal` for cancellation safety. */
+const buildAttemptDictationHandlers = (
+    attemptId: number,
+    signal: AbortSignal,
+    refs: DictationRefs,
+    ui: DictationUiSetters,
+): DictationHandlers => ({
+    signal,
+    onText: (text) => {
+        if (refs.startAttemptIdRef.current !== attemptId) return;
+        refs.processingRef.current = false;
+        ui.setState("idle");
+        ui.setLevel(0);
+        window.dispatchEvent(
+            new CustomEvent("bettershape-dictation-text", { detail: { text } }),
+        );
+    },
+    onError: (message) => {
+        if (refs.startAttemptIdRef.current !== attemptId) return;
+        refs.processingRef.current = false;
+        notificationStore.add(message, "error");
+    },
+    onState: (next) => {
+        if (refs.startAttemptIdRef.current !== attemptId) return;
+        refs.processingRef.current = next === "processing";
+        ui.setState(next);
+    },
+    onLevel: (next) => {
+        if (refs.startAttemptIdRef.current === attemptId) ui.setLevel(next);
+    },
+    onMaxDurationReached: () => {
+        if (refs.startAttemptIdRef.current !== attemptId) return;
+        refs.session.current = null;
+        ui.setLevel(0);
+        ui.setElapsedSec(0);
+        notificationStore.add(
+            "Dictation limit reached",
+            "info",
+            "Reached the 5-minute recording limit. Transcribing your speech now.",
+        );
+    },
+});
+
+const DICTATION_IPC_BRIDGE = {
+    start: () => commands.dictationStart(),
+    stop: () => commands.dictationStop(),
+    push: (wav: number[]) => commands.dictationPush(wav),
+};
+
+/** Resolves the accessible button/tooltip label from current dictation flags. */
+const resolveDictationLabel = (flags: {
+    isStarting: boolean;
+    isListening: boolean;
+    isProcessing: boolean;
+}): string => {
+    if (flags.isStarting) return "Cancel microphone start";
+    if (flags.isListening) return "Stop dictation";
+    return flags.isProcessing ? "Cancel dictation" : "Dictate";
+};
+
+/** Renders the live three-bar RMS waveform + elapsed timer while listening. */
+const ListeningWaveformBadge = ({
+    level,
+    elapsedSec,
+}: {
+    level: number;
+    elapsedSec: number;
+}): React.ReactElement => {
+    const barA = Math.round(4 + Math.min(1, level * 0.85 + 0.18) * 8);
+    const barB = Math.round(5 + Math.min(1, level * 1.15 + 0.28) * 9);
+    const barC = Math.round(4 + Math.min(1, level * 0.75 + 0.15) * 8);
+    const barClass =
+        "w-[2px] rounded-full bg-current transition-[height] duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] motion-reduce:transition-none";
+    return (
+        <>
+            <span className="flex h-3.5 items-center gap-[2px]" aria-hidden>
+                <span
+                    className={cn(barClass, "motion-reduce:h-2")}
+                    style={{ height: `${barA}px` }}
+                />
+                <span
+                    className={cn(barClass, "motion-reduce:h-3")}
+                    style={{ height: `${barB}px` }}
+                />
+                <span
+                    className={cn(barClass, "motion-reduce:h-2")}
+                    style={{ height: `${barC}px` }}
+                />
+            </span>
+            <span className="text-2xs font-medium tabular-nums">
+                {formatElapsed(elapsedSec)}
+            </span>
+        </>
+    );
+};
+
+/** Selects the inner icon/spinner/waveform content for `DictationButton`. */
+const renderDictationButtonBody = (
+    isProcessing: boolean,
+    isListening: boolean,
+    level: number,
+    elapsedSec: number,
+): React.ReactElement => {
+    if (isProcessing) return <Arc size={15} />;
+    if (isListening) {
+        return <ListeningWaveformBadge level={level} elapsedSec={elapsedSec} />;
+    }
+    return <Icon icon={MicPulse20Regular} />;
+};
+
+/** Commits an active session or cancels pending startup/processing; returns `true` when handled. */
+const tryFinishOrCancelExistingAttempt = (
+    refs: DictationRefs,
+    ui: DictationUiSetters,
+    dispose: () => void,
+): boolean => {
+    if (refs.session.current) {
+        refs.session.current.commit();
+        refs.session.current = null;
+        ui.setLevel(0);
+        ui.setElapsedSec(0);
+        return true;
+    }
+    if (refs.startingRef.current || refs.processingRef.current) {
+        dispose();
+        return true;
+    }
+    return false;
+};
+
+/** Starts a fresh microphone dictation attempt and binds the resulting session when still current. */
+const beginNewDictationAttempt = async (
+    deviceId: string,
+    refs: DictationRefs,
+    ui: DictationUiSetters,
+): Promise<void> => {
+    refs.abortRef.current?.abort();
+    const controller = new AbortController();
+    refs.abortRef.current = controller;
+    ui.setElapsedSec(0);
+    refs.startingRef.current = true;
+    const attemptId = (refs.startAttemptIdRef.current += 1);
+    ui.setIsStarting(true);
+    try {
+        const active = await startDictation(
+            buildAttemptDictationHandlers(attemptId, controller.signal, refs, ui),
+            microphoneConstraints(deviceId),
+            DICTATION_IPC_BRIDGE,
+        );
+        if (refs.startAttemptIdRef.current !== attemptId) {
+            active.dispose();
+            return;
+        }
+        refs.startingRef.current = false;
+        ui.setIsStarting(false);
+        refs.session.current = active;
+    } catch {
+        if (refs.startAttemptIdRef.current === attemptId) {
+            refs.startingRef.current = false;
+            refs.processingRef.current = false;
+            ui.setIsStarting(false);
+        }
+    }
+};
+
+/** Resolves `"Esc to cancel"` shortcut hint whenever dictation is starting, listening, or processing. */
+const resolveDictationShortcutHint = (flags: {
+    isStarting: boolean;
+    isListening: boolean;
+    isProcessing: boolean;
+}): string | undefined =>
+    flags.isStarting || flags.isListening || flags.isProcessing
+        ? "Esc to cancel"
+        : undefined;
 
 /**
  * Records one utterance and hands it to the system recognizer, which answers with a
@@ -40,7 +403,7 @@ const safeListen = <T,>(
  * Pressing Escape while listening cancels capture cleanly without touching existing
  * composer text.
  */
-export const DictationButton = memo(function DictationButton() {
+const DictationButtonInner = (): React.ReactElement => {
     const settings = useSettings();
     const [state, setState] = useState<DictationState>("idle");
     const [isStarting, setIsStarting] = useState(false);
@@ -50,210 +413,51 @@ export const DictationButton = memo(function DictationButton() {
     const startingRef = useRef(false);
     const processingRef = useRef(false);
     const startAttemptIdRef = useRef(0);
+    const abortRef = useRef<AbortController | null>(null);
+
+    const refs = React.useMemo<DictationRefs>(
+        () => ({ session, startingRef, processingRef, startAttemptIdRef, abortRef }),
+        [],
+    );
+    const ui = React.useMemo<DictationUiSetters>(
+        () => ({ setState, setIsStarting, setLevel, setElapsedSec }),
+        [],
+    );
 
     const dispose = useCallback(() => {
-        const hadActiveOrPending =
-            session.current !== null || startingRef.current || processingRef.current;
-        if (startingRef.current || processingRef.current) {
-            startAttemptIdRef.current += 1;
-            startingRef.current = false;
-            setIsStarting(false);
-        }
-        if (processingRef.current) {
-            processingRef.current = false;
-            commands.dictationStop().catch(() => {
-                /* ignore recognizer teardown errors */
-            });
-        }
+        const currentRefs: DictationRefs = {
+            session,
+            startingRef,
+            processingRef,
+            startAttemptIdRef,
+            abortRef,
+        };
+        const hadActive = hasPendingOrActiveDictation(currentRefs);
+        abortPendingDictationPhases(currentRefs, setIsStarting);
         session.current?.dispose();
         session.current = null;
         setLevel(0);
         setElapsedSec(0);
-        if (hadActiveOrPending) {
-            setState("idle");
-        }
+        if (hadActive) setState("idle");
     }, []);
 
-    useEffect(() => {
-        let cancelled = false;
-        const unlisteners: (() => void)[] = [];
-
-        safeListen<string>("dictation-text", (event) => {
-            const text = event.payload?.trim();
-            processingRef.current = false;
-            commands.dictationStop().catch(() => {
-                /* ignore recognizer teardown errors */
-            });
-            setState("idle");
-            setLevel(0);
-            if (!text) return;
-            window.dispatchEvent(
-                new CustomEvent("bettershape-dictation-text", { detail: { text } }),
-            );
-        })
-            .then((stop) => {
-                if (cancelled) stop();
-                else unlisteners.push(stop);
-            })
-            .catch(() => {
-                /* ignore listener setup failures */
-            });
-
-        safeListen<string>("dictation-error", (event) => {
-            const message = event.payload?.trim();
-            if (message) notificationStore.add(message, "error");
-            startAttemptIdRef.current += 1;
-            startingRef.current = false;
-            processingRef.current = false;
-            setIsStarting(false);
-            session.current?.dispose();
-            session.current = null;
-            setState("error");
-            setLevel(0);
-        })
-            .then((stop) => {
-                if (cancelled) stop();
-                else unlisteners.push(stop);
-            })
-            .catch(() => {
-                /* ignore listener setup failures */
-            });
-
-        return () => {
-            cancelled = true;
-            for (const stop of unlisteners) stop();
-            dispose();
-        };
-    }, [dispose]);
+    useDictationIpcListeners(refs, ui, dispose);
 
     const isListening = state === "listening" && !isStarting;
     const isProcessing = state === "processing";
-
-    useEffect(() => {
-        if (!isListening && !isStarting && !isProcessing) return undefined;
-        const started = Date.now();
-        const timer = isListening
-            ? window.setInterval(() => {
-                  setElapsedSec(Math.floor((Date.now() - started) / 1000));
-              }, 500)
-            : null;
-        const processingTimeout = isProcessing
-            ? window.setTimeout(() => {
-                  dispose();
-              }, 10_000)
-            : null;
-        const onKey = (event: KeyboardEvent) => {
-            if (
-                event.key === "Escape"
-                && (session.current || startingRef.current || processingRef.current)
-            ) {
-                event.preventDefault();
-                event.stopPropagation();
-                dispose();
-            }
-        };
-        window.addEventListener("keydown", onKey, true);
-        return () => {
-            if (timer !== null) window.clearInterval(timer);
-            if (processingTimeout !== null) window.clearTimeout(processingTimeout);
-            window.removeEventListener("keydown", onKey, true);
-        };
-    }, [isListening, isStarting, isProcessing, dispose]);
+    const phaseFlags = { isStarting, isListening, isProcessing };
+    useDictationTimersAndEscape(phaseFlags, refs, setElapsedSec, dispose);
 
     const toggle = useCallback(async () => {
-        if (session.current) {
-            session.current.commit();
-            session.current = null;
-            setLevel(0);
-            setElapsedSec(0);
-            return;
-        }
-        if (startingRef.current || processingRef.current) {
-            dispose();
-            return;
-        }
-        setElapsedSec(0);
-        startingRef.current = true;
-        const attemptId = ++startAttemptIdRef.current;
-        setIsStarting(true);
-        try {
-            const active = await startDictation(
-                {
-                    onText: (text) => {
-                        if (startAttemptIdRef.current !== attemptId) return;
-                        processingRef.current = false;
-                        setState("idle");
-                        setLevel(0);
-                        window.dispatchEvent(
-                            new CustomEvent("bettershape-dictation-text", { detail: { text } }),
-                        );
-                    },
-                    onError: (message) => {
-                        if (startAttemptIdRef.current !== attemptId) return;
-                        processingRef.current = false;
-                        notificationStore.add(message, "error");
-                    },
-                    onState: (next) => {
-                        if (startAttemptIdRef.current !== attemptId) return;
-                        processingRef.current = next === "processing";
-                        setState(next);
-                    },
-                    onLevel: (next) => {
-                        if (startAttemptIdRef.current === attemptId) setLevel(next);
-                    },
-                    onMaxDurationReached: () => {
-                        if (startAttemptIdRef.current !== attemptId) return;
-                        session.current = null;
-                        setLevel(0);
-                        setElapsedSec(0);
-                        notificationStore.add(
-                            "Dictation limit reached",
-                            "info",
-                            "Reached the 5-minute recording limit. Transcribing your speech now.",
-                        );
-                    },
-                },
-                microphoneConstraints(settings.voice.deviceId),
-                {
-                    start: () => commands.dictationStart(),
-                    stop: () => commands.dictationStop(),
-                    push: (wav) => commands.dictationPush(wav),
-                },
-            );
-            if (startAttemptIdRef.current !== attemptId) {
-                active.dispose();
-                return;
-            }
-            startingRef.current = false;
-            setIsStarting(false);
-            session.current = active;
-        } catch {
-            if (startAttemptIdRef.current === attemptId) {
-                startingRef.current = false;
-                processingRef.current = false;
-                setIsStarting(false);
-            }
-            // `startDictation` has already surfaced the reason; the state is "error".
-        }
-    }, [dispose, settings.voice.deviceId]);
+        if (tryFinishOrCancelExistingAttempt(refs, ui, dispose)) return;
+        await beginNewDictationAttempt(settings.voice.deviceId, refs, ui);
+    }, [dispose, refs, settings.voice.deviceId, ui]);
 
-    const label = isStarting
-        ? "Cancel microphone start"
-        : isListening
-          ? "Stop dictation"
-          : isProcessing
-            ? "Cancel dictation"
-            : "Dictate";
-
-    const barA = Math.round(4 + Math.min(1, level * 0.85 + 0.18) * 8);
-    const barB = Math.round(5 + Math.min(1, level * 1.15 + 0.28) * 9);
-    const barC = Math.round(4 + Math.min(1, level * 0.75 + 0.15) * 8);
+    const label = resolveDictationLabel(phaseFlags);
+    const shortcutHint = resolveDictationShortcutHint(phaseFlags);
 
     return (
-        <Tooltip
-            content={label}
-            shortcut={isListening || isProcessing ? "Esc to cancel" : undefined}
-        >
+        <Tooltip content={label} shortcut={shortcutHint}>
             <button
                 type="button"
                 aria-label={label}
@@ -270,32 +474,10 @@ export const DictationButton = memo(function DictationButton() {
                         : "w-[32px] text-text-muted hover:bg-[var(--btn-hover)] hover:text-text-primary",
                 )}
             >
-                {isProcessing ? (
-                    <Arc size={15} />
-                ) : isListening ? (
-                    <>
-                        <span className="flex h-3.5 items-center gap-[2px]" aria-hidden>
-                            <span
-                                className="w-[2px] rounded-full bg-current transition-[height] duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] motion-reduce:h-2 motion-reduce:transition-none"
-                                style={{ height: `${barA}px` }}
-                            />
-                            <span
-                                className="w-[2px] rounded-full bg-current transition-[height] duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] motion-reduce:h-3 motion-reduce:transition-none"
-                                style={{ height: `${barB}px` }}
-                            />
-                            <span
-                                className="w-[2px] rounded-full bg-current transition-[height] duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] motion-reduce:h-2 motion-reduce:transition-none"
-                                style={{ height: `${barC}px` }}
-                            />
-                        </span>
-                        <span className="text-2xs font-medium tabular-nums">
-                            {formatElapsed(elapsedSec)}
-                        </span>
-                    </>
-                ) : (
-                    <Icon icon={MicPulse20Regular} />
-                )}
+                {renderDictationButtonBody(isProcessing, isListening, level, elapsedSec)}
             </button>
         </Tooltip>
     );
-});
+};
+
+export const DictationButton = memo(DictationButtonInner);

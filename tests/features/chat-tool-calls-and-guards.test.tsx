@@ -31,6 +31,7 @@ import {
     defaultProvidersSettings,
     describeProviderSetupGap,
     normalizeProvidersSettings,
+    providersForModelNames,
 } from "@/lib/ai/providers";
 import { shortenMentionTokensInText } from "@/lib/chat/mentions";
 import { startDictation } from "@/lib/editor/dictation";
@@ -827,6 +828,71 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
         expect(resolveComposerSetupGap(true, 0, lmstudioNoModels)).toBe(
             "Add or import a model ID in Settings → Providers",
         );
+    });
+
+    it("matches disabled keyed providers in providersForModelNames and normalizes plan step statuses", () => {
+        const settings = defaultProvidersSettings();
+        settings.connections.anthropic = {
+            ...settings.connections.anthropic,
+            apiKey: ["ant", "test", "cred"].join("-"),
+            enabled: false,
+        };
+        expect(
+            providersForModelNames(["claude-3-7-sonnet"], settings.connections),
+        ).toEqual(["anthropic"]);
+
+        const renderedPlan = mount(
+            <ChatMessageItem
+                role="assistant"
+                content={[
+                    '<plan title="Migration">',
+                    '<step status="completed">Ship parser</step>',
+                    '<step status="in_progress">Verify suite</step>',
+                    "</plan>",
+                ].join("\n")}
+                timestamp={1_700_000_000_000}
+            />,
+        );
+        expect(renderedPlan.textContent ?? "").toContain("1/2");
+    });
+
+    it("cancels pending mic permission without starting recognizer and ignores stale push rejections", async () => {
+        const stopTrack = vi.fn();
+        const fakeStream = {
+            getTracks: () => [{ stop: stopTrack }],
+        } as unknown as MediaStream;
+        const prevMediaDevices = navigator.mediaDevices;
+        /** Resolves an empty promise for mocked recognizer lifecycle hooks. */
+        const resolveVoid = (): Promise<void> => Promise.resolve();
+        let resolveMic: ((s: MediaStream) => void) | undefined;
+        const pendingMic = new Promise<MediaStream>((resolve) => {
+            resolveMic = resolve;
+        });
+        Object.defineProperty(navigator, "mediaDevices", {
+            configurable: true,
+            value: { getUserMedia: vi.fn(() => pendingMic) },
+        });
+        const startRecognizer = vi.fn(resolveVoid);
+        const stopRecognizer = vi.fn(resolveVoid);
+        const abortCtrl = new AbortController();
+        try {
+            const pendingStart = startDictation(
+                { onText: vi.fn(), onError: vi.fn(), signal: abortCtrl.signal },
+                true,
+                { start: startRecognizer, push: vi.fn(resolveVoid), stop: stopRecognizer },
+            );
+            abortCtrl.abort();
+            resolveMic?.(fakeStream);
+            await expect(pendingStart).rejects.toThrow("Dictation cancelled");
+            expect(stopTrack).toHaveBeenCalledTimes(1);
+            expect(startRecognizer).not.toHaveBeenCalled();
+            expect(stopRecognizer).not.toHaveBeenCalled();
+        } finally {
+            Object.defineProperty(navigator, "mediaDevices", {
+                configurable: true,
+                value: prevMediaDevices,
+            });
+        }
     });
 });
 

@@ -1979,7 +1979,18 @@ const presetModelMatchesNeedles = (
   return tail.length >= 6 && tails.has(tail);
 };
 
-/** Checks whether `preset` has built-in models matching `needles` / `tails` and is usable. */
+/** Checks whether `preset` is usable now or already configured with credentials to be enabled. */
+const canEnableMatchingPreset = (
+  preset: ProviderPreset,
+  connections: Record<ProviderId, ProviderConnection>,
+): boolean => {
+  if (isConnectionUsable(preset.id, connections)) return true;
+  const conn = connections[preset.id];
+  if (!conn?.apiKey.trim()) return false;
+  return preset.needsBaseUrl ? Boolean(conn.baseUrl.trim()) : true;
+};
+
+/** Checks whether `preset` has built-in models matching `needles` / `tails` and is configured. */
 const isMatchingUsablePreset = (
   preset: ProviderPreset,
   needles: string[],
@@ -1987,7 +1998,7 @@ const isMatchingUsablePreset = (
   connections: Record<ProviderId, ProviderConnection>,
 ): boolean => {
   if (preset.models.length === 0) return false;
-  if (!isConnectionUsable(preset.id, connections)) return false;
+  if (!canEnableMatchingPreset(preset, connections)) return false;
   return preset.models.some((model) =>
     presetModelMatchesNeedles(model, needles, tails),
   );

@@ -1805,17 +1805,26 @@ const renderPlanSavedChunkView: ChunkViewRenderer = (chunk) => (
 );
 
 /** Parses `<step status="...">...</step>` tags inside a `<plan>` chunk. */
+/** Normalizes a `<step>` child element into `{ status, label }` for `PlanningBlock`. */
+const normalizePlanStepEntry = (
+    entry: ChildXmlMatch,
+): { status: TodoStepStatus; label: string } => {
+    const raw = (
+        readOptionalAttr(entry.attrs, "status") ?? "pending"
+    ).toLowerCase();
+    return {
+        status: TODO_STATUS_MAP[raw] ?? "pending",
+        label: entry.body.trim(),
+    };
+};
+
+/** Parses `<step status="...">...</step>` items inside a `<plan>` block. */
 const parsePlanSteps = (
     blockContent: string,
-): Array<{ status: TodoStepStatus; label: string }> => {
-    const matches = [
-        ...blockContent.matchAll(/<step\s+status="([^"]*)">([\s\S]*?)<\/step>/g),
-    ];
-    return matches.map((match) => ({
-        status: match[1] as TodoStepStatus,
-        label: match[2].trim(),
-    }));
-};
+): Array<{ status: TodoStepStatus; label: string }> =>
+    scanChildXmlElements(blockContent, "step", "</step>").map(
+        normalizePlanStepEntry,
+    );
 
 /** Renders a `<plan>` step-progress block. */
 const renderPlanChunkView: ChunkViewRenderer = (chunk, ctx) => {

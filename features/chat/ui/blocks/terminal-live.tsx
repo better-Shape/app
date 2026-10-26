@@ -870,14 +870,11 @@ const resolveFinishedStreamStatus = (stream: StreamState): string => {
     return (stream.exitCode ?? 0) === 0 ? "completed" : "failed";
 };
 
-/** Resolves a live override status directly from `stream.phase` when active or finished. */
-const resolveActiveStreamStatus = (stream: StreamState): string | null => {
-    if (stream.phase === "finished") return resolveFinishedStreamStatus(stream);
-    if (stream.phase === "background" || stream.phase === "running") {
-        return stream.phase;
-    }
-    return null;
-};
+/** Checks whether `phase` is an active live stream phase (`"running"` or `"background"`). */
+const isLiveStreamPhase = (
+    phase: StreamPhase,
+): phase is "running" | "background" =>
+    phase === "running" || phase === "background";
 
 const UNSETTLED_APPROVED_STATUSES = new Set(["pending", "running"]);
 
@@ -902,9 +899,9 @@ const computeEffectiveCommandStatus = (
     chunkStatus: string,
     isGenerating: boolean | undefined,
 ): string => {
-    const fromStream = resolveActiveStreamStatus(stream);
-    if (fromStream) return fromStream;
+    if (stream.phase === "finished") return resolveFinishedStreamStatus(stream);
     if (isTranscriptChunkSettled(chunkStatus, isGenerating)) return chunkStatus;
+    if (isLiveStreamPhase(stream.phase)) return stream.phase;
     return resolveIdleFallbackStatus(localStatus, chunkStatus, isGenerating);
 };
 

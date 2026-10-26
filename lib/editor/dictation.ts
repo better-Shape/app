@@ -29,6 +29,8 @@ export type DictationHandlers = {
     onLevel?: (level: number) => void;
     /** Invoked when continuous recording reaches `MAX_DICTATION_BUFFER_SECONDS` and auto-commits. */
     onMaxDurationReached?: () => void;
+    /** Optional cancellation signal allowing callers to abort pending mic/recognizer startup or push. */
+    signal?: AbortSignal;
 };
 
 export type DictationSession = {
@@ -207,32 +209,105 @@ const resolveAudioContextCtor = (): typeof AudioContext | undefined =>
     (window as unknown as { webkitAudioContext?: typeof AudioContext })
         .webkitAudioContext;
 
-/** Requests microphone capture and starts the backend recognizer process. */
-const acquireStreamAndStartRecognizer = async (
-    constraints: MediaTrackConstraints | boolean,
+let activeDictationEpoch = 0;
+
+/** Checks whether `epoch` still owns dictation and `signal` has not aborted. */
+const isCurrentDictationAttempt = (
+    epoch: number,
+    signal?: AbortSignal,
+): boolean => epoch === activeDictationEpoch && !signal?.aborted;
+
+/** Stops the backend recognizer only when `epoch` still owns the global recognizer. */
+const stopRecognizerIfCurrent = (
     invoke: DictationInvokeBridge,
+    epoch: number,
+): Promise<void> =>
+    epoch === activeDictationEpoch
+        ? invoke.stop().catch(() => {
+              /* ignore recognizer teardown errors */
+          })
+        : Promise.resolve();
+
+/** Creates an `AbortError` used when dictation startup is superseded or cancelled. */
+const createDictationAbortedError = (): Error => {
+    const err = new Error("Dictation cancelled");
+    err.name = "AbortError";
+    return err;
+};
+
+/** Reports a startup error to `setState` and `onError` only while the attempt is still current. */
+const reportErrorIfCurrent = (
+    error: unknown,
+    epoch: number,
+    signal: AbortSignal | undefined,
     setState: (state: DictationState) => void,
     onError: (message: string) => void,
+): void => {
+    if (!isCurrentDictationAttempt(epoch, signal)) return;
+    setState("error");
+    onError(describeDictationError(error));
+};
+
+type StartupAttemptContext = {
+    epoch: number;
+    signal?: AbortSignal;
+    setState: (state: DictationState) => void;
+    onError: (message: string) => void;
+};
+
+/** Acquires a microphone `MediaStream`, releasing tracks immediately if cancelled mid-prompt. */
+const requestMicrophoneStream = async (
+    constraints: MediaTrackConstraints | boolean,
+    ctx: StartupAttemptContext,
 ): Promise<MediaStream> => {
+    if (!isCurrentDictationAttempt(ctx.epoch, ctx.signal)) {
+        throw createDictationAbortedError();
+    }
     let stream: MediaStream;
     try {
         stream = await navigator.mediaDevices.getUserMedia({
             audio: constraints,
         });
     } catch (error) {
-        setState("error");
-        onError(describeDictationError(error));
+        reportErrorIfCurrent(error, ctx.epoch, ctx.signal, ctx.setState, ctx.onError);
         throw error;
     }
+    if (!isCurrentDictationAttempt(ctx.epoch, ctx.signal)) {
+        stopMediaStreamTracks(stream);
+        throw createDictationAbortedError();
+    }
+    return stream;
+};
+
+/** Starts the backend recognizer for `stream`, tearing down cleanly if cancelled mid-start. */
+const startRecognizerForStream = async (
+    stream: MediaStream,
+    invoke: DictationInvokeBridge,
+    ctx: StartupAttemptContext,
+): Promise<MediaStream> => {
     try {
         await invoke.start();
-        return stream;
     } catch (error) {
         stopMediaStreamTracks(stream);
-        setState("error");
-        onError(describeDictationError(error));
+        reportErrorIfCurrent(error, ctx.epoch, ctx.signal, ctx.setState, ctx.onError);
         throw error;
     }
+    if (!isCurrentDictationAttempt(ctx.epoch, ctx.signal)) {
+        stopMediaStreamTracks(stream);
+        await stopRecognizerIfCurrent(invoke, ctx.epoch);
+        throw createDictationAbortedError();
+    }
+    return stream;
+};
+
+/** Requests microphone capture and starts the backend recognizer process. */
+const acquireStreamAndStartRecognizer = async (
+    constraints: MediaTrackConstraints | boolean,
+    invoke: DictationInvokeBridge,
+    ctx: StartupAttemptContext,
+): Promise<MediaStream> => {
+    const stream = await requestMicrophoneStream(constraints, ctx);
+    return startRecognizerForStream(stream, invoke, ctx);
 };
 
 /** Connects a processor node downstream via `silentGain` when available, or directly to `destination`. */
@@ -290,22 +365,28 @@ const forwardRecognizedPushText = (
     onText(trimmed);
 };
 
+type SessionLifecycleToken = {
+    epoch: number;
+    signal?: AbortSignal;
+};
+
 /** Pushes encoded WAV bytes to the recognizer and forwards direct transcripts or push errors. */
 const pushEncodedWav = (
     wav: Uint8Array,
     invoke: DictationInvokeBridge,
+    token: SessionLifecycleToken,
     setState: (state: DictationState) => void,
     handlers: Pick<DictationHandlers, "onText" | "onError">,
 ): void => {
     invoke
         .push(Array.from(wav))
         .then((result) => {
+            if (!isCurrentDictationAttempt(token.epoch, token.signal)) return;
             forwardRecognizedPushText(result, setState, handlers.onText);
         })
         .catch((error: unknown) => {
-            invoke.stop().catch(() => {
-                /* ignore recognizer teardown errors */
-            });
+            if (!isCurrentDictationAttempt(token.epoch, token.signal)) return;
+            void stopRecognizerIfCurrent(invoke, token.epoch);
             setState("error");
             handlers.onError(describeDictationError(error));
         });
@@ -339,6 +420,7 @@ const createActiveDictationSession = (
     handlers: DictationHandlers,
     invoke: DictationInvokeBridge,
     setState: (state: DictationState) => void,
+    token: SessionLifecycleToken,
 ): DictationSession => {
     const source = context.createMediaStreamSource(stream);
     const processor = context.createScriptProcessor(4096, 1, 1);
@@ -365,20 +447,21 @@ const createActiveDictationSession = (
 
     /** Finalizes recorded PCM samples and dispatches WAV audio to the recognizer. */
     const commitCapture = (): void => {
-        if (disposed) return;
+        if (disposed || !isCurrentDictationAttempt(token.epoch, token.signal)) {
+            teardown();
+            return;
+        }
         const samples = concatFloat32(chunks);
         teardown();
         if (!hasAudibleSignal(samples)) {
-            invoke.stop().catch(() => {
-                /* ignore recognizer teardown errors */
-            });
+            void stopRecognizerIfCurrent(invoke, token.epoch);
             setState("idle");
             return;
         }
         setState("processing");
         const pcm = resampleTo16k(samples, context.sampleRate);
         const wav = encodeWavPcm16(pcm, DICTATION_SAMPLE_RATE);
-        pushEncodedWav(wav, invoke, setState, handlers);
+        pushEncodedWav(wav, invoke, token, setState, handlers);
     };
 
     processor.onaudioprocess = (event) => {
@@ -403,10 +486,13 @@ const createActiveDictationSession = (
         commit: commitCapture,
         dispose: () => {
             teardown();
-            invoke.stop().catch(() => {
-                /* ignore recognizer teardown errors */
-            });
-            setState("idle");
+            if (token.epoch === activeDictationEpoch) {
+                activeDictationEpoch += 1;
+                invoke.stop().catch(() => {
+                    /* ignore recognizer teardown errors */
+                });
+                setState("idle");
+            }
         },
     };
 };
@@ -416,8 +502,7 @@ const cleanupFailedAudioSession = async (
     context: AudioContext | null,
     stream: MediaStream,
     invoke: DictationInvokeBridge,
-    setState: (state: DictationState) => void,
-    onError: (message: string) => void,
+    ctx: StartupAttemptContext,
     err: unknown,
 ): Promise<void> => {
     if (context) {
@@ -426,11 +511,26 @@ const cleanupFailedAudioSession = async (
         });
     }
     stopMediaStreamTracks(stream);
-    await invoke.stop().catch(() => {
-        /* ignore recognizer stop failure */
-    });
-    setState("error");
-    onError(err instanceof Error ? err.message : String(err));
+    await stopRecognizerIfCurrent(invoke, ctx.epoch);
+    if (isCurrentDictationAttempt(ctx.epoch, ctx.signal)) {
+        ctx.setState("error");
+        ctx.onError(err instanceof Error ? err.message : String(err));
+    }
+};
+
+/** Rejects when `AudioContext` is unavailable after releasing `stream` and recognizer. */
+const failMissingAudioContext = async (
+    stream: MediaStream,
+    invoke: DictationInvokeBridge,
+    ctx: StartupAttemptContext,
+): Promise<never> => {
+    stopMediaStreamTracks(stream);
+    await stopRecognizerIfCurrent(invoke, ctx.epoch);
+    if (isCurrentDictationAttempt(ctx.epoch, ctx.signal)) {
+        ctx.setState("error");
+        ctx.onError("This build cannot record audio.");
+    }
+    throw new Error("AudioContext unavailable");
 };
 
 /** Record one utterance and push it to the recognizer. */
@@ -439,25 +539,25 @@ export const startDictation = async (
     constraints: MediaTrackConstraints | boolean,
     invoke: DictationInvokeBridge,
 ): Promise<DictationSession> => {
+    const epoch = (activeDictationEpoch += 1);
     const setState = handlers.onState ?? (() => undefined);
+    const ctx: StartupAttemptContext = {
+        epoch,
+        signal: handlers.signal,
+        setState,
+        onError: handlers.onError,
+    };
     setState("listening");
 
     const stream = await acquireStreamAndStartRecognizer(
         constraints,
         invoke,
-        setState,
-        handlers.onError,
+        ctx,
     );
 
     const AudioCtor = resolveAudioContextCtor();
     if (!AudioCtor) {
-        stopMediaStreamTracks(stream);
-        await invoke.stop().catch(() => {
-            /* ignore recognizer stop failure */
-        });
-        setState("error");
-        handlers.onError("This build cannot record audio.");
-        throw new Error("AudioContext unavailable");
+        return failMissingAudioContext(stream, invoke, ctx);
     }
 
     let context: AudioContext | null = null;
@@ -469,16 +569,10 @@ export const startDictation = async (
             handlers,
             invoke,
             setState,
+            { epoch, signal: handlers.signal },
         );
     } catch (err) {
-        await cleanupFailedAudioSession(
-            context,
-            stream,
-            invoke,
-            setState,
-            handlers.onError,
-            err,
-        );
+        await cleanupFailedAudioSession(context, stream, invoke, ctx, err);
         throw err;
     }
 };
