@@ -2,7 +2,11 @@
 
 import React, { useEffect, useMemo } from "react";
 import { cn, createOccurrenceKeyer } from "@/lib/utils";
-import { stripLeakedToolCode, stripOrphanThinkTags } from "./stream";
+import {
+    scanMarkdownCodeFences,
+    stripLeakedToolCode,
+    stripOrphanThinkTags,
+} from "./stream";
 import { ChatMarkdown } from "./view";
 import { syncSubagentsFromChunks } from "@/features/agent/subagents/store";
 import {
@@ -1073,24 +1077,46 @@ const buildChunkFromSlice = (ctx: TagSliceContext): Chunk => {
 const isOpenTagNameDelimiter = (ch: string | undefined): boolean =>
     ch === undefined || ch === ">" || ch === "/" || /\s/u.test(ch);
 
-/** Finds the first boundary-valid occurrence of `startTag` at or after `fromIndex`. */
+/** Returns the end offset of a fenced code range containing `index`, or `-1` when outside fences. */
+const findContainingFenceEnd = (
+    index: number,
+    fenceRanges: ReadonlyArray<readonly [number, number]>,
+): number => {
+    for (const [start, end] of fenceRanges) {
+        if (index < start) return -1;
+        if (index < end) return end;
+    }
+    return -1;
+};
+
+/** Checks whether `startTag` at `index` has a valid open-tag boundary. */
+const hasValidTagStartBoundary = (
+    text: string,
+    startTag: string,
+    index: number,
+): boolean =>
+    startTag.endsWith(">") ||
+    isOpenTagNameDelimiter(text[index + startTag.length]);
+
+/** Finds the first boundary-valid, non-fenced occurrence of `startTag` at or after `fromIndex`. */
 const findBoundaryTagStart = (
     text: string,
     startTag: string,
     fromIndex: number,
+    fenceRanges: ReadonlyArray<readonly [number, number]>,
 ): number => {
-    const selfDelimited = startTag.endsWith(">");
     let cursor = fromIndex;
     while (cursor < text.length) {
         const index = text.indexOf(startTag, cursor);
         if (index === -1) return -1;
-        if (
-            selfDelimited ||
-            isOpenTagNameDelimiter(text[index + startTag.length])
-        ) {
+        const fenceEnd = findContainingFenceEnd(index, fenceRanges);
+        if (fenceEnd !== -1) {
+            cursor = fenceEnd;
+        } else if (hasValidTagStartBoundary(text, startTag, index)) {
             return index;
+        } else {
+            cursor = index + startTag.length;
         }
-        cursor = index + startTag.length;
     }
     return -1;
 };
@@ -1105,14 +1131,20 @@ const isBetterTagMatch = (
     return index === best.index && tag.start.length > best.startTag.length;
 };
 
-/** Finds the earliest structured XML tag starting at or after `fromIndex`. */
+/** Finds the earliest structured XML tag outside Markdown code fences starting at or after `fromIndex`. */
 const findNextStructuredTag = (
     text: string,
     fromIndex: number,
 ): MatchedTagRange | null => {
+    const fenceRanges = scanMarkdownCodeFences(text, fromIndex).ranges;
     let firstMatch: MatchedTagRange | null = null;
     for (const tag of SEARCH_TAGS) {
-        const index = findBoundaryTagStart(text, tag.start, fromIndex);
+        const index = findBoundaryTagStart(
+            text,
+            tag.start,
+            fromIndex,
+            fenceRanges,
+        );
         if (index !== -1 && isBetterTagMatch(firstMatch, index, tag)) {
             firstMatch = {
                 type: tag.type,
@@ -1746,7 +1778,9 @@ const resolveChunkSignatureHint = (chunk: Chunk): string => {
 /** Derives a stable, collision-safe React key token for a chronological segment. */
 const deriveSegmentSignature = (segment: Segment): string => {
     if (segment.kind === "workflow") {
-        return `wf:${segment.blocks.length}`;
+        const first = segment.blocks[0];
+        if (!first) return "wf:empty";
+        return `wf:${first.type}:${first.commandId ?? resolveChunkSignatureHint(first)}`;
     }
     const { chunk } = segment;
     if (chunk.commandId) {

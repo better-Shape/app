@@ -1028,11 +1028,72 @@ const truncateForDisplay = (text: string): string => {
     return `${text.slice(0, MAX_DISPLAY_CHARS)}\n\n... (response truncated for display)`;
 };
 
+export type CodeFenceState = {
+    ranges: Array<readonly [number, number]>;
+    fenceStart: number;
+    fenceChar: string;
+    fenceLen: number;
+};
+
+/** Advances `CodeFenceState` across one line `[cursor, afterLine)`. */
+const stepCodeFenceRangeLine = (
+    state: CodeFenceState,
+    cursor: number,
+    afterLine: number,
+    parsed: FenceMarkerInfo | null,
+): void => {
+    if (!state.fenceChar) {
+        if (isOpeningStreamFence(parsed)) {
+            state.fenceStart = cursor;
+            state.fenceChar = parsed.char;
+            state.fenceLen = parsed.len;
+        }
+        return;
+    }
+    if (isClosingStreamFence(parsed, state.fenceChar, state.fenceLen)) {
+        state.ranges.push([state.fenceStart, afterLine]);
+        state.fenceStart = -1;
+        state.fenceChar = "";
+        state.fenceLen = 0;
+    }
+};
+
+/** Scans CommonMark fenced code blocks from `fromIndex`, returning `[start, end)` ranges plus any open tail. */
+export const scanMarkdownCodeFences = (
+    text: string,
+    fromIndex = 0,
+): CodeFenceState => {
+    const state: CodeFenceState = {
+        ranges: [],
+        fenceStart: -1,
+        fenceChar: "",
+        fenceLen: 0,
+    };
+    if (!text.includes("```", fromIndex) && !text.includes("~~~", fromIndex)) {
+        return state;
+    }
+    let cursor = fromIndex;
+    while (cursor < text.length) {
+        const { lineText, afterLine } = readLineSliceAt(text, cursor);
+        stepCodeFenceRangeLine(
+            state,
+            cursor,
+            afterLine,
+            readStreamFenceMarker(lineText),
+        );
+        cursor = afterLine;
+    }
+    if (state.fenceChar) {
+        state.ranges.push([state.fenceStart, text.length]);
+    }
+    return state;
+};
+
 /** Close an unclosed fenced code block so streaming markdown does not swallow the rest as mono code. */
 const balanceMarkdownFences = (text: string): string => {
-    if (!text.includes("```")) return text;
-    const fenceCount = (text.match(/^```/gm) ?? []).length;
-    return fenceCount % 2 !== 0 ? `${text}\n\`\`\`` : text;
+    const state = scanMarkdownCodeFences(text, 0);
+    if (!state.fenceChar) return text;
+    return `${text}\n${state.fenceChar.repeat(state.fenceLen)}`;
 };
 
 /** Applies streaming-specific fence balancing or finished-turn glitch repair + length cap. */
