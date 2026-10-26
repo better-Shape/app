@@ -11,7 +11,7 @@ const formatElapsed = (seconds: number): string => {
     const mins = Math.floor(seconds / 60);
     const rem = seconds % 60;
     return `${mins}m ${String(rem).padStart(2, "0")}s`;
-}
+};
 
 /**
  * Contextual streaming status leader.
@@ -20,7 +20,7 @@ const formatElapsed = (seconds: number): string => {
  * `SwapText` blur-translate morphs so status transitions ("Thinking" -> "Searching" ->
  * "Editing…") never jump surrounding layout or collapse in narrow panes.
  */
-export function GeneratingIndicator({
+export const GeneratingIndicator = ({
     label = "Thinking",
     showTimer = true,
     startedAt: externalStartedAt,
@@ -30,7 +30,7 @@ export function GeneratingIndicator({
     showTimer?: boolean;
     startedAt?: number;
     className?: string;
-}) {
+}) => {
     const resolvedLabel = label.trim() || "Thinking";
     const [elapsedSec, setElapsedSec] = useState(() =>
         externalStartedAt ? Math.max(0, Math.floor((Date.now() - externalStartedAt) / 1000)) : 0,
@@ -59,7 +59,7 @@ export function GeneratingIndicator({
                 className,
             )}
         >
-            <span className="inline-flex shrink-0 items-center justify-center text-text-secondary">
+            <span className="inline-flex shrink-0 items-center justify-center text-text-secondary" aria-hidden="true">
                 <Eclipse size={14} />
             </span>
             <SwapText
@@ -89,4 +89,4 @@ export function GeneratingIndicator({
             ) : null}
         </span>
     );
-}
+};

@@ -81,21 +81,20 @@ export const ReviewDebatePanel = ({
     if (!display?.trim()) return null;
 
     return (
-        <div className="my-0.5">
-            <ActionLine
-                action="Adversarial review"
-                icon={
-                    <span className="flex size-4 shrink-0 items-center justify-center overflow-visible">
-                        {providerIcon(iconModel, 14)}
-                    </span>
-                }
-                open={open}
-                onOpenChange={setOpen}
-            >
-                <div className="w-full min-w-0 py-1 pl-3.5 text-sm font-medium text-text-primary prose-compact chat-markdown">
-                    <ChatMarkdown content={display} />
-                </div>
-            </ActionLine>
-        </div>
+        <ActionLine
+            action="Adversarial review"
+            icon={
+                <span className="flex size-4 shrink-0 items-center justify-center overflow-visible">
+                    {providerIcon(iconModel, 14)}
+                </span>
+            }
+            open={open}
+            onOpenChange={setOpen}
+            className="my-0.5"
+        >
+            <div className="w-full min-w-0 py-1 pl-3.5 text-sm font-medium text-text-primary prose-compact chat-markdown">
+                <ChatMarkdown content={display} />
+            </div>
+        </ActionLine>
     );
 };

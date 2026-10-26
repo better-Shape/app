@@ -294,7 +294,7 @@ export const DesignPreviewGallery = ({
                     </>
                 ) : null}
 
-                <div className="pointer-events-none absolute inset-x-0 top-2 z-2 flex translate-y-1 justify-center gap-1 opacity-0 transition-[opacity,translate] duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] group-hover/screen:pointer-events-auto group-hover/screen:translate-y-0 group-hover/screen:opacity-100 group-focus-within/screen:pointer-events-auto group-focus-within/screen:translate-y-0 group-focus-within/screen:opacity-100">
+                <div className="pointer-events-none absolute inset-x-0 top-2 z-2 flex translate-y-1 justify-center gap-1 opacity-0 transition-[opacity,transform] duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] group-hover/screen:pointer-events-auto group-hover/screen:translate-y-0 group-hover/screen:opacity-100 group-focus-within/screen:pointer-events-auto group-focus-within/screen:translate-y-0 group-focus-within/screen:opacity-100">
                     <div className="flex items-center gap-0.5 rounded-full border border-border-subtle bg-surface-1/95 px-1 py-0.5 shadow-[0_8px_28px_rgba(0,0,0,0.18)]">
                         <Tooltip content="Open">
                             <button

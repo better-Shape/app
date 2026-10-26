@@ -10,6 +10,7 @@ export const focusOnMount = (node: HTMLElement | null) => {
     node.focus();
 };
 
+
 /**
  * Produces deterministic React keys (`"<seed>#1"`, `"<seed>#2"`, ...) so repeated
  * items stay uniquely keyed without referencing `.map()` array indices.

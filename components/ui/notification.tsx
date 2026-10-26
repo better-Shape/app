@@ -317,7 +317,9 @@ export const NotificationToasts = () => {
         };
         onVisibility();
         document.addEventListener("visibilitychange", onVisibility);
-        return () => document.removeEventListener("visibilitychange", onVisibility);
+        return () => {
+            document.removeEventListener("visibilitychange", onVisibility);
+        };
     }, []);
 
     useEffect(() => {
@@ -339,7 +341,6 @@ export const NotificationToasts = () => {
             notificationStore.dismissToast(id);
             return;
         }
-
         setLeavingIds((prev) => {
             if (prev.has(id)) return prev;
             const next = new Set(prev);
