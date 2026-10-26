@@ -1,49 +1,177 @@
 "use client";
 
-
 import React, { useEffect, useMemo } from "react";
 import { cn, createOccurrenceKeyer } from "@/lib/utils";
 import { stripLeakedToolCode, stripOrphanThinkTags } from "./stream";
 import { ChatMarkdown } from "./view";
 import { syncSubagentsFromChunks } from "@/features/agent/subagents/store";
-
 import {
     isRenderableWorkflowBlock,
     WORKFLOW_CHUNK_TYPES,
-} from '../blocks/workflow';
-import { TurnWorkflowSummary } from '../blocks/turn';
-import { GeneratingIndicator } from '../blocks/generating';
-import { PlanningBlock, PlanSavedBlock } from '../blocks/plan';
-import type { DesignPreviewItem } from '../blocks/gallery';
-import { GeneratedMediaCard } from '../blocks/generated-media';
-import { SentFileCard } from '../blocks/sent-file';
-import { ReviewDebatePanel } from '../blocks/debate';
-import { PersonaReviewPanel } from '../blocks/persona-review';
-import { BrowseChatCard } from '../blocks/browse-frame';
-import { ChartBlock, InsightCard } from '../blocks/chart';
-import { QuestionsCard, parseQuestionsPayload, type AgentQuestion, type QuestionAnswers } from '../blocks/questions';
-import { hostnameOf } from '@/lib/ui/favicon';
+} from "../blocks/workflow";
+import { TurnWorkflowSummary } from "../blocks/turn";
+import { GeneratingIndicator } from "../blocks/generating";
+import { PlanningBlock, PlanSavedBlock } from "../blocks/plan";
+import type { DesignPreviewItem } from "../blocks/gallery";
+import { GeneratedMediaCard } from "../blocks/generated-media";
+import { SentFileCard } from "../blocks/sent-file";
+import { ReviewDebatePanel } from "../blocks/debate";
+import { PersonaReviewPanel } from "../blocks/persona-review";
+import { BrowseChatCard } from "../blocks/browse-frame";
+import { ChartBlock, InsightCard } from "../blocks/chart";
+import {
+    QuestionsCard,
+    parseQuestionsPayload,
+    type AgentQuestion,
+    type QuestionAnswers,
+} from "../blocks/questions";
+import { hostnameOf } from "@/lib/ui/favicon";
 
-function hostnameFromUrl(url: string): string {
-    return hostnameOf(url);
-}
+export type Chunk = {
+    type:
+        | "text"
+        | "edit"
+        | "edit_pending"
+        | "search"
+        | "grep"
+        | "status"
+        | "web_search"
+        | "think"
+        | "thought"
+        | "search_result"
+        | "web_result"
+        | "web_visit"
+        | "inspect_runtime"
+        | "terminal_command"
+        | "git_operation"
+        | "run"
+        | "ls"
+        | "cat"
+        | "create_file"
+        | "mkdir"
+        | "delete_file"
+        | "rename_file"
+        | "rename_chat"
+        | "tool_result"
+        | "plan"
+        | "plan_saved"
+        | "todos"
+        | "attached_image"
+        | "sent_file"
+        | "subagent"
+        | "subagent_ref"
+        | "design_previews"
+        | "review_debate"
+        | "persona_review"
+        | "question"
+        | "questions"
+        | "plugin_call"
+        | "generated_svg"
+        | "generated_image"
+        | "generated_audio"
+        | "browse_session"
+        | "chart"
+        | "insight_card";
+    content?: string;
+    file?: string;
+    query?: string;
+    original?: string;
+    replacement?: string;
+    isGenerating?: boolean;
+    command?: string;
+    commandId?: string;
+    commandStatus?: string;
+    commandReason?: string;
+    /** Terminal session id for live output correlation. */
+    sessionId?: number;
+    /** Exit code once a terminal command finished. */
+    exitCode?: number;
+    gitOp?: string;
+    gitStatus?: string;
+    catStartLine?: number;
+    catEndLine?: number;
+    designPreviews?: DesignPreviewItem[];
+    selectedConcept?: string;
+    /** Model id used for adversarial review (optional attr on the tag). */
+    reviewModel?: string;
+    /** Inline plan markdown when the saved file is not on disk yet. */
+    planMarkdown?: string;
+    todos?: Array<{
+        id: string;
+        label: string;
+        status: "done" | "active" | "pending" | "cancelled";
+    }>;
+    visitUrl?: string;
+    visitHost?: string;
+    visitTitle?: string;
+    inspectKind?: string;
+    pluginToolkit?: string;
+    pluginSlug?: string;
+    pluginLabel?: string;
+    mediaPrompt?: string;
+    mediaCredits?: string;
+    questions?: AgentQuestion[];
+    answers?: QuestionAnswers | null;
+};
 
-function parseCardJson<T>(raw: string | undefined): T | null {
-    const text = (raw || "").trim();
-    if (!text) return null;
-    try {
-        return JSON.parse(text) as T;
-    } catch {
-        return null;
-    }
-}
+export type WebSearchResultItem = {
+    title: string;
+    url: string;
+    snippet: string;
+};
 
-function decodeXml(value: string): string {
-    return value
-        .replace(/&quot;/g, '"')
-        .replace(/&lt;/g, "<")
-        .replace(/&amp;/g, "&");
-}
+type TodoStepStatus = "done" | "active" | "pending" | "cancelled";
+
+type GeneratedMediaChunkType =
+    | "generated_svg"
+    | "generated_image"
+    | "generated_audio";
+
+type SearchTagSpec = {
+    type: Chunk["type"];
+    start: string;
+    end: string;
+};
+
+type MatchedTagRange = {
+    type: Chunk["type"];
+    index: number;
+    startTag: string;
+    endTag: string;
+};
+
+type TagSliceContext = {
+    type: Chunk["type"];
+    tagHeader: string;
+    fullBlock: string;
+    content: string;
+    isGenerating?: boolean;
+    defaultTerminalStatus: "pending" | "completed";
+};
+
+type TagChunkBuilder = (ctx: TagSliceContext) => Chunk;
+
+/**
+ * A message is a chronological sequence of segments. A sentence between
+ * tool runs splits the rail, so the line stops and starts again around it.
+ */
+type Segment =
+    | { kind: "workflow"; blocks: Chunk[] }
+    | { kind: "chunk"; chunk: Chunk };
+
+type WorkflowSegment = Extract<Segment, { kind: "workflow" }>;
+
+type ChunkRenderContext = {
+    pos: number;
+    lastBrowseIndex: number;
+    isGenerating?: boolean;
+    isLastSegment: boolean;
+};
+
+type ChunkViewRenderer = (
+    chunk: Chunk,
+    ctx: ChunkRenderContext,
+) => React.ReactElement | null;
 
 const TERMINAL_STATUS_RANK: Partial<Record<string, number>> = {
     pending: 1,
@@ -73,943 +201,1597 @@ const PLUGIN_STATUS_RANK: Partial<Record<string, number>> = {
     ok: 5,
 };
 
-/** Keep one terminal_command / edit_pending block per id (or per command when pending). Prefer higher status. */
-export function dedupeTerminalChunks(chunks: Chunk[]): Chunk[] {
-    const skip = new Set<number>();
+const STATUS_RANK_BY_CHUNK_TYPE: Partial<
+    Record<Chunk["type"], Partial<Record<string, number>>>
+> = {
+    edit_pending: EDIT_PENDING_STATUS_RANK,
+    plugin_call: PLUGIN_STATUS_RANK,
+    terminal_command: TERMINAL_STATUS_RANK,
+};
 
-    const rank = (chunk: Chunk) => {
-        if (chunk.type === 'edit_pending') return EDIT_PENDING_STATUS_RANK[chunk.commandStatus || ''] ?? 0;
-        if (chunk.type === 'plugin_call') return PLUGIN_STATUS_RANK[chunk.commandStatus || ''] ?? 0;
-        return TERMINAL_STATUS_RANK[chunk.commandStatus || ''] ?? 0;
-    };
+const DEDUPABLE_COMMAND_TYPES = new Set<Chunk["type"]>([
+    "terminal_command",
+    "edit_pending",
+    "plugin_call",
+]);
 
+const TODO_STATUS_MAP: Partial<Record<string, TodoStepStatus>> = {
+    completed: "done",
+    done: "done",
+    complete: "done",
+    in_progress: "active",
+    active: "active",
+    cancelled: "cancelled",
+    canceled: "cancelled",
+};
+
+const PREVIEW_KIND_MAP: Partial<Record<string, DesignPreviewItem["kind"]>> = {
+    html: "html",
+    png: "png",
+    react: "react",
+};
+
+const GENERATED_MEDIA_KINDS: Record<
+    GeneratedMediaChunkType,
+    "svg" | "audio" | "image"
+> = {
+    generated_svg: "svg",
+    generated_audio: "audio",
+    generated_image: "image",
+};
+
+const SEARCH_TAGS: SearchTagSpec[] = [
+    { type: "edit", start: "<edit", end: "</edit>" },
+    // Longer tag wins the same-index tie-break against '<edit'.
+    { type: "edit_pending", start: "<edit_pending", end: "</edit_pending>" },
+    { type: "design_previews", start: "<design_previews", end: "</design_previews>" },
+    { type: "review_debate", start: "<review_debate", end: "</review_debate>" },
+    { type: "persona_review", start: "<persona_review", end: "</persona_review>" },
+    { type: "questions", start: "<questions", end: "</questions>" },
+    { type: "question", start: "<question", end: "</question>" },
+    { type: "inspect_runtime", start: "<inspect_runtime", end: "</inspect_runtime>" },
+    { type: "search_result", start: "<search_result", end: "</search_result>" },
+    { type: "search", start: "<search", end: "</search>" },
+    { type: "grep", start: "<grep", end: "</grep>" },
+    { type: "web_search", start: "<web_search", end: "</web_search>" },
+    { type: "status", start: "<status", end: "</status>" },
+    { type: "think", start: "<think>", end: "</think>" },
+    { type: "think", start: "<think", end: "</think>" },
+    { type: "thought", start: "<thought", end: "</thought>" },
+    { type: "plan", start: "<plan", end: "</plan>" },
+    { type: "plan_saved", start: "<plan_saved", end: "</plan_saved>" },
+    { type: "todos", start: "<todos", end: "</todos>" },
+    { type: "web_result", start: "<web_result", end: "</web_result>" },
+    { type: "web_visit", start: "<web_visit", end: "</web_visit>" },
+    { type: "generated_svg", start: "<generated_svg", end: "</generated_svg>" },
+    { type: "generated_svg", start: "<recraft_svg", end: "</recraft_svg>" },
+    { type: "generated_image", start: "<generated_image", end: "</generated_image>" },
+    { type: "generated_audio", start: "<generated_audio", end: "</generated_audio>" },
+    { type: "plugin_call", start: "<plugin_call", end: "</plugin_call>" },
+    { type: "browse_session", start: "<browse_session", end: "</browse_session>" },
+    { type: "chart", start: "<chart", end: "</chart>" },
+    { type: "insight_card", start: "<insight_card", end: "</insight_card>" },
+    { type: "ls", start: "<ls", end: "</ls>" },
+    { type: "cat", start: "<cat", end: "</cat>" },
+    { type: "run", start: "<run", end: "</run>" },
+    { type: "create_file", start: "<create_file", end: "</create_file>" },
+    { type: "mkdir", start: "<mkdir", end: "</mkdir>" },
+    { type: "delete_file", start: "<delete_file", end: "</delete_file>" },
+    { type: "rename_file", start: "<rename_file", end: "</rename_file>" },
+    { type: "rename_chat", start: "<rename_chat", end: "</rename_chat>" },
+    { type: "subagent_ref", start: "<subagent_ref", end: "/>" },
+    { type: "subagent", start: "<subagent", end: "</subagent>" },
+    { type: "terminal_command", start: "<terminal_command", end: "</terminal_command>" },
+    { type: "git_operation", start: "<git_operation", end: "</git_operation>" },
+    // Hidden tool/result scaffolding (BetterShape UI + cross-model leak grammars).
+    // Defense-in-depth with stripLeakedToolCode: never render as prose.
+    { type: "tool_result", start: "<tool_result", end: "</tool_result>" },
+    { type: "tool_result", start: "<terminal_read", end: "</terminal_read>" },
+    { type: "tool_result", start: "<terminal_input", end: "</terminal_input>" },
+    { type: "tool_result", start: "<list_terminals", end: "</list_terminals>" },
+    { type: "tool_result", start: "<tool_code", end: "</tool_code>" },
+    { type: "tool_result", start: "<tool_call", end: "</tool_call>" },
+    { type: "tool_result", start: "<tool_calls", end: "</tool_calls>" },
+    { type: "tool_result", start: "<tool_response", end: "</tool_response>" },
+    { type: "tool_result", start: "<function_call", end: "</function_call>" },
+    { type: "tool_result", start: "<function_calls", end: "</function_calls>" },
+    { type: "tool_result", start: "<function_response", end: "</function_response>" },
+    { type: "tool_result", start: "<minimax:tool_call", end: "</minimax:tool_call>" },
+    { type: "tool_result", start: "<invoke", end: "</invoke>" },
+    { type: "tool_result", start: "<parameter", end: "</parameter>" },
+    { type: "tool_result", start: "<arg_key", end: "</arg_key>" },
+    { type: "tool_result", start: "<arg_value", end: "</arg_value>" },
+    { type: "tool_result", start: "<pre_dispatch_explanation", end: "</pre_dispatch_explanation>" },
+    { type: "tool_result", start: "<tools", end: "</tools>" },
+    { type: "tool_result", start: "<new_path", end: "</new_path>" },
+    { type: "tool_result", start: "<content", end: "</content>" },
+    { type: "tool_result", start: "<analysis", end: "</analysis>" },
+    { type: "tool_result", start: "<file_content", end: "</file_content>" },
+    { type: "attached_image", start: "<attached_image", end: "</attached_image>" },
+    { type: "sent_file", start: "<sent_file", end: "</sent_file>" },
+];
+
+/** Extracts the hostname from a URL string via the shared favicon helper. */
+const hostnameFromUrl = (url: string): string => hostnameOf(url);
+
+/** Parses optional JSON payload text for rich chat cards, returning `null` when empty or invalid. */
+const parseCardJson = <T,>(raw: string | undefined): T | null => {
+    const text = (raw ?? "").trim();
+    if (!text) return null;
+    try {
+        return JSON.parse(text) as T;
+    } catch {
+        return null;
+    }
+};
+
+/** Decodes basic XML character entities (`&quot;`, `&lt;`, `&amp;`) inside card attributes. */
+const decodeXml = (value: string): string =>
+    value
+        .replace(/&quot;/g, '"')
+        .replace(/&lt;/g, "<")
+        .replace(/&amp;/g, "&");
+
+/** Unescapes XML character entities including `&gt;` in serialized preview markup. */
+const unescapeXml = (value: string): string =>
+    value
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/&quot;/g, '"')
+        .replace(/&amp;/g, "&");
+
+/** Decodes XML attribute entities including `&apos;` and `&gt;` in command tags. */
+const decodeXmlAttr = (raw: string): string =>
+    raw
+        .replace(/&quot;/g, '"')
+        .replace(/&apos;/g, "'")
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/&amp;/g, "&");
+
+/** Reads a double-quoted XML attribute value (`name="..."`) from an opening tag string. */
+const readAttr = (tagText: string, name: string): string =>
+    tagText.match(new RegExp(`\\b${name}="([^"]*)"`))?.[1] ?? "";
+
+/** Reads an optional non-empty XML attribute value, returning `undefined` when absent or blank. */
+const readOptionalAttr = (tagText: string, name: string): string | undefined => {
+    const value = readAttr(tagText, name);
+    return value ? value : undefined;
+};
+
+/** Parses a positive integer attribute value or returns `fallback`. */
+const parsePositiveIntOr = (raw: string, fallback: number): number => {
+    const parsed = Number.parseInt(raw, 10);
+    return parsed > 0 ? parsed : fallback;
+};
+
+/** Parses an optional integer attribute value, returning `undefined` when missing or NaN. */
+const parseOptionalInt = (raw: string | undefined): number | undefined => {
+    if (!raw) return undefined;
+    const parsed = Number.parseInt(raw, 10);
+    return Number.isNaN(parsed) ? undefined : parsed;
+};
+
+/** Attaches `isGenerating` only when defined so self-closing chunk shapes stay exact. */
+const withOptionalGenerating = (
+    chunk: Chunk,
+    isGenerating: boolean | undefined,
+): Chunk => (isGenerating === undefined ? chunk : { ...chunk, isGenerating });
+
+/** Computes the lifecycle rank for a deduplicable command, edit, or plugin chunk. */
+const rankCommandChunk = (chunk: Chunk): number => {
+    const table = STATUS_RANK_BY_CHUNK_TYPE[chunk.type];
+    const status = chunk.commandStatus;
+    if (!table || !status) return 0;
+    return table[status] ?? 0;
+};
+
+/** Builds a deduplication key (`type:commandId`) when a chunk carries a command identifier. */
+const commandDedupeKey = (chunk: Chunk): string | null => {
+    if (!DEDUPABLE_COMMAND_TYPES.has(chunk.type) || !chunk.commandId) return null;
+    return `${chunk.type}:${chunk.commandId}`;
+};
+
+/** Marks superseded command chunks in `skip` by comparing lifecycle ranks per `commandId`. */
+const markSupersededByCommandId = (chunks: Chunk[], skip: Set<number>): void => {
     const byId = new Map<string, number>();
-    chunks.forEach((chunk, index) => {
-        if ((chunk.type !== 'terminal_command' && chunk.type !== 'edit_pending' && chunk.type !== 'plugin_call') || !chunk.commandId) return;
-        const key = `${chunk.type}:${chunk.commandId}`;
+    for (let index = 0; index < chunks.length; index += 1) {
+        const chunk = chunks[index];
+        const key = commandDedupeKey(chunk);
+        if (!key) continue;
         const existing = byId.get(key);
         if (existing === undefined) {
             byId.set(key, index);
-            return;
-        }
-        if (rank(chunk) >= rank(chunks[existing])) {
+        } else if (rankCommandChunk(chunk) >= rankCommandChunk(chunks[existing])) {
             skip.add(existing);
             byId.set(key, index);
         } else {
             skip.add(index);
         }
-    });
-
-    const byPendingCommand = new Map<string, number>();
-    chunks.forEach((chunk, index) => {
-        if (skip.has(index)) return;
-        if (chunk.type !== 'terminal_command' || chunk.commandStatus !== 'pending') return;
-        const cmd = chunk.command?.trim();
-        if (!cmd) return;
-        const existing = byPendingCommand.get(cmd);
-        if (existing === undefined) {
-            byPendingCommand.set(cmd, index);
-            return;
-        }
-        skip.add(existing);
-        byPendingCommand.set(cmd, index);
-    });
-
-    return chunks.filter((_, index) => !skip.has(index));
-}
-
-export type Chunk = {
-    type: 'text' | 'edit' | 'edit_pending' | 'search' | 'grep' | 'status' | 'web_search' | 'think' | 'thought' | 'search_result' | 'web_result' | 'web_visit' | 'inspect_runtime' | 'terminal_command' | 'git_operation' | 'run' | 'ls' | 'cat' | 'create_file' | 'mkdir' | 'delete_file' | 'rename_file' | 'rename_chat' | 'tool_result' | 'plan' | 'plan_saved' | 'todos' | 'attached_image' | 'sent_file' | 'subagent' | 'subagent_ref' | 'design_previews' | 'review_debate' | 'persona_review' | 'question' | 'questions' | 'plugin_call' | 'generated_svg' | 'generated_image' | 'generated_audio' | 'browse_session' | 'chart' | 'insight_card';
-    content?: string;
-    file?: string;
-    query?: string;
-    original?: string;
-    replacement?: string;
-    isGenerating?: boolean;
-    command?: string;
-    commandId?: string;
-    commandStatus?: string;
-    commandReason?: string;
-    /** Terminal session id for live output correlation. */
-    sessionId?: number;
-    /** Exit code once a terminal command finished. */
-    exitCode?: number;
-    gitOp?: string;
-    gitStatus?: string;
-    catStartLine?: number;
-    catEndLine?: number;
-    designPreviews?: DesignPreviewItem[];
-    selectedConcept?: string;
-    /** Model id used for adversarial review (optional attr on the tag). */
-    reviewModel?: string;
-    /** Inline plan markdown when the saved file is not on disk yet. */
-    planMarkdown?: string;
-    todos?: Array<{ id: string; label: string; status: "done" | "active" | "pending" | "cancelled" }>;
-    visitUrl?: string;
-    visitHost?: string;
-    visitTitle?: string;
-    inspectKind?: string;
-    pluginToolkit?: string;
-    pluginSlug?: string;
-    pluginLabel?: string;
-    mediaPrompt?: string;
-    mediaCredits?: string;
-    questions?: AgentQuestion[];
-    answers?: QuestionAnswers | null;
+    }
 };
 
-/** Parse message content. */
-export const parseMessageContent = (text: string): Chunk[] => {
-    text = stripLeakedToolCode(text);
+/** Extracts the trimmed pending terminal command key, or `null` when not applicable. */
+const pendingTerminalCommandKey = (chunk: Chunk): string | null => {
+    if (chunk.type !== "terminal_command" || chunk.commandStatus !== "pending") {
+        return null;
+    }
+    const cmd = chunk.command?.trim();
+    return cmd ? cmd : null;
+};
+
+/** Marks duplicate pending terminal commands without IDs so only the latest card renders. */
+const markDuplicatePendingCommands = (chunks: Chunk[], skip: Set<number>): void => {
+    const byPendingCommand = new Map<string, number>();
+    for (let index = 0; index < chunks.length; index += 1) {
+        if (skip.has(index)) continue;
+        const cmd = pendingTerminalCommandKey(chunks[index]);
+        if (!cmd) continue;
+        const existing = byPendingCommand.get(cmd);
+        if (existing !== undefined) {
+            skip.add(existing);
+        }
+        byPendingCommand.set(cmd, index);
+    }
+};
+
+/** Keep one terminal_command / edit_pending block per id (or per command when pending). Prefer higher status. */
+export const dedupeTerminalChunks = (chunks: Chunk[]): Chunk[] => {
+    const skip = new Set<number>();
+    markSupersededByCommandId(chunks, skip);
+    markDuplicatePendingCommands(chunks, skip);
+    return chunks.filter((_, index) => !skip.has(index));
+};
+
+/** Extracts inner tag content `<tag>...</tag>` from a serialized block string. */
+const getInnerTagContent = (block: string, tag: string): string | undefined => {
+    const startTag = `<${tag}>`;
+    const start = block.indexOf(startTag);
+    if (start === -1) return undefined;
+    const end = block.indexOf(`</${tag}>`, start);
+    const slice =
+        end === -1
+            ? block.slice(start + startTag.length)
+            : block.slice(start + startTag.length, end);
+    return slice.replace(/^\n|\n$/g, "");
+};
+
+/** Parses an `<edit>` diff block into a structured edit chunk. */
+const parseEditBlock = (block: string, isGenerating: boolean): Chunk => ({
+    type: "edit",
+    file: block.match(/<edit\s+file="([^"]*)"/)?.[1],
+    original: getInnerTagContent(block, "original") ?? "",
+    replacement: getInnerTagContent(block, "replacement") ?? "",
+    isGenerating,
+});
+
+/** Parses an `<edit_pending>` approval block into a structured pending-edit chunk. */
+const parseEditPendingBlock = (block: string, isGenerating: boolean): Chunk => ({
+    type: "edit_pending",
+    file: readOptionalAttr(block, "file"),
+    commandId: readOptionalAttr(block, "id"),
+    commandStatus: readOptionalAttr(block, "status") ?? "pending",
+    original: getInnerTagContent(block, "original") ?? "",
+    replacement: getInnerTagContent(block, "replacement") ?? "",
+    isGenerating,
+});
+
+/** Resolves inline markdown body for a `<plan_saved>` block when present. */
+const resolvePlanSavedMarkdown = (
+    block: string,
+    innerContent?: string,
+): string | undefined => {
+    const trimmedInner = innerContent?.trim();
+    if (trimmedInner) return trimmedInner;
+    const fallback = getInnerTagContent(block, "plan_saved");
+    return fallback ? fallback : undefined;
+};
+
+/** Parses a `<plan_saved>` tag into a saved-plan card chunk. */
+const parsePlanSavedBlock = (block: string, innerContent?: string): Chunk => ({
+    type: "plan_saved",
+    file: readOptionalAttr(block, "path"),
+    content: readOptionalAttr(block, "title") ?? "Implementation Plan",
+    planMarkdown: resolvePlanSavedMarkdown(block, innerContent),
+});
+
+/** Parses a `<plan>` step-list tag into a plan chunk. */
+const parsePlanBlock = (block: string): Chunk => ({
+    type: "plan",
+    content: block,
+    file: block.match(/<plan\s+title="([^"]*)"/)?.[1] ?? "Plan",
+});
+
+/** Parses a single `<todo ...>label</todo>` regex match into a normalized todo item. */
+const parseTodoEntry = (
+    match: RegExpMatchArray,
+): { id: string; label: string; status: TodoStepStatus } => {
+    const attrs = match[1] ?? "";
+    const statusRaw = (readOptionalAttr(attrs, "status") ?? "pending").toLowerCase();
+    return {
+        id: readAttr(attrs, "id"),
+        label: (match[2] ?? "").trim(),
+        status: TODO_STATUS_MAP[statusRaw] ?? "pending",
+    };
+};
+
+/** Parses a `<todos>` block into a normalized todo-list chunk. */
+const parseTodosBlock = (block: string): Chunk => {
+    const title = block.match(/<todos\s+title="([^"]*)"/)?.[1] ?? "Todos";
+    const todoMatches = [...block.matchAll(/<todo\s+([^>]*)>([\s\S]*?)<\/todo>/g)];
+    return {
+        type: "todos",
+        content: title,
+        todos: todoMatches.map(parseTodoEntry),
+    };
+};
+
+/** Resolves subagent name attribute (`agent` preferred over `name`). */
+const resolveSubagentName = (tagFull: string): string => {
+    const agent = readAttr(tagFull, "agent");
+    return agent ? agent : readAttr(tagFull, "name");
+};
+
+/** Resolves status attribute with a streaming-aware fallback (`running` vs `done`). */
+const resolveRunOrDoneStatus = (
+    tagFull: string,
+    isGenerating: boolean,
+    doneLabel: string,
+): string => {
+    const explicit = readAttr(tagFull, "status");
+    if (explicit) return explicit;
+    return isGenerating ? "running" : doneLabel;
+};
+
+/** Parses a `<subagent>` block into a subagent transcript chunk. */
+const parseSubagentBlock = (
+    tagFull: string,
+    inner: string,
+    isGenerating: boolean,
+): Chunk => ({
+    type: "subagent",
+    file: readAttr(tagFull, "id"),
+    query: resolveSubagentName(tagFull),
+    command: readAttr(tagFull, "model"),
+    content: inner.trim(),
+    commandStatus: resolveRunOrDoneStatus(tagFull, isGenerating, "done"),
+    isGenerating,
+});
+
+/** Parses a self-closing `<subagent_ref ... />` tag into a subagent reference chunk. */
+const parseSubagentRefBlock = (tagFull: string, isGenerating: boolean): Chunk => ({
+    type: "subagent_ref",
+    file: readAttr(tagFull, "id"),
+    query: readAttr(tagFull, "agent"),
+    command: readAttr(tagFull, "model"),
+    content: readAttr(tagFull, "task"),
+    commandStatus: resolveRunOrDoneStatus(tagFull, isGenerating, "done"),
+    isGenerating,
+});
+
+/** Parses a `<git_operation>` tag into a git workflow chunk. */
+const parseGitOperationBlock = (
+    tagFull: string,
+    content: string,
+    isGenerating: boolean,
+): Chunk => ({
+    type: "git_operation",
+    content,
+    gitOp: readOptionalAttr(tagFull, "op"),
+    gitStatus: resolveRunOrDoneStatus(tagFull, isGenerating, "completed"),
+    isGenerating,
+});
+
+/** Resolves the first defined attribute from two candidate attribute names. */
+const readAttrPair = (
+    tagFull: string,
+    primary: string,
+    secondary: string,
+): string | undefined =>
+    readOptionalAttr(tagFull, primary) ?? readOptionalAttr(tagFull, secondary);
+
+/** Parses a `<cat>` file-read block with optional line-range bounds. */
+const parseCatBlock = (
+    tagFull: string,
+    content: string,
+    isGenerating: boolean,
+): Chunk => ({
+    type: "cat",
+    content: readOptionalAttr(tagFull, "path") ?? content.trim(),
+    catStartLine: parseOptionalInt(readAttrPair(tagFull, "start", "startLine")),
+    catEndLine: parseOptionalInt(readAttrPair(tagFull, "end", "endLine")),
+    isGenerating,
+});
+
+/** Resolves inline source markup for a `<design_preview>` item when present. */
+const resolvePreviewSource = (attrs: string, inner: string): string => {
+    const fromInner = unescapeXml(inner).trim();
+    return fromInner ? fromInner : unescapeXml(readAttr(attrs, "source")).trim();
+};
+
+/** Builds a `DesignPreviewItem` from tag attributes and inner text, or `null` when incomplete. */
+const buildDesignPreviewItem = (
+    attrs: string,
+    inner: string,
+): DesignPreviewItem | null => {
+    const previewId = readAttr(attrs, "id");
+    const path = readAttr(attrs, "path");
+    const source = resolvePreviewSource(attrs, inner);
+    if (!previewId.trim() || (!path.trim() && !source)) return null;
+    return {
+        id: previewId,
+        name: readAttr(attrs, "name"),
+        style: readAttr(attrs, "style"),
+        path,
+        source: source ? source : undefined,
+        width: parsePositiveIntOr(readAttr(attrs, "width"), 1280),
+        height: parsePositiveIntOr(readAttr(attrs, "height"), 800),
+        renderMs: parseOptionalInt(readOptionalAttr(attrs, "render_ms")),
+        kind: PREVIEW_KIND_MAP[readAttr(attrs, "kind")],
+    };
+};
+
+/** Reads a regex capture group as a string, defaulting to `""`. */
+const captureOrEmpty = (value: string | undefined): string => value ?? "";
+
+/** Appends unique `<design_preview>` regex matches from `block` into `previews` using `seenIds`. */
+const collectDesignPreviewMatches = (
+    block: string,
+    pattern: RegExp,
+    previews: DesignPreviewItem[],
+    seenIds: Set<string>,
+): void => {
+    for (const match of block.matchAll(pattern)) {
+        const item = buildDesignPreviewItem(
+            captureOrEmpty(match[1]),
+            captureOrEmpty(match[2]),
+        );
+        if (item && !seenIds.has(item.id)) {
+            seenIds.add(item.id);
+            previews.push(item);
+        }
+    }
+};
+
+/** Parses a `<design_previews>` gallery block into a structured chunk. */
+const parseDesignPreviewsBlock = (block: string): Chunk => {
+    const open = block.match(/<design_previews\b[^>]*>/)?.[0] ?? "";
+    const previews: DesignPreviewItem[] = [];
+    const seenIds = new Set<string>();
+    collectDesignPreviewMatches(
+        block,
+        /<design_preview\s+([^>]*)>([\s\S]*?)<\/design_preview>/g,
+        previews,
+        seenIds,
+    );
+    collectDesignPreviewMatches(
+        block,
+        /<design_preview\s+([^>]+)\/>/g,
+        previews,
+        seenIds,
+    );
+    return {
+        type: "design_previews",
+        designPreviews: previews,
+        selectedConcept: readAttr(block, "selected"),
+        commandId: readOptionalAttr(open, "id"),
+        commandStatus: readOptionalAttr(open, "status"),
+    };
+};
+
+/** Parses a `<review_debate>` panel block. */
+const parseReviewDebateBlock = (block: string): Chunk => ({
+    type: "review_debate",
+    content: block
+        .replace(/^<review_debate[^>]*>\s*/i, "")
+        .replace(/(?<!\s)\s*<\/review_debate>$/i, "")
+        .trim(),
+    reviewModel: block.match(/<review_debate[^>]*\bmodel="([^"]*)"/i)?.[1],
+});
+
+/** Parses a `<persona_review>` panel block. */
+const parsePersonaReviewBlock = (block: string): Chunk => {
+    const open = block.match(/^<persona_review\b[^>]*>/i)?.[0] ?? "";
+    return {
+        type: "persona_review",
+        content: block
+            .replace(/^<persona_review[^>]*>\s*/i, "")
+            .replace(/(?<!\s)\s*<\/persona_review>$/i, "")
+            .trim(),
+        commandId: readOptionalAttr(open, "id"),
+        commandStatus: readOptionalAttr(open, "status"),
+        visitUrl: readOptionalAttr(open, "url"),
+    };
+};
+
+/** Parses a `<question>` or `<questions>` interactive prompt card block. */
+const parseQuestionBlock = (block: string): Chunk => {
+    const inner = block
+        .replace(/^<questions?[^>]*>/i, "")
+        .replace(/<\/questions?>\s*$/i, "")
+        .trim();
+    const { questions, answers } = parseQuestionsPayload(inner);
+    return {
+        type: "question",
+        content: inner,
+        commandId: readOptionalAttr(block, "id"),
+        commandStatus: readOptionalAttr(block, "status"),
+        questions,
+        answers,
+    };
+};
+
+/** Parses a `<plugin_call>` block into a plugin execution chunk. */
+const parsePluginCallBlock = (
+    tagFull: string,
+    content: string,
+    isGenerating: boolean,
+): Chunk => ({
+    type: "plugin_call",
+    content,
+    pluginToolkit: readOptionalAttr(tagFull, "toolkit"),
+    pluginSlug: readOptionalAttr(tagFull, "slug"),
+    pluginLabel: readOptionalAttr(tagFull, "label"),
+    commandId: readOptionalAttr(tagFull, "id"),
+    commandStatus: readOptionalAttr(tagFull, "status") ?? "ok",
+    isGenerating,
+});
+
+/** Decodes an XML attribute when non-empty, returning `fallback` otherwise. */
+const decodeAttrOr = (
+    tagFull: string,
+    name: string,
+    fallback: string,
+): string => {
+    const decoded = decodeXml(readAttr(tagFull, name));
+    return decoded ? decoded : fallback;
+};
+
+/** Decodes an optional XML attribute when non-empty, returning `undefined` otherwise. */
+const decodeOptionalAttr = (
+    tagFull: string,
+    name: string,
+): string | undefined => {
+    const decoded = decodeXml(readAttr(tagFull, name));
+    return decoded ? decoded : undefined;
+};
+
+/** Parses a `<sent_file>` attachment block into a sent-file card chunk. */
+const parseSentFileBlock = (tagFull: string, content: string): Chunk => ({
+    type: "sent_file",
+    file: decodeAttrOr(tagFull, "name", "File"),
+    query: readOptionalAttr(tagFull, "type") ?? "application/octet-stream",
+    mediaPrompt: decodeOptionalAttr(tagFull, "title"),
+    content: content.trim(),
+});
+
+/** Parses generated SVG, image, or audio blocks into a unified media chunk. */
+const parseGeneratedMediaBlock = (
+    type: GeneratedMediaChunkType,
+    tagFull: string,
+    content: string,
+    isGenerating: boolean,
+): Chunk => {
+    const prompt = readOptionalAttr(tagFull, "prompt");
+    return {
+        type,
+        content: content.trim(),
+        mediaPrompt: prompt,
+        mediaCredits: readOptionalAttr(tagFull, "credits"),
+        query: prompt,
+        isGenerating,
+    };
+};
+
+/** Parses a rich card tag (`<browse_session>`, etc.) carrying optional URL/title/status metadata. */
+const parseRichCard = (
+    type: Chunk["type"],
+    tagFull: string,
+    content: string,
+    isGenerating: boolean,
+): Chunk => ({
+    type,
+    content,
+    visitUrl: decodeOptionalAttr(tagFull, "url"),
+    visitTitle: decodeOptionalAttr(tagFull, "title"),
+    commandId: readOptionalAttr(tagFull, "id"),
+    commandStatus: readOptionalAttr(tagFull, "status"),
+    isGenerating,
+});
+
+/** Parses a `<web_visit>` citation block with host/title fallback derivation. */
+const parseWebVisitBlock = (tagFull: string, isGenerating: boolean): Chunk => {
+    const url = readAttr(tagFull, "url");
+    const host = readOptionalAttr(tagFull, "host") ?? hostnameFromUrl(url);
+    return {
+        type: "web_visit",
+        visitUrl: url,
+        visitHost: host,
+        visitTitle: readOptionalAttr(tagFull, "title") ?? host,
+        content: host,
+        isGenerating,
+    };
+};
+
+/** Finds the index of the last non-blank line in `lines`, or `-1` when all lines are blank. */
+const findLastNonEmptyLineIndex = (lines: string[]): number => {
+    for (let idx = lines.length - 1; idx >= 0; idx -= 1) {
+        if ((lines[idx] ?? "").trim().length > 0) return idx;
+    }
+    return -1;
+};
+
+const APPROVAL_COMMAND_STATUSES = new Set(["pending", "blocked"]);
+
+/** Reads the last non-blank line at `footerIdx`, or `""` when `footerIdx < 0`. */
+const readLineAtOrEmpty = (lines: string[], idx: number): string =>
+    idx >= 0 ? captureOrEmpty(lines[idx]) : "";
+
+/** Extracts trailing approval/blocked footer metadata from a pending or blocked terminal block. */
+const extractApprovalFooter = (
+    rawLines: string[],
+    commandStatus: string,
+): { reasonIdx: number; footerReason?: string } => {
+    if (!APPROVAL_COMMAND_STATUSES.has(commandStatus)) return { reasonIdx: -1 };
+    const footerIdx = findLastNonEmptyLineIndex(rawLines);
+    const footerLine = readLineAtOrEmpty(rawLines, footerIdx);
+    if (!/^(?:Awaiting approval:|Blocked:)\s/.test(footerLine)) {
+        return { reasonIdx: -1 };
+    }
+    return {
+        reasonIdx: footerIdx,
+        footerReason: footerLine
+            .replace(/^(?:Awaiting approval:|Blocked:)\s*/, "")
+            .trim(),
+    };
+};
+
+/** Resolves the approval/blocked reason from `reason="..."` attribute or trailing footer line. */
+const resolveTerminalCommandReason = (
+    tagFull: string,
+    footerReason: string | undefined,
+): string | undefined => {
+    const rawAttr = readOptionalAttr(tagFull, "reason");
+    const fromAttr = rawAttr ? decodeXmlAttr(rawAttr).trim() : "";
+    return fromAttr ? fromAttr : footerReason;
+};
+
+/** Collects leading backslash-continued shell lines from completed terminal block content. */
+const collectCompletedShellCommand = (rawLines: string[]): string => {
+    const nonEmptyStart = rawLines.findIndex((line) => line.trim().length > 0);
+    if (nonEmptyStart === -1) return "";
+    const collected: string[] = [];
+    for (let idx = nonEmptyStart; idx < rawLines.length; idx += 1) {
+        const line = rawLines[idx] ?? "";
+        collected.push(line);
+        if (!/\\\s*$/.test(line)) break;
+    }
+    return collected.join("\n").trim();
+};
+
+const FULL_BODY_COMMAND_STATUSES = new Set([
+    "running",
+    "rejected",
+    "cancelled",
+]);
+
+/** Slices terminal command lines prior to an approval footer index when present. */
+const sliceApprovalCommandLines = (
+    rawLines: string[],
+    reasonIdx: number,
+): string => {
+    const slice = reasonIdx === -1 ? rawLines : rawLines.slice(0, reasonIdx);
+    return slice.join("\n").trim();
+};
+
+/** Extracts the shell command text from `<terminal_command>` attributes or body lines. */
+const resolveParsedTerminalCommand = (
+    tagFull: string,
+    content: string,
+    rawLines: string[],
+    commandStatus: string,
+    reasonIdx: number,
+): string => {
+    const cmdAttr = readOptionalAttr(tagFull, "command");
+    if (cmdAttr) return decodeXmlAttr(cmdAttr).trim();
+    if (APPROVAL_COMMAND_STATUSES.has(commandStatus)) {
+        return sliceApprovalCommandLines(rawLines, reasonIdx);
+    }
+    if (FULL_BODY_COMMAND_STATUSES.has(commandStatus)) {
+        return content.trim();
+    }
+    return collectCompletedShellCommand(rawLines);
+};
+
+/** Parses the exit code from `exit_code="..."` or `exit="..."` on `<terminal_command>`. */
+const parseTerminalExitCode = (tagFull: string): number | undefined => {
+    const raw = tagFull.match(/\b(?:exit_code|exit)="(-?\d+)"/)?.[1];
+    return raw ? Number(raw) : undefined;
+};
+
+/** Parses a `<terminal_command>` block into a structured terminal chunk. */
+const parseTerminalCommandBlock = (
+    tagFull: string,
+    content: string,
+    defaultStatus: string,
+    isGenerating?: boolean,
+): Chunk => {
+    const commandStatus = readOptionalAttr(tagFull, "status") ?? defaultStatus;
+    const rawLines = content.split("\n");
+    const { reasonIdx, footerReason } = extractApprovalFooter(
+        rawLines,
+        commandStatus,
+    );
+    const sessionRaw = tagFull.match(/\bsession="(\d+)"/)?.[1];
+    return withOptionalGenerating(
+        {
+            type: "terminal_command",
+            content,
+            command: resolveParsedTerminalCommand(
+                tagFull,
+                content,
+                rawLines,
+                commandStatus,
+                reasonIdx,
+            ),
+            commandId: readOptionalAttr(tagFull, "id"),
+            commandStatus,
+            commandReason: resolveTerminalCommandReason(tagFull, footerReason),
+            sessionId: sessionRaw ? Number(sessionRaw) : undefined,
+            exitCode: parseTerminalExitCode(tagFull),
+        },
+        isGenerating,
+    );
+};
+
+/** Parses an `<inspect_runtime>` browser/runtime inspection block. */
+const parseInspectRuntimeBlock = (
+    tagFull: string,
+    content: string,
+    isGenerating: boolean,
+): Chunk => ({
+    type: "inspect_runtime",
+    query: readAttr(tagFull, "url"),
+    inspectKind: readAttr(tagFull, "kind"),
+    content,
+    isGenerating,
+});
+
+/** Parses `<web_result>`, `<search_result>`, and `<grep>` blocks with optional `query` attribute. */
+const buildQueryResultChunk = (ctx: TagSliceContext): Chunk => {
+    const rawQuery = readOptionalAttr(ctx.tagHeader, "query");
+    return withOptionalGenerating(
+        {
+            type: ctx.type,
+            content: ctx.content,
+            query: rawQuery ? decodeXmlAttr(rawQuery) : undefined,
+        },
+        ctx.isGenerating,
+    );
+};
+
+/** Parses a `<run>` command block, trimming command text when content is present. */
+const buildRunChunk = (ctx: TagSliceContext): Chunk =>
+    withOptionalGenerating(
+        {
+            type: "run",
+            content: ctx.content,
+            command: ctx.isGenerating === undefined ? "" : ctx.content.trim(),
+        },
+        ctx.isGenerating,
+    );
+
+/** Builds a generated media chunk from a `TagSliceContext`. */
+const buildGeneratedMediaFromCtx = (ctx: TagSliceContext): Chunk =>
+    parseGeneratedMediaBlock(
+        ctx.type as GeneratedMediaChunkType,
+        ctx.tagHeader,
+        ctx.content,
+        Boolean(ctx.isGenerating),
+    );
+
+const TAG_CHUNK_BUILDERS: Partial<Record<Chunk["type"], TagChunkBuilder>> = {
+    edit: (ctx) => parseEditBlock(ctx.fullBlock, Boolean(ctx.isGenerating)),
+    edit_pending: (ctx) =>
+        parseEditPendingBlock(ctx.fullBlock, Boolean(ctx.isGenerating)),
+    plan: (ctx) => parsePlanBlock(ctx.fullBlock),
+    plan_saved: (ctx) => parsePlanSavedBlock(ctx.fullBlock, ctx.content),
+    todos: (ctx) => parseTodosBlock(ctx.fullBlock),
+    terminal_command: (ctx) =>
+        parseTerminalCommandBlock(
+            ctx.tagHeader,
+            ctx.content,
+            ctx.defaultTerminalStatus,
+            ctx.isGenerating,
+        ),
+    git_operation: (ctx) =>
+        parseGitOperationBlock(
+            ctx.tagHeader,
+            ctx.content,
+            Boolean(ctx.isGenerating),
+        ),
+    cat: (ctx) =>
+        parseCatBlock(ctx.tagHeader, ctx.content, Boolean(ctx.isGenerating)),
+    subagent_ref: (ctx) =>
+        parseSubagentRefBlock(ctx.fullBlock, Boolean(ctx.isGenerating)),
+    subagent: (ctx) =>
+        parseSubagentBlock(
+            ctx.tagHeader,
+            ctx.content,
+            Boolean(ctx.isGenerating),
+        ),
+    design_previews: (ctx) => parseDesignPreviewsBlock(ctx.fullBlock),
+    review_debate: (ctx) => parseReviewDebateBlock(ctx.fullBlock),
+    persona_review: (ctx) => parsePersonaReviewBlock(ctx.fullBlock),
+    question: (ctx) => parseQuestionBlock(ctx.fullBlock),
+    questions: (ctx) => parseQuestionBlock(ctx.fullBlock),
+    run: buildRunChunk,
+    web_result: buildQueryResultChunk,
+    search_result: buildQueryResultChunk,
+    grep: buildQueryResultChunk,
+    web_visit: (ctx) =>
+        parseWebVisitBlock(ctx.tagHeader, Boolean(ctx.isGenerating)),
+    inspect_runtime: (ctx) =>
+        parseInspectRuntimeBlock(
+            ctx.tagHeader,
+            ctx.content,
+            Boolean(ctx.isGenerating),
+        ),
+    browse_session: (ctx) =>
+        parseRichCard(
+            ctx.type,
+            ctx.tagHeader,
+            ctx.content,
+            Boolean(ctx.isGenerating),
+        ),
+    plugin_call: (ctx) =>
+        parsePluginCallBlock(
+            ctx.tagHeader,
+            ctx.content,
+            Boolean(ctx.isGenerating),
+        ),
+    generated_svg: buildGeneratedMediaFromCtx,
+    generated_image: buildGeneratedMediaFromCtx,
+    generated_audio: buildGeneratedMediaFromCtx,
+    sent_file: (ctx) => parseSentFileBlock(ctx.tagHeader, ctx.content),
+};
+
+/** Builds a `Chunk` from a matched tag slice using `TAG_CHUNK_BUILDERS` or generic fallback. */
+const buildChunkFromSlice = (ctx: TagSliceContext): Chunk => {
+    const builder = TAG_CHUNK_BUILDERS[ctx.type];
+    if (builder) return builder(ctx);
+    return withOptionalGenerating(
+        {
+            type: ctx.type,
+            content: ctx.content,
+        },
+        ctx.isGenerating,
+    );
+};
+
+/** Checks whether `candidate` beats `best` at an earlier index or longer same-index tag prefix. */
+const isBetterTagMatch = (
+    best: MatchedTagRange | null,
+    index: number,
+    tag: SearchTagSpec,
+): boolean => {
+    if (!best || index < best.index) return true;
+    return index === best.index && tag.start.length > best.startTag.length;
+};
+
+/** Finds the earliest structured XML tag starting at or after `fromIndex`. */
+const findNextStructuredTag = (
+    text: string,
+    fromIndex: number,
+): MatchedTagRange | null => {
+    let firstMatch: MatchedTagRange | null = null;
+    for (const tag of SEARCH_TAGS) {
+        const index = text.indexOf(tag.start, fromIndex);
+        if (index !== -1 && isBetterTagMatch(firstMatch, index, tag)) {
+            firstMatch = {
+                type: tag.type,
+                index,
+                startTag: tag.start,
+                endTag: tag.end,
+            };
+        }
+    }
+    return firstMatch;
+};
+
+/** Appends a chunk to `chunks`, replacing any prior `todos` chunk in place. */
+const pushParsedChunk = (chunks: Chunk[], chunk: Chunk): void => {
+    if (chunk.type === "todos") {
+        const existingIdx = chunks.findIndex((item) => item.type === "todos");
+        if (existingIdx >= 0) {
+            chunks[existingIdx] = chunk;
+            return;
+        }
+    }
+    chunks.push(chunk);
+};
+
+/** Appends sanitized plain-text segment between `start` and `end` when non-empty. */
+const pushSanitizedTextSlice = (
+    chunks: Chunk[],
+    text: string,
+    start: number,
+    end?: number,
+): void => {
+    const cleaned = stripOrphanThinkTags(text.slice(start, end));
+    if (cleaned) {
+        chunks.push({ type: "text", content: cleaned });
+    }
+};
+
+/** Checks whether the opening tag ending at `gtIndex` is self-closing (`/>`). */
+const isSelfClosingTagAt = (
+    text: string,
+    tagStartIndex: number,
+    gtIndex: number,
+): boolean => gtIndex > tagStartIndex && text[gtIndex - 1] === "/";
+
+/** Resolves a matched XML tag at `match` into a `TagSliceContext` and next scanner cursor. */
+const consumeMatchedTagAt = (
+    text: string,
+    match: MatchedTagRange,
+): { slice: TagSliceContext; nextIndex: number } => {
+    const gtIndex = text.indexOf(">", match.index);
+    if (gtIndex === -1) {
+        const rawRest = text.slice(match.index);
+        return {
+            slice: {
+                type: match.type,
+                tagHeader: rawRest,
+                fullBlock: rawRest,
+                content: "",
+                isGenerating: true,
+                defaultTerminalStatus: "pending",
+            },
+            nextIndex: text.length,
+        };
+    }
+    if (isSelfClosingTagAt(text, match.index, gtIndex)) {
+        const selfTag = text.slice(match.index, gtIndex + 1);
+        return {
+            slice: {
+                type: match.type,
+                tagHeader: selfTag,
+                fullBlock: selfTag,
+                content: "",
+                isGenerating: undefined,
+                defaultTerminalStatus: "completed",
+            },
+            nextIndex: gtIndex + 1,
+        };
+    }
+    const contentStart = gtIndex + 1;
+    const tagHeader = text.slice(match.index, contentStart);
+    const endIndex = text.indexOf(match.endTag, contentStart);
+    if (endIndex === -1) {
+        return {
+            slice: {
+                type: match.type,
+                tagHeader,
+                fullBlock: text.slice(match.index),
+                content: text.slice(contentStart),
+                isGenerating: true,
+                defaultTerminalStatus: "pending",
+            },
+            nextIndex: text.length,
+        };
+    }
+    const nextIndex = endIndex + match.endTag.length;
+    return {
+        slice: {
+            type: match.type,
+            tagHeader,
+            fullBlock: text.slice(match.index, nextIndex),
+            content: text.slice(contentStart, endIndex),
+            isGenerating: false,
+            defaultTerminalStatus: "completed",
+        },
+        nextIndex,
+    };
+};
+
+/** Parse message content into chronological prose, workflow, and rich card chunks. */
+export const parseMessageContent = (rawText: string): Chunk[] => {
+    const text = stripLeakedToolCode(rawText);
     const chunks: Chunk[] = [];
     let currentIndex = 0;
 
-    const getInnerTagContent = (block: string, tag: string) => {
-        const startTag = `<${tag}>`;
-        const endTag = `</${tag}>`;
-        const start = block.indexOf(startTag);
-        if (start === -1) return undefined;
-        const end = block.indexOf(endTag, start);
-        if (end === -1) return block.slice(start + startTag.length).replace(/^\n|\n$/g, '');
-        return block.slice(start + startTag.length, end).replace(/^\n|\n$/g, '');
-    };
-
-    const parseEditBlock = (block: string, isGenerating: boolean): Chunk => {
-        const fileMatch = block.match(/<edit\s+file="([^"]*)"/);
-        const file = fileMatch ? fileMatch[1] : undefined;
-        return {
-            type: 'edit',
-            file,
-            original: getInnerTagContent(block, 'original') || '',
-            replacement: getInnerTagContent(block, 'replacement') || '',
-            isGenerating,
-        };
-    };
-
-    /** Edit staged for user approval (require-edit-approval mode). */
-    const parseEditPendingBlock = (block: string, isGenerating: boolean): Chunk => {
-        const idMatch = block.match(/\bid="([^"]*)"/);
-        const fileMatch = block.match(/\bfile="([^"]*)"/);
-        const statusMatch = block.match(/\bstatus="([^"]*)"/);
-        return {
-            type: 'edit_pending',
-            file: fileMatch ? fileMatch[1] : undefined,
-            commandId: idMatch ? idMatch[1] : undefined,
-            commandStatus: statusMatch ? statusMatch[1] : 'pending',
-            original: getInnerTagContent(block, 'original') || '',
-            replacement: getInnerTagContent(block, 'replacement') || '',
-            isGenerating,
-        };
-    };
-
-    const parsePlanSavedBlock = (block: string, innerContent?: string): Chunk => {
-        const pathMatch = block.match(/path="([^"]*)"/);
-        const titleMatch = block.match(/title="([^"]*)"/);
-        const body =
-            innerContent?.trim()
-            || getInnerTagContent(block, "plan_saved")
-            || undefined;
-        return {
-            type: 'plan_saved',
-            file: pathMatch ? pathMatch[1] : undefined,
-            content: titleMatch ? titleMatch[1] : 'Implementation Plan',
-            planMarkdown: body,
-        };
-    };
-
-    const parsePlanBlock = (block: string): Chunk => {
-        const titleMatch = block.match(/<plan\s+title="([^"]*)"/);
-        const title = titleMatch ? titleMatch[1] : 'Plan';
-        return {
-            type: 'plan',
-            content: block,
-            file: title,
-        };
-    };
-
-    const parseTodosBlock = (block: string): Chunk => {
-        const titleMatch = block.match(/<todos\s+title="([^"]*)"/);
-        const title = titleMatch ? titleMatch[1] : 'Todos';
-        const todoMatches = [...block.matchAll(/<todo\s+([^>]*)>([\s\S]*?)<\/todo>/g)];
-        const todos = todoMatches.map((m) => {
-            const attrs = m[1] ?? '';
-            const id = attrs.match(/id="([^"]*)"/)?.[1] ?? '';
-            const statusRaw = (attrs.match(/status="([^"]*)"/)?.[1] ?? 'pending').toLowerCase();
-            const status: "done" | "active" | "pending" | "cancelled" =
-                statusRaw === 'completed' || statusRaw === 'done' || statusRaw === 'complete'
-                    ? 'done'
-                    : statusRaw === 'in_progress' || statusRaw === 'active'
-                        ? 'active'
-                        : statusRaw === 'cancelled' || statusRaw === 'canceled'
-                            ? 'cancelled'
-                            : 'pending';
-            return { id, label: (m[2] ?? '').trim(), status };
-        });
-        return {
-            type: 'todos',
-            content: title,
-            todos,
-        };
-    };
-
-    const pushOrReplaceTodos = (chunk: Chunk) => {
-        const idx = chunks.findIndex((c) => c.type === 'todos');
-        if (idx >= 0) chunks[idx] = chunk;
-        else chunks.push(chunk);
-    };
-
-    const parseSubagentBlock = (tagFull: string, inner: string, isGenerating: boolean): Chunk => {
-        const getAttr = (name: string) => {
-            const m = tagFull.match(new RegExp(`${name}="([^"]*)"`));
-            return m ? m[1] : '';
-        };
-        return {
-            type: 'subagent',
-            file: getAttr('id'),
-            query: getAttr('agent') || getAttr('name'),
-            command: getAttr('model'),
-            content: inner.trim(),
-            commandStatus: getAttr('status') || (isGenerating ? 'running' : 'done'),
-            isGenerating,
-        };
-    };
-
-    const parseSubagentRefBlock = (tagFull: string, isGenerating: boolean): Chunk => {
-        const getAttr = (name: string) => {
-            const m = tagFull.match(new RegExp(`${name}="([^"]*)"`));
-            return m ? m[1] : '';
-        };
-        return {
-            type: 'subagent_ref',
-            file: getAttr('id'),
-            query: getAttr('agent'),
-            command: getAttr('model'),
-            content: getAttr('task'),
-            commandStatus: getAttr('status') || (isGenerating ? 'running' : 'done'),
-            isGenerating,
-        };
-    };
-
-    const parseGitOperationBlock = (tagFull: string, content: string, isGenerating: boolean): Chunk => {
-        const opMatch = tagFull.match(/op="([^"]+)"/);
-        const statusMatch = tagFull.match(/status="([^"]+)"/);
-        return {
-            type: 'git_operation',
-            content,
-            gitOp: opMatch ? opMatch[1] : undefined,
-            gitStatus: statusMatch ? statusMatch[1] : (isGenerating ? 'running' : 'completed'),
-            isGenerating,
-        };
-    };
-
-    const parseCatBlock = (tagFull: string, content: string, isGenerating: boolean): Chunk => {
-        const getAttr = (name: string) => {
-            const m = tagFull.match(new RegExp(`${name}="([^"]*)"`));
-            return m ? m[1] : undefined;
-        };
-        const path = getAttr('path') || content.trim();
-        const start = getAttr('start') || getAttr('startLine');
-        const end = getAttr('end') || getAttr('endLine');
-        return {
-            type: 'cat',
-            content: path,
-            catStartLine: start ? Number.parseInt(start, 10) : undefined,
-            catEndLine: end ? Number.parseInt(end, 10) : undefined,
-            isGenerating,
-        };
-    };
-
-function unescapeXml(s: string): string {
-    return s
-        .replace(/&lt;/g, "<")
-        .replace(/&gt;/g, ">")
-        .replace(/&quot;/g, '"')
-        .replace(/&amp;/g, "&");
-}
-
-    const parseDesignPreviewsBlock = (block: string): Chunk => {
-        const selectedMatch = block.match(/\bselected="([^"]*)"/);
-        const selected = selectedMatch?.[1] ?? "";
-        const id = block.match(/<design_previews\b[^>]*\bid="([^"]*)"/)?.[1];
-        const status = block.match(/<design_previews\b[^>]*\bstatus="([^"]*)"/)?.[1];
-        const previews: DesignPreviewItem[] = [];
-        const pushPreview = (attrs: string, inner: string) => {
-            const get = (name: string) => attrs.match(new RegExp(`${name}="([^"]*)"`))?.[1] ?? "";
-            const kindAttr = get("kind");
-            const previewId = get("id");
-            const path = get("path");
-            const source = unescapeXml(inner).trim() || unescapeXml(get("source")).trim();
-            if (!previewId.trim()) return;
-            if (!path.trim() && !source) return;
-            if (previews.some((p) => p.id === previewId)) return;
-            previews.push({
-                id: previewId,
-                name: get("name"),
-                style: get("style"),
-                path,
-                source: source || undefined,
-                width: Number.parseInt(get("width"), 10) || 1280,
-                height: Number.parseInt(get("height"), 10) || 800,
-                renderMs: Number.parseInt(get("render_ms"), 10) || undefined,
-                kind: kindAttr === "html" || kindAttr === "png" || kindAttr === "react" ? kindAttr : undefined,
-            });
-        };
-        const paired = /<design_preview\s+([^>]*)>([\s\S]*?)<\/design_preview>/g;
-        let match: RegExpExecArray | null;
-        while ((match = paired.exec(block)) !== null) {
-            pushPreview(match[1] ?? "", match[2] ?? "");
-        }
-        const selfClosing = /<design_preview\s+([^>]+)\/>/g;
-        while ((match = selfClosing.exec(block)) !== null) {
-            pushPreview(match[1] ?? "", "");
-        }
-        return {
-            type: "design_previews",
-            designPreviews: previews,
-            selectedConcept: selected,
-            commandId: id,
-            commandStatus: status,
-        };
-    };
-
-    const parseReviewDebateBlock = (block: string): Chunk => {
-        const modelMatch = block.match(/<review_debate[^>]*\bmodel="([^"]*)"/i);
-        const inner = block
-            .replace(/^<review_debate[^>]*>\s*/i, "")
-            .replace(/(?<!\s)\s*<\/review_debate>$/i, "")
-            .trim();
-        return {
-            type: "review_debate",
-            content: inner,
-            reviewModel: modelMatch?.[1],
-        };
-    };
-
-    const parsePersonaReviewBlock = (block: string): Chunk => {
-        const open = block.match(/^<persona_review\b[^>]*>/i)?.[0] || "";
-        const inner = block
-            .replace(/^<persona_review[^>]*>\s*/i, "")
-            .replace(/(?<!\s)\s*<\/persona_review>$/i, "")
-            .trim();
-        return {
-            type: "persona_review",
-            content: inner,
-            commandId: open.match(/\bid="([^"]*)"/)?.[1],
-            commandStatus: open.match(/\bstatus="([^"]*)"/)?.[1],
-            visitUrl: open.match(/\burl="([^"]*)"/)?.[1],
-        };
-    };
-
-    const parseQuestionBlock = (block: string): Chunk => {
-        const id = block.match(/\bid="([^"]*)"/)?.[1];
-        const status = block.match(/\bstatus="([^"]*)"/)?.[1];
-        const inner = block
-            .replace(/^<questions?[^>]*>/i, "")
-            .replace(/<\/questions?>\s*$/i, "")
-            .trim();
-        const { questions, answers } = parseQuestionsPayload(inner);
-        return {
-            type: "question",
-            content: inner,
-            commandId: id,
-            commandStatus: status,
-            questions,
-            answers,
-        };
-    };
-
-    const parsePluginCallBlock = (tagFull: string, content: string, isGenerating: boolean): Chunk => {
-        const get = (name: string) => tagFull.match(new RegExp(`${name}="([^"]*)"`))?.[1] ?? "";
-        const status = get("status") || "ok";
-        return {
-            type: "plugin_call",
-            content,
-            pluginToolkit: get("toolkit") || undefined,
-            pluginSlug: get("slug") || undefined,
-            pluginLabel: get("label") || undefined,
-            commandId: get("id") || undefined,
-            commandStatus: status,
-            isGenerating,
-        };
-    };
-
-    const parseSentFileBlock = (tagFull: string, content: string): Chunk => {
-        const get = (name: string) => tagFull.match(new RegExp(`${name}="([^"]*)"`))?.[1] ?? "";
-        return {
-            type: "sent_file",
-            file: decodeXml(get("name")) || "File",
-            query: get("type") || "application/octet-stream",
-            mediaPrompt: decodeXml(get("title")) || undefined,
-            content: content.trim(),
-        };
-    };
-
-    const parseGeneratedMediaBlock = (
-        type: "generated_svg" | "generated_image" | "generated_audio",
-        tagFull: string,
-        content: string,
-        isGenerating: boolean,
-    ): Chunk => {
-        const get = (name: string) => tagFull.match(new RegExp(`${name}="([^"]*)"`))?.[1] ?? "";
-        return {
-            type,
-            content: content.trim(),
-            mediaPrompt: get("prompt") || undefined,
-            mediaCredits: get("credits") || undefined,
-            query: get("prompt") || undefined,
-            isGenerating,
-        };
-    };
-
-    const parseRichCard = (type: string, tagFull: string, content: string, isGenerating: boolean): Chunk => {
-        const get = (name: string) => tagFull.match(new RegExp(`${name}="([^"]*)"`))?.[1] ?? "";
-        return {
-            type: type as Chunk["type"],
-            content,
-            visitUrl: decodeXml(get("url")) || undefined,
-            visitTitle: decodeXml(get("title")) || undefined,
-            commandId: get("id") || undefined,
-            commandStatus: get("status") || undefined,
-            isGenerating,
-        };
-    };
-
-    const parseWebVisitBlock = (tagFull: string, isGenerating: boolean): Chunk => {
-        const get = (name: string) => tagFull.match(new RegExp(`${name}="([^"]*)"`))?.[1] ?? "";
-        const url = get("url");
-        const host = get("host") || hostnameFromUrl(url);
-        const title = get("title") || host;
-        return {
-            type: "web_visit",
-            visitUrl: url,
-            visitHost: host,
-            visitTitle: title,
-            content: host,
-            isGenerating,
-        };
-    };
-
-    const decodeXmlAttr = (raw: string): string =>
-        raw
-            .replace(/&quot;/g, '"')
-            .replace(/&apos;/g, "'")
-            .replace(/&lt;/g, "<")
-            .replace(/&gt;/g, ">")
-            .replace(/&amp;/g, "&");
-
-    const parseTerminalCommandBlock = (
-        tagFull: string,
-        content: string,
-        defaultStatus: string,
-        isGenerating?: boolean,
-    ): Chunk => {
-        const statusMatch = tagFull.match(/status="([^"]+)"/);
-        const idMatch = tagFull.match(/id="([^"]+)"/);
-        const sessionMatch = tagFull.match(/session="(\d+)"/);
-        const exitMatch = tagFull.match(/(?:exit_code|exit)="(-?\d+)"/);
-        const cmdAttrMatch = tagFull.match(/command="([^"]+)"/);
-        const reasonAttrMatch = tagFull.match(/reason="([^"]+)"/);
-        const commandStatus = statusMatch ? statusMatch[1] : defaultStatus;
-        const rawLines = content.split("\n");
-        let footerIdx = rawLines.length - 1;
-        while (footerIdx >= 0 && rawLines[footerIdx]?.trim().length === 0) {
-            footerIdx--;
-        }
-        const footerLine = footerIdx >= 0 ? rawLines[footerIdx] ?? "" : "";
-        const isTrailingApprovalFooter =
-            (commandStatus === "pending" || commandStatus === "blocked") &&
-            /^(?:Awaiting approval:|Blocked:)\s/.test(footerLine);
-        const reasonIdx = isTrailingApprovalFooter ? footerIdx : -1;
-        const reason =
-            (reasonAttrMatch ? decodeXmlAttr(reasonAttrMatch[1]).trim() : "")
-            || (isTrailingApprovalFooter
-                ? footerLine.replace(/^(?:Awaiting approval:|Blocked:)\s*/, "").trim()
-                : undefined);
-
-        const resolveParsedCommand = (): string => {
-            if (cmdAttrMatch) return decodeXmlAttr(cmdAttrMatch[1]).trim();
-            if (commandStatus === "pending" || commandStatus === "blocked") {
-                const cmdSlice = reasonIdx === -1 ? rawLines : rawLines.slice(0, reasonIdx);
-                return cmdSlice.join("\n").trim();
-            }
-            if (
-                commandStatus === "running"
-                || commandStatus === "rejected"
-                || commandStatus === "cancelled"
-            ) {
-                return content.trim();
-            }
-            const nonEmptyStart = rawLines.findIndex((l) => l.trim().length > 0);
-            if (nonEmptyStart === -1) return "";
-            const collected: string[] = [];
-            for (let idx = nonEmptyStart; idx < rawLines.length; idx++) {
-                const line = rawLines[idx] ?? "";
-                collected.push(line);
-                if (!/\\\s*$/.test(line)) break;
-            }
-            return collected.join("\n").trim();
-        };
-        const cmd = resolveParsedCommand();
-
-        return {
-            type: "terminal_command",
-            content,
-            command: cmd,
-            commandId: idMatch ? idMatch[1] : undefined,
-            commandStatus,
-            commandReason: reason,
-            sessionId: sessionMatch ? Number(sessionMatch[1]) : undefined,
-            exitCode: exitMatch ? Number(exitMatch[1]) : undefined,
-            ...(isGenerating !== undefined ? { isGenerating } : {}),
-        };
-    };
-
-    const parseInspectRuntimeBlock = (tagFull: string, content: string, isGenerating: boolean): Chunk => {
-        const url = tagFull.match(/\burl="([^"]*)"/)?.[1] ?? "";
-        const kind = tagFull.match(/\bkind="([^"]*)"/)?.[1] ?? "";
-        return {
-            type: "inspect_runtime",
-            query: url,
-            inspectKind: kind,
-            content,
-            isGenerating,
-        };
-    };
-
     while (currentIndex < text.length) {
-        const searchTags = [
-            { type: 'edit', start: '<edit', end: '</edit>' },
-            // Longer tag wins the same-index tie-break against '<edit'.
-            { type: 'edit_pending', start: '<edit_pending', end: '</edit_pending>' },
-            { type: 'design_previews', start: '<design_previews', end: '</design_previews>' },
-            { type: 'review_debate', start: '<review_debate', end: '</review_debate>' },
-            { type: 'persona_review', start: '<persona_review', end: '</persona_review>' },
-            { type: 'questions', start: '<questions', end: '</questions>' },
-            { type: 'question', start: '<question', end: '</question>' },
-            { type: 'inspect_runtime', start: '<inspect_runtime', end: '</inspect_runtime>' },
-            { type: 'search_result', start: '<search_result', end: '</search_result>' },
-            { type: 'search', start: '<search', end: '</search>' },
-            { type: 'grep', start: '<grep', end: '</grep>' },
-            { type: 'web_search', start: '<web_search', end: '</web_search>' },
-            { type: 'status', start: '<status', end: '</status>' },
-            { type: 'think', start: '<think>', end: '</think>' },
-            { type: 'think', start: '<think', end: '</think>' },
-            { type: 'thought', start: '<thought', end: '</thought>' },
-            { type: 'plan', start: '<plan', end: '</plan>' },
-            { type: 'plan_saved', start: '<plan_saved', end: '</plan_saved>' },
-            { type: 'todos', start: '<todos', end: '</todos>' },
-            { type: 'web_result', start: '<web_result', end: '</web_result>' },
-            { type: 'web_visit', start: '<web_visit', end: '</web_visit>' },
-            { type: 'generated_svg', start: '<generated_svg', end: '</generated_svg>' },
-            { type: 'generated_svg', start: '<recraft_svg', end: '</recraft_svg>' },
-            { type: 'generated_image', start: '<generated_image', end: '</generated_image>' },
-            { type: 'generated_audio', start: '<generated_audio', end: '</generated_audio>' },
-            { type: 'plugin_call', start: '<plugin_call', end: '</plugin_call>' },
-            { type: 'browse_session', start: '<browse_session', end: '</browse_session>' },
-            { type: 'chart', start: '<chart', end: '</chart>' },
-            { type: 'insight_card', start: '<insight_card', end: '</insight_card>' },
-            { type: 'ls', start: '<ls', end: '</ls>' },
-            { type: 'cat', start: '<cat', end: '</cat>' },
-            { type: 'run', start: '<run', end: '</run>' },
-            { type: 'create_file', start: '<create_file', end: '</create_file>' },
-            { type: 'mkdir', start: '<mkdir', end: '</mkdir>' },
-            { type: 'delete_file', start: '<delete_file', end: '</delete_file>' },
-            { type: 'rename_file', start: '<rename_file', end: '</rename_file>' },
-            { type: 'rename_chat', start: '<rename_chat', end: '</rename_chat>' },
-            { type: 'subagent_ref', start: '<subagent_ref', end: '/>' },
-            { type: 'subagent', start: '<subagent', end: '</subagent>' },
-            { type: 'terminal_command', start: '<terminal_command', end: '</terminal_command>' },
-            { type: 'git_operation', start: '<git_operation', end: '</git_operation>' },
-            // Hidden tool/result scaffolding (BetterShape UI + cross-model leak grammars).
-            // Defense-in-depth with stripLeakedToolCode — never render as prose.
-            { type: 'tool_result', start: '<tool_result', end: '</tool_result>' },
-            { type: 'tool_result', start: '<terminal_read', end: '</terminal_read>' },
-            { type: 'tool_result', start: '<terminal_input', end: '</terminal_input>' },
-            { type: 'tool_result', start: '<list_terminals', end: '</list_terminals>' },
-            { type: 'tool_result', start: '<tool_code', end: '</tool_code>' },
-            { type: 'tool_result', start: '<tool_call', end: '</tool_call>' },
-            { type: 'tool_result', start: '<tool_calls', end: '</tool_calls>' },
-            { type: 'tool_result', start: '<tool_response', end: '</tool_response>' },
-            { type: 'tool_result', start: '<function_call', end: '</function_call>' },
-            { type: 'tool_result', start: '<function_calls', end: '</function_calls>' },
-            { type: 'tool_result', start: '<function_response', end: '</function_response>' },
-            { type: 'tool_result', start: '<minimax:tool_call', end: '</minimax:tool_call>' },
-            { type: 'tool_result', start: '<invoke', end: '</invoke>' },
-            { type: 'tool_result', start: '<parameter', end: '</parameter>' },
-            { type: 'tool_result', start: '<arg_key', end: '</arg_key>' },
-            { type: 'tool_result', start: '<arg_value', end: '</arg_value>' },
-            { type: 'tool_result', start: '<pre_dispatch_explanation', end: '</pre_dispatch_explanation>' },
-            { type: 'tool_result', start: '<tools', end: '</tools>' },
-            { type: 'tool_result', start: '<new_path', end: '</new_path>' },
-            { type: 'tool_result', start: '<content', end: '</content>' },
-            { type: 'tool_result', start: '<analysis', end: '</analysis>' },
-            { type: 'tool_result', start: '<file_content', end: '</file_content>' },
-            { type: 'attached_image', start: '<attached_image', end: '</attached_image>' },
-            { type: 'sent_file', start: '<sent_file', end: '</sent_file>' },
-        ];
-
-        let firstMatch: { type: string, index: number, startTag: string, endTag: string } | null = null;
-        for (const tag of searchTags) {
-            const index = text.indexOf(tag.start, currentIndex);
-            if (index !== -1) {
-                if (
-                    !firstMatch
-                    || index < firstMatch.index
-                    || (index === firstMatch.index && tag.start.length > firstMatch.startTag.length)
-                ) {
-                    firstMatch = { type: tag.type, index, startTag: tag.start, endTag: tag.end };
-                }
-            }
-        }
-
+        const firstMatch = findNextStructuredTag(text, currentIndex);
         if (!firstMatch) {
-            const tail = stripOrphanThinkTags(text.slice(currentIndex));
-            if (tail) chunks.push({ type: 'text', content: tail });
+            pushSanitizedTextSlice(chunks, text, currentIndex);
             break;
         }
-
         if (firstMatch.index > currentIndex) {
-            const segment = stripOrphanThinkTags(text.slice(currentIndex, firstMatch.index));
-            if (segment) chunks.push({ type: 'text', content: segment });
+            pushSanitizedTextSlice(chunks, text, currentIndex, firstMatch.index);
         }
-
-        const gtIndex = text.indexOf('>', firstMatch.index);
-        let contentStartIndex: number;
-        let endIndex: number;
-        // `<web_visit ... />` / `<plan_saved ... />` style tags must not swallow the rest of the message.
-        const isSelfClosing =
-            gtIndex !== -1
-            && gtIndex > firstMatch.index
-            && text[gtIndex - 1] === '/';
-
-        if (gtIndex === -1) {
-            contentStartIndex = text.length;
-            endIndex = -1;
-        } else if (isSelfClosing) {
-            contentStartIndex = gtIndex + 1;
-            endIndex = -2; // sentinel: empty self-closing tag
-        } else {
-            contentStartIndex = gtIndex + 1;
-            endIndex = text.indexOf(firstMatch.endTag, contentStartIndex);
-        }
-
-        if (endIndex === -2) {
-            const content = '';
-            const tagFull = text.slice(firstMatch.index, gtIndex + 1);
-            if (firstMatch.type === 'edit') {
-                chunks.push(parseEditBlock(tagFull, false));
-            } else if (firstMatch.type === 'edit_pending') {
-                chunks.push(parseEditPendingBlock(tagFull, false));
-            } else if (firstMatch.type === 'plan') {
-                chunks.push(parsePlanBlock(tagFull));
-            } else if (firstMatch.type === 'plan_saved') {
-                chunks.push(parsePlanSavedBlock(tagFull, content));
-            } else if (firstMatch.type === 'todos') {
-                pushOrReplaceTodos(parseTodosBlock(tagFull));
-            } else if (firstMatch.type === 'terminal_command') {
-                chunks.push(parseTerminalCommandBlock(tagFull, content, 'completed'));
-            } else if (firstMatch.type === 'git_operation') {
-                chunks.push(parseGitOperationBlock(tagFull, content, false));
-            } else if (firstMatch.type === 'browse_session') {
-                const tagFull = text.slice(firstMatch.index, gtIndex === -1 ? text.length : gtIndex + 1);
-                chunks.push(parseRichCard(firstMatch.type, tagFull, content, false));
-            } else if (firstMatch.type === 'cat') {
-                chunks.push(parseCatBlock(tagFull, content, false));
-            } else if (firstMatch.type === 'subagent_ref') {
-                chunks.push(parseSubagentRefBlock(tagFull, false));
-            } else if (firstMatch.type === 'subagent') {
-                chunks.push(parseSubagentBlock(tagFull, content, false));
-            } else if (firstMatch.type === 'design_previews') {
-                chunks.push(parseDesignPreviewsBlock(tagFull));
-            } else if (firstMatch.type === 'review_debate') {
-                chunks.push(parseReviewDebateBlock(tagFull));
-            } else if (firstMatch.type === 'persona_review') {
-                chunks.push(parsePersonaReviewBlock(tagFull));
-            } else if (firstMatch.type === 'question' || firstMatch.type === 'questions') {
-                chunks.push(parseQuestionBlock(tagFull));
-            } else if (firstMatch.type === 'run') {
-                chunks.push({ type: 'run', content, command: '' });
-            } else if (firstMatch.type === 'web_result' || firstMatch.type === 'search_result' || firstMatch.type === 'grep') {
-                const queryMatch = tagFull.match(/query="([^"]+)"/);
-                chunks.push({
-                    type: firstMatch.type as Chunk['type'],
-                    content,
-                    query: queryMatch ? decodeXmlAttr(queryMatch[1]) : undefined,
-                });
-            } else if (firstMatch.type === 'web_visit') {
-                chunks.push(parseWebVisitBlock(tagFull, false));
-            } else if (firstMatch.type === 'inspect_runtime') {
-                chunks.push(parseInspectRuntimeBlock(tagFull, content, false));
-            } else if (firstMatch.type === 'plugin_call') {
-                chunks.push(parsePluginCallBlock(tagFull, content, false));
-            } else if (firstMatch.type === 'generated_svg' || firstMatch.type === 'generated_image' || firstMatch.type === 'generated_audio') {
-                chunks.push(parseGeneratedMediaBlock(firstMatch.type as "generated_svg" | "generated_image" | "generated_audio", tagFull, content, false));
-            } else if (firstMatch.type === 'sent_file') {
-                chunks.push(parseSentFileBlock(tagFull, content));
-            } else {
-                chunks.push({
-                    type: firstMatch.type as Chunk['type'],
-                    content,
-                });
-            }
-            currentIndex = gtIndex + 1;
-            continue;
-        }
-
-        if (endIndex === -1) {
-            const content = text.slice(contentStartIndex);
-            const fullTag = text.slice(firstMatch.index);
-            if (firstMatch.type === 'edit') {
-                chunks.push(parseEditBlock(fullTag, true));
-            } else if (firstMatch.type === 'edit_pending') {
-                chunks.push(parseEditPendingBlock(fullTag, true));
-            } else if (firstMatch.type === 'plan') {
-                chunks.push(parsePlanBlock(fullTag));
-            } else if (firstMatch.type === 'plan_saved') {
-                chunks.push(parsePlanSavedBlock(fullTag, content));
-            } else if (firstMatch.type === 'todos') {
-                pushOrReplaceTodos(parseTodosBlock(fullTag));
-            } else if (firstMatch.type === 'terminal_command') {
-                const tagFull = text.slice(firstMatch.index, contentStartIndex);
-                chunks.push(parseTerminalCommandBlock(tagFull, content, 'pending', true));
-            } else if (firstMatch.type === 'git_operation') {
-                const tagFull = text.slice(firstMatch.index, contentStartIndex);
-                chunks.push(parseGitOperationBlock(tagFull, content, true));
-            } else if (firstMatch.type === 'cat') {
-                const tagFull = text.slice(firstMatch.index, contentStartIndex);
-                chunks.push(parseCatBlock(tagFull, content, true));
-            } else if (firstMatch.type === 'subagent_ref') {
-                const tagFull = text.slice(firstMatch.index, gtIndex + 1);
-                chunks.push(parseSubagentRefBlock(tagFull, true));
-            } else if (firstMatch.type === 'subagent') {
-                const tagFull = text.slice(firstMatch.index, contentStartIndex);
-                chunks.push(parseSubagentBlock(tagFull, content, true));
-            } else if (firstMatch.type === 'design_previews') {
-                chunks.push(parseDesignPreviewsBlock(text.slice(firstMatch.index)));
-            } else if (firstMatch.type === 'review_debate') {
-                chunks.push(parseReviewDebateBlock(text.slice(firstMatch.index)));
-            } else if (firstMatch.type === 'persona_review') {
-                chunks.push(parsePersonaReviewBlock(text.slice(firstMatch.index)));
-            } else if (firstMatch.type === 'question' || firstMatch.type === 'questions') {
-                chunks.push(parseQuestionBlock(text.slice(firstMatch.index)));
-            } else if (firstMatch.type === 'run') {
-                chunks.push({
-                    type: 'run',
-                    content,
-                    command: content.trim(),
-                    isGenerating: true,
-                });
-            } else if (firstMatch.type === 'web_result' || firstMatch.type === 'search_result' || firstMatch.type === 'grep') {
-                const tagFull = text.slice(firstMatch.index, contentStartIndex);
-                const queryMatch = tagFull.match(/query="([^"]+)"/);
-                chunks.push({
-                    type: firstMatch.type as Chunk['type'],
-                    content,
-                    query: queryMatch ? decodeXmlAttr(queryMatch[1]) : undefined,
-                    isGenerating: true
-                });
-            } else if (firstMatch.type === 'web_visit') {
-                const tagFull = text.slice(firstMatch.index, contentStartIndex);
-                chunks.push(parseWebVisitBlock(tagFull, true));
-            } else if (firstMatch.type === 'inspect_runtime') {
-                const tagFull = text.slice(firstMatch.index, contentStartIndex);
-                chunks.push(parseInspectRuntimeBlock(tagFull, content, true));
-            } else if (firstMatch.type === 'browse_session') {
-                const tagFull = text.slice(firstMatch.index, gtIndex === -1 ? text.length : gtIndex + 1);
-                chunks.push(parseRichCard(firstMatch.type, tagFull, content, true));
-            } else if (firstMatch.type === 'plugin_call') {
-                const tagFull = text.slice(firstMatch.index, contentStartIndex);
-                chunks.push(parsePluginCallBlock(tagFull, content, true));
-            } else if (firstMatch.type === 'generated_svg' || firstMatch.type === 'generated_image' || firstMatch.type === 'generated_audio') {
-                const tagFull = text.slice(firstMatch.index, contentStartIndex);
-                chunks.push(parseGeneratedMediaBlock(firstMatch.type as "generated_svg" | "generated_image" | "generated_audio", tagFull, content, true));
-            } else if (firstMatch.type === 'sent_file') {
-                const tagFull = text.slice(firstMatch.index, contentStartIndex);
-                chunks.push(parseSentFileBlock(tagFull, content));
-            } else {
-                chunks.push({
-                    type: firstMatch.type as Chunk['type'],
-                    content,
-                    isGenerating: true,
-                    command: firstMatch.type === 'terminal_command' ? content : undefined
-                });
-            }
-            break;
-        } else {
-            const content = text.slice(contentStartIndex, endIndex);
-            const fullBlock = text.slice(firstMatch.index, endIndex + firstMatch.endTag.length);
-            if (firstMatch.type === 'edit') {
-                chunks.push(parseEditBlock(fullBlock, false));
-            } else if (firstMatch.type === 'edit_pending') {
-                chunks.push(parseEditPendingBlock(fullBlock, false));
-            } else if (firstMatch.type === 'plan') {
-                chunks.push(parsePlanBlock(fullBlock));
-            } else if (firstMatch.type === 'plan_saved') {
-                chunks.push(parsePlanSavedBlock(fullBlock, content));
-            } else if (firstMatch.type === 'todos') {
-                pushOrReplaceTodos(parseTodosBlock(fullBlock));
-            } else if (firstMatch.type === 'terminal_command') {
-                const tagFull = text.slice(firstMatch.index, contentStartIndex);
-                chunks.push(parseTerminalCommandBlock(tagFull, content, 'completed', false));
-            } else if (firstMatch.type === 'git_operation') {
-                const tagFull = text.slice(firstMatch.index, contentStartIndex);
-                chunks.push(parseGitOperationBlock(tagFull, content, false));
-            } else if (firstMatch.type === 'cat') {
-                const tagFull = text.slice(firstMatch.index, contentStartIndex);
-                chunks.push(parseCatBlock(tagFull, content, false));
-            } else if (firstMatch.type === 'subagent_ref') {
-                const tagFull = text.slice(firstMatch.index, endIndex + firstMatch.endTag.length);
-                chunks.push(parseSubagentRefBlock(tagFull, false));
-            } else if (firstMatch.type === 'subagent') {
-                const tagFull = text.slice(firstMatch.index, contentStartIndex);
-                chunks.push(parseSubagentBlock(tagFull, content, false));
-            } else if (firstMatch.type === 'design_previews') {
-                chunks.push(parseDesignPreviewsBlock(fullBlock));
-            } else if (firstMatch.type === 'review_debate') {
-                chunks.push(parseReviewDebateBlock(fullBlock));
-            } else if (firstMatch.type === 'persona_review') {
-                chunks.push(parsePersonaReviewBlock(fullBlock));
-            } else if (firstMatch.type === 'question' || firstMatch.type === 'questions') {
-                chunks.push(parseQuestionBlock(fullBlock));
-            } else if (firstMatch.type === 'run') {
-                chunks.push({
-                    type: 'run',
-                    content,
-                    command: content.trim(),
-                    isGenerating: false,
-                });
-            } else if (firstMatch.type === 'web_result' || firstMatch.type === 'search_result' || firstMatch.type === 'grep') {
-                const tagFull = text.slice(firstMatch.index, contentStartIndex);
-                const queryMatch = tagFull.match(/query="([^"]+)"/);
-                chunks.push({
-                    type: firstMatch.type as Chunk['type'],
-                    content,
-                    query: queryMatch ? decodeXmlAttr(queryMatch[1]) : undefined,
-                    isGenerating: false
-                });
-            } else if (firstMatch.type === 'web_visit') {
-                const tagFull = text.slice(firstMatch.index, contentStartIndex);
-                chunks.push(parseWebVisitBlock(tagFull, false));
-            } else if (firstMatch.type === 'inspect_runtime') {
-                const tagFull = text.slice(firstMatch.index, contentStartIndex);
-                chunks.push(parseInspectRuntimeBlock(tagFull, content, false));
-            } else if (firstMatch.type === 'browse_session') {
-                const tagFull = text.slice(firstMatch.index, gtIndex === -1 ? text.length : gtIndex + 1);
-                chunks.push(parseRichCard(firstMatch.type, tagFull, content, false));
-            } else if (firstMatch.type === 'plugin_call') {
-                const tagFull = text.slice(firstMatch.index, contentStartIndex);
-                chunks.push(parsePluginCallBlock(tagFull, content, false));
-            } else if (firstMatch.type === 'generated_svg' || firstMatch.type === 'generated_image' || firstMatch.type === 'generated_audio') {
-                const tagFull = text.slice(firstMatch.index, contentStartIndex);
-                chunks.push(parseGeneratedMediaBlock(firstMatch.type as "generated_svg" | "generated_image" | "generated_audio", tagFull, content, false));
-            } else if (firstMatch.type === 'sent_file') {
-                const tagFull = text.slice(firstMatch.index, contentStartIndex);
-                chunks.push(parseSentFileBlock(tagFull, content));
-            } else {
-                chunks.push({
-                    type: firstMatch.type as Chunk['type'],
-                    content,
-                    isGenerating: false,
-                    command: firstMatch.type === 'terminal_command' ? content : undefined
-                });
-            }
-            currentIndex = endIndex + firstMatch.endTag.length;
-        }
+        const { slice, nextIndex } = consumeMatchedTagAt(text, firstMatch);
+        pushParsedChunk(chunks, buildChunkFromSlice(slice));
+        currentIndex = nextIndex;
     }
 
     return dedupeTerminalChunks(chunks);
 };
 
+/** Merges two adjacent plain-text chunks in place. */
+const appendTextChunk = (prev: Chunk, next: Chunk): void => {
+    prev.content = `${prev.content ?? ""}${next.content ?? ""}`;
+    if (next.isGenerating) {
+        prev.isGenerating = true;
+    }
+};
+
 /** Merge consecutive plain-text segments so markdown renders as one block. */
-function mergeAdjacentTextChunks(chunks: Chunk[]): Chunk[] {
+const mergeAdjacentTextChunks = (chunks: Chunk[]): Chunk[] => {
     const merged: Chunk[] = [];
     for (const chunk of chunks) {
-        const prev = merged[merged.length - 1];
+        const prev = merged.at(-1);
         if (chunk.type === "text" && prev?.type === "text") {
-            prev.content = `${prev.content || ""}${chunk.content || ""}`;
-            if (chunk.isGenerating) prev.isGenerating = true;
+            appendTextChunk(prev, chunk);
         } else {
             merged.push({ ...chunk });
         }
     }
     return merged;
-}
+};
 
-export type WebSearchResultItem = { title: string; url: string; snippet: string };
+/** Parses a single `---`-delimited web search result section when a title or URL is present. */
+const parseSingleWebResultSection = (
+    block: string,
+): WebSearchResultItem | null => {
+    const titleMatch = block.match(/### (.*)/);
+    const urlMatch = block.match(/URL: (.*)/);
+    if (!titleMatch && !urlMatch) return null;
+    return {
+        title: titleMatch ? titleMatch[1].trim() : "Result",
+        url: urlMatch ? urlMatch[1].trim() : "",
+        snippet: block.replace(/### .*/, "").replace(/URL: .*/, "").trim(),
+    };
+};
 
-export function parseWebResults(blockContent: string): WebSearchResultItem[] {
+/** Parses `<web_result>` markdown sections into structured citation items. */
+export const parseWebResults = (blockContent: string): WebSearchResultItem[] => {
     const results: WebSearchResultItem[] = [];
-    const blocks = blockContent.split('---').filter(Boolean);
-    blocks.forEach(block => {
-        const titleMatch = block.match(/### (.*)/);
-        const urlMatch = block.match(/URL: (.*)/);
-        const text = block.replace(/### .*/, '').replace(/URL: .*/, '').trim();
-        if (titleMatch || urlMatch) {
-            results.push({
-                title: titleMatch ? titleMatch[1].trim() : 'Result',
-                url: urlMatch ? urlMatch[1].trim() : '',
-                snippet: text
-            });
-        }
-    });
+    for (const block of blockContent.split("---")) {
+        if (!block) continue;
+        const parsed = parseSingleWebResultSection(block);
+        if (parsed) results.push(parsed);
+    }
     return results;
-}
+};
 
-/** Collect unique web search/visit hit URLs from a message for the footer sources menu. */
-export function extractWebSearchResults(content: string): WebSearchResultItem[] {
-    const chunks = parseMessageContent(content);
-    const results: WebSearchResultItem[] = [];
-    const seen = new Set<string>();
-    for (const item of chunks) {
-        if (item.type === "web_visit") {
-            const url = item.visitUrl || "";
-            const key = url || item.visitHost || "";
-            if (!key || seen.has(key)) continue;
-            seen.add(key);
-            results.push({
-                title: item.visitTitle || item.visitHost || "Visited",
-                url,
-                snippet: item.visitHost ? `Visited ${item.visitHost}` : "Visited page",
-            });
-            continue;
-        }
-        if (item.type !== 'web_result' && item.type !== 'web_search') continue;
-        if (item.type !== 'web_result') continue;
-        for (const hit of parseWebResults(item.content || '')) {
-            const key = hit.url || `${hit.title}:${hit.snippet}`;
-            if (seen.has(key)) continue;
+/** Formats a `WebSearchResultItem` from a `web_visit` chunk. */
+const buildVisitedSearchItem = (
+    item: Chunk,
+    url: string,
+    host: string,
+): WebSearchResultItem => ({
+    title: item.visitTitle ?? (host ? host : "Visited"),
+    url,
+    snippet: host ? `Visited ${host}` : "Visited page",
+});
+
+/** Appends a `web_visit` chunk to `results` if its URL/host key has not been seen yet. */
+const collectWebVisitResult = (
+    item: Chunk,
+    seen: Set<string>,
+    results: WebSearchResultItem[],
+): void => {
+    const url = captureOrEmpty(item.visitUrl);
+    const host = captureOrEmpty(item.visitHost);
+    const key = url ? url : host;
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    results.push(buildVisitedSearchItem(item, url, host));
+};
+
+/** Appends unique parsed hits from a `web_result` chunk into `results`. */
+const collectWebResultHits = (
+    content: string,
+    seen: Set<string>,
+    results: WebSearchResultItem[],
+): void => {
+    for (const hit of parseWebResults(content)) {
+        const key = hit.url ? hit.url : `${hit.title}:${hit.snippet}`;
+        if (!seen.has(key)) {
             seen.add(key);
             results.push(hit);
         }
     }
+};
+
+/** Collect unique web search/visit hit URLs from a message for the footer sources menu. */
+export const extractWebSearchResults = (
+    content: string,
+): WebSearchResultItem[] => {
+    const results: WebSearchResultItem[] = [];
+    const seen = new Set<string>();
+    for (const item of parseMessageContent(content)) {
+        if (item.type === "web_visit") {
+            collectWebVisitResult(item, seen, results);
+        } else if (item.type === "web_result") {
+            collectWebResultHits(item.content ?? "", seen, results);
+        }
+    }
     return results;
-}
+};
 
-/**
- * A message is a chronological sequence of segments. A sentence between
- * tool runs splits the rail, so the line stops and starts again around it.
- */
-type Segment =
-    | { kind: 'workflow'; blocks: Chunk[] }
-    | { kind: 'chunk'; chunk: Chunk };
+/** Appends a workflow chunk to the trailing workflow segment or starts a new workflow segment. */
+const pushWorkflowSegmentChunk = (segments: Segment[], chunk: Chunk): void => {
+    const prev = segments.at(-1);
+    if (prev?.kind === "workflow") {
+        prev.blocks.push(chunk);
+    } else {
+        segments.push({ kind: "workflow", blocks: [chunk] });
+    }
+};
 
-function buildSegments(chunks: Chunk[]): Segment[] {
+/** Checks whether a standalone chunk should be emitted as a non-empty content segment. */
+const isNonEmptyContentChunk = (chunk: Chunk): boolean =>
+    chunk.type !== "text" || Boolean(captureOrEmpty(chunk.content).trim());
+
+/** Groups chronological chunks into alternating workflow rails and standalone content segments. */
+const buildSegments = (chunks: Chunk[]): Segment[] => {
     const segments: Segment[] = [];
     for (const chunk of chunks) {
         if (WORKFLOW_CHUNK_TYPES.has(chunk.type)) {
-            const prev = segments[segments.length - 1];
-            if (prev?.kind === 'workflow') {
-                prev.blocks.push(chunk);
-            } else {
-                segments.push({ kind: 'workflow', blocks: [chunk] });
-            }
-            continue;
+            pushWorkflowSegmentChunk(segments, chunk);
+        } else if (isNonEmptyContentChunk(chunk)) {
+            segments.push({ kind: "chunk", chunk });
         }
-        if (chunk.type === 'text' && !(chunk.content || '').trim()) continue;
-        segments.push({ kind: 'chunk', chunk });
     }
     return segments;
-}
+};
+
+/** Clears residual `isGenerating` flags once the message turn itself has completed. */
+const finalizeParsedChunks = (
+    parsed: Chunk[],
+    isGenerating?: boolean,
+): Chunk[] => {
+    if (isGenerating) return parsed;
+    return parsed.map((chunk) =>
+        chunk.isGenerating ? { ...chunk, isGenerating: false } : chunk,
+    );
+};
+
+/** Checks whether a later `persona_review` chunk with the same `commandId` supersedes `index`. */
+const isSupersededPersonaReview = (
+    chunks: Chunk[],
+    chunk: Chunk,
+    index: number,
+): boolean => {
+    if (chunk.type !== "persona_review") return false;
+    for (let next = index + 1; next < chunks.length; next += 1) {
+        const candidate = chunks[next];
+        if (
+            candidate.type === "persona_review" &&
+            candidate.commandId === chunk.commandId
+        ) {
+            return true;
+        }
+    }
+    return false;
+};
+
+/** Decides whether a chunk should remain visible when constructing chronological segments. */
+const isSegmentChunkVisible = (
+    chunk: Chunk,
+    browsing: boolean,
+    isGenerating?: boolean,
+): boolean => {
+    if (browsing && (chunk.type === "think" || chunk.type === "thought")) {
+        return false;
+    }
+    if (WORKFLOW_CHUNK_TYPES.has(chunk.type)) {
+        return isRenderableWorkflowBlock(chunk, isGenerating);
+    }
+    return true;
+};
+
+/** Type-guards whether a `Segment` is a `WorkflowSegment`. */
+const isWorkflowSegment = (segment: Segment): segment is WorkflowSegment =>
+    segment.kind === "workflow";
+
+/** Finds the last segment index matching `predicate`, or `-1` when absent. */
+const findLastSegmentIndex = (
+    segments: Segment[],
+    predicate: (segment: Segment) => boolean,
+): number => {
+    for (let i = segments.length - 1; i >= 0; i -= 1) {
+        if (predicate(segments[i])) return i;
+    }
+    return -1;
+};
+
+/** Checks whether a segment is a `browse_session` chunk segment. */
+const isBrowseSessionSegment = (segment: Segment): boolean =>
+    segment.kind === "chunk" && segment.chunk.type === "browse_session";
+
+/** Checks whether the trailing segment is actively streaming non-empty prose. */
+const isTrailingProseStreaming = (lastSegment: Segment | undefined): boolean => {
+    if (lastSegment?.kind !== "chunk" || lastSegment.chunk.type !== "text") {
+        return false;
+    }
+    return Boolean(lastSegment.chunk.content?.trim());
+};
+
+/** Checks whether a workflow block is awaiting user approval. */
+const isPendingWorkflowApprovalBlock = (block: Chunk): boolean =>
+    DEDUPABLE_COMMAND_TYPES.has(block.type) && block.commandStatus === "pending";
+
+/** Checks whether any chunk of `targetType` in `chunks` is currently `"pending"`. */
+const hasPendingChunkOfType = (
+    chunks: Chunk[],
+    targetType: Chunk["type"],
+): boolean =>
+    chunks.some(
+        (chunk) => chunk.type === targetType && chunk.commandStatus === "pending",
+    );
+
+/** Resolves the pending approval label when any interactive gate is waiting on the user. */
+const resolvePendingApprovalLabel = (
+    workflowSegments: WorkflowSegment[],
+    contentChunks: Chunk[],
+): string | undefined => {
+    if (hasPendingChunkOfType(contentChunks, "question")) {
+        return "Waiting for your answers";
+    }
+    if (hasPendingChunkOfType(contentChunks, "design_previews")) {
+        return "Waiting for you to pick a design";
+    }
+    const workflowPending = workflowSegments.some((seg) =>
+        seg.blocks.some(isPendingWorkflowApprovalBlock),
+    );
+    return workflowPending ? "Waiting for approval" : undefined;
+};
+
+/** Checks whether a chunk represents a file edit (`edit` or `edit_pending`). */
+const isEditChunk = (chunk: Chunk | undefined): boolean =>
+    chunk?.type === "edit" || chunk?.type === "edit_pending";
+
+/** Finds the basename of the latest edited file in the trailing workflow segment. */
+const findLatestEditedBasename = (blocks: Chunk[] | undefined): string => {
+    if (!blocks) return "file";
+    for (let i = blocks.length - 1; i >= 0; i -= 1) {
+        const file = isEditChunk(blocks[i]) ? blocks[i].file : undefined;
+        const name = file?.split(/[\\/]/).pop();
+        if (name) return name;
+    }
+    return "file";
+};
+
+/** Checks whether the trailing workflow block is an active reasoning block. */
+const isActivelyThinkingBlock = (
+    lastBlock: Chunk | undefined,
+    isGenerating?: boolean,
+): boolean => {
+    if (!isGenerating || !lastBlock?.isGenerating) return false;
+    return lastBlock.type === "think" || lastBlock.type === "thought";
+};
+
+/** Resolves the fallback live status label when no approval or file-edit state applies. */
+const resolveGeneralActivityLabel = (
+    activityLabel: string | null | undefined,
+    isThinking: boolean,
+    hasWorkflows: boolean,
+): string | undefined => {
+    const trimmed = activityLabel?.trim();
+    if (trimmed) return trimmed;
+    if (isThinking) return "Thinking";
+    return hasWorkflows ? "Working" : undefined;
+};
+
+/** Computes the live `GeneratingIndicator` status label for the current message state. */
+const resolveLiveStatusLabel = (
+    pendingLabel: string | undefined,
+    workflowSegments: WorkflowSegment[],
+    activityLabel: string | null | undefined,
+    isGenerating?: boolean,
+): string | undefined => {
+    if (pendingLabel) return pendingLabel;
+    const trailingBlocks = workflowSegments.at(-1)?.blocks;
+    const lastWorkflowBlock = trailingBlocks?.at(-1);
+    if (isEditChunk(lastWorkflowBlock) || /\bedit/i.test(activityLabel ?? "")) {
+        return `Editing ${findLatestEditedBasename(trailingBlocks)}`;
+    }
+    return resolveGeneralActivityLabel(
+        activityLabel,
+        isActivelyThinkingBlock(lastWorkflowBlock, isGenerating),
+        workflowSegments.length > 0,
+    );
+};
+
+/** Renders a plain-text Markdown chunk segment. */
+const renderTextChunkView: ChunkViewRenderer = (chunk, ctx) => {
+    const text = chunk.content;
+    if (!text?.trim()) return null;
+    return (
+        <div
+            className={cn(
+                "text-sm font-medium text-text-primary leading-[var(--conversation-line-height)] mb-0 w-full overflow-hidden prose-compact chat-markdown",
+                ctx.isGenerating && ctx.isLastSegment && "t-step-enter",
+            )}
+        >
+            <ChatMarkdown
+                content={text}
+                isGenerating={ctx.isGenerating}
+                isLast={ctx.isLastSegment}
+            />
+        </div>
+    );
+};
+
+/** Renders a saved implementation plan card chunk. */
+const renderPlanSavedChunkView: ChunkViewRenderer = (chunk) => (
+    <PlanSavedBlock
+        title={chunk.content ?? "Implementation Plan"}
+        path={chunk.file ?? ""}
+        markdown={chunk.planMarkdown}
+    />
+);
+
+/** Parses `<step status="...">...</step>` tags inside a `<plan>` chunk. */
+const parsePlanSteps = (
+    blockContent: string,
+): Array<{ status: TodoStepStatus; label: string }> => {
+    const matches = [
+        ...blockContent.matchAll(/<step\s+status="([^"]*)">([\s\S]*?)<\/step>/g),
+    ];
+    return matches.map((match) => ({
+        status: match[1] as TodoStepStatus,
+        label: match[2].trim(),
+    }));
+};
+
+/** Renders a `<plan>` step-progress block. */
+const renderPlanChunkView: ChunkViewRenderer = (chunk, ctx) => {
+    const steps = parsePlanSteps(chunk.content ?? "");
+    const completedCount = steps.filter((step) => step.status === "done").length;
+    return (
+        <PlanningBlock
+            title={chunk.file ?? "Plan"}
+            steps={steps}
+            completedCount={completedCount}
+            totalCount={steps.length}
+            isGenerating={ctx.isGenerating}
+        />
+    );
+};
+
+/** Renders a `<todos>` checklist block when todo items are present. */
+const renderTodosChunkView: ChunkViewRenderer = (chunk, ctx) => {
+    if (!chunk.todos?.length) return null;
+    const steps = chunk.todos.map((todo) => ({
+        status: todo.status,
+        label: todo.label,
+    }));
+    const completedCount = steps.filter((step) => step.status === "done").length;
+    return (
+        <PlanningBlock
+            title={chunk.content ?? "Todos"}
+            steps={steps}
+            completedCount={completedCount}
+            totalCount={steps.length}
+            isGenerating={ctx.isGenerating}
+        />
+    );
+};
+
+/** Renders ONLY the latest `<browse_session>` frame in a message with live follow active. */
+const renderBrowseSessionChunkView: ChunkViewRenderer = (chunk, ctx) => {
+    if (ctx.pos !== ctx.lastBrowseIndex) return null;
+    const parsed = parseCardJson<{
+        image?: string;
+        x?: number;
+        y?: number;
+        console?: string[];
+    }>(chunk.content);
+    return (
+        <BrowseChatCard
+            url={chunk.visitUrl}
+            title={chunk.visitTitle}
+            status={chunk.commandStatus}
+            image={parsed?.image ?? ""}
+            x={parsed?.x}
+            y={parsed?.y}
+            consoleLines={parsed?.console}
+            followLive
+        />
+    );
+};
+
+/** Renders a `<sent_file>` attachment card. */
+const renderSentFileChunkView: ChunkViewRenderer = (chunk) => (
+    <SentFileCard
+        name={chunk.file ?? "File"}
+        title={chunk.mediaPrompt}
+        mime={chunk.query ?? ""}
+        src={chunk.content ?? ""}
+    />
+);
+
+/** Renders an inline `<attached_image>` preview when `src` is non-empty. */
+const renderAttachedImageChunkView: ChunkViewRenderer = (chunk) => {
+    const src = chunk.content?.trim() ?? "";
+    if (!src) return null;
+    return (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+            src={src}
+            alt={chunk.file ?? ""}
+            className="my-2 max-h-80 max-w-[420px] rounded-xl border border-border-subtle object-contain"
+        />
+    );
+};
+
+/** Formats the summary text line for a `<design_previews>` chunk. */
+const formatDesignPreviewsSummary = (
+    previews: DesignPreviewItem[],
+): string => {
+    const names = previews
+        .map((preview) => preview.name)
+        .filter(Boolean)
+        .join(" · ");
+    if (names) return names;
+    const count = previews.length;
+    return `${count} design concept${count === 1 ? "" : "s"}`;
+};
+
+/** Renders a `<design_previews>` caption summary when at least one preview exists. */
+const renderDesignPreviewsChunkView: ChunkViewRenderer = (chunk) => {
+    const previews = chunk.designPreviews;
+    if (!previews?.length) return null;
+    return (
+        <p className="my-1 text-sm text-text-muted">
+            {formatDesignPreviewsSummary(previews)}
+        </p>
+    );
+};
+
+/** Renders a generated SVG, image, or audio media card. */
+const renderGeneratedMediaChunkView: ChunkViewRenderer = (chunk) => (
+    <GeneratedMediaCard
+        kind={GENERATED_MEDIA_KINDS[chunk.type as GeneratedMediaChunkType]}
+        src={chunk.content}
+        prompt={chunk.mediaPrompt ?? chunk.query}
+        credits={chunk.mediaCredits}
+        loading={Boolean(chunk.isGenerating) && !chunk.content?.trim()}
+    />
+);
+
+/** Renders an adversarial `<review_debate>` panel. */
+const renderReviewDebateChunkView: ChunkViewRenderer = (chunk) => (
+    <ReviewDebatePanel
+        content={chunk.content ?? ""}
+        model={chunk.reviewModel}
+    />
+);
+
+/** Renders a `<persona_review>` panel. */
+const renderPersonaReviewChunkView: ChunkViewRenderer = (chunk) => (
+    <PersonaReviewPanel
+        reviewId={chunk.commandId}
+        url={chunk.visitUrl}
+        status={chunk.commandStatus}
+        content={chunk.content ?? ""}
+    />
+);
+
+/** Renders an interactive `<question>` / `<questions>` card. */
+const renderQuestionChunkView: ChunkViewRenderer = (chunk) => (
+    <QuestionsCard
+        askId={chunk.commandId}
+        status={chunk.commandStatus}
+        questions={chunk.questions ?? []}
+        answers={chunk.answers}
+    />
+);
+
+const CHUNK_VIEW_RENDERERS: Partial<Record<Chunk["type"], ChunkViewRenderer>> = {
+    text: renderTextChunkView,
+    plan_saved: renderPlanSavedChunkView,
+    plan: renderPlanChunkView,
+    todos: renderTodosChunkView,
+    chart: (chunk) => <ChartBlock content={chunk.content} />,
+    insight_card: (chunk) => <InsightCard content={chunk.content} />,
+    browse_session: renderBrowseSessionChunkView,
+    sent_file: renderSentFileChunkView,
+    attached_image: renderAttachedImageChunkView,
+    design_previews: renderDesignPreviewsChunkView,
+    generated_svg: renderGeneratedMediaChunkView,
+    generated_image: renderGeneratedMediaChunkView,
+    generated_audio: renderGeneratedMediaChunkView,
+    review_debate: renderReviewDebateChunkView,
+    persona_review: renderPersonaReviewChunkView,
+    question: renderQuestionChunkView,
+};
+
+/** Resolves the fallback signature hint from a standalone chunk's path, URL, or content prefix. */
+const resolveChunkSignatureHint = (chunk: Chunk): string => {
+    const primary = chunk.file ?? chunk.visitUrl;
+    return primary ?? captureOrEmpty(chunk.content).slice(0, 24);
+};
+
+/** Derives a stable, collision-safe React key token for a chronological segment. */
+const deriveSegmentSignature = (segment: Segment): string => {
+    if (segment.kind === "workflow") {
+        return `wf:${segment.blocks.length}`;
+    }
+    const { chunk } = segment;
+    if (chunk.commandId) {
+        return `${chunk.type}:${chunk.commandId}`;
+    }
+    return `${chunk.type}:${resolveChunkSignatureHint(chunk)}`;
+};
+
+/** Renders a workflow summary segment inside `MessageSegmentView`. */
+const renderWorkflowSegmentElement = (
+    blocks: Chunk[],
+    pos: number,
+    firstWorkflowIndex: number,
+    lastWorkflowIndex: number,
+    isGenerating?: boolean,
+    durationMs?: number,
+    activityLabel?: string | null,
+): React.ReactElement => {
+    const isLastWf = pos === lastWorkflowIndex;
+    return (
+        <TurnWorkflowSummary
+            blocks={blocks}
+            isActive={Boolean(isGenerating) && isLastWf}
+            durationMs={pos === firstWorkflowIndex ? durationMs : undefined}
+            activityLabel={isLastWf ? activityLabel : null}
+        />
+    );
+};
+
+/** Renders a single chronological workflow or standalone chunk segment. */
+const MessageSegmentView = ({
+    segment,
+    pos,
+    segmentsLength,
+    firstWorkflowIndex,
+    lastWorkflowIndex,
+    lastBrowseIndex,
+    isGenerating,
+    durationMs,
+    activityLabel,
+}: {
+    segment: Segment;
+    pos: number;
+    segmentsLength: number;
+    firstWorkflowIndex: number;
+    lastWorkflowIndex: number;
+    lastBrowseIndex: number;
+    isGenerating?: boolean;
+    durationMs?: number;
+    activityLabel?: string | null;
+}): React.ReactElement | null => {
+    if (segment.kind === "workflow") {
+        return renderWorkflowSegmentElement(
+            segment.blocks,
+            pos,
+            firstWorkflowIndex,
+            lastWorkflowIndex,
+            isGenerating,
+            durationMs,
+            activityLabel,
+        );
+    }
+    const renderer = CHUNK_VIEW_RENDERERS[segment.chunk.type];
+    if (!renderer) return null;
+    return renderer(segment.chunk, {
+        pos,
+        lastBrowseIndex,
+        isGenerating,
+        isLastSegment: pos === segmentsLength - 1,
+    });
+};
 
 /** Renders the MessageRenderer UI component. */
 export const MessageRenderer = ({
@@ -1026,313 +1808,75 @@ export const MessageRenderer = ({
     durationMs?: number;
     skipSubagentSync?: boolean;
 }) => {
-    const chunks = useMemo(() => {
-        const parsed = parseMessageContent(content);
-        if (isGenerating) return parsed;
-        return parsed.map((c) => (c.isGenerating ? { ...c, isGenerating: false } : c));
-    }, [content, isGenerating]);
+    const chunks = useMemo(
+        () => finalizeParsedChunks(parseMessageContent(content), isGenerating),
+        [content, isGenerating],
+    );
 
     useEffect(() => {
-        if (skipSubagentSync) return;
-        syncSubagentsFromChunks(chunks, Boolean(isGenerating));
+        if (!skipSubagentSync) {
+            syncSubagentsFromChunks(chunks, Boolean(isGenerating));
+        }
     }, [chunks, isGenerating, skipSubagentSync]);
 
     const contentChunks = useMemo(() => {
         const merged = mergeAdjacentTextChunks(chunks);
-        // A running persona review is superseded by the final block with the same id.
         return merged.filter(
-            (c, i) =>
-                c.type !== 'persona_review'
-                || !merged.some((o, j) => j > i && o.type === 'persona_review' && o.commandId === c.commandId),
+            (chunk, index) => !isSupersededPersonaReview(merged, chunk, index),
         );
     }, [chunks]);
-    const browsing = contentChunks.some((c) => c.type === "browse_session");
 
-    // Chronological segments so mid-turn prose sits between tool groups (Cursor-style).
+    const browsing = contentChunks.some((chunk) => chunk.type === "browse_session");
+
     const segments = useMemo(
         () =>
             buildSegments(
-                contentChunks.filter((c) => {
-                    if (browsing && (c.type === "think" || c.type === "thought")) return false;
-                    if (WORKFLOW_CHUNK_TYPES.has(c.type)) {
-                        return isRenderableWorkflowBlock(c, isGenerating);
-                    }
-                    return true;
-                }),
+                contentChunks.filter((chunk) =>
+                    isSegmentChunkVisible(chunk, browsing, isGenerating),
+                ),
             ),
         [contentChunks, isGenerating, browsing],
     );
 
-    const workflowSegments = segments.filter((s): s is Extract<Segment, { kind: "workflow" }> => s.kind === "workflow");
-    const firstWorkflowIndex = segments.findIndex((s) => s.kind === "workflow");
-    const lastWorkflowIndex = (() => {
-        for (let i = segments.length - 1; i >= 0; i--) {
-            if (segments[i]?.kind === "workflow") return i;
-        }
-        return -1;
-    })();
+    const workflowSegments = segments.filter(isWorkflowSegment);
+    const firstWorkflowIndex = segments.findIndex(isWorkflowSegment);
+    const lastWorkflowIndex = findLastSegmentIndex(segments, isWorkflowSegment);
+    const lastBrowseIndex = findLastSegmentIndex(segments, isBrowseSessionSegment);
 
-    const lastBrowseIndex = (() => {
-        for (let i = segments.length - 1; i >= 0; i--) {
-            const segment = segments[i];
-            if (segment?.kind === "chunk" && segment.chunk.type === "browse_session") return i;
-        }
-        return -1;
-    })();
-
-    const lastSegment = segments[segments.length - 1];
-    const proseIsStreaming =
-        lastSegment?.kind === 'chunk'
-        && lastSegment.chunk.type === 'text'
-        && Boolean(lastSegment.chunk.content?.trim());
-    const hasPendingApproval =
-        workflowSegments.some((s) =>
-            s.blocks.some(
-                (b) =>
-                    (b.type === 'terminal_command' || b.type === 'edit_pending' || b.type === 'plugin_call')
-                    && b.commandStatus === 'pending',
-            ),
-        )
-        || contentChunks.some((b) => b.type === 'question' && b.commandStatus === 'pending')
-        || contentChunks.some((b) => b.type === 'design_previews' && b.commandStatus === 'pending');
-    const lastWorkflowBlock = workflowSegments.at(-1)?.blocks.at(-1);
-    const isThinking = Boolean(isGenerating)
-        && (lastWorkflowBlock?.type === 'think' || lastWorkflowBlock?.type === 'thought')
-        && Boolean(lastWorkflowBlock.isGenerating);
-    const lastIsEdit = lastWorkflowBlock?.type === "edit" || lastWorkflowBlock?.type === "edit_pending";
-    const activityIsEdit = /\bedit/i.test(activityLabel ?? "");
-    const editFileName = [...(workflowSegments.at(-1)?.blocks ?? [])]
-        .reverse()
-        .find((b) => b.type === "edit" || b.type === "edit_pending")
-        ?.file?.split(/[\\/]/).pop();
-    const statusLabel = hasPendingApproval
-        ? (contentChunks.some((b) => b.type === 'question' && b.commandStatus === 'pending')
-            ? "Waiting for your answers"
-            : contentChunks.some((b) => b.type === 'design_previews' && b.commandStatus === 'pending')
-              ? "Waiting for you to pick a design"
-              : "Waiting for approval")
-        : lastIsEdit || activityIsEdit
-          ? `Editing ${editFileName || "file"}`
-          : (activityLabel?.trim() || (isThinking ? "Thinking" : (workflowSegments.length > 0 ? "Working" : undefined)));
+    const pendingLabel = resolvePendingApprovalLabel(
+        workflowSegments,
+        contentChunks,
+    );
+    const statusLabel = resolveLiveStatusLabel(
+        pendingLabel,
+        workflowSegments,
+        activityLabel,
+        isGenerating,
+    );
     const showStatusLine =
-        Boolean(isGenerating)
-        && !proseIsStreaming
-        && (
-            hasPendingApproval
-            || Boolean(statusLabel)
-        );
+        Boolean(isGenerating) &&
+        !isTrailingProseStreaming(segments.at(-1)) &&
+        Boolean(statusLabel);
 
     const segmentKey = createOccurrenceKeyer();
-    const renderedSegments = segments.map((segment, pos) => {
-        const isLastSegment = pos === segments.length - 1;
-
-        if (segment.kind === 'workflow') {
-            const isFirst = pos === firstWorkflowIndex;
-            const isLastWf = pos === lastWorkflowIndex;
-            return (
-                <TurnWorkflowSummary
-                    key={segmentKey(`wf:${segment.blocks.length}`)}
-                    blocks={segment.blocks}
-                    isActive={Boolean(isGenerating) && isLastWf}
-                    durationMs={isFirst ? durationMs : undefined}
-                    activityLabel={isLastWf ? activityLabel : null}
-                />
-            );
-        }
-
-        const chunk = segment.chunk;
-        if (chunk.type === 'text') {
-            const text = chunk.content;
-            if (!text?.trim()) return null;
-            return (
-                <div
-                    key={segmentKey(`text:${text.slice(0, 24)}`)}
-                    className={cn(
-                        "text-sm font-medium text-text-primary leading-[var(--conversation-line-height)] mb-0 w-full overflow-hidden prose-compact chat-markdown",
-                        isGenerating && isLastSegment && "t-step-enter",
-                    )}
-                >
-                    <ChatMarkdown content={text} isGenerating={isGenerating} isLast={isLastSegment} />
-                </div>
-            );
-        }
-        if (chunk.type === 'plan_saved') {
-            const title = chunk.content || 'Implementation Plan';
-            const path = chunk.file || '';
-            return (
-                <PlanSavedBlock
-                    key={segmentKey(`plan-saved:${path || title}`)}
-                    title={title}
-                    path={path}
-                    markdown={chunk.planMarkdown}
-                />
-            );
-        }
-        if (chunk.type === 'plan') {
-            const blockContent = chunk.content || '';
-            const title = chunk.file || 'Plan';
-            const stepMatches = [...blockContent.matchAll(/<step\s+status="([^"]*)">([\s\S]*?)<\/step>/g)];
-            const steps = stepMatches.map((m) => ({
-                status: m[1] as "done" | "active" | "pending" | "cancelled",
-                label: m[2].trim(),
-            }));
-            const completedCount = steps.filter((s) => s.status === 'done').length;
-            return (
-                <PlanningBlock
-                    key={segmentKey(`plan:${title}`)}
-                    title={title}
-                    steps={steps}
-                    completedCount={completedCount}
-                    totalCount={steps.length}
-                    isGenerating={isGenerating}
-                />
-            );
-        }
-        if (chunk.type === 'todos' && chunk.todos?.length) {
-            const steps = chunk.todos.map((t) => ({
-                status: t.status,
-                label: t.label,
-            }));
-            const completedCount = steps.filter((s) => s.status === 'done').length;
-            return (
-                <PlanningBlock
-                    key={segmentKey(`todos:${chunk.content || "todos"}`)}
-                    title={chunk.content || 'Todos'}
-                    steps={steps}
-                    completedCount={completedCount}
-                    totalCount={steps.length}
-                    isGenerating={isGenerating}
-                />
-            );
-        }
-        if (chunk.type === 'chart') {
-            return <ChartBlock key={segmentKey(`chart:${(chunk.content || "").slice(0, 24)}`)} content={chunk.content} />;
-        }
-        if (chunk.type === 'insight_card') {
-            return <InsightCard key={segmentKey(`insight:${(chunk.content || "").slice(0, 24)}`)} content={chunk.content} />;
-        }
-        if (chunk.type === 'browse_session') {
-            if (pos !== lastBrowseIndex) return null;
-            let image = "";
-            let x: number | undefined;
-            let y: number | undefined;
-            let consoleLines: string[] | undefined;
-            const parsed = parseCardJson<{ image?: string; x?: number; y?: number; console?: string[] }>(chunk.content);
-            if (parsed) {
-                image = parsed.image || "";
-                x = parsed.x;
-                y = parsed.y;
-                consoleLines = parsed.console;
-            }
-            return (
-                <BrowseChatCard
-                    key={segmentKey(`browse:${chunk.visitUrl || ""}`)}
-                    url={chunk.visitUrl}
-                    title={chunk.visitTitle}
-                    status={chunk.commandStatus}
-                    image={image}
-                    x={x}
-                    y={y}
-                    consoleLines={consoleLines}
-                    followLive
-                />
-            );
-        }
-        if (chunk.type === 'sent_file') {
-            return (
-                <SentFileCard
-                    key={segmentKey(`file:${chunk.file || ""}`)}
-                    name={chunk.file || "File"}
-                    title={chunk.mediaPrompt}
-                    mime={chunk.query || ""}
-                    src={chunk.content || ""}
-                />
-            );
-        }
-        if (chunk.type === 'attached_image') {
-            const src = chunk.content?.trim() || "";
-            if (!src) return null;
-            return (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                    key={segmentKey(`image:${chunk.file || src.slice(0, 24)}`)}
-                    src={src}
-                    alt={chunk.file || ""}
-                    className="my-2 max-h-80 max-w-[420px] rounded-xl border border-border-subtle object-contain"
-                />
-            );
-        }
-        if (chunk.type === 'design_previews') {
-            const n = chunk.designPreviews?.length ?? 0;
-            if (n === 0) return null;
-            const names = (chunk.designPreviews || [])
-                .map((p) => p.name)
-                .filter(Boolean)
-                .join(" · ");
-            return (
-                <p key={segmentKey(`design-previews:${names || String(n)}`)} className="my-1 text-sm text-text-muted">
-                    {names || `${n} design concept${n === 1 ? "" : "s"}`}
-                </p>
-            );
-        }
-        if (chunk.type === 'generated_svg' || chunk.type === 'generated_image' || chunk.type === 'generated_audio') {
-            return (
-                <GeneratedMediaCard
-                    key={segmentKey(`media:${chunk.type}:${(chunk.mediaPrompt || chunk.query || "").slice(0, 24)}`)}
-                    kind={
-                        chunk.type === "generated_svg"
-                            ? "svg"
-                            : chunk.type === "generated_audio"
-                              ? "audio"
-                              : "image"
-                    }
-                    src={chunk.content}
-                    prompt={chunk.mediaPrompt || chunk.query}
-                    credits={chunk.mediaCredits}
-                    loading={Boolean(chunk.isGenerating) && !chunk.content?.trim()}
-                />
-            );
-        }
-        if (chunk.type === 'review_debate') {
-            return (
-                <ReviewDebatePanel
-                    key={segmentKey(`review-debate:${chunk.reviewModel || ""}`)}
-                    content={chunk.content || ''}
-                    model={chunk.reviewModel}
-                />
-            );
-        }
-        if (chunk.type === 'persona_review') {
-            return (
-                <PersonaReviewPanel
-                    key={chunk.commandId ? `persona-review-${chunk.commandId}` : segmentKey(`persona-review:${chunk.visitUrl || ""}`)}
-                    reviewId={chunk.commandId}
-                    url={chunk.visitUrl}
-                    status={chunk.commandStatus}
-                    content={chunk.content || ''}
-                />
-            );
-        }
-        if (chunk.type === 'question') {
-            return (
-                <QuestionsCard
-                    key={chunk.commandId ? `question-${chunk.commandId}` : segmentKey("question")}
-                    askId={chunk.commandId}
-                    status={chunk.commandStatus}
-                    questions={chunk.questions || []}
-                    answers={chunk.answers}
-                />
-            );
-        }
-        return null;
-    });
 
     return (
         <div className="flex flex-col gap-0 overflow-hidden">
-            {renderedSegments}
-            {showStatusLine && (
-                <GeneratingIndicator label={statusLabel} />
-            )}
+            {segments.map((segment, pos) => (
+                <MessageSegmentView
+                    key={segmentKey(deriveSegmentSignature(segment))}
+                    segment={segment}
+                    pos={pos}
+                    segmentsLength={segments.length}
+                    firstWorkflowIndex={firstWorkflowIndex}
+                    lastWorkflowIndex={lastWorkflowIndex}
+                    lastBrowseIndex={lastBrowseIndex}
+                    isGenerating={isGenerating}
+                    durationMs={durationMs}
+                    activityLabel={activityLabel}
+                />
+            ))}
+            {showStatusLine ? <GeneratingIndicator label={statusLabel} /> : null}
         </div>
     );
 };

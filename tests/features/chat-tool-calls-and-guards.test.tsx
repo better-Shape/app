@@ -14,9 +14,17 @@ import {
 import { findTranscriptMatches } from "@/lib/chat/transcript-search";
 import { clearChatDomHighlights, syncChatDomHighlights } from "@/lib/chat/dom-highlights";
 import { ApprovalCard } from "@/features/chat/ui/blocks/approval";
+import { ChatErrorDialog } from "@/features/chat/ui/blocks/error";
+import { commandSummary } from "@/features/chat/ui/blocks/terminal-live";
 import { TurnWorkflowSummary } from "@/features/chat/ui/blocks/turn";
+import { shouldComposerBreakAll } from "@/features/chat/ui/composer/input";
+import { preprocessChatMarkdown } from "@/features/chat/ui/md/stream";
 import { ChatMarkdown } from "@/features/chat/ui/md/view";
 import { ChatMessageItem } from "@/features/chat/ui/message/item";
+import {
+    defaultProvidersSettings,
+    describeProviderSetupGap,
+} from "@/lib/ai/providers";
 import { terminalSessionStore } from "@/features/terminal/session";
 import { buildFailingTestPrompt } from "@/features/testing/ui/test-panel";
 import type { Chunk } from "@/features/chat/ui/md/renderer";
@@ -67,55 +75,57 @@ describe("Composer undo-safe insertion, prompt recall guards, and shell prompt s
         const ta = document.createElement("textarea");
         ta.value = "check docs now";
         document.body.appendChild(ta);
+        try {
+            const wrapped = tryWrapMarkdownLinkOnPaste(ta.value, 6, 10, "https://example.com");
+            if (!wrapped) throw new Error("expected wrapped markdown link");
 
-        const wrapped = tryWrapMarkdownLinkOnPaste(ta.value, 6, 10, "https://example.com");
-        if (!wrapped) throw new Error("expected wrapped markdown link");
+            const execSpy = vi.fn((cmd: string, _ui?: boolean, val?: string) => {
+                if (cmd === "insertText" && typeof val === "string") {
+                    const s = ta.selectionStart;
+                    const e = ta.selectionEnd;
+                    ta.value = `${ta.value.slice(0, s)}${val}${ta.value.slice(e)}`;
+                    return true;
+                }
+                return false;
+            });
+            Object.defineProperty(document, "execCommand", {
+                configurable: true,
+                writable: true,
+                value: execSpy,
+            });
 
-        const execSpy = vi.fn((cmd: string, _ui?: boolean, val?: string) => {
-            if (cmd === "insertText" && typeof val === "string") {
-                const s = ta.selectionStart;
-                const e = ta.selectionEnd;
-                ta.value = `${ta.value.slice(0, s)}${val}${ta.value.slice(e)}`;
-                return true;
-            }
-            return false;
-        });
-        Object.defineProperty(document, "execCommand", {
-            configurable: true,
-            writable: true,
-            value: execSpy,
-        });
+            const fallbackSpy = vi.fn();
+            insertTextareaRangeWithUndo(
+                ta,
+                wrapped.start,
+                wrapped.end,
+                wrapped.replacement,
+                wrapped.nextValue,
+                fallbackSpy,
+            );
 
-        const fallbackSpy = vi.fn();
-        insertTextareaRangeWithUndo(
-            ta,
-            wrapped.start,
-            wrapped.end,
-            wrapped.replacement,
-            wrapped.nextValue,
-            fallbackSpy,
-        );
+            expect(execSpy).toHaveBeenCalledWith("insertText", false, "[docs](https://example.com)");
+            expect(fallbackSpy).not.toHaveBeenCalled();
+            expect(ta.value).toBe("check [docs](https://example.com) now");
 
-        expect(execSpy).toHaveBeenCalledWith("insertText", false, "[docs](https://example.com)");
-        expect(fallbackSpy).not.toHaveBeenCalled();
-        expect(ta.value).toBe("check [docs](https://example.com) now");
+            // Same-text native replacement (`ta.value === fallbackNextValue`) still preserves native undo without fallback.
+            insertTextareaRangeWithUndo(ta, 0, 5, "check", ta.value, fallbackSpy);
+            expect(fallbackSpy).not.toHaveBeenCalled();
 
-        // Same-text native replacement (`ta.value === fallbackNextValue`) still preserves native undo without fallback.
-        insertTextareaRangeWithUndo(ta, 0, 5, "check", ta.value, fallbackSpy);
-        expect(fallbackSpy).not.toHaveBeenCalled();
-
-        // Stubbed `execCommand` returning `true` without updating DOM falls back cleanly.
-        execSpy.mockImplementationOnce(() => true);
-        insertTextareaRangeWithUndo(
-            ta,
-            0,
-            5,
-            "verify",
-            "verify [docs](https://example.com) now",
-            fallbackSpy,
-        );
-        expect(fallbackSpy).toHaveBeenCalledWith("verify [docs](https://example.com) now", 6);
-        ta.remove();
+            // Stubbed `execCommand` returning `true` without updating DOM falls back cleanly.
+            execSpy.mockImplementationOnce(() => true);
+            insertTextareaRangeWithUndo(
+                ta,
+                0,
+                5,
+                "verify",
+                "verify [docs](https://example.com) now",
+                fallbackSpy,
+            );
+            expect(fallbackSpy).toHaveBeenCalledWith("verify [docs](https://example.com) now", 6);
+        } finally {
+            ta.remove();
+        }
     });
 
     it("stashes non-empty unsent drafts at caret 0 and protects customized recalled prompts from Escape overwrite", () => {
@@ -169,31 +179,35 @@ describe("Sub-node CSS.highlights search and case sensitivity", () => {
 
         const container = document.createElement("div");
         container.innerHTML = `
+            <div data-recent-banner>TokenStore banner outside indexed rows</div>
             <div data-chat-message-index="0"><p>Check TokenStore vs tokenstore</p></div>
             <div data-chat-message-index="1"><p>Updated TokenStore and tokenstore.</p><button>TokenStore</button></div>
         `;
         document.body.appendChild(container);
-        const secondP = container.querySelectorAll("p")[1];
-        if (!secondP) throw new Error("expected second paragraph");
-        const paragraphNodeBefore = secondP.firstChild;
+        try {
+            const secondP = container.querySelectorAll("p")[1];
+            if (!secondP) throw new Error("expected second paragraph");
+            const paragraphNodeBefore = secondP.firstChild;
 
-        const { ranges, activeRange } = syncChatDomHighlights(container, "TokenStore", {
-            caseSensitive: true,
-            targetMessageIndex: 1,
-            targetOccurrenceInMessage: 0,
-        });
+            const { ranges, activeRange } = syncChatDomHighlights(container, "TokenStore", {
+                caseSensitive: true,
+                targetMessageIndex: 1,
+                targetOccurrenceInMessage: 0,
+            });
 
-        // Skips <button> chrome and preserves exact Text node identity without <mark> splitting!
-        expect(ranges).toHaveLength(2);
-        expect(activeRange?.toString()).toBe("TokenStore");
-        expect(container.querySelectorAll("p")[1]?.firstChild).toBe(paragraphNodeBefore);
-        expect(setSpy).toHaveBeenCalledWith("chat-find", expect.any(FakeHighlight));
-        expect(setSpy).toHaveBeenCalledWith("chat-find-active", expect.any(FakeHighlight));
+            // Skips unindexed banners + <button> chrome and preserves exact Text node identity without <mark> splitting!
+            expect(ranges).toHaveLength(2);
+            expect(activeRange?.toString()).toBe("TokenStore");
+            expect(container.querySelectorAll("p")[1]?.firstChild).toBe(paragraphNodeBefore);
+            expect(setSpy).toHaveBeenCalledWith("chat-find", expect.any(FakeHighlight));
+            expect(setSpy).toHaveBeenCalledWith("chat-find-active", expect.any(FakeHighlight));
 
-        clearChatDomHighlights();
-        expect(deleteSpy).toHaveBeenCalledWith("chat-find");
-        expect(deleteSpy).toHaveBeenCalledWith("chat-find-active");
-        container.remove();
+            clearChatDomHighlights();
+            expect(deleteSpy).toHaveBeenCalledWith("chat-find");
+            expect(deleteSpy).toHaveBeenCalledWith("chat-find-active");
+        } finally {
+            container.remove();
+        }
     });
 });
 
@@ -202,16 +216,14 @@ describe("HITL single-owner shortcuts, tool-call presentation, and workbench bri
         const acceptFirst = vi.fn();
         const acceptSecond = vi.fn();
 
-        function Harness({ showFirst }: { showFirst: boolean }) {
-            return (
-                <div>
-                    {showFirst ? (
-                        <ApprovalCard title="Approve db migration" onAccept={acceptFirst} onSkip={() => {}} />
-                    ) : null}
-                    <ApprovalCard title="Approve deploy" onAccept={acceptSecond} onSkip={() => {}} />
-                </div>
-            );
-        }
+        const Harness = ({ showFirst }: { showFirst: boolean }) => (
+            <div>
+                {showFirst ? (
+                    <ApprovalCard title="Approve db migration" onAccept={acceptFirst} onSkip={() => {}} />
+                ) : null}
+                <ApprovalCard title="Approve deploy" onAccept={acceptSecond} onSkip={() => {}} />
+            </div>
+        );
 
         const el = mount(<Harness showFirst />);
         expect(el.querySelectorAll("[data-pending-approval='true']")).toHaveLength(2);
@@ -285,17 +297,19 @@ describe("HITL single-owner shortcuts, tool-call presentation, and workbench bri
         const openEvents: Event[] = [];
         const onOpen = (e: Event) => openEvents.push(e);
         window.addEventListener("bettershape-open-workspace-terminal", onOpen);
+        try {
+            const el = mount(<ChatMarkdown content={"```bash\n$ npm run lint:strict\n```"} />);
+            const insertBtn = el.querySelector<HTMLButtonElement>('button[aria-label="Insert in terminal"]');
+            if (!insertBtn) throw new Error("expected Insert in terminal button");
 
-        const el = mount(<ChatMarkdown content={"```bash\n$ npm run lint:strict\n```"} />);
-        const insertBtn = el.querySelector<HTMLButtonElement>('button[aria-label="Insert in terminal"]');
-        if (!insertBtn) throw new Error("expected Insert in terminal button");
-
-        act(() => {
-            insertBtn.click();
-        });
-        expect(openEvents).toHaveLength(1);
-        expect(terminalSessionStore.takePendingCommandInsert()).toBe("npm run lint:strict");
-        window.removeEventListener("bettershape-open-workspace-terminal", onOpen);
+            act(() => {
+                insertBtn.click();
+            });
+            expect(openEvents).toHaveLength(1);
+            expect(terminalSessionStore.takePendingCommandInsert()).toBe("npm run lint:strict");
+        } finally {
+            window.removeEventListener("bettershape-open-workspace-terminal", onOpen);
+        }
     });
 
     it("builds @file-scoped repair prompts from failing tests", () => {
@@ -369,3 +383,89 @@ describe("HITL single-owner shortcuts, tool-call presentation, and workbench bri
         expect(onRedo).not.toHaveBeenCalled();
     });
 });
+
+describe("Regression guards for error details, grapheme truncation, HTML tag boundaries, and provider setup gaps", () => {
+    it("preserves raw provider error details alongside classified descriptions in ChatErrorDialog", () => {
+        mount(
+            <ChatErrorDialog
+                message="401 invalid_api_key: model 'gpt-5-private' rejected for key sk-***9a"
+                onDismiss={() => {}}
+            />,
+        );
+        const bodyText = document.body.textContent ?? "";
+        expect(bodyText).toContain("model 'gpt-5-private' rejected");
+    });
+
+    it("truncates terminal command summaries on grapheme cluster boundaries without splitting surrogates or ZWJ emoji", () => {
+        const prefix = "a".repeat(52);
+        const familyEmoji = "👨‍👩‍👧‍👦";
+        const summary = commandSummary(`${prefix}${familyEmoji}tail`);
+        expect(summary).toBe(`${prefix}${familyEmoji}...`);
+        expect(summary.includes("\uFFFD")).toBe(false);
+    });
+
+    it("restricts composer break-all to single-line unbroken tokens with leading whitespace", () => {
+        expect(shouldComposerBreakAll("   https://example.com/very/long/token")).toBe(true);
+        expect(
+            shouldComposerBreakAll("   https://example.com/very/long/token\nnormal prose line"),
+        ).toBe(false);
+        expect(shouldComposerBreakAll("   normal multi word prose")).toBe(false);
+    });
+
+    it("ignores > inside quoted attributes across lines and preserves <scriptx> prose while stripping <script>", () => {
+        const withQuotedGt = preprocessChatMarkdown(
+            '<div data-expr="a > b">kept text</div>',
+        );
+        expect(withQuotedGt).toBe("kept text");
+
+        const multiLineAttr = preprocessChatMarkdown(
+            '<div\n  data-expr="a > b"\n  class="card">multi kept</div>',
+        );
+        expect(multiLineAttr).toBe("multi kept");
+
+        const brokenQuotePairedTag = preprocessChatMarkdown(
+            '<iframe\n  data-broken="unclosed\n  srcdoc="a > b">hidden</iframe>kept',
+        );
+        expect(brokenQuotePairedTag).toBe("kept");
+
+        const customTag = preprocessChatMarkdown("<scriptx>safe body</scriptx>");
+        expect(customTag).toContain("safe body");
+
+        const scriptWithLookalikeCloser = preprocessChatMarkdown(
+            "before<script>evil()</scriptx>stillEvil()</script>after",
+        );
+        expect(scriptWithLookalikeCloser).toBe("beforeafter");
+    });
+
+    it("distinguishes missing model IDs from missing base URLs and missing API keys in describeProviderSetupGap", () => {
+        const empty = defaultProvidersSettings();
+        expect(describeProviderSetupGap(empty)).toBe(
+            "Add an API key in Settings -> Providers",
+        );
+
+        const customNoModels = defaultProvidersSettings();
+        customNoModels.connections.custom = {
+            ...customNoModels.connections.custom,
+            enabled: true,
+            authStyle: "none",
+            baseUrl: "http://127.0.0.1:8080/v1",
+            extraModels: [],
+        };
+        expect(describeProviderSetupGap(customNoModels)).toBe(
+            "Add a model ID in Settings -> Providers",
+        );
+
+        const customMissingUrl = defaultProvidersSettings();
+        customMissingUrl.connections.custom = {
+            ...customMissingUrl.connections.custom,
+            enabled: true,
+            authStyle: "none",
+            baseUrl: "   ",
+            extraModels: [],
+        };
+        expect(describeProviderSetupGap(customMissingUrl)).toBe(
+            "Set a base URL and model ID in Settings -> Providers",
+        );
+    });
+});
+

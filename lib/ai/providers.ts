@@ -791,41 +791,6 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
   },
 ];
 
-/** Presets in display order, bucketed by their `group` heading. */
-export function providerGroups(): { group: string; presets: ProviderPreset[] }[] {
-  const out: { group: string; presets: ProviderPreset[] }[] = [];
-  for (const preset of PROVIDER_PRESETS) {
-    let bucket = out.find((entry) => entry.group === preset.group);
-    if (!bucket) {
-      bucket = { group: preset.group, presets: [] };
-      out.push(bucket);
-    }
-    bucket.presets.push(preset);
-  }
-  return out;
-}
-
-/** Free-text match over a preset's name, id, group and models. */
-export function matchesProviderQuery(preset: ProviderPreset, query: string): boolean {
-  const needle = query.trim().toLowerCase();
-  if (!needle) return true;
-  if (
-    preset.label.toLowerCase().includes(needle) ||
-    preset.id.includes(needle) ||
-    preset.group.toLowerCase().includes(needle)
-  ) {
-    return true;
-  }
-  return preset.models.some(
-    (model) => model.id.toLowerCase().includes(needle) || model.name.toLowerCase().includes(needle),
-  );
-}
-
-/** Returns the built-in preset metadata for a known AI provider identifier. */
-export function providerPreset(id: ProviderId): ProviderPreset {
-  return PROVIDER_PRESETS.find((p) => p.id === id) ?? PROVIDER_PRESETS[PROVIDER_PRESETS.length - 1];
-}
-
 /** One user-configured connection. */
 export type ProviderConnection = {
   /** Stored in the OS keychain, never in the settings file. */
@@ -858,211 +823,6 @@ export type ProvidersSettings = {
   services: AiServicesSettings;
 };
 
-export const SEARCH_PROVIDERS = [
-  { id: "none", label: "Off", keyHint: "", docsUrl: "" },
-  { id: "tavily", label: "Tavily", keyHint: "tvly-…", docsUrl: "https://app.tavily.com/home" },
-  { id: "brave", label: "Brave Search", keyHint: "BSA…", docsUrl: "https://api-dashboard.search.brave.com/app/keys" },
-] as const;
-
-/** Creates a blank `ProviderConnection` initialized from optional preset defaults. */
-function emptyConnection(preset?: ProviderPreset): ProviderConnection {
-  return {
-    apiKey: "",
-    baseUrl: "",
-    // Keyless endpoints are opt-in: a fresh install must not route to a local
-    // runtime that is not running, or to a gateway's free tier unasked.
-    enabled: preset ? (preset.defaultEnabled ?? !preset.keyless) : true,
-    models: [],
-    extraModels: [],
-    headers: {},
-    authStyle: "",
-  };
-}
-
-/** Creates the default multi-provider BYOK settings structure. */
-export function defaultProvidersSettings(): ProvidersSettings {
-  const connections = {} as Record<ProviderId, ProviderConnection>;
-  for (const preset of PROVIDER_PRESETS) connections[preset.id] = emptyConnection(preset);
-  return {
-    connections,
-    defaultModel: "auto",
-    embeddingModel: "",
-    services: {
-      search: { provider: "none", apiKey: "" },
-      composio: { apiKey: "", userId: "" },
-    },
-  };
-}
-
-/** Fill in connections added by newer versions without losing user values. */
-export function normalizeProvidersSettings(
-  raw: Partial<ProvidersSettings> | undefined,
-): ProvidersSettings {
-  const base = defaultProvidersSettings();
-  if (!raw) return base;
-  const connections = {} as Record<ProviderId, ProviderConnection>;
-  for (const preset of PROVIDER_PRESETS) {
-    const saved = raw.connections?.[preset.id];
-    const savedModels = saved?.models;
-    const savedExtra = saved?.extraModels;
-    const savedAuth = saved?.authStyle;
-    connections[preset.id] = {
-      ...emptyConnection(preset),
-      ...(saved ?? {}),
-      models: Array.isArray(savedModels) ? savedModels.filter(Boolean) : [],
-      extraModels: Array.isArray(savedExtra) ? savedExtra.filter(Boolean) : [],
-      headers: normalizeHeaders(saved?.headers),
-      authStyle: isAuthStyle(savedAuth) ? savedAuth : "",
-    };
-  }
-  return {
-    connections,
-    defaultModel: raw.defaultModel ?? base.defaultModel,
-    embeddingModel: raw.embeddingModel ?? "",
-    services: {
-      search: {
-        provider: raw.services?.search?.provider ?? "none",
-        apiKey: raw.services?.search?.apiKey ?? "",
-      },
-      composio: {
-        apiKey: raw.services?.composio?.apiKey ?? "",
-        userId: raw.services?.composio?.userId ?? "",
-      },
-    },
-  };
-}
-
-/** True when this connection can be routed right now. */
-export const isConnectionUsable = (id: ProviderId, connections: Record<ProviderId, ProviderConnection>): boolean => {
-  const connection = connections[id];
-  if (!connection?.enabled) return false;
-  const preset = providerPreset(id);
-  if (preset.needsBaseUrl && !connection.baseUrl.trim()) return false;
-  // Local runtimes, gateways with a free tier, and self-hosted endpoints
-  // configured with `authStyle: "none"` accept requests without an API key.
-  if (!connection.apiKey.trim()) {
-    return preset.keyless === true || providerAuthStyle(id, connection) === "none";
-  }
-  return true;
-};
-
-/** Request headers for a connection: preset defaults, then the user's own. */
-export function providerHeaders(id: ProviderId, connection: ProviderConnection | undefined): Record<string, string> {
-  const preset = providerPreset(id);
-  const merged: Record<string, string> = { ...(preset.headers ?? {}), ...normalizeHeaders(connection?.headers) };
-  // Drop entries the user blanked out with an empty value.
-  for (const [name, value] of Object.entries(merged)) {
-    if (!value.trim()) delete merged[name];
-  }
-  return merged;
-}
-
-/** How the key travels for this connection. */
-export function providerAuthStyle(id: ProviderId, connection: ProviderConnection | undefined): AuthStyle {
-  // Empty means "whatever this wire format normally does".
-  if (connection?.authStyle && isAuthStyle(connection.authStyle)) return connection.authStyle;
-  const preset = providerPreset(id);
-  if (preset.authStyle) return preset.authStyle;
-  if (preset.kind === "anthropic") return "x-api-key";
-  if (preset.kind === "google") return "x-goog-api-key";
-  return "bearer";
-}
-
-/** Drop junk header names, keep the last value for duplicates. */
-export function normalizeHeaders(raw: unknown): Record<string, string> {
-  if (!raw || typeof raw !== "object") return {};
-  const out: Record<string, string> = {};
-  for (const [name, value] of Object.entries(raw as Record<string, unknown>)) {
-    const header = name.trim();
-    if (!header || typeof value !== "string") continue;
-    out[header] = value.trim();
-  }
-  return out;
-}
-
-/** Type-guards whether an unknown value is a supported HTTP auth header style. */
-function isAuthStyle(value: unknown): value is AuthStyle | "" {
-  return (
-    value === "" ||
-    value === "bearer" ||
-    value === "api-key" ||
-    value === "x-api-key" ||
-    value === "x-goog-api-key" ||
-    value === "none"
-  );
-}
-
-/** `Name: value` lines ⇄ the header map shown next to a provider. */
-export function parseHeaderLines(text: string): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const line of text.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const separator = trimmed.indexOf(":");
-    if (separator <= 0) continue;
-    const name = trimmed.slice(0, separator).trim();
-    const value = trimmed.slice(separator + 1).trim();
-    if (name) out[name] = value;
-  }
-  return out;
-}
-
-/** Serializes custom HTTP header key-value pairs into newline-delimited `Key: Value` text. */
-export function formatHeaderLines(headers: Record<string, string> | undefined): string {
-  return Object.entries(headers ?? {})
-    .map(([name, value]) => `${name}: ${value}`)
-    .join("\n");
-}
-
-/** Has any usable provider. */
-export const hasAnyUsableProvider = (settings: ProvidersSettings): boolean => {
-  return availableModels(settings).length > 0;
-};
-
-/** True when at least one connection is enabled and usable (with credentials or keyless auth), even if model IDs still need to be added. */
-export const hasAnyConfiguredConnection = (settings: ProvidersSettings): boolean => {
-  return PROVIDER_PRESETS.some((preset) => isConnectionUsable(preset.id, settings.connections));
-};
-
-/** Diagnostics for why no provider model is currently routable, or `null` when ready. */
-export const providerSetupIssue = (
-  settings: ProvidersSettings,
-): "missing-models" | "missing-credentials" | null => {
-  if (hasAnyUsableProvider(settings)) return null;
-  return hasAnyConfiguredConnection(settings) ? "missing-models" : "missing-credentials";
-};
-
-/** Concrete model ID that `"auto"` routes to right now, or `null` when none is routable. */
-export const resolveActiveDefaultModelId = (settings: ProvidersSettings): string | null => {
-  const models = availableModels(settings);
-  if (models.length === 0) return null;
-  const wanted = settings.defaultModel.trim();
-  if (wanted && wanted !== "auto" && models.some((m) => m.id === wanted)) {
-    return wanted;
-  }
-  return models[0]?.id ?? null;
-};
-
-/** Model ids offered by a connection: preset list plus anything the user added. */
-export const modelIdsFor = (id: ProviderId, connections: Record<ProviderId, ProviderConnection>): string[] => {
-  const connection = connections[id];
-  const preset = providerPreset(id);
-  const pinned = connection.models.length > 0 ? connection.models : preset.models.map((m) => m.id);
-  const extra = connection.extraModels
-    .map((raw) => raw.trim())
-    .filter(Boolean)
-    .map((raw) => {
-      if (raw.startsWith(`${id}/`)) return raw;
-      const slashIdx = raw.indexOf("/");
-      const head = slashIdx > 0 ? raw.slice(0, slashIdx) : "";
-      if (id !== "custom" && head && canonicalProviderId(head) === id) {
-        return `${id}/${raw.slice(head.length + 1)}`;
-      }
-      return `${id}/${raw}`;
-    });
-  return [...new Set([...pinned, ...extra])];
-};
-
 export type ModelOption = {
   id: string;
   name: string;
@@ -1071,99 +831,6 @@ export type ModelOption = {
   contextWindow: string;
   vision: boolean;
 };
-
-/** Builds a normalized `ModelOption` descriptor from a raw model identifier. */
-export function modelOption(id: string): ModelOption {
-  const prefix = id.split("/")[0] ?? "";
-  const providerId = canonicalProviderId(prefix) ?? ("custom" as ProviderId);
-  const preset = PROVIDER_PRESETS.find((p) => p.id === providerId);
-  const known = preset?.models.find((m) => m.id === id);
-  return {
-    id,
-    name: known?.name ?? (id.split("/").slice(1).join("/") || id),
-    provider: preset?.label ?? "Custom",
-    providerId: preset?.id ?? "custom",
-    contextWindow: known?.contextWindow ?? "",
-    vision: known?.vision ?? /vision|-vl|gemini|gpt-4o|gpt-4\.1|gpt-5|claude|grok/i.test(id),
-  };
-}
-
-/** Every model the user can pick right now, grouped by provider order. */
-export function availableModels(settings: ProvidersSettings): ModelOption[] {
-  const out: ModelOption[] = [];
-  for (const preset of PROVIDER_PRESETS) {
-    if (!isConnectionUsable(preset.id, settings.connections)) continue;
-    for (const id of modelIdsFor(preset.id, settings.connections)) {
-      const option = modelOption(id);
-      if (!option.name) continue;
-      out.push(option);
-    }
-  }
-  return out;
-}
-
-/** Providers that can embed, in the order the app prefers to route to them. */
-export function embeddingProviders(settings: ProvidersSettings): ProviderId[] {
-  return PROVIDER_PRESETS.filter(
-    (preset) =>
-      preset.embeddings === true && isConnectionUsable(preset.id, settings.connections),
-  ).map((preset) => preset.id);
-}
-
-/** Collects available embedding model identifiers across configured providers. */
-export function embeddingModelOptions(settings: ProvidersSettings): string[] {
-  const presets: string[] = [];
-  for (const id of embeddingProviders(settings)) {
-    presets.push(...(providerPreset(id).embeddingModels ?? []));
-  }
-  const chosen = settings.embeddingModel.trim();
-  if (chosen && !presets.includes(chosen)) presets.unshift(chosen);
-  return [...new Set(presets.filter(Boolean))];
-}
-
-/**
- * Provider that will serve the semantic index, plus the model id to send.
- *
- * Mirrors the Rust side: OpenAI and OpenRouter have a known default, every other
- * provider needs the user to name a model — an empty result means the index
- * stays off rather than calling an endpoint that cannot answer.
- */
-export function embeddingsTarget(settings: ProvidersSettings): { id: ProviderId; model: string } | null {
-  const chosen = settings.embeddingModel.trim();
-  const preferredOf = (ids: ProviderId[]): ProviderId | undefined =>
-    ids.find((id) => id === "openai") ?? ids.find((id) => id === "openrouter") ?? ids[0];
-  // A connection advertises a model only if its preset or the user pinned it.
-  // Routing a vendor slug such as `mistral-embed` to OpenAI 404s, so a named
-  // model goes to the connection that actually serves it.
-  const advertises = (id: ProviderId, model: string): boolean => {
-    const connection = settings.connections[id];
-    return (
-      (providerPreset(id).embeddingModels ?? []).includes(model) ||
-      (connection?.models ?? []).includes(model) ||
-      (connection?.extraModels ?? []).includes(model)
-    );
-  };
-
-  if (chosen) {
-    // Any OpenAI-wire connection can embed when the user names the model.
-    const wire = PROVIDER_PRESETS.filter(
-      (preset) => preset.kind === "openai" && isConnectionUsable(preset.id, settings.connections),
-    ).map((preset) => preset.id);
-    const owner = wire.find((id) => advertises(id, chosen)) ?? preferredOf(wire);
-    return owner ? { id: owner, model: chosen } : null;
-  }
-
-  const known = embeddingProviders(settings);
-  const preferred = preferredOf(known);
-  if (!preferred) return null;
-  const fallback = providerPreset(preferred).embeddingModels?.[0] ?? "";
-  return fallback ? { id: preferred, model: fallback } : null;
-}
-
-/** True when the semantic index has somewhere to run. */
-export function embeddingsAvailable(settings: ProvidersSettings): boolean {
-  return embeddingsTarget(settings) !== null;
-}
 
 /** Payload for the Rust `set_ai_config` command. */
 export type RustAiProviderEntry = {
@@ -1192,308 +859,25 @@ export type RustAiConfig = {
   composio: { apiKey: string; userId: string };
 };
 
-/** Converts frontend provider settings into the Rust backend `AiConfig` wire payload. */
-export function toRustAiConfig(settings: ProvidersSettings): RustAiConfig {
-  const providers: RustAiProviderEntry[] = [];
-  for (const preset of PROVIDER_PRESETS) {
-    const connection = settings.connections[preset.id];
-    if (!connection) continue;
-    const usable = isConnectionUsable(preset.id, settings.connections);
-    if (!usable) continue;
-    providers.push({
-      id: preset.id,
-      kind: preset.kind,
-      label: preset.label,
-      apiKey: connection.apiKey.trim(),
-      baseUrl: connection.baseUrl.trim() || preset.baseUrl,
-      models: modelIdsFor(preset.id, settings.connections),
-      enabled: connection.enabled,
-      keyless: preset.keyless === true,
-      headers: providerHeaders(preset.id, connection),
-      authStyle: providerAuthStyle(preset.id, connection),
-    });
-  }
-
-  const defaultModel = resolveDefaultModel(settings, providers);
-  // A provider that serves embeddings and a model id we can name — without both,
-  // Rust skips the semantic index instead of calling an endpoint it cannot use.
-  const embeddingTarget = embeddingsTarget(settings);
-
-  return {
-    providers,
-    defaultModel,
-    embeddingModel: embeddingTarget?.model ?? "",
-    embeddingProvider: embeddingTarget?.id ?? "",
-    search: {
-      provider: settings.services.search.provider,
-      apiKey: settings.services.search.apiKey.trim(),
-    },
-    composio: {
-      apiKey: settings.services.composio.apiKey.trim(),
-      userId: settings.services.composio.userId.trim() || "bettershape-local",
-    },
-  };
-}
-
-/**
- * `auto` needs a concrete model. Prefer the user's pick, else the first pinned
- * model, else anything the first usable provider offers.
- */
-function resolveDefaultModel(settings: ProvidersSettings, providers: RustAiProviderEntry[]): string {
-  const wanted = settings.defaultModel.trim();
-  const usableIds = new Set(providers.flatMap((p) => p.models));
-  if (wanted && wanted !== "auto" && usableIds.has(wanted)) return wanted;
-  const pinned = providers.find((p) => p.models.length > 0);
-  return pinned?.models[0] ?? "";
-}
-
-/* -------------------------------------------------------------------------- */
-/* Secret handling                                                            */
-/* -------------------------------------------------------------------------- */
+export const SEARCH_PROVIDERS = [
+  { id: "none", label: "Off", keyHint: "", docsUrl: "" },
+  {
+    id: "tavily",
+    label: "Tavily",
+    keyHint: "tvly-…",
+    docsUrl: "https://app.tavily.com/home",
+  },
+  {
+    id: "brave",
+    label: "Brave Search",
+    keyHint: "BSA…",
+    docsUrl: "https://api-dashboard.search.brave.com/app/keys",
+  },
+] as const;
 
 /** Pseudo-ids for the two non-model secrets, stored beside provider keys. */
 export const SEARCH_SECRET_ID = "service:search";
 export const COMPOSIO_SECRET_ID = "service:composio";
-
-/** Keychain id for one header value: gateways keep tokens in headers. */
-export function headerSecretId(id: ProviderId, name: string): string {
-  return `header:${id}:${name}`;
-}
-
-/** Split a header secret id back into `(provider, header name)`. */
-export function parseHeaderSecretId(secretId: string): { id: ProviderId; name: string } | null {
-  if (!secretId.startsWith("header:")) return null;
-  const rest = secretId.slice("header:".length);
-  const separator = rest.indexOf(":");
-  if (separator <= 0) return null;
-  return { id: rest.slice(0, separator) as ProviderId, name: rest.slice(separator + 1) };
-}
-
-/** Versioned destination identities, persisted with credentials inside the vault. */
-export function credentialScopes(settings: ProvidersSettings): Record<string, string> {
-  const scopes: Record<string, string> = {};
-  for (const preset of PROVIDER_PRESETS) {
-    const connection = settings.connections[preset.id];
-    if (!connection) continue;
-    const url = connection.baseUrl.trim() || preset.baseUrl;
-    let end = url.length;
-    while (end > 0 && url[end - 1] === "/") end -= 1;
-    const baseUrl = url.slice(0, end);
-    const scope = JSON.stringify(["provider-v1", preset.kind, baseUrl, providerAuthStyle(preset.id, connection)]);
-    scopes[preset.id] = scope;
-    for (const name of Object.keys(connection.headers)) scopes[headerSecretId(preset.id, name)] = scope;
-  }
-  scopes[SEARCH_SECRET_ID] = JSON.stringify(["search-v1", settings.services.search.provider]);
-  scopes[COMPOSIO_SECRET_ID] = JSON.stringify(["composio-v1", settings.services.composio.userId.trim() || "bettershape-local"]);
-  return scopes;
-}
-
-/** Every secret the provider settings currently hold, keyed by storage id. */
-export function providerSecrets(settings: ProvidersSettings): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const preset of PROVIDER_PRESETS) {
-    const connection = settings.connections[preset.id];
-    const key = connection?.apiKey?.trim();
-    if (key) out[preset.id] = key;
-    // Header *values* are secrets too when a gateway puts a token there; the
-    // header names stay in the settings file.
-    for (const [name, value] of Object.entries(connection?.headers ?? {})) {
-      const trimmed = value.trim();
-      if (trimmed) out[headerSecretId(preset.id, name)] = trimmed;
-    }
-  }
-  const search = settings.services.search.apiKey.trim();
-  if (search) out[SEARCH_SECRET_ID] = search;
-  const composio = settings.services.composio.apiKey.trim();
-  if (composio) out[COMPOSIO_SECRET_ID] = composio;
-  return out;
-}
-
-/**
- * A copy safe to write to disk: the OS keychain owns the secrets, so nothing
- * here contains a key. Non-secret fields are copied verbatim.
- */
-export function redactProviderSecrets<T extends { ai: { providers: ProvidersSettings } }>(settings: T): T {
-  const connections = {} as Record<ProviderId, ProviderConnection>;
-  for (const preset of PROVIDER_PRESETS) {
-    const connection = settings.ai.providers.connections[preset.id];
-    connections[preset.id] = connection
-      ? { ...connection, apiKey: "", headers: blankHeaderValues(connection.headers) }
-      : emptyConnection(preset);
-  }
-  return {
-    ...settings,
-    ai: {
-      ...settings.ai,
-      providers: {
-        ...settings.ai.providers,
-        connections,
-        services: {
-          ...settings.ai.providers.services,
-          search: { ...settings.ai.providers.services.search, apiKey: "" },
-          composio: { ...settings.ai.providers.services.composio, apiKey: "" },
-        },
-      },
-    },
-  };
-}
-
-/** Keep header names, drop the values (they live in the keychain). */
-export function blankHeaderValues(headers: Record<string, string> | undefined): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const name of Object.keys(headers ?? {})) out[name] = "";
-  return out;
-}
-
-/** Incoming header names with whatever values only this session still holds. */
-function mergeHeaderValues(
-  live: Record<string, string> | undefined,
-  incoming: Record<string, string> | undefined,
-): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const [name, value] of Object.entries(incoming ?? {})) {
-    out[name] = value.trim() ? value : (live?.[name] ?? "");
-  }
-  return out;
-}
-
-/**
- * Fill secrets that only exist in memory back into a freshly loaded copy.
- *
- * Storage never holds keys once the keychain is in use, so a plain merge would
- * wipe the session's keys the first time a settings payload arrived from disk or
- * from the other window. Existing values always win for non-secret fields.
- */
-export function mergeProviderConnections(live: ProvidersSettings, loaded: ProvidersSettings): ProvidersSettings {
-  const connections = {} as Record<ProviderId, ProviderConnection>;
-  const liveScopes = credentialScopes(live);
-  const loadedScopes = credentialScopes(loaded);
-  for (const preset of PROVIDER_PRESETS) {
-    const current = live.connections[preset.id];
-    const incoming = loaded.connections[preset.id] ?? emptyConnection(preset);
-    if (current && liveScopes[preset.id] !== loadedScopes[preset.id]
-      && (current.apiKey.trim() || Object.values(current.headers).some((value) => value.trim()))) {
-      connections[preset.id] = {
-        ...incoming,
-        apiKey: current.apiKey,
-        baseUrl: current.baseUrl,
-        authStyle: current.authStyle,
-        headers: current.headers,
-      };
-      continue;
-    }
-    connections[preset.id] = {
-      ...incoming,
-      apiKey: incoming.apiKey.trim() ? incoming.apiKey : (current?.apiKey ?? ""),
-      headers: mergeHeaderValues(current?.headers, incoming.headers),
-    };
-  }
-  return {
-    ...loaded,
-    connections,
-    services: {
-      search: live.services.search.apiKey && liveScopes[SEARCH_SECRET_ID] !== loadedScopes[SEARCH_SECRET_ID] ? live.services.search : {
-        ...loaded.services.search,
-        apiKey: loaded.services.search.apiKey.trim()
-          ? loaded.services.search.apiKey
-          : live.services.search.apiKey,
-      },
-      composio: live.services.composio.apiKey && liveScopes[COMPOSIO_SECRET_ID] !== loadedScopes[COMPOSIO_SECRET_ID] ? live.services.composio : {
-        ...loaded.services.composio,
-        apiKey: loaded.services.composio.apiKey.trim()
-          ? loaded.services.composio.apiKey
-          : live.services.composio.apiKey,
-      },
-    },
-  };
-}
-
-/* -------------------------------------------------------------------------- */
-/* Key sanity checks                                                          */
-/* -------------------------------------------------------------------------- */
-
-/**
- * Prefixes that identify a provider's keys. Only formats we are confident about
- * are listed: `sk-` alone is shared by OpenAI, DeepSeek, Moonshot and gateways,
- * so a plain `sk-…` value never triggers advice either way.
- */
-const KEY_PREFIXES: { id: ProviderId; prefix: string }[] = [
-  { id: "anthropic", prefix: "sk-ant-" },
-  { id: "openrouter", prefix: "sk-or-" },
-  { id: "groq", prefix: "gsk_" },
-  { id: "xai", prefix: "xai-" },
-  { id: "google", prefix: "AIza" },
-  { id: "cerebras", prefix: "csk-" },
-  { id: "together", prefix: "tgp_v1_" },
-  { id: "fireworks", prefix: "fw_" },
-  { id: "perplexity", prefix: "pplx-" },
-  { id: "nvidia", prefix: "nvapi-" },
-  { id: "zen", prefix: "oc_sk_" },
-  { id: "digitalocean", prefix: "doo_v1_" },
-  { id: "vercel", prefix: "vck_" },
-];
-
-/** Providers that share a key prefix, so a cross-card hint stays quiet. */
-const SIBLING_PROVIDERS: Partial<Record<ProviderId, ProviderId[]>> = {
-  zen: ["zen-messages"],
-  "zen-messages": ["zen"],
-};
-
-/** Which provider a pasted key *looks* like it belongs to. Advisory only. */
-export function keyOwnerHint(apiKey: string): { id: ProviderId; label: string } | null {
-  const key = apiKey.trim();
-  if (key.length < 12) return null;
-  for (const { id, prefix } of KEY_PREFIXES) {
-    if (key.startsWith(prefix)) return { id, label: providerPreset(id).label };
-  }
-  return null;
-}
-
-/**
- * One-line warning for the field the user is typing in, or null when the key
- * looks plausible. Never blocks a save: gateways hand out their own formats, so
- * this only ever suggests.
- */
-export function keyFormatWarning(id: ProviderId, apiKey: string): string | null {
-  const key = apiKey.trim();
-  if (!key) return null;
-  const owner = keyOwnerHint(key);
-  if (owner && owner.id !== id && !(SIBLING_PROVIDERS[owner.id] ?? []).includes(id)) {
-    return `This looks like a ${owner.label} key — paste it into the ${owner.label} card instead.`;
-  }
-  const expected = KEY_PREFIXES.find((entry) => entry.id === id);
-  if (expected && !key.startsWith(expected.prefix)) {
-    return `${providerPreset(id).label} keys start with ${expected.prefix} — double-check the value.`;
-  }
-  return null;
-}
-
-/** Same idea for the web-search keys, whose formats are also fixed. */
-export function searchKeyWarning(
-  provider: (typeof SEARCH_PROVIDERS)[number]["id"],
-  apiKey: string,
-): string | null {
-  const key = apiKey.trim();
-  if (!key) return null;
-  if (provider === "tavily" && !key.startsWith("tvly-")) {
-    return "Tavily keys start with tvly-.";
-  }
-  if (provider === "brave" && !key.startsWith("BSA")) {
-    return "Brave Search keys start with BSA.";
-  }
-  return null;
-}
-
-/** `sk-abc…1234` — enough to recognise a key without showing it in full. */
-export function maskApiKey(apiKey: string): string {
-  const key = apiKey.trim();
-  if (key.length <= 10) return key ? `${key.slice(0, 2)}…` : "";
-  return `${key.slice(0, 6)}…${key.slice(-4)}`;
-}
-
-/* -------------------------------------------------------------------------- */
-/* Model ids arriving from somewhere else                                      */
-/* -------------------------------------------------------------------------- */
 
 /**
  * Prefixes other clients use for the same providers.
@@ -1550,27 +934,1015 @@ export const PROVIDER_ALIASES: Record<string, ProviderId> = {
   "perplexity-ai": "perplexity",
 };
 
+const VALID_AUTH_STYLES = new Set<string>([
+  "",
+  "bearer",
+  "api-key",
+  "x-api-key",
+  "x-goog-api-key",
+  "none",
+]);
+
+const KIND_DEFAULT_AUTH_STYLES: Partial<Record<ProviderKind, AuthStyle>> = {
+  anthropic: "x-api-key",
+  google: "x-goog-api-key",
+};
+
+/**
+ * Prefixes that identify a provider's keys. Only formats we are confident about
+ * are listed: `sk-` alone is shared by OpenAI, DeepSeek, Moonshot and gateways,
+ * so a plain `sk-…` value never triggers advice either way.
+ */
+const KEY_PREFIXES: { id: ProviderId; prefix: string }[] = [
+  { id: "anthropic", prefix: "sk-ant-" },
+  { id: "openrouter", prefix: "sk-or-" },
+  { id: "groq", prefix: "gsk_" },
+  { id: "xai", prefix: "xai-" },
+  { id: "google", prefix: "AIza" },
+  { id: "cerebras", prefix: "csk-" },
+  { id: "together", prefix: "tgp_v1_" },
+  { id: "fireworks", prefix: "fw_" },
+  { id: "perplexity", prefix: "pplx-" },
+  { id: "nvidia", prefix: "nvapi-" },
+  { id: "zen", prefix: "oc_sk_" },
+  { id: "digitalocean", prefix: "doo_v1_" },
+  { id: "vercel", prefix: "vck_" },
+];
+
+/** Providers that share a key prefix, so a cross-card hint stays quiet. */
+const SIBLING_PROVIDERS: Partial<Record<ProviderId, ProviderId[]>> = {
+  zen: ["zen-messages"],
+  "zen-messages": ["zen"],
+};
+
+const SEARCH_KEY_PREFIX_REQUIREMENTS: Partial<
+  Record<
+    (typeof SEARCH_PROVIDERS)[number]["id"],
+    { prefix: string; message: string }
+  >
+> = {
+  tavily: { prefix: "tvly-", message: "Tavily keys start with tvly-." },
+  brave: { prefix: "BSA", message: "Brave Search keys start with BSA." },
+};
+
+const VISION_MODEL_SLUG_RE =
+  /vision|-vl|gemini|gpt-4o|gpt-4\.1|gpt-5|claude|grok/i;
+
+/** Presets in display order, bucketed by their `group` heading. */
+export const providerGroups = (): {
+  group: string;
+  presets: ProviderPreset[];
+}[] => {
+  const out: { group: string; presets: ProviderPreset[] }[] = [];
+  for (const preset of PROVIDER_PRESETS) {
+    let bucket = out.find((entry) => entry.group === preset.group);
+    if (!bucket) {
+      bucket = { group: preset.group, presets: [] };
+      out.push(bucket);
+    }
+    bucket.presets.push(preset);
+  }
+  return out;
+};
+
+/** Checks whether `preset` label, id, or group matches `needle` case-insensitively. */
+const matchesPresetHeaderQuery = (
+  preset: ProviderPreset,
+  needle: string,
+): boolean =>
+  preset.label.toLowerCase().includes(needle) ||
+  preset.id.includes(needle) ||
+  preset.group.toLowerCase().includes(needle);
+
+/** Free-text match over a preset's name, id, group and models. */
+export const matchesProviderQuery = (
+  preset: ProviderPreset,
+  query: string,
+): boolean => {
+  const needle = query.trim().toLowerCase();
+  if (!needle || matchesPresetHeaderQuery(preset, needle)) return true;
+  return preset.models.some(
+    (model) =>
+      model.id.toLowerCase().includes(needle) ||
+      model.name.toLowerCase().includes(needle),
+  );
+};
+
+/** Returns the built-in preset metadata for a known AI provider identifier. */
+export const providerPreset = (id: ProviderId): ProviderPreset =>
+  PROVIDER_PRESETS.find((preset) => preset.id === id) ??
+  PROVIDER_PRESETS[PROVIDER_PRESETS.length - 1];
+
 /** Provider a model id's prefix really means, or null when it names nothing. */
-export function canonicalProviderId(prefix: string): ProviderId | null {
+export const canonicalProviderId = (prefix: string): ProviderId | null => {
   const trimmed = prefix.trim();
   if (!trimmed) return null;
-  if (PROVIDER_PRESETS.some((preset) => preset.id === trimmed)) return trimmed as ProviderId;
+  if (PROVIDER_PRESETS.some((preset) => preset.id === trimmed)) {
+    return trimmed as ProviderId;
+  }
   return PROVIDER_ALIASES[trimmed.toLowerCase()] ?? null;
-}
+};
+
+/** Type-guards whether an unknown value is a supported HTTP auth header style. */
+const isAuthStyle = (value: unknown): value is AuthStyle | "" =>
+  typeof value === "string" && VALID_AUTH_STYLES.has(value);
+
+/** Checks whether `raw` is a non-null object record. */
+const isObjectRecord = (raw: unknown): raw is Record<string, unknown> =>
+  Boolean(raw) && typeof raw === "object";
+
+/** Drop junk header names, keep the last value for duplicates. */
+export const normalizeHeaders = (raw: unknown): Record<string, string> => {
+  if (!isObjectRecord(raw)) return {};
+  const out: Record<string, string> = {};
+  for (const [name, value] of Object.entries(raw)) {
+    const header = name.trim();
+    if (header && typeof value === "string") {
+      out[header] = value.trim();
+    }
+  }
+  return out;
+};
+
+/** How the key travels for this connection. */
+export const providerAuthStyle = (
+  id: ProviderId,
+  connection: ProviderConnection | undefined,
+): AuthStyle => {
+  const override = connection?.authStyle;
+  if (override && isAuthStyle(override)) return override;
+  const preset = providerPreset(id);
+  return (
+    preset.authStyle ?? KIND_DEFAULT_AUTH_STYLES[preset.kind] ?? "bearer"
+  );
+};
+
+/** Creates a blank `ProviderConnection` initialized from optional preset defaults. */
+const emptyConnection = (preset?: ProviderPreset): ProviderConnection => ({
+  apiKey: "",
+  baseUrl: "",
+  enabled: preset ? (preset.defaultEnabled ?? !preset.keyless) : true,
+  models: [],
+  extraModels: [],
+  headers: {},
+  authStyle: "",
+});
+
+/** Creates the default multi-provider BYOK settings structure. */
+export const defaultProvidersSettings = (): ProvidersSettings => {
+  const connections = {} as Record<ProviderId, ProviderConnection>;
+  for (const preset of PROVIDER_PRESETS) {
+    connections[preset.id] = emptyConnection(preset);
+  }
+  return {
+    connections,
+    defaultModel: "auto",
+    embeddingModel: "",
+    services: {
+      search: { provider: "none", apiKey: "" },
+      composio: { apiKey: "", userId: "" },
+    },
+  };
+};
+
+/** Filters an unknown list of model IDs into non-empty strings. */
+const normalizeStringList = (raw: unknown): string[] =>
+  Array.isArray(raw) ? raw.filter(Boolean) : [];
+
+/** Normalizes a single saved `ProviderConnection` against its preset defaults. */
+const normalizeSingleConnection = (
+  preset: ProviderPreset,
+  saved: Partial<ProviderConnection> | undefined,
+): ProviderConnection => ({
+  ...emptyConnection(preset),
+  ...(saved ?? {}),
+  models: normalizeStringList(saved?.models),
+  extraModels: normalizeStringList(saved?.extraModels),
+  headers: normalizeHeaders(saved?.headers),
+  authStyle: isAuthStyle(saved?.authStyle) ? saved.authStyle : "",
+});
+
+/** Normalizes `services` settings with `"none"` and empty-key defaults. */
+const normalizeServicesSettings = (
+  rawServices: Partial<AiServicesSettings> | undefined,
+): AiServicesSettings => ({
+  search: {
+    provider: rawServices?.search?.provider ?? "none",
+    apiKey: rawServices?.search?.apiKey ?? "",
+  },
+  composio: {
+    apiKey: rawServices?.composio?.apiKey ?? "",
+    userId: rawServices?.composio?.userId ?? "",
+  },
+});
+
+/** Fill in connections added by newer versions without losing user values. */
+export const normalizeProvidersSettings = (
+  raw: Partial<ProvidersSettings> | undefined,
+): ProvidersSettings => {
+  const base = defaultProvidersSettings();
+  if (!raw) return base;
+  const connections = {} as Record<ProviderId, ProviderConnection>;
+  for (const preset of PROVIDER_PRESETS) {
+    connections[preset.id] = normalizeSingleConnection(
+      preset,
+      raw.connections?.[preset.id],
+    );
+  }
+  return {
+    connections,
+    defaultModel: raw.defaultModel ?? base.defaultModel,
+    embeddingModel: raw.embeddingModel ?? "",
+    services: normalizeServicesSettings(raw.services),
+  };
+};
+
+/** Checks whether `connection` accepts unauthenticated / keyless HTTP requests. */
+const connectionAllowsKeylessAuth = (
+  id: ProviderId,
+  preset: ProviderPreset,
+  connection: ProviderConnection,
+): boolean =>
+  preset.keyless === true || providerAuthStyle(id, connection) === "none";
+
+/** True when this connection can be routed right now. */
+export const isConnectionUsable = (
+  id: ProviderId,
+  connections: Record<ProviderId, ProviderConnection>,
+): boolean => {
+  const connection = connections[id];
+  if (!connection?.enabled) return false;
+  const preset = providerPreset(id);
+  if (preset.needsBaseUrl && !connection.baseUrl.trim()) return false;
+  if (!connection.apiKey.trim()) {
+    return connectionAllowsKeylessAuth(id, preset, connection);
+  }
+  return true;
+};
+
+/** Request headers for a connection: preset defaults, then the user's own. */
+export const providerHeaders = (
+  id: ProviderId,
+  connection: ProviderConnection | undefined,
+): Record<string, string> => {
+  const preset = providerPreset(id);
+  const merged: Record<string, string> = {
+    ...(preset.headers ?? {}),
+    ...normalizeHeaders(connection?.headers),
+  };
+  for (const [name, value] of Object.entries(merged)) {
+    if (!value.trim()) delete merged[name];
+  }
+  return merged;
+};
+
+/** Parses a single `Name: Value` header line when non-comment and colon-delimited. */
+const parseSingleHeaderLine = (
+  line: string,
+): [string, string] | null => {
+  const trimmed = line.trim();
+  if (!trimmed || trimmed.startsWith("#")) return null;
+  const separator = trimmed.indexOf(":");
+  if (separator <= 0) return null;
+  const name = trimmed.slice(0, separator).trim();
+  return name ? [name, trimmed.slice(separator + 1).trim()] : null;
+};
+
+/** `Name: value` lines ⇄ the header map shown next to a provider. */
+export const parseHeaderLines = (text: string): Record<string, string> => {
+  const out: Record<string, string> = {};
+  for (const line of text.split("\n")) {
+    const entry = parseSingleHeaderLine(line);
+    if (entry) {
+      out[entry[0]] = entry[1];
+    }
+  }
+  return out;
+};
+
+/** Serializes custom HTTP header key-value pairs into newline-delimited `Key: Value` text. */
+export const formatHeaderLines = (
+  headers: Record<string, string> | undefined,
+): string =>
+  Object.entries(headers ?? {})
+    .map(([name, value]) => `${name}: ${value}`)
+    .join("\n");
+
+/** Checks whether `head` is an alias prefix that resolves onto non-custom provider `id`. */
+const isAliasedPrefixForProvider = (id: ProviderId, head: string): boolean =>
+  id !== "custom" && Boolean(head) && canonicalProviderId(head) === id;
+
+/** Normalizes one `extraModels` entry onto its owning `id/...` provider prefix. */
+const normalizeExtraModelEntry = (id: ProviderId, raw: string): string => {
+  if (raw.startsWith(`${id}/`)) return raw;
+  const slashIdx = raw.indexOf("/");
+  const head = slashIdx > 0 ? raw.slice(0, slashIdx) : "";
+  if (isAliasedPrefixForProvider(id, head)) {
+    return `${id}/${raw.slice(head.length + 1)}`;
+  }
+  return `${id}/${raw}`;
+};
+
+/** Model ids offered by a connection: preset list plus anything the user added. */
+export const modelIdsFor = (
+  id: ProviderId,
+  connections: Record<ProviderId, ProviderConnection>,
+): string[] => {
+  const connection = connections[id];
+  const preset = providerPreset(id);
+  const pinned =
+    connection.models.length > 0
+      ? connection.models
+      : preset.models.map((model) => model.id);
+  const extra = connection.extraModels
+    .map((raw) => raw.trim())
+    .filter(Boolean)
+    .map((raw) => normalizeExtraModelEntry(id, raw));
+  return [...new Set([...pinned, ...extra])];
+};
+
+/** Resolves the display name for a model identifier when absent from built-in presets. */
+const fallbackModelDisplayName = (id: string): string => {
+  const tail = id.split("/").slice(1).join("/");
+  return tail ? tail : id;
+};
+
+/** Resolves the provider preset matching the prefix of `id`, if any. */
+const findPresetForModelId = (id: string): ProviderPreset | undefined => {
+  const prefix = id.split("/")[0] ?? "";
+  const providerId = canonicalProviderId(prefix) ?? ("custom" as ProviderId);
+  return PROVIDER_PRESETS.find((preset) => preset.id === providerId);
+};
+
+/** Resolves preset label and ID defaults for a `ModelOption`. */
+const resolveModelProviderInfo = (
+  preset: ProviderPreset | undefined,
+): { provider: string; providerId: ProviderId } =>
+  preset
+    ? { provider: preset.label, providerId: preset.id }
+    : { provider: "Custom", providerId: "custom" };
+
+/** Builds a normalized `ModelOption` descriptor from a raw model identifier. */
+export const modelOption = (id: string): ModelOption => {
+  const preset = findPresetForModelId(id);
+  const known = preset?.models.find((model) => model.id === id);
+  const { provider, providerId } = resolveModelProviderInfo(preset);
+  return {
+    id,
+    name: known?.name ?? fallbackModelDisplayName(id),
+    provider,
+    providerId,
+    contextWindow: known?.contextWindow ?? "",
+    vision: known?.vision ?? VISION_MODEL_SLUG_RE.test(id),
+  };
+};
+
+/** Appends valid `ModelOption` entries for a usable `presetId` into `out`. */
+const appendModelsForPreset = (
+  presetId: ProviderId,
+  connections: Record<ProviderId, ProviderConnection>,
+  out: ModelOption[],
+): void => {
+  for (const id of modelIdsFor(presetId, connections)) {
+    const option = modelOption(id);
+    if (option.name) {
+      out.push(option);
+    }
+  }
+};
+
+/** Every model the user can pick right now, grouped by provider order. */
+export const availableModels = (settings: ProvidersSettings): ModelOption[] => {
+  const out: ModelOption[] = [];
+  for (const preset of PROVIDER_PRESETS) {
+    if (isConnectionUsable(preset.id, settings.connections)) {
+      appendModelsForPreset(preset.id, settings.connections, out);
+    }
+  }
+  return out;
+};
+
+/** Has any usable provider. */
+export const hasAnyUsableProvider = (settings: ProvidersSettings): boolean =>
+  availableModels(settings).length > 0;
+
+/** True when at least one connection is enabled and usable (with credentials or keyless auth), even if model IDs still need to be added. */
+export const hasAnyConfiguredConnection = (
+  settings: ProvidersSettings,
+): boolean =>
+  PROVIDER_PRESETS.some((preset) =>
+    isConnectionUsable(preset.id, settings.connections),
+  );
+
+/** Checks whether an enabled keyless/`authStyle: "none"` connection is missing only its `baseUrl`. */
+const hasEnabledKeylessMissingBaseUrl = (
+  settings: ProvidersSettings,
+): boolean =>
+  PROVIDER_PRESETS.some((preset) => {
+    const conn = settings.connections[preset.id];
+    if (!conn?.enabled || !preset.needsBaseUrl || conn.baseUrl.trim()) {
+      return false;
+    }
+    return connectionAllowsKeylessAuth(preset.id, preset, conn);
+  });
+
+/** Diagnostics for why no provider model is currently routable, or `null` when ready. */
+export const providerSetupIssue = (
+  settings: ProvidersSettings,
+): "missing-models" | "missing-credentials" | null => {
+  if (hasAnyUsableProvider(settings)) return null;
+  return hasAnyConfiguredConnection(settings)
+    ? "missing-models"
+    : "missing-credentials";
+};
+
+/** User-facing guidance string explaining which provider setting is still required. */
+export const describeProviderSetupGap = (
+  settings: ProvidersSettings,
+): string => {
+  if (hasAnyConfiguredConnection(settings)) {
+    return "Add a model ID in Settings -> Providers";
+  }
+  if (hasEnabledKeylessMissingBaseUrl(settings)) {
+    return "Set a base URL and model ID in Settings -> Providers";
+  }
+  return "Add an API key in Settings -> Providers";
+};
+
+/** Checks whether `wanted` names a specific model ID present in `models`. */
+const isExplicitAvailableModel = (
+  wanted: string,
+  models: ModelOption[],
+): boolean =>
+  Boolean(wanted) &&
+  wanted !== "auto" &&
+  models.some((model) => model.id === wanted);
+
+/** Concrete model ID that `"auto"` routes to right now, or `null` when none is routable. */
+export const resolveActiveDefaultModelId = (
+  settings: ProvidersSettings,
+): string | null => {
+  const models = availableModels(settings);
+  if (models.length === 0) return null;
+  const wanted = settings.defaultModel.trim();
+  if (isExplicitAvailableModel(wanted, models)) return wanted;
+  return models[0]?.id ?? null;
+};
+
+/** Providers that can embed, in the order the app prefers to route to them. */
+export const embeddingProviders = (
+  settings: ProvidersSettings,
+): ProviderId[] =>
+  PROVIDER_PRESETS.filter(
+    (preset) =>
+      preset.embeddings === true &&
+      isConnectionUsable(preset.id, settings.connections),
+  ).map((preset) => preset.id);
+
+/** Collects available embedding model identifiers across configured providers. */
+export const embeddingModelOptions = (
+  settings: ProvidersSettings,
+): string[] => {
+  const presets: string[] = [];
+  for (const id of embeddingProviders(settings)) {
+    presets.push(...(providerPreset(id).embeddingModels ?? []));
+  }
+  const chosen = settings.embeddingModel.trim();
+  if (chosen && !presets.includes(chosen)) presets.unshift(chosen);
+  return [...new Set(presets.filter(Boolean))];
+};
+
+/** Picks `openai`, then `openrouter`, then the first candidate provider ID. */
+const selectPreferredEmbeddingProvider = (
+  ids: ProviderId[],
+): ProviderId | undefined =>
+  ids.find((id) => id === "openai") ??
+  ids.find((id) => id === "openrouter") ??
+  ids[0];
+
+/** Checks whether connection `id` explicitly advertises or pins `model`. */
+const connectionAdvertisesEmbeddingModel = (
+  settings: ProvidersSettings,
+  id: ProviderId,
+  model: string,
+): boolean => {
+  const presetModels = providerPreset(id).embeddingModels;
+  if (presetModels?.includes(model)) return true;
+  const connection = settings.connections[id];
+  if (!connection) return false;
+  return (
+    connection.models.includes(model) || connection.extraModels.includes(model)
+  );
+};
+
+/** Resolves the OpenAI-wire provider that should serve an explicitly chosen embedding model. */
+const resolveExplicitEmbeddingTarget = (
+  settings: ProvidersSettings,
+  chosen: string,
+): { id: ProviderId; model: string } | null => {
+  const wire = PROVIDER_PRESETS.filter(
+    (preset) =>
+      preset.kind === "openai" &&
+      isConnectionUsable(preset.id, settings.connections),
+  ).map((preset) => preset.id);
+  const owner =
+    wire.find((id) =>
+      connectionAdvertisesEmbeddingModel(settings, id, chosen),
+    ) ?? selectPreferredEmbeddingProvider(wire);
+  return owner ? { id: owner, model: chosen } : null;
+};
+
+/**
+ * Provider that will serve the semantic index, plus the model id to send.
+ *
+ * Mirrors the Rust side: OpenAI and OpenRouter have a known default, every other
+ * provider needs the user to name a model — an empty result means the index
+ * stays off rather than calling an endpoint that cannot answer.
+ */
+export const embeddingsTarget = (
+  settings: ProvidersSettings,
+): { id: ProviderId; model: string } | null => {
+  const chosen = settings.embeddingModel.trim();
+  if (chosen) {
+    return resolveExplicitEmbeddingTarget(settings, chosen);
+  }
+  const preferred = selectPreferredEmbeddingProvider(
+    embeddingProviders(settings),
+  );
+  if (!preferred) return null;
+  const fallback = providerPreset(preferred).embeddingModels?.[0] ?? "";
+  return fallback ? { id: preferred, model: fallback } : null;
+};
+
+/** True when the semantic index has somewhere to run. */
+export const embeddingsAvailable = (settings: ProvidersSettings): boolean =>
+  embeddingsTarget(settings) !== null;
+
+/**
+ * `auto` needs a concrete model. Prefer the user's pick, else the first pinned
+ * model, else anything the first usable provider offers.
+ */
+const resolveDefaultModel = (
+  settings: ProvidersSettings,
+  providers: RustAiProviderEntry[],
+): string => {
+  const wanted = settings.defaultModel.trim();
+  const usableIds = new Set(providers.flatMap((provider) => provider.models));
+  if (wanted && wanted !== "auto" && usableIds.has(wanted)) return wanted;
+  const pinned = providers.find((provider) => provider.models.length > 0);
+  return pinned?.models[0] ?? "";
+};
+
+/** Builds a single `RustAiProviderEntry` for a usable provider connection. */
+const buildRustProviderEntry = (
+  preset: ProviderPreset,
+  connection: ProviderConnection,
+  connections: Record<ProviderId, ProviderConnection>,
+): RustAiProviderEntry => {
+  const trimmedBase = connection.baseUrl.trim();
+  return {
+    id: preset.id,
+    kind: preset.kind,
+    label: preset.label,
+    apiKey: connection.apiKey.trim(),
+    baseUrl: trimmedBase ? trimmedBase : preset.baseUrl,
+    models: modelIdsFor(preset.id, connections),
+    enabled: connection.enabled,
+    keyless: preset.keyless === true,
+    headers: providerHeaders(preset.id, connection),
+    authStyle: providerAuthStyle(preset.id, connection),
+  };
+};
+
+/** Collects `RustAiProviderEntry` items for every currently usable provider preset. */
+const collectUsableRustProviders = (
+  settings: ProvidersSettings,
+): RustAiProviderEntry[] => {
+  const providers: RustAiProviderEntry[] = [];
+  for (const preset of PROVIDER_PRESETS) {
+    const connection = settings.connections[preset.id];
+    if (connection && isConnectionUsable(preset.id, settings.connections)) {
+      providers.push(
+        buildRustProviderEntry(preset, connection, settings.connections),
+      );
+    }
+  }
+  return providers;
+};
+
+/** Resolves the Composio user ID with `"bettershape-local"` fallback when blank. */
+const resolveComposioUserId = (rawUserId: string): string => {
+  const trimmed = rawUserId.trim();
+  return trimmed ? trimmed : "bettershape-local";
+};
+
+/** Converts frontend provider settings into the Rust backend `AiConfig` wire payload. */
+export const toRustAiConfig = (settings: ProvidersSettings): RustAiConfig => {
+  const providers = collectUsableRustProviders(settings);
+  const embeddingTarget = embeddingsTarget(settings);
+
+  return {
+    providers,
+    defaultModel: resolveDefaultModel(settings, providers),
+    embeddingModel: embeddingTarget?.model ?? "",
+    embeddingProvider: embeddingTarget?.id ?? "",
+    search: {
+      provider: settings.services.search.provider,
+      apiKey: settings.services.search.apiKey.trim(),
+    },
+    composio: {
+      apiKey: settings.services.composio.apiKey.trim(),
+      userId: resolveComposioUserId(settings.services.composio.userId),
+    },
+  };
+};
+
+/* -------------------------------------------------------------------------- */
+/* Secret handling                                                            */
+/* -------------------------------------------------------------------------- */
+
+/** Keychain id for one header value: gateways keep tokens in headers. */
+export const headerSecretId = (id: ProviderId, name: string): string =>
+  `header:${id}:${name}`;
+
+/** Split a header secret id back into `(provider, header name)`. */
+export const parseHeaderSecretId = (
+  secretId: string,
+): { id: ProviderId; name: string } | null => {
+  if (!secretId.startsWith("header:")) return null;
+  const rest = secretId.slice("header:".length);
+  const separator = rest.indexOf(":");
+  if (separator <= 0) return null;
+  return {
+    id: rest.slice(0, separator) as ProviderId,
+    name: rest.slice(separator + 1),
+  };
+};
+
+/** Strips trailing `/` characters from an endpoint URL string. */
+const trimTrailingSlashes = (url: string): string => {
+  let end = url.length;
+  while (end > 0 && url[end - 1] === "/") end -= 1;
+  return url.slice(0, end);
+};
+
+/** Computes the serialized credential vault scope string for one `preset` + `connection`. */
+const formatConnectionScope = (
+  preset: ProviderPreset,
+  connection: ProviderConnection,
+): string => {
+  const trimmedCustom = connection.baseUrl.trim();
+  const baseUrl = trimTrailingSlashes(
+    trimmedCustom ? trimmedCustom : preset.baseUrl,
+  );
+  return JSON.stringify([
+    "provider-v1",
+    preset.kind,
+    baseUrl,
+    providerAuthStyle(preset.id, connection),
+  ]);
+};
+
+/** Versioned destination identities, persisted with credentials inside the vault. */
+export const credentialScopes = (
+  settings: ProvidersSettings,
+): Record<string, string> => {
+  const scopes: Record<string, string> = {};
+  for (const preset of PROVIDER_PRESETS) {
+    const connection = settings.connections[preset.id];
+    if (!connection) continue;
+    const scope = formatConnectionScope(preset, connection);
+    scopes[preset.id] = scope;
+    for (const name of Object.keys(connection.headers)) {
+      scopes[headerSecretId(preset.id, name)] = scope;
+    }
+  }
+  scopes[SEARCH_SECRET_ID] = JSON.stringify([
+    "search-v1",
+    settings.services.search.provider,
+  ]);
+  scopes[COMPOSIO_SECRET_ID] = JSON.stringify([
+    "composio-v1",
+    resolveComposioUserId(settings.services.composio.userId),
+  ]);
+  return scopes;
+};
+
+/** Records API key and non-empty custom header secrets for `presetId` into `out`. */
+const collectConnectionSecrets = (
+  presetId: ProviderId,
+  connection: ProviderConnection | undefined,
+  out: Record<string, string>,
+): void => {
+  if (!connection) return;
+  const key = connection.apiKey.trim();
+  if (key) out[presetId] = key;
+  for (const [name, value] of Object.entries(connection.headers)) {
+    const trimmed = value.trim();
+    if (trimmed) out[headerSecretId(presetId, name)] = trimmed;
+  }
+};
+
+/** Every secret the provider settings currently hold, keyed by storage id. */
+export const providerSecrets = (
+  settings: ProvidersSettings,
+): Record<string, string> => {
+  const out: Record<string, string> = {};
+  for (const preset of PROVIDER_PRESETS) {
+    collectConnectionSecrets(
+      preset.id,
+      settings.connections[preset.id],
+      out,
+    );
+  }
+  const search = settings.services.search.apiKey.trim();
+  if (search) out[SEARCH_SECRET_ID] = search;
+  const composio = settings.services.composio.apiKey.trim();
+  if (composio) out[COMPOSIO_SECRET_ID] = composio;
+  return out;
+};
+
+/** Keep header names, drop the values (they live in the keychain). */
+export const blankHeaderValues = (
+  headers: Record<string, string> | undefined,
+): Record<string, string> => {
+  const out: Record<string, string> = {};
+  for (const name of Object.keys(headers ?? {})) out[name] = "";
+  return out;
+};
+
+/**
+ * A copy safe to write to disk: the OS keychain owns the secrets, so nothing
+ * here contains a key. Non-secret fields are copied verbatim.
+ */
+export const redactProviderSecrets = <
+  T extends { ai: { providers: ProvidersSettings } },
+>(
+  settings: T,
+): T => {
+  const connections = {} as Record<ProviderId, ProviderConnection>;
+  for (const preset of PROVIDER_PRESETS) {
+    const connection = settings.ai.providers.connections[preset.id];
+    connections[preset.id] = connection
+      ? {
+          ...connection,
+          apiKey: "",
+          headers: blankHeaderValues(connection.headers),
+        }
+      : emptyConnection(preset);
+  }
+  return {
+    ...settings,
+    ai: {
+      ...settings.ai,
+      providers: {
+        ...settings.ai.providers,
+        connections,
+        services: {
+          ...settings.ai.providers.services,
+          search: { ...settings.ai.providers.services.search, apiKey: "" },
+          composio: { ...settings.ai.providers.services.composio, apiKey: "" },
+        },
+      },
+    },
+  };
+};
+
+/** Incoming header names with whatever values only this session still holds. */
+const mergeHeaderValues = (
+  live: Record<string, string> | undefined,
+  incoming: Record<string, string> | undefined,
+): Record<string, string> => {
+  const out: Record<string, string> = {};
+  for (const [name, value] of Object.entries(incoming ?? {})) {
+    out[name] = value.trim() ? value : (live?.[name] ?? "");
+  }
+  return out;
+};
+
+/** Checks whether `connection` holds an in-memory API key or non-empty header secret. */
+const hasInMemorySecret = (connection: ProviderConnection): boolean =>
+  Boolean(connection.apiKey.trim()) ||
+  Object.values(connection.headers).some((value) => Boolean(value.trim()));
+
+/** Checks whether `current` holds live secrets under a changed credential scope. */
+const shouldPreserveLiveScopedConnection = (
+  current: ProviderConnection,
+  scopeChanged: boolean,
+): boolean => scopeChanged && hasInMemorySecret(current);
+
+/** Merges one provider's in-memory secrets onto a freshly loaded connection record. */
+const mergeSingleProviderConnection = (
+  current: ProviderConnection | undefined,
+  incoming: ProviderConnection,
+  scopeChanged: boolean,
+): ProviderConnection => {
+  if (current && shouldPreserveLiveScopedConnection(current, scopeChanged)) {
+    return {
+      ...incoming,
+      apiKey: current.apiKey,
+      baseUrl: current.baseUrl,
+      authStyle: current.authStyle,
+      headers: current.headers,
+    };
+  }
+  const fallbackKey = current?.apiKey ?? "";
+  return {
+    ...incoming,
+    apiKey: incoming.apiKey.trim() ? incoming.apiKey : fallbackKey,
+    headers: mergeHeaderValues(current?.headers, incoming.headers),
+  };
+};
+
+/** Merges a service secret (`search` or `composio`) preserving live keys across scope changes. */
+const mergeScopedServiceEntry = <T extends { apiKey: string }>(
+  liveEntry: T,
+  loadedEntry: T,
+  scopeChanged: boolean,
+): T => {
+  if (liveEntry.apiKey && scopeChanged) return liveEntry;
+  return {
+    ...loadedEntry,
+    apiKey: loadedEntry.apiKey.trim()
+      ? loadedEntry.apiKey
+      : liveEntry.apiKey,
+  };
+};
+
+/**
+ * Fill secrets that only exist in memory back into a freshly loaded copy.
+ *
+ * Storage never holds keys once the keychain is in use, so a plain merge would
+ * wipe the session's keys the first time a settings payload arrived from disk or
+ * from the other window. Existing values always win for non-secret fields.
+ */
+export const mergeProviderConnections = (
+  live: ProvidersSettings,
+  loaded: ProvidersSettings,
+): ProvidersSettings => {
+  const connections = {} as Record<ProviderId, ProviderConnection>;
+  const liveScopes = credentialScopes(live);
+  const loadedScopes = credentialScopes(loaded);
+  for (const preset of PROVIDER_PRESETS) {
+    const incoming = loaded.connections[preset.id] ?? emptyConnection(preset);
+    connections[preset.id] = mergeSingleProviderConnection(
+      live.connections[preset.id],
+      incoming,
+      liveScopes[preset.id] !== loadedScopes[preset.id],
+    );
+  }
+  return {
+    ...loaded,
+    connections,
+    services: {
+      search: mergeScopedServiceEntry(
+        live.services.search,
+        loaded.services.search,
+        liveScopes[SEARCH_SECRET_ID] !== loadedScopes[SEARCH_SECRET_ID],
+      ),
+      composio: mergeScopedServiceEntry(
+        live.services.composio,
+        loaded.services.composio,
+        liveScopes[COMPOSIO_SECRET_ID] !== loadedScopes[COMPOSIO_SECRET_ID],
+      ),
+    },
+  };
+};
+
+/* -------------------------------------------------------------------------- */
+/* Key sanity checks                                                          */
+/* -------------------------------------------------------------------------- */
+
+/** Which provider a pasted key *looks* like it belongs to. Advisory only. */
+export const keyOwnerHint = (
+  apiKey: string,
+): { id: ProviderId; label: string } | null => {
+  const key = apiKey.trim();
+  if (key.length < 12) return null;
+  for (const { id, prefix } of KEY_PREFIXES) {
+    if (key.startsWith(prefix)) return { id, label: providerPreset(id).label };
+  }
+  return null;
+};
+
+/** Checks whether `ownerId` and `targetId` are distinct non-sibling providers. */
+const isForeignProviderOwner = (
+  ownerId: ProviderId,
+  targetId: ProviderId,
+): boolean =>
+  ownerId !== targetId &&
+  !(SIBLING_PROVIDERS[ownerId] ?? []).includes(targetId);
+
+/** Resolves expected prefix mismatch message when `id` has a known fixed key format. */
+const expectedPrefixMismatchWarning = (
+  id: ProviderId,
+  key: string,
+): string | null => {
+  const expected = KEY_PREFIXES.find((entry) => entry.id === id);
+  if (!expected || key.startsWith(expected.prefix)) return null;
+  return `${providerPreset(id).label} keys start with ${expected.prefix} — double-check the value.`;
+};
+
+/**
+ * One-line warning for the field the user is typing in, or null when the key
+ * looks plausible. Never blocks a save: gateways hand out their own formats, so
+ * this only ever suggests.
+ */
+export const keyFormatWarning = (
+  id: ProviderId,
+  apiKey: string,
+): string | null => {
+  const key = apiKey.trim();
+  if (!key) return null;
+  const owner = keyOwnerHint(key);
+  if (owner && isForeignProviderOwner(owner.id, id)) {
+    return `This looks like a ${owner.label} key — paste it into the ${owner.label} card instead.`;
+  }
+  return expectedPrefixMismatchWarning(id, key);
+};
+
+/** Same idea for the web-search keys, whose formats are also fixed. */
+export const searchKeyWarning = (
+  provider: (typeof SEARCH_PROVIDERS)[number]["id"],
+  apiKey: string,
+): string | null => {
+  const key = apiKey.trim();
+  const rule = SEARCH_KEY_PREFIX_REQUIREMENTS[provider];
+  if (!key || !rule || key.startsWith(rule.prefix)) return null;
+  return rule.message;
+};
+
+/** `sk-abc…1234` — enough to recognise a key without showing it in full. */
+export const maskApiKey = (apiKey: string): string => {
+  const key = apiKey.trim();
+  if (key.length <= 10) return key ? `${key.slice(0, 2)}…` : "";
+  return `${key.slice(0, 6)}…${key.slice(-4)}`;
+};
+
+/* -------------------------------------------------------------------------- */
+/* Model ids arriving from somewhere else                                      */
+/* -------------------------------------------------------------------------- */
 
 /**
  * Model id rewritten onto the id this app stores, e.g.
  * `gemini/gemini-2.5-pro` → `google/gemini-2.5-pro`. Ids this app already
  * understands come back untouched.
  */
-export function translateModelId(model: string): string {
+export const translateModelId = (model: string): string => {
   const trimmed = model.trim();
   const separator = trimmed.indexOf("/");
   if (separator <= 0) return trimmed;
-  const canonical = canonicalProviderId(trimmed.slice(0, separator));
-  if (!canonical || canonical === trimmed.slice(0, separator)) return trimmed;
+  const currentPrefix = trimmed.slice(0, separator);
+  const canonical = canonicalProviderId(currentPrefix);
+  if (!canonical || canonical === currentPrefix) return trimmed;
   return `${canonical}/${trimmed.slice(separator + 1)}`;
-}
+};
+
+/** Extracts the trailing `/`-delimited segment of a model identifier. */
+const extractLastPathSegment = (value: string): string => {
+  const slash = value.lastIndexOf("/");
+  return slash === -1 ? value : value.slice(slash + 1);
+};
+
+/** Strips a leading `provider/` namespace when present on a lowercased model query. */
+const stripLeadingNamespace = (name: string): string =>
+  name.includes("/") ? name.slice(name.indexOf("/") + 1) : name;
+
+/** Checks whether a single preset model matches any requested `needles` or 6+ char `tails`. */
+const presetModelMatchesNeedles = (
+  model: { id: string; name: string },
+  needles: string[],
+  tails: Set<string>,
+): boolean => {
+  const slug = model.id.slice(model.id.indexOf("/") + 1).toLowerCase();
+  const displayName = model.name.toLowerCase();
+  if (
+    needles.some(
+      (needle) =>
+        slug === needle ||
+        displayName === needle ||
+        displayName.includes(needle),
+    )
+  ) {
+    return true;
+  }
+  const tail = extractLastPathSegment(slug);
+  return tail.length >= 6 && tails.has(tail);
+};
+
+/** Checks whether `preset` has built-in models matching `needles` / `tails` and is usable. */
+const isMatchingUsablePreset = (
+  preset: ProviderPreset,
+  needles: string[],
+  tails: Set<string>,
+  connections: Record<ProviderId, ProviderConnection>,
+): boolean => {
+  if (preset.models.length === 0) return false;
+  if (!isConnectionUsable(preset.id, connections)) return false;
+  return preset.models.some((model) =>
+    presetModelMatchesNeedles(model, needles, tails),
+  );
+};
 
 /**
  * Model names a pasted config mentions, mapped onto providers the user has.
@@ -1580,48 +1952,32 @@ export function translateModelId(model: string): string {
  * connections instead of everything landing on "custom". Provider order follows
  * the preset order, so the result is stable.
  */
-export function providersForModelNames(
+export const providersForModelNames = (
   names: string[],
   connections: Record<ProviderId, ProviderConnection>,
-): ProviderId[] {
+): ProviderId[] => {
   const needles = names
     .map((name) => name.trim().toLowerCase())
     .filter(Boolean)
-    .map((name) => (name.includes("/") ? name.slice(name.indexOf("/") + 1) : name));
+    .map(stripLeadingNamespace);
   if (needles.length === 0) return [];
-  // A model name arrives namespaced in as many ways as there are clients
-  // (`deepseek-ai/DeepSeek-R1`, `deepseek/deepseek-r1`), so the last path
-  // segment is what identifies it.
-  const lastSegment = (value: string) => {
-    const slash = value.lastIndexOf("/");
-    return slash === -1 ? value : value.slice(slash + 1);
-  };
-  const tails = new Set(needles.map(lastSegment).filter((tail) => tail.length >= 6));
-  const out: ProviderId[] = [];
-  for (const preset of PROVIDER_PRESETS) {
-    // Presets without a model list (custom, LM Studio, vLLM) can serve anything,
-    // so they would match every pasted name — never guess them.
-    if (preset.models.length === 0) continue;
-    const matches = preset.models.some((model) => {
-      const slug = model.id.slice(model.id.indexOf("/") + 1).toLowerCase();
-      const name = model.name.toLowerCase();
-      if (needles.some((needle) => slug === needle || name === needle || name.includes(needle))) {
-        return true;
-      }
-      const tail = lastSegment(slug);
-      return tail.length >= 6 && tails.has(tail);
-    });
-    if (matches && isConnectionUsable(preset.id, connections)) out.push(preset.id);
-  }
-  return out;
-}
+  const tails = new Set(
+    needles.map(extractLastPathSegment).filter((tail) => tail.length >= 6),
+  );
+  return PROVIDER_PRESETS.filter((preset) =>
+    isMatchingUsablePreset(preset, needles, tails, connections),
+  ).map((preset) => preset.id);
+};
 
 /* -------------------------------------------------------------------------- */
 /* Model discovery                                                            */
 /* -------------------------------------------------------------------------- */
 
 /** Turn discovered native slugs into the `provider/model` ids the app stores. */
-export function modelsWithProviderPrefix(id: ProviderId, discovered: string[]): string[] {
+export const modelsWithProviderPrefix = (
+  id: ProviderId,
+  discovered: string[],
+): string[] => {
   const out: string[] = [];
   for (const raw of discovered) {
     const slug = raw.trim();
@@ -1629,13 +1985,13 @@ export function modelsWithProviderPrefix(id: ProviderId, discovered: string[]): 
     out.push(slug.startsWith(`${id}/`) ? slug : `${id}/${slug}`);
   }
   return [...new Set(out)];
-}
+};
 
 /** `provider/model` ids → the raw slugs `extraModels` expects. */
-export function stripProviderPrefix(id: ProviderId, ids: string[]): string[] {
-  return ids
+export const stripProviderPrefix = (id: ProviderId, ids: string[]): string[] =>
+  ids
     .map((raw) => raw.trim())
     .filter(Boolean)
     .map((raw) => (raw.startsWith(`${id}/`) ? raw.slice(id.length + 1) : raw))
     .filter((raw, index, all) => all.indexOf(raw) === index);
-}
+

@@ -11,10 +11,61 @@ export const CHAT_FIND_ACTIVE_HIGHLIGHT_NAME = "chat-find-active";
 
 const HIGHLIGHT_STYLE_ID = "bettershape-chat-find-highlights";
 
+const IGNORED_TEXT_TAGS = new Set(["SCRIPT", "STYLE", "NOSCRIPT"]);
+
+const SKIPPED_ANCESTOR_ATTRS = [
+    "inert",
+    "data-quote-skip",
+    "data-find-skip",
+    "data-chat-find-bar",
+];
+
+const BLOCK_ANCESTOR_SELECTOR =
+    "p, li, pre, blockquote, h1, h2, h3, h4, h5, h6, tr, td, th, div, section, article";
+
+export interface DomMatchRange {
+    range: Range;
+    messageIndex: number;
+}
+
+interface TextSegment {
+    node: Text;
+    start: number;
+    end: number;
+}
+
+interface MessageTextRun {
+    messageIndex: number;
+    text: string;
+    segments: TextSegment[];
+    lastBlock: Element | null;
+}
+
+interface CustomHighlightRegistry {
+    get?(name: string): unknown;
+    set(name: string, highlight: unknown): void;
+    delete(name: string): boolean;
+}
+
+type HighlightConstructor = new (...ranges: AbstractRange[]) => unknown;
+
+type HighlightApiHandle = {
+    registry: CustomHighlightRegistry;
+    HighlightCtor: HighlightConstructor;
+};
+
+type SyncChatHighlightOptions = {
+    caseSensitive?: boolean;
+    activeIndex?: number;
+    targetMessageIndex?: number | null;
+    targetOccurrenceInMessage?: number | null;
+    maxRanges?: number;
+};
+
 let ownedMatchesHighlight: unknown = null;
 let ownedActiveHighlight: unknown = null;
 
-/** Ensure highlight stylesheet. */
+/** Injects the `::highlight(...)` stylesheet into `document.head` once per document. */
 const ensureHighlightStylesheet = (): void => {
     if (typeof document === "undefined") return;
     const head = document.head as HTMLHeadElement | null;
@@ -28,32 +79,28 @@ const ensureHighlightStylesheet = (): void => {
     head.appendChild(style);
 };
 
-interface CustomHighlightRegistry {
-    get?(name: string): unknown;
-    set(name: string, highlight: unknown): void;
-    delete(name: string): boolean;
-}
-
-type HighlightConstructor = new (...ranges: AbstractRange[]) => unknown;
-
-/** Get highlight api. */
-const getHighlightApi = (): {
-    registry: CustomHighlightRegistry;
-    HighlightCtor: HighlightConstructor;
-} | null => {
+/** Resolves the browser CSS Custom Highlight API handles when supported. */
+const getHighlightApi = (): HighlightApiHandle | null => {
     if (typeof window === "undefined") return null;
-    const cssObj = (window as unknown as { CSS?: { highlights?: CustomHighlightRegistry } }).CSS;
-    const HighlightCtor = (window as unknown as { Highlight?: HighlightConstructor }).Highlight;
+    const cssObj = (
+        window as unknown as { CSS?: { highlights?: CustomHighlightRegistry } }
+    ).CSS;
+    const HighlightCtor = (
+        window as unknown as { Highlight?: HighlightConstructor }
+    ).Highlight;
     if (!cssObj?.highlights || typeof HighlightCtor !== "function") return null;
     return { registry: cssObj.highlights, HighlightCtor };
 };
 
 /** Returns true when the browser supports the CSS Custom Highlight API. */
-export const isCssHighlightsSupported = (): boolean => {
-    return getHighlightApi() !== null;
-};
+export const isCssHighlightsSupported = (): boolean =>
+    getHighlightApi() !== null;
 
-/** Delete owned highlight. */
+/** Checks whether a lookup returned a defined non-null highlight instance. */
+const isDefinedHighlight = (value: unknown): boolean =>
+    value !== undefined && value !== null;
+
+/** Deletes `name` from `registry` only when `ownedInstance` is still the registered highlight. */
 const deleteOwnedHighlight = (
     registry: CustomHighlightRegistry,
     name: string,
@@ -62,7 +109,9 @@ const deleteOwnedHighlight = (
     if (!ownedInstance) return;
     if (typeof registry.get === "function") {
         const current = registry.get(name);
-        if (current != null && !Object.is(current, ownedInstance)) return;
+        if (isDefinedHighlight(current) && !Object.is(current, ownedInstance)) {
+            return;
+        }
     }
     registry.delete(name);
 };
@@ -70,39 +119,41 @@ const deleteOwnedHighlight = (
 /** Removes owned chat transcript highlight entries without disturbing other highlights. */
 export const clearChatDomHighlights = (): void => {
     const api = getHighlightApi();
-    if (!api) {
-        ownedMatchesHighlight = null;
-        ownedActiveHighlight = null;
-        return;
+    if (api) {
+        deleteOwnedHighlight(
+            api.registry,
+            CHAT_FIND_HIGHLIGHT_NAME,
+            ownedMatchesHighlight,
+        );
+        deleteOwnedHighlight(
+            api.registry,
+            CHAT_FIND_ACTIVE_HIGHLIGHT_NAME,
+            ownedActiveHighlight,
+        );
     }
-    deleteOwnedHighlight(api.registry, CHAT_FIND_HIGHLIGHT_NAME, ownedMatchesHighlight);
-    deleteOwnedHighlight(api.registry, CHAT_FIND_ACTIVE_HIGHLIGHT_NAME, ownedActiveHighlight);
     ownedMatchesHighlight = null;
     ownedActiveHighlight = null;
 };
 
-/** Should skip text node. */
-const shouldSkipTextNode = (node: Text, root: HTMLElement): boolean => {
-    const parent = node.parentElement;
-    if (!parent) return true;
-    const tag = parent.tagName;
-    if (tag === "SCRIPT" || tag === "STYLE" || tag === "NOSCRIPT") {
-        return true;
-    }
+/** Checks whether an ancestor element represents non-searchable chrome or hidden text. */
+const isNonSearchableChromeElement = (el: HTMLElement): boolean => {
+    const tag = el.tagName;
+    if (tag === "KBD") return true;
+    if (tag === "BUTTON" && !el.hasAttribute("data-chat-find-text")) return true;
+    return SKIPPED_ANCESTOR_ATTRS.some((attr) => el.hasAttribute(attr));
+};
+
+/** Checks whether an ancestor element is visually or semantically hidden from find-in-chat. */
+const isHiddenFromChatFind = (el: HTMLElement): boolean =>
+    el.getAttribute("aria-hidden") === "true" ||
+    el.classList.contains("t-think-sizer") ||
+    el.classList.contains("sr-only");
+
+/** Checks whether any ancestor between `parent` and `root` excludes `node` from search. */
+const hasExcludedAncestor = (parent: HTMLElement, root: HTMLElement): boolean => {
     let cur: HTMLElement | null = parent;
     while (cur && cur !== root) {
-        const curTag = cur.tagName;
-        if (
-            (curTag === "BUTTON" && !cur.hasAttribute("data-chat-find-text")) ||
-            curTag === "KBD" ||
-            cur.hasAttribute("inert") ||
-            cur.getAttribute("aria-hidden") === "true" ||
-            cur.hasAttribute("data-quote-skip") ||
-            cur.hasAttribute("data-find-skip") ||
-            cur.hasAttribute("data-chat-find-bar") ||
-            cur.classList.contains("t-think-sizer") ||
-            cur.classList.contains("sr-only")
-        ) {
+        if (isNonSearchableChromeElement(cur) || isHiddenFromChatFind(cur)) {
             return true;
         }
         cur = cur.parentElement;
@@ -110,68 +161,109 @@ const shouldSkipTextNode = (node: Text, root: HTMLElement): boolean => {
     return false;
 };
 
-export interface DomMatchRange {
-    range: Range;
-    messageIndex: number | null;
-}
+/** Checks whether a DOM `Text` node should be skipped when indexing message prose. */
+const shouldSkipTextNode = (node: Text, root: HTMLElement): boolean => {
+    const parent = node.parentElement;
+    if (!parent || IGNORED_TEXT_TAGS.has(parent.tagName)) return true;
+    return hasExcludedAncestor(parent, root);
+};
 
-interface TextSegment {
-    node: Text;
-    start: number;
-    end: number;
-}
-
-interface MessageTextRun {
-    messageIndex: number | null;
-    text: string;
-    segments: TextSegment[];
-    lastBlock: Element | null;
-}
-
-const BLOCK_ANCESTOR_SELECTOR =
-    "p, li, pre, blockquote, h1, h2, h3, h4, h5, h6, tr, td, th, div, section, article";
-
-/** Resolve message index. */
+/** Resolves the numeric `data-chat-message-index` owning `textNode`, or `null` outside rows. */
 const resolveMessageIndex = (textNode: Text): number | null => {
-    const msgEl = textNode.parentElement?.closest<HTMLElement>("[data-chat-message-index]") ?? null;
-    const parsed = msgEl ? Number(msgEl.getAttribute("data-chat-message-index")) : Number.NaN;
+    const msgEl =
+        textNode.parentElement?.closest<HTMLElement>(
+            "[data-chat-message-index]",
+        ) ?? null;
+    const parsed = msgEl
+        ? Number(msgEl.getAttribute("data-chat-message-index"))
+        : Number.NaN;
     return Number.isFinite(parsed) ? parsed : null;
 };
 
-/** Collect message text runs. */
+/** Gets or creates a `MessageTextRun` bucket for `messageIndex`. */
+const getOrCreateMessageRun = (
+    byIndex: Map<number, MessageTextRun>,
+    runs: MessageTextRun[],
+    messageIndex: number,
+): MessageTextRun => {
+    const existing = byIndex.get(messageIndex);
+    if (existing) return existing;
+    const created: MessageTextRun = {
+        messageIndex,
+        text: "",
+        segments: [],
+        lastBlock: null,
+    };
+    byIndex.set(messageIndex, created);
+    runs.push(created);
+    return created;
+};
+
+/** Appends a single `Text` node and optional inter-block newline separator to `run`. */
+const appendNodeToMessageRun = (
+    run: MessageTextRun,
+    textNode: Text,
+    raw: string,
+    container: HTMLElement,
+): void => {
+    const block =
+        textNode.parentElement?.closest(BLOCK_ANCESTOR_SELECTOR) ?? container;
+    if (run.lastBlock && run.lastBlock !== block && !run.text.endsWith("\n")) {
+        run.text += "\n";
+    }
+    const start = run.text.length;
+    run.text += raw;
+    run.segments.push({ node: textNode, start, end: start + raw.length });
+    run.lastBlock = block;
+};
+
+/** Resolves `(messageIndex, raw)` for a searchable DOM text node, or `null` when excluded. */
+const extractIndexedNodeText = (
+    textNode: Text,
+    container: HTMLElement,
+): { messageIndex: number; raw: string } | null => {
+    const raw = textNode.nodeValue;
+    if (!raw || shouldSkipTextNode(textNode, container)) return null;
+    const messageIndex = resolveMessageIndex(textNode);
+    return messageIndex === null ? null : { messageIndex, raw };
+};
+
+/** Collects indexed message text runs across `container`, skipping unindexed chrome banners. */
 const collectMessageTextRuns = (container: HTMLElement): MessageTextRun[] => {
     const runs: MessageTextRun[] = [];
-    const byKey = new Map<string, MessageTextRun>();
+    const byIndex = new Map<number, MessageTextRun>();
     const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
     let current = walker.nextNode();
     while (current) {
         const textNode = current as Text;
         current = walker.nextNode();
-        const raw = textNode.nodeValue;
-        if (!raw || shouldSkipTextNode(textNode, container)) continue;
-
-        const messageIndex = resolveMessageIndex(textNode);
-        if (messageIndex === null) continue;
-        const key = String(messageIndex);
-        let run = byKey.get(key);
-        if (!run) {
-            run = { messageIndex, text: "", segments: [], lastBlock: null };
-            byKey.set(key, run);
-            runs.push(run);
+        const entry = extractIndexedNodeText(textNode, container);
+        if (entry) {
+            const run = getOrCreateMessageRun(byIndex, runs, entry.messageIndex);
+            appendNodeToMessageRun(run, textNode, entry.raw, container);
         }
-        const block = textNode.parentElement?.closest(BLOCK_ANCESTOR_SELECTOR) ?? container;
-        if (run.lastBlock && run.lastBlock !== block && !run.text.endsWith("\n")) {
-            run.text += "\n";
-        }
-        const start = run.text.length;
-        run.text += raw;
-        run.segments.push({ node: textNode, start, end: start + raw.length });
-        run.lastBlock = block;
     }
     return runs;
 };
 
-/** Locate dom boundary. */
+/** Checks whether `seg` precedes `offset` during binary search (`isEnd` controls boundary tie-break). */
+const isSegmentBeforeOffset = (
+    seg: TextSegment,
+    offset: number,
+    isEnd: boolean,
+): boolean => (isEnd ? seg.end < offset : seg.end <= offset);
+
+/** Clamps `offset` into the local `[0, nodeLength]` character range of `found`. */
+const toDomBoundaryPoint = (
+    found: TextSegment,
+    offset: number,
+): { node: Text; offset: number } => {
+    const maxLen = found.node.nodeValue?.length ?? 0;
+    const localOffset = Math.min(Math.max(0, offset - found.start), maxLen);
+    return { node: found.node, offset: localOffset };
+};
+
+/** Binary-searches `segments` to map a flat run offset back to a `{ node, offset }` boundary. */
 const locateDomBoundary = (
     segments: readonly TextSegment[],
     offset: number,
@@ -184,21 +276,17 @@ const locateDomBoundary = (
         const mid = (lo + hi) >> 1;
         const seg = segments.at(mid);
         if (!seg) break;
-        const before = isEnd ? seg.end < offset : seg.end <= offset;
-        if (before) {
+        if (isSegmentBeforeOffset(seg, offset, isEnd)) {
             lo = mid + 1;
         } else {
             found = seg;
             hi = mid - 1;
         }
     }
-    if (!found) return null;
-    const maxLen = found.node.nodeValue?.length ?? 0;
-    const localOffset = Math.min(Math.max(0, offset - found.start), maxLen);
-    return { node: found.node, offset: localOffset };
+    return found ? toDomBoundaryPoint(found, offset) : null;
 };
 
-/** Create run match range. */
+/** Constructs a live DOM `Range` spanning `[matchStart, matchEnd]` within `segments`. */
 const createRunMatchRange = (
     segments: readonly TextSegment[],
     matchStart: number,
@@ -213,11 +301,192 @@ const createRunMatchRange = (
     return range;
 };
 
-/** Build query matcher. */
+/** Escapes regex metacharacters and compiles a global literal matcher for `trimmed`. */
 const buildQueryMatcher = (trimmed: string, caseSensitive: boolean): RegExp => {
     const pattern = trimmed.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     return new RegExp(pattern, caseSensitive ? "g" : "gi");
 };
+
+/** Checks whether `(messageIndex, occurrence)` matches the explicit target occurrence in `options`. */
+const isTargetedMessageOccurrence = (
+    options: SyncChatHighlightOptions,
+    messageIndex: number,
+    occurrence: number,
+): boolean =>
+    options.targetMessageIndex === messageIndex &&
+    options.targetOccurrenceInMessage === occurrence;
+
+/** Records a resolved `Range` hit into `collected` and returns it when matching target options. */
+const recordRunMatchHit = (
+    range: Range,
+    messageIndex: number,
+    options: SyncChatHighlightOptions,
+    collected: DomMatchRange[],
+    perMessageCounter: Map<number, number>,
+): Range | null => {
+    collected.push({ range, messageIndex });
+    const occ = perMessageCounter.get(messageIndex) ?? 0;
+    perMessageCounter.set(messageIndex, occ + 1);
+    return isTargetedMessageOccurrence(options, messageIndex, occ)
+        ? range
+        : null;
+};
+
+/** Evaluates one non-empty regex match inside `run` and records any resulting DOM `Range`. */
+const processNonEmptyRegexMatch = (
+    run: MessageTextRun,
+    match: RegExpExecArray,
+    options: SyncChatHighlightOptions,
+    collected: DomMatchRange[],
+    perMessageCounter: Map<number, number>,
+): Range | null => {
+    const range = createRunMatchRange(
+        run.segments,
+        match.index,
+        match.index + match[0].length,
+    );
+    if (!range) return null;
+    return recordRunMatchHit(
+        range,
+        run.messageIndex,
+        options,
+        collected,
+        perMessageCounter,
+    );
+};
+
+/** Collects up to `maxRanges` regex matches inside a single `MessageTextRun`. */
+const collectMatchesInSingleRun = (
+    run: MessageTextRun,
+    matcher: RegExp,
+    maxRanges: number,
+    options: SyncChatHighlightOptions,
+    collected: DomMatchRange[],
+    perMessageCounter: Map<number, number>,
+): Range | null => {
+    let targetMatch: Range | null = null;
+    matcher.lastIndex = 0;
+    while (collected.length < maxRanges) {
+        const match = matcher.exec(run.text);
+        if (!match) break;
+        if (match[0].length === 0) {
+            matcher.lastIndex += 1;
+        } else {
+            const hit = processNonEmptyRegexMatch(
+                run,
+                match,
+                options,
+                collected,
+                perMessageCounter,
+            );
+            targetMatch = targetMatch ?? hit;
+        }
+    }
+    return targetMatch;
+};
+
+/** Collects match ranges across all `runs` up to `maxRanges`. */
+const collectAllDomMatchRanges = (
+    runs: MessageTextRun[],
+    matcher: RegExp,
+    maxRanges: number,
+    options: SyncChatHighlightOptions,
+): { collected: DomMatchRange[]; matchedTargetRange: Range | null } => {
+    const collected: DomMatchRange[] = [];
+    const perMessageCounter = new Map<number, number>();
+    let matchedTargetRange: Range | null = null;
+    for (const run of runs) {
+        if (collected.length >= maxRanges) break;
+        const hit = collectMatchesInSingleRun(
+            run,
+            matcher,
+            maxRanges,
+            options,
+            collected,
+            perMessageCounter,
+        );
+        if (!matchedTargetRange && hit) {
+            matchedTargetRange = hit;
+        }
+    }
+    return { collected, matchedTargetRange };
+};
+
+/** Resolves the fallback `Range` at `activeIndex` when `collected` is non-empty. */
+const resolveClampedRangeAt = (
+    collected: DomMatchRange[],
+    activeIndex: number | undefined,
+): Range | null => {
+    if (collected.length === 0) return null;
+    const clamped = Math.min(
+        Math.max(0, activeIndex ?? 0),
+        collected.length - 1,
+    );
+    return collected[clamped]?.range ?? null;
+};
+
+/** Resolves the first `Range` inside `targetMessageIndex` when specified. */
+const findFirstRangeInMessage = (
+    collected: DomMatchRange[],
+    targetMessageIndex: number | null | undefined,
+): Range | null => {
+    if (typeof targetMessageIndex !== "number") return null;
+    return (
+        collected.find((item) => item.messageIndex === targetMessageIndex)
+            ?.range ?? null
+    );
+};
+
+/** Resolves the active highlighted `Range` from target message occurrence or `activeIndex`. */
+const resolveActiveHighlightRange = (
+    collected: DomMatchRange[],
+    matchedTargetRange: Range | null,
+    options: SyncChatHighlightOptions,
+): Range | null => {
+    if (matchedTargetRange) return matchedTargetRange;
+    const inMessage = findFirstRangeInMessage(
+        collected,
+        options.targetMessageIndex,
+    );
+    return inMessage ?? resolveClampedRangeAt(collected, options.activeIndex);
+};
+
+/** Registers or clears `CSS.highlights` entries for `collected` and `activeRange`. */
+const paintHighlightRegistry = (
+    api: HighlightApiHandle,
+    collected: DomMatchRange[],
+    activeRange: Range | null,
+): void => {
+    if (collected.length === 0) {
+        clearChatDomHighlights();
+        return;
+    }
+    ensureHighlightStylesheet();
+    const matchesInstance = new api.HighlightCtor(
+        ...collected.map((item) => item.range),
+    );
+    ownedMatchesHighlight = matchesInstance;
+    api.registry.set(CHAT_FIND_HIGHLIGHT_NAME, matchesInstance);
+    if (activeRange) {
+        const activeInstance = new api.HighlightCtor(activeRange);
+        ownedActiveHighlight = activeInstance;
+        api.registry.set(CHAT_FIND_ACTIVE_HIGHLIGHT_NAME, activeInstance);
+    } else {
+        deleteOwnedHighlight(
+            api.registry,
+            CHAT_FIND_ACTIVE_HIGHLIGHT_NAME,
+            ownedActiveHighlight,
+        );
+        ownedActiveHighlight = null;
+    }
+};
+
+/** Checks whether highlight synchronization can run for `container` and `trimmed` query. */
+const canSyncDomHighlights = (
+    container: HTMLElement | null,
+    trimmed: string,
+): container is HTMLElement =>
+    Boolean(container && trimmed && typeof document !== "undefined");
 
 /**
  * Collects DOM `Range`s for every visible text match inside `container`,
@@ -227,16 +496,10 @@ const buildQueryMatcher = (trimmed: string, caseSensitive: boolean): RegExp => {
 export const syncChatDomHighlights = (
     container: HTMLElement | null,
     query: string,
-    options: {
-        caseSensitive?: boolean;
-        activeIndex?: number;
-        targetMessageIndex?: number | null;
-        targetOccurrenceInMessage?: number | null;
-        maxRanges?: number;
-    } = {},
+    options: SyncChatHighlightOptions = {},
 ): { ranges: DomMatchRange[]; activeRange: Range | null } => {
     const trimmed = query.trim();
-    if (!container || !trimmed || typeof document === "undefined") {
+    if (!canSyncDomHighlights(container, trimmed)) {
         clearChatDomHighlights();
         return { ranges: [], activeRange: null };
     }
@@ -244,72 +507,21 @@ export const syncChatDomHighlights = (
     const maxRanges = options.maxRanges ?? 500;
     const matcher = buildQueryMatcher(trimmed, Boolean(options.caseSensitive));
     const runs = collectMessageTextRuns(container);
-
-    const collected: DomMatchRange[] = [];
-    const perMessageCounter = new Map<number, number>();
-    let matchedTargetRange: Range | null = null;
-
-    for (const run of runs) {
-        if (collected.length >= maxRanges) break;
-        matcher.lastIndex = 0;
-        let match = matcher.exec(run.text);
-        while (match !== null && collected.length < maxRanges) {
-            const matchLen = match[0].length;
-            if (matchLen === 0) {
-                matcher.lastIndex += 1;
-                match = matcher.exec(run.text);
-                continue;
-            }
-            const range = createRunMatchRange(run.segments, match.index, match.index + matchLen);
-            if (range) {
-                collected.push({ range, messageIndex: run.messageIndex });
-                if (run.messageIndex !== null) {
-                    const occ = perMessageCounter.get(run.messageIndex) ?? 0;
-                    perMessageCounter.set(run.messageIndex, occ + 1);
-                    if (
-                        matchedTargetRange === null
-                        && options.targetMessageIndex === run.messageIndex
-                        && options.targetOccurrenceInMessage === occ
-                    ) {
-                        matchedTargetRange = range;
-                    }
-                }
-            }
-            match = matcher.exec(run.text);
-        }
-    }
-
-    const fallbackIndex =
-        collected.length > 0
-            ? Math.min(Math.max(0, options.activeIndex ?? 0), collected.length - 1)
-            : -1;
-    const fallbackInTargetMessage =
-        options.targetMessageIndex != null
-            ? collected.find((item) => item.messageIndex === options.targetMessageIndex)?.range ?? null
-            : null;
-    const activeRange =
-        matchedTargetRange ??
-        fallbackInTargetMessage ??
-        (fallbackIndex >= 0 ? (collected[fallbackIndex]?.range ?? null) : null);
+    const { collected, matchedTargetRange } = collectAllDomMatchRanges(
+        runs,
+        matcher,
+        maxRanges,
+        options,
+    );
+    const activeRange = resolveActiveHighlightRange(
+        collected,
+        matchedTargetRange,
+        options,
+    );
 
     const api = getHighlightApi();
     if (api) {
-        if (collected.length === 0) {
-            clearChatDomHighlights();
-        } else {
-            ensureHighlightStylesheet();
-            const matchesInstance = new api.HighlightCtor(...collected.map((item) => item.range));
-            ownedMatchesHighlight = matchesInstance;
-            api.registry.set(CHAT_FIND_HIGHLIGHT_NAME, matchesInstance);
-            if (activeRange) {
-                const activeInstance = new api.HighlightCtor(activeRange);
-                ownedActiveHighlight = activeInstance;
-                api.registry.set(CHAT_FIND_ACTIVE_HIGHLIGHT_NAME, activeInstance);
-            } else {
-                deleteOwnedHighlight(api.registry, CHAT_FIND_ACTIVE_HIGHLIGHT_NAME, ownedActiveHighlight);
-                ownedActiveHighlight = null;
-            }
-        }
+        paintHighlightRegistry(api, collected, activeRange);
     }
 
     return { ranges: collected, activeRange };
