@@ -41,7 +41,7 @@ export type DictationSession = {
 type DictationInvokeBridge = {
     start: () => Promise<void>;
     stop: () => Promise<void>;
-    push: (wav: number[]) => Promise<void | string>;
+    push: (wav: number[]) => Promise<unknown>;
 };
 
 const DOM_EXCEPTION_MESSAGES: Partial<Record<string, string>> = {
@@ -279,7 +279,7 @@ const hasAudibleSignal = (samples: Float32Array): boolean => {
 
 /** Delivers a direct recognizer transcript result when `invoke.push` resolves with non-empty text. */
 const forwardRecognizedPushText = (
-    result: void | string,
+    result: unknown,
     setState: (state: DictationState) => void,
     onText: (text: string) => void,
 ): void => {
