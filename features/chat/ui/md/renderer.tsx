@@ -1114,16 +1114,21 @@ const matchStructuredTagAt = (
     };
 };
 
-/** Returns the end offset of a fenced code range containing `index`, or `-1` when outside fences. */
+/** Returns the end offset of a fenced code range containing `index` in amortized $O(1)$ via `fenceCursor`. */
 const findContainingFenceEnd = (
     index: number,
     fenceRanges: ReadonlyArray<readonly [number, number]>,
+    fenceCursor: { idx: number },
 ): number => {
-    for (const [start, end] of fenceRanges) {
-        if (index < start) return -1;
-        if (index < end) return end;
+    while (
+        fenceCursor.idx < fenceRanges.length &&
+        fenceRanges[fenceCursor.idx][1] <= index
+    ) {
+        fenceCursor.idx += 1;
     }
-    return -1;
+    if (fenceCursor.idx >= fenceRanges.length) return -1;
+    const [start, end] = fenceRanges[fenceCursor.idx];
+    return index >= start ? end : -1;
 };
 
 /** Finds the earliest structured XML tag outside `fenceRanges` in a single linear `<` pass. */
@@ -1131,12 +1136,17 @@ const findNextStructuredTag = (
     text: string,
     fromIndex: number,
     fenceRanges: ReadonlyArray<readonly [number, number]>,
+    fenceCursor: { idx: number },
 ): MatchedTagRange | null => {
     let cursor = fromIndex;
     while (cursor < text.length) {
         const ltIndex = text.indexOf("<", cursor);
         if (ltIndex === -1) return null;
-        const fenceEnd = findContainingFenceEnd(ltIndex, fenceRanges);
+        const fenceEnd = findContainingFenceEnd(
+            ltIndex,
+            fenceRanges,
+            fenceCursor,
+        );
         if (fenceEnd !== -1) {
             cursor = fenceEnd;
         } else {
@@ -1248,6 +1258,7 @@ const consumeMatchedTagAt = (
 export const parseMessageContent = (rawText: string): Chunk[] => {
     const text = stripLeakedToolCode(rawText);
     const fenceRanges = scanMarkdownCodeFences(text, 0).ranges;
+    const fenceCursor = { idx: 0 };
     const chunks: Chunk[] = [];
     let currentIndex = 0;
 
@@ -1256,6 +1267,7 @@ export const parseMessageContent = (rawText: string): Chunk[] => {
             text,
             currentIndex,
             fenceRanges,
+            fenceCursor,
         );
         if (!firstMatch) {
             pushSanitizedTextSlice(chunks, text, currentIndex);

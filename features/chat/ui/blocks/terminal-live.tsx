@@ -294,10 +294,25 @@ const dispatchTerminalStreamPayload = (
     handler?.(payload, bufferRef, setState);
 };
 
+/** Resolves `{ exitCode, cancelled }` for a fallback `pty-exit` event based on numeric `exitCode`. */
+const resolvePtyExitOutcome = (
+    prev: StreamState,
+    exitCode: number | null | undefined,
+): { exitCode: number; cancelled: boolean } => {
+    if (typeof exitCode === "number") {
+        return {
+            exitCode: prev.exitCode ?? exitCode,
+            cancelled: prev.cancelled,
+        };
+    }
+    return { exitCode: prev.exitCode ?? -1, cancelled: true };
+};
+
 /** Reduces a `pty-exit` event for `sid` when it matches the tracked terminal session. */
 const applyPtyExitToState = (
     prev: StreamState,
     sid: number,
+    exitCode: number | null | undefined,
     sessionIdHint: number | undefined,
 ): StreamState => {
     const matchesSession = prev.sessionId === sid || sessionIdHint === sid;
@@ -305,8 +320,7 @@ const applyPtyExitToState = (
     return {
         ...prev,
         phase: "finished",
-        exitCode: prev.exitCode ?? -1,
-        cancelled: true,
+        ...resolvePtyExitOutcome(prev, exitCode),
         waitingForInput: false,
     };
 };
@@ -342,11 +356,15 @@ export const useAgentTerminalStream = (
                 }
             },
         );
-        const unlistenPty = safeListen<{ id?: number }>("pty-exit", (event) => {
+        const unlistenPty = safeListen<{
+            id?: number;
+            exit_code?: number | null;
+        }>("pty-exit", (event) => {
             const sid = event.payload?.id;
+            const exitCode = event.payload?.exit_code;
             if (!disposed && typeof sid === "number") {
                 setState((prev) =>
-                    applyPtyExitToState(prev, sid, sessionIdHint),
+                    applyPtyExitToState(prev, sid, exitCode, sessionIdHint),
                 );
             }
         });
