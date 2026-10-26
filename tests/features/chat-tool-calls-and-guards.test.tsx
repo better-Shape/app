@@ -426,8 +426,8 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
 
     it("strips ANSI CSI, OSC, two-byte escapes, and carriage returns cleanly", () => {
         const raw =
-            "\u001b]0;build-title\u0007\u001b[32mPASS\u001b[0m \u001b]8;;https://example.com\u001b\\link\u001b]8;;\u001b\\\r\n\u001bcok";
-        expect(stripAnsi(raw)).toBe("PASS link\nok");
+            "\u001b]0;build-title\u0007\u001b[32mPASS\u001b[0m \u001b[38:2::255:128:0mcolor\u001b[m \u001b]8;;https://example.com\u001b\\link\u001b]8;;\u001b\\\r\n\u001bcok";
+        expect(stripAnsi(raw)).toBe("PASS color link\nok");
     });
 
     it("truncates terminal command summaries on grapheme cluster boundaries without splitting surrogates or ZWJ emoji", () => {
