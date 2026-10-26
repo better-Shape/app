@@ -24,7 +24,6 @@ import {
 } from "@/lib/chat/prompt-history";
 import { getCatalogProviderOrder } from "@/lib/catalog/store";
 import type { ModelInfo } from "@/lib/settings/models";
-import type { ProviderConnection, ProvidersSettings } from "@/lib/ai/providers";
 import { notify } from "@/features/notifications";
 
 export const COMPOSER_LINE_HEIGHT = 22;
@@ -217,49 +216,6 @@ export const hasActiveTauriBridge = (): boolean => {
   return (
     typeof tauri.invoke === "function" &&
     typeof tauri.transformCallback === "function"
-  );
-};
-
-const KEYLESS_RUNTIME_IDS = new Set(["lmstudio", "vllm"]);
-
-/** Checks whether one enabled provider connection has credentials or keyless access. */
-const hasProviderAccessConfigured = (
-  id: string,
-  conn: {
-    baseUrl?: string;
-    apiKey?: string;
-    authStyle?: string;
-  },
-): boolean => {
-  if (id === "custom") return Boolean(conn.baseUrl?.trim());
-  if (KEYLESS_RUNTIME_IDS.has(id)) return true;
-  return Boolean(conn.apiKey?.trim()) || conn.authStyle === "none";
-};
-
-/** Checks whether one provider entry is enabled with credentials or keyless local access. */
-const isEnabledConfiguredProviderEntry = (
-  id: string,
-  conn:
-    | {
-        enabled?: boolean;
-        baseUrl?: string;
-        apiKey?: string;
-        authStyle?: string;
-      }
-    | undefined,
-): boolean => (conn?.enabled ? hasProviderAccessConfigured(id, conn) : false);
-
-/** Checks whether setup is blocked solely because configured providers have 0 models. */
-export const computeMissingModelsOnly = (
-  needsSignIn: boolean,
-  concreteCount: number,
-  providers: ProvidersSettings | undefined,
-): boolean => {
-  if (!needsSignIn || concreteCount > 0) return false;
-  const connections: Partial<Record<string, ProviderConnection>> =
-    providers?.connections ?? {};
-  return Object.entries(connections).some(([id, conn]) =>
-    isEnabledConfiguredProviderEntry(id, conn),
   );
 };
 

@@ -452,7 +452,9 @@ export const startDictation = async (
     const AudioCtor = resolveAudioContextCtor();
     if (!AudioCtor) {
         stopMediaStreamTracks(stream);
-        await invoke.stop();
+        await invoke.stop().catch(() => {
+            /* ignore recognizer stop failure */
+        });
         setState("error");
         handlers.onError("This build cannot record audio.");
         throw new Error("AudioContext unavailable");
