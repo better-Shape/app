@@ -534,16 +534,15 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
             configurable: true,
             value: { getUserMedia: vi.fn().mockResolvedValue(fakeStream) },
         });
-        /** Stub `AudioContext` that throws synchronously during construction to exercise startup teardown. */
-        class ThrowingAudioContext {
-            /** Always throws to simulate audio graph initialization failure. */
-            constructor() {
-                throw new Error("audio graph init failed");
-            }
+        /** Stub `AudioContext` constructor that throws synchronously to exercise startup teardown. */
+        function ThrowingAudioContext(): never {
+            throw new Error("audio graph init failed");
         }
         (window as unknown as { AudioContext?: unknown }).AudioContext = ThrowingAudioContext;
 
-        const stopRecognizer = vi.fn().mockResolvedValue(undefined);
+        /** Resolves an empty promise for mocked recognizer lifecycle hooks. */
+        const resolveVoid = (): Promise<void> => Promise.resolve();
+        const stopRecognizer = vi.fn(resolveVoid);
         const onError = vi.fn();
         try {
             await expect(
@@ -551,8 +550,8 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
                     { onText: vi.fn(), onError },
                     true,
                     {
-                        start: vi.fn().mockResolvedValue(undefined),
-                        push: vi.fn().mockResolvedValue(undefined),
+                        start: vi.fn(resolveVoid),
+                        push: vi.fn(resolveVoid),
                         stop: stopRecognizer,
                     },
                 ),
