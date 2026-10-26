@@ -87,9 +87,9 @@ const advanceWhileCharCode = (
     return cursor;
 };
 
-/** Returns true when `code` belongs to an ANSI CSI parameter byte (`0-9`, `;`, `?`). */
+/** Returns true when `code` belongs to an ECMA-48 CSI parameter byte (`0x30`..`0x3F`). */
 const isCsiParameterByte = (code: number): boolean =>
-    (code >= 0x30 && code <= 0x39) || code === 0x3b || code === 0x3f;
+    code >= 0x30 && code <= 0x3f;
 
 /** Skips an ANSI CSI sequence (`ESC [` ... `@-~`), falling back to `start` if unterminated. */
 const skipCsiSequence = (input: string, start: number): number => {

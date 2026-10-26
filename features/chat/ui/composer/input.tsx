@@ -1970,7 +1970,7 @@ const ChatInputInner = ({
           pasteClipboardTextViaContextMenu({
             text,
             textarea: textareaRef.current,
-            inputValue,
+            inputValue: inputValueRef.current,
             addUploadedFiles,
             swapAttachmentInline: textCtrl.swapAttachmentInline,
             clearHistoryCursor: () => {
@@ -1980,7 +1980,7 @@ const ChatInputInner = ({
           }),
         )
         .catch(() => undefined);
-    }, [addUploadedFiles, inputValue, textCtrl]);
+    }, [addUploadedFiles, textCtrl]);
 
     const sendStatus = deriveComposerSendStatus({
       isPreparing,
