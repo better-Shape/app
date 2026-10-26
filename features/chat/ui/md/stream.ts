@@ -473,6 +473,19 @@ export const stripLeakedToolCode = (text: string): string => {
     return collapseExcessNewlines(stripLeakedToolMarkup(withoutInvocations));
 };
 
+/** Checks whether a repeated span `[i, i + len)` is glued mid-stream without whitespace at the seam. */
+const hasGluedMultiWordSeam = (
+    text: string,
+    i: number,
+    len: number,
+): boolean => {
+    const seam = i + len;
+    if (/\s/u.test(text.charAt(seam - 1)) || /\s/u.test(text.charAt(seam))) {
+        return false;
+    }
+    return /\s/u.test(text.slice(i, seam));
+};
+
 /** Fast 3-point character precheck before comparing `text.slice(i, i + len)` against `i + len`. */
 const matchesAdjacentRepeatAt = (
     text: string,
@@ -483,7 +496,7 @@ const matchesAdjacentRepeatAt = (
     const matchesEnds =
         text.charCodeAt(i) === text.charCodeAt(i + len) &&
         text.charCodeAt(i + len - 1) === text.charCodeAt(i + len * 2 - 1);
-    if (!matchesEnds) return false;
+    if (!matchesEnds || !hasGluedMultiWordSeam(text, i, len)) return false;
     return (
         text.charCodeAt(i + midOffset) ===
             text.charCodeAt(i + len + midOffset) &&
@@ -491,12 +504,12 @@ const matchesAdjacentRepeatAt = (
     );
 };
 
-/** Collapses an immediate back-to-back repeated substring (`>= 20` chars) if present. */
+/** Collapses an immediate glued back-to-back repeated multi-word span (`>= 20` chars) if present. */
 const collapseAdjacentDuplicateSpan = (text: string): string | null => {
     const maxAdjLen = Math.min(120, Math.floor(text.length / 2));
     for (let len = maxAdjLen; len >= 20; len -= 1) {
         const limit = text.length - len * 2;
-        const midOffset = len >> 1;
+        const midOffset = Math.floor(len / 2);
         for (let i = 0; i <= limit; i += 1) {
             if (matchesAdjacentRepeatAt(text, i, len, midOffset)) {
                 return text.slice(0, i + len) + text.slice(i + len * 2);
@@ -519,15 +532,15 @@ const measurePrefixReplayLength = (text: string, start: number): number => {
     return matched;
 };
 
-/** Checks whether a repeated opening prefix at `start` is an accidental stream replay glitch. */
+/** Checks whether a repeated opening prefix at `start` is glued mid-token without preceding whitespace. */
 const isPrefixReplayGlitch = (
     text: string,
     start: number,
     matched: number,
 ): boolean => {
-    if (matched === start || matched >= 80) return true;
+    if (!/\s/u.test(text.slice(0, matched))) return false;
     const prevChar = text.charAt(start - 1);
-    return prevChar.length > 0 && !/\s/.test(prevChar);
+    return prevChar.length > 0 && !/\s/u.test(prevChar);
 };
 
 /** Removes an accidental re-emission of the message opening (`>= 20` chars) while keeping valid prose. */
@@ -563,15 +576,19 @@ const collapseGluedTailReplay = (text: string): string | null => {
     return null;
 };
 
-/** Repair cumulative-stream glitches and obvious duplicate phrases in assistant text. */
-export const repairStreamGlitches = (text: string): string => {
-    if (text.length < 40) return text;
-    const adjacent = collapseAdjacentDuplicateSpan(text);
+/** Repairs glued stream replays within a single prose segment outside code fences. */
+const repairProseStreamGlitches = (prose: string): string => {
+    if (prose.length < 40) return prose;
+    const adjacent = collapseAdjacentDuplicateSpan(prose);
     if (adjacent !== null) return adjacent;
-    const replay = collapseOpeningPrefixReplay(text);
+    const replay = collapseOpeningPrefixReplay(prose);
     if (replay !== null) return replay;
-    return collapseGluedTailReplay(text) ?? text;
+    return collapseGluedTailReplay(prose) ?? prose;
 };
+
+/** Repair cumulative-stream glitches and obvious glued duplicate phrases outside code fences. */
+export const repairStreamGlitches = (text: string): string =>
+    text.length < 40 ? text : mapOutsideCodeFences(text, repairProseStreamGlitches);
 
 /** Normalize assistant markdown before ReactMarkdown. */
 export const looksLikeProseMarkdown = (text: string): boolean =>

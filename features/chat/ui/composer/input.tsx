@@ -1675,14 +1675,17 @@ const useComposerHistoryAndKeys = ({
       stepped: { cursor: PromptHistoryCursor | null; value: string },
     ) => {
       e.preventDefault();
-      historyCursorRef.current = stepped.cursor;
+      const normalizedValue = shortenMentionTokensInText(stepped.value);
+      historyCursorRef.current = stepped.cursor
+        ? { ...stepped.cursor, recalledValue: normalizedValue }
+        : null;
       onInputChange({
-        target: { value: stepped.value },
+        target: { value: normalizedValue },
       } as React.ChangeEvent<HTMLTextAreaElement>);
       requestAnimationFrame(() => {
         textareaRef.current?.setSelectionRange(
-          stepped.value.length,
-          stepped.value.length,
+          normalizedValue.length,
+          normalizedValue.length,
         );
       });
     },
