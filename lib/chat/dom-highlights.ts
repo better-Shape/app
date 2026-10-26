@@ -136,11 +136,17 @@ export const clearChatDomHighlights = (): void => {
     ownedActiveHighlight = null;
 };
 
+/** Checks whether a `<button>` carries searchable transcript text (`ActionLine` or explicit opt-in). */
+const isSearchableTranscriptButton = (el: HTMLElement): boolean =>
+    el.hasAttribute("data-chat-find-text") ||
+    el.hasAttribute("aria-expanded") ||
+    el.classList.contains("group/line");
+
 /** Checks whether an ancestor element represents non-searchable chrome or hidden text. */
 const isNonSearchableChromeElement = (el: HTMLElement): boolean => {
     const tag = el.tagName;
     if (tag === "KBD") return true;
-    if (tag === "BUTTON" && !el.hasAttribute("data-chat-find-text")) return true;
+    if (tag === "BUTTON" && !isSearchableTranscriptButton(el)) return true;
     return SKIPPED_ANCESTOR_ATTRS.some((attr) => el.hasAttribute(attr));
 };
 

@@ -91,13 +91,21 @@ const advanceWhileCharCode = (
 const isCsiParameterByte = (code: number): boolean =>
     code >= 0x30 && code <= 0x3f;
 
+/** Returns true when `code` belongs to an ECMA-48 CSI intermediate byte (`0x20`..`0x2F`). */
+const isCsiIntermediateByte = (code: number): boolean =>
+    code >= 0x20 && code <= 0x2f;
+
+/** Returns true when `code` is neither BEL (`0x07`) nor ESC (`0x1B`). */
+const isOscPayloadByte = (code: number): boolean =>
+    code !== 0x07 && code !== 0x1b;
+
 /** Skips an ANSI CSI sequence (`ESC [` ... `@-~`), falling back to `start` if unterminated. */
 const skipCsiSequence = (input: string, start: number): number => {
     const afterParams = advanceWhileCharCode(input, start, isCsiParameterByte);
     const afterIntermediates = advanceWhileCharCode(
         input,
         afterParams,
-        (code) => code >= 0x20 && code <= 0x2f,
+        isCsiIntermediateByte,
     );
     const finalCode = input.charCodeAt(afterIntermediates);
     return finalCode >= 0x40 && finalCode <= 0x7e
@@ -107,16 +115,40 @@ const skipCsiSequence = (input: string, start: number): number => {
 
 /** Skips an ANSI OSC sequence (`ESC ]` ... `BEL` or `ESC \\`), falling back to `start` if unterminated. */
 const skipOscSequence = (input: string, start: number): number => {
-    const end = advanceWhileCharCode(
-        input,
-        start,
-        (code) => code !== 0x07 && code !== 0x1b,
-    );
+    const end = advanceWhileCharCode(input, start, isOscPayloadByte);
     if (input.charCodeAt(end) === 0x07) return end + 1;
     if (input.charCodeAt(end) === 0x1b && input.charCodeAt(end + 1) === 0x5c) {
         return end + 2;
     }
     return start;
+};
+
+/** Checks whether a CSI sequence starting at `start` (`after ESC [`) is still open at EOF. */
+const isIncompleteCsiAtEnd = (input: string, start: number): boolean => {
+    const afterParams = advanceWhileCharCode(input, start, isCsiParameterByte);
+    const afterIntermediates = advanceWhileCharCode(
+        input,
+        afterParams,
+        isCsiIntermediateByte,
+    );
+    return afterIntermediates === input.length;
+};
+
+/** Checks whether an OSC sequence starting at `start` (`after ESC ]`) is still open at EOF. */
+const isIncompleteOscAtEnd = (input: string, start: number): boolean => {
+    if (input.length - start > 256) return false;
+    const end = advanceWhileCharCode(input, start, isOscPayloadByte);
+    if (end === input.length) return true;
+    return end === input.length - 1 && input.charCodeAt(end) === 0x1b;
+};
+
+/** Checks whether an ANSI escape starting at `escIndex` is split across the end of `input`. */
+const isIncompleteAnsiAtEnd = (input: string, escIndex: number): boolean => {
+    if (escIndex === input.length - 1) return true;
+    const next = input[escIndex + 1];
+    if (next === "[") return isIncompleteCsiAtEnd(input, escIndex + 2);
+    if (next === "]") return isIncompleteOscAtEnd(input, escIndex + 2);
+    return false;
 };
 
 /** Returns true when `ch` is undefined or a line-break character (`\n` / `\r`). */
@@ -146,6 +178,39 @@ export const stripAnsi = (input: string): string => {
     }
     output += input.slice(cursor);
     return output.replaceAll("\r", "");
+};
+
+export type TerminalStreamBuffer = {
+    output: string;
+    carry: string;
+};
+
+/** Strips complete ANSI escapes from `combined` while holding any split trailing escape in `carry`. */
+const consumeStreamingAnsi = (
+    combined: string,
+    flush: boolean,
+): { stripped: string; carry: string } => {
+    if (flush) return { stripped: stripAnsi(combined), carry: "" };
+    const escChar = String.fromCharCode(0x1b);
+    if (!combined.includes(escChar)) {
+        return { stripped: combined.replaceAll("\r", ""), carry: "" };
+    }
+    let output = "";
+    let cursor = 0;
+    let escIndex = combined.indexOf(escChar, cursor);
+    while (escIndex !== -1) {
+        output += combined.slice(cursor, escIndex);
+        if (isIncompleteAnsiAtEnd(combined, escIndex)) {
+            return {
+                stripped: output.replaceAll("\r", ""),
+                carry: combined.slice(escIndex),
+            };
+        }
+        cursor = advanceAnsiEscape(combined, escIndex);
+        escIndex = combined.indexOf(escChar, cursor);
+    }
+    output += combined.slice(cursor);
+    return { stripped: output.replaceAll("\r", ""), carry: "" };
 };
 
 /** Segments `text` into user-perceived grapheme clusters (or Unicode code points as fallback). */
@@ -189,9 +254,22 @@ const safeListen = <T,>(
         .then(() => listen<T>(eventName, handler))
         .catch(() => () => undefined);
 
-/** Appends stripped ANSI output onto `current`, capped at `OUTPUT_CAP` trailing characters. */
-const appendCappedTerminalOutput = (current: string, chunk?: string): string =>
-    chunk ? (current + stripAnsi(chunk)).slice(-OUTPUT_CAP) : current;
+/** Appends a PTY chunk onto `buffer`, carrying split ANSI escape prefixes across chunks. */
+export const appendStreamAnsiChunk = (
+    buffer: TerminalStreamBuffer,
+    chunk: string | undefined,
+    flush = false,
+): TerminalStreamBuffer => {
+    if (!chunk && !(flush && buffer.carry)) return buffer;
+    const { stripped, carry } = consumeStreamingAnsi(
+        buffer.carry + (chunk ?? ""),
+        flush,
+    );
+    return {
+        output: (buffer.output + stripped).slice(-OUTPUT_CAP),
+        carry,
+    };
+};
 
 /** Promotes `"idle"` stream phase to `"running"` when live output or input wait arrives. */
 const activeOrCurrentPhase = (phase: StreamPhase): StreamPhase =>
@@ -200,9 +278,9 @@ const activeOrCurrentPhase = (phase: StreamPhase): StreamPhase =>
 /** Reduces a `"start"` terminal event into a fresh running `StreamState`. */
 const reduceStreamStartEvent = (
     payload: AgentTerminalEvent,
-    bufferRef: React.MutableRefObject<string>,
+    bufferRef: React.MutableRefObject<TerminalStreamBuffer>,
 ): StreamState => {
-    bufferRef.current = "";
+    bufferRef.current = { output: "", carry: "" };
     return {
         phase: "running",
         output: "",
@@ -242,7 +320,7 @@ const reduceStreamExitEvent = (
 
 type TerminalEventKindHandler = (
     payload: AgentTerminalEvent,
-    bufferRef: React.MutableRefObject<string>,
+    bufferRef: React.MutableRefObject<TerminalStreamBuffer>,
     setState: React.Dispatch<React.SetStateAction<StreamState>>,
 ) => void;
 
@@ -254,11 +332,12 @@ const TERMINAL_EVENT_HANDLERS: Partial<
     },
     data: (payload, bufferRef, setState) => {
         if (!payload.data) return;
-        bufferRef.current = appendCappedTerminalOutput(
+        bufferRef.current = appendStreamAnsiChunk(
             bufferRef.current,
             payload.data,
+            false,
         );
-        const output = bufferRef.current;
+        const output = bufferRef.current.output;
         setState((prev) => reduceStreamDataEvent(prev, payload, output));
     },
     waiting_for_input: (payload, _bufferRef, setState) => {
@@ -273,11 +352,12 @@ const TERMINAL_EVENT_HANDLERS: Partial<
         setState((prev) => ({ ...prev, phase: "background" }));
     },
     exit: (payload, bufferRef, setState) => {
-        bufferRef.current = appendCappedTerminalOutput(
+        bufferRef.current = appendStreamAnsiChunk(
             bufferRef.current,
             payload.data,
+            true,
         );
-        const output = bufferRef.current;
+        const output = bufferRef.current.output;
         setState((prev) => reduceStreamExitEvent(prev, payload, output));
     },
 };
@@ -285,7 +365,7 @@ const TERMINAL_EVENT_HANDLERS: Partial<
 /** Applies one correlated `AgentTerminalEvent` onto `bufferRef` and `setState`. */
 const dispatchTerminalStreamPayload = (
     payload: AgentTerminalEvent,
-    bufferRef: React.MutableRefObject<string>,
+    bufferRef: React.MutableRefObject<TerminalStreamBuffer>,
     setState: React.Dispatch<React.SetStateAction<StreamState>>,
 ): void => {
     const handler = payload.kind
@@ -342,11 +422,11 @@ export const useAgentTerminalStream = (
         cancelled: false,
         waitingForInput: false,
     });
-    const bufferRef = useRef("");
+    const bufferRef = useRef<TerminalStreamBuffer>({ output: "", carry: "" });
 
     useEffect(() => {
         if (!commandId || !enabled) return undefined;
-        bufferRef.current = "";
+        bufferRef.current = { output: "", carry: "" };
         let disposed = false;
         const unlistenStream = safeListen<AgentTerminalEvent>(
             "agent-terminal-stream",
