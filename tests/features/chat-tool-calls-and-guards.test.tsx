@@ -535,9 +535,9 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
             value: { getUserMedia: vi.fn().mockResolvedValue(fakeStream) },
         });
         /** Stub `AudioContext` constructor that throws synchronously to exercise startup teardown. */
-        function ThrowingAudioContext(): never {
+        const ThrowingAudioContext = function (): never {
             throw new Error("audio graph init failed");
-        }
+        };
         (window as unknown as { AudioContext?: unknown }).AudioContext = ThrowingAudioContext;
 
         /** Resolves an empty promise for mocked recognizer lifecycle hooks. */
