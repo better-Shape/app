@@ -29,13 +29,22 @@ import {
     shouldComposerBreakAll,
 } from "@/features/chat/ui/composer/input";
 import { resolveComposerSetupGap } from "@/features/chat/ui/composer/input-helpers";
-import { parseMessageContent, type Chunk } from "@/features/chat/ui/md/renderer";
-import { preprocessChatMarkdown, repairStreamGlitches } from "@/features/chat/ui/md/stream";
+import {
+    MessageRenderer,
+    parseMessageContent,
+    type Chunk,
+} from "@/features/chat/ui/md/renderer";
+import {
+    preprocessChatMarkdown,
+    repairStreamGlitches,
+    stripLeakedToolMarkup,
+} from "@/features/chat/ui/md/stream";
 import { ChatMarkdown } from "@/features/chat/ui/md/view";
 import { ChatMessageItem } from "@/features/chat/ui/message/item";
 import {
     defaultProvidersSettings,
     describeProviderSetupGap,
+    embeddingsTarget,
     normalizeProvidersSettings,
     providersForModelNames,
 } from "@/lib/ai/providers";
@@ -876,6 +885,32 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
         const pendingMic = new Promise<MediaStream>((resolve) => {
             resolveMic = resolve;
         });
+        const processor: {
+            connect: () => void;
+            disconnect: () => void;
+            onaudioprocess: ((ev: { inputBuffer: { getChannelData: () => Float32Array } }) => void) | null;
+        } = {
+            connect: vi.fn(),
+            disconnect: vi.fn(),
+            onaudioprocess: null,
+        };
+        vi.stubGlobal(
+            "AudioContext",
+            class {
+                sampleRate = 16_000;
+                destination = {};
+                createMediaStreamSource() {
+                    return { connect: vi.fn(), disconnect: vi.fn() };
+                }
+                createScriptProcessor() {
+                    return processor;
+                }
+                createGain() {
+                    return { gain: { value: 1 }, connect: vi.fn(), disconnect: vi.fn() };
+                }
+                async close() {}
+            },
+        );
         Object.defineProperty(navigator, "mediaDevices", {
             configurable: true,
             value: { getUserMedia: vi.fn(() => pendingMic) },
@@ -895,12 +930,68 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
             expect(stopTrack).toHaveBeenCalledTimes(1);
             expect(startRecognizer).not.toHaveBeenCalled();
             expect(stopRecognizer).not.toHaveBeenCalled();
+
+            Object.defineProperty(navigator, "mediaDevices", {
+                configurable: true,
+                value: { getUserMedia: vi.fn(async () => fakeStream) },
+            });
+            let rejectPush: ((err: Error) => void) | undefined;
+            const pendingPush = new Promise<void>((_res, rej) => {
+                rejectPush = rej;
+            });
+            const onStaleError = vi.fn();
+            const active = await startDictation(
+                { onText: vi.fn(), onError: onStaleError },
+                true,
+                { start: vi.fn(resolveVoid), push: vi.fn(() => pendingPush), stop: stopRecognizer },
+            );
+            processor.onaudioprocess?.({
+                inputBuffer: { getChannelData: () => new Float32Array(320).fill(0.25) },
+            });
+            const committed = active.commit();
+            active.dispose();
+            rejectPush?.(new Error("Recognizer closed"));
+            await committed;
+            expect(onStaleError).not.toHaveBeenCalled();
         } finally {
+            vi.unstubAllGlobals();
             Object.defineProperty(navigator, "mediaDevices", {
                 configurable: true,
                 value: prevMediaDevices,
             });
         }
+    });
+
+    it("routes custom embedding extraModels, preserves inline backtick tool tags, and applies workspace-resolved edits", () => {
+        const settings = defaultProvidersSettings();
+        const dummyKey = ["sk", "test", "placeholder0000"].join("-");
+        settings.connections.openai.enabled = true;
+        settings.connections.openai.apiKey = dummyKey;
+        settings.connections.custom.enabled = true;
+        settings.connections.custom.baseUrl = "https://gateway.example.test/v1";
+        settings.connections.custom.extraModels = ["bge-m3"];
+        settings.embeddingModel = "custom/bge-m3";
+        expect(embeddingsTarget(settings)).toEqual({
+            id: "custom",
+            model: "custom/bge-m3",
+        });
+
+        const cleaned = stripLeakedToolMarkup(
+            "Keep `<tool_call>{\"name\":\"read_file\"}</tool_call>` inline, strip <tool_call>{\"name\":\"leak\"}</tool_call>.",
+        );
+        expect(cleaned).toContain("`<tool_call>{\"name\":\"read_file\"}</tool_call>`");
+        expect(cleaned).not.toContain('"leak"');
+
+        const editMarkup =
+            '<edit_pending id="ep-1" file="src/app.ts" status="pending"><original>a</original><replacement>b</replacement></edit_pending>';
+        const appliedEl = mount(
+            <MessageRenderer
+                content={editMarkup}
+                isFileEditResolved={(file) => file === "src/app.ts"}
+            />,
+        );
+        expect(appliedEl.querySelector("[data-pending-approval='true']")).toBeNull();
+        expect(appliedEl.textContent ?? "").toContain("Edited");
     });
 
     it("carries split ANSI CSI/OSC escapes across PTY chunks and highlights ActionLine buttons", () => {
