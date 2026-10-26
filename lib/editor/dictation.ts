@@ -18,61 +18,6 @@ export const DICTATION_SAMPLE_RATE = 16_000;
 /** Upper bound on retained PCM capture duration so unattended sessions cannot exhaust renderer memory. */
 export const MAX_DICTATION_BUFFER_SECONDS = 300;
 
-/**
- * Resample to 16 kHz with linear interpolation.
- *
- * The recognizer resamples internally anyway; doing it here keeps the payload small and,
- * more importantly, keeps the format it sees to the one it was built for.
- */
-export function resampleTo16k(samples: Float32Array, fromRate: number): Float32Array {
-    if (fromRate === DICTATION_SAMPLE_RATE || fromRate <= 0 || samples.length === 0) {
-        return samples;
-    }
-    const ratio = fromRate / DICTATION_SAMPLE_RATE;
-    const outLength = Math.max(1, Math.round(samples.length / ratio));
-    const out = new Float32Array(outLength);
-    for (let i = 0; i < outLength; i++) {
-        const pos = i * ratio;
-        const left = Math.floor(pos);
-        const right = Math.min(left + 1, samples.length - 1);
-        const frac = pos - left;
-        out[i] = samples[left] * (1 - frac) + samples[right] * frac;
-    }
-    return out;
-}
-
-/** RIFF/WAVE, mono, 16-bit PCM. Little-endian, which is what every Windows reader expects. */
-export function encodeWavPcm16(samples: Float32Array, sampleRate: number): Uint8Array {
-    const dataBytes = samples.length * 2;
-    const buffer = new ArrayBuffer(44 + dataBytes);
-    const view = new DataView(buffer);
-
-    const writeAscii = (offset: number, text: string) => {
-        for (let i = 0; i < text.length; i++) view.setUint8(offset + i, text.charCodeAt(i));
-    };
-
-    writeAscii(0, "RIFF");
-    view.setUint32(4, 36 + dataBytes, true);
-    writeAscii(8, "WAVE");
-    writeAscii(12, "fmt ");
-    view.setUint32(16, 16, true); // PCM fmt chunk size
-    view.setUint16(20, 1, true); // audio format: PCM
-    view.setUint16(22, 1, true); // channels: mono
-    view.setUint32(24, sampleRate, true);
-    view.setUint32(28, sampleRate * 2, true); // byte rate = rate * channels * bytes
-    view.setUint16(32, 2, true); // block align
-    view.setUint16(34, 16, true); // bits per sample
-    writeAscii(36, "data");
-    view.setUint32(40, dataBytes, true);
-
-    for (let i = 0; i < samples.length; i++) {
-        // Clamp before scaling: a clipped float wraps to the opposite sign otherwise.
-        const clamped = Math.max(-1, Math.min(1, samples[i]));
-        view.setInt16(44 + i * 2, Math.round(clamped * 0x7fff), true);
-    }
-    return new Uint8Array(buffer);
-}
-
 export type DictationState = "idle" | "listening" | "processing" | "error";
 
 export type DictationHandlers = {
@@ -93,27 +38,109 @@ export type DictationSession = {
     dispose: () => void;
 };
 
+type DictationInvokeBridge = {
+    start: () => Promise<void>;
+    stop: () => Promise<void>;
+    push: (wav: number[]) => Promise<void>;
+};
+
+const DOM_EXCEPTION_MESSAGES: Partial<Record<string, string>> = {
+    NotAllowedError:
+        "Microphone access was denied. Allow it in your system settings and try again.",
+    NotFoundError: "No microphone was found.",
+    NotReadableError: "The microphone is in use by another application.",
+};
+
+/** Checks whether `samples` needs resampling to `DICTATION_SAMPLE_RATE`. */
+const isAlreadyTargetSampleRate = (
+    samples: Float32Array,
+    fromRate: number,
+): boolean =>
+    fromRate === DICTATION_SAMPLE_RATE || fromRate <= 0 || samples.length === 0;
+
+/**
+ * Resample to 16 kHz with linear interpolation.
+ *
+ * The recognizer resamples internally anyway; doing it here keeps the payload small and,
+ * more importantly, keeps the format it sees to the one it was built for.
+ */
+export const resampleTo16k = (
+    samples: Float32Array,
+    fromRate: number,
+): Float32Array => {
+    if (isAlreadyTargetSampleRate(samples, fromRate)) {
+        return samples;
+    }
+    const ratio = fromRate / DICTATION_SAMPLE_RATE;
+    const outLength = Math.max(1, Math.round(samples.length / ratio));
+    const out = new Float32Array(outLength);
+    for (let i = 0; i < outLength; i += 1) {
+        const pos = i * ratio;
+        const left = Math.floor(pos);
+        const right = Math.min(left + 1, samples.length - 1);
+        const frac = pos - left;
+        out[i] = samples[left] * (1 - frac) + samples[right] * frac;
+    }
+    return out;
+};
+
+/** Writes ASCII header bytes into `view` starting at `offset`. */
+const writeAsciiHeader = (
+    view: DataView,
+    offset: number,
+    text: string,
+): void => {
+    for (let i = 0; i < text.length; i += 1) {
+        view.setUint8(offset + i, text.charCodeAt(i));
+    }
+};
+
+/** RIFF/WAVE, mono, 16-bit PCM. Little-endian, which is what every Windows reader expects. */
+export const encodeWavPcm16 = (
+    samples: Float32Array,
+    sampleRate: number,
+): Uint8Array => {
+    const dataBytes = samples.length * 2;
+    const buffer = new ArrayBuffer(44 + dataBytes);
+    const view = new DataView(buffer);
+
+    writeAsciiHeader(view, 0, "RIFF");
+    view.setUint32(4, 36 + dataBytes, true);
+    writeAsciiHeader(view, 8, "WAVE");
+    writeAsciiHeader(view, 12, "fmt ");
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * 2, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
+    writeAsciiHeader(view, 36, "data");
+    view.setUint32(40, dataBytes, true);
+
+    for (let i = 0; i < samples.length; i += 1) {
+        // Clamp before scaling: a clipped float wraps to the opposite sign otherwise.
+        const clamped = Math.max(-1, Math.min(1, samples[i]));
+        view.setInt16(44 + i * 2, Math.round(clamped * 0x7fff), true);
+    }
+    return new Uint8Array(buffer);
+};
+
 /**
  * Errors the user can act on. Anything else is surfaced verbatim rather than flattened,
  * because a silent "dictation failed" teaches nothing.
  */
-export function describeDictationError(error: unknown): string {
+export const describeDictationError = (error: unknown): string => {
     if (error instanceof DOMException) {
-        if (error.name === "NotAllowedError") {
-            return "Microphone access was denied. Allow it in your system settings and try again.";
-        }
-        if (error.name === "NotFoundError") {
-            return "No microphone was found.";
-        }
-        if (error.name === "NotReadableError") {
-            return "The microphone is in use by another application.";
-        }
+        const mapped = DOM_EXCEPTION_MESSAGES[error.name];
+        if (mapped) return mapped;
     }
     if (error instanceof Error && error.message) return error.message;
     return "Dictation couldn't start.";
-}
+};
 
-function concatFloat32(chunks: Float32Array[]): Float32Array {
+/** Concatenates sequential `Float32Array` PCM chunks into a single contiguous buffer. */
+const concatFloat32 = (chunks: Float32Array[]): Float32Array => {
     let total = 0;
     for (const chunk of chunks) total += chunk.length;
     const out = new Float32Array(total);
@@ -123,7 +150,15 @@ function concatFloat32(chunks: Float32Array[]): Float32Array {
         offset += chunk.length;
     }
     return out;
-}
+};
+
+/** Checks whether incoming PCM samples can be appended under `maxSamples`. */
+const canAppendSamples = (
+    incomingLength: number,
+    currentSamples: number,
+    maxSamples: number,
+): boolean =>
+    incomingLength > 0 && maxSamples > 0 && currentSamples < maxSamples;
 
 /**
  * Appends a PCM chunk up to `maxSamples`, preserving the start of speech rather
@@ -135,7 +170,7 @@ export const appendBoundedAudioChunk = (
     currentSamples: number,
     maxSamples: number,
 ): number => {
-    if (incoming.length === 0 || maxSamples <= 0 || currentSamples >= maxSamples) {
+    if (!canAppendSamples(incoming.length, currentSamples, maxSamples)) {
         return currentSamples;
     }
     const remaining = maxSamples - currentSamples;
@@ -159,76 +194,139 @@ const computeAudioBufferLevel = (channel: Float32Array): number => {
     return Math.min(1, rms * 6);
 };
 
-/** Record one utterance and push it to the recognizer. */
-export const startDictation = async (
-    handlers: DictationHandlers,
-    constraints: MediaTrackConstraints | boolean,
-    invoke: {
-        start: () => Promise<void>;
-        stop: () => Promise<void>;
-        push: (wav: number[]) => Promise<void>;
-    },
-): Promise<DictationSession> => {
-    const setState = handlers.onState ?? (() => undefined);
-    setState("listening");
+/** Stops every media track on `stream`. */
+const stopMediaStreamTracks = (stream: MediaStream): void => {
+    for (const track of stream.getTracks()) {
+        track.stop();
+    }
+};
 
+/** Resolves the browser `AudioContext` constructor (`AudioContext` or `webkitAudioContext`). */
+const resolveAudioContextCtor = (): typeof AudioContext | undefined =>
+    window.AudioContext ??
+    (window as unknown as { webkitAudioContext?: typeof AudioContext })
+        .webkitAudioContext;
+
+/** Requests microphone capture and starts the backend recognizer process. */
+const acquireStreamAndStartRecognizer = async (
+    constraints: MediaTrackConstraints | boolean,
+    invoke: DictationInvokeBridge,
+    setState: (state: DictationState) => void,
+    onError: (message: string) => void,
+): Promise<MediaStream> => {
     let stream: MediaStream;
     try {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: constraints });
+        stream = await navigator.mediaDevices.getUserMedia({
+            audio: constraints,
+        });
     } catch (error) {
         setState("error");
-        handlers.onError(describeDictationError(error));
+        onError(describeDictationError(error));
         throw error;
     }
-
     try {
         await invoke.start();
+        return stream;
     } catch (error) {
-        for (const track of stream.getTracks()) track.stop();
+        stopMediaStreamTracks(stream);
         setState("error");
-        const message =
-            error instanceof Error && error.message ? error.message : describeDictationError(error);
-        handlers.onError(message);
+        onError(describeDictationError(error));
         throw error;
     }
+};
 
-    const AudioCtor =
-        window.AudioContext ??
-        (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!AudioCtor) {
-        for (const track of stream.getTracks()) track.stop();
-        await invoke.stop();
-        setState("error");
-        handlers.onError("This build cannot record audio.");
-        throw new Error("AudioContext unavailable");
+/** Connects a processor node downstream via `silentGain` when available, or directly to `destination`. */
+const connectProcessorDownstream = (
+    context: AudioContext,
+    processor: ScriptProcessorNode,
+    silentGain: GainNode | null,
+): void => {
+    if (silentGain && typeof silentGain.connect === "function") {
+        processor.connect(silentGain);
+        silentGain.connect(context.destination);
+    } else {
+        processor.connect(context.destination);
     }
+};
 
-    const context = new AudioCtor();
-    const source = context.createMediaStreamSource(stream);
-    // ScriptProcessor is deprecated but is the only node available without shipping a
-    // separate worklet file, and dictation is a deliberate, user-initiated action.
-    const processor = context.createScriptProcessor(4096, 1, 1);
+/** Connects `source -> processor -> (silentGain ->) destination` for PCM capture. */
+const wireSilentCaptureGraph = (
+    context: AudioContext,
+    source: MediaStreamAudioSourceNode,
+    processor: ScriptProcessorNode,
+): GainNode | null => {
     const silentGain =
         typeof context.createGain === "function" ? context.createGain() : null;
-    if (silentGain) {
-        silentGain.gain.value = 0;
-    }
-    if (typeof source.connect === "function") {
-        source.connect(processor);
-    }
+    if (silentGain) silentGain.gain.value = 0;
+    if (typeof source.connect === "function") source.connect(processor);
     if (typeof processor.connect === "function") {
-        if (silentGain && typeof silentGain.connect === "function") {
-            processor.connect(silentGain);
-            silentGain.connect(context.destination);
-        } else {
-            processor.connect(context.destination);
-        }
+        connectProcessorDownstream(context, processor, silentGain);
     }
+    return silentGain;
+};
+
+/** Resolves a positive finite sample rate from `context`, defaulting to `48_000` Hz. */
+const resolveEffectiveSampleRate = (sampleRate: number): number =>
+    Number.isFinite(sampleRate) && sampleRate > 0 ? sampleRate : 48_000;
+
+/** Checks whether `samples` contains at least one sample above the silence floor (`1e-4`). */
+const hasAudibleSignal = (samples: Float32Array): boolean => {
+    for (const sample of samples) {
+        if (Math.abs(sample) >= 1e-4) return true;
+    }
+    return false;
+};
+
+/** Pushes encoded WAV bytes to the recognizer and reports push errors cleanly. */
+const pushEncodedWav = (
+    wav: Uint8Array,
+    invoke: DictationInvokeBridge,
+    setState: (state: DictationState) => void,
+    onError: (message: string) => void,
+): void => {
+    invoke.push(Array.from(wav)).catch((error: unknown) => {
+        invoke.stop().catch(() => {
+            /* ignore recognizer teardown errors */
+        });
+        setState("error");
+        onError(describeDictationError(error));
+    });
+};
+
+/** Disconnects audio graph nodes and closes the `AudioContext` + `MediaStream` tracks. */
+const disconnectCaptureGraph = (
+    context: AudioContext,
+    stream: MediaStream,
+    source: MediaStreamAudioSourceNode,
+    processor: ScriptProcessorNode,
+    silentGain: GainNode | null,
+): void => {
+    try {
+        source.disconnect();
+        processor.disconnect();
+        silentGain?.disconnect();
+    } catch {
+        /* already torn down */
+    }
+    stopMediaStreamTracks(stream);
+    context.close().catch(() => {
+        /* ignore audio context close errors */
+    });
+};
+
+/** Builds an active PCM capture session over an initialized `AudioContext` and `MediaStream`. */
+const createActiveDictationSession = (
+    context: AudioContext,
+    stream: MediaStream,
+    handlers: DictationHandlers,
+    invoke: DictationInvokeBridge,
+    setState: (state: DictationState) => void,
+): DictationSession => {
+    const source = context.createMediaStreamSource(stream);
+    const processor = context.createScriptProcessor(4096, 1, 1);
+    const silentGain = wireSilentCaptureGraph(context, source, processor);
     const chunks: Float32Array[] = [];
-    const effectiveRate =
-        Number.isFinite(context.sampleRate) && context.sampleRate > 0
-            ? context.sampleRate
-            : 48_000;
+    const effectiveRate = resolveEffectiveSampleRate(context.sampleRate);
     const maxBufferedSamples = Math.max(
         DICTATION_SAMPLE_RATE,
         Math.round(effectiveRate * MAX_DICTATION_BUFFER_SECONDS),
@@ -236,34 +334,19 @@ export const startDictation = async (
     let bufferedSamples = 0;
     let disposed = false;
 
-    const teardown = () => {
+    /** Releases audio graph, microphone tracks, and sample buffers idempotently. */
+    const teardown = (): void => {
         if (disposed) return;
         disposed = true;
         processor.onaudioprocess = null;
         chunks.length = 0;
         bufferedSamples = 0;
         handlers.onLevel?.(0);
-        try {
-            source.disconnect();
-            processor.disconnect();
-            silentGain?.disconnect();
-        } catch {
-            /* already torn down */
-        }
-        for (const track of stream.getTracks()) track.stop();
-        context.close().catch(() => {
-            /* ignore audio context close errors */
-        });
+        disconnectCaptureGraph(context, stream, source, processor, silentGain);
     };
 
-    const hasAudibleSignal = (samples: Float32Array): boolean => {
-        for (const sample of samples) {
-            if (Math.abs(sample) >= 1e-4) return true;
-        }
-        return false;
-    };
-
-    const commitCapture = () => {
+    /** Finalizes recorded PCM samples and dispatches WAV audio to the recognizer. */
+    const commitCapture = (): void => {
         if (disposed) return;
         const samples = concatFloat32(chunks);
         teardown();
@@ -277,18 +360,7 @@ export const startDictation = async (
         setState("processing");
         const pcm = resampleTo16k(samples, context.sampleRate);
         const wav = encodeWavPcm16(pcm, DICTATION_SAMPLE_RATE);
-        // The recognizer stays up: `dictation_stop` kills the child process, and doing
-        // that now would race the recognition that `dictation_push` only just queued.
-        // It is torn down once the recognition response arrives or is cancelled.
-        invoke
-            .push(Array.from(wav))
-            .catch((error: unknown) => {
-                invoke.stop().catch(() => {
-                    /* ignore recognizer teardown errors */
-                });
-                setState("error");
-                handlers.onError(describeDictationError(error));
-            });
+        pushEncodedWav(wav, invoke, setState, handlers.onError);
     };
 
     processor.onaudioprocess = (event) => {
@@ -319,4 +391,38 @@ export const startDictation = async (
             setState("idle");
         },
     };
+};
+
+/** Record one utterance and push it to the recognizer. */
+export const startDictation = async (
+    handlers: DictationHandlers,
+    constraints: MediaTrackConstraints | boolean,
+    invoke: DictationInvokeBridge,
+): Promise<DictationSession> => {
+    const setState = handlers.onState ?? (() => undefined);
+    setState("listening");
+
+    const stream = await acquireStreamAndStartRecognizer(
+        constraints,
+        invoke,
+        setState,
+        handlers.onError,
+    );
+
+    const AudioCtor = resolveAudioContextCtor();
+    if (!AudioCtor) {
+        stopMediaStreamTracks(stream);
+        await invoke.stop();
+        setState("error");
+        handlers.onError("This build cannot record audio.");
+        throw new Error("AudioContext unavailable");
+    }
+
+    return createActiveDictationSession(
+        new AudioCtor(),
+        stream,
+        handlers,
+        invoke,
+        setState,
+    );
 };

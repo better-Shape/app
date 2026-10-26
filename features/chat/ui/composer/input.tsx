@@ -1,2629 +1,2268 @@
 "use client";
 
-import { Add20Regular } from "@fluentui/react-icons/headless/svg/add";
-import { ArrowMaximize20Regular } from "@fluentui/react-icons/headless/svg/arrow-maximize";
-import { ArrowMinimize20Regular } from "@fluentui/react-icons/headless/svg/arrow-minimize";
-import { ArrowUp20Regular } from "@fluentui/react-icons/headless/svg/arrow-up";
-import { Checkmark20Regular } from "@fluentui/react-icons/headless/svg/checkmark";
-import { CodeTextEdit20Filled } from "@fluentui/react-icons/headless/svg/code-text-edit";
-import { ChatMultiple20Filled } from "@fluentui/react-icons/headless/svg/chat-multiple";
-import { CalendarMultiple24Filled } from "@fluentui/react-icons/headless/svg/calendar-multiple";
-import { ColorLine24Filled } from "@fluentui/react-icons/headless/svg/color-line";
-import { Incognito24Filled } from "@fluentui/react-icons/headless/svg/incognito";
-import { Document20Regular } from "@fluentui/react-icons/headless/svg/document";
-import { DocumentText20Regular } from "@fluentui/react-icons/headless/svg/document-text";
-import { FolderAdd24Filled } from "@fluentui/react-icons/headless/svg/folder-add";
-import { Connected24Filled } from "@fluentui/react-icons/headless/svg/connected";
-import { DocumentEdit24Filled } from "@fluentui/react-icons/headless/svg/document-edit";
-import { Dismiss16Regular } from "@fluentui/react-icons/headless/svg/dismiss";
-import { MoviesAndTv24Filled } from "@fluentui/react-icons/headless/svg/movies-and-tv";
-import { TextQuote16Regular } from "@fluentui/react-icons/headless/svg/text-quote";
-
-
-
-
 import React from "react";
-import { Arc } from "loading-dev";
-import { Icon } from "@/components/ui/icon";
-
-
-
-import { cn } from "@/lib/utils";
-import { useReducedMotion } from "@/lib/ui/use-reduced-motion";
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuCheckboxItem,
-    DropdownMenuTrigger,
-    DropdownMenuLabel,
-    DropdownMenuSub,
-    DropdownMenuSubTrigger,
-    DropdownMenuSubContent,
-} from "@/components/ui/dropdown";
-import { Button } from "@/components/ui/button";
-import { SwapText } from "@/components/ui/swap";
-import { Tooltip } from "@/components/ui/tooltip";
-import {
-    ContextMenu,
-    ContextMenuContent,
-    ContextMenuItem,
-    ContextMenuSeparator,
-    ContextMenuShortcut,
-    ContextMenuTrigger,
-} from "@/components/ui/context";
-import { BetterShapeAutoIcon, providerIcon } from "@/lib/ui/provider-icon";
-import { MentionPicker } from "./mentions";
-import { PendingEditsPanel } from "./edits";
-import { WorkspaceBranchSwitch } from "@/features/agent/workspace/branch-switch";
-import {
-    ComposerTasksStrip,
-    type ComposerTaskItem,
-} from "./activity";
-import { QueuedMessagesPanel, type QueuedMessage } from "./queue";
-import { ComposerAttachments, isImageFile, isAudioFile, type ComposerAttachment } from "./attachments";
-import { DictationButton } from "./dictation-button";
-import { MediaLightbox } from "../blocks/lightbox";
-import { dispatchToChatSurface } from "../shell/find-bar";
-import { formatMentionToken, mentionRanges, shortenMentionTokensInText } from "@/lib/chat/mentions";
-import {
-    BETTERSHAPE_CLIP_CODE,
-    codeAttachmentFile,
-    matchRememberedClip,
-    pasteIsLarge,
-    pastedTextFile,
-    terminalAttachmentFile,
-} from "@/features/chat/lib/bettershape-clip";
+import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context";
+import { BETTERSHAPE_CLIP_CODE } from "@/features/chat/lib/bettershape-clip";
+import { hasAnyUsableProvider } from "@/lib/ai/providers";
+import { getProjectPath } from "@/lib/backend";
 import type { BrowserPickedElement } from "@/lib/backend/types";
-import { registerElementMention } from "@/lib/chat/element-mentions";
-import { slashCommandRanges } from "@/lib/chat/workflows";
 import {
-    buildComposerScrollMaskImage,
-    computeComposerScrollMask,
-    syncComposerOverlayScroll,
+  getCatalogDefaultEnabledIds,
+  getCatalogModels,
+  useBetterShapeCatalog,
+} from "@/lib/catalog/store";
+import {
+  computeComposerScrollMask,
+  syncComposerOverlayScroll,
 } from "@/lib/chat/composer-scroll";
+import { registerElementMention } from "@/lib/chat/element-mentions";
+import { warmComposerResources } from "@/lib/chat/mention-warm-cache";
+import { shortenMentionTokensInText } from "@/lib/chat/mentions";
 import {
-    canStepPromptHistoryUp,
-    insertTextareaRangeWithUndo,
-    isCaretOnLastLogicalLine,
-    isUnmodifiedHistoryRecall,
-    mergeNewestFirstPrompts,
-    stepPromptHistoryDown,
-    stepPromptHistoryUp,
-    tryWrapMarkdownLinkOnPaste,
-    type PromptHistoryCursor,
+  isUnmodifiedHistoryRecall,
+  mergeNewestFirstPrompts,
+  type PromptHistoryCursor,
 } from "@/lib/chat/prompt-history";
 import { listSkills, subscribeSkills, type Skill } from "@/lib/chat/skills";
-import { warmComposerResources } from "@/lib/chat/mention-warm-cache";
-import { getProjectPath } from "@/lib/backend";
-import { fetchPlugins, peekPluginsCache, type PluginRow } from "@/lib/plugins/api";
-import { PluginLogo } from "@/components/ui/plugin-logo";
-import { getVisibleModels, resolveChatModels, sanitizeEnabledModels, type ModelInfo } from "@/lib/settings/models";
-import { hasAnyUsableProvider } from "@/lib/ai/providers";
-import {
-    getCatalogDefaultEnabledIds,
-    getCatalogModels,
-    getCatalogProviderOrder,
-    useBetterShapeCatalog,
-} from "@/lib/catalog/store";
+import { peekPluginsCache, type PluginRow } from "@/lib/plugins/api";
 import { useSettings } from "@/lib/settings";
-import { SearchInput } from "@/components/ui/search";
-import { notify } from "@/features/notifications";
-import { openSettingsWindow } from "@/lib/window/open-settings";
-import { effortDisplayLabel, modelSupportsSuperThinking, type ReasoningEffort } from "./reasoning-effort";
-import { ThinkingEffortControl } from "./thinking-bar";
+import {
+  getVisibleModels,
+  resolveChatModels,
+  sanitizeEnabledModels,
+  type ModelInfo,
+} from "@/lib/settings/models";
+import { cn } from "@/lib/utils";
+import { MediaLightbox } from "../blocks/lightbox";
 import type { QuotedExcerpt } from "../quote-selection";
+import { dispatchToChatSurface } from "../shell/find-bar";
+import type { ComposerTaskItem } from "./activity";
+import { ComposerAttachments, type ComposerAttachment } from "./attachments";
+import {
+  ComposerContextMenuItems,
+  ComposerContextStrip,
+  ComposerFooterBar,
+  ComposerHighlightMirror,
+  ComposerPlusMenu,
+  ComposerQuotesStrip,
+  ComposerRightActions,
+  ExpandComposerButton,
+  IDLE_COMPOSER_HINTS,
+  RotatingComposerHint,
+} from "./input-controls";
+import {
+  COMPOSER_LINE_HEIGHT,
+  buildComposerScrollMaskImage,
+  buildProviderDisplayOrder,
+  detectComposerTrigger,
+  hasActiveTauriBridge,
+  hasAtLeastTwoNewlines,
+  isToggleExpandShortcut,
+  measureAndSyncComposerTextarea,
+  observeComposerGeometry,
+  pasteClipboardTextViaContextMenu,
+  persistUnmountedInlineSwap,
+  processComposerDropTransfer,
+  processComposerPasteEvent,
+  processSelectedPickerFiles,
+  readComposerClipboardTextWithFeedback,
+  resolveArrowDownAction,
+  resolveArrowUpAction,
+  resolveAutoTargetModel,
+  resolveComposerSetupGap,
+  resolveEscapeDraftRestore,
+  resolveModelTriggerMeta,
+  resolveVesselRadiusClass,
+  shouldComposerBreakAll,
+  shouldGlobalEscapeStop,
+  type ActiveTriggerState,
+} from "./input-helpers";
+import { MentionPicker } from "./mentions";
+import type { QueuedMessage } from "./queue";
+import {
+  modelSupportsSuperThinking,
+  type ReasoningEffort,
+} from "./reasoning-effort";
+
+export { shouldComposerBreakAll };
 export type { ReasoningEffort };
 
-/**
- * When a prompt has no multi-word prose and starts with horizontal whitespace followed by a
- * long unbroken token (e.g. `" ccffffffff..."` or `"   https://..."`), CSS `pre-wrap` +
- * `break-words` treats the leading space as a soft-wrap opportunity and pushes the token onto
- * line 2, leaving a blank top row. Switching both the mirror overlay and `<textarea>` to
- * `break-all` in lockstep keeps line 1 filled from column 0 while never breaking ordinary
- * multi-word prose mid-word.
- */
-const focusSearchOnMount = (node: HTMLInputElement | null) => {
-    if (!node || node.dataset.autofocused === "1") return;
-    node.dataset.autofocused = "1";
-    node.focus();
-};
-
-/** Should composer break all. */
-export const shouldComposerBreakAll = (value: string): boolean => {
-    if (!value) return false;
-    if (/\S[ \t]+\S/.test(value)) return false;
-    return /^(?:[ \t]+\S{16,}|[ \t]{10,}\S+)/.test(value);
-};
-
-/** Format paste size label. */
-const formatPasteSizeLabel = (text: string): string => {
-    let lines = 1;
-    for (let i = 0; i < text.length; i++) {
-        if (text.charCodeAt(i) === 10) lines += 1;
-    }
-    const chars =
-        text.length >= 1000
-            ? `${(text.length / 1000).toFixed(1)}k chars`
-            : `${text.length} chars`;
-    return `${lines.toLocaleString()} ${lines === 1 ? "line" : "lines"} (${chars})`;
-};
-
 type ChatInputProps = {
-    inputValue: string;
-    isLoading: boolean;
-    isPreparing?: boolean;
-    webSearch: string;
-    uploadedFiles: ComposerAttachment[];
-    onInputChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
-    onKeyDown: (e: React.KeyboardEvent) => void;
-    onSendMessage: () => void;
-    onStopMessage: () => void;
-    setWebSearch: (s: string) => void;
-    setUploadedFiles: React.Dispatch<React.SetStateAction<ComposerAttachment[]>>;
-    addUploadedFiles: (files: File[], peaks?: number[][]) => void;
-    handleFileUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
-    selectedModel: string;
-    setSelectedModel: (m: string) => void;
-    selectedWorkerModels?: string[];
-    setSelectedWorkerModels?: (models: string[]) => void;
-    multiSelectModels?: boolean;
-    hideModeSelect?: boolean;
-    selectedMode: string;
-    setSelectedMode: (m: string) => void;
-    reasoningEffort: ReasoningEffort;
-    setReasoningEffort: (e: ReasoningEffort) => void;
-    pendingEdits?: { id: string; file: string; original: string; replacement: string; baseline?: string }[];
-    onAcceptAllEdits?: () => void;
-    onRejectAllEdits?: () => void;
-    onAcceptEdit?: (id: string) => void;
-    onRejectEdit?: (id: string) => void;
-    taskItems?: ComposerTaskItem[];
-    queuedMessages?: QueuedMessage[];
-    onEditQueuedMessage?: (id: string) => void;
-    onRemoveQueuedMessage?: (id: string) => void;
-    onSendQueuedNow?: (id: string) => void;
-    projectRuleFiles?: string[];
-    quotedExcerpts?: QuotedExcerpt[];
-    onRemoveQuote?: (id: string) => void;
-    promptHistory?: string[];
-    onNewChat?: () => void;
-    /** Tighter chrome for empty-chat centered layout */
-    variant?: "default" | "empty";
+  inputValue: string;
+  isLoading: boolean;
+  isPreparing?: boolean;
+  webSearch: string;
+  uploadedFiles: ComposerAttachment[];
+  onInputChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
+  onKeyDown: (e: React.KeyboardEvent) => void;
+  onSendMessage: () => void;
+  onStopMessage: () => void;
+  setWebSearch: (s: string) => void;
+  setUploadedFiles: React.Dispatch<React.SetStateAction<ComposerAttachment[]>>;
+  addUploadedFiles: (files: File[], peaks?: number[][]) => void;
+  handleFileUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  selectedModel: string;
+  setSelectedModel: (m: string) => void;
+  selectedWorkerModels?: string[];
+  setSelectedWorkerModels?: (models: string[]) => void;
+  multiSelectModels?: boolean;
+  hideModeSelect?: boolean;
+  selectedMode: string;
+  setSelectedMode: (m: string) => void;
+  reasoningEffort: ReasoningEffort;
+  setReasoningEffort: (e: ReasoningEffort) => void;
+  pendingEdits?: {
+    id: string;
+    file: string;
+    original: string;
+    replacement: string;
+    baseline?: string;
+  }[];
+  onAcceptAllEdits?: () => void;
+  onRejectAllEdits?: () => void;
+  onAcceptEdit?: (id: string) => void;
+  onRejectEdit?: (id: string) => void;
+  taskItems?: ComposerTaskItem[];
+  queuedMessages?: QueuedMessage[];
+  onEditQueuedMessage?: (id: string) => void;
+  onRemoveQueuedMessage?: (id: string) => void;
+  onSendQueuedNow?: (id: string) => void;
+  projectRuleFiles?: string[];
+  quotedExcerpts?: QuotedExcerpt[];
+  onRemoveQuote?: (id: string) => void;
+  promptHistory?: string[];
+  onNewChat?: () => void;
+  /** Tighter chrome for empty-chat centered layout */
+  variant?: "default" | "empty";
 };
 
-/** Format context window. */
-const formatContextWindow = (raw?: string): string => {
-    const t = (raw ?? "").trim();
-    if (!t) return "";
-    return t.replace(/(?<![0-9.])([0-9.]+)\s*K\b/i, "$1k").replace(/(?<![0-9.])([0-9.]+)\s*M\b/i, "$1m");
+const FALLBACK_AUTO_MODEL: ModelInfo = {
+  id: "auto",
+  name: "Auto",
+  description: "Picks a fast model for everyday work.",
+  provider: "Auto",
+  inputCost: 0,
+  cachedInputCost: 0,
+  outputCost: 0,
+  contextWindow: "200K",
+  releaseDate: "Rolling",
 };
 
-/** Renders the ModelTooltip UI component. */
-const ModelTooltip = ({
-    model,
-    effort,
-    resolvedAutoModel,
-}: {
-    model: ModelInfo;
-    effort: ReasoningEffort;
-    resolvedAutoModel?: ModelInfo | null;
+/** Safely reads the active workspace project path without throwing. */
+const safeReadProjectPath = (): string | null => {
+  try {
+    return getProjectPath();
+  } catch {
+    return null;
+  }
+};
+
+/** Resolves ARIA label for the composer `<textarea>` based on provider setup state. */
+const resolveComposerAriaLabel = (setupGap: string | null): string =>
+  setupGap ? `${setupGap} to chat` : IDLE_COMPOSER_HINTS[0];
+
+/** Resolves placeholder hint mode from `isPreparing` and `isLoading`. */
+const resolveComposerHintMode = (
+  isPreparing: boolean,
+  isLoading: boolean,
+): "idle" | "active" | "preparing" => {
+  if (isPreparing) return "preparing";
+  return isLoading ? "active" : "idle";
+};
+
+/** Checks whether attachments currently block sending or queueing. */
+const areAttachmentsBlockingSend = (
+  isLoading: boolean,
+  uploadedFiles: ComposerAttachment[],
+): boolean => {
+  if (uploadedFiles.some((att) => att.status === "processing")) return true;
+  return isLoading && uploadedFiles.length > 0;
+};
+
+/** Checks whether composer state blocks immediate dispatch (so prompt is unset or queued). */
+const isComposerBlockedForImmediateSend = (opts: {
+  needsSignIn: boolean;
+  isPreparing: boolean;
+  isLoading: boolean;
+}): boolean => opts.needsSignIn || opts.isPreparing || opts.isLoading;
+
+/** Checks whether a trimmed prompt is immediately dispatched (not queued) and eligible for history. */
+const isPromptEligibleForHistory = (opts: {
+  trimmed: string;
+  needsSignIn: boolean;
+  isPreparing: boolean;
+  isLoading: boolean;
+  uploadedFiles: ComposerAttachment[];
+}): boolean => {
+  if (!opts.trimmed || isComposerBlockedForImmediateSend(opts)) return false;
+  if (opts.uploadedFiles.some((att) => att.status === "processing")) {
+    return false;
+  }
+  return !/^\/compact\b/iu.test(opts.trimmed);
+};
+
+/** Appends `trimmed` to `prev` when not an immediate duplicate (capped at 50). */
+const appendSessionPrompt = (prev: string[], trimmed: string): string[] =>
+  prev[prev.length - 1] === trimmed ? prev : [...prev.slice(-49), trimmed];
+
+/** Checks whether the composer can stop an active preparation or generation turn. */
+const canStopComposerTurn = (
+  isPreparing: boolean,
+  isLoading: boolean,
+  hasText: boolean,
+  activeQuotesCount: number,
+): boolean =>
+  isPreparing || (isLoading && !hasText && activeQuotesCount === 0);
+
+/** Checks whether the composer has any non-empty text, attachment, or quote payload. */
+const hasAnySendableComposerPayload = (
+  hasText: boolean,
+  uploadedCount: number,
+  activeQuotesCount: number,
+): boolean => hasText || uploadedCount > 0 || activeQuotesCount > 0;
+
+/** Checks whether the send button is disabled when `canStop` is false. */
+const isSendDisabledWithoutStop = (
+  readyToSend: boolean,
+  hasPayload: boolean,
+): boolean => !readyToSend || !hasPayload;
+
+/** Checks whether the send button uses its active accent appearance. */
+const isSendButtonVisuallyActive = (
+  readyToSend: boolean,
+  hasPayload: boolean,
+  isLoading: boolean,
+): boolean => readyToSend && (hasPayload || isLoading);
+
+/** Computes Send / Stop button disabled and active visual states. */
+const deriveComposerSendStatus = (opts: {
+  isPreparing: boolean;
+  isLoading: boolean;
+  needsSignIn: boolean;
+  inputValue: string;
+  uploadedFiles: ComposerAttachment[];
+  activeQuotesCount: number;
+}): { canStop: boolean; sendDisabled: boolean; sendActive: boolean } => {
+  const hasText = Boolean(opts.inputValue.trim());
+  const canStop = canStopComposerTurn(
+    opts.isPreparing,
+    opts.isLoading,
+    hasText,
+    opts.activeQuotesCount,
+  );
+  const attBlocked = areAttachmentsBlockingSend(
+    opts.isLoading,
+    opts.uploadedFiles,
+  );
+  const hasPayload = hasAnySendableComposerPayload(
+    hasText,
+    opts.uploadedFiles.length,
+    opts.activeQuotesCount,
+  );
+  const readyToSend = !opts.needsSignIn && !attBlocked;
+  return {
+    canStop,
+    sendDisabled: !canStop && isSendDisabledWithoutStop(readyToSend, hasPayload),
+    sendActive:
+      canStop ||
+      isSendButtonVisuallyActive(readyToSend, hasPayload, opts.isLoading),
+  };
+};
+
+/** Checks whether any context strip item exists above the composer vessel. */
+const hasAnyContextStripItems = (
+  pendingCount: number,
+  queuedCount: number,
+  ruleCount: number,
+  taskCount: number,
+): boolean =>
+  pendingCount > 0 || queuedCount > 0 || ruleCount > 0 || taskCount > 0;
+
+/** Focuses `<textarea>` and moves caret to `pos` on the next animation frame. */
+const scheduleFocusAtPosition = (
+  textareaRef: React.RefObject<HTMLTextAreaElement | null>,
+  pos: number,
+): void => {
+  requestAnimationFrame(() => {
+    const node = textareaRef.current;
+    if (!node) return;
+    node.focus();
+    node.setSelectionRange(pos, pos);
+  });
+};
+
+/** Builds text and post-insertion caret offset with `token` inserted at the last `triggerChar` before `caret`. */
+const replaceTriggerAtCaret = (
+  inputValue: string,
+  caret: number,
+  triggerChar: "@" | "/",
+  token: string,
+): { next: string; caret: number } | null => {
+  const before = inputValue.slice(0, caret);
+  const idx = before.lastIndexOf(triggerChar);
+  if (idx === -1) return null;
+  const prefix = before.slice(0, idx);
+  return {
+    next: `${prefix}${token}${inputValue.slice(caret)}`,
+    caret: prefix.length + token.length,
+  };
+};
+
+/** Builds padded inline insertion text around `caret`. */
+const insertSpacedTokenAtCaret = (
+  val: string,
+  caret: number,
+  token: string,
+): { next: string; pos: number } => {
+  const before = val.slice(0, caret);
+  const after = val.slice(caret);
+  const lead = before && !/\s$/.test(before) ? " " : "";
+  const trail = after && /^\s/.test(after) ? "" : " ";
+  const next = `${before}${lead}${token}${trail}${after}`;
+  return {
+    next,
+    pos: before.length + lead.length + token.length + trail.length,
+  };
+};
+
+/** Builds newline-padded prompt text when external files include an accompanying prompt. */
+const appendAttachedPromptLine = (cur: string, prompt: string): string =>
+  cur.trim() ? `${cur.trimEnd()}\n${prompt}` : prompt;
+
+const NO_LEADING_SPACE_AFTER_DICTATION_RE = /^(?:[\s.,!?;:)}]|\])/u;
+const NO_SPACE_BEFORE_DICTATION_TAIL_RE = /[\s([{]$/u;
+
+/** Checks whether `prefix` and `follower` require a separating space between them. */
+const needsLeadingDictationSpace = (
+  prefix: string,
+  follower: string,
+): boolean => {
+  if (!prefix || NO_SPACE_BEFORE_DICTATION_TAIL_RE.test(prefix)) return false;
+  return (
+    Boolean(follower) && !NO_LEADING_SPACE_AFTER_DICTATION_RE.test(follower)
+  );
+};
+
+/** Collapses leading horizontal spaces on `after` and prefixes a single space when `lead` and `after` need separation. */
+const formatDictatedSuffix = (lead: string, after: string): string => {
+  const trimmedAfter = after.replace(/^[ \t]+/u, "");
+  if (!trimmedAfter) return "";
+  const sep = needsLeadingDictationSpace(lead, trimmedAfter) ? " " : "";
+  return `${sep}${trimmedAfter}`;
+};
+
+/** Inserts dictated speech text across `[caret, selectionEnd]` with punctuation-aware single-space padding. */
+export const insertDictatedSlice = (
+  val: string,
+  caret: number,
+  text: string,
+  selectionEnd = caret,
+): { next: string; caret: number } => {
+  const start = Math.max(0, Math.min(caret, selectionEnd, val.length));
+  const end = Math.max(
+    start,
+    Math.min(Math.max(caret, selectionEnd), val.length),
+  );
+  const before = val.slice(0, start);
+  const after = val.slice(end);
+  const pad = needsLeadingDictationSpace(before, text) ? " " : "";
+  const lead = `${before}${pad}${text}`;
+  return {
+    next: `${lead}${formatDictatedSuffix(lead, after)}`,
+    caret: lead.length,
+  };
+};
+
+/** Reads the `[selectionStart, selectionEnd]` range from `textarea` (defaulting to the end of `val`). */
+const readTextareaSelectionRange = (
+  textarea: HTMLTextAreaElement | null,
+  val: string,
+): [number, number] => {
+  const start = textarea?.selectionStart ?? val.length;
+  const end = textarea?.selectionEnd ?? start;
+  return [start, end];
+};
+
+/** Subscribes to external composer DOM custom events (`quote`, `focus`, `element`, `files`, `dictation`, `media`). */
+const useComposerWindowBridges = (opts: {
+  quotedExcerpts: QuotedExcerpt[] | undefined;
+  setLocalQuotes: React.Dispatch<React.SetStateAction<QuotedExcerpt[]>>;
+  textareaRef: React.RefObject<HTMLTextAreaElement | null>;
+  inputValueRef: React.RefObject<string>;
+  historyCursorRef: React.MutableRefObject<PromptHistoryCursor | null>;
+  applyProgrammaticInputValue: (next: string, caret?: number) => void;
+  addUploadedFiles: (files: File[]) => void;
+  setMediaViewer: React.Dispatch<
+    React.SetStateAction<{
+      src?: string;
+      title?: string;
+      kind: "image" | "html";
+    } | null>
+  >;
 }) => {
-    const isAuto = model.id === "auto" || model.id === "openrouter/auto";
-    const ctx = formatContextWindow(
-        isAuto && resolvedAutoModel?.contextWindow
-            ? resolvedAutoModel.contextWindow
-            : model.contextWindow,
-    );
-    const effortName = effortDisplayLabel(effort).toLowerCase();
-
-    return (
-        <div className="flex flex-col gap-1 min-w-[220px] max-w-[280px] p-3 select-none">
-            <div className="text-sm font-medium leading-tight text-text-primary">
-                {isAuto ? "Auto" : model.name}
-            </div>
-            <p className="text-xs leading-snug text-text-secondary">
-                {isAuto
-                    ? resolvedAutoModel
-                        ? `Routes to ${resolvedAutoModel.name} (${resolvedAutoModel.provider}).`
-                        : "Picks a fast model for everyday work."
-                    : model.description}
-            </p>
-            {ctx ? (
-                <p className="mt-1 text-xs text-text-muted">{ctx} context window</p>
-            ) : null}
-            <p className="mt-0.5 text-xs italic text-text-muted">
-                Version: {effortName} reasoning effort
-            </p>
-        </div>
-    );
-};
-
-/** Renders the ModelItem UI component. */
-const ModelItem = ({
-    model,
-    isSelected,
-    onSelect,
-    effort,
-    resolvedAutoModel,
-    disabled = false,
-    disabledReason,
-}: {
-    model: ModelInfo,
-    isSelected: boolean,
-    onSelect: (id: string) => void,
-    effort: ReasoningEffort,
-    resolvedAutoModel?: ModelInfo | null,
-    disabled?: boolean,
-    disabledReason?: string,
-}) => {
-    const isAuto = model.id === "auto" || model.id === "openrouter/auto";
-    const unavailableTooltip =
-        disabledReason ??
-        "Direct model selection for this model is limited to paid plans. Upgrade to use.";
-
-    return (
-        <Tooltip
-            side="right"
-            align="start"
-            sideOffset={6}
-            delayDuration={200}
-            className="p-0!"
-            content={
-                disabled ? (
-                    <span className="text-xs text-text-muted px-1">{unavailableTooltip}</span>
-                ) : (
-                    <ModelTooltip
-                        model={model}
-                        effort={effort}
-                        resolvedAutoModel={resolvedAutoModel}
-                    />
-                )
-            }
-        >
-            <DropdownMenuItem
-                onClick={(event) => {
-                    if (disabled) {
-                        event.preventDefault();
-                        return;
-                    }
-                    onSelect(model.id);
-                }}
-                onKeyDown={(event) => {
-                    if (disabled && (event.key === "Enter" || event.key === " ")) {
-                        event.preventDefault();
-                    }
-                }}
-                aria-disabled={disabled || undefined}
-                className={cn(
-                    "flex items-center cursor-pointer w-full",
-                    isSelected && "bg-panel-hover",
-                    disabled && "opacity-40 cursor-not-allowed",
-                )}
-            >
-                <div className="flex items-center gap-1.5 w-full min-w-0">
-                    {providerIcon(
-                        isAuto && resolvedAutoModel
-                            ? resolvedAutoModel.id.split("/")[0] || resolvedAutoModel.id
-                            : model.id,
-                        16,
-                    )}
-                    <span className="flex-1 truncate font-regular text-sm text-text-primary group-hover:text-text-primary transition-colors">
-                        {model.name}
-                    </span>
-                    {isAuto && resolvedAutoModel ? (
-                        <span className="shrink-0 text-xs text-text-muted">
-                            {resolvedAutoModel.provider}
-                        </span>
-                    ) : null}
-                    {isSelected && <Icon icon={Checkmark20Regular} className="shrink-0 text-text-primary font-bold" />}
-                </div>
-            </DropdownMenuItem>
-        </Tooltip>
-    );
-};
-
-// Allowed file extensions for upload
-const IMAGE_EXTENSIONS = new Set([
-    'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'svg', 'ico', 'tiff', 'tif', 'avif', 'heic', 'heif'
-]);
-
-const CODE_EXTENSIONS = new Set([
-    'ts', 'tsx', 'js', 'jsx', 'rs', 'py', 'go', 'java', 'c', 'cpp', 'h', 'hpp',
-    'css', 'scss', 'less', 'html', 'xml', 'svg', 'json', 'toml', 'yaml', 'yml',
-    'md', 'mdx', 'sh', 'bat', 'ps1', 'rb', 'php', 'swift', 'kt', 'kts', 'dart',
-    'lua', 'r', 'sql', 'graphql', 'gql', 'proto', 'dockerfile', 'makefile',
-    'gitignore', 'env', 'ini', 'cfg', 'conf', 'txt', 'log', 'csv', 'lock'
-]);
-
-/** Binary assets the agent can write into the project (fonts, icons, etc.). */
-const ASSET_EXTENSIONS = new Set([
-    'ttf', 'otf', 'woff', 'woff2', 'eot',
-    'ico', 'icns',
-    'pdf',
-]);
-
-const VIDEO_EXTENSIONS = new Set([
-    'mp4', 'mov', 'webm', 'avi', 'mkv', 'm4v', 'wmv', 'flv', 'mpeg', 'mpg',
-]);
-
-const ACCEPT_STRING = [
-    ...Array.from(IMAGE_EXTENSIONS).map((ext) => `.${ext}`),
-    ...Array.from(CODE_EXTENSIONS).map((ext) => `.${ext}`),
-    ...Array.from(ASSET_EXTENSIONS).map((ext) => `.${ext}`),
-    ".mp3",
-    ".wav",
-    ".m4a",
-    ".ogg",
-    ".flac",
-    ".aac",
-    ".wma",
-].join(",");
-
-function getFileExtension(name: string): string {
-    const parts = name.split('.');
-    return parts.length > 1 ? (parts.pop() ?? '').toLowerCase() : '';
-}
-
-function isCodeFile(file: File): boolean {
-    return CODE_EXTENSIONS.has(getFileExtension(file.name));
-}
-
-function isAssetFile(file: File): boolean {
-    return ASSET_EXTENSIONS.has(getFileExtension(file.name));
-}
-
-function isVideoFile(file: File): boolean {
-    if (file.type.startsWith("video/")) return true;
-    return VIDEO_EXTENSIONS.has(getFileExtension(file.name));
-}
-
-/** Checks whether an attachment file type is allowed in the composer. */
-const isAllowedFile = (file: File): boolean => {
-    if (isVideoFile(file)) return false;
-    return isImageFile(file) || isCodeFile(file) || isAudioFile(file) || isAssetFile(file);
-};
-
-/** Renders the ComposerContextHighlight UI component. */
-const ComposerContextHighlight = ({ text }: { text: string }) => {
-    return (
-        <span className="relative">
-            <span
-                aria-hidden
-                className="absolute inset-y-0 -inset-x-0.5 rounded-md bg-accent-text-bg"
-            />
-            <span className="relative text-accent-text">{text}</span>
-        </span>
-    );
-};
-
-const CHAT_MODES = [
-    { id: "Code", icon: CodeTextEdit20Filled, color: "#3B82F6", bg: "rgba(59, 130, 246, 0.16)", description: "Build and edit files in the project" },
-    { id: "Ask", icon: ChatMultiple20Filled, color: "#22C55E", bg: "rgba(34, 197, 94, 0.16)", description: "Answer questions without making changes" },
-    { id: "Plan", icon: CalendarMultiple24Filled, color: "#F97316", bg: "rgba(249, 115, 22, 0.16)", description: "Create a plan before proceeding" },
-    { id: "Visual", icon: ColorLine24Filled, color: "#F43F5E", bg: "rgba(244, 63, 94, 0.16)", description: "Design and iterate on the UI" },
-    { id: "Review", icon: Incognito24Filled, color: "#A855F7", bg: "rgba(168, 85, 247, 0.16)", description: "Review code for bugs and edge cases" },
-] as const;
-
-const IDLE_COMPOSER_HINTS = [
-    "Ask a task. @ for files, / for workflows.",
-    "Drop a screenshot or file to inspect",
-    "Paste a stack trace to debug",
-    "Visual: ask to compare UI directions",
-] as const;
-
-const SETUP_COMPOSER_HINTS = [
-    "Add an API key in Settings → Providers to chat",
-    "Ask a task. @ for files, / for workflows.",
-    "Drop a screenshot or file to inspect",
-    "Paste a stack trace to debug",
-] as const;
-
-const MISSING_MODELS_COMPOSER_HINTS = [
-    "Add or import a model ID in Settings → Providers to chat",
-    "Ask a task. @ for files, / for workflows.",
-    "Drop a screenshot or file to inspect",
-] as const;
-
-const ACTIVE_COMPOSER_HINTS = [
-    "Queue a follow-up, or press Esc to stop",
-    "Type ahead to queue your next message",
-] as const;
-
-const PREPARING_COMPOSER_HINT = "Preparing context... Esc to cancel";
-const COMPOSER_LINE_HEIGHT = 22;
-
-/** Renders the RotatingComposerHint UI component. */
-const RotatingComposerHint = React.memo(function RotatingComposerHint({
-    paused,
-    mode,
-    needsProvider = false,
-    missingModels = false,
-}: {
-    paused: boolean;
-    mode: "idle" | "active" | "preparing";
-    needsProvider?: boolean;
-    missingModels?: boolean;
-}) {
-    const hints =
-        mode === "active"
-            ? ACTIVE_COMPOSER_HINTS
-            : needsProvider
-              ? missingModels
-                  ? MISSING_MODELS_COMPOSER_HINTS
-                  : SETUP_COMPOSER_HINTS
-              : IDLE_COMPOSER_HINTS;
-    const modeKey = `${mode}:${needsProvider ? (missingModels ? "models" : "setup") : "ready"}`;
-    const [index, setIndex] = React.useState(0);
-    const [phase, setPhase] = React.useState<"in" | "out" | "enter">("in");
-    const [prevModeKey, setPrevModeKey] = React.useState(modeKey);
-    const indexRef = React.useRef(0);
-    const reducedMotion = useReducedMotion();
-
-    if (prevModeKey !== modeKey) {
-        setPrevModeKey(modeKey);
-        setIndex(0);
-        setPhase("in");
-    }
-
-    const shouldPause = paused || reducedMotion || mode === "preparing" || hints.length <= 1;
-    if (shouldPause && phase !== "in") setPhase("in");
-
-    React.useLayoutEffect(() => {
-        indexRef.current = index;
-    }, [index]);
-
-    React.useEffect(() => {
-        if (shouldPause) return undefined;
-        let exitTimer: ReturnType<typeof setTimeout> | undefined;
-        let enterTimer: ReturnType<typeof setTimeout> | undefined;
-        const hold = window.setInterval(() => {
-            setPhase("out");
-            exitTimer = setTimeout(() => {
-                const nextIdx = (indexRef.current + 1) % hints.length;
-                indexRef.current = nextIdx;
-                setIndex(nextIdx);
-                setPhase("enter");
-                enterTimer = setTimeout(() => setPhase("in"), 30);
-            }, 300);
-        }, 8000);
-        return () => {
-            window.clearInterval(hold);
-            if (exitTimer) clearTimeout(exitTimer);
-            if (enterTimer) clearTimeout(enterTimer);
-        };
-    }, [shouldPause, hints.length]);
-
-    const label =
-        mode === "preparing"
-            ? PREPARING_COMPOSER_HINT
-            : hints[index % hints.length] ?? IDLE_COMPOSER_HINTS[0];
-
-    return (
-        <div className="t-composer-hint px-1.5" aria-hidden>
-            <span className="t-composer-hint__text" data-phase={phase}>
-                {label}
-            </span>
-        </div>
-    );
-});
-
-/** Renders the ModeMenu UI component. */
-const ModeMenu = React.memo(function ModeMenu({
-    selectedMode,
-    setSelectedMode,
-    disabled,
-}: {
-    selectedMode: string;
-    setSelectedMode: (m: string) => void;
-    disabled?: boolean;
-}) {
-    const selected = CHAT_MODES.find((m) => m.id === selectedMode) ?? CHAT_MODES[0];
-    return (
-        <DropdownMenu>
-            <DropdownMenuTrigger asChild disabled={disabled}>
-                <Button
-                    variant="ghost"
-                    size="xs"
-                    disabled={disabled}
-                    className={cn(
-                        "h-7 shrink-0 rounded-md bg-transparent px-2 font-medium",
-                        "transition-[background-color,color,transform] duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] motion-reduce:transform-none motion-reduce:transition-none",
-                        "hover:bg-[var(--btn-hover)] enabled:active:scale-[0.97]",
-                        "data-[state=open]:bg-[var(--btn-open)] data-[state=open]:hover:bg-[var(--btn-open-hover)]",
-                    )}
-                    style={{ color: selected.color }}
-                    aria-label={selected.id}
-                >
-                    <div className="flex items-center gap-1.5 text-sm">
-                        <Icon icon={selected.icon} />
-                        <SwapText value={selected.id} />
-                    </div>
-                </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-80 max-w-[calc(100vw-24px)]">
-                {CHAT_MODES.map((mode) => (
-                    <DropdownMenuItem
-                        key={mode.id}
-                        onClick={() => setSelectedMode(mode.id)}
-                        className="items-start gap-2.5 py-2"
-                    >
-                        <Icon
-                            icon={mode.icon}
-                            className="mt-0.5"
-                            style={{ color: mode.color }}
-                        />
-                        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                            <span className="text-sm text-text-primary">{mode.id}</span>
-                            <span className="text-sm leading-snug text-text-muted">
-                                {mode.description}
-                            </span>
-                        </span>
-                    </DropdownMenuItem>
-                ))}
-            </DropdownMenuContent>
-        </DropdownMenu>
-    );
-});
-
-
-/** Renders the ChatInput UI component. */
-export const ChatInput = React.memo(function ChatInput({
-    inputValue,
-    isLoading,
-    isPreparing = false,
-    uploadedFiles,
-    onInputChange,
-    onKeyDown,
-    onSendMessage,
-    onStopMessage,
-    setUploadedFiles,
-    addUploadedFiles,
-    selectedModel,
-    setSelectedModel,
-    selectedWorkerModels = [],
-    setSelectedWorkerModels,
-    multiSelectModels = false,
-    hideModeSelect = false,
-    selectedMode,
-    setSelectedMode,
-    reasoningEffort,
-    setReasoningEffort,
-    pendingEdits = [],
-    onAcceptAllEdits,
-    onRejectAllEdits,
-    onAcceptEdit,
-    onRejectEdit,
-    taskItems = [],
-    queuedMessages = [],
-    onEditQueuedMessage,
-    onRemoveQueuedMessage,
-    onSendQueuedNow,
-    projectRuleFiles = [],
+  const {
     quotedExcerpts,
-    onRemoveQuote,
-    promptHistory = [],
-    // Wired by `features/chat/ui/chat.tsx` but not consumed by any control yet.
-    // Kept so the caller's intent survives; `_` marks it as deliberately unread.
-    onNewChat: _onNewChat,
-    variant = "default",
-}: Omit<ChatInputProps, "webSearch" | "setWebSearch" | "handleFileUpload">) {
+    setLocalQuotes,
+    textareaRef,
+    inputValueRef,
+    historyCursorRef,
+    applyProgrammaticInputValue,
+    addUploadedFiles,
+    setMediaViewer,
+  } = opts;
 
-    const settings = useSettings();
-    // Chat needs at least one BYOK provider with at least one routable model; everything else is local.
-    const needsSignIn = !hasAnyUsableProvider(settings.ai.providers);
-    const { catalog } = useBetterShapeCatalog();
-    const allModels = React.useMemo(
-        () => resolveChatModels(catalog ? catalog.models : getCatalogModels()),
-        [catalog],
+  React.useEffect(() => {
+    if (quotedExcerpts !== undefined) return undefined;
+    let raf = 0;
+    /** Handles `bettershape-chat-quote-selection` window events. */
+    const onQuote = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{ id?: string; text?: string } | undefined>
+      ).detail;
+      const text = detail?.text?.trim();
+      if (!text) return;
+      const id = detail?.id || `${Date.now()}`;
+      setLocalQuotes((prev) =>
+        prev.some((q) => q.text === text) ? prev : [...prev.slice(-7), { id, text }],
+      );
+      if (raf) cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        textareaRef.current?.focus();
+      });
+    };
+    window.addEventListener(
+      "bettershape-chat-quote-selection",
+      onQuote as EventListener,
     );
-    const concreteAllModels = React.useMemo(
-        () => allModels.filter((m) => m.id !== "auto"),
-        [allModels],
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      window.removeEventListener(
+        "bettershape-chat-quote-selection",
+        onQuote as EventListener,
+      );
+    };
+  }, [quotedExcerpts, setLocalQuotes, textareaRef]);
+
+  React.useEffect(() => {
+    let raf = 0;
+    /** Handles `bettershape-chat-focus-input` window events. */
+    const onFocusInput = (e: Event) => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.focus();
+      const caretEnd = (
+        e as CustomEvent<{ caretEnd?: boolean } | undefined>
+      ).detail?.caretEnd;
+      if (!caretEnd) return;
+      if (raf) cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        const node = textareaRef.current;
+        if (node) node.setSelectionRange(node.value.length, node.value.length);
+      });
+    };
+    window.addEventListener(
+      "bettershape-chat-focus-input",
+      onFocusInput as EventListener,
     );
-    const missingModelsOnly = React.useMemo(() => {
-        if (!needsSignIn || concreteAllModels.length > 0) return false;
-        const connections = settings.ai.providers?.connections ?? {};
-        return Object.entries(connections).some(([id, conn]) => {
-            if (!conn?.enabled) return false;
-            if (id === "custom") return Boolean(conn.baseUrl?.trim());
-            if (id === "lmstudio" || id === "vllm") return true;
-            return Boolean(conn.apiKey?.trim()) || conn.authStyle === "none";
-        });
-    }, [concreteAllModels.length, needsSignIn, settings.ai.providers]);
-    let composerAriaLabel: string = IDLE_COMPOSER_HINTS[0];
-    if (needsSignIn) {
-        composerAriaLabel = missingModelsOnly
-            ? "Add or fetch a model ID in Settings → Providers to chat"
-            : "Add an API key in Settings → Providers to chat";
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      window.removeEventListener(
+        "bettershape-chat-focus-input",
+        onFocusInput as EventListener,
+      );
+    };
+  }, [textareaRef]);
+
+  React.useEffect(() => {
+    let raf = 0;
+    /** Handles `bettershape-chat-attach-element` browser picker events. */
+    const onElement = (e: Event) => {
+      const detail = (
+        e as CustomEvent<BrowserPickedElement | undefined>
+      ).detail;
+      if (!detail?.tag) return;
+      const token = registerElementMention(detail);
+      const val = inputValueRef.current;
+      const caret = textareaRef.current?.selectionStart ?? val.length;
+      const { next, pos } = insertSpacedTokenAtCaret(val, caret, token);
+      applyProgrammaticInputValue(next, pos);
+      if (raf) cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        textareaRef.current?.focus();
+        textareaRef.current?.setSelectionRange(pos, pos);
+      });
+    };
+    window.addEventListener(
+      "bettershape-chat-attach-element",
+      onElement as EventListener,
+    );
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      window.removeEventListener(
+        "bettershape-chat-attach-element",
+        onElement as EventListener,
+      );
+    };
+  }, [applyProgrammaticInputValue, inputValueRef, textareaRef]);
+
+  React.useEffect(() => {
+    let raf = 0;
+    /** Handles `bettershape-chat-attach-files` workbench events. */
+    const onAttachFiles = (e: Event) => {
+      const detail = (
+        e as CustomEvent<{ files?: File[]; prompt?: string } | undefined>
+      ).detail;
+      const incoming = detail?.files?.filter(Boolean) ?? [];
+      if (incoming.length > 0) {
+        historyCursorRef.current = null;
+        addUploadedFiles(incoming);
+      }
+      if (detail?.prompt) {
+        applyProgrammaticInputValue(
+          appendAttachedPromptLine(inputValueRef.current, detail.prompt),
+        );
+      }
+      if (raf) cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        textareaRef.current?.focus();
+      });
+    };
+    window.addEventListener(
+      "bettershape-chat-attach-files",
+      onAttachFiles as EventListener,
+    );
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      window.removeEventListener(
+        "bettershape-chat-attach-files",
+        onAttachFiles as EventListener,
+      );
+    };
+  }, [
+    addUploadedFiles,
+    applyProgrammaticInputValue,
+    historyCursorRef,
+    inputValueRef,
+    textareaRef,
+  ]);
+
+  React.useEffect(() => {
+    /** Handles `bettershape-open-media` lightbox events. */
+    const onOpen = (e: Event) => {
+      const detail = (
+        e as CustomEvent<
+          | {
+              src: string;
+              title?: string;
+              kind?: "image" | "html";
+            }
+          | undefined
+        >
+      ).detail;
+      if (!detail?.src) return;
+      setMediaViewer({
+        src: detail.src,
+        title: detail.title,
+        kind: detail.kind || "image",
+      });
+    };
+    window.addEventListener("bettershape-open-media", onOpen as EventListener);
+    return () =>
+      window.removeEventListener(
+        "bettershape-open-media",
+        onOpen as EventListener,
+      );
+  }, [setMediaViewer]);
+
+  React.useEffect(() => {
+    let raf = 0;
+    /** Handles `bettershape-dictation-text` voice transcription events. */
+    const onDictation = (e: Event) => {
+      const text = (e as CustomEvent<{ text?: string } | undefined>).detail
+        ?.text;
+      if (!text) return;
+      const val = inputValueRef.current;
+      const [selStart, selEnd] = readTextareaSelectionRange(
+        textareaRef.current,
+        val,
+      );
+      const inserted = insertDictatedSlice(val, selStart, text, selEnd);
+      applyProgrammaticInputValue(inserted.next, inserted.caret);
+      if (raf) cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        const el = textareaRef.current;
+        if (!el) return;
+        el.focus();
+        el.setSelectionRange(inserted.caret, inserted.caret);
+      });
+    };
+    window.addEventListener(
+      "bettershape-dictation-text",
+      onDictation as EventListener,
+    );
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      window.removeEventListener(
+        "bettershape-dictation-text",
+        onDictation as EventListener,
+      );
+    };
+  }, [applyProgrammaticInputValue, inputValueRef, textareaRef]);
+};
+
+/** Resolves catalog, visible models, Auto routing target, and provider setup status. */
+const useComposerModelCatalog = (
+  selectedModel: string,
+  setSelectedModel: (m: string) => void,
+  reasoningEffort: ReasoningEffort,
+  setReasoningEffort: (e: ReasoningEffort) => void,
+  multiSelectModels: boolean,
+  selectedWorkerModels: string[],
+) => {
+  const settings = useSettings();
+  const needsSignIn = !hasAnyUsableProvider(settings.ai.providers);
+  const { catalog } = useBetterShapeCatalog();
+  const allModels = React.useMemo(
+    () => resolveChatModels(catalog ? catalog.models : getCatalogModels()),
+    [catalog],
+  );
+  const concreteAllModels = React.useMemo(
+    () => allModels.filter((m) => m.id !== "auto"),
+    [allModels],
+  );
+  const setupGap = React.useMemo(
+    () =>
+      resolveComposerSetupGap(
+        needsSignIn,
+        concreteAllModels.length,
+        settings.ai.providers,
+      ),
+    [concreteAllModels.length, needsSignIn, settings.ai.providers],
+  );
+  const resolvedAutoModel = React.useMemo(
+    () =>
+      resolveAutoTargetModel(
+        concreteAllModels,
+        settings.ai.providers?.chatMode,
+      ),
+    [concreteAllModels, settings.ai.providers],
+  );
+  const models = React.useMemo(() => {
+    const enabled = sanitizeEnabledModels(
+      settings.ai.enabledModels,
+      allModels.map((m) => m.id),
+      getCatalogDefaultEnabledIds(),
+    );
+    return getVisibleModels(allModels, enabled);
+  }, [allModels, settings.ai.enabledModels]);
+  const autoModel = React.useMemo(
+    () => allModels.find((m) => m.id === "auto") ?? FALLBACK_AUTO_MODEL,
+    [allModels],
+  );
+  const modelInfo = models.find((m) => m.id === selectedModel) || autoModel;
+  const providerOrder = React.useMemo(
+    () => buildProviderDisplayOrder(allModels),
+    [allModels],
+  );
+  const concreteModels = React.useMemo(
+    () => models.filter((m) => m.id !== "auto"),
+    [models],
+  );
+  const effectiveModelId =
+    selectedModel === "auto" && resolvedAutoModel
+      ? resolvedAutoModel.id
+      : selectedModel;
+
+  React.useEffect(() => {
+    if (
+      reasoningEffort === "super" &&
+      !modelSupportsSuperThinking(effectiveModelId)
+    ) {
+      setReasoningEffort("max");
     }
-    const resolvedAutoModel = React.useMemo(() => {
-        if (concreteAllModels.length === 0) return null;
-        const wanted = (settings.ai.providers?.chatMode ?? "").trim();
-        if (wanted && wanted !== "auto" && wanted !== "ask") {
-            const match = concreteAllModels.find((m) => m.id === wanted);
-            if (match) return match;
+  }, [effectiveModelId, reasoningEffort, setReasoningEffort]);
+
+  React.useEffect(() => {
+    if (selectedModel === "auto" || concreteModels.length === 0) return;
+    if (!concreteModels.some((m) => m.id === selectedModel)) {
+      setSelectedModel("auto");
+    }
+  }, [concreteModels, selectedModel, setSelectedModel]);
+
+  const { modelName, activeTriggerIconId } = resolveModelTriggerMeta({
+    selectedModel,
+    modelInfo,
+    resolvedAutoModel,
+    multiSelectModels,
+    selectedWorkerModels,
+  });
+
+  return {
+    workflows: settings.ai.workflows ?? [],
+    needsSignIn,
+    setupGap,
+    resolvedAutoModel,
+    models,
+    autoModel,
+    providerOrder,
+    effectiveModelId,
+    modelName,
+    activeTriggerIconId,
+  };
+};
+
+/** Manages `<textarea>` height measurement, scroll-edge masks, and `ResizeObserver` updates. */
+const useComposerLayoutSync = (opts: {
+  inputValue: string;
+  textareaRef: React.RefObject<HTMLTextAreaElement | null>;
+  mentionOverlayRef: React.RefObject<HTMLDivElement | null>;
+  composerBoxRef: React.RefObject<HTMLDivElement | null>;
+}) => {
+  const [composerTall, setComposerTall] = React.useState(false);
+  const [isExpanded, setIsExpanded] = React.useState(false);
+  const [canExpandComposer, setCanExpandComposer] = React.useState(false);
+  const [editorHeight, setEditorHeight] = React.useState(COMPOSER_LINE_HEIGHT);
+  const [scrollMask, setScrollMask] = React.useState({
+    top: false,
+    bottom: false,
+  });
+  const composerTallRef = React.useRef(false);
+  const lastAppliedHeightRef = React.useRef(0);
+  const textareaClientWidthRef = React.useRef(0);
+  const composerBoxWidthRef = React.useRef(0);
+  const stageHeightRef = React.useRef(760);
+
+  if (!opts.inputValue && isExpanded) setIsExpanded(false);
+
+  const syncEditorLayout = React.useCallback(
+    (revealCaretEnd = false) => {
+      const textarea = opts.textareaRef.current;
+      if (!textarea) return;
+      const snap = measureAndSyncComposerTextarea({
+        textarea,
+        overlay: opts.mentionOverlayRef.current,
+        inputValue: opts.inputValue,
+        isExpanded,
+        revealCaretEnd,
+        composerTallRef,
+        lastAppliedHeightRef,
+        textareaClientWidthRef,
+        stageHeightRef,
+      });
+      setComposerTall((prev) => (prev === snap.tall ? prev : snap.tall));
+      setEditorHeight((prev) => (prev === snap.height ? prev : snap.height));
+      setCanExpandComposer((prev) =>
+        prev === snap.canExpand ? prev : snap.canExpand,
+      );
+      setScrollMask((prev) =>
+        prev.top === snap.mask.top && prev.bottom === snap.mask.bottom
+          ? prev
+          : snap.mask,
+      );
+    },
+    [isExpanded, opts.inputValue, opts.mentionOverlayRef, opts.textareaRef],
+  );
+
+  const syncRef = React.useRef(syncEditorLayout);
+  React.useLayoutEffect(() => {
+    syncRef.current = syncEditorLayout;
+  }, [syncEditorLayout]);
+
+  React.useLayoutEffect(() => {
+    syncEditorLayout(true);
+  }, [syncEditorLayout]);
+
+  React.useEffect(
+    () =>
+      observeComposerGeometry(
+        opts.composerBoxRef.current,
+        opts.textareaRef.current,
+        { stageHeightRef, composerBoxWidthRef, textareaClientWidthRef },
+        () => syncRef.current(false),
+      ),
+    [opts.composerBoxRef, opts.textareaRef],
+  );
+
+  return {
+    composerTall,
+    isExpanded,
+    setIsExpanded,
+    canExpandComposer,
+    editorHeight,
+    scrollMask,
+    setScrollMask,
+  };
+};
+
+/** Dispatches unmounted inline-swap events to the active chat surface. */
+const dispatchUnmountedInlineSwap = (rawText: string): void => {
+  persistUnmountedInlineSwap(rawText);
+  dispatchToChatSurface(() => {
+    window.dispatchEvent(
+      new CustomEvent("bettershape-chat-insert-prompt", {
+        detail: { prompt: rawText, send: false, append: true },
+      }),
+    );
+    window.dispatchEvent(
+      new CustomEvent("bettershape-chat-focus-input", {
+        detail: { caretEnd: true },
+      }),
+    );
+  });
+};
+
+/** Checks whether pointerdown on the composer vessel should focus `<textarea>`. */
+const shouldVesselPointerFocusTextarea = (
+  e: React.PointerEvent<HTMLDivElement>,
+): boolean => {
+  if (e.button !== 0) return false;
+  const target = e.target instanceof Element ? e.target : null;
+  return !target?.closest(
+    "button, a, input, textarea, [role='menuitem'], [data-radix-collection-item], [data-composer-quotes]",
+  );
+};
+
+/** Advances `index` to the next whitespace boundary in `text` (or `text.length`). */
+const findTokenEndFromCaret = (text: string, index: number): number => {
+  const rest = text.slice(index);
+  const wsOffset = rest.search(/\s/u);
+  return wsOffset === -1 ? text.length : index + wsOffset;
+};
+
+/** Computes adjusted caret index after collapsing long `@mention` path tokens, independent of suffix length. */
+export const computeShortenedCaret = (
+  raw: string,
+  shortened: string,
+  caretRaw: number,
+): number => {
+  const clamped = Math.max(0, Math.min(caretRaw, raw.length));
+  const prefixShort = shortenMentionTokensInText(raw.slice(0, clamped));
+  const suffixShort = shortenMentionTokensInText(raw.slice(clamped));
+  if (`${prefixShort}${suffixShort}` === shortened) {
+    return Math.min(prefixShort.length, shortened.length);
+  }
+  const tokenEnd = findTokenEndFromCaret(raw, clamped);
+  return Math.min(
+    shortenMentionTokensInText(raw.slice(0, tokenEnd)).length,
+    shortened.length,
+  );
+};
+
+/** Applies shortened or raw `<textarea>` change event and returns the effective caret. */
+const emitInputChangeAndResolveCaret = (
+  e: React.ChangeEvent<HTMLTextAreaElement>,
+  shortened: string,
+  onInputChange: (ev: React.ChangeEvent<HTMLTextAreaElement>) => void,
+  textareaRef: React.RefObject<HTMLTextAreaElement | null>,
+): number => {
+  const raw = e.target.value;
+  const caretRaw = e.target.selectionStart;
+  if (shortened === raw) {
+    onInputChange(e);
+    return caretRaw;
+  }
+  const pos = computeShortenedCaret(raw, shortened, caretRaw);
+  onInputChange({
+    target: { value: shortened },
+  } as React.ChangeEvent<HTMLTextAreaElement>);
+  requestAnimationFrame(() => {
+    textareaRef.current?.setSelectionRange(pos, pos);
+  });
+  return pos;
+};
+
+/** Subscribes to live skill registry updates and warm-starts Tauri composer resources. */
+const useComposerSkillsAndWarmup = (): Skill[] => {
+  const [skills, setSkills] = React.useState<Skill[]>(() => listSkills());
+  React.useEffect(() => {
+    const unsubscribe = subscribeSkills(() => setSkills(listSkills()));
+    return () => unsubscribe();
+  }, []);
+  React.useEffect(() => {
+    if (!hasActiveTauriBridge()) return undefined;
+    return warmComposerResources(safeReadProjectPath());
+  }, []);
+  return skills;
+};
+
+/** Registers global `Escape` stop listener while generation or preparation is active. */
+const useGlobalEscapeStop = (opts: {
+  isLoading: boolean;
+  isPreparing: boolean;
+  popoverOpen: boolean;
+  textareaRef: React.RefObject<HTMLTextAreaElement | null>;
+  onStopMessage: () => void;
+}) => {
+  const { isLoading, isPreparing, popoverOpen, textareaRef, onStopMessage } =
+    opts;
+  React.useEffect(() => {
+    if (!isLoading && !isPreparing) return undefined;
+    /** Stops active stream on unmodified global `Escape`. */
+    const onKey = (e: KeyboardEvent) => {
+      if (shouldGlobalEscapeStop(e, popoverOpen, textareaRef.current)) {
+        e.preventDefault();
+        onStopMessage();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isLoading, isPreparing, onStopMessage, popoverOpen, textareaRef]);
+};
+
+/** Dispatches a resolved `ArrowUp` history or queued-edit action. */
+const applyArrowUpOutcome = (
+  up: NonNullable<ReturnType<typeof resolveArrowUpAction>>,
+  e: React.KeyboardEvent<HTMLTextAreaElement>,
+  onEditQueuedMessage: ((id: string) => void) | undefined,
+  applySteppedHistory: (
+    ev: React.KeyboardEvent<HTMLTextAreaElement>,
+    stepped: { cursor: PromptHistoryCursor | null; value: string },
+  ) => void,
+): void => {
+  if (up.kind === "edit-queued") {
+    e.preventDefault();
+    onEditQueuedMessage?.(up.id);
+    return;
+  }
+  applySteppedHistory(e, up);
+};
+
+/** Dispatches a resolved `ArrowDown` or `Escape` history action; returns `true` when consumed. */
+const applyDownOrEscapeOutcome = (opts: {
+  e: React.KeyboardEvent<HTMLTextAreaElement>;
+  inputValue: string;
+  historyCursorRef: React.MutableRefObject<PromptHistoryCursor | null>;
+  recallablePrompts: string[];
+  applySteppedHistory: (
+    ev: React.KeyboardEvent<HTMLTextAreaElement>,
+    stepped: { cursor: PromptHistoryCursor | null; value: string },
+  ) => void;
+  isBusy: boolean;
+}): boolean => {
+  const down = resolveArrowDownAction({
+    e: opts.e,
+    inputValue: opts.inputValue,
+    historyCursor: opts.historyCursorRef.current,
+    recallablePrompts: opts.recallablePrompts,
+  });
+  if (down) {
+    if (down.kind === "clear-cursor") opts.historyCursorRef.current = null;
+    else opts.applySteppedHistory(opts.e, down);
+    return down.kind === "step";
+  }
+  const esc = resolveEscapeDraftRestore({
+    e: opts.e,
+    isBusy: opts.isBusy,
+    inputValue: opts.inputValue,
+    historyCursor: opts.historyCursorRef.current,
+  });
+  if (!esc) return false;
+  if (esc.kind === "clear-cursor") {
+    opts.historyCursorRef.current = null;
+    return false;
+  }
+  opts.applySteppedHistory(opts.e, { cursor: null, value: esc.draft });
+  return true;
+};
+
+type HistoryKeyBranchOpts = {
+  e: React.KeyboardEvent<HTMLTextAreaElement>;
+  inputValue: string;
+  queuedIds: string[];
+  onEditQueuedMessage?: (id: string) => void;
+  historyCursorRef: React.MutableRefObject<PromptHistoryCursor | null>;
+  recallablePrompts: string[];
+  applySteppedHistory: (
+    e: React.KeyboardEvent<HTMLTextAreaElement>,
+    stepped: { cursor: PromptHistoryCursor | null; value: string },
+  ) => void;
+  isBusy: boolean;
+};
+
+type ComposerInterceptKeyOpts = HistoryKeyBranchOpts & {
+  canToggleExpand: boolean;
+  toggleExpanded: () => void;
+  popoverOpen: boolean;
+  closePopovers: () => void;
+};
+
+/** Evaluates `ArrowUp`, `ArrowDown`, and `Escape` prompt-history actions; returns `true` when consumed. */
+const tryHandleHistoryKeyBranch = (opts: HistoryKeyBranchOpts): boolean => {
+  const up = resolveArrowUpAction({
+    e: opts.e,
+    inputValue: opts.inputValue,
+    queuedIds: opts.queuedIds,
+    hasEditQueuedHandler: Boolean(opts.onEditQueuedMessage),
+    historyCursor: opts.historyCursorRef.current,
+    recallablePrompts: opts.recallablePrompts,
+  });
+  if (up) {
+    applyArrowUpOutcome(
+      up,
+      opts.e,
+      opts.onEditQueuedMessage,
+      opts.applySteppedHistory,
+    );
+    return true;
+  }
+  return applyDownOrEscapeOutcome(opts);
+};
+
+/** Checks whether `e` carries any Shift, Ctrl, Meta, or Alt modifier key. */
+const hasAnySubmitKeyModifier = (
+  e: Pick<
+    React.KeyboardEvent<HTMLTextAreaElement>,
+    "shiftKey" | "ctrlKey" | "metaKey" | "altKey"
+  >,
+): boolean => e.shiftKey || e.ctrlKey || e.metaKey || e.altKey;
+
+/** Checks whether `e` is an unmodified, non-IME `Enter` submit keydown. */
+export const isPlainEnterSubmit = (
+  e: Pick<
+    React.KeyboardEvent<HTMLTextAreaElement>,
+    "key" | "shiftKey" | "ctrlKey" | "metaKey" | "altKey" | "nativeEvent"
+  >,
+): boolean =>
+  e.key === "Enter" &&
+  !hasAnySubmitKeyModifier(e) &&
+  !e.nativeEvent.isComposing;
+
+/** Handles pre-submit composer intercept keys (`Ctrl+Shift+E`, popover `Escape`, history). */
+const consumeComposerInterceptKey = (opts: ComposerInterceptKeyOpts): boolean => {
+  if (isToggleExpandShortcut(opts.e, opts.canToggleExpand)) {
+    opts.e.preventDefault();
+    opts.toggleExpanded();
+    return true;
+  }
+  if (opts.e.defaultPrevented) return true;
+  if (opts.popoverOpen && opts.e.key === "Escape") {
+    opts.e.preventDefault();
+    opts.closePopovers();
+    return true;
+  }
+  return tryHandleHistoryKeyBranch(opts);
+};
+
+/** Handles prompt history navigation and special shortcuts before delegating `onKeyDown`. */
+const handleComposerKeyDownFlow = (
+  opts: ComposerInterceptKeyOpts & {
+    recordIfEligible: () => void;
+    runNewChatIfMatched: () => boolean;
+    onKeyDown: (e: React.KeyboardEvent) => void;
+  },
+): void => {
+  if (consumeComposerInterceptKey(opts)) return;
+  if (isPlainEnterSubmit(opts.e)) {
+    if (opts.runNewChatIfMatched()) {
+      opts.e.preventDefault();
+      return;
+    }
+    opts.recordIfEligible();
+    opts.historyCursorRef.current = null;
+  }
+  opts.onKeyDown(opts.e);
+};
+
+/** Renders hidden file and directory `<input type="file">` pickers for the composer. */
+const HiddenComposerFileInputs = ({
+  onChange,
+}: {
+  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+}) => (
+  <div className="contents">
+    <input
+      type="file"
+      id="chat-media-upload"
+      className="hidden"
+      multiple
+      onChange={onChange}
+    />
+    <input
+      type="file"
+      id="chat-folder-upload"
+      className="hidden"
+      multiple
+      {...{ webkitdirectory: "", directory: "" }}
+      onChange={onChange}
+    />
+  </div>
+);
+
+/** Encapsulates drag-over depth tracking and file/clip drop handlers for the composer vessel. */
+const useComposerDragAndDrop = (opts: {
+  textareaRef: React.RefObject<HTMLTextAreaElement | null>;
+  inputValue: string;
+  addUploadedFiles: (files: File[]) => void;
+  clearHistoryCursor: () => void;
+  applyProgrammaticInputValue: (next: string) => void;
+}) => {
+  const [dragOver, setDragOver] = React.useState(false);
+  const dragDepth = React.useRef(0);
+
+  const onDrop = React.useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dragDepth.current = 0;
+      setDragOver(false);
+      processComposerDropTransfer({
+        dataTransfer: e.dataTransfer,
+        textarea: opts.textareaRef.current,
+        inputValue: opts.inputValue,
+        addUploadedFiles: opts.addUploadedFiles,
+        clearHistoryCursor: opts.clearHistoryCursor,
+        applyProgrammaticInputValue: opts.applyProgrammaticInputValue,
+      });
+    },
+    [opts],
+  );
+
+  const onDragEnter = React.useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragDepth.current += 1;
+    const types = e.dataTransfer.types;
+    if (types.includes("Files") || types.includes(BETTERSHAPE_CLIP_CODE)) {
+      setDragOver(true);
+    }
+  }, []);
+
+  const onDragLeave = React.useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragDepth.current = Math.max(0, dragDepth.current - 1);
+    if (dragDepth.current === 0) setDragOver(false);
+  }, []);
+
+  const onDragOver = React.useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  }, []);
+
+  return { dragOver, onDrop, onDragEnter, onDragLeave, onDragOver };
+};
+
+/** Renders the context-menu-wrapped composer `<textarea>` input element. */
+const ComposerTextareaWithMenu = ({
+  textareaRef,
+  inputValue,
+  composerBreakAll,
+  composerAriaLabel,
+  setIsEditorFocused,
+  onChange,
+  onKeyDown,
+  onPaste,
+  onSelect,
+  onScroll,
+  onContextMenuPaste,
+}: {
+  textareaRef: React.RefObject<HTMLTextAreaElement | null>;
+  inputValue: string;
+  composerBreakAll: boolean;
+  composerAriaLabel: string;
+  setIsEditorFocused: (focused: boolean) => void;
+  onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
+  onKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
+  onPaste: (e: React.ClipboardEvent) => void;
+  onSelect: (e: React.SyntheticEvent<HTMLTextAreaElement>) => void;
+  onScroll: (e: React.UIEvent<HTMLTextAreaElement>) => void;
+  onContextMenuPaste: () => void;
+}) => (
+  <ContextMenu>
+    <ContextMenuTrigger asChild>
+      <textarea
+        ref={textareaRef}
+        value={inputValue}
+        onChange={onChange}
+        onKeyDown={onKeyDown}
+        onPaste={onPaste}
+        onSelect={onSelect}
+        onScroll={onScroll}
+        onFocus={() => {
+          setIsEditorFocused(true);
+          if (hasActiveTauriBridge()) {
+            warmComposerResources(safeReadProjectPath());
+          }
+        }}
+        onBlur={() => setIsEditorFocused(false)}
+        placeholder=""
+        aria-label={composerAriaLabel}
+        rows={1}
+        className={cn(
+          "custom-scrollbar relative z-[1] block min-h-[22px] w-full resize-none overflow-x-hidden border-none bg-transparent px-1.5 py-0 text-sm font-medium leading-[22px] text-transparent outline-none placeholder:text-text-muted selection:bg-accent/30 whitespace-pre-wrap",
+          composerBreakAll ? "break-all" : "break-words",
+        )}
+        style={{ caretColor: "var(--text-primary)" }}
+      />
+    </ContextMenuTrigger>
+    <ComposerContextMenuItems
+      onPasteClick={onContextMenuPaste}
+      onSelectAllClick={() => {
+        const el = textareaRef.current;
+        if (!el) return;
+        el.focus();
+        el.select();
+      }}
+    />
+  </ContextMenu>
+);
+
+/** Renders the center `<textarea>` + mirror + rotating hint column inside the composer vessel. */
+const ComposerEditorColumn = ({
+  textareaRef,
+  mentionOverlayRef,
+  inputValue,
+  workflows,
+  isExpanded,
+  editorHeight,
+  editorMaskImage,
+  isEditorFocused,
+  setIsEditorFocused,
+  hintMode,
+  needsSignIn,
+  setupGap,
+  composerBreakAll,
+  composerAriaLabel,
+  onChange,
+  onKeyDown,
+  onPaste,
+  onSelect,
+  onScroll,
+  onContextMenuPaste,
+  stacked = false,
+  reserveExpandCorner = false,
+}: {
+  textareaRef: React.RefObject<HTMLTextAreaElement | null>;
+  mentionOverlayRef: React.RefObject<HTMLDivElement | null>;
+  inputValue: string;
+  workflows: ReturnType<typeof useSettings>["ai"]["workflows"];
+  isExpanded: boolean;
+  editorHeight: number;
+  editorMaskImage: string | undefined;
+  isEditorFocused: boolean;
+  setIsEditorFocused: (focused: boolean) => void;
+  hintMode: "idle" | "active" | "preparing";
+  needsSignIn: boolean;
+  setupGap: string | null;
+  composerBreakAll: boolean;
+  composerAriaLabel: string;
+  onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
+  onKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
+  onPaste: (e: React.ClipboardEvent) => void;
+  onSelect: (e: React.SyntheticEvent<HTMLTextAreaElement>) => void;
+  onScroll: (e: React.UIEvent<HTMLTextAreaElement>) => void;
+  onContextMenuPaste: () => void;
+  stacked?: boolean;
+  reserveExpandCorner?: boolean;
+}) => (
+  <div
+    className={cn(
+      "relative min-h-[32px] min-w-0 py-[5px] transition-[height] motion-reduce:transition-none",
+      stacked ? "order-1 w-full basis-full px-1" : "flex-1",
+      stacked && reserveExpandCorner && "pr-8",
+      isExpanded
+        ? "duration-[var(--spring-panel-dur)] ease-[var(--spring-panel)]"
+        : "duration-[var(--spring-quick-dur)] ease-[var(--spring-quick)]",
+    )}
+    style={{ height: `${editorHeight + 10}px` }}
+  >
+    <div
+      className="relative h-full min-h-[22px] w-full overflow-hidden"
+      style={{
+        maskImage: editorMaskImage,
+        WebkitMaskImage: editorMaskImage,
+      }}
+    >
+      {!inputValue ? (
+        <RotatingComposerHint
+          paused={isEditorFocused}
+          mode={hintMode}
+          needsProvider={needsSignIn}
+          setupGap={setupGap}
+        />
+      ) : null}
+      <ComposerHighlightMirror
+        overlayRef={mentionOverlayRef}
+        inputValue={inputValue}
+        workflows={workflows ?? []}
+        composerBreakAll={composerBreakAll}
+      />
+      <ComposerTextareaWithMenu
+        textareaRef={textareaRef}
+        inputValue={inputValue}
+        composerBreakAll={composerBreakAll}
+        composerAriaLabel={composerAriaLabel}
+        setIsEditorFocused={setIsEditorFocused}
+        onChange={onChange}
+        onKeyDown={onKeyDown}
+        onPaste={onPaste}
+        onSelect={onSelect}
+        onScroll={onScroll}
+        onContextMenuPaste={onContextMenuPaste}
+      />
+    </div>
+  </div>
+);
+
+/** Manages `@mention` / `/workflow` trigger state, text edits, and inline attachment swaps. */
+const useComposerTextController = ({
+  inputValue,
+  onInputChange,
+  setUploadedFiles,
+  textareaRef,
+  historyCursorRef,
+  inputValueRef,
+}: {
+  inputValue: string;
+  onInputChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
+  setUploadedFiles: React.Dispatch<React.SetStateAction<ComposerAttachment[]>>;
+  textareaRef: React.RefObject<HTMLTextAreaElement | null>;
+  historyCursorRef: React.MutableRefObject<PromptHistoryCursor | null>;
+  inputValueRef: React.MutableRefObject<string>;
+}) => {
+  const [trigger, setTrigger] = React.useState<ActiveTriggerState>({
+    mentionOpen: false,
+    mentionQuery: "",
+    mentionCaret: 0,
+    slashOpen: false,
+    slashQuery: "",
+  });
+  const isMountedRef = React.useRef(true);
+  React.useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  const closeTriggers = React.useCallback(() => {
+    setTrigger((prev) =>
+      prev.mentionOpen || prev.slashOpen
+        ? {
+            mentionOpen: false,
+            mentionQuery: "",
+            mentionCaret: 0,
+            slashOpen: false,
+            slashQuery: "",
+          }
+        : prev,
+    );
+  }, []);
+
+  const applyProgrammaticInputValue = React.useCallback(
+    (nextValue: string, caret = nextValue.length) => {
+      historyCursorRef.current = null;
+      onInputChange({
+        target: { value: nextValue },
+      } as React.ChangeEvent<HTMLTextAreaElement>);
+      setTrigger(detectComposerTrigger(nextValue, caret));
+    },
+    [historyCursorRef, onInputChange],
+  );
+
+  React.useEffect(() => {
+    const shortened = shortenMentionTokensInText(inputValue);
+    if (shortened !== inputValue) {
+      historyCursorRef.current = null;
+      onInputChange({
+        target: { value: shortened },
+      } as React.ChangeEvent<HTMLTextAreaElement>);
+    }
+  }, [historyCursorRef, inputValue, onInputChange]);
+
+  const handleInputChangeWithMentions = React.useCallback(
+    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+      historyCursorRef.current = null;
+      const shortened = shortenMentionTokensInText(e.target.value);
+      const caret = emitInputChangeAndResolveCaret(
+        e,
+        shortened,
+        onInputChange,
+        textareaRef,
+      );
+      setTrigger(detectComposerTrigger(shortened, caret));
+    },
+    [historyCursorRef, onInputChange, textareaRef],
+  );
+
+  const insertPickedTrigger = React.useCallback(
+    (char: "@" | "/", token: string) => {
+      const textarea = textareaRef.current;
+      if (!textarea) return;
+      const caret = textarea.selectionStart;
+      const replaced = replaceTriggerAtCaret(inputValue, caret, char, token);
+      if (replaced === null) return;
+      applyProgrammaticInputValue(replaced.next);
+      closeTriggers();
+      scheduleFocusAtPosition(textareaRef, replaced.caret);
+    },
+    [applyProgrammaticInputValue, closeTriggers, inputValue, textareaRef],
+  );
+
+  const appendToken = React.useCallback(
+    (token: string) => {
+      const caret = textareaRef.current?.selectionStart ?? inputValue.length;
+      const { next, pos } = insertSpacedTokenAtCaret(inputValue, caret, token);
+      applyProgrammaticInputValue(next, pos);
+      scheduleFocusAtPosition(textareaRef, pos);
+    },
+    [applyProgrammaticInputValue, inputValue, textareaRef],
+  );
+
+  const swapAttachmentInline = React.useCallback(
+    (targetFile: File, rawText: string) => {
+      setUploadedFiles((prev) =>
+        prev.filter((att) => att.file !== targetFile),
+      );
+      if (!isMountedRef.current || !textareaRef.current?.isConnected) {
+        dispatchUnmountedInlineSwap(rawText);
+        return;
+      }
+      const cur = inputValueRef.current;
+      const pad = cur.trim() ? `${cur.trimEnd()}\n\n` : "";
+      const next = `${pad}${rawText}`;
+      applyProgrammaticInputValue(next);
+      scheduleFocusAtPosition(textareaRef, next.length);
+    },
+    [applyProgrammaticInputValue, inputValueRef, setUploadedFiles, textareaRef],
+  );
+
+  return {
+    trigger,
+    setTrigger,
+    closeTriggers,
+    applyProgrammaticInputValue,
+    handleInputChangeWithMentions,
+    insertMention: (t: string) => insertPickedTrigger("@", t),
+    insertSlash: (t: string) => insertPickedTrigger("/", t),
+    appendToken,
+    swapAttachmentInline,
+  };
+};
+
+/** Resolves `MentionPicker` query, mode, and pick callback from `trigger`. */
+const resolveMentionPickerBindings = (
+  trigger: ActiveTriggerState,
+  insertSlash: (token: string) => void,
+  insertMention: (token: string) => void,
+) =>
+  trigger.slashOpen
+    ? {
+        query: trigger.slashQuery,
+        mode: "slash" as const,
+        onPick: insertSlash,
+      }
+    : {
+        query: trigger.mentionQuery,
+        mode: "mention" as const,
+        onPick: insertMention,
+      };
+
+/** Renders the main composer vessel (`MentionPicker`, quotes, attachments, `+` menu, editor, actions). */
+const ComposerVesselCard = ({
+  composerBoxRef,
+  textareaRef,
+  mentionOverlayRef,
+  isExpandedLayout,
+  isExpanded,
+  vesselRadiusClass,
+  drag,
+  trigger,
+  setTrigger,
+  closeTriggers,
+  workflows,
+  insertSlash,
+  insertMention,
+  activeQuotes,
+  onRemoveQuote,
+  uploadedFiles,
+  setUploadedFiles,
+  inputValue,
+  applyProgrammaticInputValue,
+  onFileInputChange,
+  plusMenuOpen,
+  setPlusMenuOpen,
+  plusPlugins,
+  setPlusPlugins,
+  pluginQuery,
+  setPluginQuery,
+  skills,
+  appendToken,
+  editorHeight,
+  editorMaskImage,
+  isEditorFocused,
+  setIsEditorFocused,
+  hintMode,
+  needsSignIn,
+  setupGap,
+  composerBreakAll,
+  composerAriaLabel,
+  onInputChange,
+  onKeyDown,
+  onPaste,
+  onScrollMask,
+  onContextMenuPaste,
+  showExpandButton,
+  onToggleExpand,
+  canStop,
+  isPreparing,
+  isLoading,
+  sendDisabled,
+  sendActive,
+  onStopMessage,
+  onSendWithHistory,
+}: {
+  composerBoxRef: React.RefObject<HTMLDivElement | null>;
+  textareaRef: React.RefObject<HTMLTextAreaElement | null>;
+  mentionOverlayRef: React.RefObject<HTMLDivElement | null>;
+  isExpandedLayout: boolean;
+  isExpanded: boolean;
+  vesselRadiusClass: string;
+  drag: ReturnType<typeof useComposerDragAndDrop>;
+  trigger: ActiveTriggerState;
+  setTrigger: React.Dispatch<React.SetStateAction<ActiveTriggerState>>;
+  closeTriggers: () => void;
+  workflows: ReturnType<typeof useSettings>["ai"]["workflows"];
+  insertSlash: (token: string) => void;
+  insertMention: (token: string) => void;
+  activeQuotes: QuotedExcerpt[];
+  onRemoveQuote: (id: string) => void;
+  uploadedFiles: ComposerAttachment[];
+  setUploadedFiles: React.Dispatch<React.SetStateAction<ComposerAttachment[]>>;
+  inputValue: string;
+  applyProgrammaticInputValue: (next: string) => void;
+  onFileInputChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  plusMenuOpen: boolean;
+  setPlusMenuOpen: (open: boolean) => void;
+  plusPlugins: PluginRow[];
+  setPlusPlugins: React.Dispatch<React.SetStateAction<PluginRow[]>>;
+  pluginQuery: string;
+  setPluginQuery: (q: string) => void;
+  skills: Skill[];
+  appendToken: (token: string) => void;
+  editorHeight: number;
+  editorMaskImage: string | undefined;
+  isEditorFocused: boolean;
+  setIsEditorFocused: (focused: boolean) => void;
+  hintMode: "idle" | "active" | "preparing";
+  needsSignIn: boolean;
+  setupGap: string | null;
+  composerBreakAll: boolean;
+  composerAriaLabel: string;
+  onInputChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
+  onKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
+  onPaste: (e: React.ClipboardEvent) => void;
+  onScrollMask: (next: { top: boolean; bottom: boolean }) => void;
+  onContextMenuPaste: () => void;
+  showExpandButton: boolean;
+  onToggleExpand: () => void;
+  canStop: boolean;
+  isPreparing: boolean;
+  isLoading: boolean;
+  sendDisabled: boolean;
+  sendActive: boolean;
+  onStopMessage: () => void;
+  onSendWithHistory: () => void;
+}) => {
+  const pickerOpen = trigger.mentionOpen || trigger.slashOpen;
+  const pickerBindings = resolveMentionPickerBindings(
+    trigger,
+    insertSlash,
+    insertMention,
+  );
+  return (
+    <div
+      ref={composerBoxRef}
+      data-expanded-layout={String(isExpandedLayout)}
+      data-expanded-sheet={String(isExpanded)}
+      className={cn(
+        "relative flex w-full cursor-text flex-col border p-[5px]",
+        "border-border-subtle bg-surface-4 shadow-2xs focus-within:border-border-secondary",
+        "transition-[border-radius,background-color,border-color,box-shadow] duration-[var(--spring-panel-dur)] ease-[var(--spring-panel)] motion-reduce:transition-none",
+        vesselRadiusClass,
+        drag.dragOver && "border-border bg-surface-3/90",
+      )}
+      onPointerDown={(e) => {
+        if (shouldVesselPointerFocusTextarea(e)) {
+          requestAnimationFrame(() => textareaRef.current?.focus());
         }
-        return concreteAllModels[0] ?? null;
-    }, [concreteAllModels, settings.ai.providers]);
+      }}
+      onDrop={drag.onDrop}
+      onDragEnter={drag.onDragEnter}
+      onDragLeave={drag.onDragLeave}
+      onDragOver={drag.onDragOver}
+    >
+      {drag.dragOver ? (
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-[inherit] border-2 border-border-subtle bg-surface-3/95">
+          <p className="text-sm font-medium text-text-primary">
+            Drop files to attach
+          </p>
+        </div>
+      ) : null}
+      <MentionPicker
+        open={pickerOpen}
+        query={pickerBindings.query}
+        mode={pickerBindings.mode}
+        workflows={workflows}
+        onPick={pickerBindings.onPick}
+        onClose={closeTriggers}
+        anchorRef={textareaRef}
+        boxRef={composerBoxRef}
+        caretIndex={trigger.mentionCaret}
+      />
+      <ComposerQuotesStrip quotes={activeQuotes} onRemoveQuote={onRemoveQuote} />
+      <ComposerAttachments
+        attachments={uploadedFiles}
+        onRemove={(id) =>
+          setUploadedFiles((prev) => prev.filter((a) => a.id !== id))
+        }
+        onInsertInline={(id, text) => {
+          setUploadedFiles((prev) => prev.filter((a) => a.id !== id));
+          const pad = inputValue.trim() ? `${inputValue.trimEnd()}\n\n` : "";
+          const next = `${pad}${text}`;
+          applyProgrammaticInputValue(next);
+          scheduleFocusAtPosition(textareaRef, next.length);
+        }}
+      />
+      <HiddenComposerFileInputs onChange={onFileInputChange} />
+      <div
+        data-composer-row
+        className={cn(
+          "relative flex w-full px-0.5",
+          isExpandedLayout
+            ? "flex-wrap items-center gap-x-1 gap-y-1"
+            : "items-end gap-1",
+        )}
+      >
+        {isExpandedLayout ? (
+          <ExpandComposerButton
+            showExpandButton={showExpandButton}
+            isExpanded={isExpanded}
+            onToggleExpand={onToggleExpand}
+          />
+        ) : null}
+        <ComposerPlusMenu
+          open={plusMenuOpen}
+          onOpenChange={setPlusMenuOpen}
+          plusPlugins={plusPlugins}
+          setPlusPlugins={setPlusPlugins}
+          pluginQuery={pluginQuery}
+          setPluginQuery={setPluginQuery}
+          skills={skills}
+          appendToken={appendToken}
+          stacked={isExpandedLayout}
+        />
+        <ComposerEditorColumn
+          textareaRef={textareaRef}
+          mentionOverlayRef={mentionOverlayRef}
+          inputValue={inputValue}
+          workflows={workflows}
+          isExpanded={isExpanded}
+          editorHeight={editorHeight}
+          editorMaskImage={editorMaskImage}
+          isEditorFocused={isEditorFocused}
+          setIsEditorFocused={setIsEditorFocused}
+          hintMode={hintMode}
+          needsSignIn={needsSignIn}
+          setupGap={setupGap}
+          composerBreakAll={composerBreakAll}
+          composerAriaLabel={composerAriaLabel}
+          stacked={isExpandedLayout}
+          reserveExpandCorner={showExpandButton}
+          onChange={onInputChange}
+          onKeyDown={onKeyDown}
+          onPaste={onPaste}
+          onSelect={(e) => {
+            if (!pickerOpen) return;
+            const el = e.currentTarget;
+            setTrigger(detectComposerTrigger(el.value, el.selectionStart));
+          }}
+          onScroll={(e) => {
+            const el = e.currentTarget;
+            syncComposerOverlayScroll(el, mentionOverlayRef.current);
+            onScrollMask(computeComposerScrollMask(el));
+          }}
+          onContextMenuPaste={onContextMenuPaste}
+        />
+        <ComposerRightActions
+          showExpandButton={showExpandButton}
+          isExpanded={isExpanded}
+          onToggleExpand={onToggleExpand}
+          canStop={canStop}
+          isPreparing={isPreparing}
+          isLoading={isLoading}
+          sendDisabled={sendDisabled}
+          sendActive={sendActive}
+          onStopMessage={onStopMessage}
+          onSendWithHistory={onSendWithHistory}
+          stacked={isExpandedLayout}
+        />
+      </div>
+    </div>
+  );
+};
+
+/** Checks whether expanded composer mode can be toggled via keyboard shortcut. */
+const canToggleComposerExpansion = (
+  canExpandComposer: boolean,
+  isExpanded: boolean,
+  inputValue: string,
+  composerTall: boolean,
+): boolean =>
+  canExpandComposer || isExpanded || (Boolean(inputValue) && composerTall);
+
+/** Checks whether `value` is a built-in `/new` or `/clear` chat reset command. */
+const isNewChatSlashCommand = (value: string): boolean => {
+  const trimmed = value.trim();
+  return trimmed === "/new" || trimmed === "/clear";
+};
+
+/** Coordinates prompt-history recall, send recording, and `onKeyDown` delegation. */
+const useComposerHistoryAndKeys = ({
+  inputValue,
+  promptHistory,
+  needsSignIn,
+  isPreparing,
+  isLoading,
+  uploadedFiles,
+  queuedMessages,
+  onEditQueuedMessage,
+  onInputChange,
+  onKeyDown,
+  onSendMessage,
+  onNewChat,
+  textareaRef,
+  historyCursorRef,
+  canExpandComposer,
+  isExpanded,
+  setIsExpanded,
+  composerTall,
+  popoverOpen,
+  closeTriggers,
+}: {
+  inputValue: string;
+  promptHistory: string[];
+  needsSignIn: boolean;
+  isPreparing: boolean;
+  isLoading: boolean;
+  uploadedFiles: ComposerAttachment[];
+  queuedMessages: QueuedMessage[];
+  onEditQueuedMessage?: (id: string) => void;
+  onInputChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
+  onKeyDown: (e: React.KeyboardEvent) => void;
+  onSendMessage: () => void;
+  onNewChat?: () => void;
+  textareaRef: React.RefObject<HTMLTextAreaElement | null>;
+  historyCursorRef: React.MutableRefObject<PromptHistoryCursor | null>;
+  canExpandComposer: boolean;
+  isExpanded: boolean;
+  setIsExpanded: React.Dispatch<React.SetStateAction<boolean>>;
+  composerTall: boolean;
+  popoverOpen: boolean;
+  closeTriggers: () => void;
+}) => {
+  const [sessionSentPrompts, setSessionSentPrompts] = React.useState<string[]>(
+    [],
+  );
+  const recallablePrompts = React.useMemo(
+    () => mergeNewestFirstPrompts(promptHistory, sessionSentPrompts),
+    [promptHistory, sessionSentPrompts],
+  );
+  const runNewChatIfMatched = React.useCallback((): boolean => {
+    if (!onNewChat || !isNewChatSlashCommand(inputValue)) return false;
+    historyCursorRef.current = null;
+    closeTriggers();
+    onInputChange({
+      target: { value: "" },
+    } as React.ChangeEvent<HTMLTextAreaElement>);
+    onNewChat();
+    return true;
+  }, [closeTriggers, historyCursorRef, inputValue, onInputChange, onNewChat]);
+  const recordIfEligible = React.useCallback(() => {
+    const trimmed = inputValue.trim();
+    if (
+      isPromptEligibleForHistory({
+        trimmed,
+        needsSignIn,
+        isPreparing,
+        isLoading,
+        uploadedFiles,
+      })
+    ) {
+      setSessionSentPrompts((prev) => appendSessionPrompt(prev, trimmed));
+    }
+  }, [inputValue, isLoading, isPreparing, needsSignIn, uploadedFiles]);
+  const handleSendWithHistory = React.useCallback(() => {
+    if (runNewChatIfMatched()) return;
+    recordIfEligible();
+    historyCursorRef.current = null;
+    onSendMessage();
+  }, [historyCursorRef, onSendMessage, recordIfEligible, runNewChatIfMatched]);
+  const applySteppedHistory = React.useCallback(
+    (
+      e: React.KeyboardEvent<HTMLTextAreaElement>,
+      stepped: { cursor: PromptHistoryCursor | null; value: string },
+    ) => {
+      e.preventDefault();
+      const normalizedValue = shortenMentionTokensInText(stepped.value);
+      historyCursorRef.current = stepped.cursor
+        ? { ...stepped.cursor, recalledValue: normalizedValue }
+        : null;
+      onInputChange({
+        target: { value: normalizedValue },
+      } as React.ChangeEvent<HTMLTextAreaElement>);
+      requestAnimationFrame(() => {
+        textareaRef.current?.setSelectionRange(
+          normalizedValue.length,
+          normalizedValue.length,
+        );
+      });
+    },
+    [historyCursorRef, onInputChange, textareaRef],
+  );
+  const canToggleExpand = canToggleComposerExpansion(
+    canExpandComposer,
+    isExpanded,
+    inputValue,
+    composerTall,
+  );
+  const onComposerKeyDown = React.useCallback(
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) =>
+      handleComposerKeyDownFlow({
+        e,
+        canToggleExpand,
+        toggleExpanded: () => setIsExpanded((prev) => !prev),
+        popoverOpen,
+        closePopovers: closeTriggers,
+        inputValue,
+        queuedIds: queuedMessages.map((q) => q.id),
+        onEditQueuedMessage,
+        historyCursorRef,
+        recallablePrompts,
+        applySteppedHistory,
+        isBusy: isLoading || isPreparing,
+        recordIfEligible,
+        runNewChatIfMatched,
+        onKeyDown,
+      }),
+    [
+      applySteppedHistory,
+      canToggleExpand,
+      closeTriggers,
+      historyCursorRef,
+      inputValue,
+      isLoading,
+      isPreparing,
+      onEditQueuedMessage,
+      onKeyDown,
+      popoverOpen,
+      queuedMessages,
+      recallablePrompts,
+      recordIfEligible,
+      runNewChatIfMatched,
+      setIsExpanded,
+    ],
+  );
+  return { handleSendWithHistory, onComposerKeyDown };
+};
+
+/** Resolves active quotes and initial plugin cache snapshot. */
+const readInitialPlusPlugins = (): PluginRow[] =>
+  peekPluginsCache()?.plugins ?? [];
+
+/** Updates `scrollMask` state only when `top` or `bottom` visibility changed. */
+const applyScrollMaskIfChanged = (
+  setScrollMask: React.Dispatch<
+    React.SetStateAction<{ top: boolean; bottom: boolean }>
+  >,
+  next: { top: boolean; bottom: boolean },
+): void => {
+  setScrollMask((prev) =>
+    prev.top === next.top && prev.bottom === next.bottom ? prev : next,
+  );
+};
+
+/** Computes layout expansion flags for `ComposerVesselCard`. */
+const deriveComposerLayoutFlags = (
+  layout: ReturnType<typeof useComposerLayoutSync>,
+  uploadedCount: number,
+  quotesCount: number,
+) => {
+  const hasContextAttachments = uploadedCount > 0 || quotesCount > 0;
+  return {
+    hasContextAttachments,
+    isExpandedLayout:
+      layout.composerTall || layout.isExpanded || hasContextAttachments,
+    showExpandButton: layout.canExpandComposer || layout.isExpanded,
+  };
+};
+
+/** Resolves outer composer wrapper padding class for `variant`. */
+const resolveComposerWrapperClass = (variant: "default" | "empty"): string =>
+  cn(
+    "relative shrink-0 overflow-visible",
+    variant === "empty" ? "w-full px-0 pb-0 pt-0" : "px-0 pb-3 pt-0",
+  );
+
+/** Renders the optional media viewer lightbox when `mediaViewer` is open. */
+const ComposerMediaViewerSlot = ({
+  mediaViewer,
+  onClose,
+}: {
+  mediaViewer: { src?: string; title?: string; kind: "image" | "html" } | null;
+  onClose: () => void;
+}) =>
+  mediaViewer ? (
+    <MediaLightbox
+      open
+      onClose={onClose}
+      src={mediaViewer.src}
+      title={mediaViewer.title}
+      kind={mediaViewer.kind}
+    />
+  ) : null;
+
+/** Inner implementation for `ChatInput`. */
+const ChatInputInner = ({
+  inputValue,
+  isLoading,
+  isPreparing = false,
+  uploadedFiles,
+  onInputChange,
+  onKeyDown,
+  onSendMessage,
+  onStopMessage,
+  setUploadedFiles,
+  addUploadedFiles,
+  selectedModel,
+  setSelectedModel,
+  selectedWorkerModels = [],
+  setSelectedWorkerModels,
+  multiSelectModels = false,
+  hideModeSelect = false,
+  selectedMode,
+  setSelectedMode,
+  reasoningEffort,
+  setReasoningEffort,
+  pendingEdits = [],
+  onAcceptAllEdits,
+  onRejectAllEdits,
+  onAcceptEdit,
+  onRejectEdit,
+  taskItems = [],
+  queuedMessages = [],
+  onEditQueuedMessage,
+  onRemoveQueuedMessage,
+  onSendQueuedNow,
+  projectRuleFiles = [],
+  quotedExcerpts,
+  onRemoveQuote,
+  promptHistory = [],
+  onNewChat,
+  variant = "default",
+}: Omit<ChatInputProps, "webSearch" | "setWebSearch" | "handleFileUpload">) => {
     const textareaRef = React.useRef<HTMLTextAreaElement>(null);
     const mentionOverlayRef = React.useRef<HTMLDivElement>(null);
     const composerBoxRef = React.useRef<HTMLDivElement>(null);
     const historyCursorRef = React.useRef<PromptHistoryCursor | null>(null);
-    const [sessionSentPrompts, setSessionSentPrompts] = React.useState<string[]>([]);
-    const recallablePrompts = React.useMemo(
-        () => mergeNewestFirstPrompts(promptHistory, sessionSentPrompts),
-        [promptHistory, sessionSentPrompts],
-    );
-    const [mentionOpen, setMentionOpen] = React.useState(false);
-    const [mentionQuery, setMentionQuery] = React.useState("");
-    const [mentionCaret, setMentionCaret] = React.useState(0);
-    const [slashOpen, setSlashOpen] = React.useState(false);
-    const [slashQuery, setSlashQuery] = React.useState("");
-
-    const canRecordPromptHistory = React.useCallback(
-        (trimmed: string) => {
-            if (!trimmed) return false;
-            if (needsSignIn || isPreparing) return false;
-            if (uploadedFiles.some((att) => att.status === "processing")) return false;
-            if (isLoading && uploadedFiles.length > 0) return false;
-            return !/^\/compact\b/i.test(trimmed);
-        },
-        [isLoading, isPreparing, needsSignIn, uploadedFiles],
-    );
-
-    const handleSendWithHistory = React.useCallback(() => {
-        const trimmed = inputValue.trim();
-        if (canRecordPromptHistory(trimmed)) {
-            setSessionSentPrompts((prev) =>
-                prev[prev.length - 1] === trimmed ? prev : [...prev.slice(-49), trimmed],
-            );
-        }
-        historyCursorRef.current = null;
-        onSendMessage();
-    }, [canRecordPromptHistory, inputValue, onSendMessage]);
-
-    const handleInputChangeWithMentions = React.useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-        historyCursorRef.current = null;
-        const raw = e.target.value;
-        const caretRaw = e.target.selectionStart ?? raw.length;
-        const shortened = shortenMentionTokensInText(raw);
-        const delta = raw.length - shortened.length;
-        const caret = Math.max(0, caretRaw - (delta > 0 && caretRaw > shortened.length ? delta : 0));
-        // If we collapsed a long path token, rewrite value + restore caret near the edit.
-        if (shortened !== raw) {
-            onInputChange({ target: { value: shortened } } as React.ChangeEvent<HTMLTextAreaElement>);
-            requestAnimationFrame(() => {
-                const el = textareaRef.current;
-                if (!el) return;
-                const pos = Math.min(caret, shortened.length);
-                el.setSelectionRange(pos, pos);
-            });
-        } else {
-            onInputChange(e);
-        }
-        const val = shortened;
-        const caretNow = shortened !== raw ? Math.min(caret, shortened.length) : caretRaw;
-        const before = val.slice(0, caretNow);
-        // Allow hostnames / paths after @ (sites, files), requiring a leading boundary so emails do not trigger @.
-        const atMatch = before.match(/(?:^|[\s([{"'])@([\w./:-]*)$/);
-        const slashMatch = before.match(/(?:^|\s)(\/[^\s]*)$/);
-        if (atMatch) {
-            const atStart = before.lastIndexOf("@");
-            setMentionOpen(true);
-            setMentionQuery(atMatch[1] ?? "");
-            setMentionCaret(Math.max(0, atStart));
-            setSlashOpen(false);
-            setSlashQuery("");
-        } else if (slashMatch) {
-            setSlashOpen(true);
-            setSlashQuery((slashMatch[1] ?? "/").replace(/^\//, ""));
-            setMentionOpen(false);
-            setMentionQuery("");
-        } else {
-            setMentionOpen(false);
-            setMentionQuery("");
-            setSlashOpen(false);
-            setSlashQuery("");
-        }
-    }, [onInputChange]);
-
-    const applyProgrammaticInputValue = React.useCallback(
-        (nextValue: string) => {
-            historyCursorRef.current = null;
-            onInputChange({
-                target: { value: nextValue },
-            } as React.ChangeEvent<HTMLTextAreaElement>);
-        },
-        [onInputChange],
-    );
-
-    // Collapse any long path mentions already in the composer (e.g. pasted / leftover).
-    React.useEffect(() => {
-        const shortened = shortenMentionTokensInText(inputValue);
-        if (shortened !== inputValue) {
-            applyProgrammaticInputValue(shortened);
-        }
-    }, [applyProgrammaticInputValue, inputValue]);
-
-    const insertMention = React.useCallback((token: string) => {
-        const textarea = textareaRef.current;
-        if (!textarea) return;
-        const val = inputValue;
-        const caret = textarea.selectionStart ?? val.length;
-        const before = val.slice(0, caret);
-        const after = val.slice(caret);
-        const atIndex = before.lastIndexOf("@");
-        if (atIndex === -1) return;
-        const next = `${before.slice(0, atIndex)}${token}${after}`;
-        applyProgrammaticInputValue(next);
-        setMentionOpen(false);
-        setMentionQuery("");
-        setSlashOpen(false);
-        requestAnimationFrame(() => textarea.focus());
-    }, [applyProgrammaticInputValue, inputValue]);
-
-    const appendToken = React.useCallback((token: string) => {
-        const textarea = textareaRef.current;
-        const val = inputValue;
-        const caret = textarea?.selectionStart ?? val.length;
-        const before = val.slice(0, caret);
-        const after = val.slice(caret);
-        const pad = before.length > 0 && !/\s$/.test(before) ? " " : "";
-        const next = `${before}${pad}${token} ${after.replace(/^\s/, "")}`;
-        applyProgrammaticInputValue(next);
-        requestAnimationFrame(() => textarea?.focus());
-    }, [applyProgrammaticInputValue, inputValue]);
-
-    const insertSlash = React.useCallback((token: string) => {
-        const textarea = textareaRef.current;
-        if (!textarea) return;
-        const val = inputValue;
-        const caret = textarea.selectionStart ?? val.length;
-        const before = val.slice(0, caret);
-        const after = val.slice(caret);
-        const slashIndex = before.lastIndexOf("/");
-        if (slashIndex === -1) return;
-        const next = `${before.slice(0, slashIndex)}${token}${after}`;
-        applyProgrammaticInputValue(next);
-        setSlashOpen(false);
-        setSlashQuery("");
-        requestAnimationFrame(() => textarea.focus());
-    }, [applyProgrammaticInputValue, inputValue]);
-
-    const [composerTall, setComposerTall] = React.useState(false);
-    const [isExpanded, setIsExpanded] = React.useState(false);
-    const [canExpandComposer, setCanExpandComposer] = React.useState(false);
-    const [isEditorFocused, setIsEditorFocused] = React.useState(false);
-    const [editorHeight, setEditorHeight] = React.useState(COMPOSER_LINE_HEIGHT);
-    const [localQuotes, setLocalQuotes] = React.useState<QuotedExcerpt[]>([]);
-    const [scrollMask, setScrollMask] = React.useState<{ top: boolean; bottom: boolean }>({
-        top: false,
-        bottom: false,
-    });
-    const composerTallRef = React.useRef(false);
-    const lastAppliedHeightRef = React.useRef<number>(0);
-    const textareaClientWidthRef = React.useRef<number>(0);
-    const composerBoxWidthRef = React.useRef<number>(0);
-    const stageHeightRef = React.useRef<number>(760);
-
-    React.useEffect(() => {
-        if (typeof window === "undefined") return undefined;
-        const tauri = (
-            window as unknown as {
-                __TAURI_INTERNALS__?: { invoke?: unknown; transformCallback?: unknown };
-            }
-        ).__TAURI_INTERNALS__;
-        if (!tauri || typeof tauri.invoke !== "function" || typeof tauri.transformCallback !== "function") {
-            return undefined;
-        }
-        let projectPath: string | null;
-        try {
-            projectPath = getProjectPath();
-        } catch {
-            projectPath = null;
-        }
-        return warmComposerResources(projectPath);
-    }, []);
-
-    const activeQuotes = quotedExcerpts ?? localQuotes;
-    const handleRemoveQuote = React.useCallback(
-        (id: string) => {
-            if (onRemoveQuote) onRemoveQuote(id);
-            else setLocalQuotes((prev) => prev.filter((q) => q.id !== id));
-        },
-        [onRemoveQuote],
-    );
-
-    React.useEffect(() => {
-        if (quotedExcerpts !== undefined) return undefined;
-        let focusRaf = 0;
-        const onQuote = (event: Event) => {
-            const detail = (event as CustomEvent<{ id?: string; text?: string } | undefined>).detail;
-            if (!detail) return;
-            const text = detail.text?.trim();
-            if (!text) return;
-            const id = detail.id || `${Date.now()}`;
-            setLocalQuotes((prev) =>
-                prev.some((q) => q.text === text) ? prev : [...prev.slice(-7), { id, text }],
-            );
-            if (focusRaf) cancelAnimationFrame(focusRaf);
-            focusRaf = requestAnimationFrame(() => {
-                focusRaf = 0;
-                textareaRef.current?.focus();
-            });
-        };
-        window.addEventListener("bettershape-chat-quote-selection", onQuote as EventListener);
-        return () => {
-            if (focusRaf) cancelAnimationFrame(focusRaf);
-            window.removeEventListener("bettershape-chat-quote-selection", onQuote as EventListener);
-        };
-    }, [quotedExcerpts]);
-
-    const applySteppedPromptHistory = React.useCallback(
-        (
-            e: React.KeyboardEvent<HTMLTextAreaElement>,
-            stepped: { cursor: typeof historyCursorRef.current; value: string },
-        ) => {
-            e.preventDefault();
-            historyCursorRef.current = stepped.cursor;
-            onInputChange({ target: { value: stepped.value } } as React.ChangeEvent<HTMLTextAreaElement>);
-            requestAnimationFrame(() => {
-                const node = textareaRef.current;
-                if (!node) return;
-                node.setSelectionRange(stepped.value.length, stepped.value.length);
-            });
-        },
-        [onInputChange],
-    );
-
-    const onComposerKeyDown = React.useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-        if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "e") {
-            if (canExpandComposer || isExpanded || (Boolean(inputValue) && composerTall)) {
-                e.preventDefault();
-                setIsExpanded((prev) => !prev);
-                return;
-            }
-        }
-        if (e.defaultPrevented) {
-            return;
-        }
-        if ((mentionOpen || slashOpen) && e.key === "Escape") {
-            e.preventDefault();
-            setMentionOpen(false);
-            setSlashOpen(false);
-            return;
-        }
-        if (
-            !e.metaKey &&
-            !e.ctrlKey &&
-            !e.altKey &&
-            !e.shiftKey &&
-            !e.nativeEvent.isComposing &&
-            e.key === "ArrowUp"
-        ) {
-            // Claude Code parity: while messages are queued and the composer is empty,
-            // ArrowUp pops the latest queued message back into the editor for quick edits.
-            if (inputValue.length === 0 && queuedMessages.length > 0 && onEditQueuedMessage) {
-                const lastQueued = queuedMessages.at(-1);
-                if (lastQueued) {
-                    e.preventDefault();
-                    onEditQueuedMessage(lastQueued.id);
-                    return;
-                }
-            }
-            const el = e.currentTarget;
-            if (
-                recallablePrompts.length > 0 &&
-                canStepPromptHistoryUp(
-                    historyCursorRef.current,
-                    inputValue,
-                    el.selectionStart,
-                    el.selectionEnd,
-                )
-            ) {
-                const stepped = stepPromptHistoryUp(historyCursorRef.current, inputValue, recallablePrompts);
-                if (stepped) {
-                    applySteppedPromptHistory(e, stepped);
-                    return;
-                }
-            }
-        }
-        if (
-            !e.metaKey &&
-            !e.ctrlKey &&
-            !e.altKey &&
-            !e.shiftKey &&
-            !e.nativeEvent.isComposing &&
-            e.key === "ArrowDown" &&
-            historyCursorRef.current !== null
-        ) {
-            if (!isUnmodifiedHistoryRecall(historyCursorRef.current, inputValue)) {
-                historyCursorRef.current = null;
-            } else {
-                const el = e.currentTarget;
-                if (isCaretOnLastLogicalLine(inputValue, el.selectionStart, el.selectionEnd)) {
-                    const stepped = stepPromptHistoryDown(historyCursorRef.current, recallablePrompts);
-                    if (stepped) {
-                        applySteppedPromptHistory(e, stepped);
-                        return;
-                    }
-                }
-            }
-        }
-        if (
-            !e.metaKey &&
-            !e.ctrlKey &&
-            !e.altKey &&
-            !isLoading &&
-            !isPreparing &&
-            e.key === "Escape" &&
-            historyCursorRef.current !== null
-        ) {
-            if (!isUnmodifiedHistoryRecall(historyCursorRef.current, inputValue)) {
-                historyCursorRef.current = null;
-            } else {
-                e.preventDefault();
-                const restored = historyCursorRef.current.stashedDraft;
-                historyCursorRef.current = null;
-                onInputChange({ target: { value: restored } } as React.ChangeEvent<HTMLTextAreaElement>);
-                requestAnimationFrame(() => {
-                    const node = textareaRef.current;
-                    if (!node) return;
-                    node.setSelectionRange(restored.length, restored.length);
-                });
-                return;
-            }
-        }
-        if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-            const trimmed = inputValue.trim();
-            if (canRecordPromptHistory(trimmed)) {
-                setSessionSentPrompts((prev) =>
-                    prev[prev.length - 1] === trimmed ? prev : [...prev.slice(-49), trimmed],
-                );
-            }
-            historyCursorRef.current = null;
-        }
-        onKeyDown(e);
-    }, [
-        applySteppedPromptHistory,
-        canExpandComposer,
-        canRecordPromptHistory,
-        composerTall,
-        inputValue,
-        isExpanded,
-        isLoading,
-        isPreparing,
-        mentionOpen,
-        onEditQueuedMessage,
-        onInputChange,
-        onKeyDown,
-        queuedMessages,
-        recallablePrompts,
-        slashOpen,
-    ]);
-
-    const effectiveModelId =
-        selectedModel === "auto" && resolvedAutoModel ? resolvedAutoModel.id : selectedModel;
-
-    React.useEffect(() => {
-        if (reasoningEffort === "super" && !modelSupportsSuperThinking(effectiveModelId)) {
-            setReasoningEffort("max");
-        }
-    }, [effectiveModelId, reasoningEffort, setReasoningEffort]);
-
-    const syncEditorLayout = React.useCallback(
-        (revealCaretEnd = false) => {
-            const textarea = textareaRef.current;
-            if (!textarea) return;
-            const line = COMPOSER_LINE_HEIGHT;
-            const hasNewline = inputValue.includes("\n");
-
-            // O(1) zero-reflow fast path for short single-line ASCII prompts that cannot wrap
-            // even when composed entirely of worst-case wide glyphs (e.g. repeated `W` or `M`).
-            const knownWidth = textareaClientWidthRef.current;
-            const maxAsciiGlyphPx = 16;
-            const safeSingleLineChars =
-                knownWidth > 120
-                    ? Math.max(0, Math.floor((knownWidth - 32) / maxAsciiGlyphPx))
-                    : 0;
-            let printableAscii = true;
-            for (let ci = 0; ci < inputValue.length; ci += 1) {
-                const code = inputValue.charCodeAt(ci);
-                if (code < 32 || code > 126) {
-                    printableAscii = false;
-                    break;
-                }
-            }
-            const canUseSingleLineFastPath =
-                !isExpanded
-                && !composerTallRef.current
-                && !hasNewline
-                && inputValue.length <= safeSingleLineChars
-                && printableAscii;
-
-            if (canUseSingleLineFastPath) {
-                composerTallRef.current = false;
-                if (lastAppliedHeightRef.current !== line) {
-                    lastAppliedHeightRef.current = line;
-                    textarea.style.height = `${line}px`;
-                    textarea.style.overflowY = "hidden";
-                    textarea.style.overflowX = "hidden";
-                }
-                setComposerTall((prev) => (prev ? false : prev));
-                setEditorHeight((prev) => (prev === line ? prev : line));
-                setCanExpandComposer((prev) => (prev ? false : prev));
-                setScrollMask((prev) => (prev.top || prev.bottom ? { top: false, bottom: false } : prev));
-                return;
-            }
-
-            const stageH =
-                stageHeightRef.current > 180
-                    ? stageHeightRef.current
-                    : typeof window !== "undefined" && window.innerHeight > 180
-                      ? window.innerHeight
-                      : 760;
-            const compactMax = Math.min(220, Math.max(96, stageH - 132));
-            const expandedMax = Math.max(
-                compactMax + 44,
-                Math.min(Math.round(stageH * 0.6), 420),
-            );
-            const expandedFloor = Math.min(expandedMax, 280);
-            const max = isExpanded ? expandedMax : compactMax;
-
-            const prevScrollTop = textarea.scrollTop;
-            textarea.style.height = "0px";
-            const content = textarea.scrollHeight;
-            const measuredWidth = textarea.clientWidth;
-            if (measuredWidth > 0) {
-                textareaClientWidthRef.current = measuredWidth;
-            }
-
-            const tall = Boolean(inputValue) && (hasNewline || content > line + 2);
-            composerTallRef.current = tall;
-            const rawTarget = Math.min(Math.max(content, line), max);
-            const next = isExpanded ? Math.max(rawTarget, expandedFloor) : tall ? rawTarget : line;
-            lastAppliedHeightRef.current = next;
-            textarea.style.height = `${next}px`;
-            textarea.style.overflowY = content > max ? "auto" : "hidden";
-            textarea.style.overflowX = "hidden";
-
-            const caretAtEnd =
-                revealCaretEnd && (textarea.selectionStart ?? inputValue.length) >= inputValue.length;
-            const maxScrollTop = Math.max(0, content - next);
-            const effectiveScrollTop =
-                caretAtEnd && content > next
-                    ? maxScrollTop
-                    : Math.min(prevScrollTop, maxScrollTop);
-            textarea.scrollTop = effectiveScrollTop;
-
-            setComposerTall((prev) => (prev === tall ? prev : tall));
-            setEditorHeight((prev) => (prev === next ? prev : next));
-
-            const nextCanExpand = Boolean(inputValue) && content >= line * 3 - 2;
-            setCanExpandComposer((prev) => (prev === nextCanExpand ? prev : nextCanExpand));
-
-            syncComposerOverlayScroll(
-                {
-                    scrollLeft: 0,
-                    scrollTop: effectiveScrollTop,
-                    clientWidth: measuredWidth > 0 ? measuredWidth : undefined,
-                },
-                mentionOverlayRef.current,
-            );
-            const nextMask = computeComposerScrollMask({
-                scrollTop: effectiveScrollTop,
-                scrollHeight: content,
-                clientHeight: next,
-            });
-            setScrollMask((prev) =>
-                prev.top === nextMask.top && prev.bottom === nextMask.bottom ? prev : nextMask,
-            );
-        },
-        [inputValue, isExpanded],
-    );
-
-    const syncEditorLayoutRef = React.useRef(syncEditorLayout);
-    React.useLayoutEffect(() => {
-        syncEditorLayoutRef.current = syncEditorLayout;
-    }, [syncEditorLayout]);
-
-    if (!inputValue && isExpanded) {
-        setIsExpanded(false);
-    }
-
-    React.useLayoutEffect(() => {
-        syncEditorLayout(true);
-    }, [syncEditorLayout]);
-
-    React.useEffect(() => {
-        const box = composerBoxRef.current;
-        if (!box || typeof ResizeObserver === "undefined") return undefined;
-        const stageEl = box.closest<HTMLElement>("[data-chat-stage]");
-        if (stageEl && stageEl.clientHeight > 180) {
-            stageHeightRef.current = stageEl.clientHeight;
-        }
-        const ta = textareaRef.current;
-        if (ta && ta.clientWidth > 0) {
-            textareaClientWidthRef.current = ta.clientWidth;
-        }
-        composerBoxWidthRef.current = box.clientWidth;
-
-        const observer = new ResizeObserver((entries) => {
-            let shouldSync = false;
-            for (const entry of entries) {
-                if (entry.target === stageEl) {
-                    const h = entry.contentRect.height;
-                    if (h > 180 && Math.abs(h - stageHeightRef.current) > 1) {
-                        stageHeightRef.current = h;
-                        shouldSync = true;
-                    }
-                } else if (entry.target === box) {
-                    const w = entry.contentRect.width;
-                    if (Math.abs(w - composerBoxWidthRef.current) > 0.5) {
-                        composerBoxWidthRef.current = w;
-                        if (textareaRef.current && textareaRef.current.clientWidth > 0) {
-                            textareaClientWidthRef.current = textareaRef.current.clientWidth;
-                        }
-                        shouldSync = true;
-                    }
-                } else if (entry.target === ta) {
-                    const tw = entry.contentRect.width;
-                    if (tw > 0 && Math.abs(tw - textareaClientWidthRef.current) > 0.5) {
-                        textareaClientWidthRef.current = tw;
-                        shouldSync = true;
-                    }
-                }
-            }
-            if (shouldSync) {
-                syncEditorLayoutRef.current(false);
-            }
-        });
-        observer.observe(box);
-        if (ta) observer.observe(ta);
-        if (stageEl) observer.observe(stageEl);
-        return () => observer.disconnect();
-    }, []);
-
-    React.useEffect(() => {
-        let caretRaf = 0;
-        const onFocusInput = (e: Event) => {
-            const detail = (e as CustomEvent<{ caretEnd?: boolean } | undefined>).detail;
-            const el = textareaRef.current;
-            if (!el) return;
-            el.focus();
-            if (detail?.caretEnd) {
-                if (caretRaf) cancelAnimationFrame(caretRaf);
-                caretRaf = requestAnimationFrame(() => {
-                    caretRaf = 0;
-                    const node = textareaRef.current;
-                    if (!node) return;
-                    const len = node.value.length;
-                    node.setSelectionRange(len, len);
-                });
-            }
-        };
-        window.addEventListener("bettershape-chat-focus-input", onFocusInput as EventListener);
-        return () => {
-            if (caretRaf) cancelAnimationFrame(caretRaf);
-            window.removeEventListener("bettershape-chat-focus-input", onFocusInput as EventListener);
-        };
-    }, []);
-
-    React.useEffect(() => {
-        if (!isLoading && !isPreparing) return undefined;
-        const onKey = (e: KeyboardEvent) => {
-            if (e.key !== "Escape" || e.defaultPrevented || e.isComposing || e.keyCode === 229) return;
-            if (mentionOpen || slashOpen) return;
-            const t = e.target instanceof HTMLElement ? e.target : null;
-            if (t?.closest(".cm-editor, [role='dialog']")) return;
-            if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA") && t !== textareaRef.current) {
-                return;
-            }
-            e.preventDefault();
-            onStopMessage();
-        };
-        window.addEventListener("keydown", onKey);
-        return () => window.removeEventListener("keydown", onKey);
-    }, [isLoading, isPreparing, mentionOpen, slashOpen, onStopMessage]);
-
     const inputValueRef = React.useRef(inputValue);
-    React.useLayoutEffect(() => {
-        inputValueRef.current = inputValue;
-        if (
-            historyCursorRef.current !== null &&
-            !isUnmodifiedHistoryRecall(historyCursorRef.current, inputValue)
-        ) {
-            historyCursorRef.current = null;
-        }
-    }, [inputValue]);
-
-    const isComposerMountedRef = React.useRef(true);
-    React.useEffect(() => {
-        isComposerMountedRef.current = true;
-        return () => {
-            isComposerMountedRef.current = false;
-        };
-    }, []);
-
-    const swapAttachmentInline = React.useCallback(
-        (targetFile: File, rawText: string) => {
-            setUploadedFiles((prev) => prev.filter((att) => att.file !== targetFile));
-            if (!isComposerMountedRef.current || !textareaRef.current?.isConnected) {
-                try {
-                    const saved = localStorage.getItem("bettershape-chat-input") ?? "";
-                    const merged = saved.trim().length > 0 ? `${saved.trimEnd()}\n\n${rawText}` : rawText;
-                    localStorage.setItem("bettershape-chat-input", merged);
-                } catch {
-                    /* ignore storage errors */
-                }
-                dispatchToChatSurface(() => {
-                    window.dispatchEvent(
-                        new CustomEvent("bettershape-chat-insert-prompt", {
-                            detail: { prompt: rawText, send: false, append: true },
-                        }),
-                    );
-                    window.dispatchEvent(
-                        new CustomEvent("bettershape-chat-focus-input", {
-                            detail: { caretEnd: true },
-                        }),
-                    );
-                });
-                return;
-            }
-            const cur = inputValueRef.current;
-            const pad = cur.trim().length > 0 ? `${cur.trimEnd()}\n\n` : "";
-            const next = `${pad}${rawText}`;
-            applyProgrammaticInputValue(next);
-            requestAnimationFrame(() => {
-                const node = textareaRef.current;
-                if (!node) return;
-                node.focus();
-                node.setSelectionRange(next.length, next.length);
-            });
-        },
-        [applyProgrammaticInputValue, setUploadedFiles],
-    );
-
-    // Files stay files. Huge text, terminal copies, and editor selections become attachments.
-    const handlePaste = React.useCallback((e: React.ClipboardEvent) => {
-        const items = e.clipboardData?.items;
-        if (!items) return;
-
-        let hadFileItem = false;
-        const filesToAdd: File[] = [];
-        for (let i = 0; i < items.length; i++) {
-            const item = items[i];
-            if (item.kind === "file") {
-                hadFileItem = true;
-                const file = item.getAsFile();
-                if (file && isAllowedFile(file)) {
-                    filesToAdd.push(file);
-                }
-            }
-        }
-
-        if (filesToAdd.length > 0) {
-            e.preventDefault();
-            addUploadedFiles(filesToAdd);
-            notify.info(
-                filesToAdd.length === 1
-                    ? "Pasted from clipboard"
-                    : `Pasted ${filesToAdd.length} files`,
-                filesToAdd.length === 1
-                    ? filesToAdd[0].name || "Clipboard media attached to your message."
-                    : filesToAdd
-                          .map((f) => f.name)
-                          .filter(Boolean)
-                          .slice(0, 3)
-                          .join(", "),
-            );
-            return;
-        }
-
-        const text = e.clipboardData.getData("text/plain");
-        if (!text) {
-            if (hadFileItem) {
-                e.preventDefault();
-                notify.warning(
-                    "Unsupported clipboard file",
-                    "That clipboard file format cannot be attached here.",
-                );
-            }
-            return;
-        }
-        const remembered = matchRememberedClip(text);
-        if (e.clipboardData.types.includes("application/x-bettershape-terminal") || remembered?.kind === "terminal") {
-            e.preventDefault();
-            const file = terminalAttachmentFile(text, remembered?.label);
-            addUploadedFiles([file]);
-            notify.info(
-                "Terminal output attached",
-                remembered?.label
-                    ? `Attached selection from ${remembered.label}.`
-                    : `${formatPasteSizeLabel(text)} attached to your message.`,
-                text.length <= 24_000
-                    ? {
-                          action: {
-                              label: "Insert inline",
-                              onClick: () => swapAttachmentInline(file, text),
-                          },
-                      }
-                    : undefined,
-            );
-            return;
-        }
-        if (e.clipboardData.types.includes(BETTERSHAPE_CLIP_CODE) || remembered?.kind === "code") {
-            e.preventDefault();
-            const raw = e.clipboardData.getData(BETTERSHAPE_CLIP_CODE);
-            let path = remembered?.label || "selection.ts";
-            try {
-                const parsed = JSON.parse(raw) as { path?: string };
-                if (parsed?.path) path = parsed.path;
-            } catch {
-                /* plain text is enough */
-            }
-            const file = codeAttachmentFile(text, path);
-            addUploadedFiles([file]);
-            notify.info(
-                "Code selection attached",
-                `Attached ${file.name} (${formatPasteSizeLabel(text)}).`,
-                text.length <= 24_000
-                    ? {
-                          action: {
-                              label: "Insert inline",
-                              onClick: () => swapAttachmentInline(file, text),
-                          },
-                      }
-                    : undefined,
-            );
-            return;
-        }
-        if (pasteIsLarge(text)) {
-            e.preventDefault();
-            const file = pastedTextFile(text);
-            addUploadedFiles([file]);
-            notify.info(
-                "Pasted as attachment",
-                `${formatPasteSizeLabel(text)} attached to keep the composer tidy.`,
-                text.length <= 24_000
-                    ? {
-                          action: {
-                              label: "Insert inline",
-                              onClick: () => swapAttachmentInline(file, text),
-                          },
-                      }
-                    : undefined,
-            );
-            return;
-        }
-        const textarea = textareaRef.current;
-        if (textarea) {
-            const wrapped = tryWrapMarkdownLinkOnPaste(
-                inputValue,
-                textarea.selectionStart,
-                textarea.selectionEnd,
-                text,
-            );
-            if (wrapped) {
-                e.preventDefault();
-                historyCursorRef.current = null;
-                insertTextareaRangeWithUndo(
-                    textarea,
-                    wrapped.start,
-                    wrapped.end,
-                    wrapped.replacement,
-                    wrapped.nextValue,
-                    (nextValue, nextCaret) => {
-                        applyProgrammaticInputValue(nextValue);
-                        requestAnimationFrame(() => {
-                            const node = textareaRef.current;
-                            if (!node) return;
-                            node.focus();
-                            node.setSelectionRange(nextCaret, nextCaret);
-                        });
-                    },
-                );
-                notify.info(
-                    "Formatted as Markdown link",
-                    "Press Ctrl/Cmd+Z to keep the raw URL.",
-                );
-            }
-        }
-    }, [addUploadedFiles, applyProgrammaticInputValue, inputValue, swapAttachmentInline]);
-
-    const [dragOver, setDragOver] = React.useState(false);
-    const dragDepth = React.useRef(0);
-
-    const handleDrop = React.useCallback((e: React.DragEvent) => {
-        e.preventDefault();
-        e.stopPropagation();
-        dragDepth.current = 0;
-        setDragOver(false);
-        const codePayload = e.dataTransfer.getData(BETTERSHAPE_CLIP_CODE);
-        if (codePayload) {
-            try {
-                const parsed = JSON.parse(codePayload) as { path?: string; text?: string };
-                if (parsed.text) {
-                    const file = codeAttachmentFile(parsed.text, parsed.path || "selection.ts");
-                    addUploadedFiles([file]);
-                    notify.info("Code selection attached", `Attached ${file.name}.`);
-                    return;
-                }
-            } catch {
-                /* fall through to files */
-            }
-        }
-        const rawFiles = Array.from(e.dataTransfer.files);
-        const files = rawFiles.filter(isAllowedFile);
-        if (files.length > 0) {
-            addUploadedFiles(files);
-            notify.info(
-                files.length === 1 ? "Attached dropped file" : `Attached ${files.length} files`,
-                files.length === 1
-                    ? files[0].name
-                    : files
-                          .map((f) => f.name)
-                          .slice(0, 3)
-                          .join(", "),
-            );
-        } else if (rawFiles.length > 0) {
-            notify.warning(
-                "Unsupported file format",
-                "That dropped file format cannot be attached here.",
-            );
-        } else {
-            const droppedText = e.dataTransfer.getData("text/plain");
-            if (droppedText) {
-                const el = textareaRef.current;
-                const current = el ? el.value : inputValue;
-                const start = el ? el.selectionStart : current.length;
-                const end = el ? el.selectionEnd : current.length;
-                const nextValue = `${current.slice(0, start)}${droppedText}${current.slice(end)}`;
-                historyCursorRef.current = null;
-                if (el) {
-                    insertTextareaRangeWithUndo(
-                        el,
-                        start,
-                        end,
-                        droppedText,
-                        nextValue,
-                        (fallbackVal, nextCaret) => {
-                            applyProgrammaticInputValue(fallbackVal);
-                            requestAnimationFrame(() => {
-                                el.focus();
-                                el.setSelectionRange(nextCaret, nextCaret);
-                            });
-                        },
-                    );
-                } else {
-                    applyProgrammaticInputValue(nextValue);
-                }
-            }
-        }
-    }, [addUploadedFiles, applyProgrammaticInputValue, inputValue]);
-
-    const handleDragEnter = React.useCallback((e: React.DragEvent) => {
-        e.preventDefault();
-        e.stopPropagation();
-        dragDepth.current += 1;
-        const types = e.dataTransfer.types;
-        if (types.includes("Files") || types.includes(BETTERSHAPE_CLIP_CODE)) setDragOver(true);
-    }, []);
-
-    const handleDragLeave = React.useCallback((e: React.DragEvent) => {
-        e.preventDefault();
-        e.stopPropagation();
-        dragDepth.current = Math.max(0, dragDepth.current - 1);
-        if (dragDepth.current === 0) setDragOver(false);
-    }, []);
-
-    const handleDragOver = React.useCallback((e: React.DragEvent) => {
-        e.preventDefault();
-        e.stopPropagation();
-    }, []);
-
-    // Elements picked in the Browser tab become @element mentions at the caret.
-    React.useEffect(() => {
-        let focusRaf = 0;
-        const onElement = (e: Event) => {
-            const detail = (e as CustomEvent<BrowserPickedElement>).detail;
-            if (!detail?.tag) return;
-            const token = registerElementMention(detail);
-            const textarea = textareaRef.current;
-            const val = inputValue;
-            const caret = textarea?.selectionStart ?? val.length;
-            const before = val.slice(0, caret);
-            const after = val.slice(caret);
-            const lead = before && !/\s$/.test(before) ? " " : "";
-            const trail = after && /^\s/.test(after) ? "" : " ";
-            const next = `${before}${lead}${token}${trail}${after}`;
-            applyProgrammaticInputValue(next);
-            const pos = before.length + lead.length + token.length + trail.length;
-            if (focusRaf) cancelAnimationFrame(focusRaf);
-            focusRaf = requestAnimationFrame(() => {
-                focusRaf = 0;
-                textarea?.focus();
-                textarea?.setSelectionRange(pos, pos);
-            });
-        };
-        window.addEventListener("bettershape-chat-attach-element", onElement as EventListener);
-        return () => {
-            if (focusRaf) cancelAnimationFrame(focusRaf);
-            window.removeEventListener("bettershape-chat-attach-element", onElement as EventListener);
-        };
-    }, [applyProgrammaticInputValue, inputValue]);
-
-    // External surfaces (e.g. Terminal selection) can attach files directly into the composer.
-    React.useEffect(() => {
-        let focusRaf = 0;
-        const onAttachFiles = (e: Event) => {
-            const detail = (e as CustomEvent<{ files?: File[]; prompt?: string }>).detail;
-            const incoming = (detail?.files ?? []).filter(Boolean);
-            if (incoming.length > 0) {
-                historyCursorRef.current = null;
-                addUploadedFiles(incoming);
-            }
-            if (detail?.prompt) {
-                const pad = inputValue.trim().length > 0 ? `${inputValue.trimEnd()}\n` : "";
-                const next = `${pad}${detail.prompt}`;
-                applyProgrammaticInputValue(next);
-            }
-            if (focusRaf) cancelAnimationFrame(focusRaf);
-            focusRaf = requestAnimationFrame(() => {
-                focusRaf = 0;
-                textareaRef.current?.focus();
-            });
-        };
-        window.addEventListener("bettershape-chat-attach-files", onAttachFiles as EventListener);
-        return () => {
-            if (focusRaf) cancelAnimationFrame(focusRaf);
-            window.removeEventListener("bettershape-chat-attach-files", onAttachFiles as EventListener);
-        };
-    }, [addUploadedFiles, applyProgrammaticInputValue, inputValue]);
-
-    // Filter file uploads to only allowed types
-    const handleFilteredFileUpload = React.useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-        if (e.target.files) {
-            const allowed = Array.from(e.target.files).filter(isAllowedFile);
-            if (allowed.length > 0) {
-                addUploadedFiles(allowed);
-            }
-        }
-        // Reset input so same file can be re-selected
-        e.target.value = "";
-    }, [addUploadedFiles]);
-
+    const [isEditorFocused, setIsEditorFocused] = React.useState(false);
+    const [localQuotes, setLocalQuotes] = React.useState<QuotedExcerpt[]>([]);
     const [modelMenuOpen, setModelMenuOpen] = React.useState(false);
     const [plusMenuOpen, setPlusMenuOpen] = React.useState(false);
     const [modelQuery, setModelQuery] = React.useState("");
-    const MODELS = React.useMemo(() => {
-        const enabled = sanitizeEnabledModels(
-            settings.ai.enabledModels,
-            allModels.map((m) => m.id),
-            getCatalogDefaultEnabledIds(),
-        );
-        return getVisibleModels(allModels, enabled);
-    }, [allModels, settings.ai.enabledModels]);
-    const autoModel = React.useMemo(
-        () =>
-            allModels.find((m) => m.id === "auto") ?? {
-                id: "auto",
-                name: "Auto",
-                description: "Picks a fast model for everyday work.",
-                provider: "Auto",
-                inputCost: 0,
-                cachedInputCost: 0,
-                outputCost: 0,
-                contextWindow: "200K",
-                releaseDate: "Rolling",
-            },
-        [allModels],
-    );
-    const modelInfo = MODELS.find((m) => m.id === selectedModel) || autoModel;
-    const isAutoSelected = selectedModel === "auto" || modelInfo.name === "auto";
-    const workerExtra = multiSelectModels
-        ? selectedWorkerModels.filter((id) => id && id !== selectedModel)
-        : [];
-    const modelNameBase = isAutoSelected
-        ? resolvedAutoModel
-            ? `Auto · ${resolvedAutoModel.provider}`
-            : "Auto"
-        : modelInfo.name;
-    const modelName =
-        multiSelectModels && workerExtra.length > 0
-            ? `${modelNameBase} +${workerExtra.length}`
-            : modelNameBase;
-    const activeTriggerIconId = isAutoSelected
-        ? resolvedAutoModel
-            ? resolvedAutoModel.id.split("/")[0] || resolvedAutoModel.id
-            : "auto"
-        : modelInfo.id;
-    const providerOrder = React.useMemo(() => {
-        const seen = new Set<string>();
-        const order: string[] = [];
-        for (const p of getCatalogProviderOrder()) {
-            if (seen.has(p)) continue;
-            seen.add(p);
-            order.push(p);
-        }
-        for (const m of allModels) {
-            if (seen.has(m.provider)) continue;
-            seen.add(m.provider);
-            order.push(m.provider);
-        }
-        return order;
-    }, [allModels]);
-    const modelSearch = modelQuery.trim().toLowerCase();
-    const modelMatches = (m: { id: string; name: string; provider: string }) => {
-        if (!modelSearch) return true;
-        return (
-            m.name.toLowerCase().includes(modelSearch) ||
-            m.id.toLowerCase().includes(modelSearch) ||
-            m.provider.toLowerCase().includes(modelSearch)
-        );
-    };
-
-    const [plusPlugins, setPlusPlugins] = React.useState<PluginRow[]>(() => peekPluginsCache()?.plugins ?? []);
     const [pluginQuery, setPluginQuery] = React.useState("");
-    const [skills, setSkills] = React.useState<Skill[]>(() => listSkills());
-    React.useEffect(() => {
-        const unsubscribe = subscribeSkills(() => {
-            setSkills(listSkills());
-        });
-        return () => {
-            unsubscribe();
-        };
-    }, []);
-
-    const concreteModels = React.useMemo(
-        () => MODELS.filter((m) => m.id !== "auto"),
-        [MODELS],
+    const [plusPlugins, setPlusPlugins] = React.useState<PluginRow[]>(
+      readInitialPlusPlugins,
     );
-    React.useEffect(() => {
-        if (selectedModel === "auto") return;
-        if (concreteModels.length === 0) return;
-        if (!concreteModels.some((m) => m.id === selectedModel)) {
-            setSelectedModel("auto");
-        }
-    }, [concreteModels, selectedModel, setSelectedModel]);
-
     const [mediaViewer, setMediaViewer] = React.useState<{
-        src?: string;
-        title?: string;
-        kind: "image" | "html";
+      src?: string;
+      title?: string;
+      kind: "image" | "html";
     } | null>(null);
 
-    React.useEffect(() => {
-        const onOpen = (e: Event) => {
-            const detail = (e as CustomEvent<{ src: string; title?: string; kind?: "image" | "html" }>).detail;
-            if (!detail?.src) return;
-            setMediaViewer({
-                src: detail.src,
-                title: detail.title,
-                kind: detail.kind || "image",
-            });
-        };
-        window.addEventListener("bettershape-open-media", onOpen as EventListener);
-        return () => {
-            window.removeEventListener("bettershape-open-media", onOpen as EventListener);
-        };
-    }, []);
+    const catalogState = useComposerModelCatalog(
+      selectedModel,
+      setSelectedModel,
+      reasoningEffort,
+      setReasoningEffort,
+      multiSelectModels,
+      selectedWorkerModels,
+    );
+    const layout = useComposerLayoutSync({
+      inputValue,
+      textareaRef,
+      mentionOverlayRef,
+      composerBoxRef,
+    });
+    const textCtrl = useComposerTextController({
+      inputValue,
+      onInputChange,
+      setUploadedFiles,
+      textareaRef,
+      historyCursorRef,
+      inputValueRef,
+    });
+    const skills = useComposerSkillsAndWarmup();
+    const popoverOpen =
+      textCtrl.trigger.mentionOpen || textCtrl.trigger.slashOpen;
 
-    React.useEffect(() => {
-        let focusRaf = 0;
-        const onDictation = (e: Event) => {
-            const text = (e as CustomEvent<{ text?: string }>).detail?.text;
-            if (!text) return;
-            const textarea = textareaRef.current;
-            const val = inputValue;
-            const caret = textarea?.selectionStart ?? val.length;
-            const before = val.slice(0, caret);
-            const after = val.slice(caret);
-            const pad = before.length > 0 && !/\s$/.test(before) ? " " : "";
-            const next = `${before}${pad}${text}${after.replace(/^\s/, "")}`;
-            applyProgrammaticInputValue(next);
-            if (focusRaf) cancelAnimationFrame(focusRaf);
-            focusRaf = requestAnimationFrame(() => {
-                focusRaf = 0;
-                textarea?.focus();
-            });
-        };
-        window.addEventListener("bettershape-dictation-text", onDictation as EventListener);
-        return () => {
-            if (focusRaf) cancelAnimationFrame(focusRaf);
-            window.removeEventListener("bettershape-dictation-text", onDictation as EventListener);
-        };
-    }, [applyProgrammaticInputValue, inputValue]);
-
-    // Highlight ranges for the overlay mirror the textarea. Parsing them on
-    // every render repeated the same scan on each streamed token.
-    const highlightRanges = React.useMemo(() => {
-        const mentionRs = mentionRanges(inputValue);
-        const slashRs = slashCommandRanges(inputValue, settings.ai.workflows ?? []);
-        const ranges = [
-            ...mentionRs.map((r) => ({ kind: "mention" as const, ...r })),
-            ...slashRs.map((r) => ({ kind: "slash" as const, ...r })),
-        ].sort((a, b) => a.start - b.start);
-        const merged: typeof ranges = [];
-        for (const r of ranges) {
-            const prev = merged[merged.length - 1];
-            if (prev && r.start < prev.end) continue;
-            merged.push(r);
-        }
-        return merged;
-    }, [inputValue, settings.ai.workflows]);
-
-    const hasContextStrip =
-        (pendingEdits?.length ?? 0) > 0 ||
-        queuedMessages.length > 0 ||
-        projectRuleFiles.length > 0 ||
-        taskItems.length > 0;
-
-    const canStop = isPreparing || (isLoading && !inputValue.trim() && activeQuotes.length === 0);
-    const attachmentsProcessing = uploadedFiles.some((a) => a.status === "processing");
-    const queueBlockedByAttachments = isLoading && uploadedFiles.length > 0;
-    const hasSendablePayload =
-        Boolean(inputValue.trim()) || uploadedFiles.length > 0 || activeQuotes.length > 0;
-    const sendDisabled =
-        !canStop
-        && (needsSignIn || attachmentsProcessing || queueBlockedByAttachments || !hasSendablePayload);
-    const sendActive =
-        canStop
-        || (!needsSignIn
-            && !queueBlockedByAttachments
-            && (hasSendablePayload || isLoading)
-            && !attachmentsProcessing);
-    const hasContextAttachments = uploadedFiles.length > 0 || activeQuotes.length > 0;
-    const isExpandedLayout = composerTall || isExpanded || hasContextAttachments;
-    const showExpandButton = canExpandComposer || isExpanded;
-    const hasThreeOrMoreNewlines = React.useMemo(() => {
-        let nl = 0;
-        for (let i = 0; i < inputValue.length; i++) {
-            if (inputValue.charCodeAt(i) === 10 && ++nl >= 2) return true;
-        }
-        return false;
+    React.useLayoutEffect(() => {
+      inputValueRef.current = inputValue;
+      if (
+        historyCursorRef.current !== null &&
+        !isUnmodifiedHistoryRecall(historyCursorRef.current, inputValue)
+      ) {
+        historyCursorRef.current = null;
+      }
     }, [inputValue]);
-    const vesselRadiusClass =
-        isExpanded
-        || hasContextAttachments
-        || hasThreeOrMoreNewlines
-        || editorHeight >= COMPOSER_LINE_HEIGHT * 3 - 2
-            ? "rounded-[16px]"
-            : composerTall
-              ? "rounded-[18px]"
-              : "rounded-[22px]";
+
+    useComposerWindowBridges({
+      quotedExcerpts,
+      setLocalQuotes,
+      textareaRef,
+      inputValueRef,
+      historyCursorRef,
+      applyProgrammaticInputValue: textCtrl.applyProgrammaticInputValue,
+      addUploadedFiles,
+      setMediaViewer,
+    });
+    useGlobalEscapeStop({
+      isLoading,
+      isPreparing,
+      popoverOpen,
+      textareaRef,
+      onStopMessage,
+    });
+
+    const drag = useComposerDragAndDrop({
+      textareaRef,
+      inputValue,
+      addUploadedFiles,
+      clearHistoryCursor: () => {
+        historyCursorRef.current = null;
+      },
+      applyProgrammaticInputValue: textCtrl.applyProgrammaticInputValue,
+    });
+    const historyKeys = useComposerHistoryAndKeys({
+      inputValue,
+      promptHistory,
+      needsSignIn: catalogState.needsSignIn,
+      isPreparing,
+      isLoading,
+      uploadedFiles,
+      queuedMessages,
+      onEditQueuedMessage,
+      onInputChange,
+      onKeyDown,
+      onSendMessage,
+      onNewChat,
+      textareaRef,
+      historyCursorRef,
+      canExpandComposer: layout.canExpandComposer,
+      isExpanded: layout.isExpanded,
+      setIsExpanded: layout.setIsExpanded,
+      composerTall: layout.composerTall,
+      popoverOpen,
+      closeTriggers: textCtrl.closeTriggers,
+    });
+
+    const activeQuotes = quotedExcerpts ?? localQuotes;
+    const handleRemoveQuote = React.useCallback(
+      (id: string) => {
+        if (onRemoveQuote) onRemoveQuote(id);
+        else setLocalQuotes((prev) => prev.filter((q) => q.id !== id));
+      },
+      [onRemoveQuote],
+    );
+    const handleFilteredFileUpload = React.useCallback(
+      (e: React.ChangeEvent<HTMLInputElement>) => {
+        processSelectedPickerFiles(
+          Array.from(e.target.files ?? []),
+          addUploadedFiles,
+        );
+        e.target.value = "";
+      },
+      [addUploadedFiles],
+    );
+    const handlePaste = React.useCallback(
+      (e: React.ClipboardEvent) =>
+        processComposerPasteEvent({
+          event: e,
+          textarea: textareaRef.current,
+          inputValue,
+          addUploadedFiles,
+          swapAttachmentInline: textCtrl.swapAttachmentInline,
+          clearHistoryCursor: () => {
+            historyCursorRef.current = null;
+          },
+          applyProgrammaticInputValue: textCtrl.applyProgrammaticInputValue,
+        }),
+      [addUploadedFiles, inputValue, textCtrl],
+    );
+    const handleContextMenuPaste = React.useCallback(() => {
+      readComposerClipboardTextWithFeedback(textareaRef.current, (text) =>
+        pasteClipboardTextViaContextMenu({
+          text,
+          textarea: textareaRef.current,
+          inputValue: inputValueRef.current,
+          addUploadedFiles,
+          swapAttachmentInline: textCtrl.swapAttachmentInline,
+          clearHistoryCursor: () => {
+            historyCursorRef.current = null;
+          },
+          applyProgrammaticInputValue: textCtrl.applyProgrammaticInputValue,
+        }),
+      );
+    }, [addUploadedFiles, textCtrl]);
+
+    const sendStatus = deriveComposerSendStatus({
+      isPreparing,
+      isLoading,
+      needsSignIn: catalogState.needsSignIn,
+      inputValue,
+      uploadedFiles,
+      activeQuotesCount: activeQuotes.length,
+    });
+    const layoutFlags = deriveComposerLayoutFlags(
+      layout,
+      uploadedFiles.length,
+      activeQuotes.length,
+    );
+    const hasThreeOrMoreNewlines = React.useMemo(
+      () => hasAtLeastTwoNewlines(inputValue),
+      [inputValue],
+    );
     const composerBreakAll = React.useMemo(
-        () => shouldComposerBreakAll(inputValue),
-        [inputValue],
+      () => shouldComposerBreakAll(inputValue),
+      [inputValue],
     );
-
-    const editorMaskImage = buildComposerScrollMaskImage(scrollMask, 18);
-    const hintMode: "idle" | "active" | "preparing" = isPreparing
-        ? "preparing"
-        : isLoading
-          ? "active"
-          : "idle";
-
+    const hasContextStrip = hasAnyContextStripItems(
+      pendingEdits.length,
+      queuedMessages.length,
+      projectRuleFiles.length,
+      taskItems.length,
+    );
     return (
-        <div
-            className={cn(
-                "relative shrink-0 overflow-visible",
-                variant === "empty" ? "w-full px-0 pb-0 pt-0" : "px-0 pb-3 pt-0",
-            )}
-        >
-            <div className="relative z-10 flex w-full flex-col gap-1.5">
-                {hasContextStrip ? (
-                    <div className="flex min-w-0 flex-wrap items-center gap-1.5 px-1">
-                        {pendingEdits.length > 0 ? (
-                        <PendingEditsPanel
-                            edits={pendingEdits}
-                            onAcceptAll={onAcceptAllEdits ?? (() => undefined)}
-                            onRejectAll={onRejectAllEdits ?? (() => undefined)}
-                            onAccept={onAcceptEdit}
-                            onReject={onRejectEdit}
-                        />
-                        ) : null}
-                        {queuedMessages.length > 0 && onEditQueuedMessage && onRemoveQueuedMessage ? (
-                            <QueuedMessagesPanel
-                                items={queuedMessages}
-                                onEdit={onEditQueuedMessage}
-                                onRemove={onRemoveQueuedMessage}
-                                onSendNow={onSendQueuedNow}
-                            />
-                        ) : null}
-                        {projectRuleFiles.length > 0 ? (
-                            <Tooltip content={projectRuleFiles.join("\n")}>
-                                <span className="flex h-6.5 min-w-0 max-w-56 items-center gap-1.5 rounded-full border border-border-subtle bg-surface-3/90 px-2.5 text-xs font-medium text-text-secondary">
-                                    <Icon icon={Document20Regular} className="size-3.5 shrink-0 text-text-muted" />
-                                    <span className="truncate">
-                                        {projectRuleFiles
-                                            .map((name) => name.split(/[\\/]/).pop() || name)
-                                            .join(", ")}
-                                    </span>
-                                </span>
-                            </Tooltip>
-                        ) : null}
-                        {taskItems.length > 0 ? <ComposerTasksStrip items={taskItems} /> : null}
-                    </div>
-                ) : null}
-
-                <div
-                    ref={composerBoxRef}
-                    data-expanded-layout={isExpandedLayout ? "true" : "false"}
-                    data-expanded-sheet={isExpanded ? "true" : "false"}
-                    className={cn(
-                        "relative flex w-full cursor-text flex-col border p-[5px]",
-                        "border-border-subtle bg-surface-4 shadow-2xs focus-within:border-border-secondary",
-                        "transition-[border-radius,background-color,border-color,box-shadow] duration-[var(--spring-panel-dur)] ease-[var(--spring-panel)] motion-reduce:transition-none",
-                        vesselRadiusClass,
-                        dragOver && "border-border bg-surface-3/90",
-                    )}
-                    onPointerDown={(e) => {
-                        if (e.button !== 0) return;
-                        const target = e.target instanceof Element ? e.target : null;
-                        if (
-                            target?.closest(
-                                "button, a, input, textarea, [role='menuitem'], [data-radix-collection-item], [data-composer-quotes]",
-                            )
-                        ) {
-                            return;
-                        }
-                        requestAnimationFrame(() => textareaRef.current?.focus());
-                    }}
-                    onDrop={handleDrop}
-                    onDragEnter={handleDragEnter}
-                    onDragLeave={handleDragLeave}
-                    onDragOver={handleDragOver}
-                >
-                    {dragOver ? (
-                        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-[inherit] border-2 border-border-subtle bg-surface-3/95">
-                            <p className="text-sm font-medium text-text-primary">Drop files to attach</p>
-                        </div>
-                    ) : null}
-                    <MentionPicker
-                        open={mentionOpen || slashOpen}
-                        query={slashOpen ? slashQuery : mentionQuery}
-                        mode={slashOpen ? "slash" : "mention"}
-                        workflows={settings.ai.workflows}
-                        onPick={slashOpen ? insertSlash : insertMention}
-                        onClose={() => {
-                            setMentionOpen(false);
-                            setSlashOpen(false);
-                        }}
-                        anchorRef={textareaRef}
-                        boxRef={composerBoxRef}
-                        caretIndex={mentionCaret}
-                    />
-                    {activeQuotes.length > 0 ? (
-                        <div
-                            data-composer-quotes
-                            className="flex flex-col gap-1 px-1.5 pt-1 pb-0.5"
-                        >
-                            {activeQuotes.map((q, idx) => (
-                                <div
-                                    key={q.id}
-                                    className="group/quote flex min-w-0 items-start gap-2 rounded-lg border border-border-subtle bg-surface-2 px-2.5 py-1.5 text-xs text-text-secondary transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:border-border-secondary"
-                                >
-                                    <Icon
-                                        icon={TextQuote16Regular}
-                                        className="mt-0.5 size-3.5 shrink-0 text-text-muted"
-                                    />
-                                    <span className="min-w-0 flex-1 line-clamp-2 break-words leading-[16px] text-text-secondary">
-                                        {q.text
-                                            .split("\n")
-                                            .map((line) => line.trim())
-                                            .filter(Boolean)
-                                            .join(" ↵ ")}
-                                    </span>
-                                    <Tooltip content="Remove quote">
-                                        <button
-                                            type="button"
-                                            aria-label={`Remove quote ${idx + 1}`}
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleRemoveQuote(q.id);
-                                            }}
-                                            className="flex size-[20px] shrink-0 items-center justify-center rounded-md text-text-muted opacity-70 transition-[background-color,color,opacity,transform] duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary hover:opacity-100 active:scale-[0.94]"
-                                        >
-                                            <Icon icon={Dismiss16Regular} className="size-3" />
-                                        </button>
-                                    </Tooltip>
-                                </div>
-                            ))}
-                        </div>
-                    ) : null}
-                    <ComposerAttachments
-                        attachments={uploadedFiles}
-                        onRemove={(id) =>
-                            setUploadedFiles((prev) => prev.filter((a) => a.id !== id))
-                        }
-                        onInsertInline={(id, text) => {
-                            setUploadedFiles((prev) => prev.filter((a) => a.id !== id));
-                            const pad = inputValue.trim().length > 0 ? `${inputValue.trimEnd()}\n\n` : "";
-                            const next = `${pad}${text}`;
-                            applyProgrammaticInputValue(next);
-                            requestAnimationFrame(() => {
-                                const node = textareaRef.current;
-                                if (!node) return;
-                                node.focus();
-                                node.setSelectionRange(next.length, next.length);
-                            });
-                        }}
-                    />
-                    <input
-                        type="file"
-                        id="chat-media-upload"
-                        className="hidden"
-                        multiple
-                        accept={ACCEPT_STRING}
-                        onChange={handleFilteredFileUpload}
-                    />
-                    <input
-                        type="file"
-                        id="chat-folder-upload"
-                        className="hidden"
-                        multiple
-                        {...{ webkitdirectory: "", directory: "" }}
-                        onChange={handleFilteredFileUpload}
-                    />
-                    <div className="relative flex w-full items-end gap-1 px-0.5">
-                        <div className="flex shrink-0 items-center self-end">
-                            <DropdownMenu
-                                open={plusMenuOpen}
-                                onOpenChange={(open) => {
-                                    setPlusMenuOpen(open);
-                                    if (!open) return;
-                                    const cached = peekPluginsCache()?.plugins;
-                                    if (cached) setPlusPlugins(cached);
-                                    fetchPlugins()
-                                        .then((data) => setPlusPlugins(data.plugins))
-                                        .catch(() => {
-                                            if (!cached) setPlusPlugins([]);
-                                        });
-                                }}
-                            >
-                                <DropdownMenuTrigger asChild>
-                                    <button
-                                        type="button"
-                                        className={cn(
-                                            "flex size-[32px] shrink-0 items-center justify-center rounded-full p-0",
-                                            "text-text-muted hover:text-text-primary",
-                                            "transition-[background-color,color,transform] duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
-                                            "hover:bg-[var(--btn-hover)] active:scale-[0.96]",
-                                            "data-[state=open]:bg-[var(--btn-open)] data-[state=open]:hover:bg-[var(--btn-open-hover)] data-[state=open]:text-text-primary",
-                                        )}
-                                        aria-label="Add"
-                                    >
-                                        <Icon icon={Add20Regular} />
-                                    </button>
-                                </DropdownMenuTrigger>
-                                {plusMenuOpen ? (
-                                <DropdownMenuContent align="start" className="w-56">
-                                    <DropdownMenuItem
-                                        onClick={() => document.getElementById("chat-media-upload")?.click()}
-                                    >
-                                        <Icon icon={MoviesAndTv24Filled} />
-                                        Upload photos & file
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem
-                                        onClick={() => document.getElementById("chat-folder-upload")?.click()}
-                                    >
-                                        <Icon icon={FolderAdd24Filled} />
-                                        Attach folder
-                                    </DropdownMenuItem>
-                                    <DropdownMenuSub>
-                                        <DropdownMenuSubTrigger>
-                                            <Icon icon={Connected24Filled} />
-                                            Plugins
-                                        </DropdownMenuSubTrigger>
-                                        <DropdownMenuSubContent className="w-56">
-                                            <SearchInput
-                                                ref={focusSearchOnMount}
-                                                borderless
-                                                placeholder="Search plugins"
-                                                value={pluginQuery}
-                                                onChange={(e) => setPluginQuery(e.target.value)}
-                                                onKeyDown={(e) => e.stopPropagation()}
-                                                onKeyUp={(e) => e.stopPropagation()}
-                                                onPointerDown={(e) => e.stopPropagation()}
-                                            />
-                                            <div className="max-h-40 overflow-y-auto">
-                                                {(() => {
-                                                    const q = pluginQuery.trim().toLowerCase();
-                                                    const matches = plusPlugins.filter(
-                                                        (plugin) =>
-                                                            !q
-                                                            || plugin.name.toLowerCase().includes(q)
-                                                            || plugin.toolkit.toLowerCase().includes(q),
-                                                    );
-                                                    if (matches.length === 0) {
-                                                        return (
-                                                            <DropdownMenuItem disabled>
-                                                                {plusPlugins.length === 0 ? "No plugins" : "No matches"}
-                                                            </DropdownMenuItem>
-                                                        );
-                                                    }
-                                                    return matches.map((plugin) => (
-                                                        <DropdownMenuItem
-                                                            key={plugin.toolkit}
-                                                            onClick={() =>
-                                                                appendToken(
-                                                                    formatMentionToken({
-                                                                        kind: "plugin",
-                                                                        id: plugin.toolkit,
-                                                                        path: plugin.toolkit,
-                                                                        label: plugin.name,
-                                                                    }),
-                                                                )
-                                                            }
-                                                        >
-                                                            <PluginLogo toolkit={plugin.toolkit} name={plugin.name} size={14} />
-                                                            <span className="min-w-0 flex-1 truncate">{plugin.name}</span>
-                                                        </DropdownMenuItem>
-                                                    ));
-                                                })()}
-                                            </div>
-                                        </DropdownMenuSubContent>
-                                    </DropdownMenuSub>
-                                    <DropdownMenuSub>
-                                        <DropdownMenuSubTrigger>
-                                            <Icon icon={DocumentEdit24Filled} />
-                                            Skills
-                                        </DropdownMenuSubTrigger>
-                                        <DropdownMenuSubContent className="w-56">
-                                            {skills.length === 0 ? (
-                                                <DropdownMenuItem disabled>No skills yet</DropdownMenuItem>
-                                            ) : (
-                                                skills.map((skill) => (
-                                                    <DropdownMenuItem
-                                                        key={skill.id}
-                                                        onClick={() =>
-                                                            appendToken(
-                                                                formatMentionToken({
-                                                                    kind: "skill",
-                                                                    id: skill.id,
-                                                                    path: skill.id,
-                                                                    label: skill.name,
-                                                                }),
-                                                            )
-                                                        }
-                                                    >
-                                                        <Icon icon={DocumentText20Regular} />
-                                                        <span className="min-w-0 flex-1 truncate">{skill.name}</span>
-                                                    </DropdownMenuItem>
-                                                ))
-                                            )}
-                                        </DropdownMenuSubContent>
-                                    </DropdownMenuSub>
-                                </DropdownMenuContent>
-                                ) : null}
-                            </DropdownMenu>
-                        </div>
-
-                        <div
-                            className={cn(
-                                "relative min-h-[32px] min-w-0 flex-1 py-[5px] transition-[height] motion-reduce:transition-none",
-                                isExpanded
-                                    ? "duration-[var(--spring-panel-dur)] ease-[var(--spring-panel)]"
-                                    : "duration-[var(--spring-quick-dur)] ease-[var(--spring-quick)]",
-                            )}
-                            style={{
-                                height: `${editorHeight + 10}px`,
-                            }}
-                        >
-                            <div
-                                className="relative h-full min-h-[22px] w-full overflow-hidden"
-                                style={{
-                                    maskImage: editorMaskImage,
-                                    WebkitMaskImage: editorMaskImage,
-                                }}
-                            >
-                                {!inputValue ? (
-                                    <RotatingComposerHint
-                                        paused={isEditorFocused}
-                                        mode={hintMode}
-                                        needsProvider={needsSignIn}
-                                        missingModels={missingModelsOnly}
-                                    />
-                                ) : null}
-                                <div
-                                    ref={mentionOverlayRef}
-                                    aria-hidden
-                                    className={cn(
-                                        "pointer-events-none absolute inset-0 z-0 overflow-hidden whitespace-pre-wrap px-1.5 py-0 text-sm font-medium leading-[22px] text-text-primary",
-                                        composerBreakAll ? "break-all" : "break-words",
-                                    )}
-                                >
-                                {(() => {
-                                    const trailingBreak = inputValue.endsWith("\n") ? "\u200b" : "";
-                                    if (!inputValue.includes("@") && !inputValue.includes("/")) {
-                                        return inputValue ? `${inputValue}${trailingBreak}` : "\u00a0";
-                                    }
-                                    const merged = highlightRanges;
-                                    if (merged.length === 0) {
-                                        return inputValue ? `${inputValue}${trailingBreak}` : "\u00a0";
-                                    }
-                                    const nodes: React.ReactNode[] = [];
-                                    let cursor = 0;
-                                    merged.forEach((range) => {
-                                        if (range.start > cursor) {
-                                            nodes.push(inputValue.slice(cursor, range.start));
-                                        }
-                                        nodes.push(
-                                            <ComposerContextHighlight
-                                                key={`${range.kind}-${range.start}`}
-                                                text={inputValue.slice(range.start, range.end)}
-                                            />,
-                                        );
-                                        cursor = range.end;
-                                    });
-                                    if (cursor < inputValue.length) {
-                                        nodes.push(inputValue.slice(cursor));
-                                    }
-                                    if (trailingBreak) {
-                                        nodes.push(trailingBreak);
-                                    }
-                                    return nodes;
-                                })()}
-                            </div>
-                            <ContextMenu>
-                                <ContextMenuTrigger asChild>
-                                    <textarea
-                                        ref={textareaRef}
-                                        value={inputValue}
-                                        onChange={handleInputChangeWithMentions}
-                                        onKeyDown={onComposerKeyDown}
-                                        onPaste={handlePaste}
-                                        onSelect={(e) => {
-                                            if (!mentionOpen && !slashOpen) return;
-                                            const el = e.currentTarget;
-                                            const caret = el.selectionStart ?? 0;
-                                            const before = el.value.slice(0, caret);
-                                            const atMatch = before.match(/(?:^|[\s([{"'])@([\w./:-]*)$/);
-                                            const slashMatch = before.match(/(?:^|\s)(\/[^\s]*)$/);
-                                            if (atMatch) {
-                                                setMentionCaret(Math.max(0, before.lastIndexOf("@")));
-                                                setMentionQuery(atMatch[1] ?? "");
-                                                setMentionOpen(true);
-                                                setSlashOpen(false);
-                                            } else if (slashMatch) {
-                                                setSlashQuery((slashMatch[1] ?? "/").replace(/^\//, ""));
-                                                setSlashOpen(true);
-                                                setMentionOpen(false);
-                                            } else {
-                                                setMentionOpen(false);
-                                                setSlashOpen(false);
-                                            }
-                                        }}
-                                        onScroll={(e) => {
-                                            const el = e.currentTarget;
-                                            syncComposerOverlayScroll(el, mentionOverlayRef.current);
-                                            const nextMask = computeComposerScrollMask(el);
-                                            setScrollMask((prev) =>
-                                                prev.top === nextMask.top && prev.bottom === nextMask.bottom
-                                                    ? prev
-                                                    : nextMask,
-                                            );
-                                        }}
-                                        onFocus={() => {
-                                            setIsEditorFocused(true);
-                                            const tauri = (
-                                                window as unknown as {
-                                                    __TAURI_INTERNALS__?: {
-                                                        invoke?: unknown;
-                                                        transformCallback?: unknown;
-                                                    };
-                                                }
-                                            ).__TAURI_INTERNALS__;
-                                            if (
-                                                tauri &&
-                                                typeof tauri.invoke === "function" &&
-                                                typeof tauri.transformCallback === "function"
-                                            ) {
-                                                warmComposerResources(getProjectPath());
-                                            }
-                                        }}
-                                        onBlur={() => setIsEditorFocused(false)}
-                                        placeholder=""
-                                        aria-label={composerAriaLabel}
-                                        rows={1}
-                                        className={cn(
-                                            "custom-scrollbar relative z-[1] block min-h-[22px] w-full resize-none overflow-x-hidden border-none bg-transparent px-1.5 py-0 text-sm font-medium leading-[22px] text-transparent outline-none placeholder:text-text-muted selection:bg-accent/30 whitespace-pre-wrap",
-                                            composerBreakAll ? "break-all" : "break-words",
-                                        )}
-                                        style={{ caretColor: "var(--text-primary)" }}
-                                    />
-                                </ContextMenuTrigger>
-                                <ContextMenuContent onCloseAutoFocus={(e) => e.preventDefault()}>
-                                    <ContextMenuItem onClick={() => document.execCommand("cut")}>
-                                        Cut
-                                        <ContextMenuShortcut>Ctrl+X</ContextMenuShortcut>
-                                    </ContextMenuItem>
-                                    <ContextMenuItem onClick={() => document.execCommand("copy")}>
-                                        Copy
-                                        <ContextMenuShortcut>Ctrl+C</ContextMenuShortcut>
-                                    </ContextMenuItem>
-                                    <ContextMenuItem
-                                        onClick={() => {
-                                            navigator.clipboard
-                                                .readText()
-                                                .then((text) => {
-                                                    const el = textareaRef.current;
-                                                    if (!el || !text) return;
-                                                    if (pasteIsLarge(text)) {
-                                                        const file = pastedTextFile(text);
-                                                        addUploadedFiles([file]);
-                                                        notify.info(
-                                                            "Pasted as attachment",
-                                                            `${formatPasteSizeLabel(text)} attached to keep the composer tidy.`,
-                                                            text.length <= 24_000
-                                                                ? {
-                                                                      action: {
-                                                                          label: "Insert inline",
-                                                                          onClick: () =>
-                                                                              swapAttachmentInline(file, text),
-                                                                      },
-                                                                  }
-                                                                : undefined,
-                                                        );
-                                                        return;
-                                                    }
-                                                    const start = el.selectionStart;
-                                                    const end = el.selectionEnd;
-                                                    const wrapped = tryWrapMarkdownLinkOnPaste(
-                                                        inputValue,
-                                                        start,
-                                                        end,
-                                                        text,
-                                                    );
-                                                    const replacement = wrapped
-                                                        ? `[${inputValue.slice(start, end)}](${text.trim()})`
-                                                        : text;
-                                                    el.focus();
-                                                    el.setSelectionRange(start, end);
-                                                    let insertedNatively: boolean;
-                                                    try {
-                                                        insertedNatively = document.execCommand(
-                                                            "insertText",
-                                                            false,
-                                                            replacement,
-                                                        );
-                                                    } catch {
-                                                        insertedNatively = false;
-                                                    }
-                                                    historyCursorRef.current = null;
-                                                    if (!insertedNatively) {
-                                                        const nextValue = wrapped
-                                                            ? wrapped.nextValue
-                                                            : inputValue.slice(0, start) +
-                                                              text +
-                                                              inputValue.slice(end);
-                                                        const nextCaret = wrapped
-                                                            ? wrapped.nextCaret
-                                                            : start + text.length;
-                                                        applyProgrammaticInputValue(nextValue);
-                                                        requestAnimationFrame(() => {
-                                                            el.focus();
-                                                            el.setSelectionRange(nextCaret, nextCaret);
-                                                        });
-                                                    }
-                                                    if (wrapped) {
-                                                        notify.info(
-                                                            "Formatted as Markdown link",
-                                                            "Press Ctrl/Cmd+Z to keep the raw URL.",
-                                                        );
-                                                    }
-                                                })
-                                                .catch(() => {
-                                                    /* clipboard read denied or unavailable */
-                                                });
-                                        }}
-                                    >
-                                        Paste
-                                        <ContextMenuShortcut>Ctrl+V</ContextMenuShortcut>
-                                    </ContextMenuItem>
-                                    <ContextMenuSeparator />
-                                    <ContextMenuItem
-                                        onClick={() => {
-                                            const el = textareaRef.current;
-                                            if (!el) return;
-                                            el.focus();
-                                            el.select();
-                                        }}
-                                    >
-                                        Select All
-                                        <ContextMenuShortcut>Ctrl+A</ContextMenuShortcut>
-                                    </ContextMenuItem>
-                                </ContextMenuContent>
-                            </ContextMenu>
-                            </div>
-                        </div>
-
-                        <div className="relative flex shrink-0 flex-col items-end justify-end self-stretch">
-                            <div
-                                aria-hidden={!showExpandButton || undefined}
-                                className={cn(
-                                    "absolute top-0 right-0 flex items-center transition-[opacity,transform] duration-[var(--spring-quick-dur)] ease-[var(--spring-quick)] motion-reduce:transform-none motion-reduce:transition-none",
-                                    showExpandButton
-                                        ? "pointer-events-auto scale-100 opacity-100 delay-75"
-                                        : "pointer-events-none scale-90 opacity-0 delay-0",
-                                )}
-                            >
-                                <Tooltip
-                                    content={isExpanded ? "Collapse composer" : "Expand composer"}
-                                    shortcut="Ctrl+Shift+E"
-                                >
-                                    <button
-                                        type="button"
-                                        tabIndex={showExpandButton ? 0 : -1}
-                                        aria-label={isExpanded ? "Collapse composer" : "Expand composer"}
-                                        aria-pressed={isExpanded}
-                                        onClick={() => {
-                                            setIsExpanded((prev) => !prev);
-                                            requestAnimationFrame(() => textareaRef.current?.focus());
-                                        }}
-                                        className="flex size-[28px] shrink-0 items-center justify-center rounded-full text-text-muted transition-[background-color,color,transform] duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary active:scale-[0.96]"
-                                    >
-                                        <Icon icon={isExpanded ? ArrowMinimize20Regular : ArrowMaximize20Regular} />
-                                    </button>
-                                </Tooltip>
-                            </div>
-                            <div className="flex shrink-0 items-center gap-1">
-                                <DictationButton />
-                                <Tooltip
-                                    content={
-                                        canStop
-                                            ? "Stop"
-                                            : isLoading
-                                              ? "Queue message"
-                                              : "Send"
-                                    }
-                                    shortcut={canStop ? "Esc" : "Enter"}
-                                >
-                                    <button
-                                        type="button"
-                                        onClick={canStop ? onStopMessage : handleSendWithHistory}
-                                        disabled={sendDisabled}
-                                        className={cn(
-                                            "flex size-[32px] shrink-0 items-center justify-center rounded-full transition-[background-color,border-color,color,opacity,transform] duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] active:scale-[0.95] disabled:pointer-events-none disabled:opacity-40",
-                                            canStop && !isPreparing
-                                                ? "border border-border bg-surface-2 text-text-primary hover:bg-[var(--btn-hover)]"
-                                                : sendActive
-                                                  ? "bg-accent text-white hover:opacity-90"
-                                                  : "bg-surface-3 text-text-muted",
-                                        )}
-                                        aria-label={canStop ? "Stop" : isLoading ? "Queue message" : "Send"}
-                                    >
-                                        {canStop ? (
-                                            <span
-                                                role="status"
-                                                aria-label={isPreparing ? "Preparing message" : "Generating"}
-                                                className="inline-flex items-center justify-center"
-                                            >
-                                                {isPreparing ? (
-                                                    <Arc size={16} />
-                                                ) : (
-                                                    <span className="block size-2.5 rounded-[2.5px] bg-current" />
-                                                )}
-                                            </span>
-                                        ) : (
-                                            <Icon icon={ArrowUp20Regular} />
-                                        )}
-                                    </button>
-                                </Tooltip>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div className="flex min-w-0 items-center justify-between gap-1.5 px-1">
-                    <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-hidden">
-                        {hideModeSelect ? null : (
-                            <ModeMenu
-                                selectedMode={selectedMode}
-                                setSelectedMode={setSelectedMode}
-                            />
-                        )}
-                        <WorkspaceBranchSwitch />
-                    </div>
-
-                    <div className="flex min-w-0 shrink items-center gap-0.5">
-                        {needsSignIn ? (
-                            <Tooltip
-                                content={
-                                    missingModelsOnly
-                                        ? "Add or import a model ID in Settings → Providers"
-                                        : "Configure an API key or local runtime in Settings → Providers"
-                                }
-                            >
-                                <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="xs"
-                                    onClick={() => {
-                                        setModelMenuOpen(false);
-                                        openSettingsWindow({ category: "providers" }).catch(() => undefined);
-                                    }}
-                                    className={cn(
-                                        "h-7 min-w-0 shrink rounded-md px-2 font-normal text-text-secondary",
-                                        "transition-[background-color,color,transform] duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] motion-reduce:transform-none motion-reduce:transition-none",
-                                        "hover:bg-[var(--btn-hover)] hover:text-text-primary enabled:active:scale-[0.97]",
-                                    )}
-                                    aria-label="Open Providers"
-                                >
-                                    <div className="flex min-w-0 items-center gap-1.5 text-sm">
-                                        <BetterShapeAutoIcon size={14} marquee />
-                                        <span className="min-w-0 truncate">Open Providers</span>
-                                    </div>
-                                </Button>
-                            </Tooltip>
-                        ) : (
-                            <>
-                                <DropdownMenu
-                                    open={modelMenuOpen}
-                                    onOpenChange={(open) => {
-                                        setModelMenuOpen(open);
-                                        if (!open) setModelQuery("");
-                                    }}
-                                >
-                                    <DropdownMenuTrigger asChild>
-                                        <Button
-                                            variant="ghost"
-                                            size="xs"
-                                            className={cn(
-                                                "h-7 min-w-0 max-w-44 shrink rounded-md px-2 font-normal text-text-muted sm:max-w-[220px]",
-                                                "transition-[background-color,color,transform] duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] motion-reduce:transform-none motion-reduce:transition-none",
-                                                "hover:bg-[var(--btn-hover)] hover:text-text-primary enabled:active:scale-[0.97]",
-                                                "data-[state=open]:bg-[var(--btn-open)] data-[state=open]:hover:bg-[var(--btn-open-hover)] data-[state=open]:text-text-primary",
-                                            )}
-                                            aria-label={modelName}
-                                        >
-                                            <div className="flex min-w-0 items-center gap-1.5 text-sm">
-                                                {providerIcon(activeTriggerIconId, 14)}
-                                                <span className="min-w-0 truncate">{modelName}</span>
-                                            </div>
-                                        </Button>
-                                    </DropdownMenuTrigger>
-                                    {modelMenuOpen ? (
-                                    <DropdownMenuContent align="end" className="w-70 max-w-[calc(100vw-24px)]">
-                                                <SearchInput
-                                                    ref={focusSearchOnMount}
-                                                    borderless
-                                                    placeholder="Search models"
-                                                    value={modelQuery}
-                                                    onChange={(e) => setModelQuery(e.target.value)}
-                                                    onKeyDown={(e) => e.stopPropagation()}
-                                                    onKeyUp={(e) => e.stopPropagation()}
-                                                    onPointerDown={(e) => e.stopPropagation()}
-                                                />
-                                                <div className="custom-scrollbar max-h-[280px] overflow-y-auto">
-                                                    {multiSelectModels ? (
-                                                        <div className="px-2.5 py-1.5 text-xs text-text-muted">
-                                                            Orchestrator uses the primary model. Extra picks become the worker pool.
-                                                        </div>
-                                                    ) : null}
-                                                    {modelMatches(autoModel) ? (
-                                                        multiSelectModels ? (
-                                                            <DropdownMenuCheckboxItem
-                                                                checked={selectedModel === "auto" || selectedWorkerModels.includes("auto")}
-                                                                onCheckedChange={(checked) => {
-                                                                    if (checked) {
-                                                                        setSelectedModel("auto");
-                                                                        setSelectedWorkerModels?.(
-                                                                            selectedWorkerModels.filter((id) => id !== "auto"),
-                                                                        );
-                                                                    }
-                                                                }}
-                                                            >
-                                                                Auto
-                                                            </DropdownMenuCheckboxItem>
-                                                        ) : (
-                                                            <ModelItem
-                                                                model={autoModel}
-                                                                isSelected={selectedModel === "auto"}
-                                                                onSelect={() => setSelectedModel("auto")}
-                                                                effort={reasoningEffort}
-                                                                resolvedAutoModel={resolvedAutoModel}
-                                                            />
-                                                        )
-                                                    ) : null}
-                                                    {providerOrder.filter((p) => p !== "Auto").map((provider) => {
-                                                        const providerModels = MODELS.filter(
-                                                            (m) => m.provider === provider && modelMatches(m),
-                                                        );
-                                                        if (providerModels.length === 0) return null;
-                                                        return (
-                                                            <div key={provider}>
-                                                                <DropdownMenuLabel className="text-xs font-regular text-text-muted">
-                                                                    {provider}
-                                                                </DropdownMenuLabel>
-                                                                {providerModels.map((m) => {
-                                                                    // Every listed model is usable: it comes from a
-                                                                    // provider the user configured, or from local search.
-                                                                    const allowed = true;
-                                                                    if (multiSelectModels) {
-                                                                        const inPool =
-                                                                            selectedModel === m.id
-                                                                            || selectedWorkerModels.includes(m.id);
-                                                                        return (
-                                                                            <DropdownMenuCheckboxItem
-                                                                                key={m.id}
-                                                                                checked={inPool}
-                                                                                disabled={!allowed}
-                                                                                onCheckedChange={(checked) => {
-                                                                                    if (!allowed) return;
-                                                                                    if (checked) {
-                                                                                        if (selectedModel !== m.id) {
-                                                                                            setSelectedWorkerModels?.(
-                                                                                                [...selectedWorkerModels.filter((id) => id !== m.id), m.id],
-                                                                                            );
-                                                                                        }
-                                                                                    } else if (selectedModel === m.id) {
-                                                                                        const [next, ...rest] = selectedWorkerModels;
-                                                                                        if (next) {
-                                                                                            setSelectedModel(next);
-                                                                                            setSelectedWorkerModels?.(rest);
-                                                                                        }
-                                                                                    } else {
-                                                                                        setSelectedWorkerModels?.(
-                                                                                            selectedWorkerModels.filter((id) => id !== m.id),
-                                                                                        );
-                                                                                    }
-                                                                                }}
-                                                                            >
-                                                                                <span className="flex min-w-0 items-center gap-1.5">
-                                                                                    {providerIcon(m.id, 14)}
-                                                                                    <span className="truncate">{m.name}</span>
-                                                                                </span>
-                                                                            </DropdownMenuCheckboxItem>
-                                                                        );
-                                                                    }
-                                                                    return (
-                                                                        <ModelItem
-                                                                            key={m.id}
-                                                                            model={m}
-                                                                            isSelected={selectedModel === m.id}
-                                                                            onSelect={setSelectedModel}
-                                                                            effort={reasoningEffort}
-                                                                            disabled={!allowed}
-                                                                            disabledReason="This model is not available on your plan. Upgrade on the website or keep Auto selected."
-                                                                        />
-                                                                    );
-                                                                })}
-                                                            </div>
-                                                        );
-                                                    })}
-                                                    {!modelMatches(autoModel) && !MODELS.some(modelMatches) ? (
-                                                        <div className="px-2.5 py-3 text-sm text-text-muted">
-                                                            No models match
-                                                        </div>
-                                                    ) : null}
-                                                </div>
-                                    </DropdownMenuContent>
-                                    ) : null}
-                                </DropdownMenu>
-                                <ThinkingEffortControl
-                                    effort={reasoningEffort}
-                                    modelId={effectiveModelId}
-                                    onChange={setReasoningEffort}
-                                />
-                            </>
-                        )}
-                    </div>
-                </div>
-            </div>
-            {mediaViewer ? (
-                <MediaLightbox
-                    open
-                    onClose={() => setMediaViewer(null)}
-                    src={mediaViewer.src}
-                    title={mediaViewer.title}
-                    kind={mediaViewer.kind}
-                />
-            ) : null}
+      <div className={resolveComposerWrapperClass(variant)}>
+        <div className="relative z-10 flex w-full flex-col gap-1.5">
+          {hasContextStrip ? (
+            <ComposerContextStrip
+              pendingEdits={pendingEdits}
+              onAcceptAllEdits={onAcceptAllEdits}
+              onRejectAllEdits={onRejectAllEdits}
+              onAcceptEdit={onAcceptEdit}
+              onRejectEdit={onRejectEdit}
+              queuedMessages={queuedMessages}
+              onEditQueuedMessage={onEditQueuedMessage}
+              onRemoveQueuedMessage={onRemoveQueuedMessage}
+              onSendQueuedNow={onSendQueuedNow}
+              projectRuleFiles={projectRuleFiles}
+              taskItems={taskItems}
+            />
+          ) : null}
+          <ComposerVesselCard
+            composerBoxRef={composerBoxRef}
+            textareaRef={textareaRef}
+            mentionOverlayRef={mentionOverlayRef}
+            isExpandedLayout={layoutFlags.isExpandedLayout}
+            isExpanded={layout.isExpanded}
+            vesselRadiusClass={resolveVesselRadiusClass({
+              isExpanded: layout.isExpanded,
+              hasContextAttachments: layoutFlags.hasContextAttachments,
+              hasThreeOrMoreNewlines,
+              editorHeight: layout.editorHeight,
+              composerTall: layout.composerTall,
+            })}
+            drag={drag}
+            trigger={textCtrl.trigger}
+            setTrigger={textCtrl.setTrigger}
+            closeTriggers={textCtrl.closeTriggers}
+            workflows={catalogState.workflows}
+            insertSlash={textCtrl.insertSlash}
+            insertMention={textCtrl.insertMention}
+            activeQuotes={activeQuotes}
+            onRemoveQuote={handleRemoveQuote}
+            uploadedFiles={uploadedFiles}
+            setUploadedFiles={setUploadedFiles}
+            inputValue={inputValue}
+            applyProgrammaticInputValue={textCtrl.applyProgrammaticInputValue}
+            onFileInputChange={handleFilteredFileUpload}
+            plusMenuOpen={plusMenuOpen}
+            setPlusMenuOpen={setPlusMenuOpen}
+            plusPlugins={plusPlugins}
+            setPlusPlugins={setPlusPlugins}
+            pluginQuery={pluginQuery}
+            setPluginQuery={setPluginQuery}
+            skills={skills}
+            appendToken={textCtrl.appendToken}
+            editorHeight={layout.editorHeight}
+            editorMaskImage={buildComposerScrollMaskImage(layout.scrollMask, 18)}
+            isEditorFocused={isEditorFocused}
+            setIsEditorFocused={setIsEditorFocused}
+            hintMode={resolveComposerHintMode(isPreparing, isLoading)}
+            needsSignIn={catalogState.needsSignIn}
+            setupGap={catalogState.setupGap}
+            composerBreakAll={composerBreakAll}
+            composerAriaLabel={resolveComposerAriaLabel(catalogState.setupGap)}
+            onInputChange={textCtrl.handleInputChangeWithMentions}
+            onKeyDown={historyKeys.onComposerKeyDown}
+            onPaste={handlePaste}
+            onScrollMask={(next) =>
+              applyScrollMaskIfChanged(layout.setScrollMask, next)
+            }
+            onContextMenuPaste={handleContextMenuPaste}
+            showExpandButton={layoutFlags.showExpandButton}
+            onToggleExpand={() => {
+              layout.setIsExpanded((prev) => !prev);
+              requestAnimationFrame(() => textareaRef.current?.focus());
+            }}
+            canStop={sendStatus.canStop}
+            isPreparing={isPreparing}
+            isLoading={isLoading}
+            sendDisabled={sendStatus.sendDisabled}
+            sendActive={sendStatus.sendActive}
+            onStopMessage={onStopMessage}
+            onSendWithHistory={historyKeys.handleSendWithHistory}
+          />
+          <ComposerFooterBar
+            hideModeSelect={hideModeSelect}
+            selectedMode={selectedMode}
+            setSelectedMode={setSelectedMode}
+            needsSignIn={catalogState.needsSignIn}
+            setupGap={catalogState.setupGap}
+            modelMenuOpen={modelMenuOpen}
+            setModelMenuOpen={setModelMenuOpen}
+            modelQuery={modelQuery}
+            setModelQuery={setModelQuery}
+            modelName={catalogState.modelName}
+            activeTriggerIconId={catalogState.activeTriggerIconId}
+            multiSelectModels={multiSelectModels}
+            autoModel={catalogState.autoModel}
+            models={catalogState.models}
+            providerOrder={catalogState.providerOrder}
+            selectedModel={selectedModel}
+            selectedWorkerModels={selectedWorkerModels}
+            setSelectedModel={setSelectedModel}
+            setSelectedWorkerModels={setSelectedWorkerModels}
+            reasoningEffort={reasoningEffort}
+            setReasoningEffort={setReasoningEffort}
+            resolvedAutoModel={catalogState.resolvedAutoModel}
+            effectiveModelId={catalogState.effectiveModelId}
+          />
         </div>
+        <ComposerMediaViewerSlot
+          mediaViewer={mediaViewer}
+          onClose={() => setMediaViewer(null)}
+        />
+      </div>
     );
-});
+};
 
-
+/** Renders the ChatInput UI component. */
+export const ChatInput = React.memo(ChatInputInner);

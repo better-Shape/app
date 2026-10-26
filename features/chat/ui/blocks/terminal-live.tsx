@@ -6,23 +6,10 @@ import { ErrorCircle20Regular } from "@fluentui/react-icons/headless/svg/error-c
 import { Info20Regular } from "@fluentui/react-icons/headless/svg/info";
 import { MoreHorizontal20Regular } from "@fluentui/react-icons/headless/svg/more-horizontal";
 import { WindowConsole20Regular } from "@fluentui/react-icons/headless/svg/window-console";
-
-
-/**
- * Live terminal command UI for the chat transcript.
- *
- * The backend emits `agent-terminal-stream` events correlated by `commandId`
- * ({ kind: "start" | "data" | "background" | "exit", sessionId, data, exitCode }),
- * so a command card can show real output while the command runs instead of a
- * frozen "Working…" row. The persisted XML chunk provides the final state on
- * reload; the event stream drives the in-between states.
- */
-
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { cn, createOccurrenceKeyer } from "@/lib/utils";
 import { Icon } from "@/components/ui/icon";
-
 import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
 import {
@@ -32,21 +19,40 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown";
 import { commands } from "@/lib/backend/commands";
-import { useSettings, updateSettingSection, type AutoRunModeSetting } from "@/lib/settings";
+import {
+    useSettings,
+    updateSettingSection,
+    type AutoRunModeSetting,
+} from "@/lib/settings";
 import type { Chunk } from "../md/renderer";
 import { ActionLine, splitActionLabel } from "./action-line";
 import { ApprovalCard } from "./approval";
 
 const OUTPUT_CAP = 16_000;
 
-/** Strip ANSI CSI/OSC escapes and carriage returns for readable chat output. */
-export function stripAnsi(input: string): string {
-    return input
-        .replace(/\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g, "")
-        .replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, "")
-        .replace(/\u001b./g, "")
-        .replace(/\r/g, "");
-}
+const LIVE_COMMAND_STATUSES = new Set(["pending", "running", "background"]);
+
+const AUTO_RUN_OPTIONS: Array<{
+    value: AutoRunModeSetting;
+    label: string;
+    description: string;
+}> = [
+    {
+        value: "ask",
+        label: "Ask every time",
+        description: "Approve each command before it runs.",
+    },
+    {
+        value: "auto",
+        label: "Auto-review",
+        description: "Run commands Auto-review marks as safe.",
+    },
+    {
+        value: "always",
+        label: "Run everything",
+        description: "Run all commands without asking.",
+    },
+];
 
 type StreamPhase = "idle" | "running" | "background" | "finished";
 
@@ -68,14 +74,175 @@ type AgentTerminalEvent = {
     cancelled?: boolean;
 };
 
+/** Strip ANSI CSI/OSC escapes and carriage returns for readable chat output. */
+export const stripAnsi = (input: string): string =>
+    input
+        .replace(/\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g, "")
+        .replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, "")
+        .replace(/\u001b./g, "")
+        .replace(/\r/g, "");
+
+/** Segments `text` into user-perceived grapheme clusters (or Unicode code points as fallback). */
+const splitGraphemeUnits = (text: string): string[] => {
+    if (typeof Intl !== "undefined" && typeof Intl.Segmenter === "function") {
+        const segmenter = new Intl.Segmenter(undefined, {
+            granularity: "grapheme",
+        });
+        return Array.from(segmenter.segment(text), (entry) => entry.segment);
+    }
+    return Array.from(text);
+};
+
+/** Truncates a shell command onto one line without splitting UTF-16 surrogates or emoji graphemes. */
+export const commandSummary = (command: string, max = 56): string => {
+    const one = command.replace(/\s+/g, " ").trim();
+    if (!one) return "";
+    const units = splitGraphemeUnits(one);
+    if (units.length <= max) return one;
+    return `${units.slice(0, Math.max(1, max - 3)).join("")}...`;
+};
+
+/** Output portion of a persisted terminal chunk (body minus the command line). */
+const stripTerminalChunkOutput = (block: Chunk): string => {
+    const content = block.content ?? "";
+    const command = (block.command ?? "").trim();
+    const lines = content.split("\n");
+    if (lines[0]?.trim() === command) {
+        return lines.slice(1).join("\n").trim();
+    }
+    const trimmed = content.trim();
+    return trimmed === command ? "" : trimmed;
+};
+
 /** Subscribes to a Tauri event while safely falling back to a no-op outside the desktop bridge. */
 const safeListen = <T,>(
     eventName: string,
     handler: (event: { payload: T }) => void,
-): Promise<() => void> => {
-    return Promise.resolve()
+): Promise<() => void> =>
+    Promise.resolve()
         .then(() => listen<T>(eventName, handler))
         .catch(() => () => undefined);
+
+/** Appends stripped ANSI output onto `current`, capped at `OUTPUT_CAP` trailing characters. */
+const appendCappedTerminalOutput = (current: string, chunk?: string): string =>
+    chunk ? (current + stripAnsi(chunk)).slice(-OUTPUT_CAP) : current;
+
+/** Promotes `"idle"` stream phase to `"running"` when live output or input wait arrives. */
+const activeOrCurrentPhase = (phase: StreamPhase): StreamPhase =>
+    phase === "idle" ? "running" : phase;
+
+/** Reduces a `"start"` terminal event into a fresh running `StreamState`. */
+const reduceStreamStartEvent = (
+    payload: AgentTerminalEvent,
+    bufferRef: React.MutableRefObject<string>,
+): StreamState => {
+    bufferRef.current = "";
+    return {
+        phase: "running",
+        output: "",
+        exitCode: null,
+        sessionId: payload.sessionId ?? null,
+        cancelled: false,
+        waitingForInput: false,
+    };
+};
+
+/** Reduces a `"data"` terminal event into the updated `StreamState`. */
+const reduceStreamDataEvent = (
+    prev: StreamState,
+    payload: AgentTerminalEvent,
+    output: string,
+): StreamState => ({
+    ...prev,
+    phase: activeOrCurrentPhase(prev.phase),
+    output,
+    sessionId: payload.sessionId ?? prev.sessionId,
+    waitingForInput: false,
+});
+
+/** Reduces an `"exit"` terminal event into the finished `StreamState`. */
+const reduceStreamExitEvent = (
+    prev: StreamState,
+    payload: AgentTerminalEvent,
+    output: string,
+): StreamState => ({
+    ...prev,
+    phase: "finished",
+    output,
+    exitCode: payload.exitCode ?? -1,
+    cancelled: payload.cancelled ?? false,
+    waitingForInput: false,
+});
+
+type TerminalEventKindHandler = (
+    payload: AgentTerminalEvent,
+    bufferRef: React.MutableRefObject<string>,
+    setState: React.Dispatch<React.SetStateAction<StreamState>>,
+) => void;
+
+const TERMINAL_EVENT_HANDLERS: Partial<
+    Record<string, TerminalEventKindHandler>
+> = {
+    start: (payload, bufferRef, setState) => {
+        setState(reduceStreamStartEvent(payload, bufferRef));
+    },
+    data: (payload, bufferRef, setState) => {
+        if (!payload.data) return;
+        bufferRef.current = appendCappedTerminalOutput(
+            bufferRef.current,
+            payload.data,
+        );
+        const output = bufferRef.current;
+        setState((prev) => reduceStreamDataEvent(prev, payload, output));
+    },
+    waiting_for_input: (payload, _bufferRef, setState) => {
+        setState((prev) => ({
+            ...prev,
+            phase: activeOrCurrentPhase(prev.phase),
+            sessionId: payload.sessionId ?? prev.sessionId,
+            waitingForInput: true,
+        }));
+    },
+    background: (_payload, _bufferRef, setState) => {
+        setState((prev) => ({ ...prev, phase: "background" }));
+    },
+    exit: (payload, bufferRef, setState) => {
+        bufferRef.current = appendCappedTerminalOutput(
+            bufferRef.current,
+            payload.data,
+        );
+        const output = bufferRef.current;
+        setState((prev) => reduceStreamExitEvent(prev, payload, output));
+    },
+};
+
+/** Applies one correlated `AgentTerminalEvent` onto `bufferRef` and `setState`. */
+const dispatchTerminalStreamPayload = (
+    payload: AgentTerminalEvent,
+    bufferRef: React.MutableRefObject<string>,
+    setState: React.Dispatch<React.SetStateAction<StreamState>>,
+): void => {
+    const handler = payload.kind
+        ? TERMINAL_EVENT_HANDLERS[payload.kind]
+        : undefined;
+    handler?.(payload, bufferRef, setState);
+};
+
+/** Reduces a `pty-exit` event for `sid` when it matches the tracked terminal session. */
+const applyPtyExitToState = (
+    prev: StreamState,
+    sid: number,
+    sessionIdHint: number | undefined,
+): StreamState => {
+    const matchesSession = prev.sessionId === sid || sessionIdHint === sid;
+    if (!matchesSession || prev.phase === "finished") return prev;
+    return {
+        ...prev,
+        phase: "finished",
+        exitCode: prev.exitCode ?? -1,
+        cancelled: true,
+        waitingForInput: false,
+    };
 };
 
 /**
@@ -100,88 +267,50 @@ export const useAgentTerminalStream = (
     useEffect(() => {
         if (!commandId || !enabled) return undefined;
         let disposed = false;
-        const unlistenStream = safeListen<AgentTerminalEvent>("agent-terminal-stream", (event) => {
-            const payload = event.payload;
-            if (disposed || !payload || payload.commandId !== commandId) return;
-            if (payload.kind === "start") {
-                bufferRef.current = "";
-                setState({
-                    phase: "running",
-                    output: "",
-                    exitCode: null,
-                    sessionId: payload.sessionId ?? null,
-                    cancelled: false,
-                    waitingForInput: false,
-                });
-            } else if (payload.kind === "data" && payload.data) {
-                bufferRef.current = (bufferRef.current + stripAnsi(payload.data)).slice(-OUTPUT_CAP);
-                const output = bufferRef.current;
-                setState((prev) => ({
-                    ...prev,
-                    phase: prev.phase === "idle" ? "running" : prev.phase,
-                    output,
-                    sessionId: payload.sessionId ?? prev.sessionId,
-                    waitingForInput: false,
-                }));
-            } else if (payload.kind === "waiting_for_input") {
-                setState((prev) => ({
-                    ...prev,
-                    phase: prev.phase === "idle" ? "running" : prev.phase,
-                    sessionId: payload.sessionId ?? prev.sessionId,
-                    waitingForInput: true,
-                }));
-            } else if (payload.kind === "background") {
-                setState((prev) => ({ ...prev, phase: "background" }));
-            } else if (payload.kind === "exit") {
-                if (payload.data) {
-                    bufferRef.current = (bufferRef.current + stripAnsi(payload.data)).slice(-OUTPUT_CAP);
+        const unlistenStream = safeListen<AgentTerminalEvent>(
+            "agent-terminal-stream",
+            (event) => {
+                const payload = event.payload;
+                if (!disposed && payload?.commandId === commandId) {
+                    dispatchTerminalStreamPayload(payload, bufferRef, setState);
                 }
-                const output = bufferRef.current;
-                setState((prev) => ({
-                    ...prev,
-                    phase: "finished",
-                    output,
-                    exitCode: payload.exitCode ?? -1,
-                    cancelled: payload.cancelled ?? false,
-                    waitingForInput: false,
-                }));
-            }
-        });
+            },
+        );
         const unlistenPty = safeListen<{ id?: number }>("pty-exit", (event) => {
-            if (disposed) return;
             const sid = event.payload?.id;
-            if (sid == null) return;
-            setState((prev) => {
-                const match = prev.sessionId === sid || sessionIdHint === sid;
-                if (!match) return prev;
-                if (prev.phase === "finished") return prev;
-                return {
-                    ...prev,
-                    phase: "finished",
-                    exitCode: prev.exitCode ?? -1,
-                    cancelled: true,
-                    waitingForInput: false,
-                };
-            });
+            if (!disposed && typeof sid === "number") {
+                setState((prev) =>
+                    applyPtyExitToState(prev, sid, sessionIdHint),
+                );
+            }
         });
         return () => {
             disposed = true;
-            unlistenStream.then((unlisten) => unlisten()).catch(() => { /* ignore */ });
-            unlistenPty.then((unlisten) => unlisten()).catch(() => { /* ignore */ });
+            unlistenStream.then((fn) => fn()).catch(() => undefined);
+            unlistenPty.then((fn) => fn()).catch(() => undefined);
         };
     }, [commandId, enabled, sessionIdHint]);
 
     return state;
 };
 
+/** Resolves the highlight class for a terminal log line containing warning or error markers. */
+const resolveTerminalLineToneClass = (line: string): string => {
+    const isErr = /\[error\]|\berror:/i.test(line);
+    if (isErr) return "text-error";
+    return /\[warn\]|\bwarn(ing)?:/i.test(line)
+        ? "bg-warning/15 text-warning"
+        : "";
+};
+
 /** Auto-scrolling monospace output box (last lines of a running command). */
-export function LiveTerminalOutput({
+export const LiveTerminalOutput = ({
     text,
     maxHeight = 180,
 }: {
     text: string;
     maxHeight?: number;
-}) {
+}) => {
     const scrollRef = useRef<HTMLDivElement | null>(null);
     const pinnedRef = useRef(true);
 
@@ -201,6 +330,7 @@ export function LiveTerminalOutput({
     if (!text.trim()) return null;
 
     const lines = text.replace(/(?<!\s)\s+$/, "").split("\n");
+    const lineKey = createOccurrenceKeyer();
 
     return (
         <div
@@ -209,49 +339,28 @@ export function LiveTerminalOutput({
             style={{ maxHeight }}
             className="my-1 overflow-y-auto custom-scrollbar font-mono text-sm leading-[1.55] text-text-secondary"
         >
-            {/*
-              The buffer only appends and the gutter prints the number it renders; an occurrence
-              keyer gives repeated identical log lines deterministic unique keys.
-            */}
-            {(() => {
-                const lineKey = createOccurrenceKeyer();
-                return lines.map((line, lineNo) => {
-                    const warn = /\[warn\]|\bwarn(ing)?:/i.test(line);
-                    const err = /\[error\]|\berror:/i.test(line);
-                    return (
-                        <div
-                            key={lineKey(line)}
-                            className={cn(
-                                "flex gap-3 px-1 py-px whitespace-pre-wrap break-words",
-                                warn && "bg-warning/15 text-warning",
-                                err && "text-error",
-                            )}
-                        >
-                            <span className="shrink-0 select-none tabular-nums text-text-disabled">
-                                {String(lineNo + 1).padStart(2, " ")}
-                            </span>
-                            <span>{line || " "}</span>
-                        </div>
-                    );
-                });
-            })()}
+            {lines.map((line, lineNo) => (
+                <div
+                    key={lineKey(line)}
+                    className={cn(
+                        "flex gap-3 px-1 py-px whitespace-pre-wrap break-words",
+                        resolveTerminalLineToneClass(line),
+                    )}
+                >
+                    <span className="shrink-0 select-none tabular-nums text-text-disabled">
+                        {String(lineNo + 1).padStart(2, " ")}
+                    </span>
+                    <span>{line ? line : " "}</span>
+                </div>
+            ))}
         </div>
     );
-}
+};
 
-const AUTO_RUN_OPTIONS: Array<{ value: AutoRunModeSetting; label: string; description: string }> = [
-    { value: "ask", label: "Ask every time", description: "Approve each command before it runs." },
-    { value: "auto", label: "Auto-review", description: "Run commands Auto-review marks as safe." },
-    { value: "always", label: "Run everything", description: "Run all commands without asking." },
-];
-
-/** Command summary. */
-const commandSummary = (command: string, max = 56): string => {
-    const one = command.replace(/\s+/g, " ").trim();
-    if (!one) return "";
-    const codePoints = Array.from(one);
-    if (codePoints.length <= max) return one;
-    return `${codePoints.slice(0, Math.max(1, max - 3)).join("")}...`;
+/** Persists `mode` to settings and notifies the active backend turn policy. */
+const selectAutoRunMode = (mode: AutoRunModeSetting): void => {
+    updateSettingSection("ai", { autoRunMode: mode });
+    commands.updateTurnPolicy({ autoRunMode: mode }).catch(() => undefined);
 };
 
 /** Renders the TerminalCommandMenu UI component. */
@@ -270,33 +379,239 @@ const TerminalCommandMenu = ({ command }: { command: string }) => {
                 </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-76">
-                <div className="px-2 py-1.5 text-sm font-medium text-text-muted">Auto-run</div>
+                <div className="px-2 py-1.5 text-sm font-medium text-text-muted">
+                    Auto-run
+                </div>
                 {AUTO_RUN_OPTIONS.map((opt) => {
                     const selected = settings.ai.autoRunMode === opt.value;
                     return (
                         <DropdownMenuItem
                             key={opt.value}
-                            onClick={() => {
-                                updateSettingSection("ai", { autoRunMode: opt.value });
-                                commands.updateTurnPolicy({ autoRunMode: opt.value }).catch(() => undefined);
-                            }}
-                            className={cn("flex flex-col items-start py-2")}
+                            onClick={() => selectAutoRunMode(opt.value)}
+                            className="flex flex-col items-start py-2"
                         >
                             <span className="flex w-full items-center gap-2 text-sm text-text-primary">
                                 <span className="flex-1">{opt.label}</span>
-                                {selected ? <Icon icon={Checkmark20Regular} /> : null}
+                                {selected ? (
+                                    <Icon icon={Checkmark20Regular} />
+                                ) : null}
                             </span>
-                            <span className="text-text-muted">{opt.description}</span>
+                            <span className="text-text-muted">
+                                {opt.description}
+                            </span>
                         </DropdownMenuItem>
                     );
                 })}
                 <DropdownMenuItem
-                    onClick={() => { navigator.clipboard.writeText(command).catch(() => undefined); }}
+                    onClick={() => {
+                        navigator.clipboard
+                            .writeText(command)
+                            .catch(() => undefined);
+                    }}
                 >
                     Copy command
                 </DropdownMenuItem>
             </DropdownMenuContent>
         </DropdownMenu>
+    );
+};
+
+/** Formats elapsed seconds (`45s` or `1m 05s`) for a live running terminal command. */
+const formatElapsedCommandSeconds = (elapsedSec: number): string =>
+    elapsedSec < 60
+        ? `${elapsedSec}s`
+        : `${Math.floor(elapsedSec / 60)}m ${String(elapsedSec % 60).padStart(2, "0")}s`;
+
+/** Checks whether `exitCode` represents a non-zero exit code for a failed command. */
+const hasNonZeroFailureExit = (
+    failed: boolean | undefined,
+    exitCode: number | null | undefined,
+): exitCode is number =>
+    Boolean(failed) && typeof exitCode === "number" && exitCode !== 0;
+
+/** Renders the trailing timer or non-zero exit badge on `TerminalCommandRow`. */
+const renderCommandRowExtra = ({
+    isRunning,
+    elapsedSec,
+    failed,
+    exitCode,
+}: {
+    isRunning?: boolean;
+    elapsedSec: number;
+    failed?: boolean;
+    exitCode?: number | null;
+}): React.ReactNode => {
+    if (isRunning && elapsedSec >= 3) {
+        return (
+            <span className="shrink-0 text-2xs tabular-nums text-text-muted/75">
+                {formatElapsedCommandSeconds(elapsedSec)}
+            </span>
+        );
+    }
+    if (hasNonZeroFailureExit(failed, exitCode)) {
+        return (
+            <span className="shrink-0 font-mono text-2xs tabular-nums text-error">
+                exit {exitCode}
+            </span>
+        );
+    }
+    return null;
+};
+
+/** Renders the expandable output or `$ command` preview panel inside `TerminalCommandRow`. */
+const TerminalExpandedPanel = ({
+    command,
+    output,
+    notice,
+}: {
+    command: string;
+    output: string;
+    notice?: string;
+}) => {
+    const hasTrimmedOutput = Boolean(output.trim());
+    const hasTrimmedCommand = Boolean(command.trim());
+    return (
+        <div className="relative mt-1 mb-1 rounded-xl border border-border-subtle bg-surface-2/40 px-1.5 py-2">
+            <div className="absolute right-2 top-2 z-[1]">
+                <TerminalCommandMenu command={command} />
+            </div>
+            {hasTrimmedOutput ? (
+                <div className="pr-8">
+                    <LiveTerminalOutput text={output} maxHeight={200} />
+                </div>
+            ) : null}
+            {!hasTrimmedOutput && hasTrimmedCommand ? (
+                <div className="px-2 py-0.5 pr-8 font-mono text-xs text-text-secondary">
+                    <span className="select-none text-text-muted">$ </span>
+                    {command}
+                </div>
+            ) : null}
+            {notice ? (
+                <div className="pr-8 pt-1 text-xs text-warning">{notice}</div>
+            ) : null}
+        </div>
+    );
+};
+
+/** Computes whether `TerminalCommandRow` should auto-open when live output or failure arrives. */
+const shouldAutoExpandRow = (
+    isRunning: boolean | undefined,
+    failed: boolean | undefined,
+    hasOutput: boolean,
+): boolean => Boolean((isRunning || failed) && hasOutput);
+
+/** Tracks elapsed seconds once per second while `isRunning` is true. */
+const useRunningCommandElapsed = (isRunning: boolean | undefined): number => {
+    const [elapsedSec, setElapsedSec] = useState(0);
+    useEffect(() => {
+        if (!isRunning) return undefined;
+        const startedAt = Date.now();
+        const interval = window.setInterval(() => {
+            setElapsedSec(
+                Math.max(0, Math.floor((Date.now() - startedAt) / 1000)),
+            );
+        }, 1000);
+        return () => window.clearInterval(interval);
+    }, [isRunning]);
+    return elapsedSec;
+};
+
+/** Renders the leading console or error icon for `TerminalCommandRow`. */
+const renderCommandRowIcon = (failed: boolean | undefined): React.ReactElement =>
+    failed ? (
+        <Icon icon={ErrorCircle20Regular} className="size-3.5 text-error" />
+    ) : (
+        <Icon
+            icon={WindowConsole20Regular}
+            className="size-3.5 text-text-muted/80"
+        />
+    );
+
+/** Manages collapsible disclosure state for `TerminalCommandRow`, auto-opening once on live output. */
+const useCommandRowDisclosure = (
+    initialExpanded: boolean,
+    expandWanted: boolean,
+): [boolean, React.Dispatch<React.SetStateAction<boolean>>] => {
+    const [expanded, setExpanded] = useState(initialExpanded);
+    const [seenExpandWanted, setSeenExpandWanted] = useState(expandWanted);
+    if (expandWanted !== seenExpandWanted) {
+        setSeenExpandWanted(expandWanted);
+        if (expandWanted) setExpanded(true);
+    }
+    return [expanded, setExpanded];
+};
+
+/** Computes initial open state and content flags for `TerminalCommandRow`. */
+const deriveCommandRowFlags = (
+    command: string,
+    output: string,
+    defaultOpen: boolean,
+    failed: boolean | undefined,
+    notice: string | undefined,
+) => {
+    const hasOutput = Boolean(output.trim() || notice);
+    return {
+        hasOutput,
+        canExpand: hasOutput || Boolean(command.trim()),
+        initialOpen: defaultOpen || Boolean(failed && output.trim()),
+    };
+};
+
+/** Formats the combined status + summary lead string for `splitActionLabel`. */
+const formatCommandRowLead = (statusLabel: string, summary: string): string =>
+    summary ? `${statusLabel} ${summary}` : statusLabel;
+
+/** Renders the `ActionLine` shell for a visible `TerminalCommandRow`. */
+const renderTerminalActionLine = ({
+    lead,
+    failed,
+    isRunning,
+    elapsedSec,
+    exitCode,
+    canExpand,
+    expanded,
+    setExpanded,
+    command,
+    output,
+    notice,
+}: {
+    lead: string;
+    failed?: boolean;
+    isRunning?: boolean;
+    elapsedSec: number;
+    exitCode?: number | null;
+    canExpand: boolean;
+    expanded: boolean;
+    setExpanded: React.Dispatch<React.SetStateAction<boolean>>;
+    command: string;
+    output: string;
+    notice?: string;
+}): React.ReactElement => {
+    const parts = splitActionLabel(lead);
+    return (
+        <ActionLine
+            action={parts.action}
+            detail={parts.detail}
+            tone={failed ? "error" : "default"}
+            shimmer={Boolean(isRunning)}
+            icon={renderCommandRowIcon(failed)}
+            extra={renderCommandRowExtra({
+                isRunning,
+                elapsedSec,
+                failed,
+                exitCode,
+            })}
+            open={canExpand ? expanded : undefined}
+            onOpenChange={canExpand ? setExpanded : undefined}
+        >
+            {canExpand ? (
+                <TerminalExpandedPanel
+                    command={command}
+                    output={output}
+                    notice={notice}
+                />
+            ) : null}
+        </ActionLine>
     );
 };
 
@@ -320,91 +635,44 @@ const TerminalCommandRow = ({
     defaultOpen?: boolean;
     notice?: string;
 }) => {
-    const [expanded, setExpanded] = useState(defaultOpen || Boolean(failed && output.trim()));
-    const [elapsedSec, setElapsedSec] = useState(0);
+    const flags = deriveCommandRowFlags(
+        command,
+        output,
+        defaultOpen,
+        failed,
+        notice,
+    );
+    const [expanded, setExpanded] = useCommandRowDisclosure(
+        flags.initialOpen,
+        shouldAutoExpandRow(isRunning, failed, flags.hasOutput),
+    );
+    const elapsedSec = useRunningCommandElapsed(isRunning);
     const summary = commandSummary(command);
-    const hasOutput = Boolean(output.trim() || notice);
-    const canExpand = hasOutput || Boolean(command.trim());
-
-    useEffect(() => {
-        if (!isRunning) return undefined;
-        const startedAt = Date.now();
-        const interval = window.setInterval(() => {
-            setElapsedSec(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
-        }, 1000);
-        return () => window.clearInterval(interval);
-    }, [isRunning]);
-
-    // Output arriving while the command runs opens the block once.
-    const expandWanted = Boolean((isRunning || failed) && hasOutput);
-    const [seenExpandWanted, setSeenExpandWanted] = useState(expandWanted);
-    if (expandWanted !== seenExpandWanted) {
-        setSeenExpandWanted(expandWanted);
-        if (expandWanted) setExpanded(true);
-    }
 
     if (!summary && !statusLabel) return null;
 
-    const lead = summary ? `${statusLabel} ${summary}` : statusLabel;
-    const parts = splitActionLabel(lead);
-    const showLiveTimer = Boolean(isRunning && elapsedSec >= 3);
-    const showExitBadge = Boolean(failed && typeof exitCode === "number" && exitCode !== 0);
-
-    return (
-        <ActionLine
-            action={parts.action}
-            detail={parts.detail}
-            tone={failed ? "error" : "default"}
-            shimmer={Boolean(isRunning)}
-            icon={
-                failed ? (
-                    <Icon icon={ErrorCircle20Regular} className="size-3.5 text-error" />
-                ) : (
-                    <Icon icon={WindowConsole20Regular} className="size-3.5 text-text-muted/80" />
-                )
-            }
-            extra={
-                showLiveTimer ? (
-                    <span className="shrink-0 text-2xs tabular-nums text-text-muted/75">
-                        {elapsedSec < 60
-                            ? `${elapsedSec}s`
-                            : `${Math.floor(elapsedSec / 60)}m ${String(elapsedSec % 60).padStart(2, "0")}s`}
-                    </span>
-                ) : showExitBadge ? (
-                    <span className="shrink-0 font-mono text-2xs tabular-nums text-error">
-                        exit {exitCode}
-                    </span>
-                ) : null
-            }
-            open={canExpand ? expanded : undefined}
-            onOpenChange={canExpand ? setExpanded : undefined}
-        >
-            {canExpand ? (
-                <div className="relative mt-1 mb-1 rounded-xl border border-border-subtle bg-surface-2/40 px-1.5 py-2">
-                    <div className="absolute right-2 top-2 z-[1]">
-                        <TerminalCommandMenu command={command} />
-                    </div>
-                    {output.trim() ? (
-                        <div className="pr-8">
-                            <LiveTerminalOutput text={output} maxHeight={200} />
-                        </div>
-                    ) : command.trim() ? (
-                        <div className="px-2 py-0.5 pr-8 font-mono text-xs text-text-secondary">
-                            <span className="select-none text-text-muted">$ </span>
-                            {command}
-                        </div>
-                    ) : null}
-                    {notice ? (
-                        <div className="pr-8 pt-1 text-xs text-warning">{notice}</div>
-                    ) : null}
-                </div>
-            ) : null}
-        </ActionLine>
-    );
+    return renderTerminalActionLine({
+        lead: formatCommandRowLead(statusLabel, summary),
+        failed,
+        isRunning,
+        elapsedSec,
+        exitCode,
+        canExpand: flags.canExpand,
+        expanded,
+        setExpanded,
+        command,
+        output,
+        notice,
+    });
 };
 
-function AutoRunModePicker({ disabled }: { disabled?: boolean }) {
+/** Dropdown selector for configuring future terminal auto-run approval policy. */
+const AutoRunModePicker = ({ disabled }: { disabled?: boolean }) => {
     const settings = useSettings();
+    const activeLabel =
+        AUTO_RUN_OPTIONS.find((opt) => opt.value === settings.ai.autoRunMode)
+            ?.label ?? "Ask every time";
+
     return (
         <DropdownMenu>
             <DropdownMenuTrigger asChild disabled={disabled}>
@@ -415,8 +683,7 @@ function AutoRunModePicker({ disabled }: { disabled?: boolean }) {
                     disabled={disabled}
                     aria-label="Approval mode for future agent commands"
                 >
-                    {AUTO_RUN_OPTIONS.find((o) => o.value === settings.ai.autoRunMode)?.label
-                        ?? "Ask every time"}
+                    {activeLabel}
                     <Icon icon={ChevronDown20Regular} className="opacity-70" />
                 </Button>
             </DropdownMenuTrigger>
@@ -426,31 +693,40 @@ function AutoRunModePicker({ disabled }: { disabled?: boolean }) {
                     return (
                         <DropdownMenuItem
                             key={opt.value}
-                            onClick={() => {
-                                updateSettingSection("ai", { autoRunMode: opt.value });
-                                commands.updateTurnPolicy({ autoRunMode: opt.value }).catch(() => undefined);
-                            }}
-                            className={cn("items-start gap-2 py-2", selected && "bg-panel-hover")}
+                            onClick={() => selectAutoRunMode(opt.value)}
+                            className={cn(
+                                "items-start gap-2 py-2",
+                                selected && "bg-panel-hover",
+                            )}
                         >
                             <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                                <span className="text-sm text-text-primary">{opt.label}</span>
-                                <span className="text-xs text-text-muted leading-snug">{opt.description}</span>
+                                <span className="text-sm text-text-primary">
+                                    {opt.label}
+                                </span>
+                                <span className="text-xs text-text-muted leading-snug">
+                                    {opt.description}
+                                </span>
                             </span>
-                            {selected ? <Icon icon={Checkmark20Regular} className="mt-0.5 shrink-0" /> : null}
+                            {selected ? (
+                                <Icon
+                                    icon={Checkmark20Regular}
+                                    className="mt-0.5 shrink-0"
+                                />
+                            ) : null}
                         </DropdownMenuItem>
                     );
                 })}
             </DropdownMenuContent>
         </DropdownMenu>
     );
-}
+};
 
 /**
  * Approval card for a pending terminal command:
  * header ("Run command"), monospace `$ command` body, footer with the
  * auto-run mode selector on the left and Skip / Run on the right.
  */
-export function CommandApprovalCard({
+export const CommandApprovalCard = ({
     command,
     reason,
     isProcessing,
@@ -462,120 +738,265 @@ export function CommandApprovalCard({
     isProcessing: boolean;
     onRun: () => void;
     onSkip: () => void;
-}) {
-    return (
-        <ApprovalCard
-            icon={<Icon icon={WindowConsole20Regular} className="shrink-0 text-text-muted" />}
-            title={
-                <span className="inline-flex min-w-0 items-center gap-1.5">
-                    <span>Run command</span>
-                    {reason ? (
-                        <Tooltip content={reason} side="top">
-                            <Icon icon={Info20Regular} className="shrink-0 text-text-disabled" />
-                        </Tooltip>
-                    ) : null}
-                </span>
-            }
-            isProcessing={isProcessing}
-            onSkip={onSkip}
-            onAccept={onRun}
-            skipLabel="Skip"
-            acceptLabel="Run"
-            footerLeft={<AutoRunModePicker disabled={isProcessing} />}
-        >
-            <div className="max-h-[96px] min-h-[48px] overflow-y-auto px-3 pb-2 font-mono text-sm text-text-primary whitespace-pre-wrap break-words custom-scrollbar">
-                <span className="select-none text-text-disabled">$ </span>
-                {command}
-            </div>
-        </ApprovalCard>
-    );
-}
+}) => (
+    <ApprovalCard
+        icon={
+            <Icon
+                icon={WindowConsole20Regular}
+                className="shrink-0 text-text-muted"
+            />
+        }
+        title={
+            <span className="inline-flex min-w-0 items-center gap-1.5">
+                <span>Run command</span>
+                {reason ? (
+                    <Tooltip content={reason} side="top">
+                        <Icon
+                            icon={Info20Regular}
+                            className="shrink-0 text-text-disabled"
+                        />
+                    </Tooltip>
+                ) : null}
+            </span>
+        }
+        isProcessing={isProcessing}
+        onSkip={onSkip}
+        onAccept={onRun}
+        skipLabel="Skip"
+        acceptLabel="Run"
+        footerLeft={<AutoRunModePicker disabled={isProcessing} />}
+    >
+        <div className="max-h-[96px] min-h-[48px] overflow-y-auto px-3 pb-2 font-mono text-sm text-text-primary whitespace-pre-wrap break-words custom-scrollbar">
+            <span className="select-none text-text-disabled">$ </span>
+            {command}
+        </div>
+    </ApprovalCard>
+);
 
-/** Compact terminal row for finished/rejected states + live card while running. */
-export const TerminalCommandStep = ({ block }: { block: Chunk }) => {
-    const command = (block.command || block.content || "").trim();
-    const chunkStatus = block.commandStatus || "completed";
-    const [localStatus, setLocalStatus] = useState<string | null>(null);
-    const [isProcessing, setIsProcessing] = useState(false);
+/** Checks whether the persisted transcript chunk has already reached a terminal status. */
+const isTranscriptChunkSettled = (
+    chunkStatus: string,
+    isGenerating: boolean | undefined,
+): boolean => !isGenerating && !LIVE_COMMAND_STATUSES.has(chunkStatus);
 
-    // Live events can outrun the transcript chunk (approval → start → exit).
-        const transcriptSettled =
-            !block.isGenerating
-            && chunkStatus !== "pending"
-            && chunkStatus !== "running"
-            && chunkStatus !== "background";
-    const couldBeLive =
-        !transcriptSettled
-        && (
-            chunkStatus === "pending"
-            || chunkStatus === "running"
-            || chunkStatus === "background"
-            || Boolean(block.isGenerating)
-        );
-    const stream = useAgentTerminalStream(block.commandId, couldBeLive, block.sessionId);
+/** Resolves the status emitted when `stream.phase === "finished"`. */
+const resolveFinishedStreamStatus = (stream: StreamState): string => {
+    if (stream.cancelled) return "cancelled";
+    return (stream.exitCode ?? 0) === 0 ? "completed" : "failed";
+};
 
-    // Approval resolution flips the card before any stream/chunk update lands.
+/** Resolves a live override status directly from `stream.phase` when active or finished. */
+const resolveActiveStreamStatus = (stream: StreamState): string | null => {
+    if (stream.phase === "finished") return resolveFinishedStreamStatus(stream);
+    if (stream.phase === "background" || stream.phase === "running") {
+        return stream.phase;
+    }
+    return null;
+};
+
+const UNSETTLED_APPROVED_STATUSES = new Set(["pending", "running"]);
+
+/** Resolves fallback status from `localStatus` and `chunkStatus` when `stream` is idle. */
+const resolveIdleFallbackStatus = (
+    localStatus: string | null,
+    chunkStatus: string,
+    isGenerating: boolean | undefined,
+): string => {
+    if (localStatus === "running" && !isGenerating) {
+        return UNSETTLED_APPROVED_STATUSES.has(chunkStatus)
+            ? "completed"
+            : chunkStatus;
+    }
+    return localStatus ?? chunkStatus;
+};
+
+/** Computes the effective status of a terminal command step across stream, local, and persisted state. */
+const computeEffectiveCommandStatus = (
+    stream: StreamState,
+    localStatus: string | null,
+    chunkStatus: string,
+    isGenerating: boolean | undefined,
+): string => {
+    const fromStream = resolveActiveStreamStatus(stream);
+    if (fromStream) return fromStream;
+    if (isTranscriptChunkSettled(chunkStatus, isGenerating)) return chunkStatus;
+    return resolveIdleFallbackStatus(localStatus, chunkStatus, isGenerating);
+};
+
+/** Resolves the command text from `block.command` or `block.content`. */
+const resolveBlockCommandText = (block: Chunk): string =>
+    (block.command ?? block.content ?? "").trim();
+
+/** Resolves the visible output text from live stream output or persisted chunk body. */
+const resolveStepOutputText = (streamOutput: string, block: Chunk): string =>
+    streamOutput ? streamOutput : stripTerminalChunkOutput(block);
+
+/** Resolves the human-readable row status label for a finished command step. */
+const resolveFinishedRowLabel = (
+    cancelled: boolean,
+    failed: boolean,
+): string => {
+    if (cancelled) return "Cancelled";
+    return failed ? "Failed" : "Ran";
+};
+
+/** Checks whether a finished command step failed by status or non-zero exit code. */
+const didCommandStepFail = (
+    effectiveStatus: string,
+    exitCode: number | undefined,
+): boolean =>
+    effectiveStatus === "failed" ||
+    (typeof exitCode === "number" && exitCode !== 0);
+
+/** Subscribes to `agent-command-resolved` while a pending command awaits approval. */
+const usePendingCommandResolution = (
+    chunkStatus: string,
+    commandId: string | undefined,
+    setLocalStatus: React.Dispatch<React.SetStateAction<string | null>>,
+): void => {
     useEffect(() => {
-        if (chunkStatus !== "pending" || !block.commandId) return undefined;
+        if (chunkStatus !== "pending" || !commandId) return undefined;
         let disposed = false;
         const unlistenPromise = safeListen<{ id?: string; approved?: boolean }>(
             "agent-command-resolved",
             (event) => {
-                if (disposed || event.payload?.id !== block.commandId) return;
-                setLocalStatus(event.payload?.approved ? "running" : "rejected");
+                if (!disposed && event.payload?.id === commandId) {
+                    setLocalStatus(
+                        event.payload.approved ? "running" : "rejected",
+                    );
+                }
             },
         );
         return () => {
             disposed = true;
-            unlistenPromise.then((unlisten) => unlisten()).catch(() => undefined);
+            unlistenPromise.then((fn) => fn()).catch(() => undefined);
         };
-    }, [chunkStatus, block.commandId]);
+    }, [chunkStatus, commandId, setLocalStatus]);
+};
 
-    const effectiveStatus = useMemo(() => {
-        if (stream.phase === "finished") {
-            if (stream.cancelled) return "cancelled";
-            return (stream.exitCode ?? 0) === 0 ? "completed" : "failed";
+/** Renders a running or backgrounded `TerminalCommandRow` for `TerminalCommandStep`. */
+const renderLiveTerminalRow = (
+    command: string,
+    effectiveStatus: string,
+    output: string,
+    waitingForInput: boolean,
+): React.ReactElement => (
+    <TerminalCommandRow
+        command={command}
+        statusLabel={
+            effectiveStatus === "background"
+                ? "Running in background"
+                : "Running"
         }
-        if (stream.phase === "background") return "background";
-        if (stream.phase === "running") return "running";
-
-        const transcriptDone =
-            !block.isGenerating
-            && chunkStatus !== "pending"
-            && chunkStatus !== "running"
-            && chunkStatus !== "background";
-        if (transcriptDone) return chunkStatus;
-
-        // Approved locally but the exit event was missed (fast fail / reload).
-        if (localStatus === "running" && !block.isGenerating && stream.phase === "idle") {
-            if (chunkStatus === "pending" || chunkStatus === "running") return "completed";
-            return chunkStatus;
+        output={output}
+        isRunning
+        defaultOpen
+        notice={
+            waitingForInput
+                ? "Waiting for input: the agent can answer with write_to_terminal, or you can stop the turn."
+                : undefined
         }
-        if (localStatus) return localStatus;
-        return chunkStatus;
-    }, [stream.phase, stream.cancelled, stream.exitCode, localStatus, chunkStatus, block.isGenerating]);
+    />
+);
 
-    const exitCode = stream.exitCode ?? block.exitCode;
+/** Renders a finished, rejected, or blocked `TerminalCommandRow` for `TerminalCommandStep`. */
+const renderSettledTerminalRow = (
+    command: string,
+    effectiveStatus: string,
+    output: string,
+    exitCode: number | undefined,
+): React.ReactElement => {
+    if (effectiveStatus === "rejected" || effectiveStatus === "blocked") {
+        return (
+            <TerminalCommandRow
+                command={command}
+                statusLabel={
+                    effectiveStatus === "rejected" ? "Rejected" : "Blocked"
+                }
+                output=""
+            />
+        );
+    }
+    const failed = didCommandStepFail(effectiveStatus, exitCode);
+    const cancelled = effectiveStatus === "cancelled";
+    return (
+        <TerminalCommandRow
+            command={command}
+            statusLabel={resolveFinishedRowLabel(cancelled, failed)}
+            output={output}
+            failed={failed && !cancelled}
+            exitCode={exitCode}
+        />
+    );
+};
 
-    const handleRun = useCallback(() => {
-        if (!block.commandId || isProcessing) return;
-        setIsProcessing(true);
-        commands
-            .approveTerminalCommand(block.commandId)
-            .then(() => setLocalStatus("running"))
-            .catch(() => setLocalStatus("error"))
-            .finally(() => setIsProcessing(false)).catch(() => undefined);
-    }, [block.commandId, isProcessing]);
+const ACTIVE_STEP_STATUSES = new Set(["running", "background"]);
 
-    const handleSkip = useCallback(() => {
-        if (!block.commandId || isProcessing) return;
-        setIsProcessing(true);
-        commands
-            .rejectTerminalCommand(block.commandId)
-            .then(() => setLocalStatus("rejected"))
-            .catch(() => setLocalStatus("error"))
-            .finally(() => setIsProcessing(false)).catch(() => undefined);
-    }, [block.commandId, isProcessing]);
+/** Renders the non-pending row view for `TerminalCommandStep`. */
+const renderNonPendingCommandStep = (
+    block: Chunk,
+    command: string,
+    effectiveStatus: string,
+    stream: StreamState,
+): React.ReactElement => {
+    const resolvedOutput = resolveStepOutputText(stream.output, block);
+    if (ACTIVE_STEP_STATUSES.has(effectiveStatus)) {
+        return renderLiveTerminalRow(
+            command,
+            effectiveStatus,
+            resolvedOutput,
+            stream.waitingForInput,
+        );
+    }
+    return renderSettledTerminalRow(
+        command,
+        effectiveStatus,
+        resolvedOutput,
+        stream.exitCode ?? block.exitCode,
+    );
+};
+
+/** Compact terminal row for finished/rejected states + live card while running. */
+export const TerminalCommandStep = ({ block }: { block: Chunk }) => {
+    const command = resolveBlockCommandText(block);
+    const chunkStatus = block.commandStatus ?? "completed";
+    const [localStatus, setLocalStatus] = useState<string | null>(null);
+    const [isProcessing, setIsProcessing] = useState(false);
+
+    const couldBeLive = !isTranscriptChunkSettled(
+        chunkStatus,
+        block.isGenerating,
+    );
+    const stream = useAgentTerminalStream(
+        block.commandId,
+        couldBeLive,
+        block.sessionId,
+    );
+
+    usePendingCommandResolution(chunkStatus, block.commandId, setLocalStatus);
+
+    const effectiveStatus = useMemo(
+        () =>
+            computeEffectiveCommandStatus(
+                stream,
+                localStatus,
+                chunkStatus,
+                block.isGenerating,
+            ),
+        [stream, localStatus, chunkStatus, block.isGenerating],
+    );
+
+    const runDecision = useCallback(
+        (action: (id: string) => Promise<unknown>, nextStatus: string) => {
+            if (!block.commandId || isProcessing) return;
+            setIsProcessing(true);
+            action(block.commandId)
+                .then(() => setLocalStatus(nextStatus))
+                .catch(() => setLocalStatus("error"))
+                .finally(() => setIsProcessing(false));
+        },
+        [block.commandId, isProcessing],
+    );
 
     if (effectiveStatus === "pending") {
         return (
@@ -583,64 +1004,15 @@ export const TerminalCommandStep = ({ block }: { block: Chunk }) => {
                 command={command}
                 reason={block.commandReason}
                 isProcessing={isProcessing}
-                onRun={handleRun}
-                onSkip={handleSkip}
-            />
-        );
-    }
-
-    if (effectiveStatus === "rejected" || effectiveStatus === "blocked") {
-        return (
-            <TerminalCommandRow
-                command={command}
-                statusLabel={effectiveStatus === "rejected" ? "Rejected" : "Blocked"}
-                output=""
-            />
-        );
-    }
-
-    if (effectiveStatus === "running" || effectiveStatus === "background") {
-        const liveText = stream.output || stripTerminalChunkOutput(block);
-        return (
-            <TerminalCommandRow
-                command={command}
-                statusLabel={effectiveStatus === "background" ? "Running in background" : "Running"}
-                output={liveText}
-                isRunning
-                defaultOpen
-                notice={
-                    stream.waitingForInput
-                        ? "Waiting for input: the agent can answer with write_to_terminal, or you can stop the turn."
-                        : undefined
+                onRun={() =>
+                    runDecision(commands.approveTerminalCommand, "running")
+                }
+                onSkip={() =>
+                    runDecision(commands.rejectTerminalCommand, "rejected")
                 }
             />
         );
     }
 
-    // Terminal finished states: completed / failed / cancelled / error.
-    const staticOutput = stream.output || stripTerminalChunkOutput(block);
-    const failed = effectiveStatus === "failed" || (typeof exitCode === "number" && exitCode !== 0);
-    const cancelled = effectiveStatus === "cancelled";
-    const statusLabel = cancelled ? "Cancelled" : failed ? "Failed" : "Ran";
-
-    return (
-        <TerminalCommandRow
-            command={command}
-            statusLabel={statusLabel}
-            output={staticOutput}
-            failed={failed && !cancelled}
-            exitCode={exitCode}
-        />
-    );
+    return renderNonPendingCommandStep(block, command, effectiveStatus, stream);
 };
-
-/** Output portion of a persisted terminal chunk (body minus the command line). */
-function stripTerminalChunkOutput(block: Chunk): string {
-    const content = block.content || "";
-    const command = (block.command || "").trim();
-    const lines = content.split("\n");
-    if (lines[0]?.trim() === command) {
-        return lines.slice(1).join("\n").trim();
-    }
-    return content.trim() === command ? "" : content.trim();
-}

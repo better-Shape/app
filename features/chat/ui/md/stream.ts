@@ -1,54 +1,813 @@
+type FenceMarkerInfo = {
+    char: string;
+    len: number;
+    suffix: string;
+};
+
+type ListScopeEntry = {
+    quoteDepth: number;
+    contentIndent: number;
+};
+
+export type CodeFenceState = {
+    ranges: Array<readonly [number, number]>;
+    fenceStart: number;
+    fenceChar: string;
+    fenceLen: number;
+    fenceQuoteDepth: number;
+    fenceListIndent: number;
+};
+
+const LIST_MARKER_PREFIX_RE = /^(?:[-*+]|\d{1,9}[.)])(?=[ \t]|$)/u;
+
+/** Advances past up to 3 ASCII spaces starting at `from`. */
+const skipUpToThreeSpaces = (line: string, from: number): number => {
+    let idx = from;
+    while (idx - from < 3 && line.charCodeAt(idx) === 32) {
+        idx += 1;
+    }
+    return idx;
+};
+
+/** Advances past one optional space or tab following a `>` blockquote marker. */
+const skipOptionalQuoteSpace = (line: string, afterGt: number): number => {
+    const code = line.charCodeAt(afterGt);
+    return code === 32 || code === 9 ? afterGt + 1 : afterGt;
+};
+
+/** Strips up to `maxQuotes` CommonMark `>` blockquote prefixes from `line`. */
+const readBlockquotePrefix = (
+    line: string,
+    maxQuotes: number,
+): { afterQuotes: number; quoteDepth: number } => {
+    let cursor = 0;
+    let quoteDepth = 0;
+    while (cursor < line.length && quoteDepth < maxQuotes) {
+        const afterSpaces = skipUpToThreeSpaces(line, cursor);
+        if (line.charCodeAt(afterSpaces) !== 62) break;
+        quoteDepth += 1;
+        cursor = skipOptionalQuoteSpace(line, afterSpaces + 1);
+    }
+    return { afterQuotes: cursor, quoteDepth };
+};
+
+/** Computes next visual column for a single space or tab code unit (`-1` otherwise). */
+const advanceIndentStep = (col: number, code: number): number => {
+    if (code === 32) return col + 1;
+    if (code === 9) return col + 4 - (col % 4);
+    return -1;
+};
+
+/** Measures leading space/tab indentation starting at `(from, startCol)` using 4-column CommonMark tab stops. */
+const measureLeadingIndent = (
+    line: string,
+    from: number,
+    startCol = 0,
+): { indent: number; offset: number } => {
+    let col = startCol;
+    let offset = from;
+    while (offset < line.length) {
+        const next = advanceIndentStep(col, line.charCodeAt(offset));
+        if (next < 0) break;
+        col = next;
+        offset += 1;
+    }
+    return { indent: col - startCol, offset };
+};
+
+/** Returns CommonMark list marker width (`-`, `*`, `+`, `1.`, `1)`) at `offset`, or `0` if none. */
+const readListMarkerWidth = (line: string, offset: number): number => {
+    const match = LIST_MARKER_PREFIX_RE.exec(line.slice(offset));
+    return match ? match[0].length : 0;
+};
+
+/** Resolves CommonMark post-marker content column padding (`1` on blank or indented code `> 4`). */
+const resolvePostMarkerPadding = (
+    postIndent: number,
+    isBlankRest: boolean,
+): number => (isBlankRest || postIndent > 4 ? 1 : postIndent);
+
+/** Checks whether `entry` exited at `(quoteDepth, indent, isBlank)`. */
+const hasExitedListScope = (
+    entry: ListScopeEntry,
+    quoteDepth: number,
+    indent: number,
+    isBlank: boolean,
+): boolean => {
+    if (entry.quoteDepth > quoteDepth) return true;
+    if (isBlank) return false;
+    return entry.quoteDepth === quoteDepth && indent < entry.contentIndent;
+};
+
+/** Pops open list-item scopes whose blockquote or content column has ended. */
+const pruneExitedListScopes = (
+    stack: ListScopeEntry[],
+    quoteDepth: number,
+    indent: number,
+    isBlank: boolean,
+): void => {
+    while (stack.length > 0) {
+        const top = stack[stack.length - 1];
+        if (!top || !hasExitedListScope(top, quoteDepth, indent, isBlank)) {
+            break;
+        }
+        stack.pop();
+    }
+};
+
+/** Reads active list-item content column at `quoteDepth` (`0` when outside any list item). */
+const currentListIndentAtQuote = (
+    stack: ListScopeEntry[],
+    quoteDepth: number,
+): number => {
+    const top = stack[stack.length - 1];
+    return top && top.quoteDepth === quoteDepth ? top.contentIndent : 0;
+};
+
+/** Pushes a CommonMark list-item scope when `line` at `offset` starts a list marker within `3` spaces. */
+const tryAdvanceListMarker = (
+    stack: ListScopeEntry[],
+    line: string,
+    quoteDepth: number,
+    indent: number,
+    offset: number,
+): { offset: number; relativeIndent: number } | null => {
+    const activeIndent = currentListIndentAtQuote(stack, quoteDepth);
+    if (indent > activeIndent + 3) return null;
+    const markerWidth = readListMarkerWidth(line, offset);
+    if (markerWidth === 0) return null;
+    const markerEndCol = indent + markerWidth;
+    const post = measureLeadingIndent(line, offset + markerWidth, markerEndCol);
+    const pad = resolvePostMarkerPadding(
+        post.indent,
+        post.offset >= line.length,
+    );
+    stack.push({ quoteDepth, contentIndent: markerEndCol + pad });
+    return {
+        offset: post.offset,
+        relativeIndent: post.indent > 4 ? post.indent - 1 : 0,
+    };
+};
+
+/** Updates `stack` for `line` and returns the candidate fence offset and relative indent. */
+const resolveProseFenceCandidate = (
+    stack: ListScopeEntry[],
+    line: string,
+    afterQuotes: number,
+    quoteDepth: number,
+): { offset: number; relativeIndent: number; listIndent: number } => {
+    const initial = measureLeadingIndent(line, afterQuotes);
+    pruneExitedListScopes(
+        stack,
+        quoteDepth,
+        initial.indent,
+        initial.offset >= line.length,
+    );
+    let offset = initial.offset;
+    let relativeIndent =
+        initial.indent - currentListIndentAtQuote(stack, quoteDepth);
+    while (offset < line.length) {
+        const absIndent =
+            currentListIndentAtQuote(stack, quoteDepth) + relativeIndent;
+        const stepped = tryAdvanceListMarker(
+            stack,
+            line,
+            quoteDepth,
+            absIndent,
+            offset,
+        );
+        if (!stepped) break;
+        offset = stepped.offset;
+        relativeIndent = stepped.relativeIndent;
+    }
+    return {
+        offset,
+        relativeIndent,
+        listIndent: currentListIndentAtQuote(stack, quoteDepth),
+    };
+};
+
+/** Counts consecutive `markerChar` characters starting at `from`. */
+const countRepeatedChar = (
+    line: string,
+    from: number,
+    markerChar: string,
+): number => {
+    let end = from;
+    while (end < line.length && line.charAt(end) === markerChar) {
+        end += 1;
+    }
+    return end - from;
+};
+
+/** Parses a CommonMark fence marker (`>= 3` backticks or tildes) starting at `offset`. */
+const parseFenceMarkerAt = (
+    line: string,
+    offset: number,
+): FenceMarkerInfo | null => {
+    const markerChar = line.charAt(offset);
+    if (markerChar !== "`" && markerChar !== "~") return null;
+    const len = countRepeatedChar(line, offset, markerChar);
+    if (len < 3) return null;
+    return { char: markerChar, len, suffix: line.slice(offset + len) };
+};
+
+/** Checks whether `parsed` opens a CommonMark fenced code block. */
+const isOpeningStreamFence = (
+    parsed: FenceMarkerInfo | null,
+): parsed is FenceMarkerInfo =>
+    Boolean(parsed && (parsed.char !== "`" || !parsed.suffix.includes("`")));
+
+/** Checks whether `parsed` closes an open CommonMark fenced code block. */
+const isClosingStreamFence = (
+    parsed: FenceMarkerInfo | null,
+    fenceChar: string,
+    fenceLen: number,
+): boolean =>
+    Boolean(
+        parsed &&
+            parsed.char === fenceChar &&
+            parsed.len >= fenceLen &&
+            /^[ \t]*$/u.test(parsed.suffix),
+    );
+
+/** Clamps a raw `indexOf` result to `-1` when it reaches or exceeds `limit`. */
+const clampIndexBelowLimit = (idx: number, limit: number): number =>
+    idx !== -1 && idx < limit ? idx : -1;
+
+/** Builds `{ breakStart, breakEnd }` for `\n` at `lf`, or `null` when `lf === -1`. */
+const buildLfLineEndingOrNull = (
+    lf: number,
+): { breakStart: number; breakEnd: number } | null =>
+    lf === -1 ? null : { breakStart: lf, breakEnd: lf + 1 };
+
+/** Computes `{ breakStart, breakEnd }` for a `\r` or `\r\n` line ending starting at `cr`. */
+const buildCrLineEnding = (
+    cr: number,
+    lf: number,
+): { breakStart: number; breakEnd: number } => ({
+    breakStart: cr,
+    breakEnd: lf === cr + 1 ? cr + 2 : cr + 1,
+});
+
+/** Finds the next CommonMark §2.1 line ending (`\n`, `\r\n`, or `\r`) within `[from, limit)`. */
+const findNextLineEndingInRange = (
+    text: string,
+    from: number,
+    limit: number,
+): { breakStart: number; breakEnd: number } | null => {
+    const lf = clampIndexBelowLimit(text.indexOf("\n", from), limit);
+    const cr = clampIndexBelowLimit(text.indexOf("\r", from), limit);
+    if (cr === -1) return buildLfLineEndingOrNull(lf);
+    return lf !== -1 && lf < cr
+        ? { breakStart: lf, breakEnd: lf + 1 }
+        : buildCrLineEnding(cr, lf);
+};
+
+/** Reads one line from `text` starting at `cursor`, returning the line text and next offset. */
+export const readLineSliceAt = (
+    text: string,
+    cursor: number,
+): { lineText: string; afterLine: number } => {
+    const brk = findNextLineEndingInRange(text, cursor, text.length);
+    if (!brk) {
+        return { lineText: text.slice(cursor), afterLine: text.length };
+    }
+    return {
+        lineText: text.slice(cursor, brk.breakStart),
+        afterLine: brk.breakEnd,
+    };
+};
+
+/** Resets open fence tracking fields on `CodeFenceState` after recording `[fenceStart, endOffset)`. */
+const closeCodeFenceRangeAt = (
+    state: CodeFenceState,
+    endOffset: number,
+): void => {
+    state.ranges.push([state.fenceStart, endOffset]);
+    state.fenceStart = -1;
+    state.fenceChar = "";
+    state.fenceLen = 0;
+    state.fenceQuoteDepth = 0;
+    state.fenceListIndent = 0;
+};
+
+/** Checks whether `line` at `(indent, offset)` explicitly closes `state`'s active fence. */
+const isExplicitFenceCloserAt = (
+    state: CodeFenceState,
+    line: string,
+    indent: number,
+    offset: number,
+): boolean => {
+    if (indent > state.fenceListIndent + 3) return false;
+    const marker = parseFenceMarkerAt(line, offset);
+    return isClosingStreamFence(marker, state.fenceChar, state.fenceLen);
+};
+
+/** Checks whether a non-blank line dedented out of `state`'s enclosing list item. */
+const isListFenceDedentExit = (
+    lineLength: number,
+    offset: number,
+    indent: number,
+    fenceListIndent: number,
+): boolean => offset < lineLength && indent < fenceListIndent;
+
+/** Consumes `line` inside an open fence, or closes at `cursor` and returns `false` on container exit. */
+const tryConsumeOpenFenceLine = (
+    state: CodeFenceState,
+    line: string,
+    cursor: number,
+    afterLine: number,
+): boolean => {
+    const { afterQuotes, quoteDepth } = readBlockquotePrefix(
+        line,
+        state.fenceQuoteDepth,
+    );
+    if (quoteDepth < state.fenceQuoteDepth) {
+        closeCodeFenceRangeAt(state, cursor);
+        return false;
+    }
+    const { indent, offset } = measureLeadingIndent(line, afterQuotes);
+    if (isListFenceDedentExit(line.length, offset, indent, state.fenceListIndent)) {
+        closeCodeFenceRangeAt(state, cursor);
+        return false;
+    }
+    if (isExplicitFenceCloserAt(state, line, indent, offset)) {
+        closeCodeFenceRangeAt(state, afterLine);
+        return true;
+    }
+    return true;
+};
+
+/** Updates list scopes on `line` and opens a fence on `state` when a valid opener is present. */
+const tryOpenFenceOnLine = (
+    state: CodeFenceState,
+    stack: ListScopeEntry[],
+    line: string,
+    cursor: number,
+): void => {
+    const { afterQuotes, quoteDepth } = readBlockquotePrefix(
+        line,
+        Number.POSITIVE_INFINITY,
+    );
+    const candidate = resolveProseFenceCandidate(
+        stack,
+        line,
+        afterQuotes,
+        quoteDepth,
+    );
+    if (candidate.relativeIndent > 3) return;
+    const marker = parseFenceMarkerAt(line, candidate.offset);
+    if (!isOpeningStreamFence(marker)) return;
+    state.fenceStart = cursor;
+    state.fenceChar = marker.char;
+    state.fenceLen = marker.len;
+    state.fenceQuoteDepth = quoteDepth;
+    state.fenceListIndent = candidate.listIndent;
+};
+
+/** Strips a trailing `\r` from a CRLF line slice. */
+const stripTrailingCarriageReturn = (rawLine: string): string =>
+    rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
+
+/** Advances `CodeFenceState` across one line `[cursor, afterLine)`. */
+const stepCodeFenceRangeLine = (
+    state: CodeFenceState,
+    stack: ListScopeEntry[],
+    rawLine: string,
+    cursor: number,
+    afterLine: number,
+): void => {
+    const line = stripTrailingCarriageReturn(rawLine);
+    if (state.fenceChar && tryConsumeOpenFenceLine(state, line, cursor, afterLine)) {
+        return;
+    }
+    tryOpenFenceOnLine(state, stack, line, cursor);
+};
+
+/** Scans CommonMark fenced code blocks from `fromIndex`, returning `[start, end)` ranges plus any open tail. */
+export const scanMarkdownCodeFences = (
+    text: string,
+    fromIndex = 0,
+): CodeFenceState => {
+    const state: CodeFenceState = {
+        ranges: [],
+        fenceStart: -1,
+        fenceChar: "",
+        fenceLen: 0,
+        fenceQuoteDepth: 0,
+        fenceListIndent: 0,
+    };
+    if (!text.includes("```", fromIndex) && !text.includes("~~~", fromIndex)) {
+        return state;
+    }
+    const stack: ListScopeEntry[] = [];
+    let cursor = fromIndex;
+    while (cursor < text.length) {
+        const { lineText, afterLine } = readLineSliceAt(text, cursor);
+        stepCodeFenceRangeLine(state, stack, lineText, cursor, afterLine);
+        cursor = afterLine;
+    }
+    if (state.fenceChar) {
+        state.ranges.push([state.fenceStart, text.length]);
+    }
+    return state;
+};
+
+/** Applies `fn` to prose segments between `ranges` while preserving fenced blocks verbatim. */
+const appendProseAndFenceRanges = (
+    text: string,
+    ranges: ReadonlyArray<readonly [number, number]>,
+    fn: (prose: string) => string,
+): string => {
+    const out: string[] = [];
+    let cursor = 0;
+    for (const [start, end] of ranges) {
+        if (cursor < start) out.push(fn(text.slice(cursor, start)));
+        out.push(text.slice(start, end));
+        cursor = end;
+    }
+    if (cursor < text.length) out.push(fn(text.slice(cursor)));
+    return out.join("");
+};
+
+/** Apply `fn` only to prose outside CommonMark backtick or tilde fenced code blocks. */
+const mapOutsideCodeFences = (
+    text: string,
+    fn: (prose: string) => string,
+): string => {
+    if (!text.includes("```") && !text.includes("~~~")) return fn(text);
+    const { ranges } = scanMarkdownCodeFences(text, 0);
+    return ranges.length === 0
+        ? fn(text)
+        : appendProseAndFenceRanges(text, ranges, fn);
+};
+
+type BacktickRunToken = {
+    tick: number;
+    fullLen: number;
+    escapedFirst: boolean;
+};
+
+type BacktickCloserBuckets = Map<number, { indices: number[]; cursor: number }>;
+
+/** Checks whether `text[index]` is preceded by an odd number of `\` within `[segStart, index)`. */
+const isBackslashEscapedAt = (
+    text: string,
+    segStart: number,
+    index: number,
+): boolean => {
+    let backslashes = 0;
+    let cursor = index - 1;
+    while (cursor >= segStart && text.charCodeAt(cursor) === 0x5c) {
+        backslashes += 1;
+        cursor -= 1;
+    }
+    return backslashes % 2 === 1;
+};
+
+/** Counts consecutive backticks starting at `from` up to `limit`. */
+const countBoundedBacktickRun = (
+    text: string,
+    from: number,
+    limit: number,
+): number => {
+    let idx = from;
+    while (idx < limit && text.charCodeAt(idx) === 0x60) {
+        idx += 1;
+    }
+    return idx - from;
+};
+
+/** Appends run index `runIdx` into the closer bucket for `fullLen`. */
+const pushCloserBucketEntry = (
+    buckets: BacktickCloserBuckets,
+    fullLen: number,
+    runIdx: number,
+): void => {
+    const existing = buckets.get(fullLen);
+    if (existing) {
+        existing.indices.push(runIdx);
+    } else {
+        buckets.set(fullLen, { indices: [runIdx], cursor: 0 });
+    }
+};
+
+/** Collects all maximal backtick runs within a single paragraph `[pStart, pEnd)` in one O(n) pass. */
+const scanParagraphBacktickRuns = (
+    text: string,
+    pStart: number,
+    pEnd: number,
+): { runs: BacktickRunToken[]; buckets: BacktickCloserBuckets } => {
+    const runs: BacktickRunToken[] = [];
+    const buckets: BacktickCloserBuckets = new Map();
+    let pos = pStart;
+    while (pos < pEnd) {
+        const tick = text.indexOf("`", pos);
+        if (tick === -1 || tick >= pEnd) break;
+        const fullLen = countBoundedBacktickRun(text, tick, pEnd);
+        const escapedFirst = isBackslashEscapedAt(text, pStart, tick);
+        // Per CommonMark §6.1, backslash escapes are not processed inside code spans,
+        // so any maximal backtick run of matching length closes an open span even after `\`.
+        pushCloserBucketEntry(buckets, fullLen, runs.length);
+        runs.push({ tick, fullLen, escapedFirst });
+        pos = tick + fullLen;
+    }
+    return { runs, buckets };
+};
+
+/** Resolves the effective opener start and backtick count for `token`, or `null` when fully escaped. */
+const resolveBacktickOpener = (
+    token: BacktickRunToken,
+): { openStart: number; openLen: number } | null => {
+    if (!token.escapedFirst) {
+        return { openStart: token.tick, openLen: token.fullLen };
+    }
+    return token.fullLen > 1
+        ? { openStart: token.tick + 1, openLen: token.fullLen - 1 }
+        : null;
+};
+
+/** Finds the next closer run index `> openRunIdx` of length `openLen` in amortized O(1) time. */
+const takeNextMatchingCloserIndex = (
+    buckets: BacktickCloserBuckets,
+    openLen: number,
+    openRunIdx: number,
+): number => {
+    const bucket = buckets.get(openLen);
+    if (!bucket) return -1;
+    while (
+        bucket.cursor < bucket.indices.length &&
+        bucket.indices[bucket.cursor] <= openRunIdx
+    ) {
+        bucket.cursor += 1;
+    }
+    if (bucket.cursor >= bucket.indices.length) return -1;
+    const matched = bucket.indices[bucket.cursor];
+    bucket.cursor += 1;
+    return matched;
+};
+
+/** Attempts to pair `runs[idx]` with a matching closer in `buckets`, returning the span end or `-1`. */
+const tryPairParagraphBacktickSpan = (
+    runs: BacktickRunToken[],
+    buckets: BacktickCloserBuckets,
+    idx: number,
+    out: Array<[number, number]>,
+): number => {
+    const opener = resolveBacktickOpener(runs[idx]);
+    if (!opener) return -1;
+    const closerIdx = takeNextMatchingCloserIndex(buckets, opener.openLen, idx);
+    if (closerIdx === -1) return -1;
+    const closer = runs[closerIdx];
+    const closeEnd = closer.tick + closer.fullLen;
+    out.push([opener.openStart, closeEnd]);
+    return closeEnd;
+};
+
+/** Matches backtick runs inside a single paragraph `[pStart, pEnd)` in O(n) time and appends spans to `out`. */
+const appendParagraphInlineCodeSpans = (
+    text: string,
+    pStart: number,
+    pEnd: number,
+    out: Array<[number, number]>,
+): void => {
+    if (pEnd <= pStart) return;
+    const { runs, buckets } = scanParagraphBacktickRuns(text, pStart, pEnd);
+    let minTick = pStart;
+    for (let idx = 0; idx < runs.length; idx += 1) {
+        if (runs[idx].tick >= minTick) {
+            const closeEnd = tryPairParagraphBacktickSpan(runs, buckets, idx, out);
+            if (closeEnd !== -1) minTick = closeEnd;
+        }
+    }
+};
+
+/** Checks whether `text` has `\r\n` starting at `pos` within `segEnd`. */
+const isCrLfAt = (text: string, segEnd: number, pos: number): boolean =>
+    pos + 1 < segEnd &&
+    text.charCodeAt(pos) === 0x0d &&
+    text.charCodeAt(pos + 1) === 0x0a;
+
+/** Advances past ASCII spaces (`0x20`) and tabs (`0x09`) starting at `from` up to `limit`. */
+const skipHorizontalSpace = (
+    text: string,
+    from: number,
+    limit: number,
+): number => {
+    let idx = from;
+    while (idx < limit) {
+        const code = text.charCodeAt(idx);
+        if (code !== 0x20 && code !== 0x09) break;
+        idx += 1;
+    }
+    return idx;
+};
+
+/** Resolves the end offset (`pos + 2` for `\r\n`, `pos + 1` for `\r`) of a CR break at `pos`. */
+const resolveCrBreakEndAt = (
+    text: string,
+    segEnd: number,
+    pos: number,
+): number => (isCrLfAt(text, segEnd, pos) ? pos + 2 : pos + 1);
+
+/** Returns the end offset of a CommonMark line ending starting right at `pos`, or `-1`. */
+const readLineBreakEndAt = (
+    text: string,
+    segEnd: number,
+    pos: number,
+): number => {
+    if (pos >= segEnd) return -1;
+    const code = text.charCodeAt(pos);
+    if (code === 0x0a) return pos + 1;
+    return code === 0x0d ? resolveCrBreakEndAt(text, segEnd, pos) : -1;
+};
+
+/** Returns the index right after a CommonMark blank line starting at `breakEnd`, or `-1` when non-blank. */
+const resolveBreakEndAfterLineEnding = (
+    text: string,
+    segEnd: number,
+    breakEnd: number,
+): number =>
+    readLineBreakEndAt(
+        text,
+        segEnd,
+        skipHorizontalSpace(text, breakEnd, segEnd),
+    );
+
+/** Appends closed single-paragraph CommonMark inline code spans within `[segStart, segEnd)` to `out` in O(n) time. */
+export const appendInlineCodeSpansInRange = (
+    text: string,
+    segStart: number,
+    segEnd: number,
+    out: Array<[number, number]>,
+): void => {
+    let paraStart = segStart;
+    let scanPos = segStart;
+    while (scanPos < segEnd) {
+        const brk = findNextLineEndingInRange(text, scanPos, segEnd);
+        if (!brk) break;
+        const resumeAt = resolveBreakEndAfterLineEnding(
+            text,
+            segEnd,
+            brk.breakEnd,
+        );
+        if (resumeAt !== -1) {
+            appendParagraphInlineCodeSpans(text, paraStart, brk.breakStart, out);
+            paraStart = resumeAt;
+            scanPos = resumeAt;
+        } else {
+            scanPos = brk.breakEnd;
+        }
+    }
+    appendParagraphInlineCodeSpans(text, paraStart, segEnd, out);
+};
+
+/** Collects `[start, end]` offsets for closed inline backtick code spans in O(n) time. */
+const collectInlineCodeRanges = (input: string): Array<[number, number]> => {
+    if (!input.includes("`")) return [];
+    const ranges: Array<[number, number]> = [];
+    appendInlineCodeSpansInRange(input, 0, input.length, ranges);
+    return ranges;
+};
+
+/** Applies `fn` only to prose slices outside closed inline backtick code spans. */
+const mapOutsideInlineCodeSpans = (
+    prose: string,
+    fn: (slice: string) => string,
+): string => {
+    const ranges = collectInlineCodeRanges(prose);
+    if (ranges.length === 0) return fn(prose);
+    const parts: string[] = [];
+    let cursor = 0;
+    for (const [start, end] of ranges) {
+        if (start > cursor) parts.push(fn(prose.slice(cursor, start)));
+        parts.push(prose.slice(start, end));
+        cursor = end;
+    }
+    if (cursor < prose.length) parts.push(fn(prose.slice(cursor)));
+    return parts.join("");
+};
+
+/** Close an unclosed fenced code block so streaming markdown does not swallow the rest as mono code. */
+const balanceMarkdownFences = (text: string): string => {
+    const state = scanMarkdownCodeFences(text, 0);
+    if (!state.fenceChar) return text;
+    const quotePrefix = "> ".repeat(state.fenceQuoteDepth);
+    const listIndent = " ".repeat(state.fenceListIndent);
+    return `${text}\n${quotePrefix}${listIndent}${state.fenceChar.repeat(state.fenceLen)}`;
+};
+
+/** Removes stray thinking tags that leaked into plain prose outside code fences. */
+const stripOrphanThinkTagsInProse = (prose: string): string => {
+    if (!prose.includes("<")) return prose;
+    return prose.replace(
+        /<\/?(?:redacted_thinking|thinking|reasoning|think)(?:[ \t][^<>\n]*)?>[ \t]*\r?\n?/giu,
+        "",
+    );
+};
+
 /** Remove stray thinking tags that leaked into plain text. */
 export const stripOrphanThinkTags = (text: string): string => {
     if (!text.includes("<")) return text;
-    return text
-        .replace(/<\/?redacted_thinking[^>]*>\s*/gi, "")
-        .replace(/<\/?thinking[^>]*>\s*/gi, "")
-        .replace(/<\/?reasoning[^>]*>\s*/gi, "")
-        .replace(/<\/?think[^>]*>\s*/gi, "");
+    return mapOutsideCodeFences(text, (prose) =>
+        mapOutsideInlineCodeSpans(prose, stripOrphanThinkTagsInProse),
+    );
 };
 
-// The rule it guards is `/gi`, so probe case-insensitively: `_EXECUTE` must not
-// fall through the fast path and survive in the rendered message.
-const hasExecuteDump = (text: string) => /_[eE]xecute/i.test(text);
-
-const LEAKED_TOOL_CALL_FN_RE =
-    /(?:default_api\.[a-zA-Z_]\w*|render_design_previews|read_file|edit_file|write_file|grep_search|run_terminal|web_search|list_terminals|terminal_read|terminal_input)/;
-const LEAKED_PRINT_FN_RE = new RegExp(`\\bprint\\s*\\(\\s*${LEAKED_TOOL_CALL_FN_RE.source}\\s*\\(`);
-const LEAKED_FUNCTIONS_CALL_RE = new RegExp(`^functions\\.${LEAKED_TOOL_CALL_FN_RE.source}\\s*\\(`);
+const LEAKED_PRINT_FN_RE =
+    /\bprint\s*\(\s*(?:default_api\.[a-zA-Z_]\w*|render_design_previews|read_file|edit_file|write_file|grep_search|run_terminal|web_search|list_terminals|terminal_read|terminal_input)\s*\(/;
+const LEAKED_FUNCTIONS_CALL_RE =
+    /^functions\.(?:default_api\.[a-zA-Z_]\w*|render_design_previews|read_file|edit_file|write_file|grep_search|run_terminal|web_search|list_terminals|terminal_read|terminal_input)\s*\(/;
 const GENERIC_FUNCTIONS_CALL_RE = /^functions\.[a-zA-Z_][a-zA-Z0-9_]*\s*\(/;
+const GENERIC_PRINT_CALL_RE = /\bprint\s*\(\s*[a-zA-Z_][a-zA-Z0-9_]*\s*\(/;
+const LEAKED_XML_ROOT_OPEN_RE =
+    /^<(tool_calls?|function_calls?|minimax:tool_call|tool_code)(?:[\s>/]|$)/iu;
+const LEAKED_XML_PAYLOAD_RE =
+    /"(?:tool_)?name"\s*:|"arguments"\s*:|"parameters"\s*:|<(?:invoke|parameter|function|tool_code|arg_key|arg_value)(?:[\s=>/]|$)|\b[a-zA-Z_]\w*\s*\(/iu;
+
+const LEAKED_PRINT_LINE_RE =
+    /(?:^|\n)[ \t]*print\s*\(\s*(?:default_api\.[a-zA-Z_]\w*|render_design_previews|read_file|edit_file|write_file|grep_search|run_terminal|web_search|list_terminals|terminal_read|terminal_input)\s*\([^\n]*\)\s*\)[ \t]*(?=\n|$)/g;
+const LEAKED_PRINT_TAIL_RE =
+    /(?:^|\n)[ \t]*print\s*\(\s*(?:default_api\.[a-zA-Z_]\w*|render_design_previews|read_file|edit_file|write_file|grep_search|run_terminal|web_search|list_terminals|terminal_read|terminal_input)\s*\([^\n]*$/g;
+const LEAKED_FN_LINE_RE =
+    /(?:^|\n)[ \t]*functions\.(?:default_api\.[a-zA-Z_]\w*|render_design_previews|read_file|edit_file|write_file|grep_search|run_terminal|web_search|list_terminals|terminal_read|terminal_input)\s*\(\{[^\n]*\}\)[ \t]*(?=\n|$)/g;
+const LEAKED_FN_TAIL_RE =
+    /(?:^|\n)[ \t]*functions\.(?:default_api\.[a-zA-Z_]\w*|render_design_previews|read_file|edit_file|write_file|grep_search|run_terminal|web_search|list_terminals|terminal_read|terminal_input)\s*\(\{[^\n]*$/g;
+
+/** Checks whether a single trimmed line matches a leaked tool invocation signature. */
+const isLeakedToolInvocationLine = (
+    line: string,
+    hasPrintCall: boolean,
+    hasExecute: boolean,
+): boolean => {
+    if (hasPrintCall && line === "tool_code") return true;
+    if (LEAKED_FUNCTIONS_CALL_RE.test(line)) return true;
+    return hasExecute && GENERIC_FUNCTIONS_CALL_RE.test(line);
+};
+
+/** Checks whether any line in `trimmed` matches a leaked `tool_code` or `functions.*` call. */
+const hasLeakedInvocationLine = (
+    trimmed: string,
+    hasExecute: boolean,
+): boolean => {
+    const hasPrintCall = /\bprint\s*\(/.test(trimmed);
+    for (const rawLine of trimmed.split("\n")) {
+        const line = rawLine.trim();
+        if (line && isLeakedToolInvocationLine(line, hasPrintCall, hasExecute)) {
+            return true;
+        }
+    }
+    return false;
+};
+
+const EXECUTE_DUMP_RE =
+    /(?:^|\n)[ \t]*_execute[ \t]*\r?\n[ \t]*(?:tool_name|name)[ \t]*:/iu;
+
+/** Case-insensitive probe for leaked `_execute` + `tool_name:`/`name:` tool-dump blocks. */
+const hasExecuteDump = (text: string): boolean => EXECUTE_DUMP_RE.test(text);
+
+/** Checks whether a `"tool_code"` JSON payload contains a leaked tool-call trigger. */
+const isLeakedToolCodeJson = (trimmed: string): boolean =>
+    /^[{[][\s\S]*"tool_code"\s*:/u.test(trimmed);
+
+/** Checks whether `trimmed` starts with a root XML tool-call dump rather than sample code mentioning a tag. */
+const isLeakedXmlToolBlock = (trimmed: string): boolean => {
+    const match = LEAKED_XML_ROOT_OPEN_RE.exec(trimmed);
+    if (!match) return false;
+    const rootTag = match[1].toLowerCase();
+    if (!trimmed.toLowerCase().includes(`</${rootTag}>`)) return true;
+    return LEAKED_XML_PAYLOAD_RE.test(trimmed);
+};
+
+/** Checks whether `trimmed` starts with a leaked JSON `tool_code` or `print(...)` wrapper. */
+const hasDirectToolLeakSignature = (
+    trimmed: string,
+    hasExecute: boolean,
+): boolean => {
+    if (isLeakedToolCodeJson(trimmed) || LEAKED_PRINT_FN_RE.test(trimmed)) {
+        return true;
+    }
+    return hasExecute && GENERIC_PRINT_CALL_RE.test(trimmed);
+};
 
 /** True when a fenced/JSON blob is a leaked model tool invocation, not user-facing code. */
 export const looksLikeLeakedToolCode = (body: string): boolean => {
-    const t = body.trim();
-    if (!t) return false;
-    if (/"tool_code"\s*:/.test(t)) return true;
-    const hasExecute = hasExecuteDump(t);
-    if (
-        LEAKED_PRINT_FN_RE.test(t) ||
-        (hasExecute && /\bprint\s*\(\s*[a-zA-Z_][a-zA-Z0-9_]*\s*\(/.test(t))
-    ) {
-        return true;
-    }
-    const hasPrintCall = /\bprint\s*\(/.test(t);
-    for (const rawLine of t.split("\n")) {
-        const line = rawLine.trim();
-        if (!line) continue;
-        if (hasPrintCall && line === "tool_code") return true;
-        if (LEAKED_FUNCTIONS_CALL_RE.test(line)) return true;
-        if (hasExecute && GENERIC_FUNCTIONS_CALL_RE.test(line)) return true;
-    }
-    return /<(?:tool_call|function_call|minimax:tool_call|tool_code)\b/i.test(t);
+    const trimmed = body.trim();
+    if (!trimmed) return false;
+    const hasExecute = hasExecuteDump(trimmed);
+    if (hasDirectToolLeakSignature(trimmed, hasExecute)) return true;
+    if (hasLeakedInvocationLine(trimmed, hasExecute)) return true;
+    return isLeakedXmlToolBlock(trimmed);
 };
 
 /**
  * XML / sentinel tags that models leak into `content` instead of structured
  * tool_calls. Cover BetterShape catalog families (Claude, GPT, Gemini/Auto, Grok,
  * DeepSeek) plus common OpenRouter proxies. Do NOT include intentional BetterShape
- * UI tags (`edit`, `terminal_command`, `todos`, …) — those are parsed separately.
+ * UI tags (`edit`, `terminal_command`, `todos`, ...); those are parsed separately.
  */
 export const LEAKED_TOOL_XML_TAGS = [
-    // BetterShape-internal tool UI that must never render as prose
     "list_terminals",
     "terminal_input",
     "terminal_read",
@@ -57,7 +816,6 @@ export const LEAKED_TOOL_XML_TAGS = [
     "new_path",
     "file_content",
     "analysis",
-    // Anthropic / Claude / MiniMax / generic OpenRouter
     "tool_call",
     "tool_calls",
     "function_call",
@@ -67,12 +825,9 @@ export const LEAKED_TOOL_XML_TAGS = [
     "minimax:tool_call",
     "invoke",
     "parameter",
-    // GLM
     "arg_key",
     "arg_value",
-    // Qwen2.5 oddball wrapper
     "tools",
-    // Gemini CLI / Google
     "pre_dispatch_explanation",
 ] as const;
 
@@ -84,131 +839,160 @@ export const STRIP_ACROSS_FENCES = [
     "list_terminals",
 ] as const;
 
-const ESCAPE_RE = /[.*+?^${}()|[\]\\]/g;
+const ESCAPE_RE = /[.*+?^${}()|[\]\\]/gu;
 
 const LEAKED_TAG_PATTERNS = LEAKED_TOOL_XML_TAGS.map((tag) => {
     const esc = tag.replace(ESCAPE_RE, "\\$&");
     return {
-        paired: new RegExp(`<${esc}\\b[^>]*>[\\s\\S]*?<\\/${esc}>`, "gi"),
-        selfClosing: new RegExp(`<${esc}\\b[^>]*\\/?>`, "gi"),
-        openTail: new RegExp(`<${esc}\\b[^>]*>[\\s\\S]*$`, "gi"),
-        strayCloser: new RegExp(`<\\/${esc}>`, "gi"),
+        tag,
+        paired: new RegExp(`<${esc}\\b[^>]*>[\\s\\S]*?<\\/${esc}>`, "giu"),
+        selfClosing: new RegExp(`<${esc}\\b[^>]*\\/?>`, "giu"),
+        openTail: new RegExp(`<${esc}\\b[^>]*>[\\s\\S]*$`, "giu"),
+        strayCloser: new RegExp(`<\\/${esc}>`, "giu"),
     };
 });
 
 const FW_BAR = "\uFF5C";
-const TRIPLE_NEWLINE = /\n{3,}/g;
-const DSML_PAIRED_RE = new RegExp(
-    `<${FW_BAR}{0,2}DSML${FW_BAR}{1,2}[\\w.]*?>[\\s\\S]*?<\\/${FW_BAR}{0,2}DSML${FW_BAR}{1,2}[\\w.]*?>`,
-    "gi",
-);
-const DSML_OPEN_TAIL_RE = new RegExp(`<${FW_BAR}{0,2}DSML${FW_BAR}{1,2}[\\w.]*?>[\\s\\S]*$`, "gi");
-const DSML_STRAY_RE = new RegExp(`<\\/?${FW_BAR}{0,2}DSML${FW_BAR}{1,2}[\\w.]*?>`, "gi");
+const DSML_PAIRED_RE =
+    /<\uFF5C{0,2}DSML\uFF5C{1,2}[\w.]*?>[\s\S]*?<\/\uFF5C{0,2}DSML\uFF5C{1,2}[\w.]*?>/giu;
+const DSML_OPEN_TAIL_RE = /<\uFF5C{0,2}DSML\uFF5C{1,2}[\w.]*?>[\s\S]*$/giu;
+const DSML_STRAY_RE = /<\/?\uFF5C{0,2}DSML\uFF5C{1,2}[\w.]*?>/giu;
 
-/** Reads a CommonMark backtick or tilde fence marker (`>= 3` chars) on a single line. */
-const readStreamFenceMarker = (
-    rawLine: string,
-): { char: string; len: number; suffix: string } | null => {
-    const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
-    let spaces = 0;
-    while (spaces < 3 && line.charCodeAt(spaces) === 32) {
-        spaces += 1;
-    }
-    const markerChar = line.charAt(spaces);
-    if (markerChar !== "`" && markerChar !== "~") return null;
-    let markerEnd = spaces;
-    while (markerEnd < line.length && line.charAt(markerEnd) === markerChar) {
-        markerEnd += 1;
-    }
-    const len = markerEnd - spaces;
-    if (len < 3) return null;
-    return { char: markerChar, len, suffix: line.slice(markerEnd) };
+/** Trims a single trailing CommonMark line break (`\r\n`, `\n`, or `\r`) from `rangeEnd`. */
+const trimFenceRangeBreakEnd = (text: string, rangeEnd: number): number => {
+    const last = text.charCodeAt(rangeEnd - 1);
+    if (last === 0x0d) return rangeEnd - 1;
+    if (last !== 0x0a) return rangeEnd;
+    return text.charCodeAt(rangeEnd - 2) === 0x0d ? rangeEnd - 2 : rangeEnd - 1;
 };
 
-/** Checks whether `parsed` opens a CommonMark fenced code block. */
-const isOpeningStreamFence = (
-    parsed: { char: string; len: number; suffix: string } | null,
-): parsed is { char: string; len: number; suffix: string } =>
-    Boolean(parsed && (parsed.char !== "`" || !parsed.suffix.includes("`")));
+/** Collapses runs of 3+ consecutive newlines inside a single prose slice. */
+const collapseProseNewlineRuns = (prose: string): string =>
+    prose.includes("\n\n\n") ? prose.replace(/\n{3,}/g, "\n\n") : prose;
 
-/** Checks whether `parsed` closes an open CommonMark fenced code block. */
-const isClosingStreamFence = (
-    parsed: { char: string; len: number; suffix: string } | null,
-    fenceChar: string,
-    fenceLen: number,
-): boolean =>
-    Boolean(
-        parsed
-        && parsed.char === fenceChar
-        && parsed.len >= fenceLen
-        && /^[ \t]*$/.test(parsed.suffix),
-    );
-
-/** Apply `fn` only to prose outside CommonMark backtick or tilde fenced code blocks. */
-const mapOutsideCodeFences = (
+/** Resolves the protected end index of a fence range (preserving open fences through EOF). */
+const resolveProtectedFenceEnd = (
     text: string,
-    fn: (prose: string) => string,
+    end: number,
+    isUnclosedTail: boolean,
+): number => (isUnclosedTail ? end : trimFenceRangeBreakEnd(text, end));
+
+/** Collapses runs of 3+ newlines in prose gaps while keeping closed and open fences intact. */
+const collapseNewlinesOutsideFences = (text: string): string => {
+    const state = scanMarkdownCodeFences(text, 0);
+    let out = "";
+    let cursor = 0;
+    for (let idx = 0; idx < state.ranges.length; idx += 1) {
+        const [start, end] = state.ranges[idx];
+        const isUnclosedTail =
+            Boolean(state.fenceChar) && idx === state.ranges.length - 1;
+        const fenceEnd = resolveProtectedFenceEnd(text, end, isUnclosedTail);
+        out += collapseProseNewlineRuns(text.slice(cursor, start));
+        out += text.slice(start, fenceEnd);
+        cursor = fenceEnd;
+    }
+    return out + collapseProseNewlineRuns(text.slice(cursor));
+};
+
+/** Collapses runs of 3+ consecutive newlines in prose while preserving fenced code blocks verbatim. */
+const collapseExcessNewlines = (
+    text: string,
     includeFencedCode = false,
 ): string => {
-    if (includeFencedCode) return fn(text);
-    if (!text.includes("```") && !text.includes("~~~")) return fn(text);
-    const out: string[] = [];
-    let proseStart = 0;
-    let fenceStart = -1;
-    let fenceChar = "";
-    let fenceLen = 0;
-    let cursor = 0;
-
-    while (cursor < text.length) {
-        const nl = text.indexOf("\n", cursor);
-        const afterLine = nl === -1 ? text.length : nl + 1;
-        const parsed = readStreamFenceMarker(
-            nl === -1 ? text.slice(cursor) : text.slice(cursor, nl),
-        );
-
-        if (!fenceChar && isOpeningStreamFence(parsed)) {
-            if (cursor > proseStart) out.push(fn(text.slice(proseStart, cursor)));
-            fenceStart = cursor;
-            fenceChar = parsed.char;
-            fenceLen = parsed.len;
-        } else if (fenceChar && isClosingStreamFence(parsed, fenceChar, fenceLen)) {
-            out.push(text.slice(fenceStart, afterLine));
-            proseStart = afterLine;
-            fenceStart = -1;
-            fenceChar = "";
-            fenceLen = 0;
-        }
-
-        cursor = afterLine;
-    }
-
-    if (fenceChar) {
-        out.push(text.slice(fenceStart));
-    } else if (proseStart < text.length) {
-        out.push(fn(text.slice(proseStart)));
-    }
-
-    return out.join("");
+    if (!text.includes("\n\n\n")) return text;
+    return includeFencedCode
+        ? text.replace(/\n{3,}/g, "\n\n")
+        : collapseNewlinesOutsideFences(text);
 };
 
+/** Checks whether `text` contains any sentinel token that could represent leaked tool markup. */
+const hasAnyToolMarkupSentinel = (text: string): boolean =>
+    text.includes("<") ||
+    text.includes(FW_BAR) ||
+    text.includes("[TOOL_CALLS]") ||
+    hasExecuteDump(text);
 
+/** Appends CommonMark inline code spans across prose gaps outside `fenceRanges`. */
+const collectInlineSpansOutsideFenceRanges = (
+    text: string,
+    fenceRanges: ReadonlyArray<readonly [number, number]>,
+): Array<[number, number]> => {
+    const spans: Array<[number, number]> = [];
+    let cursor = 0;
+    for (const [start, end] of fenceRanges) {
+        if (cursor < start) {
+            appendInlineCodeSpansInRange(text, cursor, start, spans);
+        }
+        cursor = end;
+    }
+    if (cursor < text.length) {
+        appendInlineCodeSpansInRange(text, cursor, text.length, spans);
+    }
+    return spans;
+};
 
-/** Find a tag's closing bracket without swallowing a later tag after stray `<` prose. */
+/** Collects CommonMark inline code span ranges `[start, end)` across non-fenced prose slices. */
+const collectProseInlineCodeSpans = (text: string): Array<[number, number]> => {
+    if (!text.includes("`")) return [];
+    const fenceRanges =
+        text.includes("```") || text.includes("~~~")
+            ? scanMarkdownCodeFences(text, 0).ranges
+            : [];
+    return collectInlineSpansOutsideFenceRanges(text, fenceRanges);
+};
+
+/** Advances `state.idx` past spans ending at or before `offset` and returns true when `offset` lies inside the active span. */
+const isOffsetInsideSortedSpans = (
+    spans: ReadonlyArray<readonly [number, number]>,
+    offset: number,
+    state: { idx: number },
+): boolean => {
+    while (state.idx < spans.length && spans[state.idx][1] <= offset) {
+        state.idx += 1;
+    }
+    const active = spans[state.idx];
+    return active !== undefined && offset >= active[0];
+};
+
+/** Opens an attribute quote (`'` or `"`) only when immediately preceded by `=`. */
+const tryOpenTagAttrQuote = (
+    ch: string,
+    prevNonWs: string,
+): "'" | '"' | null =>
+    (ch === "'" || ch === '"') && prevNonWs === "=" ? ch : null;
+
+/** Advances active attribute-quote state across character `ch`. */
+const advanceTagQuoteState = (
+    quote: "'" | '"' | null,
+    ch: string,
+    prevNonWs: string,
+): "'" | '"' | null => {
+    if (quote) return ch === quote ? null : quote;
+    return tryOpenTagAttrQuote(ch, prevNonWs);
+};
+
+/** Updates `prevNonWs` when `ch` is not whitespace. */
+const nextPrevNonWhitespace = (prev: string, ch: string): string =>
+    /\s/u.test(ch) ? prev : ch;
+
+/** Resolves unquoted tag-delimiter outcome (`-1` on `<`, `index` on `>`, or `null`). */
+const checkUnquotedTagBracket = (ch: string, index: number): number | null => {
+    if (ch === "<") return -1;
+    return ch === ">" ? index : null;
+};
+
+/** Finds a tag's closing `>` without swallowing a later tag after stray `<` prose. */
 const findTagEnd = (text: string, start: number): number => {
     let quote: "'" | '"' | null = null;
-    let previousNonWhitespace = "";
+    let prevNonWs = "";
     for (let index = start; index < text.length; index += 1) {
-        const character = text[index] ?? "";
-        if (quote !== null) {
-            if (character === quote) quote = null;
-        } else if ((character === "'" || character === '"') && previousNonWhitespace === "=") {
-            quote = character;
-        } else if (character === "<") {
-            return -1;
-        } else if (character === ">") {
-            return index;
+        const ch = text.charAt(index);
+        if (!quote) {
+            const bracket = checkUnquotedTagBracket(ch, index);
+            if (bracket !== null) return bracket;
         }
-        if (!/\s/.test(character)) previousNonWhitespace = character;
+        quote = advanceTagQuoteState(quote, ch, prevNonWs);
+        prevNonWs = nextPrevNonWhitespace(prevNonWs, ch);
     }
     return -1;
 };
@@ -218,422 +1002,692 @@ type UnclosedTagAction =
     | { type: "remove"; from: number; nextIndex: number }
     | { type: "skip"; nextIndex: number };
 
-/** Decide whether one matching opener must be hidden, removed, or skipped. */
+/** Resolves the action for a matched opener whose closing `>` lies at `end`. */
+const resolveClosedOpenerAction = (
+    text: string,
+    matchIndex: number,
+    afterName: number,
+    end: number,
+    truncateNonSelfClosing: boolean,
+): UnclosedTagAction => {
+    const selfClosing = text.slice(afterName, end).trimEnd().endsWith("/");
+    if (selfClosing) return { type: "skip", nextIndex: end + 1 };
+    return truncateNonSelfClosing
+        ? { type: "truncate", from: matchIndex }
+        : { type: "remove", from: matchIndex, nextIndex: end + 1 };
+};
+
+/** Decides whether one matching opener must be hidden, removed, or skipped. */
 const inspectToolTagOpener = (
     text: string,
-    match: RegExpExecArray,
+    matchIndex: number,
     afterName: number,
     truncateNonSelfClosing: boolean,
 ): UnclosedTagAction => {
     const end = findTagEnd(text, afterName);
-    if (end === -1) return { type: "truncate", from: match.index };
-    const selfClosing = text.slice(afterName, end).trimEnd().endsWith("/");
-    if (truncateNonSelfClosing && !selfClosing) return { type: "truncate", from: match.index };
-    if (selfClosing) return { type: "skip", nextIndex: end + 1 };
-    return { type: "remove", from: match.index, nextIndex: end + 1 };
+    return end === -1
+        ? { type: "truncate", from: matchIndex }
+        : resolveClosedOpenerAction(
+              text,
+              matchIndex,
+              afterName,
+              end,
+              truncateNonSelfClosing,
+          );
 };
 
-/** Remove malformed leaked-tag openers, optionally hiding the rest of a wrapper payload. */
-export const stripUnclosedToolTag = (text: string, tag: string, truncateNonSelfClosing = false): string => {
-    const escapedTag = tag.replace(ESCAPE_RE, "\\$&");
-    const openingTag = new RegExp(`<${escapedTag}\\b`, "gi");
-    let match: RegExpExecArray | null;
-    while ((match = openingTag.exec(text)) !== null) {
-        const action = inspectToolTagOpener(text, match, openingTag.lastIndex, truncateNonSelfClosing);
-        if (action.type === "truncate") return text.slice(0, action.from);
-        if (action.type === "remove") {
-            // Preserve following prose; the normal closing-tag pass handles the companion token.
-            text = text.slice(0, action.from) + text.slice(action.nextIndex);
-            openingTag.lastIndex = action.from;
-            continue;
-        }
-        openingTag.lastIndex = action.nextIndex;
+/** Applies one `UnclosedTagAction` to the mutable `stripUnclosedToolTag` scan state. */
+const applyUnclosedTagAction = (
+    state: { text: string; removedDelta: number; done: boolean },
+    action: UnclosedTagAction,
+    openingTag: RegExp,
+): void => {
+    if (action.type === "truncate") {
+        state.text = state.text.slice(0, action.from);
+        state.done = true;
+        return;
     }
-    return text;
-};
-
-type MarkupTagCandidate = { start: number; end: number; source: string };
-
-/** Find the next complete markup token, retrying after a malformed `<` character. */
-const findNextMarkupTag = (text: string, from: number): MarkupTagCandidate | null => {
-    let searchFrom = from;
-    while (searchFrom < text.length) {
-        const start = text.indexOf("<", searchFrom);
-        if (start === -1) return null;
-        const end = findTagEnd(text, start + 1);
-        if (end !== -1) return { start, end, source: text.slice(start, end + 1) };
-        searchFrom = start + 1;
+    if (action.type === "remove") {
+        state.text =
+            state.text.slice(0, action.from) +
+            state.text.slice(action.nextIndex);
+        state.removedDelta += action.nextIndex - action.from;
+        openingTag.lastIndex = action.from;
+        return;
     }
-    return null;
+    openingTag.lastIndex = action.nextIndex;
 };
 
-/** Apply one matching wrapper token to the nested-payload removal state. */
-const consumeNestedTag = (
+/** Removes malformed leaked-tag openers, optionally hiding the rest of a wrapper payload. */
+export const stripUnclosedToolTag = (
     text: string,
-    tagText: string,
+    tag: string,
+    truncateNonSelfClosing = false,
+    protectedSpans: ReadonlyArray<readonly [number, number]> = [],
+): string => {
+    const escapedTag = tag.replace(ESCAPE_RE, "\\$&");
+    const openingTag = new RegExp(`<${escapedTag}\\b`, "giu");
+    const state = { text, removedDelta: 0, done: false };
+    const spanCursor = { idx: 0 };
+    let match = openingTag.exec(state.text);
+    while (match !== null) {
+        const rawOffset = match.index + state.removedDelta;
+        if (!isOffsetInsideSortedSpans(protectedSpans, rawOffset, spanCursor)) {
+            const action = inspectToolTagOpener(
+                state.text,
+                match.index,
+                openingTag.lastIndex,
+                truncateNonSelfClosing,
+            );
+            applyUnclosedTagAction(state, action, openingTag);
+        }
+        if (state.done) break;
+        match = openingTag.exec(state.text);
+    }
+    return state.text;
+};
+
+type NestedStripState = {
+    output: string;
+    cursor: number;
+    depth: number;
+};
+
+/** Applies a closing `</tag>` token at `[start, afterTag)` to `NestedStripState`. */
+const applyNestedClosingTag = (
+    state: NestedStripState,
+    text: string,
+    start: number,
+    afterTag: number,
+): void => {
+    if (state.depth > 0) {
+        state.depth -= 1;
+        if (state.depth === 0) state.cursor = afterTag;
+        return;
+    }
+    state.output += text.slice(state.cursor, start);
+    state.cursor = afterTag;
+};
+
+/** Applies an opening or self-closing `<tag ...>` token at `[start, afterTag)` to `NestedStripState`. */
+const applyNestedOpeningTag = (
+    state: NestedStripState,
+    text: string,
+    start: number,
+    afterTag: number,
+    selfClosing: boolean,
+): void => {
+    if (selfClosing) {
+        if (state.depth === 0) {
+            state.output += text.slice(state.cursor, start);
+            state.cursor = afterTag;
+        }
+        return;
+    }
+    if (state.depth === 0) state.output += text.slice(state.cursor, start);
+    state.depth += 1;
+};
+
+/** Inspects a `<...>` token at `[start, end]` and updates `state` when it matches `matchingTag`. */
+const processNestedTagCandidate = (
+    state: NestedStripState,
+    text: string,
     start: number,
     end: number,
     matchingTag: RegExp,
-    output: string,
-    cursor: number,
-    depth: number,
-): { output: string; cursor: number; depth: number } => {
+): void => {
+    const tagText = text.slice(start, end + 1);
     const match = matchingTag.exec(tagText);
-    if (!match) return { output, cursor, depth };
-
-    const closing = Boolean(match[1]);
-    const selfClosing = !closing && tagText.slice(match[0].length, -1).trimEnd().endsWith("/");
-    if (closing && depth > 0) {
-        const nextDepth = depth - 1;
-        return { output, cursor: nextDepth === 0 ? end + 1 : cursor, depth: nextDepth };
+    if (!match) return;
+    if (match[1]) {
+        applyNestedClosingTag(state, text, start, end + 1);
+        return;
     }
-    if (closing || (selfClosing && depth === 0)) {
-        return { output: output + text.slice(cursor, start), cursor: end + 1, depth };
-    }
-    if (selfClosing) return { output, cursor, depth };
-    if (depth === 0) return { output: output + text.slice(cursor, start), cursor, depth: 1 };
-    return { output, cursor, depth: depth + 1 };
+    const selfClosing = tagText
+        .slice(match[0].length, -1)
+        .trimEnd()
+        .endsWith("/");
+    applyNestedOpeningTag(state, text, start, end + 1, selfClosing);
 };
 
-/** Remove complete nested wrapper payloads without mistaking quoted or malformed tag text for delimiters. */
-export const stripNestedTagBlocks = (text: string, tag: string): string => {
+/** Advances `NestedStripState` from `<` at `start`, retrying after a malformed `<` token. */
+const stepNestedTagAt = (
+    state: NestedStripState,
+    text: string,
+    start: number,
+    matchingTag: RegExp,
+): number => {
+    const end = findTagEnd(text, start + 1);
+    if (end === -1) return start + 1;
+    processNestedTagCandidate(state, text, start, end, matchingTag);
+    return end + 1;
+};
+
+/** Finalizes output from `NestedStripState` when scanning terminates. */
+const finalizeNestedStripState = (
+    state: NestedStripState,
+    text: string,
+): string =>
+    state.depth > 0 ? state.output : state.output + text.slice(state.cursor);
+
+/** Removes complete nested wrapper payloads without mistaking quoted or malformed tag text for delimiters. */
+export const stripNestedTagBlocks = (
+    text: string,
+    tag: string,
+    protectedSpans: ReadonlyArray<readonly [number, number]> = [],
+): string => {
     const escapedTag = tag.replace(ESCAPE_RE, "\\$&");
-    const matchingTag = new RegExp(`^<\\s*(\\/?)\\s*${escapedTag}\\b`, "i");
-    let output = "";
-    let cursor = 0;
-    let depth = 0;
+    const matchingTag = new RegExp(`^<\\s*(?:(\\/)\\s*)?${escapedTag}\\b`, "iu");
+    const state: NestedStripState = { output: "", cursor: 0, depth: 0 };
+    const spanCursor = { idx: 0 };
     let index = 0;
-
     while (index < text.length) {
-        const candidate = findNextMarkupTag(text, index);
-        if (!candidate) break;
-        const next = consumeNestedTag(
-            text,
-            candidate.source,
-            candidate.start,
-            candidate.end,
-            matchingTag,
-            output,
-            cursor,
-            depth,
-        );
-        output = next.output;
-        cursor = next.cursor;
-        depth = next.depth;
-        index = candidate.end + 1;
+        const start = text.indexOf("<", index);
+        if (start === -1) break;
+        index = isOffsetInsideSortedSpans(protectedSpans, start, spanCursor)
+            ? start + 1
+            : stepNestedTagAt(state, text, start, matchingTag);
     }
+    return finalizeNestedStripState(state, text);
+};
 
-    if (depth > 0) return output;
-    return output + text.slice(cursor);
+/** Strips one `STRIP_ACROSS_FENCES` tag across fences while respecting `protectInlineCode`. */
+const stripSingleAcrossFenceTag = (
+    text: string,
+    tag: string,
+    protectInlineCode: boolean,
+): string => {
+    const spans = protectInlineCode ? collectProseInlineCodeSpans(text) : [];
+    const afterNested = stripNestedTagBlocks(text, tag, spans);
+    const tailSpans = protectInlineCode
+        ? collectProseInlineCodeSpans(afterNested)
+        : [];
+    return stripUnclosedToolTag(afterNested, tag, true, tailSpans);
+};
+
+/** Strips BetterShape cross-fence UI wrapper tags in declaration order. */
+const stripAcrossFenceWrappers = (
+    text: string,
+    protectInlineCode: boolean,
+): string => {
+    let out = text;
+    for (const tag of STRIP_ACROSS_FENCES) {
+        if (!out.includes("<")) break;
+        out = stripSingleAcrossFenceTag(out, tag, protectInlineCode);
+    }
+    return out;
+};
+
+/** Strips XML leaked tool tags from a prose slice in `LEAKED_TOOL_XML_TAGS` order. */
+const stripLeakedXmlTagsInProse = (prose: string): string => {
+    let out = prose;
+    for (const rule of LEAKED_TAG_PATTERNS) {
+        if (!out.includes("<")) break;
+        out = out.replace(rule.paired, "");
+        out = stripUnclosedToolTag(out, rule.tag);
+        out = out
+            .replace(rule.selfClosing, "")
+            .replace(rule.openTail, "")
+            .replace(rule.strayCloser, "");
+    }
+    return out;
+};
+
+/** Strips DSML and pipe-delimited model tool sentinels from a prose slice. */
+const stripDsmlAndPipeSentinels = (prose: string): string =>
+    prose
+        .replace(DSML_PAIRED_RE, "")
+        .replace(DSML_OPEN_TAIL_RE, "")
+        .replace(DSML_STRAY_RE, "")
+        .replace(
+            /<\s*\|\s*DSML\s*\|\s*[\w.]*?>[\s\S]*?<\/\s*\|\s*DSML\s*\|\s*[\w.]*?>/gi,
+            "",
+        )
+        .replace(/<\/?\s*\|\s*DSML\s*\|\s*[\w.]*?>/gi, "")
+        .replace(
+            /<\|(?:tool_calls_section_begin|tool_calls_section_end|tool_call_section_begin|tool_call_section_end|tool_call_begin|tool_call_end|tool_call_argument_begin|tool_call|tool_response|python_tag)\|>/gi,
+            "",
+        )
+        .replace(/<\|[^|]{0,48}tool[^|]{0,48}\|>/gi, "")
+        .replace(/<\/?function\s*=[^>]*>/gi, "")
+        .replace(/<\/?parameter\s*=[^>]*>/gi, "");
+
+/** Strips Mistral `[TOOL_CALLS]` and `_execute` tool-call blocks from a prose slice. */
+const stripMistralAndExecuteBlocks = (prose: string): string => {
+    let out = prose;
+    if (out.includes("[TOOL_CALLS]")) {
+        out = out
+            .replace(/\[TOOL_CALLS\]\s*\[[\s\S]*?\](?=\s*(?:\n|$))/g, "")
+            .replace(/\[TOOL_CALLS\][^\n]*(?:\n\[(?:ARGS|CALL_ID)\][^\n]*)*/g, "");
+    }
+    if (hasExecuteDump(out)) {
+        out = out.replace(
+            /(?:^|\r?\n)[ \t]*_execute[ \t]*\r?\n[ \t]*(?:tool_name|name)[ \t]*:[^\r\n]*(?:\r?\n[ \t]*[a-z_]+[ \t]*:[^\r\n]*)*/gi,
+            "\n",
+        );
+    }
+    return out;
+};
+
+/** Sanitizes a single non-fenced prose segment for leaked tool markup. */
+const sanitizeProseToolMarkup = (prose: string): string => {
+    if (!hasAnyToolMarkupSentinel(prose)) return prose;
+    let out = prose.includes("<") ? stripLeakedXmlTagsInProse(prose) : prose;
+    if (out.includes("<") || out.includes(FW_BAR)) {
+        out = stripDsmlAndPipeSentinels(out);
+    }
+    return stripMistralAndExecuteBlocks(out);
 };
 
 /**
  * Strip provider/model tool-call grammars that leaked into assistant text.
  * Surveyed shapes: DeepSeek DSML, Qwen/Hermes/GLM `<tool_call>`, MiniMax,
- * Kimi/Llama/Gemma `<|…|>` sentinels, Gemini `<function_calls>` / `tool_code`,
+ * Kimi/Llama/Gemma `<|...|>` sentinels, Gemini `<function_calls>` / `tool_code`,
  * Mistral `[TOOL_CALLS]`, plus BetterShape terminal UI chunks.
  */
 export const stripLeakedToolMarkup = (
     text: string,
     options?: { includeFencedCode?: boolean },
 ): string => {
-    const hasAngle = text.includes("<");
-    const hasDsml = text.includes(FW_BAR);
-    const hasMistral = text.includes("[TOOL_CALLS]");
-    const hasExecute = hasExecuteDump(text);
-    if (!hasAngle && !hasDsml && !hasMistral && !hasExecute) {
-        return text.includes("\n\n\n") ? text.replace(/\n{3,}/g, "\n\n") : text;
+    const includeFencedCode = Boolean(options?.includeFencedCode);
+    if (!hasAnyToolMarkupSentinel(text)) {
+        return collapseExcessNewlines(text, includeFencedCode);
     }
-
-    let s = text;
-    for (const tag of STRIP_ACROSS_FENCES) {
-        s = stripNestedTagBlocks(s, tag);
-        s = stripUnclosedToolTag(s, tag, true);
-    }
-
-    s = mapOutsideCodeFences(s, (prose) => {
-        const proseAngle = prose.includes("<");
-        const proseDsml = prose.includes(FW_BAR);
-        const proseMistral = prose.includes("[TOOL_CALLS]");
-        const proseExecute = hasExecuteDump(prose);
-        if (!proseAngle && !proseDsml && !proseMistral && !proseExecute) return prose;
-
-        let p = prose;
-
-        if (proseAngle) {
-            for (const [index, rule] of LEAKED_TAG_PATTERNS.entries()) {
-                if (!p.includes("<")) break;
-                p = p.replace(rule.paired, "");
-                // A broken attribute (`title="…` with no `>`) used to leave its payload
-                // behind; truncate at the opener, then keep stripping the rest.
-                p = stripUnclosedToolTag(p, LEAKED_TOOL_XML_TAGS[index]!);
-                p = p.replace(rule.selfClosing, "");
-                p = p.replace(rule.openTail, "");
-                p = p.replace(rule.strayCloser, "");
-            }
-        }
-
-        if (proseAngle || proseDsml) {
-            p = p.replace(DSML_PAIRED_RE, "");
-            p = p.replace(DSML_OPEN_TAIL_RE, "");
-            p = p.replace(DSML_STRAY_RE, "");
-            p = p.replace(/<\s*\|\s*DSML\s*\|\s*[\w.]*?>[\s\S]*?<\/\s*\|\s*DSML\s*\|\s*[\w.]*?>/gi, "");
-            p = p.replace(/<\/?\s*\|\s*DSML\s*\|\s*[\w.]*?>/gi, "");
-
-            p = p.replace(
-                /<\|(?:tool_calls_section_begin|tool_calls_section_end|tool_call_section_begin|tool_call_section_end|tool_call_begin|tool_call_end|tool_call_argument_begin|tool_call|tool_response|python_tag)\|>/gi,
-                "",
-            );
-            p = p.replace(/<\|[^|]{0,48}tool[^|]{0,48}\|>/gi, "");
-            p = p.replace(/<\/?function\s*=[^>]*>/gi, "");
-            p = p.replace(/<\/?parameter\s*=[^>]*>/gi, "");
-        }
-
-        if (proseMistral) {
-            p = p.replace(/\[TOOL_CALLS\]\s*\[[\s\S]*?\](?=\s*(?:\n|$))/g, "");
-            p = p.replace(/\[TOOL_CALLS\][^\n]*(?:\n\[(?:ARGS|CALL_ID)\][^\n]*)*/g, "");
-        }
-
-        if (proseExecute) {
-            p = p.replace(/(?:^|\n)_execute\s*\n(?:tool_name|name)\s*:[^\n]*(?:\n[a-z_]+\s*:[^\n]*)*/gi, "\n");
-        }
-
-        return p;
-    }, options?.includeFencedCode);
-
-    return s.includes("\n\n\n") ? s.replace(/\n{3,}/g, "\n\n") : s;
+    let out = text.includes("<")
+        ? stripAcrossFenceWrappers(text, !includeFencedCode)
+        : text;
+    out = includeFencedCode
+        ? sanitizeProseToolMarkup(out)
+        : mapOutsideCodeFences(out, (prose) =>
+              mapOutsideInlineCodeSpans(prose, sanitizeProseToolMarkup),
+          );
+    return collapseExcessNewlines(out, includeFencedCode);
 };
 
-/**
- * Strip Gemini/OpenRouter-style tool leaks that models sometimes paste as
- * markdown JSON instead of issuing a real tool call, e.g.
- * ```json
- * { "tool_code": "print(render_design_previews(...))" }
- * ```
- * Also strips cross-model XML / sentinel tool grammars from prose.
- */
-export function stripLeakedToolCode(
+const BARE_TOOL_CODE_TRIGGER_RE =
+    /print\s*\(|render_design_previews|concepts\s*=/u;
+const LEAKED_FENCE_HEAD_RE = /^(?:`{3,}|~{3,})[\w-]*[ \t\f\v]*$/u;
+const BARE_TOOL_CODE_OPEN_RE = /\{[ \t\r\n]*"tool_code"[ \t\r\n]*:/gu;
+
+/** Resolves `{ body, dropEnd }` for a closed CommonMark fence `[rangeStart, rangeEnd)`. */
+const resolveClosedFenceCandidate = (
     text: string,
-    options?: { includeFencedCode?: boolean },
-): string {
-    // Fast path: no marker any rule can match, so the only work left is the
-    // newline collapse the full path ends with.
-    if (
-        !text.includes("`")
-        && !text.includes("<")
-        && !text.includes("tool_code")
-        && !text.includes("print")
-        && !text.includes("functions.")
-        && !text.includes("[TOOL_CALLS]")
-        && !hasExecuteDump(text)
-    ) {
-        return text.replace(TRIPLE_NEWLINE, "\n\n");
-    }
-
-    let s = text;
-
-    if (s.includes("```")) {
-        // Complete fenced blocks whose body looks like a tool leak.
-        s = s.replace(/```[\w-]*\s*\n([\s\S]*?)```/g, (full, body: string) =>
-            looksLikeLeakedToolCode(body) ? "" : full,
-        );
-
-        // Incomplete fence still streaming (common mid-tool-arg dump).
-        s = s.replace(/```[\w-]*\s*\n([\s\S]*)$/g, (full, body: string) =>
-            looksLikeLeakedToolCode(body) ? "" : full,
-        );
-    }
-
-    if (s.includes("tool_code")) {
-        // Bare JSON objects: { "tool_code": "..." }
-        s = s.replace(/\{\s*"tool_code"\s*:[\s\S]*$/g, (match) => {
-            return /print\s*\(|render_design_previews|concepts\s*=/.test(match) ? "" : match;
-        });
-    }
-
-    if (s.includes("print") || s.includes("functions.")) {
-        // Only known tool helpers count as a leak; a prose example such as
-        // `print(foo(bar))` must stay visible. Both a closed one-line dump and a
-        // still-streaming tail are removed.
-        const leakedPrintLineRe = new RegExp(
-            `(?:^|\\n)[ \\t]*print\\s*\\(\\s*${LEAKED_TOOL_CALL_FN_RE.source}\\s*\\([^\\n]*\\)\\s*\\)[ \\t]*(?=\\n|$)`,
-            "g",
-        );
-        const leakedPrintTailRe = new RegExp(
-            `(?:^|\\n)[ \\t]*print\\s*\\(\\s*${LEAKED_TOOL_CALL_FN_RE.source}\\s*\\([^\\n]*$`,
-            "g",
-        );
-        const leakedFnLineRe = new RegExp(
-            `(?:^|\\n)[ \\t]*functions\\.${LEAKED_TOOL_CALL_FN_RE.source}\\s*\\(\\{[^\\n]*\\}\\)[ \\t]*(?=\\n|$)`,
-            "g",
-        );
-        const leakedFnTailRe = new RegExp(
-            `(?:^|\\n)[ \\t]*functions\\.${LEAKED_TOOL_CALL_FN_RE.source}\\s*\\(\\{[^\\n]*$`,
-            "g",
-        );
-        s = mapOutsideCodeFences(s, (prose) =>
-            prose
-                .replace(leakedPrintLineRe, "\n")
-                .replace(leakedPrintTailRe, "\n")
-                .replace(leakedFnLineRe, "\n")
-                .replace(leakedFnTailRe, "\n"),
-        );
-    }
-
-    s = stripLeakedToolMarkup(s, options);
-
-    return s.includes("\n\n\n") ? s.replace(/\n{3,}/g, "\n\n") : s;
+    bodyStart: number,
+    rangeEnd: number,
+): { body: string; dropEnd: number } => {
+    const dropEnd = trimFenceRangeBreakEnd(text, rangeEnd);
+    const closeBrkEnd = Math.max(
+        text.lastIndexOf("\n", dropEnd - 1),
+        text.lastIndexOf("\r", dropEnd - 1),
+    );
+    const bodyEnd = closeBrkEnd >= bodyStart ? closeBrkEnd + 1 : bodyStart;
+    return { body: text.slice(bodyStart, bodyEnd), dropEnd };
 };
 
-/** Repair cumulative-stream glitches and obvious duplicate phrases in assistant text. */
-export function repairStreamGlitches(text: string): string {
-    // A duplicated chunk glued to the previous one is a streaming replay even when
-    // the whole text is shorter than the 40-character window the searches need.
-    const glued = text.match(/([a-z])([A-Z][a-z]{4,})/);
-    if (glued && glued.index !== undefined) {
-        const splitAt = glued.index + 1;
-        const prefix = text.slice(0, splitAt);
-        const suffix = text.slice(splitAt);
-        for (let checkLen = 16; checkLen <= Math.min(80, prefix.length); checkLen++) {
-            const tail = prefix.slice(-checkLen);
-            if (suffix.startsWith(tail)) {
-                return prefix + suffix.slice(tail.length);
-            }
+const FENCE_QUOTE_PREFIX_CHARS = new Set([" ", "\t", ">"]);
+
+/** Strips leading spaces, tabs, and `>` blockquote markers from a fence line. */
+const stripFenceQuotePrefix = (line: string): string => {
+    let idx = 0;
+    while (FENCE_QUOTE_PREFIX_CHARS.has(line.charAt(idx))) idx += 1;
+    return line.slice(idx);
+};
+
+/** Strips leading blockquote `>` prefixes on each line so quoted tool-call bodies match leak detectors. */
+const unquoteFenceBody = (body: string): string =>
+    body.includes(">")
+        ? body.split(/\r\n|\n|\r/u).map(stripFenceQuotePrefix).join("\n")
+        : body;
+
+/** Extracts `{ body, dropEnd }` for a CommonMark fence `[rangeStart, rangeEnd)`, or `null` if ineligible. */
+const extractLeakedFenceCandidate = (
+    text: string,
+    rangeStart: number,
+    rangeEnd: number,
+    isOpenTail: boolean,
+): { body: string; dropEnd: number } | null => {
+    const headBrk = findNextLineEndingInRange(text, rangeStart, rangeEnd);
+    if (!headBrk) return null;
+    const headLine = stripFenceQuotePrefix(
+        text.slice(rangeStart, headBrk.breakStart),
+    );
+    if (!LEAKED_FENCE_HEAD_RE.test(headLine)) return null;
+    return isOpenTail
+        ? { body: text.slice(headBrk.breakEnd, rangeEnd), dropEnd: rangeEnd }
+        : resolveClosedFenceCandidate(text, headBrk.breakEnd, rangeEnd);
+};
+
+/** Returns `dropEnd` when CommonMark fence `[rangeStart, rangeEnd)` contains leaked tool code, or `-1`. */
+const resolveDroppedFenceEnd = (
+    text: string,
+    rangeStart: number,
+    rangeEnd: number,
+    isOpenTail: boolean,
+): number => {
+    const candidate = extractLeakedFenceCandidate(
+        text,
+        rangeStart,
+        rangeEnd,
+        isOpenTail,
+    );
+    return candidate && looksLikeLeakedToolCode(unquoteFenceBody(candidate.body))
+        ? candidate.dropEnd
+        : -1;
+};
+
+/** Strips closed and streaming CommonMark fenced blocks (`3+` backticks or tildes) containing leaked tool calls. */
+const stripLeakedFencedToolBlocks = (text: string): string => {
+    const state = scanMarkdownCodeFences(text, 0);
+    if (state.ranges.length === 0) return text;
+    let out = "";
+    let cursor = 0;
+    for (const [rangeStart, rangeEnd] of state.ranges) {
+        const dropEnd = resolveDroppedFenceEnd(
+            text,
+            rangeStart,
+            rangeEnd,
+            rangeStart === state.fenceStart,
+        );
+        if (dropEnd >= 0) {
+            out += text.slice(cursor, rangeStart);
+            cursor = dropEnd;
         }
     }
+    return out + text.slice(cursor);
+};
 
-    if (text.length < 40) return text;
+/** Checks whether `offset` falls inside any `[start, end)` span in `ranges`. */
+const isOffsetInsideFenceRanges = (
+    offset: number,
+    ranges: ReadonlyArray<readonly [number, number]>,
+): boolean => ranges.some(([start, end]) => offset >= start && offset < end);
 
-    const maxAdjLen = Math.min(120, Math.floor(text.length / 2));
-    for (let len = maxAdjLen; len >= 20; len--) {
-        const limit = text.length - len * 2;
-        const midOffset = len >> 1;
-        for (let i = 0; i <= limit; i++) {
-            if (
-                text.charCodeAt(i) === text.charCodeAt(i + len)
-                && text.charCodeAt(i + len - 1) === text.charCodeAt(i + len * 2 - 1)
-                && text.charCodeAt(i + midOffset) === text.charCodeAt(i + len + midOffset)
-                && text.startsWith(text.slice(i, i + len), i + len)
-            ) {
-                return text.slice(0, i + len) + text.slice(i + len * 2);
-            }
+/** Finds the first bare `{ "tool_code":` offset outside Markdown code fences, or `-1`. */
+const findFirstUnfencedBareToolCode = (text: string): number => {
+    const { ranges } = scanMarkdownCodeFences(text, 0);
+    for (const match of text.matchAll(BARE_TOOL_CODE_OPEN_RE)) {
+        if (!isOffsetInsideFenceRanges(match.index, ranges)) {
+            return match.index;
         }
-    }
-
-    // Prefix re-emission check: `text.slice(0, len) === text.slice(start, start + len)` for `len >= 20`
-    // can only occur at positions `start` where `text.slice(0, 20)` appears again!
-    // Require either an immediate back-to-back replay (`matched === start`), a mid-token glue
-    // boundary (`!whitespace` before `start`), or a long (`>= 80` char) verbatim replay so
-    // legitimate repeated phrases in later paragraphs are preserved.
-    const prefix20 = text.slice(0, 20);
-    let searchFrom = 20;
-    while (searchFrom < text.length - 20) {
-        const start = text.indexOf(prefix20, searchFrom);
-        if (start === -1 || start >= text.length - 20) break;
-        const maxLen = Math.min(start, text.length - start);
-        let matched = 20;
-        while (matched < maxLen && text.charCodeAt(matched) === text.charCodeAt(start + matched)) {
-            matched++;
-        }
-        const prevChar = text.charAt(start - 1);
-        // A copy that runs to the end of the text is a replay, not prose, even
-        // when it is one character shorter than its offset (missing a trailing
-        // space). Short repeated openers in later paragraphs are left alone.
-        const isSuffixReplay = start + matched >= text.length - 1;
-        const isGlitchReplay =
-            matched === start
-            || matched >= 80
-            || isSuffixReplay
-            || (prevChar.length > 0 && !/\s/.test(prevChar));
-        if (matched >= 20 && isGlitchReplay) {
-            return text.slice(0, start) + text.slice(start + matched);
-        }
-        searchFrom = start + 1;
-    }
-
-    return text;
-}
-
-/** Normalize assistant markdown before ReactMarkdown. */
-export const looksLikeProseMarkdown = (text: string): boolean => {
-    return /(^|\n)#{1,6}\s+\S/.test(text)
-        || /(^|\n)[-*+]\s+\S/.test(text)
-        || /(^|\n)\d+\.\s+\S/.test(text);
-};
-
-/** Demote indented markdown. */
-const demoteIndentedMarkdown = (text: string): string => {
-    if (!text.includes("    ") && !text.includes("\t")) return text;
-    return text
-        .split("\n")
-        .map((line) => {
-            const m = /^( {4,}|\t+)(.*)$/.exec(line);
-            if (!m) return line;
-            const inner = m[2];
-            if (/^(#{1,6}\s|[-*+]\s|\d+\.\s)/.test(inner)) return inner;
-            return line;
-        })
-        .join("\n");
-};
-
-/** Unwrap outer prose fence. */
-const unwrapOuterProseFence = (text: string): string => {
-    const trimmed = text.trim();
-    if (!trimmed.startsWith("```")) return text;
-    const outer = /^```(?:[\w-]*)?\s*\n([\s\S]*?)\n```\s*$/.exec(trimmed);
-    if (outer && looksLikeProseMarkdown(outer[1])) {
-        return outer[1];
-    }
-    return text;
-};
-
-const PAIRED_STRIP_TAG_LIST = ["iframe", "script", "style", "object", "embed"] as const;
-const PAIRED_STRIP_TAGS = new Set<string>(PAIRED_STRIP_TAG_LIST);
-const LAYOUT_HTML_TAGS = new Set([
-    "h1", "h2", "h3", "h4", "h5", "h6",
-    "p", "div", "span", "a", "ul", "ol", "li",
-    "strong", "em", "b", "i", "section", "article", "header", "footer",
-]);
-
-/** Counts consecutive backticks starting at `start`. */
-const countBacktickRun = (input: string, start: number): number => {
-    let end = start;
-    while (end < input.length && input.charCodeAt(end) === 96) end++;
-    return end - start;
-};
-
-/** Finds the closing backtick run of exact length `runLen`, or `-1` if unclosed. */
-const findMatchingBackticks = (input: string, from: number, runLen: number): number => {
-    let pos = from;
-    while (pos < input.length) {
-        const next = input.indexOf("`", pos);
-        if (next === -1) return -1;
-        const count = countBacktickRun(input, next);
-        if (count === runLen) return next + count;
-        pos = next + count;
     }
     return -1;
 };
 
-/** Collects `[start, end]` offsets for closed inline backtick code spans. */
-const collectInlineCodeRanges = (input: string): Array<[number, number]> => {
-    if (!input.includes("`")) return [];
-    const ranges: Array<[number, number]> = [];
-    let pos = 0;
-    while (pos < input.length) {
-        const tick = input.indexOf("`", pos);
-        if (tick === -1) break;
-        const runLen = countBacktickRun(input, tick);
-        const closeEnd = findMatchingBackticks(input, tick + runLen, runLen);
-        if (closeEnd !== -1 && !input.slice(tick, closeEnd).includes("\n\n")) {
-            ranges.push([tick, closeEnd]);
-            pos = closeEnd;
-        } else {
-            pos = tick + runLen;
+/** Strips a bare `{ "tool_code": ... }` tail when its body contains a leaked tool trigger. */
+const stripBareToolCodeTail = (text: string): string => {
+    const at = findFirstUnfencedBareToolCode(text);
+    if (at === -1) return text;
+    return BARE_TOOL_CODE_TRIGGER_RE.test(text.slice(at))
+        ? text.slice(0, at)
+        : text;
+};
+
+/** Strips bare `{ "tool_code": "..." }` JSON dumps and leaked `print`/`functions.*` lines. */
+const stripBareToolInvocations = (text: string): string => {
+    let out = text.includes("tool_code") ? stripBareToolCodeTail(text) : text;
+    if (out.includes("print") || out.includes("functions.")) {
+        out = mapOutsideCodeFences(out, (prose) =>
+            prose
+                .replace(LEAKED_PRINT_LINE_RE, "\n")
+                .replace(LEAKED_PRINT_TAIL_RE, "\n")
+                .replace(LEAKED_FN_LINE_RE, "\n")
+                .replace(LEAKED_FN_TAIL_RE, "\n"),
+        );
+    }
+    return out;
+};
+
+const TOOL_CODE_MARKERS = ["`", "~", "tool_code", "print", "functions."] as const;
+
+/** Checks whether `text` contains any fence, invocation, or JSON marker for tool-code stripping. */
+const hasToolCodeMarker = (text: string): boolean =>
+    TOOL_CODE_MARKERS.some((marker) => text.includes(marker));
+
+/**
+ * Strip Gemini/OpenRouter-style tool leaks that models sometimes paste as
+ * markdown JSON instead of issuing a real tool call, plus cross-model XML sentinels.
+ */
+export const stripLeakedToolCode = (
+    text: string,
+    options?: { includeFencedCode?: boolean },
+): string => {
+    const includeFencedCode = Boolean(options?.includeFencedCode);
+    if (!hasToolCodeMarker(text) && !hasAnyToolMarkupSentinel(text)) {
+        return collapseExcessNewlines(text, includeFencedCode);
+    }
+    const withoutFences = stripLeakedFencedToolBlocks(text);
+    const withoutInvocations = stripBareToolInvocations(withoutFences);
+    return collapseExcessNewlines(
+        stripLeakedToolMarkup(withoutInvocations, options),
+        includeFencedCode,
+    );
+};
+
+/** Checks whether `span` contains GFM pipe-table delimiters or Unicode box-drawing glyphs. */
+const isStructuredTableOrBoxSpan = (span: string): boolean =>
+    span.includes("|") || /[\u2500-\u257f]/u.test(span);
+
+/** Checks first, middle, and last code units of two adjacent `len`-char windows in `text`. */
+const matchesSampleCharsAt = (
+    text: string,
+    offset: number,
+    len: number,
+    midOffset: number,
+): boolean =>
+    text.charCodeAt(offset) === text.charCodeAt(offset + len) &&
+    text.charCodeAt(offset + len - 1) ===
+        text.charCodeAt(offset + len * 2 - 1) &&
+    text.charCodeAt(offset + midOffset) ===
+        text.charCodeAt(offset + len + midOffset);
+
+/** Fast 3-point character precheck before comparing `text.slice(offset, offset + len)` against `offset + len`. */
+const matchesAdjacentRepeatAt = (
+    text: string,
+    offset: number,
+    len: number,
+    midOffset: number,
+): boolean => {
+    if (!matchesSampleCharsAt(text, offset, len, midOffset)) return false;
+    const candidate = text.slice(offset, offset + len);
+    return (
+        !isStructuredTableOrBoxSpan(candidate) &&
+        text.startsWith(candidate, offset + len)
+    );
+};
+
+/** Collapses an immediate back-to-back repeated span (`>= 20` chars) if present. */
+const collapseAdjacentDuplicateSpan = (text: string): string | null => {
+    const maxAdjLen = Math.min(120, Math.floor(text.length / 2));
+    for (let len = maxAdjLen; len >= 20; len -= 1) {
+        const limit = text.length - len * 2;
+        const midOffset = Math.floor(len / 2);
+        for (let i = 0; i <= limit; i += 1) {
+            if (matchesAdjacentRepeatAt(text, i, len, midOffset)) {
+                return text.slice(0, i + len) + text.slice(i + len * 2);
+            }
         }
     }
-    return ranges;
+    return null;
 };
+
+/** Measures how many characters starting at `0` and `start` match identically (`>= minMatched`). */
+const measurePrefixReplayLength = (
+    text: string,
+    start: number,
+    minMatched: number,
+): number => {
+    const maxLen = Math.min(start, text.length - start);
+    let matched = minMatched;
+    while (
+        matched < maxLen &&
+        text.charCodeAt(matched) === text.charCodeAt(start + matched)
+    ) {
+        matched += 1;
+    }
+    return matched;
+};
+
+/** Checks whether `start` sits immediately after a non-whitespace character (a mid-token seam). */
+const isGluedReplaySeam = (text: string, start: number): boolean => {
+    const prevChar = text.charAt(start - 1);
+    return prevChar.length > 0 && !/\s/u.test(prevChar);
+};
+
+/** Checks whether a `matched`-char prefix match at `start` qualifies as a stream glitch replay. */
+const isPrefixGlitchReplay = (
+    text: string,
+    start: number,
+    matched: number,
+): boolean =>
+    matched === start ||
+    matched >= 80 ||
+    start + matched >= text.length - 1 ||
+    isGluedReplaySeam(text, start);
+
+/** Removes an accidental re-emission of the message opening (`>= 20` chars) while keeping valid prose. */
+const collapseOpeningPrefixReplay = (text: string): string | null => {
+    const prefix20 = text.slice(0, 20);
+    const maxStart = text.length - 20;
+    let searchFrom = 20;
+    while (searchFrom < maxStart) {
+        const start = text.indexOf(prefix20, searchFrom);
+        if (start === -1 || start >= maxStart) break;
+        const matched = measurePrefixReplayLength(text, start, 20);
+        if (isPrefixGlitchReplay(text, start, matched)) {
+            return text.slice(0, start) + text.slice(start + matched);
+        }
+        searchFrom = start + 1;
+    }
+    return null;
+};
+
+/** Collapses mid-word `camelGlued` tail replays (`>= 16` chars) when present. */
+const collapseGluedTailReplay = (text: string): string | null => {
+    const glued = text.match(/([a-z])([A-Z][a-z]{4,})/);
+    if (glued?.index === undefined) return null;
+    const splitAt = glued.index + 1;
+    const prefix = text.slice(0, splitAt);
+    const suffix = text.slice(splitAt);
+    const maxCheck = Math.min(80, prefix.length);
+    for (let checkLen = 16; checkLen <= maxCheck; checkLen += 1) {
+        const tail = prefix.slice(-checkLen);
+        if (suffix.startsWith(tail)) {
+            return prefix + suffix.slice(tail.length);
+        }
+    }
+    return null;
+};
+
+/** Repairs adjacent or opening-prefix stream replays on strings of at least 40 characters. */
+const repairLongStreamGlitches = (text: string): string => {
+    const adjacent = collapseAdjacentDuplicateSpan(text);
+    if (adjacent !== null) return adjacent;
+    return collapseOpeningPrefixReplay(text) ?? text;
+};
+
+/** Repairs cumulative-stream glitches on an unfenced prose segment. */
+const repairProseStreamGlitches = (text: string): string => {
+    const glued = collapseGluedTailReplay(text);
+    if (glued !== null) return glued;
+    if (text.length < 40) return text;
+    return repairLongStreamGlitches(text);
+};
+
+/** Repair cumulative-stream glitches and obvious duplicate phrases outside fenced code blocks. */
+export const repairStreamGlitches = (text: string): string =>
+    mapOutsideCodeFences(text, repairProseStreamGlitches);
+
+/** Normalize assistant markdown before ReactMarkdown. */
+export const looksLikeProseMarkdown = (text: string): boolean =>
+    /(^|\n)#{1,6}\s+\S/.test(text) ||
+    /(^|\n)[-*+]\s+\S/.test(text) ||
+    /(^|\n)\d+\.\s+\S/.test(text);
+
+/** Advances past consecutive characters with UTF-16 `targetCode` starting at `start`. */
+const skipRepeatedCharCode = (
+    line: string,
+    start: number,
+    targetCode: number,
+): number => {
+    let idx = start;
+    while (idx < line.length && line.charCodeAt(idx) === targetCode) {
+        idx += 1;
+    }
+    return idx;
+};
+
+/** Strips 4+ leading spaces or 1+ leading tabs from `line`, returning `null` when unindented. */
+const stripMarkdownCodeIndent = (line: string): string | null => {
+    if (line.startsWith("\t")) {
+        return line.slice(skipRepeatedCharCode(line, 1, 9));
+    }
+    if (!line.startsWith("    ")) return null;
+    return line.slice(skipRepeatedCharCode(line, 4, 32));
+};
+
+/** Unindents a single 4-space or tab-indented Markdown heading or list item line. */
+const demoteSingleIndentedMarkdownLine = (line: string): string => {
+    const inner = stripMarkdownCodeIndent(line);
+    if (inner === null) return line;
+    return /^(?:#{1,6}[ \t]|[-*+][ \t]|\d+\.[ \t])/u.test(inner) ? inner : line;
+};
+
+/** Demotes 4-space/tab indented Markdown headings and list items in prose outside code fences. */
+const demoteIndentedMarkdown = (text: string): string => {
+    if (!text.includes("    ") && !text.includes("\t")) return text;
+    return mapOutsideCodeFences(text, (prose) =>
+        prose.split("\n").map(demoteSingleIndentedMarkdownLine).join("\n"),
+    );
+};
+
+/** Checks whether `trimmed` is covered end-to-end by a single closed Markdown code fence. */
+const isSingleClosedOuterFence = (trimmed: string): boolean => {
+    const { ranges, fenceStart } = scanMarkdownCodeFences(trimmed, 0);
+    if (fenceStart !== -1) return false;
+    if (ranges.length !== 1) return false;
+    const [start, end] = ranges[0];
+    return start === 0 && end === trimmed.length;
+};
+
+/** Checks whether `trimmed` starts and ends with standalone unlabeled triple-backtick fence lines. */
+const hasUnlabeledOuterTripleBacktickBounds = (
+    trimmed: string,
+    firstNl: number,
+    closeFenceIdx: number,
+): boolean => {
+    if (firstNl < 3 || firstNl >= closeFenceIdx - 1) return false;
+    if (trimmed.charAt(closeFenceIdx - 1) !== "\n") return false;
+    return trimmed.slice(0, firstNl).trimEnd() === "```";
+};
+
+/** Extracts inner body of a single unlabeled ` ```\n...\n``` ` wrapper, or `null` when labeled or split. */
+const extractOuterTripleBacktickBody = (trimmed: string): string | null => {
+    if (!trimmed.startsWith("```") || !trimmed.endsWith("```")) return null;
+    const firstNl = trimmed.indexOf("\n");
+    const closeFenceIdx = trimmed.length - 3;
+    if (!hasUnlabeledOuterTripleBacktickBounds(trimmed, firstNl, closeFenceIdx)) {
+        return null;
+    }
+    return isSingleClosedOuterFence(trimmed)
+        ? trimmed.slice(firstNl + 1, closeFenceIdx - 1)
+        : null;
+};
+
+/** Unwraps an accidental outer triple-backtick fence wrapping ordinary prose Markdown. */
+const unwrapOuterProseFence = (text: string): string => {
+    const inner = extractOuterTripleBacktickBody(text.trim());
+    return inner !== null && looksLikeProseMarkdown(inner) ? inner : text;
+};
+
+const PAIRED_STRIP_TAGS = new Set(
+    "iframe script style object embed".split(" "),
+);
+const LAYOUT_HTML_TAGS = new Set(
+    "h1 h2 h3 h4 h5 h6 p div span a ul ol li strong em b i section article header footer".split(
+        " ",
+    ),
+);
+const DISALLOWED_UNQUOTED_TAG_CHARS = new Set(["<", "&", "|", ",", ";", "(", ")"]);
 
 /** True when `ch` is an ASCII letter (`A-Z` or `a-z`). */
 const isAsciiAlpha = (ch: string): boolean => {
@@ -641,6 +1695,29 @@ const isAsciiAlpha = (ch: string): boolean => {
     const code = ch.charCodeAt(0);
     return (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
 };
+
+/** Checks whether `input[start..end)` consists exclusively of whitespace characters. */
+const isOnlyWhitespaceSlice = (
+    input: string,
+    start: number,
+    end: number,
+): boolean => /^\s*$/.test(input.slice(start, end));
+
+/** Updates active quote state (`"` or `'`) when `ch` is a quote delimiter. */
+const stepQuoteState = (quote: string | null, ch: string): string | null => {
+    if (quote) return ch === quote ? null : quote;
+    return ch === '"' || ch === "'" ? ch : null;
+};
+
+/** Checks whether an unquoted character `ch` is forbidden inside an HTML opening-tag tail. */
+const isDisallowedUnquotedChar = (
+    quote: string | null,
+    nextQuote: string | null,
+    ch: string,
+): boolean =>
+    quote === null &&
+    nextQuote === null &&
+    DISALLOWED_UNQUOTED_TAG_CHARS.has(ch);
 
 /**
  * Validates the substring between `<tagName` and `>` for layout HTML tags so
@@ -652,72 +1729,263 @@ const hasPlausibleHtmlTagTail = (
     end: number,
     isClosing: boolean,
 ): boolean => {
-    if (isClosing) {
-        for (let i = start; i < end; i++) {
-            if (!/\s/.test(input.charAt(i))) return false;
-        }
-        return true;
-    }
+    if (isClosing) return isOnlyWhitespaceSlice(input, start, end);
     let quote: string | null = null;
-    for (let i = start; i < end; i++) {
+    for (let i = start; i < end; i += 1) {
         const ch = input.charAt(i);
-        if (quote) {
-            if (ch === quote) quote = null;
-            continue;
-        }
-        if (ch === '"' || ch === "'") {
-            quote = ch;
-            continue;
-        }
-        if (
-            ch === "<" ||
-            ch === "&" ||
-            ch === "|" ||
-            ch === "," ||
-            ch === ";" ||
-            ch === "(" ||
-            ch === ")"
-        ) {
-            return false;
-        }
+        const nextQuote = stepQuoteState(quote, ch);
+        if (isDisallowedUnquotedChar(quote, nextQuote, ch)) return false;
+        quote = nextQuote;
     }
     return quote === null;
 };
 
+type TagCloseScanState = {
+    quote: string | null;
+    unclosedQuoteGt: number;
+};
+
+/** Handles one unquoted character while scanning for a tag's closing `>`. */
+const stepUnquotedTagScan = (
+    state: TagCloseScanState,
+    ch: string,
+    index: number,
+): number => {
+    if (ch === ">") return index;
+    if (ch === '"' || ch === "'") state.quote = ch;
+    return -1;
+};
+
+/** Handles one character inside an open attribute quote while scanning for `>`. */
+const stepQuotedTagScan = (
+    state: TagCloseScanState,
+    ch: string,
+    index: number,
+): number => {
+    if (ch === state.quote) {
+        state.quote = null;
+        state.unclosedQuoteGt = -1;
+        return -1;
+    }
+    if (ch === ">" && state.unclosedQuoteGt === -1) {
+        state.unclosedQuoteGt = index;
+    }
+    if (ch !== "\n") return -1;
+    const fallbackGt = state.unclosedQuoteGt;
+    state.quote = null;
+    state.unclosedQuoteGt = -1;
+    return fallbackGt;
+};
+
+/** Steps `TagCloseScanState` by one character at `index`, returning `>= 0` on `>` match or `-1`. */
+const stepTagCloseAt = (
+    state: TagCloseScanState,
+    ch: string,
+    index: number,
+): number =>
+    state.quote === null
+        ? stepUnquotedTagScan(state, ch, index)
+        : stepQuotedTagScan(state, ch, index);
+
 /**
  * Finds the closing `>` of an HTML tag starting at `start`, ignoring `>` inside
- * single- or double-quoted attribute values on the same line.
+ * single- or double-quoted attribute values across single- and multi-line tags.
  */
 const findHtmlTagClose = (input: string, start: number): number => {
-    const len = input.length;
-    let quote: string | null = null;
-    for (let i = start; i < len; i++) {
-        const ch = input.charAt(i);
-        if (quote) {
-            if (ch === quote) quote = null;
-            else if (ch === "\n") return input.indexOf(">", start);
-            continue;
-        }
-        if (ch === '"' || ch === "'") {
-            quote = ch;
-            continue;
-        }
-        if (ch === ">") return i;
+    const state: TagCloseScanState = { quote: null, unclosedQuoteGt: -1 };
+    for (let pos = start; pos < input.length; pos += 1) {
+        const hit = stepTagCloseAt(state, input.charAt(pos), pos);
+        if (hit !== -1) return hit;
+    }
+    return state.unclosedQuoteGt;
+};
+
+type TagScanCache = {
+    lastGtInInput: number;
+    deadOpeningStates: Uint16Array | null;
+    lowerInput: string | null;
+};
+
+type OpeningScanProgress = {
+    scanState: TagCloseScanState;
+    tailQuote: string | null;
+};
+
+/** Maps a quote delimiter (`null`, `'"'`, `"'"`) to a compact state index `0..2`. */
+const encodeQuoteDelimiter = (quote: string | null): number => {
+    if (quote === '"') return 1;
+    return quote === "'" ? 2 : 0;
+};
+
+/** Encodes `(scanQuote, tailQuote)` into a 9-state bitmask `1..256`. */
+const encodeOpeningScanMask = (
+    scanQuote: string | null,
+    tailQuote: string | null,
+): number =>
+    1 << (encodeQuoteDelimiter(scanQuote) * 3 + encodeQuoteDelimiter(tailQuote));
+
+/** Marks `(pos, mask)` pairs visited during a failed standard opening-tag scan. */
+const recordDeadOpeningStates = (
+    cache: TagScanCache,
+    inputLength: number,
+    visitedPos: number[],
+    visitedMasks: number[],
+): void => {
+    if (visitedPos.length < 32) return;
+    const table = cache.deadOpeningStates ?? new Uint16Array(inputLength);
+    cache.deadOpeningStates = table;
+    for (let idx = 0; idx < visitedPos.length; idx += 1) {
+        table[visitedPos[idx]] |= visitedMasks[idx];
+    }
+};
+
+/** Checks whether `(pos, progress)` is already known dead; otherwise records it for memoization. */
+const isKnownDeadOrTrackOpeningState = (
+    deadTable: Uint16Array | null,
+    progress: OpeningScanProgress,
+    pos: number,
+    visited: { positions: number[]; masks: number[] },
+): boolean => {
+    if (progress.scanState.unclosedQuoteGt !== -1) return false;
+    const mask = encodeOpeningScanMask(
+        progress.scanState.quote,
+        progress.tailQuote,
+    );
+    if (deadTable && (deadTable[pos] & mask) !== 0) return true;
+    visited.positions.push(pos);
+    visited.masks.push(mask);
+    return false;
+};
+
+/** Checks whether a closing `>` candidate `hit` at scan index `pos` has a valid opening tail. */
+const resolveOpeningHitOutcome = (
+    ctx: { input: string; afterNamePos: number },
+    pos: number,
+    hit: number,
+    tailQuote: string | null,
+): number => {
+    const valid =
+        hit === pos
+            ? tailQuote === null
+            : hasPlausibleHtmlTagTail(ctx.input, ctx.afterNamePos, hit, false);
+    return valid ? hit : -2;
+};
+
+/** Advances `progress` by one character (`>= 0` valid `>`, `-2` dead tail, `-1` continue). */
+const stepStandardOpeningChar = (
+    ctx: { input: string; afterNamePos: number },
+    progress: OpeningScanProgress,
+    pos: number,
+): number => {
+    const ch = ctx.input.charAt(pos);
+    const nextTailQuote = stepQuoteState(progress.tailQuote, ch);
+    if (
+        progress.scanState.unclosedQuoteGt === -1 &&
+        isDisallowedUnquotedChar(progress.tailQuote, nextTailQuote, ch)
+    ) {
+        return -2;
+    }
+    const hit = stepTagCloseAt(progress.scanState, ch, pos);
+    if (hit !== -1) {
+        return resolveOpeningHitOutcome(ctx, pos, hit, progress.tailQuote);
+    }
+    progress.tailQuote = nextTailQuote;
+    return -1;
+};
+
+/** Validates any fallback `unclosedQuoteGt` remaining at EOF, or returns `-2`. */
+const finalizeEofOpeningScan = (
+    ctx: { input: string; afterNamePos: number },
+    eofGt: number,
+): number =>
+    eofGt !== -1 &&
+    hasPlausibleHtmlTagTail(ctx.input, ctx.afterNamePos, eofGt, false)
+        ? eofGt
+        : -2;
+
+/** Runs the linear opening-tag scan loop and returns `>= 0` on match or `-2` on failure. */
+const runOpeningTagScanLoop = (
+    ctx: { input: string; afterNamePos: number },
+    deadTable: Uint16Array | null,
+    progress: OpeningScanProgress,
+    visited: { positions: number[]; masks: number[] },
+): number => {
+    for (let pos = ctx.afterNamePos; pos < ctx.input.length; pos += 1) {
+        const dead = isKnownDeadOrTrackOpeningState(
+            deadTable,
+            progress,
+            pos,
+            visited,
+        );
+        const outcome = dead
+            ? -2
+            : stepStandardOpeningChar(ctx, progress, pos);
+        if (outcome !== -1) return outcome;
+    }
+    return finalizeEofOpeningScan(ctx, progress.scanState.unclosedQuoteGt);
+};
+
+/** Scans for a plausible opening HTML tag `>` in linear amortized time across malformed inputs. */
+const findStandardOpeningTagGt = (
+    input: string,
+    afterNamePos: number,
+    cache: TagScanCache,
+): number => {
+    if (afterNamePos > cache.lastGtInInput) return -1;
+    const progress: OpeningScanProgress = {
+        scanState: { quote: null, unclosedQuoteGt: -1 },
+        tailQuote: null,
+    };
+    const visited = { positions: [] as number[], masks: [] as number[] };
+    const outcome = runOpeningTagScanLoop(
+        { input, afterNamePos },
+        cache.deadOpeningStates,
+        progress,
+        visited,
+    );
+    if (outcome >= 0) return outcome;
+    recordDeadOpeningStates(
+        cache,
+        input.length,
+        visited.positions,
+        visited.masks,
+    );
+    return -1;
+};
+
+/** Scans a closing standard HTML tag tail (`</div  >`), aborting on any non-whitespace character. */
+const findStandardClosingTagGt = (
+    input: string,
+    start: number,
+    lastGtInInput: number,
+): number => {
+    if (start > lastGtInInput) return -1;
+    for (let pos = start; pos < input.length; pos += 1) {
+        const ch = input.charAt(pos);
+        if (ch === ">") return pos;
+        if (!/\s/.test(ch)) return -1;
     }
     return -1;
 };
 
+/** Checks whether the character immediately following an HTML tag name is a valid delimiter. */
+const isHtmlTagNameBoundary = (ch: string): boolean =>
+    ch === "" || ch === ">" || ch === "/" || /\s/.test(ch);
+
 /** Finds the matching `</tagName>` boundary, rejecting longer prefixes such as `</scriptx>`. */
-const findPairedClosingTagEnd = (lowerInput: string, tagName: string, searchFrom: number): number => {
+const findPairedClosingTagEnd = (
+    lowerInput: string,
+    tagName: string,
+    searchFrom: number,
+): number => {
     const closeNeedle = `</${tagName}`;
     let from = searchFrom;
     while (from < lowerInput.length) {
         const closeIdx = lowerInput.indexOf(closeNeedle, from);
         if (closeIdx === -1) return -1;
         const afterNamePos = closeIdx + closeNeedle.length;
-        const afterChar = afterNamePos < lowerInput.length ? lowerInput.charAt(afterNamePos) : "";
-        if (afterChar === ">" || /\s/.test(afterChar)) {
-            const closeGt = lowerInput.indexOf(">", afterNamePos);
+        if (isHtmlTagNameBoundary(lowerInput.charAt(afterNamePos))) {
+            const closeGt = findHtmlTagClose(lowerInput, afterNamePos);
             return closeGt === -1 ? lowerInput.length : closeGt + 1;
         }
         from = afterNamePos;
@@ -732,24 +2000,40 @@ type ParsedHtmlTagHeader = {
     isPairedStripTag: boolean;
 };
 
-/** Checks whether the character immediately following an HTML tag name is a valid delimiter. */
-const isHtmlTagNameBoundary = (ch: string): boolean =>
-    ch === "" || ch === ">" || ch === "/" || /\s/.test(ch);
+/** Scans contiguous ASCII alphanumeric tag-name characters starting at `start`. */
+const scanAsciiTagNameEnd = (input: string, start: number): number => {
+    let pos = start;
+    while (pos < input.length && /[a-zA-Z0-9]/.test(input.charAt(pos))) {
+        pos += 1;
+    }
+    return pos;
+};
+
+/** Checks whether `(tagName, validBoundary)` should be stripped as a dangerous/paired tag. */
+const shouldStripAsPairedOrScriptTag = (
+    tagName: string,
+    validBoundary: boolean,
+): boolean =>
+    (validBoundary && PAIRED_STRIP_TAGS.has(tagName)) ||
+    tagName.startsWith("script");
 
 /** Parses `<tagName` or `</tagName` starting at `lt`; returns `null` when not a candidate HTML tag. */
-const parseHtmlTagHeaderAt = (input: string, lt: number): ParsedHtmlTagHeader | null => {
-    const len = input.length;
-    const isClosing = lt + 1 < len && input.charAt(lt + 1) === "/";
-    let pos = isClosing ? lt + 2 : lt + 1;
-    if (pos >= len || !isAsciiAlpha(input.charAt(pos))) return null;
-    const nameStart = pos;
-    while (pos < len && /[a-zA-Z0-9]/.test(input.charAt(pos))) pos++;
-    const tagName = input.slice(nameStart, pos).toLowerCase();
-    const validBoundary = isHtmlTagNameBoundary(pos < len ? input.charAt(pos) : "");
-    const isPairedStripTag =
-        (validBoundary && PAIRED_STRIP_TAGS.has(tagName)) || tagName.startsWith("script");
+const parseHtmlTagHeaderAt = (
+    input: string,
+    lt: number,
+): ParsedHtmlTagHeader | null => {
+    const isClosing = input.charAt(lt + 1) === "/";
+    const nameStart = isClosing ? lt + 2 : lt + 1;
+    if (!isAsciiAlpha(input.charAt(nameStart))) return null;
+    const afterNamePos = scanAsciiTagNameEnd(input, nameStart);
+    const tagName = input.slice(nameStart, afterNamePos).toLowerCase();
+    const validBoundary = isHtmlTagNameBoundary(input.charAt(afterNamePos));
+    const isPairedStripTag = shouldStripAsPairedOrScriptTag(
+        tagName,
+        validBoundary,
+    );
     if (!validBoundary && !isPairedStripTag) return null;
-    return { isClosing, tagName, afterNamePos: pos, isPairedStripTag };
+    return { isClosing, tagName, afterNamePos, isPairedStripTag };
 };
 
 /** Advances `rangeIndex` and checks whether `lt` lies inside an inline backtick code span. */
@@ -767,43 +2051,94 @@ const advanceInlineCodeRange = (
     };
 };
 
-/** Resolves the replacement text (`""`, `"\n"`, or original slice) for a non-paired HTML tag. */
-const resolveStandardHtmlTagReplacement = (
+const SELF_STRIP_OPEN_REPLACEMENTS: Partial<Record<string, string>> = {
+    br: "\n",
+    img: "",
+};
+
+/** Maps a validated standard HTML tag (`br`, `img`, layout tags, or unknown) to its replacement text. */
+const mapValidatedHtmlTagText = (
     input: string,
     lt: number,
     gt: number,
     header: ParsedHtmlTagHeader,
-): { chunk: string; nextCursor: number } => {
-    if (gt === -1 || !hasPlausibleHtmlTagTail(input, header.afterNamePos, gt, header.isClosing)) {
-        return { chunk: "<", nextCursor: lt + 1 };
+): string => {
+    if (!header.isClosing) {
+        const direct = SELF_STRIP_OPEN_REPLACEMENTS[header.tagName];
+        if (direct !== undefined) return direct;
     }
-    if (header.tagName === "br" && !header.isClosing) return { chunk: "\n", nextCursor: gt + 1 };
-    if (header.tagName === "img" && !header.isClosing) return { chunk: "", nextCursor: gt + 1 };
     if (LAYOUT_HTML_TAGS.has(header.tagName)) {
-        return { chunk: header.isClosing ? "\n" : "", nextCursor: gt + 1 };
+        return header.isClosing ? "\n" : "";
     }
-    return { chunk: input.slice(lt, gt + 1), nextCursor: gt + 1 };
+    return input.slice(lt, gt + 1);
 };
+
+/** Resolves the replacement text (`""`, `"\n"`, or original slice) for a non-paired HTML tag. */
+const resolveStandardHtmlTagReplacement = (
+    input: string,
+    lt: number,
+    header: ParsedHtmlTagHeader,
+    cache: TagScanCache,
+): { chunk: string; nextCursor: number } => {
+    const gt = header.isClosing
+        ? findStandardClosingTagGt(input, header.afterNamePos, cache.lastGtInInput)
+        : findStandardOpeningTagGt(input, header.afterNamePos, cache);
+    if (gt === -1) return { chunk: "<", nextCursor: lt + 1 };
+    return {
+        chunk: mapValidatedHtmlTagText(input, lt, gt, header),
+        nextCursor: gt + 1,
+    };
+};
+
+/** Checks whether a paired-strip header represents an opening tag with an expected closing tag. */
+const needsPairedClosingSearch = (header: ParsedHtmlTagHeader): boolean =>
+    !header.isClosing && PAIRED_STRIP_TAGS.has(header.tagName);
 
 /** Resolves the next scanner cursor when stripping a paired `<script>`/`<style>` tag. */
 const resolvePairedStripCursor = (
     input: string,
-    gt: number,
     header: ParsedHtmlTagHeader,
-    cachedLower: string | null,
-): { nextCursor: number; lowerInput: string | null } => {
-    if (gt === -1) return { nextCursor: input.length, lowerInput: cachedLower };
-    if (header.isClosing) return { nextCursor: gt + 1, lowerInput: cachedLower };
-    const lowerInput = cachedLower ?? input.toLowerCase();
+    cache: TagScanCache,
+): number => {
+    const gt =
+        header.afterNamePos > cache.lastGtInInput
+            ? -1
+            : findHtmlTagClose(input, header.afterNamePos);
+    if (gt === -1) return input.length;
+    if (!needsPairedClosingSearch(header)) return gt + 1;
+    const lowerInput = cache.lowerInput ?? input.toLowerCase();
+    cache.lowerInput = lowerInput;
     const closeEnd = findPairedClosingTagEnd(lowerInput, header.tagName, gt + 1);
-    return { nextCursor: closeEnd !== -1 ? closeEnd : gt + 1, lowerInput };
+    return closeEnd !== -1 ? closeEnd : gt + 1;
+};
+
+/** Evaluates one `<` candidate at `lt` and returns `{ chunk, nextCursor }`. */
+const stepHtmlTagAt = (
+    input: string,
+    lt: number,
+    insideCode: boolean,
+    cache: TagScanCache,
+): { chunk: string; nextCursor: number } => {
+    const header = insideCode ? null : parseHtmlTagHeaderAt(input, lt);
+    if (!header) return { chunk: "<", nextCursor: lt + 1 };
+    if (header.isPairedStripTag) {
+        return {
+            chunk: "",
+            nextCursor: resolvePairedStripCursor(input, header, cache),
+        };
+    }
+    return resolveStandardHtmlTagReplacement(input, lt, header, cache);
 };
 
 /** Single linear character-scanner pass stripping raw HTML tags without regex backtracking. */
 const stripHtmlTagsOnce = (input: string): string => {
     const codeRanges = collectInlineCodeRanges(input);
+    const cache: TagScanCache = {
+        lastGtInInput: input.lastIndexOf(">"),
+        deadOpeningStates: null,
+        lowerInput: null,
+    };
     let rangeIndex = 0;
-    let lowerInput: string | null = null;
     let out = "";
     let cursor = 0;
 
@@ -811,25 +2146,9 @@ const stripHtmlTagsOnce = (input: string): string => {
         const lt = input.indexOf("<", cursor);
         if (lt === -1) return out + input.slice(cursor);
         out += input.slice(cursor, lt);
-
         const rangeCheck = advanceInlineCodeRange(codeRanges, rangeIndex, lt);
         rangeIndex = rangeCheck.nextRangeIndex;
-        const header = rangeCheck.insideCode ? null : parseHtmlTagHeaderAt(input, lt);
-        if (!header) {
-            out += "<";
-            cursor = lt + 1;
-            continue;
-        }
-
-        const gt = findHtmlTagClose(input, header.afterNamePos);
-        if (header.isPairedStripTag) {
-            const paired = resolvePairedStripCursor(input, gt, header, lowerInput);
-            lowerInput = paired.lowerInput;
-            cursor = paired.nextCursor;
-            continue;
-        }
-
-        const step = resolveStandardHtmlTagReplacement(input, lt, gt, header);
+        const step = stepHtmlTagAt(input, lt, rangeCheck.insideCode, cache);
         out += step.chunk;
         cursor = step.nextCursor;
     }
@@ -837,86 +2156,383 @@ const stripHtmlTagsOnce = (input: string): string => {
     return out;
 };
 
+/** Iteratively strips nested raw HTML fragments up to a fixed point of 8 passes. */
+const stripRawHtmlToFixedPoint = (part: string): string => {
+    let out = part;
+    for (let pass = 0; pass < 8; pass += 1) {
+        const next = stripHtmlTagsOnce(out);
+        if (next === out) break;
+        out = next;
+    }
+    return out;
+};
+
 /** Strips raw HTML tags from prose while preserving fenced and inline code blocks. */
 const stripRawHtml = (text: string): string => {
     if (!text.includes("<")) return text;
-    const replaceHtml = (part: string) => {
-        let out = part;
-        for (let pass = 0; pass < 8; pass++) {
-            const next = stripHtmlTagsOnce(out);
-            if (next === out) break;
-            out = next;
-        }
-        return out;
-    };
-    return mapOutsideCodeFences(text, replaceHtml);
+    return mapOutsideCodeFences(text, stripRawHtmlToFixedPoint);
 };
 
 const MAX_DISPLAY_CHARS = 48_000;
+const MAX_PREPROCESS_HEAD_CHARS = MAX_DISPLAY_CHARS * 2;
+const GRAPHEME_SEGMENTER =
+    typeof Intl !== "undefined" && typeof Intl.Segmenter === "function"
+        ? new Intl.Segmenter(undefined, { granularity: "grapheme" })
+        : null;
 
-function truncateForDisplay(text: string): string {
-    if (text.length <= MAX_DISPLAY_CHARS) return text;
-    return `${text.slice(0, MAX_DISPLAY_CHARS)}\n\n... (response truncated for display)`;
-}
+/** Checks whether `code` is a UTF-16 high (leading) surrogate (`0xD800..0xDBFF`). */
+const isHighSurrogateCode = (code: number): boolean =>
+    code >= 0xd800 && code <= 0xdbff;
+
+/** Checks whether `code` is a UTF-16 low (trailing) surrogate (`0xDC00..0xDFFF`). */
+const isLowSurrogateCode = (code: number): boolean =>
+    code >= 0xdc00 && code <= 0xdfff;
+
+/** Adjusts `index` backward across a UTF-16 surrogate split or trailing lone high surrogate. */
+const stepBackFromTrailingHighSurrogate = (
+    text: string,
+    index: number,
+): number =>
+    index > 0 && isHighSurrogateCode(text.charCodeAt(index - 1))
+        ? index - 1
+        : index;
+
+/** Aligns a window start offset backward so it does not begin on a UTF-16 low surrogate. */
+const alignWindowStart = (text: string, rawStart: number): number =>
+    rawStart > 0 && isLowSurrogateCode(text.charCodeAt(rawStart))
+        ? rawStart - 1
+        : rawStart;
+
+/** Aligns a window end offset forward so it includes a trailing surrogate pair partner. */
+const alignWindowEnd = (text: string, rawEnd: number): number =>
+    rawEnd < text.length && isHighSurrogateCode(text.charCodeAt(rawEnd - 1))
+        ? rawEnd + 1
+        : rawEnd;
+
+const COMBINING_OR_MODIFIER_START_RE = /^(?:\p{Mark}|\p{Emoji_Modifier})/u;
+
+/** Checks whether `cp` is an emoji tag or supplementary variation selector (`U+E0020..U+E01EF`). */
+const isTagOrVariationSupplement = (cp: number): boolean =>
+    (cp >= 0xe0020 && cp <= 0xe007f) || (cp >= 0xe0100 && cp <= 0xe01ef);
+
+/** Checks whether `cp` is ZWJ (`U+200D`), BMP variation selector (`U+FE0E..U+FE0F`), or tag/supplement. */
+const isJoinerOrSelectorCodePoint = (cp: number): boolean =>
+    cp === 0x200d ||
+    cp === 0xfe0e ||
+    cp === 0xfe0f ||
+    isTagOrVariationSupplement(cp);
+
+/** Checks whether the codepoint starting at `cut` continues the preceding grapheme cluster. */
+const hasExtendingCodePointAt = (text: string, cut: number): boolean => {
+    const cp = text.codePointAt(cut) ?? 0;
+    if (isJoinerOrSelectorCodePoint(cp)) return true;
+    return COMBINING_OR_MODIFIER_START_RE.test(text.slice(cut, cut + 4));
+};
+
+/** Steps backward to the start of the UTF-16 codepoint ending at `index`. */
+const prevCodePointStart = (text: string, index: number): number => {
+    if (index <= 0) return 0;
+    const prev = index - 1;
+    return prev > 0 &&
+        isLowSurrogateCode(text.charCodeAt(prev)) &&
+        isHighSurrogateCode(text.charCodeAt(prev - 1))
+        ? prev - 1
+        : prev;
+};
+
+/** Checks whether the codepoint starting at `index` is a Unicode Regional Indicator (`U+1F1E6..U+1F1FF`). */
+const isRegionalIndicatorAt = (text: string, index: number): boolean => {
+    const cp = text.codePointAt(index) ?? 0;
+    return cp >= 0x1f1e6 && cp <= 0x1f1ff;
+};
+
+/** Counts consecutive Regional Indicator codepoints ending immediately before `index`. */
+const countPrecedingRegionalIndicators = (
+    text: string,
+    index: number,
+): number => {
+    let count = 0;
+    let cursor = index;
+    while (cursor > 0) {
+        const start = prevCodePointStart(text, cursor);
+        if (!isRegionalIndicatorAt(text, start)) break;
+        count += 1;
+        cursor = start;
+    }
+    return count;
+};
+
+/** Checks whether `cut` sits mid-flag between an odd Regional Indicator lead and its partner. */
+const splitsRegionalIndicatorPair = (text: string, cut: number): boolean =>
+    cut < text.length &&
+    isRegionalIndicatorAt(text, cut) &&
+    countPrecedingRegionalIndicators(text, cut) % 2 === 1;
+
+/** Checks whether `cut` splits a ZWJ joiner, combining mark, modifier, or Regional Indicator pair. */
+const splitsExtendedGraphemeCluster = (text: string, cut: number): boolean => {
+    if (cut <= 0 || cut >= text.length) return false;
+    if (text.charCodeAt(cut - 1) === 0x200d) return true;
+    if (hasExtendingCodePointAt(text, cut)) return true;
+    return splitsRegionalIndicatorPair(text, cut);
+};
+
+/** Rewinds `limit` across UTF-16 surrogates, ZWJ emoji sequences, modifiers, marks, and flag pairs. */
+export const findFallbackGraphemeCutIndex = (
+    text: string,
+    limit: number,
+): number => {
+    let cut = stepBackFromTrailingHighSurrogate(text, limit);
+    while (splitsExtendedGraphemeCluster(text, cut)) {
+        cut = prevCodePointStart(text, cut);
+    }
+    return cut;
+};
+
+/** Returns the largest grapheme boundary `<= limit` inside `text.slice(winStart, winEnd)`. */
+const lastSegmentBoundaryAtOrBefore = (
+    segmenter: Intl.Segmenter,
+    text: string,
+    winStart: number,
+    winEnd: number,
+    limit: number,
+): number => {
+    let bestCut = winStart;
+    for (const seg of segmenter.segment(text.slice(winStart, winEnd))) {
+        const boundary = winStart + seg.index + seg.segment.length;
+        if (boundary > limit) break;
+        bestCut = boundary;
+    }
+    return bestCut;
+};
+
+/** Finds the largest grapheme boundary `<= limit` without splitting long clusters at the window start. */
+const findGraphemeCutIndex = (text: string, limit: number): number => {
+    if (!GRAPHEME_SEGMENTER) return findFallbackGraphemeCutIndex(text, limit);
+    const winStart = findFallbackGraphemeCutIndex(
+        text,
+        alignWindowStart(text, Math.max(0, limit - 64)),
+    );
+    const winEnd = alignWindowEnd(text, Math.min(text.length, limit + 16));
+    const cut = lastSegmentBoundaryAtOrBefore(
+        GRAPHEME_SEGMENTER,
+        text,
+        winStart,
+        winEnd,
+        limit,
+    );
+    const resolved =
+        cut === winStart && winStart > 0
+            ? lastSegmentBoundaryAtOrBefore(
+                  GRAPHEME_SEGMENTER,
+                  text,
+                  0,
+                  winEnd,
+                  limit,
+              )
+            : cut;
+    return stepBackFromTrailingHighSurrogate(text, resolved);
+};
+
+/** Slices `text` at `limit` without splitting emoji grapheme clusters or UTF-16 surrogate pairs. */
+export const sliceGraphemeSafe = (text: string, limit: number): string => {
+    if (limit <= 0) return "";
+    if (text.length <= limit) return text;
+    return text.slice(0, findGraphemeCutIndex(text, limit));
+};
+
+const TRUNCATED_DISPLAY_SUFFIX = "\n\n... (response truncated for display)";
+
+/** Appends the display truncation notice after closing any open Markdown code fence. */
+const appendTruncatedDisplayNotice = (text: string): string =>
+    `${balanceMarkdownFences(text)}${TRUNCATED_DISPLAY_SUFFIX}`;
+
+/** Truncates excessively long streaming or finished responses, closing any open fence before the notice. */
+const truncateForDisplay = (
+    text: string,
+    forceTruncatedNotice = false,
+): string => {
+    if (text.length > MAX_DISPLAY_CHARS) {
+        return appendTruncatedDisplayNotice(
+            sliceGraphemeSafe(text, MAX_DISPLAY_CHARS),
+        );
+    }
+    return forceTruncatedNotice && text.trim().length > 0
+        ? appendTruncatedDisplayNotice(text)
+        : text;
+};
+
+/** Caps raw settled input at `2 * MAX_DISPLAY_CHARS` so glitch repair stays O(1) before the 48k cap. */
+const capSettledPreprocessInput = (text: string): string =>
+    text.length <= MAX_PREPROCESS_HEAD_CHARS
+        ? text
+        : sliceGraphemeSafe(text, MAX_PREPROCESS_HEAD_CHARS);
+
+/** Applies streaming-specific fence balancing or finished-turn glitch repair + fence safety. */
+const finalizeStreamOrStaticMarkdown = (
+    text: string,
+    streaming: boolean | undefined,
+    preTruncated = false,
+): string => {
+    if (!streaming) {
+        return balanceMarkdownFences(
+            truncateForDisplay(repairStreamGlitches(text), preTruncated),
+        );
+    }
+    const balanced = balanceMarkdownFences(text);
+    return balanced !== text ? stripLeakedToolCode(balanced) : text;
+};
+
+const UNICODE_BULLET_SET = new Set(["•", "●", "▪", "◦"]);
+const THEMATIC_BREAK_MARKERS = new Set(["-", "*", "_"]);
+
+/** Counts `marker` occurrences when `trimmed` contains only `marker`, spaces, or tabs; else `-1`. */
+const countThematicBreakMarkers = (trimmed: string, marker: string): number => {
+    const compact = trimmed.replace(/[ \t]+/gu, "");
+    return countRepeatedChar(compact, 0, marker) === compact.length
+        ? compact.length
+        : -1;
+};
+
+/** Checks whether `trimmed` is a CommonMark thematic break of 3+ `-`, `*`, or `_` markers. */
+const isStandaloneHorizontalRule = (trimmed: string): boolean => {
+    const marker = trimmed.charAt(0);
+    if (!THEMATIC_BREAK_MARKERS.has(marker)) return false;
+    return countThematicBreakMarkers(trimmed, marker) >= 3;
+};
+
+/** Advances past ASCII spaces and tabs starting at `start`. */
+const skipLineSpacesAndTabs = (line: string, start: number): number => {
+    let idx = start;
+    while (idx < line.length) {
+        const code = line.charCodeAt(idx);
+        if (code !== 32 && code !== 9) break;
+        idx += 1;
+    }
+    return idx;
+};
+
+/** Checks whether `line` is a CommonMark thematic break (`< 4` leading columns + `3+` `-`/`*`/`_`). */
+const isProseThematicBreakLine = (line: string): boolean => {
+    const { indent, offset } = measureLeadingIndent(line, 0);
+    if (indent >= 4) return false;
+    return isStandaloneHorizontalRule(line.slice(offset).trimEnd());
+};
+
+/** Normalizes a single prose line's Unicode bullet prefix or standalone horizontal rule. */
+const normalizeSingleProseLine = (line: string): string => {
+    if (isProseThematicBreakLine(line)) return "";
+    if (!UNICODE_BULLET_SET.has(line.charAt(0))) return line;
+    const afterWs = skipLineSpacesAndTabs(line, 1);
+    return afterWs > 1 ? `- ${line.slice(afterWs)}` : line;
+};
+
+/** Normalizes Unicode bullet glyphs and standalone horizontal rules outside inline code spans. */
+const normalizeProseBulletsAndRules = (prose: string): string => {
+    const codeRanges = prose.includes("`")
+        ? collectInlineCodeRanges(prose)
+        : [];
+    let rangeIndex = 0;
+    let out = "";
+    let cursor = 0;
+    while (cursor < prose.length) {
+        const { lineText, afterLine } = readLineSliceAt(prose, cursor);
+        const lineEnd = cursor + lineText.length;
+        const rangeCheck = advanceInlineCodeRange(
+            codeRanges,
+            rangeIndex,
+            cursor,
+        );
+        rangeIndex = rangeCheck.nextRangeIndex;
+        const normalizedLine = rangeCheck.insideCode
+            ? lineText
+            : normalizeSingleProseLine(lineText);
+        out += normalizedLine + prose.slice(lineEnd, afterLine);
+        cursor = afterLine;
+    }
+    return out;
+};
+
+type PreprocessCacheEntry = {
+    bounded: string;
+    flags: number;
+    output: string;
+};
+
+let lastPreprocessedCache: PreprocessCacheEntry | null = null;
+
+/** Packs `(streaming, trim, preTruncated)` into a compact cache key bitmask. */
+const encodePreprocessFlags = (
+    streaming: boolean,
+    trim: boolean,
+    preTruncated: boolean,
+): number =>
+    (Number(streaming) << 2) | (Number(trim) << 1) | Number(preTruncated);
+
+/** Checks whether `lastPreprocessedCache` matches `(bounded, flags)`. */
+const matchesPreprocessCache = (
+    entry: PreprocessCacheEntry | null,
+    bounded: string,
+    flags: number,
+): entry is PreprocessCacheEntry =>
+    Boolean(entry && entry.bounded === bounded && entry.flags === flags);
+
+/** Bounds raw markdown input and reports whether settled preprocessing clipped the tail. */
+const resolveBoundedPreprocessInput = (
+    text: string,
+    streaming: boolean,
+): { bounded: string; preTruncated: boolean } => {
+    if (streaming) {
+        return { bounded: truncateForDisplay(text), preTruncated: false };
+    }
+    return {
+        bounded: capSettledPreprocessInput(text),
+        preTruncated: text.length > MAX_PREPROCESS_HEAD_CHARS,
+    };
+};
+
+/** Runs the core markdown sanitization and normalization passes on an already-bounded string. */
+const computePreprocessedMarkdown = (
+    bounded: string,
+    streaming: boolean,
+    trim: boolean,
+    preTruncated: boolean,
+): string => {
+    let normalized = stripOrphanThinkTags(bounded);
+    normalized = stripLeakedToolCode(normalized);
+    normalized = stripRawHtml(normalized);
+    normalized = unwrapOuterProseFence(normalized);
+    normalized = demoteIndentedMarkdown(normalized);
+    normalized = finalizeStreamOrStaticMarkdown(
+        normalized,
+        streaming,
+        preTruncated,
+    );
+    normalized = mapOutsideCodeFences(normalized, normalizeProseBulletsAndRules);
+    normalized = collapseExcessNewlines(normalized);
+    return trim ? normalized.trim() : normalized;
+};
 
 /** Normalize assistant markdown before ReactMarkdown. */
-export function preprocessChatMarkdown(
+export const preprocessChatMarkdown = (
     text: string,
     options?: { trim?: boolean; streaming?: boolean },
-): string {
-    let s = stripOrphanThinkTags(text);
-    s = stripLeakedToolCode(s);
-    s = stripRawHtml(s);
-    s = unwrapOuterProseFence(s);
-    s = demoteIndentedMarkdown(s);
-    if (!options?.streaming) {
-        s = repairStreamGlitches(s);
-        s = truncateForDisplay(s);
-    } else {
-        // Cap the live text at the same limit the settled render uses: a model
-        // that dumps a huge file mid-stream would otherwise re-parse the whole
-        // thing on every frame for text that is never shown past the cap.
-        s = truncateForDisplay(s);
+): string => {
+    const streaming = Boolean(options?.streaming);
+    const { bounded, preTruncated } = resolveBoundedPreprocessInput(
+        text,
+        streaming,
+    );
+    const trim = options?.trim !== false;
+    const flags = encodePreprocessFlags(streaming, trim, preTruncated);
+    if (matchesPreprocessCache(lastPreprocessedCache, bounded, flags)) {
+        return lastPreprocessedCache.output;
     }
-    s = s.replace(/^[•●▪◦]\s+/gm, "- ");
-    s = s.replace(/^\s*[-*_]{3,}\s*$/gm, "");
-    if (s.includes("\n\n\n")) {
-        s = s.replace(/\n{3,}/g, "\n\n");
-    }
-    if (options?.streaming) {
-        const balanced = balanceMarkdownFences(s);
-        if (balanced !== s) {
-            s = stripLeakedToolCode(balanced);
-        }
-    }
-    if (options?.trim !== false) {
-        s = s.trim();
-    }
-    return s;
-}
-
-/**
- * Close an unclosed fenced code block so streaming markdown does not swallow the
- * rest as mono code. Tracks the open fence instead of counting markers, so a
- * streamed ````` example, a `~~~` block, or an info string on the opener all
- * close with the right marker — counting `^```` used to leave them open.
- */
-function balanceMarkdownFences(text: string): string {
-    let open: { char: string; len: number } | null = null;
-    for (const line of text.split("\n")) {
-        const parsed = readStreamFenceMarker(line);
-        if (!parsed) continue;
-        if (open) {
-            // A closer has the same character, at least the opener's length, and
-            // no info string (CommonMark); anything else is just content.
-            if (parsed.char === open.char && parsed.len >= open.len && parsed.suffix.trim() === "") {
-                open = null;
-            }
-            continue;
-        }
-        if (!isOpeningStreamFence(parsed)) continue;
-        open = { char: parsed.char, len: parsed.len };
-    }
-    if (!open) return text;
-    return `${text}\n${open.char.repeat(open.len)}`;
-}
+    const output = computePreprocessedMarkdown(
+        bounded,
+        streaming,
+        trim,
+        preTruncated,
+    );
+    lastPreprocessedCache = { bounded, flags, output };
+    return output;
+};
