@@ -699,7 +699,7 @@ const ChatMessageItemInner = ({
                             setContextVeil(true);
                             return;
                         }
-                        if (typeof index !== "number" || index < 0) return;
+                        if (index < 0) return;
                         const msg = getViewedMessages()[index];
                         if (msg && msg.role === "assistant") {
                             if (msg.stats) setMenuStats(msg.stats);
@@ -718,7 +718,7 @@ const ChatMessageItemInner = ({
                             </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="start" className="w-72 overflow-hidden p-0">
-                            {typeof index === "number" ? (
+                            {index >= 0 ? (
                                 <>
                                     <DropdownMenuItem
                                         className="text-md font-medium"

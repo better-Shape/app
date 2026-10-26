@@ -329,5 +329,27 @@ describe("HITL single-owner shortcuts, tool-call presentation, and workbench bri
             restoreBtn?.click();
         });
         expect(onRestore).toHaveBeenCalledWith(0);
+
+        const onRedo = vi.fn();
+        const assistantWithoutIndex = mount(
+            <ChatMessageItem
+                role="assistant"
+                content="Standalone assistant preview"
+                timestamp={1_700_000_000_000}
+                onRedo={onRedo}
+            />,
+        );
+        const actionsBtn = assistantWithoutIndex.querySelector<HTMLButtonElement>(
+            'button[aria-label="Message actions"]',
+        );
+        expect(actionsBtn).not.toBeNull();
+        act(() => {
+            actionsBtn?.dispatchEvent(
+                new PointerEvent("pointerdown", { bubbles: true, button: 0 }),
+            );
+            actionsBtn?.click();
+        });
+        expect(document.body.textContent ?? "").not.toContain("Regenerate");
+        expect(onRedo).not.toHaveBeenCalled();
     });
 });
